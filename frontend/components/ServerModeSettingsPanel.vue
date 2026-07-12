@@ -252,6 +252,7 @@ interface ServerModeView {
 }
 
 const { get, put, post } = useApi()
+const { ask } = useConfirm()
 
 const state = ref<ServerModeView | null>(null)
 const loading = ref(false)
@@ -412,11 +413,12 @@ async function onToggleEnabled(checked: boolean) {
  */
 async function onDisableAndRestart() {
   if (saving.value) return
-  if (!confirm(
-    'Disable server mode and restart the app?\n\n'
-    + 'After restart, the app runs as a normal desktop window on the Mac mini and is '
-    + 'no longer reachable from this browser. To re-enable, sit at the mini directly.',
-  )) return
+  if (!await ask({
+    title: 'Disable server mode?',
+    message: 'The app will restart as a desktop-only window and will no longer be reachable from this browser. Re-enabling requires access to the Mac mini.',
+    confirmLabel: 'Disable and restart',
+    danger: true,
+  })) return
 
   saving.value = 'disable'
   message.value = null
@@ -479,7 +481,7 @@ async function onSaveCredentials() {
 
 async function onRotateSessions() {
   if (saving.value) return
-  if (!confirm('Invalidate every signed-in browser session? You\'ll need to log in again everywhere.')) return
+  if (!await ask({ title: 'Sign out every browser?', message: 'Invalidate every signed-in browser session? You will need to log in again everywhere.', confirmLabel: 'Invalidate sessions', danger: true })) return
   saving.value = 'rotate'
   message.value = null
   try {

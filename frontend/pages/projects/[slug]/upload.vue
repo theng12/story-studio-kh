@@ -322,7 +322,7 @@
             class="btn btn-sm btn-ghost"
             :disabled="ytSyncing || queueLoading"
             title="Pull current privacy + schedule from YouTube for every uploaded row in this queue, and rewrite the local sidecar(s) to match. Fixes drift when a video auto-publishes, gets edited in YT Studio, or shows up here as private when it's actually public. Costs ~1 YouTube quota unit per 50 videos."
-            @click="doSyncFromYoutube"
+            @click="doSyncFromYoutube()"
           >
             <LoadingSpinner v-if="ytSyncing" size="sm" />
             {{ ytSyncing ? 'Syncing…' : '☁ Sync from YouTube' }}
@@ -721,7 +721,7 @@
                      YouTube handles publish via publishAt; in private
                      mode, the user does it from YT Studio. -->
                 <div v-if="item.scheduled_for && item.type === 'episode' && !item._isStale" class="sched-explainer">
-                  <span v-if="uploadMode === 'private'" class="sched-chip sched-chip--muted">
+                  <span v-if="String(uploadMode) === 'private'" class="sched-chip sched-chip--muted">
                     Manual schedule in YouTube Studio
                   </span>
                   <span v-else-if="item.uploaded" class="sched-chip sched-chip--ok">
@@ -2077,7 +2077,7 @@
           <div class="sched-modal-actions">
             <button
               class="btn btn-primary"
-              :disabled="!scheduleDraft || schedulePopoverBusy"
+              :disabled="!scheduleDraft || !!schedulePopoverBusy"
               :title="!scheduleDraft ? 'Pick a date and time first' : 'Push this publishAt to YouTube and update the sidecar'"
               @click="doApplySchedule"
             >
@@ -3747,7 +3747,7 @@ async function doGeneratePlaylistDescription() {
   if (!newPlaylistForm.title.trim() || generatingPlaylistDesc.value) return
   generatingPlaylistDesc.value = true
   try {
-    const r = await post<{ description: string; length: number }>(
+    const r = await useApi().post<{ description: string; length: number }>(
       `/projects/${slug.value}/upload/playlists/generate-description`,
       { title: newPlaylistForm.title.trim() },
     )
@@ -3842,6 +3842,7 @@ const reconcileState = ref<null | {
     selected_episode_code: string    // user-editable; empty = "don't link"
     score: number
     reason: string
+    apply_remote_title: boolean
   }>
 }>(null)
 const reconcileLoading = ref(false)
@@ -4492,7 +4493,7 @@ function startEditPlan(plan: any) {
 
 function toggleWeekday(d: number) {
   if (!editing.value) return
-  const set = new Set(editing.value.schedule.weekdays || [])
+  const set = new Set<number>((editing.value.schedule.weekdays || []).map(Number))
   if (set.has(d)) set.delete(d); else set.add(d)
   editing.value.schedule.weekdays = Array.from(set).sort((a, b) => a - b)
 }

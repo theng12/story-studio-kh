@@ -25,6 +25,8 @@ import { reactive, readonly } from 'vue'
 export interface ConfirmOptions {
   title: string
   message?: string
+  /** Backward-compatible alias used by older callers. Normalized to message. */
+  body?: string
   confirmLabel?: string
   cancelLabel?: string
   /** Red styling + "are you sure" tone. Use for irreversible actions. */
@@ -75,6 +77,7 @@ export function useConfirm() {
       confirmLabel: opts.danger ? 'Delete' : 'Confirm',
       cancelLabel: 'Cancel',
       ...opts,
+      message: opts.message ?? opts.body,
     }
     state.rememberChecked = false
     state.visible = true

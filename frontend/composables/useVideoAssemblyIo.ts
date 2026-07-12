@@ -90,6 +90,7 @@ export interface VideoAssemblyIoState {
   vignette: any
   filmGrain: any
   letterbox: any
+  frame?: any
   chromaKey: any
   /** Multi-layer overlay system (v1.0.53+). Authoritative when present;
    *  the legacy `chromaKey` slot is upgraded into a single layer on
@@ -277,15 +278,18 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
       scene_pool_mode: poolMode,
-      scenes: enabledScenes.map(sc => ({
-        image_path: sc.image_path,
-        duration: poolMode === 'scene_plan' ? undefined : s.sceneRecycling.seconds_per_scene,
-        plan_scene_id: (sc as any).plan_scene_id || undefined,
-        title: sc.title || `Scene ${sc.number}`,
-        show_title: s.chapterTitles.enabled,
-        scene_number: sc.number,
-        chapter_slug: assignmentMap[sc.number] || undefined,
-      })),
+      scenes: enabledScenes.map(sc => {
+        const planSceneId = (sc as any).plan_scene_id
+        return {
+          image_path: sc.image_path,
+          duration: poolMode === 'scene_plan' ? undefined : s.sceneRecycling.seconds_per_scene,
+          ...(planSceneId ? { plan_scene_id: planSceneId } : {}),
+          title: sc.title || `Scene ${sc.number}`,
+          show_title: s.chapterTitles.enabled,
+          scene_number: sc.number,
+          chapter_slug: assignmentMap[sc.number] || undefined,
+        }
+      }),
       narration_path: narrationPath,
       merged_audio_path: mergedPath,
       transition: s.transition.type,
@@ -395,6 +399,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     }
     if (s.filmGrain.enabled)    payload.film_grain    = { ...s.filmGrain }
     if (s.letterbox.enabled)    payload.letterbox     = { ...s.letterbox }
+    if (s.frame?.enabled)       payload.frame         = { ...s.frame }
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value
     if (s.alignVisualsToChapters?.value) payload.align_visuals_to_chapters = true
@@ -447,7 +452,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       // ~100ms. The *render* runs async for many minutes. We return the
       // enqueued job so the caller can watch it and keep the "generating"
       // UI live via the jobs SSE stream (see useJobs).
-      const job = await opts.post<{ job_id: string }>(`/projects/${s.slug.value}/generate/video-assembly`, payload)
+      const job = await opts.post(`/projects/${s.slug.value}/generate/video-assembly`, payload) as { job_id: string }
       success('Video assembly queued!')
       if (s.activeJobId) s.activeJobId.value = job?.job_id || null
       return true

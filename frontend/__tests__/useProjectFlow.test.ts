@@ -65,7 +65,7 @@ describe('flowForVisualSource — per-format step sets', () => {
 
   test('timestamp-driven: research + scene plan/review + video assembly, no scene-prompts', () => {
     const k = keys('timestamp-driven')
-    for (const s of ['research', 'scene-plan', 'scene-review', 'video-assembly']) {
+    for (const s of ['research', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `timestamp-driven should include ${s}`)
     }
     assert.ok(!k.includes('scene-prompts'))
@@ -75,7 +75,7 @@ describe('flowForVisualSource — per-format step sets', () => {
 
   test('continuity-chain: adds character sheet on top of the audio-paced flow', () => {
     const k = keys('continuity-chain')
-    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'video-assembly']) {
+    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `continuity-chain should include ${s}`)
     }
     assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
@@ -84,7 +84,7 @@ describe('flowForVisualSource — per-format step sets', () => {
 
   test('narrated-scenes: audio-paced flow with optional research + character sheet', () => {
     const k = keys('narrated-scenes')
-    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'video-assembly']) {
+    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `narrated-scenes should include ${s}`)
     }
     assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')

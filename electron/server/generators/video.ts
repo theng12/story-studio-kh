@@ -36,12 +36,13 @@ import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { resolveSceneImagesDir } from './scene-image.js'
+import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
   VideoTitleImageConfig, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
-  VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
+  VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
   VideoSceneAnimation, VideoPostAudio, ScenePlan,
 } from '../models/types.js'
@@ -1168,6 +1169,7 @@ export async function generateVideo(job: Job): Promise<void> {
           overlays: req.overlays,
           filmGrain: req.film_grain,
           letterbox: req.letterbox,
+          frame: req.frame,
           subtitles: req.subtitles,
           // Compilation has no intro/title/outro segments in v1, so the
           // intro-exclusion gate is a no-op. Effects play through the
@@ -1767,6 +1769,7 @@ export async function generateVideo(job: Job): Promise<void> {
         overlays: req.overlays,
         filmGrain: req.film_grain,
         letterbox: req.letterbox,
+        frame: req.frame,
         subtitles: req.subtitles,
         excludeIntroFromEffects: req.exclude_intro_from_effects,
         preSceneDuration,
@@ -3666,6 +3669,7 @@ interface CompositionOpts {
   overlays?: VideoOverlaysConfig
   filmGrain?: VideoFilmGrain
   letterbox?: VideoLetterbox
+  frame?: VideoFrameConfig
   subtitles?: import('../models/types.js').VideoSubtitleConfig
   excludeIntroFromEffects?: boolean
   /** Seconds of intro+title that should be left untouched by filters when
@@ -3694,7 +3698,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   const {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
-    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, subtitles,
+    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, frame, subtitles,
     excludeIntroFromEffects,
     preSceneDuration,
     postAudioStart,
@@ -3972,6 +3976,26 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       filterParts.push(`${vLabel}scale=${w}:${newH},pad=${w}:${h}:0:${padY}:color=${barColor}${lb}`)
       vLabel = lb
     }
+  }
+
+  // 6a. Presentation frame. Applied after grading/letterbox so the matte and
+  // border retain their chosen colours; subtitles and logo remain inside the
+  // framed composition and are added immediately below.
+  if (frame?.enabled) {
+    const framed = vn()
+    filterParts.push(...buildVideoFrameFilter({
+      inputLabel: vLabel,
+      outputLabel: framed,
+      prefix: `mainframe${vIdx}`,
+      width: w,
+      height: h,
+      fps: quality.fps,
+      config: frame,
+    }))
+    vLabel = framed
+    job.output_lines.push(
+      `Frame: ${frame.inset_pct ?? 4}% inset · ${frame.border_width ?? 12}px border · ${frame.corner_radius ?? 28}px corners`,
+    )
   }
 
   // 6b. Subtitles (libass burn-in). Placed after letterbox so subtitles

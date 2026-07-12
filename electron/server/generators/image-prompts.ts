@@ -63,6 +63,9 @@ interface ImagePromptsParams {
   /** v1.0.224 — vision-extracted style descriptor from a reference thumbnail
    *  the user wants to replicate. */
   thumb_reference_style?: string
+  thumb_creative_mode?: 'strict' | 'guided' | 'open'
+  thumb_strategy?: 'auto' | 'character' | 'object' | 'environment' | 'typographic' | 'mystery' | 'documentary'
+  thumb_creative_direction?: string
   mode?: 'scenes' | 'thumbnails'
   /**
    * Cast for this episode — passed through from a saved Image Prompts
@@ -239,10 +242,14 @@ function buildThumbnailDirective(opts: {
   artDirection?: string
   referenceStyle?: string
   fmt?: ThumbnailFmt | null
+  creativeMode?: 'strict' | 'guided' | 'open'
+  strategy?: string
+  creativeDirection?: string
 }): string {
   if (opts.thumbs <= 0) return ''
   const fmt = opts.fmt
   const lines: string[] = []
+  const creativeMode = opts.creativeMode || 'guided'
   lines.push(
     `THUMBNAIL ART DIRECTION — the thumbnail is the single most important asset for click-through. ` +
     `It is a COVER, not a scene still. Preserve the selected visual style as the artwork medium, ` +
@@ -252,19 +259,26 @@ function buildThumbnailDirective(opts: {
     `THUMBNAIL GOAL: design a professional YouTube cover that feels intentional, premium, and instantly clickable. ` +
     `The result must read at a glance on mobile and communicate the episode's emotional promise in under a second.`,
   )
-  lines.push(`CONCEPT: ${(fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`)
-  if (fmt?.compositionRules?.length) {
+  if (creativeMode !== 'open') lines.push(`CONCEPT: ${(fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`)
+  if (creativeMode !== 'open' && fmt?.compositionRules?.length) {
     lines.push(`COMPOSITION:\n${fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
   }
-  if (fmt?.moodKeywords?.length) lines.push(`MOOD: ${fmt.moodKeywords.join(', ')}`)
-  lines.push(`YOUTUBE BEST-PRACTICES (apply to every thumbnail):\n${YOUTUBE_CTR_RULES.map(r => `  - ${r}`).join('\n')}`)
-  lines.push(`AVOID: ${[...(fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}`)
-  lines.push(
-    `THUMBNAIL PROMPT CONTENT: every thumbnail prompt must explicitly describe ` +
-    `the hero subject, emotional hook, camera distance, framing, negative space, ` +
-    `background separation, lighting direction, color contrast, and why the title area stays readable. ` +
-    `Do not write a generic scenic image prompt.`,
-  )
+  if (creativeMode !== 'open' && fmt?.moodKeywords?.length) lines.push(`MOOD: ${fmt.moodKeywords.join(', ')}`)
+  if (creativeMode === 'strict') {
+    lines.push(`YOUTUBE BEST-PRACTICES (apply to every thumbnail):\n${YOUTUBE_CTR_RULES.map(r => `  - ${r}`).join('\n')}`)
+    lines.push(`AVOID: ${[...(fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}`)
+    lines.push(`PROMPT CONTENT: explicitly describe the hero subject, emotional hook, camera distance, framing, negative space, background separation, lighting direction, color contrast, and title readability.`)
+  } else if (creativeMode === 'guided') {
+    lines.push(`Use YouTube readability principles selectively; prioritize a distinctive concept over checking every conventional CTR box.`)
+  } else {
+    lines.push(`OPEN CREATIVE MODE: choose the visual metaphor, focal hierarchy, framing, palette, and emotional hook freely. Avoid defaulting to generic YouTube thumbnail formulas.`)
+  }
+  if (opts.strategy && opts.strategy !== 'auto') {
+    lines.push(`CONCEPT STRATEGY: build each variation around a ${opts.strategy}-led concept, while varying the execution.`)
+  }
+  if (opts.creativeDirection?.trim()) {
+    lines.push(`USER CREATIVE DIRECTION — highest artistic priority: ${opts.creativeDirection.trim()}`)
+  }
 
   // (c) reference-style replication — overrides the generic/format look.
   const ref = (opts.referenceStyle || '').trim()
@@ -373,8 +387,9 @@ function buildPrompt(args: {
   aspect_ratio: string
   /** Full thumbnail instruction block from buildThumbnailDirective(); '' when thumbs===0. */
   thumbnailDirective: string
+  thumbnailCreativeMode?: 'strict' | 'guided' | 'open'
 }): string {
-  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective } = args
+  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective, thumbnailCreativeMode } = args
 
   const ratioInstruction = RATIO_DESCRIPTIONS[aspect_ratio] || 'wide landscape format'
 
@@ -394,7 +409,7 @@ function buildPrompt(args: {
     `mood + atmosphere, framing/composition, and any visible characters ` +
     `with concrete physical descriptions. Short one-line prompts are unusable.`,
   )
-  if (thumbs > 0) {
+  if (thumbs > 0 && thumbnailCreativeMode === 'strict') {
     requirements.push(
       `Thumbnail prompts must feel like professional thumbnail briefs, not scene prompts. ` +
       `Each one must specify the click-driving focal image, emotional hook, title-safe composition, and the exact role of the title text or reserved text zone.`,
@@ -563,6 +578,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     artDirection: req.thumb_art_direction,
     referenceStyle: req.thumb_reference_style,
     fmt: thumbFmt,
+    creativeMode: req.thumb_creative_mode,
+    strategy: req.thumb_strategy,
+    creativeDirection: req.thumb_creative_direction,
   })
   if (thumbs > 0) {
     job.output_lines.push(
@@ -611,6 +629,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     style_tag: styleTag,
     aspect_ratio: req.aspect_ratio || '16:9',
     thumbnailDirective,
+    thumbnailCreativeMode: req.thumb_creative_mode || 'guided',
   })
 
   // v1.0.518 — negatives come from the unified art style (a preset's future

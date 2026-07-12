@@ -78,7 +78,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // v1.0.242 — visual-prompt detail level (1–4) + global style + custom text.
   const detailLevel = typeof body.detail_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
-    : undefined
+    : 4
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   // v1.0.468 — image-to-video motion-prompt controls. motion_level 1–4 (omitted
@@ -104,9 +104,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const ncForward = typeof body.neighbor_context_forward === 'number'
     ? Math.max(0, Math.min(10, Math.round(body.neighbor_context_forward)))
     : undefined
-  // v1.0.508 — "story so far" continuity. Default true (sequential, current
-  // behaviour); false plans windows in parallel (faster, weaker continuity).
-  const crossWindowContext = body.cross_window_context === false ? false : true
+  // Independent windows are the fast/default path. Continuity is explicit now
+  // that reviewed image-to-video clips no longer rely on previous-frame img2img.
+  const crossWindowContext = body.cross_window_context === true
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })

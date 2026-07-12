@@ -415,6 +415,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           // v1.0.359 — stamp the prompt this image was rendered from so Scene
           // Review can flag the image as stale if visual_prompt later changes.
           target.rendered_prompt = renderedPrompt
+          target.image_version = new Date().toISOString()
+          target.motion_choice = 'pending'
           target.approved = false   // user re-approves after a render
           await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
         }
@@ -809,6 +811,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       if (target) {
         target.image_path = outPath
         target.rendered_prompt = scene.visual_prompt   // v1.0.359 — stale-detection stamp
+        target.image_version = new Date().toISOString()
+        target.motion_choice = 'pending'
         target.approved = false
         await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
       }

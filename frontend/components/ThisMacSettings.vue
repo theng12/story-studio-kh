@@ -149,6 +149,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 
 const { get, put, del, post } = useApi()
+const { ask } = useConfirm()
 const { mode: themeMode, resolved: themeResolved, setMode: setTheme } = useTheme()
 
 interface ProviderRow {
@@ -220,7 +221,7 @@ async function onSave(providerId: string) {
 }
 
 async function onClear(providerId: string) {
-  if (!confirm(`Remove the ${providerId} API key from this Mac?`)) return
+  if (!await ask({ title: 'Remove API key?', message: `Remove the ${providerId} API key from this Mac? Generators using it will stop working.`, confirmLabel: 'Remove key', danger: true })) return
   busy[providerId] = 'clearing'
   results[providerId] = null
   try {

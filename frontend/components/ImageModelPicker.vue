@@ -245,11 +245,12 @@ interface ImageStudioModelInfo {
 const props = withDefaults(defineProps<{
   modelValue: string
   projectSlug: string
-  imageModels: Record<string, ImageModelEntry>
+  imageModels?: Record<string, ImageModelEntry>
   imageMode?: 'text2img' | 'img2img'
   defaultLabel?: string
 }>(), {
   imageMode: 'text2img',
+  imageModels: () => ({}),
   defaultLabel: 'Pick a model…',
 })
 

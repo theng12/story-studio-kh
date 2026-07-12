@@ -211,6 +211,7 @@ const emit = defineEmits<{
 
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 
 const SUGGESTION_CHIPS = [
   'Remove all text',
@@ -412,9 +413,12 @@ async function accept() {
     return
   }
   // User asked to replace — confirm, then re-run with replace_original=true.
-  const ok = confirm(
-    `Replace original file?\n\nThe original will be moved to "${sourceBaseName.value}_pre-edit_{timestamp}${sourceExt.value}" first — this is reversible by renaming that file back.`,
-  )
+  const ok = await ask({
+    title: 'Replace original image?',
+    message: `The original will be moved to "${sourceBaseName.value}_pre-edit_{timestamp}${sourceExt.value}" first, so it can be restored manually.`,
+    confirmLabel: 'Replace original',
+    danger: true,
+  })
   if (!ok) return
   generating.value = true
   try {

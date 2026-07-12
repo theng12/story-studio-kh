@@ -37,6 +37,23 @@
       exists).
     </p>
 
+    <PresetPicker
+      label="Assembly preset"
+      hint="Pipeline uses this exact export, subtitle, frame, music, ambient, and transition setup."
+      :presets="assemblyPresets.presets.value"
+      :active-id="assemblyPresets.activeId.value"
+      :current-machine-label="assemblyPresets.machineLabel.value"
+      :show-all-devices="assemblyPresets.showAllDevices.value"
+      :cross-device-count="assemblyPresets.crossDeviceCount.value"
+      @update:active-id="assemblyPresets.setActive"
+      @update:show-all-devices="(v: boolean) => assemblyPresets.showAllDevices.value = v"
+      @apply="assemblyPresets.applyActive(); success('Assembly preset applied')"
+      @overwrite="assemblyPresets.overwrite(); success('Assembly preset saved')"
+      @save-as="(n: string) => assemblyPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+      @rename="(n: string) => assemblyPresets.rename(n)"
+      @delete="assemblyPresets.remove()"
+    />
+
     <!-- Greenlight summary -->
     <section v-if="stats" class="card mt-3" :class="{ 'is-greenlit': stats.all_approved }">
       <h3 v-if="stats.all_approved">✅ Greenlit — every scene approved</h3>
@@ -50,6 +67,11 @@
         Open <NuxtLink :to="`/projects/${slug}/scene-review`" class="text-accent">Scene Review</NuxtLink>
         to generate any missing images and approve each scene.
         Assembly is gated on every scene being approved.
+      </p>
+      <p v-else-if="!stats.all_motion_reviewed" class="text-muted text-sm mt-1">
+        Images are ready. {{ stats.total_scenes - stats.motion_reviewed }} scene(s) still need a clip-or-still decision in
+        <NuxtLink :to="`/projects/${slug}/motion-review`" class="text-accent">Motion Review</NuxtLink>.
+        You may still assemble now; undecided scenes safely use their approved still image.
       </p>
     </section>
 
@@ -149,6 +171,39 @@
 
         <!-- Background music -->
         <div class="ta-group">
+          <h4>Presentation frame</h4>
+          <label class="ta-check">
+            <input type="checkbox" v-model="form.frame_enabled" /> Put the complete video inside a frame
+          </label>
+          <template v-if="form.frame_enabled">
+            <div class="form-group">
+              <label>Outer inset: <strong>{{ form.frame_inset_pct }}%</strong></label>
+              <input v-model.number="form.frame_inset_pct" type="range" min="0" max="20" step="0.5" class="ta-range" />
+            </div>
+            <div class="form-group">
+              <label>Border width: <strong>{{ form.frame_border_width }}px</strong></label>
+              <input v-model.number="form.frame_border_width" type="range" min="0" max="100" step="1" class="ta-range" />
+            </div>
+            <div class="form-group">
+              <label>Corner radius: <strong>{{ form.frame_corner_radius }}px</strong></label>
+              <input v-model.number="form.frame_corner_radius" type="range" min="0" max="200" step="2" class="ta-range" />
+            </div>
+            <div class="ta-row">
+              <div class="form-group"><label>Border</label><input v-model="form.frame_border_color" type="color" class="ta-color" /></div>
+              <div class="form-group"><label>Board</label><input v-model="form.frame_background_color" type="color" class="ta-color" /></div>
+            </div>
+            <div class="form-group">
+              <label>Video fit</label>
+              <select v-model="form.frame_fit" class="select">
+                <option value="cover">Fill frame (crop edges)</option>
+                <option value="contain">Fit whole video</option>
+              </select>
+            </div>
+          </template>
+        </div>
+
+        <!-- Background music -->
+        <div class="ta-group">
           <h4>Background music <span class="text-muted text-xs">(optional)</span></h4>
           <div class="form-group">
             <label>Audio file path <span class="text-muted text-xs">(.mp3 / .wav / .m4a)</span></label>
@@ -225,6 +280,9 @@ interface ReviewStats {
   approved: number
   with_image: number
   all_approved: boolean
+  with_clip: number
+  motion_reviewed: number
+  all_motion_reviewed: boolean
 }
 const stats = ref<ReviewStats | null>(null)
 const loading = ref(false)
@@ -256,8 +314,21 @@ const form = ref({
   ambient_fade: 2,
   transition_type: 'none' as 'none' | 'crossfade' | 'fadeblack' | 'dissolve',
   transition_duration: 0.5,
+  frame_enabled: false,
+  frame_inset_pct: 4,
+  frame_border_width: 12,
+  frame_corner_radius: 28,
+  frame_border_color: '#FFFFFF',
+  frame_background_color: '#101820',
+  frame_fit: 'cover' as 'cover' | 'contain',
 })
 useRememberedForm('timestamp-assemble', slug, form)
+const assemblyPresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'timestamp_assemble',
+  snapshot: () => ({ form: { ...form.value } }),
+  apply: (data) => { if (data?.form) Object.assign(form.value, data.form) },
+})
 
 async function collapseToPortablePath(input: string): Promise<string> {
   const raw = String(input || '').trim()
@@ -329,6 +400,15 @@ async function assembleVideo(): Promise<void> {
       music: f.music_path.trim() ? { path: f.music_path.trim(), volume: f.music_volume, fade: f.music_fade } : undefined,
       ambient: f.ambient_path.trim() ? { path: f.ambient_path.trim(), volume: f.ambient_volume, fade: f.ambient_fade } : undefined,
       transition: { type: f.transition_type, duration: f.transition_duration },
+      frame: f.frame_enabled ? {
+        enabled: true,
+        inset_pct: f.frame_inset_pct,
+        border_width: f.frame_border_width,
+        corner_radius: f.frame_corner_radius,
+        border_color: f.frame_border_color,
+        background_color: f.frame_background_color,
+        fit: f.frame_fit,
+      } : undefined,
     })
     success('Timestamp video queued — watch the Jobs panel for ffmpeg progress.')
   } catch (e: any) {

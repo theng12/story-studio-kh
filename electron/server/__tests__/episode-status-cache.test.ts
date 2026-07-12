@@ -294,7 +294,7 @@ describe('episode-status-cache', () => {
       episode_code: 'EP777',
       status: {
         research: false,
-        scene_plan: false, scene_review: false,
+        scene_plan: false, scene_review: false, motion_review: false,
         character_sheet: false,
         broll_picked: false,
         script: true, introduction: false,

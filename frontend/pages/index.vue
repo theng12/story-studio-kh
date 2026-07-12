@@ -1302,6 +1302,7 @@ const addLinkedInspectResult = ref<{
   slug?: string
   name?: string
   reason?: string
+  suggestions?: Array<{ path: string; name?: string; slug?: string }>
 } | null>(null)
 
 function openAddLinked(): void {

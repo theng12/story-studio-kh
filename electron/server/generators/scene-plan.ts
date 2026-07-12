@@ -175,7 +175,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   job.output_lines.push(`Narration docx: ${paths.narration_docx}`)
   if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
   const DETAIL_LABELS: Record<number, string> = { 1: 'Concise', 2: 'Standard', 3: 'Detailed', 4: 'Cinematic' }
-  job.output_lines.push(`Visual detail: ${DETAIL_LABELS[params.detail_level ?? 2] ?? 'Standard'} (level ${params.detail_level ?? 2})`)
+  job.output_lines.push(`Visual detail: ${DETAIL_LABELS[params.detail_level ?? 4] ?? 'Cinematic'} (level ${params.detail_level ?? 4})`)
   // v1.0.285 — surface the chosen window size + the resolved count so the
   // user can see whether 'auto' picked Full or Small for their model.
   const wsMode = params.window_size || 'auto'

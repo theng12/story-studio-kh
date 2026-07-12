@@ -88,11 +88,13 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   subtitles_transcribe: 'Subtitles',
   broll_normalize: 'B-Roll Normalize',
   broll_assemble: 'B-Roll Assembly',
+  broll_select: 'B-Roll Selection',
   broll_autotag: 'B-Roll Tagging',
   broll_fetch: 'B-Roll Fetch',
   research_run: 'Research',
   scene_plan_run: 'Scene Plan',
   scene_image_generate: 'Scene Image',
+  scene_clips_batch: 'Motion Clips',
 }
 
 function labelForJob(job: Job): string {

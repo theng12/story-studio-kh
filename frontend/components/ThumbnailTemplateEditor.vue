@@ -508,8 +508,11 @@ async function save() {
   }
 }
 
-function cancel() {
-  if (dirty.value && !confirm('Discard unsaved changes?')) return
+async function cancel() {
+  if (dirty.value) {
+    const { ask } = useConfirm()
+    if (!await ask({ title: 'Discard changes?', message: 'Discard all unsaved thumbnail template changes?', confirmLabel: 'Discard', danger: true })) return
+  }
   emit('cancelled')
 }
 

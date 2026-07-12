@@ -109,7 +109,7 @@
         <button
           type="button"
           class="btn btn-ghost btn-sm spc-save-btn"
-          :disabled="!episodeId || saveState.saving || saveState.saved"
+          :disabled="!episodeId || saveState.saving || !!saveState.saved"
           :title="!episodeId
             ? 'Pick an episode above to enable saving this preview into its folder.'
             : saveState.saved

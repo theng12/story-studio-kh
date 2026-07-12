@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as bp from '../services/broll-pool-manager.js'
 import type { Format, JobType } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -64,6 +65,8 @@ export const router = Router()
 // outline-first pair `outline_only` → `expand_chapters` (both auto-approved)
 // to match what the Scripts page actually runs by hand.
 type BatchStep =
+  | 'research'
+  | 'broll'
   | 'script-only'
   | 'introduction-only'
   | 'image_prompts'
@@ -76,6 +79,7 @@ type BatchStep =
   | 'subtitles'
   | 'scene_plan'
   | 'scene_review'
+  | 'motion_review'
   | 'character_sheet'
   | 'timestamp_assemble'
   | 'video'
@@ -84,7 +88,7 @@ type BatchStep =
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -94,10 +98,13 @@ export const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'im
 // the user as "Scene Review always errors out". (scene_review runs the
 // continuity renderer in independent/parallel mode across the Mac pool.)
 export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
+  research: 'research_run',
+  broll: 'broll_select',
   scene_prompts: 'image_prompts',              // shared image-prompts generator (mode='scenes')
   subtitles: 'subtitles_transcribe',
   scene_plan: 'scene_plan_run',
   scene_review: 'continuity_render',
+  motion_review: 'scene_clips_batch',
   timestamp_assemble: 'timestamp_video_assemble',
 }
 
@@ -115,7 +122,7 @@ export function jobTypeForStep(step: BatchStep): JobType {
 // server-side preset the batch could read), and its inputs (scene images +
 // merged audio) are already on disk by the time it runs, so the generator's
 // export defaults are the right fallback for an unattended run.
-const NO_PRESET_STEPS = new Set<BatchStep>(['timestamp_assemble'])
+const NO_PRESET_STEPS = new Set<BatchStep>()
 
 // Per-step preset-storage keys. Matches the configKey used by each
 // generator page's usePresets() call. If the user hasn't applied a
@@ -134,6 +141,8 @@ const NO_PRESET_STEPS = new Set<BatchStep>(['timestamp_assemble'])
 // Steps that don't use typed presets (every step except the future
 // script-only / introduction-only) just have a single-element list.
 const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
+  research:            { list: 'research_presets',         activeKeys: ['research_last_preset_research', 'research_last_preset'] },
+  broll:               { list: 'broll_presets',            activeKeys: ['broll_last_preset_broll', 'broll_last_preset'] },
   // Both script-only and introduction-only share the 'script' configKey
   // (both live on scripts.vue). They use typed-preset keys per
   // usePresets({ presetType }), with a fallback to the legacy untyped
@@ -161,6 +170,7 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   subtitles:           { list: 'subtitles_generator_presets', activeKeys: ['subtitles_generator_last_preset'] },
   scene_plan:          { list: 'scene_plan_presets',       activeKeys: ['scene_plan_last_preset_scene-plan', 'scene_plan_last_preset'] },
   scene_review:        { list: 'scene_review_presets',     activeKeys: ['scene_review_last_preset_scene-review', 'scene_review_last_preset'] },
+  motion_review:       { list: 'motion_review_presets',    activeKeys: ['motion_review_last_preset_motion-review', 'motion_review_last_preset'] },
   // Character Sheet's whole-page preset (anchor characters, refs, style bible).
   // Not a job — the run-batch loop writes it to continuity.json inline.
   character_sheet:     { list: 'continuity_page_presets',  activeKeys: ['continuity_page_last_preset_continuity-page', 'continuity_page_last_preset'] },
@@ -174,6 +184,161 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
 
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
 
+interface PreflightIssue {
+  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'insufficient_disk'
+  message: string
+  episode_id?: string
+  step?: BatchStep
+  path?: string
+}
+
+interface BatchPreflight {
+  ok: boolean
+  issues: PreflightIssue[]
+  warnings: string[]
+  presetByStep: Partial<Record<BatchStep, StoredPreset>>
+  ideaByCode: Map<string, any>
+  effectiveFormat: Format | null
+  estimatedBytes: number
+  freeBytes: number
+}
+
+const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
+  broll: ['audio_merge'],
+  'introduction-only': ['script-only'],
+  metadata: ['script-only'],
+  image_prompts: ['script-only'],
+  scene_prompts: ['script-only'],
+  thumb_images: ['image_prompts'],
+  scene_images: ['scene_prompts'],
+  video: ['scene_prompts'],
+  audio: ['script-only'],
+  audio_merge: ['audio'],
+  subtitles: ['audio_merge'],
+  character_sheet: ['script-only'],
+  scene_plan: ['subtitles'],
+  scene_review: ['scene_plan'],
+  motion_review: ['scene_review'],
+  timestamp_assemble: ['motion_review', 'audio_merge'],
+  video_assembly: ['scene_images', 'audio_merge'],
+}
+
+function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
+  if (!value || typeof value !== 'object') return out
+  if (!Array.isArray(value) && (value as any).enabled === false) return out
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof child === 'string' && /^(?:music_path|ambient_path|video_path|image_path|source_path|reference_image)$/.test(key)) {
+      const candidate = child.trim()
+      if (candidate && path.isAbsolute(candidate) && !existsSync(candidate)) out.add(candidate)
+      continue
+    }
+    if (child && typeof child === 'object') collectMissingLocalAssets(child, out)
+  }
+  return out
+}
+
+async function preflightBatch(
+  slug: string,
+  episodeIds: string[],
+  steps: BatchStep[],
+  force: boolean,
+): Promise<BatchPreflight> {
+  const issues: PreflightIssue[] = []
+  const warnings: string[] = []
+  const config = await pm.getConfig(slug)
+  if (!config) throw new Error('Project config missing')
+
+  const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
+  for (const step of steps) {
+    if (NO_PRESET_STEPS.has(step)) continue
+    const result = findActivePreset(config, step)
+    if (!result.preset) {
+      issues.push({ code: 'missing_preset', step, message: result.missingReason || `No active preset for ${step}` })
+      continue
+    }
+    presetByStep[step] = result.preset
+    if (step === 'broll' && (result.preset.data?.form?.selection_mode ?? result.preset.form?.selection_mode) === 'manual') {
+      issues.push({ code: 'invalid_preset', step, message: 'B-Roll Pipeline cannot use a manual-selection preset. Choose random, tagged, or themed selection.' })
+    }
+    for (const missingPath of collectMissingLocalAssets(result.preset.data ?? result.preset)) {
+      issues.push({
+        code: 'missing_local_asset',
+        step,
+        path: missingPath,
+        message: `${step} preset references a local file that is unavailable: ${missingPath}`,
+      })
+    }
+  }
+
+  if (steps.includes('audio')) {
+    const audioPreset = presetByStep.audio
+    const voice = audioPreset?.data?.form?.voice ?? (audioPreset as any)?.form?.voice
+    if (!voice || !String(voice).trim()) {
+      issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
+    }
+  }
+  if (steps.includes('broll')) {
+    const poolId = (config as any).broll_pool_id
+    const pool = poolId ? await bp.getPool(poolId) : null
+    if (!poolId || !pool) {
+      issues.push({ code: 'invalid_preset', step: 'broll', message: 'No B-Roll pool is subscribed to this project.' })
+    } else if (!existsSync(pool.folder_path)) {
+      issues.push({ code: 'missing_local_asset', step: 'broll', path: pool.folder_path, message: `B-Roll pool is offline: ${pool.folder_path}` })
+    }
+  }
+
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
+  const effectiveFormat = await getEffectiveFormat(slug)
+  for (const episodeId of episodeIds) {
+    if (!ideaByCode.has(episodeId)) {
+      issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
+      continue
+    }
+    const status = await computeEpisodeStatus(slug, episodeId)
+    const available = new Set<BatchStep>()
+    for (const step of VALID_STEPS) {
+      if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
+    }
+    for (const step of steps) {
+      // A single selected step is a targeted repair/regeneration operation.
+      // Preserve that long-standing workflow and let its generator perform
+      // its own richer input validation. Multi-step runs are the unattended
+      // one-click path, where dependency ordering must be guaranteed up front.
+      if (steps.length === 1) {
+        available.add(step)
+        continue
+      }
+      const missing = (STEP_PREREQUISITES[step] || []).filter(required => !available.has(required))
+      for (const required of missing) {
+        issues.push({
+          code: 'missing_prerequisite',
+          episode_id: episodeId,
+          step,
+          message: `${episodeId}: ${step} needs ${required} earlier in this run or already complete.`,
+        })
+      }
+      available.add(step)
+    }
+  }
+
+  const estimateInputs = extractEstimateInputs(presetByStep as Record<BatchStep, StoredPreset>, episodeIds.length)
+  const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  const freeBytes = await getFreeBytes(outputRoot || pm.PROJECTS_ROOT)
+  if (freeBytes > 0 && freeBytes < estimatedBytes) {
+    issues.push({
+      code: 'insufficient_disk',
+      message: `Not enough free disk space. Have: ${formatBytes(freeBytes)}; need: approximately ${formatBytes(estimatedBytes)} including safety margin.`,
+    })
+  } else if (freeBytes === 0) {
+    warnings.push('Free disk space could not be measured on this storage volume.')
+  }
+
+  if (force) warnings.push('Force re-run is enabled; completed outputs may be replaced and provider costs may repeat.')
+  return { ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode, effectiveFormat, estimatedBytes, freeBytes }
+}
+
 /**
  * Per-step type tag used by usePresets({ presetType }) on the scripts page.
  * When the active-key lookup fails (either missing or pointing at an id no
@@ -182,11 +347,14 @@ interface StoredPreset { id: string; name: string; data?: any; type?: string; [k
  * map. Keeps pipeline.vue and this resolver in lock-step.
  */
 const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
+  research: 'research',
+  broll: 'broll',
   'script-only': 'script',
   'introduction-only': 'introduction',
   // v1.0.363 — typed presets on the audio-paced format pages.
   scene_plan: 'scene-plan',
   scene_review: 'scene-review',
+  motion_review: 'motion-review',
   character_sheet: 'continuity-page',
 }
 
@@ -201,6 +369,8 @@ const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
  */
 export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format?: Format | null): boolean {
   switch (step) {
+    case 'research':          return status.research
+    case 'broll':             return status.video_assembly
     case 'script-only':       return status.script
     case 'introduction-only': return status.introduction
     case 'image_prompts':     return status.thumb_prompts
@@ -214,6 +384,7 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     case 'subtitles':         return status.subtitles
     case 'scene_plan':        return status.scene_plan
     case 'scene_review':      return status.scene_review
+    case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet
     // The timestamp/continuity final render lands as the same final-video file
     // every format's reconciler keys `video_assembly` off of.
@@ -276,6 +447,25 @@ export function resolveStepParams(
   format?: Format | null,
 ): Record<string, any> {
   const data = preset.data || preset
+  if (step === 'broll') {
+    const form = data.form || data
+    if (form.selection_mode === 'manual') {
+      throw new Error('Manual B-Roll selection cannot run unattended. Save a random, tagged, or themed preset for Pipeline.')
+    }
+    return { ...form, episode_id: episodeId, title: title || '' }
+  }
+  if (step === 'research') {
+    const form = data.form || data
+    return {
+      episode_id: episodeId,
+      title: title || '',
+      topic: title || episodeId,
+      source_provider: form.source_provider || 'llm-only',
+      specific_questions: form.specific_questions || undefined,
+      max_sources: Number(form.max_sources) > 0 ? Number(form.max_sources) : 8,
+      model: form.source_model || form.model || undefined,
+    }
+  }
   if (step === 'script-only') {
     // Typed `script` preset (see scripts.vue useScripts presets):
     //   { form: { episode_id, title, length, model, style, chapters, ... },
@@ -566,10 +756,13 @@ export function resolveStepParams(
       model: data.model,
       target_scene_count: Number(data.target_scene_count) > 0 ? Number(data.target_scene_count) : undefined,
       use_research: data.use_research !== false,
-      detail_level: Number.isFinite(Number(data.detail_level)) ? Number(data.detail_level) : 2,
+      detail_level: 4,
+      generate_motion_prompts: data.generate_motion_prompts !== false,
+      motion_level: Number.isFinite(Number(data.motion_level)) ? Number(data.motion_level) : 2,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
       window_size: (data.window_size && data.window_size !== 'auto') ? data.window_size : undefined,
+      cross_window_context: data.cross_window_context === true,
       planning_mode: twoPass ? 'two-pass' : undefined,
       neighbor_context_back: twoPass ? data.neighbor_context_back : undefined,
       neighbor_context_forward: twoPass ? data.neighbor_context_forward : undefined,
@@ -596,14 +789,40 @@ export function resolveStepParams(
       render_scale: typeof data.render_scale === 'number' ? data.render_scale : undefined,
     }
   }
+  if (step === 'motion_review') {
+    return {
+      episode_id: episodeId,
+      model: data.model,
+      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      auto_approve_clip: true,
+    }
+  }
   if (step === 'timestamp_assemble') {
-    // No preset (NO_PRESET_STEPS) — the generator's export defaults drive the
-    // render. auto_approve greenlights every rendered scene since there's no
-    // human at Scene Review in a "run all the way" pipeline.
+    const form = data.form || data
     return {
       episode_id: episodeId,
       title: title || '',
       auto_approve: true,
+      export_settings: { resolution: form.resolution, fps: form.fps, crf: form.crf },
+      subtitles: {
+        enabled: form.sub_enabled !== false,
+        position: form.sub_position,
+        font_size: form.sub_font_size,
+        color: form.sub_color,
+        outline: form.sub_outline,
+      },
+      music: form.music_path ? { path: form.music_path, volume: form.music_volume, fade: form.music_fade } : undefined,
+      ambient: form.ambient_path ? { path: form.ambient_path, volume: form.ambient_volume, fade: form.ambient_fade } : undefined,
+      transition: { type: form.transition_type || 'none', duration: form.transition_duration },
+      frame: form.frame_enabled ? {
+        enabled: true,
+        inset_pct: form.frame_inset_pct,
+        border_width: form.frame_border_width,
+        corner_radius: form.frame_corner_radius,
+        border_color: form.frame_border_color,
+        background_color: form.frame_background_color,
+        fit: form.frame_fit || 'cover',
+      } : undefined,
     }
   }
   return { episode_id: episodeId }
@@ -725,6 +944,7 @@ export function flattenVideoAssemblyBundle(
   if (effects.vignette?.enabled)      out.vignette      = effects.vignette
   if (effects.film_grain?.enabled)    out.film_grain    = effects.film_grain
   if (effects.letterbox?.enabled)     out.letterbox     = effects.letterbox
+  if (effects.frame?.enabled)         out.frame         = effects.frame
   if (effects.chroma_key?.enabled && effects.chroma_key.source_path) {
     out.chroma_key = effects.chroma_key
   }
@@ -890,97 +1110,64 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
   }
 })
 
+function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[]; force: boolean } {
+  const episodeIds = Array.isArray(body?.episode_ids) ? body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
+  const stepsRaw: any[] = Array.isArray(body?.steps) ? body.steps : []
+  const steps = stepsRaw.filter((s): s is BatchStep => VALID_STEPS.includes(s))
+  return { episodeIds, steps, force: body?.force === true }
+}
+
+router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const { episodeIds, steps, force } = parseBatchRequest(req.body)
+  if (!episodeIds.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
+  if (!steps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
+  try {
+    const result = await preflightBatch(slug, episodeIds, steps, force)
+    res.status(result.ok ? 200 : 422).json({
+      ok: result.ok,
+      issues: result.issues,
+      warnings: result.warnings,
+      estimated_bytes: result.estimatedBytes,
+      free_bytes: result.freeBytes,
+      episodes: episodeIds.length,
+      steps: steps.length,
+    })
+  } catch (e: any) {
+    res.status(400).json({ detail: e?.message || 'Pipeline preflight failed' })
+  }
+})
+
 router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const episode_ids: string[] = Array.isArray(req.body?.episode_ids) ? req.body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
-  const stepsRaw: any[] = Array.isArray(req.body?.steps) ? req.body.steps : []
-  const steps: BatchStep[] = stepsRaw.filter((s): s is BatchStep => VALID_STEPS.includes(s))
+  const { episodeIds: episode_ids, steps, force } = parseBatchRequest(req.body)
   // `force: true` disables per-step idempotency skipping — every selected
   // step runs even if its output already exists. Default is to skip done
   // steps so the batch doesn't silently burn tokens on regeneration.
-  const force: boolean = req.body?.force === true
-
   if (!episode_ids.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
   if (!steps.length) return res.status(400).json({ detail: 'steps must include at least one of ' + VALID_STEPS.join(', ') })
 
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(400).json({ detail: 'Project config missing' })
-
-  // Verify every selected step has an active preset before enqueueing
-  // anything. Avoids the half-started-batch failure mode where episode A
-  // is already running when we discover episode B has no audio preset.
-  const missing: Array<{ step: BatchStep; reason: string }> = []
-  const presetByStep = {} as Record<BatchStep, StoredPreset>
-  for (const step of steps) {
-    // timestamp_assemble (and any future preset-free step) runs on generator
-    // defaults — don't demand a saved preset for it.
-    if (NO_PRESET_STEPS.has(step)) continue
-    const r = findActivePreset(config, step)
-    if (r.preset) {
-      presetByStep[step] = r.preset
-    } else {
-      missing.push({ step, reason: r.missingReason || 'preset missing' })
-    }
-  }
-  if (missing.length) {
+  const preflight = await preflightBatch(slug, episode_ids, steps, force)
+  if (!preflight.ok) {
     return res.status(400).json({
-      detail: 'One or more selected steps have no active preset',
-      missing,
-    })
-  }
-
-  // No silent defaults (v1.0.210+): the audio step's preset must carry an
-  // explicit voice. The backend no longer substitutes a brand/provider
-  // default, so a voiceless preset would fail mid-batch — reject it here,
-  // before anything is enqueued, with an actionable message.
-  if (steps.includes('audio')) {
-    const ap = presetByStep['audio'] as StoredPreset | undefined
-    const voice = ap?.data?.form?.voice ?? (ap as any)?.form?.voice
-    if (!voice || !String(voice).trim()) {
-      return res.status(400).json({
-        detail: 'Your Audio preset has no voice selected. Open the Audio tab, pick a voice, re-save the preset, then run the pipeline again — there is no default voice.',
-        missing: [{ step: 'audio', reason: 'preset has no voice selected' }],
-      })
-    }
-  }
-
-  // Free-disk-space precheck. Burning hours of FFmpeg time only to fail
-  // halfway through a 20-episode batch is the failure mode this guards
-  // against (audit-reports/09-jobs.md M3). Sum the worst-case byte cost
-  // across every (step × episode) pair, multiply by a safety margin
-  // inside estimateRunBatchBytes, then compare against statfs on the
-  // PROJECTS_ROOT volume. We soft-pass when statfs returns 0 (unknown
-  // filesystem) so this never blocks legitimate work on exotic FSes.
-  const estimateInputs = extractEstimateInputs(presetByStep, episode_ids.length)
-  const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
-  // Check free space on the volume the project's assets actually live
-  // on — for a linked project that's the iCloud / external folder, not
-  // PROJECTS_ROOT. Falls back to PROJECTS_ROOT for projects without a
-  // resolvable output folder yet.
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  const probePath = outputRoot || pm.PROJECTS_ROOT
-  const freeBytes = await getFreeBytes(probePath)
-  if (freeBytes > 0 && freeBytes < estimatedBytes) {
-    return res.status(400).json({
-      detail: `Not enough free disk space for this batch. Have: ${formatBytes(freeBytes)}, need: ${formatBytes(estimatedBytes)} (estimated for ${episode_ids.length} episode${episode_ids.length === 1 ? '' : 's'} × ${steps.length} step${steps.length === 1 ? '' : 's'}, includes 1.5× safety margin). Free up space and retry.`,
-      free_bytes: freeBytes,
-      required_bytes: estimatedBytes,
+      detail: preflight.issues.length === 1
+        ? `${preflight.issues[0]!.message} Nothing was started.`
+        : 'Pipeline preflight found blocking problems. Nothing was started.',
+      issues: preflight.issues,
+      missing: preflight.issues.filter(i => i.code === 'missing_preset').map(i => ({ step: i.step, reason: i.message })),
+      warnings: preflight.warnings,
+      free_bytes: preflight.freeBytes,
+      required_bytes: preflight.estimatedBytes,
       episodes: episode_ids.length,
       steps: steps.length,
     })
   }
-
-  // Match episode_ids against accepted ideas so we can pull the title.
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
-
-  // Resolve the project's effective Format once per batch so resolveStepParams
-  // can populate format-aware defaults (metadata sizes, future format-tuned
-  // params). Cheap (project.json read + JSON merge); null when the project
-  // has no format_id and no built-in default exists.
-  const effectiveFormat = await getEffectiveFormat(slug)
+  const presetByStep = preflight.presetByStep as Record<BatchStep, StoredPreset>
+  const ideaByCode = preflight.ideaByCode
+  const effectiveFormat = preflight.effectiveFormat
 
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
@@ -1029,9 +1216,8 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
         await writeContinuityConfig(slug, episodeId, csData)
         characterSheetsApplied++
       } catch (e: any) {
-        // Don't abort the whole episode — surface it and let the other steps
-        // (which may not need continuity) still run.
         skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })
+        continue
       }
     }
 
@@ -1043,6 +1229,16 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     const chain: Array<{ type: JobType; title: string; params: Record<string, any> }> = []
     for (const step of effectiveSteps) {
       if (step === 'character_sheet') continue
+      if (step === 'broll') {
+        const brollParams = resolveStepParams('broll', episodeId, idea.title || '', presetByStep.broll, effectiveFormat)
+        chain.push({ type: 'broll_select', title: `[batch] broll selection — ${episodeId}`, params: brollParams })
+        chain.push({
+          type: 'broll_assemble',
+          title: `[batch] broll assembly — ${episodeId}`,
+          params: { episode_id: episodeId, title: idea.title || '', broll_volume: brollParams.broll_volume || 0 },
+        })
+        continue
+      }
       if (step === 'script-only') {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
         chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })

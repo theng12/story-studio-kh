@@ -131,12 +131,13 @@ function buildPrompt(
     : ''
 
   const seed = Math.random().toString(36).slice(2, 10)
-  const levers = pickLevers(2)
+  const creativeMode = req.creative_mode || 'guided'
+  const levers = pickLevers(creativeMode === 'strict' ? 2 : creativeMode === 'guided' ? 1 : 0)
   const leverLines = levers
     .map((l, i) => `  ${i + 1}. ${l}`)
     .join('\n')
 
-  const avoidSection = buildAvoidSection(avoid)
+  const avoidSection = creativeMode === 'open' ? '' : buildAvoidSection(avoid)
   const extraAvoid = extraAvoidNote
     ? `\nAlso avoid the concepts listed here (these came back too close to existing on the last attempt): ${extraAvoidNote}\n`
     : ''
@@ -207,7 +208,7 @@ Rules:
   // Example ideas baked into the format render as a "see this bar"
   // signal — the LLM matches output style to in-prompt examples far
   // more reliably than to abstract guidance.
-  const exampleBlock = format.idea.exampleIdeas?.length
+  const exampleBlock = creativeMode !== 'open' && format.idea.exampleIdeas?.length
     ? `\nEXAMPLES — match this bar (do not copy):\n${format.idea.exampleIdeas
         .map((ex, i) =>
           `  ${i + 1}. ${ex.title}\n     ${ex.logline}\n     themes: ${ex.themes.join(', ')} · ${ex.suggested_chapters} chapters · ${ex.suggested_length} · mood: ${ex.mood}`)
@@ -278,6 +279,15 @@ ${themeRules.map(r => `     · ${r}`).join('\n')}`
     variety === 'vary-subject-only' ? '- Structure REPETITION is correct here: the title rules above tell you the shape. Vary only the SUBJECT across the batch, never the structure.' :
     /* 'free' */                      '- Aim for a varied batch; the LLM picks structure freely as long as it matches the examples above.'
 
+  const creativityBlock = creativeMode === 'strict'
+    ? `CREATIVE MODE: GUARDRAILS\nApply both diversity levers as firm batch constraints:\n${leverLines}`
+    : creativeMode === 'guided'
+      ? `CREATIVE MODE: BALANCED\nTreat this as optional inspiration, not a requirement: ${levers[0] || 'find a fresh angle appropriate to the format'}.`
+      : `CREATIVE MODE: OPEN\nThe model chooses subjects, structures, imagery, and emotional angles freely. Format guidance is context, not a formula. Do not imitate examples or add stock genre tropes.`
+  const userDirection = req.creative_direction?.trim()
+    ? `\nUSER CREATIVE DIRECTION — prioritize this over optional style guidance:\n${req.creative_direction.trim()}\n`
+    : ''
+
   return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
 ${formatGuidance}
@@ -290,8 +300,7 @@ PARAMETERS:
 - Keywords to incorporate: ${keywords}
 - Creativity seed: ${seed} (ignore semantics; use only to diverge from prior output)
 ${standardsSection}${avoidSection}${extraAvoid}
-Diversity levers — apply these two across the batch (some ideas should lean into lever 1, others into lever 2):
-${leverLines}
+${creativityBlock}${userDirection}
 
 For EACH idea, provide:
 ${titleInstruction}
@@ -304,7 +313,7 @@ ${themeInstruction}
 RULES:
 - Every idea must have a different angle / subject / emotional arc from the others in this batch.
 ${varietyRule}
-- Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint.
+- ${creativeMode === 'open' ? 'Avoid exact duplicates of prior titles, but do not let history narrow the creative space.' : 'Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint.'}
 - Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
 - TITLE-NUMBER CONSISTENCY: if your title contains a leading count number (e.g. "10 mysteries", "7 plane crashes", "12 paradoxes"), the suggested_chapters value MUST equal that number. Mismatch is the most common bug we see — pick a count first, then write the title to match.${pinned !== null ? `\n- Pinned for this batch: every title that uses a leading count number MUST use ${pinned}, and suggested_chapters MUST be ${pinned}.` : ''}
 - ${moodVocab}

@@ -39,7 +39,7 @@ import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.
 // (title-based resolution missed renamed/special-char folders → false pending).
 // Bumped so v2 caches (which stored the wrong by-title values) are discarded +
 // recomputed. v2 (v1.0.277) introduced the scene_plan/scene_review fields.
-export const SCHEMA_VERSION = 3 as const
+export const SCHEMA_VERSION = 4 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence
@@ -168,6 +168,7 @@ async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited
     paths.audio_dir,          // audio
     paths.merged_audio_dir,   // merged_audio
     paths.video_dir,          // video + video_assembly
+    paths.video_assets_dir,   // motion_review image-to-video clips
   ]
 }
 
@@ -333,9 +334,11 @@ class EpisodeStatusCache {
     })()
 
     this.inflight.set(k, promise)
-    promise.finally(() => {
+    void promise.then(() => {
       // Clear inflight only if it's still our promise (guards against
       // races with explicit invalidation that started a fresh compute).
+      if (this.inflight.get(k) === promise) this.inflight.delete(k)
+    }, () => {
       if (this.inflight.get(k) === promise) this.inflight.delete(k)
     })
     return promise
@@ -456,7 +459,10 @@ class EpisodeStatusCache {
     })()
 
     this.hydratePending.set(slug, promise)
-    promise.finally(() => this.hydratePending.delete(slug))
+    void promise.then(
+      () => this.hydratePending.delete(slug),
+      () => this.hydratePending.delete(slug),
+    )
     return promise
   }
 

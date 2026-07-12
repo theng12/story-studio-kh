@@ -116,6 +116,8 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     if (target) {
       target.image_path = outPath
       target.rendered_prompt = target.visual_prompt
+      target.image_version = new Date().toISOString()
+      target.motion_choice = 'pending'
       target.approved = false
       await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
     }

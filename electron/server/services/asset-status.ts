@@ -33,6 +33,7 @@ import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
 } from '../generators/images.js'
 import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
+import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getAudioStatus } from './audio-reconciler.js'
 
@@ -674,6 +675,9 @@ export interface EpisodeStatus {
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
   // NOT folded into all_done.
   scene_review: boolean
+  // Motion Review is complete when every planned scene has either an approved,
+  // fresh image-to-video clip or an explicit "use still" decision.
+  motion_review: boolean
   // v1.0.361 — continuity-chain / narrated-scenes "character sheet" step: the
   // user has SAVED this episode's continuity config (continuity.json exists at
   // the episode_dir root — written only by the Character Sheet page's Save, the
@@ -732,7 +736,7 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
-    scene_plan: false, scene_review: false,
+    scene_plan: false, scene_review: false, motion_review: false,
     character_sheet: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
@@ -982,6 +986,15 @@ export async function computeEpisodeStatus(
           ))
           || (typeof s?.image_path === 'string' && s.image_path.length > 0)
         status.scene_review = scenes.length > 0 && scenes.every(hasImage)
+        const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
+        status.motion_review = scenes.length > 0 && scenes.every((s: any) => {
+          if (s?.motion_choice === 'still') return true
+          const hasClip = typeof s?.id === 'string' && existsSync(path.join(clipsDir, `${s.id}.mp4`))
+          if (!hasClip || s?.motion_choice === 'pending') return false
+          if (typeof s?.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')) return false
+          if (typeof s?.image_version === 'string' && s.clip_source_image_version !== s.image_version) return false
+          return s?.motion_choice === 'clip' || s?.motion_choice == null
+        })
       }
     } catch { /* unresolved / unreadable plan → leave both false */ }
 
@@ -1249,7 +1262,7 @@ export async function computeEpisodeStatus(
 function allDoneStatus(): EpisodeStatus {
   return {
     research: true,
-    scene_plan: true, scene_review: true,
+    scene_plan: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
@@ -1262,4 +1275,3 @@ function allDoneStatus(): EpisodeStatus {
     video_assembly: true,
   }
 }
-

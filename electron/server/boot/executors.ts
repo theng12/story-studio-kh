@@ -28,6 +28,7 @@ import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-up
 import { generateThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
 import { normalizeBroll } from '../generators/broll-normalize.js'
 import { generateBrollAssemble } from '../generators/broll-assemble.js'
+import { generateBrollSelection } from '../generators/broll-select.js'
 import { generateBrollAutotag } from '../generators/broll-autotag.js'
 import { fetchBroll } from '../generators/broll-fetch.js'
 import { generateImagePoolImages } from '../generators/image-pool-generate.js'
@@ -35,7 +36,7 @@ import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneImagesBatchJob } from '../generators/scene-images-batch.js'
-import { generateSceneClipJob } from '../generators/scene-clip.js'
+import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
 import { runTimestampVideoAssemble } from '../generators/timestamp-video-assemble.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
@@ -99,6 +100,7 @@ export function registerAllExecutors(): void {
   // pool's target fps (24 or 30) so Video Assembly can concat-demux for
   // speed instead of running a per-frame filtergraph at render time.
   registerExecutor('broll_normalize', normalizeBroll)
+  registerExecutor('broll_select', generateBrollSelection)
   registerExecutor('broll_assemble', guardMedia(generateBrollAssemble))
   registerExecutor('broll_autotag', generateBrollAutotag)
   // v1.0.122+: B-Roll Fetch — downloads one Pexels/Pixabay clip into a
@@ -117,6 +119,7 @@ export function registerAllExecutors(): void {
   registerExecutor('scene_images_batch', generateSceneImagesBatchJob)
   // v1.0.470 — Phase 2: per-scene image-to-video clip. Heavy media → guarded.
   registerExecutor('scene_clip_generate', guardMedia(generateSceneClipJob))
+  registerExecutor('scene_clips_batch', guardMedia(generateSceneClipsBatchJob))
   registerExecutor('continuity_render', runContinuityRenderJob)
   // v1.0.260 — Prompt Director: rewrites scene prompts into the explainer
   // composition (guide-at-side + framed subject) per the Visual Recipe.

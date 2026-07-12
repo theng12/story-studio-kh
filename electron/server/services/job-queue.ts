@@ -189,6 +189,7 @@ interface QueueState {
 }
 
 const queues: Record<JobType, QueueState> = {
+  broll_select: { pending: [], running: false, executor: null },
   // Legacy `script` queue removed in M1 — chapters and intro now flow
   // through `script-only` and `introduction-only` independently. The
   // per-chapter refactor added `chapter-only` for targeted regens.
@@ -256,6 +257,7 @@ const queues: Record<JobType, QueueState> = {
   scene_images_batch: { pending: [], running: false, executor: null },
   // v1.0.470 — Phase 2: animate one scene's image into a clip (image-to-video).
   scene_clip_generate: { pending: [], running: false, executor: null },
+  scene_clips_batch: { pending: [], running: false, executor: null },
   // v1.0.410+: generate stills into an Image Pool (grow the pool).
   image_pool_generate: { pending: [], running: false, executor: null },
   // v1.0.145+: Final ffmpeg render for the timestamp-driven pipeline.
@@ -465,6 +467,54 @@ function releaseSlot(type: JobType): void {
 }
 
 /**
+ * Persist a chain handoff failure as its own terminal job. Without this record
+ * the completed parent looked successful and batch aggregation had no evidence
+ * that every downstream step was silently abandoned.
+ */
+async function recordChainHandoffFailure(
+  parent: Job,
+  nextStep: { type?: unknown; title?: unknown; params?: unknown },
+  rest: unknown[],
+  cause: unknown,
+): Promise<Job> {
+  const now = new Date().toISOString()
+  const type = String(nextStep?.type || 'unknown') as JobType
+  const message = cause instanceof Error ? cause.message : String(cause)
+  const batchId = parent.params?.pipeline_batch_id
+  const failed: Job = {
+    job_id: uuidv4().slice(0, 8),
+    project_slug: parent.project_slug,
+    type,
+    episode_id: parent.episode_id,
+    title: typeof nextStep?.title === 'string'
+      ? nextStep.title
+      : `[batch] ${type} — ${parent.episode_id}`,
+    status: 'error',
+    created_at: now,
+    started_at: now,
+    finished_at: now,
+    error: `Pipeline handoff failed before this step started: ${message}`,
+    output_lines: [
+      `Previous step: ${parent.type} (${parent.job_id})`,
+      `Could not start ${type}: ${message}`,
+      'No provider call was made for this step. Use the batch Retry action to run only unfinished work.',
+    ],
+    params: {
+      ...((nextStep?.params && typeof nextStep.params === 'object') ? nextStep.params : {}),
+      episode_id: parent.episode_id,
+      pipeline_chain: rest,
+      ...(batchId ? { pipeline_batch_id: batchId } : {}),
+      pipeline_handoff_failed: true,
+      pipeline_parent_job_id: parent.job_id,
+    },
+  }
+  jobs.set(failed.job_id, failed)
+  await persistJob(failed)
+  emitUpdate(failed)
+  return failed
+}
+
+/**
  * Full lifecycle for one job: mark running → run executor → persist final
  * status → chain the next pipeline step → release the slot. Fire-and-forget
  * from pump(); the `finally` guarantees the slot is released even on error so
@@ -534,8 +584,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
               })
               job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
             } catch (e: any) {
-              // Never let a chain failure break the completed job — log it.
-              job.output_lines.push(`Chain-next failed: ${e.message}`)
+              const failed = await recordChainHandoffFailure(job, nextStep, rest, e)
+              job.output_lines.push(`Chain-next failed: ${e.message} (recorded as failed job ${failed.job_id})`)
             }
           }
         }
@@ -703,6 +753,9 @@ export function enqueue(opts: {
    *  enqueue (run back-to-back) without rejecting each other. */
   dedupeParams?: (params: any) => boolean
 }): Job {
+  if (!queues[opts.type]) {
+    throw new Error(`No queue lane registered for job type: ${opts.type}`)
+  }
   // Atomic dedupe: the check and the insert happen in the same synchronous
   // tick. Callers MUST NOT gate on isDuplicate() separately — two routes
   // racing the check could both pass and both enqueue. This is the single

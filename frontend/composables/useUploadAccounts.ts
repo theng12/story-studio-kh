@@ -623,6 +623,7 @@ export function useUploadAccounts(slug: string) {
     return post<{
       written: string[]
       errors: Array<{ episode_code: string; error: string }>
+      tombstoned?: Array<{ episode_code: string; video_id?: string }>
       titles_synced?: string[]
     }>(
       `/projects/${slug}/upload/reconcile/confirm`, { account_id, links },
@@ -750,6 +751,7 @@ export function useUploadAccounts(slug: string) {
       updated: number
       drift: Array<{ episode_code: string; video_id: string; before: { privacy_status: string; scheduled_for: string | null }; after: { privacy_status: string; scheduled_for: string | null } }>
       errors: Array<{ episode_code: string; error: string }>
+      tombstoned?: Array<{ episode_code: string; video_id?: string }>
     }>(`/projects/${slug}/upload/queue/sync-from-youtube`, episode_codes ? { episode_codes } : {})
     return r
   }

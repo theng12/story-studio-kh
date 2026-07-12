@@ -21,6 +21,7 @@ import {
   getScriptConcurrency, setScriptConcurrency,
   SCRIPT_CONCURRENCY_DEFAULT, SCRIPT_CONCURRENCY_MIN, SCRIPT_CONCURRENCY_MAX,
   getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
+  getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
 import { hubHealth, hubStudios, hubStudioAction } from '../lib/studiohub-client.js'
 import { setLlmConcurrency } from '../services/job-queue.js'
@@ -67,10 +68,11 @@ router.put('/app-settings/script-concurrency', async (req, res) => {
 // /app-settings/api-keys/hub) — not returned here, only whether one is set.
 router.get('/app-settings/local-backend', async (_req, res) => {
   try {
-    const [mode, hubUrl, token] = await Promise.all([
+    const [mode, hubUrl, token, renderWorkersEnabled] = await Promise.all([
       getLocalBackend(),
       getHubUrl(),
       getApiKey('hub').catch(() => ''),
+      getRenderWorkersEnabled(),
     ])
     const health = await hubHealth(hubUrl)
     res.json({
@@ -78,6 +80,7 @@ router.get('/app-settings/local-backend', async (_req, res) => {
       hub_url: hubUrl,
       default_hub_url: DEFAULT_HUB_URL,
       hub_token_set: !!(token && token.trim()),
+      render_workers_enabled: renderWorkersEnabled,
       hub_online: health.ok,
       hub_app_version: health.appVersion || null,
       hub_error: health.ok ? null : (health.error || null),
@@ -103,13 +106,19 @@ router.put('/app-settings/local-backend', async (req, res) => {
       }
       await setHubUrl(url)
     }
+    if (body.render_workers_enabled !== undefined) {
+      if (typeof body.render_workers_enabled !== 'boolean') {
+        return res.status(400).json({ detail: 'render_workers_enabled must be a boolean' })
+      }
+      await setRenderWorkersEnabled(body.render_workers_enabled)
+    }
     // Optional convenience: set/clear the Hub token in the same call.
     if (body.hub_token !== undefined) {
       const tok = typeof body.hub_token === 'string' ? body.hub_token.trim() : ''
       await setApiKey('hub', tok)
     }
-    const [mode, hubUrl, token] = await Promise.all([
-      getLocalBackend(), getHubUrl(), getApiKey('hub').catch(() => ''),
+    const [mode, hubUrl, token, renderWorkersEnabled] = await Promise.all([
+      getLocalBackend(), getHubUrl(), getApiKey('hub').catch(() => ''), getRenderWorkersEnabled(),
     ])
     const health = await hubHealth(hubUrl)
     res.json({
@@ -117,6 +126,7 @@ router.put('/app-settings/local-backend', async (req, res) => {
       local_backend: mode,
       hub_url: hubUrl,
       hub_token_set: !!(token && token.trim()),
+      render_workers_enabled: renderWorkersEnabled,
       hub_online: health.ok,
       hub_error: health.ok ? null : (health.error || null),
     })

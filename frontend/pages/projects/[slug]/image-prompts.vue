@@ -427,6 +427,32 @@
             </p>
           </div>
         </div>
+        <div class="grid-2 mt-2">
+          <div class="form-group">
+            <label>Creative freedom</label>
+            <select v-model="form.thumbnail.thumb_creative_mode" class="select">
+              <option value="guided">Balanced — distinctive but readable</option>
+              <option value="open">Open — let the model art-direct</option>
+              <option value="strict">Guardrails — full CTR checklist</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Concept strategy</label>
+            <select v-model="form.thumbnail.thumb_strategy" class="select">
+              <option value="auto">Model decides</option>
+              <option value="character">Character-led</option>
+              <option value="object">Symbol or object-led</option>
+              <option value="environment">Environment-led</option>
+              <option value="typographic">Typography-led</option>
+              <option value="mystery">Mystery and reveal</option>
+              <option value="documentary">Documentary evidence</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group mt-1">
+          <label>Creative brief <span class="text-muted">(optional)</span></label>
+          <textarea v-model="form.thumbnail.thumb_creative_direction" class="textarea" rows="2" placeholder="Give the model room, or state the one idea you care about most…" />
+        </div>
         <div class="grid-2">
           <div class="form-group">
             <label>Text Position</label>
@@ -1005,6 +1031,9 @@ type ThumbnailForm = SharedFormFields & {
   thumb_title_mode: 'ai' | 'composite'
   thumb_art_direction: string
   thumb_reference_style: string
+  thumb_creative_mode: 'strict' | 'guided' | 'open'
+  thumb_strategy: 'auto' | 'character' | 'object' | 'environment' | 'typographic' | 'mystery' | 'documentary'
+  thumb_creative_direction: string
 }
 type SceneForm = SharedFormFields & {
   scenes_per_chapter: number
@@ -1032,6 +1061,9 @@ const form = reactive({
     thumb_title_mode: 'ai',
     thumb_art_direction: '',
     thumb_reference_style: '',
+    thumb_creative_mode: 'guided',
+    thumb_strategy: 'auto',
+    thumb_creative_direction: '',
   } as ThumbnailForm,
   scene: {
     model: 'gpt-4o',
@@ -1864,6 +1896,9 @@ async function runGenerate(mode: PromptMode) {
       thumb_title_mode: form.thumbnail.thumb_title_mode,
       thumb_art_direction: form.thumbnail.thumb_art_direction,
       thumb_reference_style: form.thumbnail.thumb_reference_style,
+      thumb_creative_mode: form.thumbnail.thumb_creative_mode,
+      thumb_strategy: form.thumbnail.thumb_strategy,
+      thumb_creative_direction: form.thumbnail.thumb_creative_direction,
       title: selectedEpisode.value?.title || '',
       mode,
       // Cast for this generation. Backend resolves these via

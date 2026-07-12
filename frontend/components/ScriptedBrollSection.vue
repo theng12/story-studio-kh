@@ -29,7 +29,7 @@
       <label class="sbr-check" title="After writing queries, immediately search + download a clip for each beat.">
         <input type="checkbox" v-model="resolveNow" /> <span>Download clips now</span>
       </label>
-      <button class="btn btn-primary" :disabled="!model || busy || !episodeCode" @click="generate">
+      <button class="btn btn-primary" :disabled="!model || !!busy || !episodeCode" @click="generate">
         {{ busy === 'gen' ? 'Directing…' : '🎬 Generate shot plan' }}
       </button>
     </div>
@@ -98,12 +98,12 @@
       </div>
 
       <div class="sbr-actions">
-        <button class="btn btn-sm btn-primary" :disabled="busy || !dirty" @click="saveEdits">{{ dirty ? 'Save edits' : 'Saved' }}</button>
-        <button class="btn btn-sm" :disabled="busy" @click="resolve">{{ busy === 'res' ? 'Downloading…' : '⬇ Download / re-match clips' }}</button>
+        <button class="btn btn-sm btn-primary" :disabled="!!busy || !dirty" @click="saveEdits">{{ dirty ? 'Save edits' : 'Saved' }}</button>
+        <button class="btn btn-sm" :disabled="!!busy" @click="resolve">{{ busy === 'res' ? 'Downloading…' : '⬇ Download / re-match clips' }}</button>
         <button class="btn btn-sm" :disabled="!matchedCount" :title="matchedCount ? 'Scrub the cut in your browser (no render)' : 'Resolve clips first'" @click="previewOpen = !previewOpen">{{ previewOpen ? '▲ Hide preview' : '▶ Preview cut' }}</button>
         <span class="sbr-spacer" />
         <button class="btn btn-sm btn-icon danger" title="Delete the shot plan" @click="clearPlan">🗑</button>
-        <button class="btn btn-sm btn-primary" :disabled="busy || !matchedCount" @click="assemble">{{ busy === 'asm' ? 'Queuing…' : '🎬 Assemble video' }}</button>
+        <button class="btn btn-sm btn-primary" :disabled="!!busy || !matchedCount" @click="assemble">{{ busy === 'asm' ? 'Queuing…' : '🎬 Assemble video' }}</button>
       </div>
 
       <BrollPreviewPlayer v-if="previewOpen && matchedCount" :slug="slug" :episode-code="episodeCode" :plan="plan" />

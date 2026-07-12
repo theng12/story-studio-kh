@@ -29,12 +29,14 @@ import { appendCappedTail, stillDecoderArgs, sniffStillFormat, getAudioDuration 
 import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
+import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
-import type { Job, ScenePlan } from '../models/types.js'
+import type { Job, ScenePlan, VideoFrameConfig } from '../models/types.js'
+import { tryRunRemoteTimestampAssemble } from './remote-timestamp-assemble.js'
 
 interface TimestampAssembleParams {
   episode_id: string
@@ -45,6 +47,7 @@ interface TimestampAssembleParams {
   subtitles?: { enabled?: boolean; position?: 'bottom' | 'center' | 'top'; font_size?: number; color?: string; outline?: number }
   export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
   transition?: { type?: 'none' | 'crossfade' | 'fadeblack' | 'dissolve'; duration?: number }
+  frame?: VideoFrameConfig
   /**
    * v1.0.363 — set by the unattended Pipeline when "run all the way to final
    * video" is selected. There's no human at Scene Review to greenlight scenes,
@@ -134,6 +137,8 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const { episode_id } = params
   if (!episode_id) throw new Error('episode_id is required')
 
+  if (await tryRunRemoteTimestampAssemble(job)) return
+
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
   // ── Load + validate scene plan ────────────────────────────────────
@@ -194,11 +199,17 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   // the export size, exactly its window long); still-only episodes keep the fast
   // concat-of-stills path untouched.
   const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
-  const clipFor = (id: string): string | null => {
-    const c = path.join(clipsDir, `${id}.mp4`)
+  const clipFor = (scene: ScenePlan['scenes'][number]): string | null => {
+    // New clips are held out until Motion Review approves them. `still` is an
+    // explicit opt-out. Undefined remains accepted only for legacy plans made
+    // before Motion Review existed, preserving prior renders.
+    if (scene.motion_choice === 'pending' || scene.motion_choice === 'still') return null
+    if (typeof scene.rendered_motion_prompt === 'string' && scene.rendered_motion_prompt !== (scene.motion_prompt || '')) return null
+    if (typeof scene.image_version === 'string' && scene.clip_source_image_version !== scene.image_version) return null
+    const c = path.join(clipsDir, `${scene.id}.mp4`)
     return existsSync(c) ? c : null
   }
-  const clipCount = plan.scenes.filter(s => clipFor(s.id)).length
+  const clipCount = plan.scenes.filter(s => clipFor(s)).length
   const clipsMode = clipCount > 0
 
   // ── Locate merged audio ───────────────────────────────────────────
@@ -501,7 +512,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
         const D = durOf(s)
         const chunkPath = path.join(finalDir, `.tmp-${Date.now()}-scene-${i}.mp4`)
         chunkFiles.push(chunkPath)
-        const clip = clipFor(s.id)
+        const clip = clipFor(s)
         if (clip) {
           await runFfmpeg([
             '-y', '-i', clip, '-an',
@@ -570,11 +581,20 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     // Stills need scaling at mux time; xfade chunks AND clips-mode chunks are
     // already at export size, so only re-encode them when subtitles must burn in.
     const needScale = !useXfade && !clipsMode
-    const reencodeVideo = needScale || !!subFragment
+    const frameOn = params.frame?.enabled === true
+    const reencodeVideo = needScale || !!subFragment || frameOn
     const finalArgs: string[] = ['-y', ...videoInput, '-i', audioPath, ...audio.extraInputs]
     if (reencodeVideo) {
       const vchain = [needScale ? vBase : '', subFragment].filter(Boolean).join(',')
-      if (hasBeds) {
+      if (frameOn) {
+        const videoFilters = [`[0:v]${vchain || 'null'}[framepre]`]
+        videoFilters.push(...buildVideoFrameFilter({
+          inputLabel: '[framepre]', outputLabel: '[vout]', prefix: 'timestampframe',
+          width: W, height: H, fps, config: params.frame!,
+        }))
+        if (hasBeds) videoFilters.push(audio.fc)
+        finalArgs.push('-filter_complex', videoFilters.join(';'), '-map', '[vout]', '-map', hasBeds ? audio.map : '1:a')
+      } else if (hasBeds) {
         finalArgs.push('-filter_complex', [`[0:v]${vchain}[vout]`, audio.fc].join(';'), '-map', '[vout]', '-map', audio.map)
       } else {
         finalArgs.push('-vf', vchain) // 2 inputs → auto-maps video[0] + narration[1]

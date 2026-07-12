@@ -21,6 +21,7 @@ import path from 'path'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadVideo } from '../lib/download-video.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
+import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
@@ -51,6 +52,8 @@ interface SceneClipGenerateParams {
   model: string
   /** Output aspect ('16:9' default → landscape; '9:16' → portrait). */
   aspect_ratio?: string
+  /** Unattended pipeline runs approve their generated clip automatically. */
+  auto_approve_clip?: boolean
 }
 
 export async function generateSceneClipJob(job: Job): Promise<void> {
@@ -67,7 +70,10 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const scene = plan.scenes.find(s => s.id === scene_id)
   if (!scene) throw new Error(`Scene ${scene_id} not in scene_plan.json (was it deleted?)`)
-  if (!scene.image_path || !existsSync(scene.image_path)) {
+  const resolvedImagePath = scene.image_path && existsSync(scene.image_path)
+    ? scene.image_path
+    : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene_id)
+  if (!resolvedImagePath) {
     throw new Error(`Scene ${scene_id} has no generated image to animate — generate the image first.`)
   }
   if (!scene.motion_prompt || !scene.motion_prompt.trim()) {
@@ -107,7 +113,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     aspectRatio,
     numberOfVideos: 1,
     modelId: model,
-    startImagePath: scene.image_path,
+    startImagePath: resolvedImagePath,
     // Pass the model's provider_params so fal gets its `slug` + default_duration
     // (kie reads its routing too). ai-video omits this — a latent fal bug we avoid.
     providerParams: (modelConfig as any).provider_params || {},
@@ -135,10 +141,60 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   if (target) {
     target.clip_path = outPath
     target.rendered_motion_prompt = target.motion_prompt
+    target.clip_source_image_version = target.image_version
+    target.motion_choice = params.auto_approve_clip ? 'clip' : 'pending'
     await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
   }
 
   job.output_dir = outDir
   job.progress = 100
   job.output_lines.push(`✓ Clip saved: ${path.basename(outPath)}`)
+}
+
+/** Durable one-click step: animate every ready scene inside one queue job so
+ * final assembly cannot overtake a fan-out of independent clip jobs. */
+export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
+  const params = job.params as SceneClipGenerateParams
+  const { episode_id, model } = params
+  if (!episode_id || !model) throw new Error('episode_id and model are required')
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
+  const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
+  if (!existsSync(planPath)) throw new Error('No scene_plan.json yet — run Scene Plan first.')
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  const ready = [] as ScenePlan['scenes']
+  for (const scene of plan.scenes) {
+    const image = scene.image_path && existsSync(scene.image_path)
+      ? scene.image_path
+      : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene.id)
+    if (!image || !scene.motion_prompt?.trim()) continue
+    const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
+    const freshClip = existsSync(clipPath)
+      && scene.rendered_motion_prompt === scene.motion_prompt
+      && (scene.image_version == null || scene.clip_source_image_version === scene.image_version)
+    if (!freshClip) ready.push(scene)
+  }
+  if (!ready.length) {
+    job.output_lines.push('All ready scenes already have fresh image-to-video clips.')
+    job.progress = 100
+    return
+  }
+
+  const originalParams = job.params
+  job.output_lines.push(`Motion Clips: ${ready.length} scene(s), processed in order to avoid provider bursts.`)
+  for (let index = 0; index < ready.length; index++) {
+    if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+    const scene = ready[index]!
+    job.params = {
+      episode_id,
+      scene_id: scene.id,
+      model,
+      aspect_ratio: params.aspect_ratio || '16:9',
+      auto_approve_clip: true,
+    }
+    await generateSceneClipJob(job)
+    job.progress = Math.round(((index + 1) / ready.length) * 100)
+  }
+  job.params = originalParams
+  job.output_lines.push(`Motion Clips complete: ${ready.length} generated and selected for assembly.`)
 }

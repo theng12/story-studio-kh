@@ -61,6 +61,8 @@ interface ReviewSceneAugmented {
   clip_exists?: boolean
   /** v1.0.470 — the clip exists but was rendered from a now-changed motion prompt. */
   clip_stale?: boolean
+  /** Explicit Motion Review decision. Undefined is a legacy accepted clip. */
+  motion_choice?: 'pending' | 'clip' | 'still'
 }
 
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
@@ -84,6 +86,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const scenes: ReviewSceneAugmented[] = []
     let approvedCount = 0
     let withImageCount = 0
+    let withClipCount = 0
+    let motionReviewedCount = 0
     for (const s of plan.scenes) {
       const filename = `${s.id}.png`
       const exists = existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))
@@ -91,6 +95,14 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       if (s.approved) approvedCount++
       // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
       const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
+      const clipStale = clipExists && (
+        (typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || ''))
+        || (typeof s.image_version === 'string' && s.clip_source_image_version !== s.image_version)
+      )
+      if (clipExists) withClipCount++
+      if (s.motion_choice === 'still' || (clipExists && !clipStale && (s.motion_choice === 'clip' || s.motion_choice == null))) {
+        motionReviewedCount++
+      }
       scenes.push({
         id: s.id,
         scene_index: s.scene_index,
@@ -110,9 +122,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
           && (s as any).rendered_prompt !== s.visual_prompt,
         // v1.0.470 — clip animation status.
         clip_exists: clipExists,
-        clip_stale: clipExists
-          && typeof s.rendered_motion_prompt === 'string'
-          && s.rendered_motion_prompt !== (s.motion_prompt || ''),
+        clip_stale: clipStale,
+        motion_choice: s.motion_choice,
       })
     }
 
@@ -183,6 +194,9 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         approved: approvedCount,
         with_image: withImageCount,
         all_approved: plan.scenes.length > 0 && approvedCount === plan.scenes.length,
+        with_clip: withClipCount,
+        motion_reviewed: motionReviewedCount,
+        all_motion_reviewed: plan.scenes.length > 0 && motionReviewedCount === plan.scenes.length,
       },
     })
   } catch (e: any) {
@@ -398,7 +412,10 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
       const hasMotion = !!(s.motion_prompt && s.motion_prompt.trim())
       const longEnough = (s.end_sec - s.start_sec) >= animateMinSeconds
       const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
-      const clipStale = clipExists && typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')
+      const clipStale = clipExists && (
+        (typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || ''))
+        || (typeof s.image_version === 'string' && s.clip_source_image_version !== s.image_version)
+      )
       // Animate scenes that are approved + ready (image + motion) + long enough,
       // and not already freshly clipped. Skip in-flight.
       if (!s.approved || !hasImage || !hasMotion || !longEnough || (clipExists && !clipStale)) { skipped++; continue }
@@ -607,6 +624,8 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     // v1.0.473 — stamp rendered_prompt = visual_prompt so an externally-ingested
     // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
     scene.rendered_prompt = scene.visual_prompt
+    scene.image_version = new Date().toISOString()
+    scene.motion_choice = 'pending'
     scene.approved = false   // user re-approves after a manual swap
     await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
     res.json({ ok: true, scene_id: sceneId })
@@ -666,11 +685,57 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     if (target) {
       target.clip_path = outPath
       target.rendered_motion_prompt = target.motion_prompt
+      target.clip_source_image_version = target.image_version
+      target.motion_choice = 'pending'
       await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
     }
     res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded clip'))
+  }
+})
+
+// ── PUT /scene-review/:ep/motion-choice ──────────────────────────────
+// Motion Review never edits timing. It only decides whether assembly should
+// use the reviewed image-to-video clip or deliberately retain the still.
+router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const choice = body.choice
+  if (choice !== 'clip' && choice !== 'still') {
+    return res.status(400).json({ detail: 'choice must be "clip" or "still"' })
+  }
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const targets = body.all === true
+      ? plan.scenes
+      : plan.scenes.filter((scene) => scene.id === body.scene_id)
+    if (!targets.length) return res.status(404).json({ detail: 'Scene not found' })
+
+    let changed = 0
+    for (const scene of targets) {
+      if (choice === 'clip') {
+        const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
+        if (!existsSync(clipPath)) continue
+        const stale = (typeof scene.rendered_motion_prompt === 'string'
+          && scene.rendered_motion_prompt !== (scene.motion_prompt || ''))
+          || (typeof scene.image_version === 'string'
+            && scene.clip_source_image_version !== scene.image_version)
+        if (stale) continue
+      }
+      if (scene.motion_choice !== choice) {
+        scene.motion_choice = choice
+        changed++
+      }
+    }
+    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+    res.json({ ok: true, changed })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save Motion Review decision'))
   }
 })
 
@@ -826,6 +891,7 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
       subtitles: obj(body.subtitles),
       export_settings: obj(body.export_settings),
       transition: obj(body.transition),
+      frame: obj(body.frame),
     },
   })
   res.status(201).json(job)

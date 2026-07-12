@@ -210,6 +210,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     // v1.0.359 — stamp the prompt this image was rendered from so Scene Review
     // can flag it stale if visual_prompt changes later (re-prompt without render).
     target.rendered_prompt = target.visual_prompt
+    target.image_version = new Date().toISOString()
+    target.motion_choice = 'pending'
     // Reset approval if it was set against a prior image — user
     // should re-approve after a regen.
     target.approved = false

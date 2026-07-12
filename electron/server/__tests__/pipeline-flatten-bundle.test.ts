@@ -104,6 +104,7 @@ describe('flattenVideoAssemblyBundle', () => {
             ],
           },
           chapter_titles: { enabled: true, animation: 'fade', animation_duration: 0.6 },
+          frame: { enabled: true, inset_pct: 4, border_width: 12, corner_radius: 28, border_color: '#fff', background_color: '#111' },
           align_visuals_to_chapters: true,
           exclude_intro_from_effects: true,
         },
@@ -116,6 +117,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(((out.overlays as any).layers as any[]).length, 1, 'half-configured + disabled layers filtered out')
     assert.equal(((out.overlays as any).layers as any[])[0].id, 'a')
     assert.equal((out.chapter_titles as any).animation, 'fade')
+    assert.equal((out.frame as any).corner_radius, 28)
     assert.equal(out.align_visuals_to_chapters, true)
     assert.equal(out.exclude_intro_from_effects, true)
   })

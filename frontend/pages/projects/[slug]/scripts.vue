@@ -327,6 +327,20 @@
           </button>
         </div>
 
+        <div class="form-group">
+          <label>Creative freedom</label>
+          <select v-model="form.creative_mode" class="select">
+            <option value="guided">Balanced — format-aware, flexible</option>
+            <option value="open">Open — keep structure, free the writing</option>
+            <option value="strict">Guardrails — follow every format rule</option>
+          </select>
+          <span class="text-muted text-xs">Open preserves chapter counts and voice-safe punctuation, but releases the fixed pacing arc and stock closing.</span>
+        </div>
+        <div class="form-group">
+          <label>Creative brief <span class="text-muted" style="font-weight:400">(optional)</span></label>
+          <textarea v-model="form.creative_direction" class="textarea" rows="3" placeholder="The one artistic direction the model should prioritize across the whole script…" />
+        </div>
+
         <!-- v1.0.196 — narrative point of view (orthogonal to narrator style).
              v1.0.327 — expanded from 3 broad buckets to 8 concrete variants
              so animal-POV / immersive-you / documentary scripts each get
@@ -1111,6 +1125,8 @@ const form = reactive({
   length: Number(route.query.length) || 45,
   model: 'gpt-4o',
   style: 'auto',
+  creative_mode: 'guided' as 'strict' | 'guided' | 'open',
+  creative_direction: '',
   // v1.0.196 — narrative point of view. 'auto' = use the format's default
   // (continuity-chain → first person; others → no override). first/second/third
   // and the v1.0.327 subvariants (first-subject/first-plural/second-immersive/
@@ -1144,7 +1160,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'perspective', 'custom_perspective', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style', 'creative_mode', 'creative_direction', 'perspective', 'custom_perspective', 'generate_image_prompts', 'generate_youtube_desc'],
 })
 
 // v1.0.176 — character references are opt-in. Default OFF; the toggle reveals

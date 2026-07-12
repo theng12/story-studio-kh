@@ -274,7 +274,7 @@ export function runBootMigrations(): void {
       resolve()
     }, BOOT_TIMEOUT_MS)
     timer.unref?.()
-    Promise.allSettled(tasks).then(() => { clearTimeout(timer); resolve() })
+    void Promise.allSettled(tasks).then(() => { clearTimeout(timer); resolve() })
   })
-  settle.then(() => { _bootComplete = true })
+  void settle.then(() => { _bootComplete = true })
 }

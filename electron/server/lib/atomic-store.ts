@@ -30,7 +30,7 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const tail = next.catch(() => {})
   locks.set(key, tail)
   // Opportunistic GC — if nothing else queued after us, drop the entry.
-  tail.then(() => {
+  void tail.then(() => {
     if (locks.get(key) === tail) locks.delete(key)
   })
   return next

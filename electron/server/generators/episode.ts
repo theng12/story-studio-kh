@@ -51,6 +51,23 @@ function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
     ?? list[0]
 }
 
+function applyCreativeFreedom(format: Format, req: GenerateScriptRequest): Format {
+  const mode = req.creative_mode || 'guided'
+  const direction = req.creative_direction?.trim()
+  if (mode === 'strict' && !direction) return format
+  const script = { ...format.script }
+  if (mode === 'open') {
+    script.additionalRules = direction
+      ? [`USER CREATIVE DIRECTION — highest artistic priority: ${direction}`]
+      : ['Choose the narrative voice, imagery, rhythm, and transitions freely; avoid formulaic genre defaults.']
+    script.pacingArc = direction ? [`Follow the user creative direction: ${direction}`] : []
+    script.closingHint = 'End in the way that best completes this specific narration; do not force a stock closing device.'
+  } else if (direction) {
+    script.additionalRules = [...script.additionalRules, `User creative direction: ${direction}`]
+  }
+  return { ...format, script }
+}
+
 // ── Narrative point of view (v1.0.196, expanded v1.0.327) ──────────────────
 // First/second/third person — orthogonal to narrator style. Resolved from the
 // Script form's picker (req.perspective) with the format's defaultPerspective
@@ -491,6 +508,7 @@ async function generateEpisode(job: Job): Promise<void> {
   // niche has no recencyAvoidance config OR the log is empty.
   format = await applyRecencyToFormat(format, project_slug)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
+  format = applyCreativeFreedom(format, req)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
@@ -810,6 +828,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
+  format = applyCreativeFreedom(format, req)
   const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
   const sysPrompt = systemPrompt(format, standards, brand)
@@ -1171,6 +1190,7 @@ async function setupChunkedJobContext(
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
+  format = applyCreativeFreedom(format, req)
   const title = req.title
 
   // For expand-chapters, prefer the sidecar's persisted snapshot over the

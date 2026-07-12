@@ -118,7 +118,7 @@ async function createWindow(port: number) {
 
   if (isDev) {
     // In dev, load Nuxt dev server
-    mainWindow.loadURL('http://localhost:3000')
+    await mainWindow.loadURL('http://localhost:3000')
     // Open DevTools in dev mode
     // mainWindow.webContents.openDevTools()
   } else {
@@ -261,7 +261,7 @@ async function createWindow(port: number) {
 </body></html>`)
     })
 
-    mainWindow.loadURL(`http://127.0.0.1:${port}`)
+    await mainWindow.loadURL(`http://127.0.0.1:${port}`)
   }
 
   // ── Navigation lockdown ──────────────────────────────────────────────────
@@ -284,14 +284,14 @@ async function createWindow(port: number) {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url && /^https?:\/\//.test(url)) shell.openExternal(url)
+    if (url && /^https?:\/\//.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
     if (isOwnOrigin(targetUrl)) return
     event.preventDefault()
-    if (/^https?:\/\//.test(targetUrl)) shell.openExternal(targetUrl)
+    if (/^https?:\/\//.test(targetUrl)) void shell.openExternal(targetUrl)
   })
 
   // Deny every permission request by default (camera, mic, geolocation,
@@ -329,12 +329,12 @@ function buildMenu() {
           label: 'Show Logs',
           click: () => {
             try { fs.mkdirSync(logsDir, { recursive: true }) } catch {}
-            shell.openPath(logsDir)
+            void shell.openPath(logsDir)
           },
         },
         {
           label: 'Show User Data',
-          click: () => shell.openPath(electronApp.getPath('userData')),
+          click: () => { void shell.openPath(electronApp.getPath('userData')) },
         },
       ],
     },
@@ -635,7 +635,7 @@ function clearRunningFlag(): void {
   }
 }
 
-electronApp.whenReady().then(async () => {
+void electronApp.whenReady().then(async () => {
   try {
     buildMenu()
     // Arm the flag and notice if the previous run left one behind. Done
@@ -743,10 +743,10 @@ electronApp.on('window-all-closed', () => {
   }
 })
 
-electronApp.on('activate', async () => {
+electronApp.on('activate', () => {
   if (!mainWindow) {
     const port = server ? (server.address() as any)?.port || 8000 : 8000
-    await createWindow(port)
+    void createWindow(port).catch(e => logCrash('activate-window', e))
   }
 })
 

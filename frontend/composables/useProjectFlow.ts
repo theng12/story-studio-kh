@@ -101,6 +101,7 @@ const STEP = {
   characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet' },
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan' },
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review' },
+  motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review' },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
   timestampAssemble: { key: 'timestamp-assemble', label: 'Timestamp Assemble', icon: '🎞', path: '/timestamp-assemble' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
@@ -121,13 +122,13 @@ const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
+  STEP.scenePlan, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
 // v1.0.301 — Research + Character Sheet exposed as OPTIONAL steps (non-
@@ -137,7 +138,7 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 
 // v1.0.408 — image-pool: same single-narration flow as broll, but the final

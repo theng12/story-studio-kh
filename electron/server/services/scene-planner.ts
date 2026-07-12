@@ -185,7 +185,7 @@ function buildScenePlannerPrompt(opts: {
   // v1.0.242 — visual-prompt detail level. Drives how long + how rich each
   // `visual_prompt` is. Level 2 reproduces the historical "2-3 sentences
   // (~30-60 words)" behaviour, so unset/legacy runs are unchanged.
-  const detail = DETAIL_SPECS[opts.detail_level ?? 2] ?? DETAIL_SPECS[2]!
+  const detail = DETAIL_SPECS[opts.detail_level ?? 4] ?? DETAIL_SPECS[4]!
 
   // continuity-chain only: classify each scene so the renderer can keep the
   // guide character SELECTIVE. The explainer planner has no anchored character,
@@ -1169,7 +1169,7 @@ export async function generateVisualPromptOnly(opts: {
   prev_visual_prompts?: string[]
   next_transcript_segments?: string[]
 }): Promise<string> {
-  const detail = DETAIL_SPECS[opts.detail_level ?? 2] || DETAIL_SPECS[2]!
+  const detail = DETAIL_SPECS[opts.detail_level ?? 4] || DETAIL_SPECS[4]!
   const sysParts: string[] = [
     'You write a single visual scene description for an AI image generator.',
     'Output ONLY the description as natural prose. No JSON, no labels, no quotes, no preamble, no "Here is the description:" — just the description itself.',

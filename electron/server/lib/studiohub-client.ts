@@ -24,7 +24,9 @@
  */
 
 import { promises as fsp } from 'fs'
+import { createReadStream, createWriteStream } from 'fs'
 import path from 'path'
+import { Readable } from 'stream'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getLocalBackend, getHubUrl } from '../services/app-settings.js'
 
@@ -94,7 +96,7 @@ export interface HubJobItem {
 }
 
 export interface HubSubmitBody {
-  modality: 'image' | 'voice' | 'music' | 'video'
+  modality: 'image' | 'voice' | 'music' | 'video' | 'render'
   model: string
   label?: string
   /** 'pool' (Hub picks least-busy capable studio) | 'studio:<id>'. */
@@ -111,6 +113,9 @@ export interface HubBatchItemResult {
   artifact_url?: string
   artifact_path?: string
   asset_id?: string
+  sha256?: string
+  bytes?: number
+  encoder?: string
   error?: string | null
 }
 
@@ -305,6 +310,118 @@ export async function invalidateHubAsset(filePath: string): Promise<void> {
   try {
     assetCache.delete(await assetCacheKey(filePath))
   } catch { /* file gone — nothing to invalidate */ }
+}
+
+export interface HubRenderAsset {
+  assetId: string
+  bytes: number
+  sha256: string
+  url: string
+}
+
+/** Resolve an address a different Mac can use when Story Studio uses localhost. */
+export async function hubWorkerReachableUrl(
+  hubUrl: string,
+  token: string | undefined,
+): Promise<string> {
+  const base = trimHubUrl(hubUrl)
+  if (!isLoopbackHub(base)) return base
+  const resp = await fetch(`${hubApiBase(base)}/access`, {
+    headers: hubHeaders(token), signal: AbortSignal.timeout(10_000),
+  })
+  if (!resp.ok) throw new Error(`Studio Hub access-address lookup failed (${resp.status})`)
+  const value = await resp.json() as { addresses?: Array<{ url?: string; kind?: string }> }
+  const addresses = value.addresses || []
+  const selected = addresses.find(a => a.kind === 'tailscale' && a.url)
+    || addresses.find(a => a.kind === 'lan' && a.url)
+  if (!selected?.url) throw new Error('Studio Hub has no Tailscale or LAN address for render workers')
+  return trimHubUrl(selected.url)
+}
+
+/** Stream a potentially large render input to Hub without buffering it in RAM. */
+export async function hubUploadRenderAsset(
+  hubUrl: string,
+  workerHubUrl: string,
+  token: string | undefined,
+  filePath: string,
+): Promise<HubRenderAsset> {
+  const stat = await fsp.stat(filePath)
+  const body = Readable.toWeb(createReadStream(filePath))
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/render-assets`, {
+      method: 'POST',
+      headers: {
+        ...hubHeaders(token),
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(stat.size),
+        'X-File-Name': path.basename(filePath),
+      },
+      body: body as any,
+      duplex: 'half',
+      signal: AbortSignal.timeout(30 * 60_000),
+    } as any)
+  } catch (e: any) {
+    throw new Error(`Can't stream a render asset to Studio Hub: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub render-asset upload failed (${resp.status}): ${detail.slice(0, 300)}`)
+  }
+  const value = await resp.json() as { asset_id: string; bytes: number; sha256: string; path: string }
+  return {
+    assetId: value.asset_id,
+    bytes: value.bytes,
+    sha256: value.sha256,
+    url: `${trimHubUrl(workerHubUrl)}${value.path}`,
+  }
+}
+
+export async function hubDeleteRenderAsset(
+  hubUrl: string,
+  token: string | undefined,
+  assetId: string,
+): Promise<void> {
+  await fetch(`${hubApiBase(hubUrl)}/render-assets/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE', headers: hubHeaders(token), signal: AbortSignal.timeout(30_000),
+  }).catch(() => {})
+}
+
+/** Download a completed worker artifact atomically and verify its SHA-256. */
+export async function hubDownloadRenderResult(
+  artifactUrl: string,
+  token: string | undefined,
+  destination: string,
+  expectedSha256?: string,
+): Promise<void> {
+  const crypto = await import('crypto')
+  const temp = `${destination}.partial-${Date.now()}`
+  const resp = await fetch(artifactUrl, {
+    headers: hubHeaders(token), signal: AbortSignal.timeout(30 * 60_000),
+  })
+  if (!resp.ok || !resp.body) throw new Error(`Render result download failed (${resp.status})`)
+  await fsp.mkdir(path.dirname(destination), { recursive: true })
+  const digest = crypto.createHash('sha256')
+  const output = createWriteStream(temp, { flags: 'wx' })
+  try {
+    for await (const chunk of Readable.fromWeb(resp.body as any)) {
+      digest.update(chunk as Buffer)
+      if (!output.write(chunk)) await new Promise(resolve => output.once('drain', resolve))
+    }
+    await new Promise<void>((resolve, reject) => {
+      output.once('error', reject)
+      output.end(resolve)
+    })
+    const actual = digest.digest('hex')
+    if (expectedSha256 && actual !== expectedSha256) {
+      throw new Error(`Returned render checksum mismatch (expected ${expectedSha256}, received ${actual})`)
+    }
+    await fsp.rename(temp, destination)
+  } catch (error) {
+    output.destroy()
+    await fsp.rm(temp, { force: true }).catch(() => {})
+    throw error
+  }
 }
 
 // ── Fleet control (ops) ────────────────────────────────────────────────────

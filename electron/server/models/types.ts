@@ -1989,7 +1989,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'youtube_thumbnail_refresh' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'scene_images_batch' | 'scene_clip_generate' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup' | 'image_pool_generate'
+export type JobType = 'broll_select' | 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'youtube_thumbnail_refresh' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'scene_images_batch' | 'scene_clip_generate' | 'scene_clips_batch' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup' | 'image_pool_generate'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**
@@ -2064,6 +2064,12 @@ export interface GenerateIdeasRequest {
   keywords?: string[]
   count: number
   model: string
+  /** Creative constraint level. Defaults to guided for new callers while
+   * strict preserves the legacy highly-directed prompt. */
+  creative_mode?: 'strict' | 'guided' | 'open'
+  /** User-authored creative brief. In open mode this is the primary artistic
+   * direction; technical output/schema requirements still apply. */
+  creative_direction?: string
   /**
    * v1.0.165+ — optional title template. When set (e.g. "Fall asleep to
    * {X}"), the idea-generator prompt instructs the LLM to shape EVERY
@@ -2104,6 +2110,8 @@ export interface GenerateScriptRequest {
   length: number
   model: string
   style: string
+  creative_mode?: 'strict' | 'guided' | 'open'
+  creative_direction?: string
   chapters: number
   total_words?: number
   words_per_chapter?: number
@@ -2675,6 +2683,19 @@ export interface VideoLetterbox {
   color: string           // bar color, default 'black'
 }
 
+export interface VideoFrameConfig {
+  enabled: boolean
+  /** Empty space between the output edge and frame, percent of short side. */
+  inset_pct: number
+  /** Border thickness in pixels at 1080p; scales with output resolution. */
+  border_width: number
+  /** Media corner radius in pixels at 1080p; scales with output resolution. */
+  corner_radius: number
+  border_color: string
+  background_color: string
+  fit?: 'cover' | 'contain'
+}
+
 // Subtitles — burned into the final video via FFmpeg's `subtitles=` filter
 // (libass). Three sources feed a single on-disk SRT:
 //   - 'chapters'  : derived from chapter audio file durations + their labels
@@ -2835,6 +2856,7 @@ export interface GenerateVideoRequest {
   chapter_durations?: Array<{ slug: string; duration_s: number }>
   film_grain?: VideoFilmGrain
   letterbox?: VideoLetterbox
+  frame?: VideoFrameConfig
   subtitles?: VideoSubtitleConfig
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
   /** v1.0.423 — sleep-story intro handling. When on, the title (thumbnail) card
@@ -3265,6 +3287,8 @@ export interface ScenePlanEntry {
    *  edited+saved in Scene Review without re-rendering), the image is STALE —
    *  Scene Review flags it. Absent on images rendered before this shipped. */
   rendered_prompt?: string
+  /** Changes whenever the still is replaced, even when the prompt is identical. */
+  image_version?: string
   /** Reason the LLM picked this scene boundary, used as a hint in
    *  the Scene Plan UI ("Topic shift to <X>", "Named entity intro:
    *  <Y>"). Optional. */
@@ -3292,6 +3316,12 @@ export interface ScenePlanEntry {
    *  from. If it later differs from `motion_prompt` (user re-prompted), the clip
    *  is STALE — Scene Review flags it, mirroring `rendered_prompt` for images. */
   rendered_motion_prompt?: string
+  /** image_version used as the clip's first frame; enables source-image stale checks. */
+  clip_source_image_version?: string
+  /** Motion Review decision. New clips start as `pending`; the operator can
+   *  approve the clip or intentionally keep the still. Missing means a legacy
+   *  pre-review clip and remains accepted for backward compatibility. */
+  motion_choice?: 'pending' | 'clip' | 'still'
   /** v1.0.260 — the guide character's expression for this scene (e.g. curiosity,
    *  wonder, care, concern), auto-derived by the Prompt Director from the beat
    *  and user-overridable in the Scene Plan / Scene Review UI. */

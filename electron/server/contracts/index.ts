@@ -236,6 +236,10 @@ export interface ProjectMetaResponse {
   subfolder_names: Record<string, string>
   output_root: string
   created_at: string
+  project_id?: string
+  format_id?: string
+  brand_id?: string
+  niche_id?: string
 }
 
 /** Shape of `GET /projects` — list view summary, never includes keys. */

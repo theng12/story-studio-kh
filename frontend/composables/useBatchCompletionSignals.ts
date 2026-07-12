@@ -99,7 +99,7 @@ export function useBatchCompletionSignals(getJobs: () => readonly Job[]) {
       ? `Pipeline finished — ${success}/${total} succeeded, ${failed} failed`
       : `Pipeline finished — ${success}/${total} episodes complete`
     const target = slug ? `/projects/${slug}/jobs` : '/'
-    showAction(msg, 'View jobs', () => navigateTo(target), failed > 0 ? 'info' : 'success')
+    showAction(msg, 'View jobs', async () => { await navigateTo(target) }, failed > 0 ? 'info' : 'success')
     isUnread.value = true
     applyBadge()
   }

@@ -960,7 +960,7 @@
 
       <PresetPicker
         label="Effects preset"
-        hint="Captures logo, color grading, vignette, grain, letterbox, chroma key, and all the text overlays."
+        hint="Captures logo, color grading, vignette, grain, presentation frame, letterbox, chroma key, and all text overlays."
         :presets="effectsPresets.presets.value"
         :active-id="effectsPresets.activeId.value"
         @update:active-id="effectsPresets.setActive"
@@ -975,8 +975,8 @@
       <div class="effects-split-layout mt-2">
         <!-- LEFT: Sticky Effect Preview -->
         <div class="effects-preview-sticky" v-if="previewSceneImage">
-          <div class="effect-preview-frame">
-            <img :src="getImagePreviewUrl(previewSceneImage)" alt="Preview" class="effect-preview-img" :style="effectPreviewImgStyle" />
+          <div class="effect-preview-frame" :style="frameCanvasStyle">
+            <img :src="getImagePreviewUrl(previewSceneImage)" alt="Preview" class="effect-preview-img" :style="{ ...effectPreviewImgStyle, ...frameMediaStyle }" />
             <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
             <div v-if="filmGrain.enabled" class="effect-grain-overlay" :style="{ opacity: filmGrain.strength / 80 }" />
             <template v-if="letterbox.enabled">
@@ -1362,6 +1362,51 @@
               Values above 20 add visible noise and can significantly increase final file size —
               random noise doesn't compress well. <strong>10–15</strong> is a subtle cinematic look.
             </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Letterbox -->
+      <div class="settings-section mt-2 frame-settings">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="frame.enabled" />
+          </label>
+          <h4>Presentation Frame</h4>
+          <span class="text-muted text-sm">(video inside a border or board)</span>
+        </div>
+        <p class="text-muted text-sm mt-1">Adds a visible matte around the complete video. Rounded corners affect the video surface, while subtitles and logos remain part of the framed composition.</p>
+        <div v-if="frame.enabled" class="mt-2">
+          <div class="grid-3">
+            <div class="form-group">
+              <label>Outer inset ({{ frame.inset_pct }}%)</label>
+              <SliderWithNumber v-model="frame.inset_pct" :min="0" :max="20" :step="0.5" :decimals="1" suffix="%" />
+            </div>
+            <div class="form-group">
+              <label>Border width ({{ frame.border_width }}px)</label>
+              <SliderWithNumber v-model="frame.border_width" :min="0" :max="100" :step="1" suffix="px" />
+            </div>
+            <div class="form-group">
+              <label>Corner radius ({{ frame.corner_radius }}px)</label>
+              <SliderWithNumber v-model="frame.corner_radius" :min="0" :max="200" :step="2" suffix="px" />
+            </div>
+          </div>
+          <div class="grid-3 mt-2">
+            <div class="form-group">
+              <label>Border color</label>
+              <input v-model="frame.border_color" type="color" class="color-swatch-input" />
+            </div>
+            <div class="form-group">
+              <label>Board color</label>
+              <input v-model="frame.background_color" type="color" class="color-swatch-input" />
+            </div>
+            <div class="form-group">
+              <label>Video fit</label>
+              <select v-model="frame.fit" class="select">
+                <option value="cover">Fill frame (crop edges)</option>
+                <option value="contain">Fit whole video</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -2116,7 +2161,7 @@
             :style="subtitles.style"
             :backdrop-url="subtitleBackdropUrl"
             :sample-text="sampleSubtitleText"
-            @update:style="(s) => subtitles.style = s"
+            @update:style="(s: any) => Object.assign(subtitles.style, s)"
           />
         </div>
       </div>
@@ -2508,6 +2553,7 @@
 </template>
 
 <script setup lang="ts">
+import type { CSSProperties } from 'vue'
 import { poolMediaOf } from '~/composables/useBrollPools'
 import { buildSceneAssetImportItems } from '~/utils/video-assembly-assets'
 
@@ -3366,6 +3412,16 @@ const letterbox = reactive({
   color: 'black',
 })
 
+const frame = reactive({
+  enabled: false,
+  inset_pct: 4,
+  border_width: 12,
+  corner_radius: 28,
+  border_color: '#FFFFFF',
+  background_color: '#101820',
+  fit: 'cover' as 'cover' | 'contain',
+})
+
 const excludeIntroFromEffects = ref(true)
 
 // Workstream B (v1.0.54+): per-scene audio-to-visual alignment.
@@ -3760,6 +3816,7 @@ const effectsPresets = usePresets({
     vignette: { ...vignette },
     film_grain: { ...filmGrain },
     letterbox: { ...letterbox },
+    frame: { ...frame },
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
@@ -3785,6 +3842,7 @@ const effectsPresets = usePresets({
     if (data.vignette) Object.assign(vignette, data.vignette)
     if (data.film_grain) Object.assign(filmGrain, data.film_grain)
     if (data.letterbox) Object.assign(letterbox, data.letterbox)
+    if (data.frame) Object.assign(frame, data.frame)
     if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
     if (data.overlays && Array.isArray(data.overlays.layers)) {
       overlays.enabled = !!data.overlays.enabled
@@ -4551,6 +4609,7 @@ const activeEffectsList = computed(() => {
   if (vignette.enabled) items.push('Vignette')
   if (filmGrain.enabled) items.push('Film Grain')
   if (letterbox.enabled) items.push(`Letterbox ${letterbox.ratio}`)
+  if (frame.enabled) items.push(`Frame ${frame.inset_pct}% / ${frame.corner_radius}px corners`)
   if (chromaKey.enabled) items.push('Chroma Key')
   return items.length ? items.join(', ') : 'None'
 })
@@ -4666,6 +4725,24 @@ const letterboxBarHeight = computed(() => {
   if (ratio <= frameAspect) return '0px'
   const barPct = ((1 - frameAspect / ratio) / 2) * 100
   return `${barPct.toFixed(1)}%`
+})
+
+const frameCanvasStyle = computed<CSSProperties>(() => frame.enabled
+  ? { background: frame.background_color }
+  : {})
+const frameMediaStyle = computed<CSSProperties>(() => {
+  if (!frame.enabled) return {}
+  const inset = Math.max(0, Math.min(20, Number(frame.inset_pct) || 0))
+  return {
+    position: 'absolute',
+    inset: `${inset}%`,
+    width: `${100 - inset * 2}%`,
+    height: `${100 - inset * 2}%`,
+    border: `${Math.max(0, Number(frame.border_width) || 0) / 4}px solid ${frame.border_color}`,
+    borderRadius: `${Math.max(0, Number(frame.corner_radius) || 0) / 4}px`,
+    boxSizing: 'border-box',
+    objectFit: frame.fit,
+  }
 })
 
 // Logo preview
@@ -4900,7 +4977,7 @@ const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateV
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenePoolMode, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
-  colorGrading, vignette, filmGrain, letterbox, chromaKey,
+  colorGrading, vignette, filmGrain, letterbox, frame, chromaKey,
   overlays,
   alignVisualsToChapters,
   sceneAssignmentSaved,

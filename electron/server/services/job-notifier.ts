@@ -202,7 +202,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   audio: 'Audio', audio_merge: 'Audio merge', metadata: 'Metadata',
   video: 'Video clips', video_repair: 'Video repair', video_assembly: 'Video assembly',
   subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
-  scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', continuity_render: 'Scene render',
+  scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',
   prompt_director: 'Prompt director', composition_generate: 'Composition',
   expression_markup: 'Expression markup',
   research_run: 'Research', timestamp_assemble: 'Final video',

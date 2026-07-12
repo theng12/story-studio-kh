@@ -279,6 +279,7 @@
               </div>
               <ChipInput
                 :model-value="clip.tags"
+                :suggestions="[]"
                 placeholder="add tags…"
                 allow-custom
                 :disabled="!selectedPool.online"

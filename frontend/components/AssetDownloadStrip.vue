@@ -35,7 +35,7 @@ const props = withDefaults(defineProps<{
 
 const { jobs } = useJobs()
 
-const activeJob = computed<Job | undefined>(() => {
+const activeJob = computed(() => {
   return jobs.value.find((j: Job) =>
     j.status === 'running'
     && props.jobTypes.includes(j.type)

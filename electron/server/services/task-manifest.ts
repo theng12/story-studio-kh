@@ -118,7 +118,9 @@ export async function recordTask(
   writeChains.set(key, next)
   // Drop the chain reference once this write settles AND it's still the
   // tail. Keeps the Map bounded; later recordTask calls start a fresh chain.
-  next.finally(() => {
+  void next.then(() => {
+    if (writeChains.get(key) === next) writeChains.delete(key)
+  }, () => {
     if (writeChains.get(key) === next) writeChains.delete(key)
   })
   return next

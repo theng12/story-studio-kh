@@ -461,6 +461,7 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 
 export const LOCAL_BACKEND_KEY = 'local_backend'
 export const HUB_URL_KEY = 'hub_url'
+export const RENDER_WORKERS_ENABLED_KEY = 'render_workers_enabled'
 export const DEFAULT_HUB_URL = 'http://127.0.0.1:47873'
 export type LocalBackend = 'direct' | 'hub'
 
@@ -482,6 +483,14 @@ export async function setHubUrl(url: string): Promise<void> {
   const cleaned = typeof url === 'string' ? url.trim() : ''
   // Empty → clear override (falls back to DEFAULT_HUB_URL on read).
   await setAppSetting(HUB_URL_KEY, cleaned)
+}
+
+export async function getRenderWorkersEnabled(): Promise<boolean> {
+  return (await getAppSetting(RENDER_WORKERS_ENABLED_KEY)) === true
+}
+
+export async function setRenderWorkersEnabled(enabled: boolean): Promise<void> {
+  await setAppSetting(RENDER_WORKERS_ENABLED_KEY, enabled === true)
 }
 
 // ── Endpoint labels (v1.0.281) ──────────────────────────────────────────────

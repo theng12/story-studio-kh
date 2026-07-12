@@ -142,50 +142,9 @@
         Project-wide. Scenes are planned from the first story chapter onward. At render, the title (thumbnail) card is auto-held through the intro and intro captions are hidden by default — so story scenes line up with their narration.
       </p>
 
-      <!-- v1.0.475 — image-to-video (motion) planning settings (per-project). -->
-      <label class="flex items-center gap-1 mt-3 text-sm" title="When on, the planner writes a per-scene motion_prompt (image-to-video instruction) alongside each visual_prompt. Turn off if this channel never animates scenes.">
-        <input type="checkbox" :checked="motionEnabled" @change="setMotionEnabled(($event.target as HTMLInputElement).checked)" />
-        Generate <strong>motion prompts</strong> for image-to-video
-      </label>
-      <div v-if="motionEnabled" class="flex items-center gap-2 mt-1 text-sm" title="Baseline motion intensity for generated motion prompts. 1 = barely-there drift, 4 = livelier (still smooth). Sleep stories ~2.">
-        <span class="text-muted">Motion level</span>
-        <select :value="motionLevel" @change="setMotionLevel(Number(($event.target as HTMLSelectElement).value))" class="select select-sm" style="max-width: 220px;">
-          <option :value="1">1 — Minimal drift</option>
-          <option :value="2">2 — Gentle (sleep-story)</option>
-          <option :value="3">3 — Moderate</option>
-          <option :value="4">4 — Lively</option>
-        </select>
-      </div>
-
-      <!-- v1.0.242 — visual-prompt detail slider. Controls how richly the LLM
-           writes each scene's visual_prompt (length + which elements to cover). -->
-      <div class="form-group mt-3">
-        <label>
-          Visual detail
-          <span class="detail-pill">{{ detailMeta?.label }}</span>
-        </label>
-        <input
-          v-model.number="form.detail_level"
-          type="range"
-          min="1"
-          max="4"
-          step="1"
-          class="detail-slider"
-          list="detail-stops"
-        />
-        <datalist id="detail-stops">
-          <option value="1" label="Concise"></option>
-          <option value="2" label="Standard"></option>
-          <option value="3" label="Detailed"></option>
-          <option value="4" label="Cinematic"></option>
-        </datalist>
-        <div class="detail-ticks">
-          <span :class="{ on: form.detail_level === 1 }">Concise</span>
-          <span :class="{ on: form.detail_level === 2 }">Standard</span>
-          <span :class="{ on: form.detail_level === 3 }">Detailed</span>
-          <span :class="{ on: form.detail_level === 4 }">Cinematic</span>
-        </div>
-        <p class="text-muted text-xs mt-1">{{ detailMeta?.hint }}</p>
+      <div class="detail-default mt-3">
+        <strong>Full-detail visual prompts</strong>
+        <span>Always on: composition, lighting, palette, atmosphere, and camera direction.</span>
       </div>
 
       <!-- v1.0.468 — motion-prompt controls. The planner also writes a per-scene
@@ -225,6 +184,10 @@
           <p class="text-muted text-xs mt-1">{{ motionMeta?.hint }}</p>
         </div>
       </div>
+
+      <details class="planner-advanced mt-3">
+        <summary>Advanced planner tuning</summary>
+        <p class="text-muted text-xs mt-1">Defaults are tuned for fast parallel planning. Open this only for a weak local model or a project that truly needs cross-segment continuity.</p>
 
       <!-- v1.0.509 — fast "prompt model" for the short LLM tasks (motion +
            thumbnail prompts). Off = each step uses its own model. -->
@@ -299,8 +262,8 @@
           <span>“Story so far” continuity across segments</span>
         </label>
         <p class="text-muted text-xs mt-1">
-          <strong>On</strong> (default): each segment sees a recap of earlier ones, so recurring characters/setting carry across seams — but segments must plan <em>one after another</em>.
-          <strong>Off</strong>: segments plan <strong>in parallel</strong> (much faster on long videos) at the cost of weaker cross-seam continuity. Great when each scene stands on its own; save it in a preset either way.
+          <strong>Off</strong> (default): segments plan in parallel for much faster long-video planning.
+          <strong>On</strong>: segments run one after another with a rolling recap when recurring details truly must cross segment boundaries.
         </p>
       </div>
 
@@ -317,6 +280,7 @@
         </select>
         <p class="text-muted text-xs mt-1">{{ neighborContextMeta.hint }}</p>
       </div>
+      </details>
 
       <!-- v1.0.364 — unified channel Look. The same shipped-style gallery used
            on the Character Sheet; picking one sets the Style Bible applied to
@@ -1032,9 +996,8 @@ const form = ref({
   model: '',  // ModelSelector auto-picks first usable
   target_scene_count: null as number | null,
   use_research: true,
-  // v1.0.242 — visual-prompt richness (1=Concise … 4=Cinematic). 2 = the
-  // historical default, so existing behaviour is unchanged until changed.
-  detail_level: 2,
+  // Retained in saved presets for compatibility; every new run sends level 4.
+  detail_level: 4,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: true,
@@ -1051,10 +1014,10 @@ const form = ref({
   // when they hit the empty-visual_prompts fallback, without sacrificing
   // the cloud's more efficient batched output.
   window_size: 'auto' as 'auto' | 'full' | 'small',
-  // v1.0.508 — "story so far" cross-window continuity. true (default) plans
+  // v1.0.508 — "story so far" cross-window continuity. false (default) plans
   // segments sequentially with a rolling recap; false plans them in parallel
   // (much faster on multi-segment episodes, weaker cross-seam continuity).
-  cross_window_context: true,
+  cross_window_context: false,
   // v1.0.291 — planning architecture toggle.
   //   'single-pass' — historical windowed LLM (default; works great on cloud)
   //   'two-pass'    — deterministic split + per-scene prompts (best for
@@ -1162,7 +1125,7 @@ async function planScenes(): Promise<void> {
       model: form.value.model,
       target_scene_count: form.value.target_scene_count || undefined,
       use_research: form.value.use_research,
-      detail_level: form.value.detail_level,
+      detail_level: 4,
       // v1.0.468 — image-to-video motion prompts (off → planner skips them).
       generate_motion_prompts: form.value.generate_motion_prompts,
       motion_level: form.value.generate_motion_prompts ? form.value.motion_level : undefined,
@@ -1298,7 +1261,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
     await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
       scene_id: scene.id,
       model: form.value.model,
-      detail_level: form.value.detail_level,
+      detail_level: 4,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
@@ -1387,7 +1350,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-empty-prompts`, {
       model: form.value.model,
-      detail_level: form.value.detail_level,
+      detail_level: 4,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
@@ -1504,7 +1467,7 @@ async function replanAllEmpty(): Promise<void> {
       await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
         scene_id: next.id,
         model: form.value.model,
-        detail_level: form.value.detail_level,
+        detail_level: 4,
         style_prompt: form.value.style_prompt.trim() || undefined,
         custom_instructions: form.value.custom_instructions.trim() || undefined,
         window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
@@ -1613,7 +1576,7 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
     await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
       scene_id: scene.id,
       model: form.value.model,
-      detail_level: form.value.detail_level,
+      detail_level: 4,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
       // v1.0.285 — keep behaviour consistent with the full-plan call.
@@ -1776,7 +1739,7 @@ const planPresets = usePresets<any>({
     model: form.value.model,
     target_scene_count: form.value.target_scene_count,
     use_research: form.value.use_research,
-    detail_level: form.value.detail_level,
+    detail_level: 4,
     style_prompt: form.value.style_prompt,
     custom_instructions: form.value.custom_instructions,
     // v1.0.508 — persist the run-shaping toggles so a preset captures the
@@ -1808,6 +1771,24 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 .block { display: block; }
 .link { color: var(--accent, #6c8fff); text-decoration: underline; cursor: pointer; }
 .mb-1 { margin-bottom: 4px; }
+
+.detail-default {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+}
+.detail-default span { color: var(--text-muted); font-size: 12px; }
+.planner-advanced {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+.planner-advanced > summary { cursor: pointer; font-weight: 650; }
 
 /* v1.0.291 — planning-mode radio group. Each radio card spans full width
    with its description below so the user can scan both options at a glance. */

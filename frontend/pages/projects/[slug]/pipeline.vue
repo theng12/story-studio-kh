@@ -8,10 +8,10 @@
       :project-slug="slug"
       episode-mode="multi"
       :generate-label="runButtonLabel"
-      loading-label="Queuing…"
-      :generate-loading="submitting"
+      :loading-label="preflighting ? 'Checking…' : 'Queuing…'"
+      :generate-loading="submitting || preflighting"
       :generate-disabled="!canRun"
-      :generate-status="submitting ? 'Queuing batch…' : ''"
+      :generate-status="preflighting ? 'Checking every episode before anything starts…' : (submitting ? 'Queuing batch…' : '')"
       @generate="openConfirm"
     />
 
@@ -114,6 +114,11 @@
         Showing the <strong>{{ chainLabel }}</strong> chain.
         <span v-if="hasExternalNodes">Steps marked “↗” run from their own page (not part of Run Batch) — they're shown here so the full order is visible.</span>
       </p>
+
+      <div v-if="preflightSummary" class="preflight-ok mt-2" role="status">
+        <strong>Preflight passed</strong>
+        <span>{{ preflightSummary }}</span>
+      </div>
     </div>
 
     <!-- ── Episodes to include ──────────────────────────────────────────── -->
@@ -576,12 +581,12 @@ watch(slug, () => {
 // to already-generated scripts via the per-page UI). The intro step is
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
-  | 'script-only' | 'introduction-only'
+  | 'research' | 'broll' | 'script-only' | 'introduction-only'
   | 'image_prompts' | 'scene_prompts' | 'scene_images' | 'thumb_images' | 'audio' | 'audio_merge'
   | 'metadata' | 'video' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
-  | 'subtitles' | 'scene_plan' | 'scene_review' | 'character_sheet' | 'timestamp_assemble'
+  | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'character_sheet' | 'timestamp_assemble'
 interface StepMeta {
   id: StepId
   label: string
@@ -642,6 +647,8 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 // actually SEES is `chainEntries` — a per-format ordered slice of this
 // list interleaved with EXTERNAL_NODES (see below).
 const stepsMeta: StepMeta[] = [
+  { id: 'research',          label: 'Research',          icon: '🔍', link: '/research',       presetList: 'research_presets',        presetActive: 'research_last_preset_research' },
+  { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
@@ -660,9 +667,10 @@ const stepsMeta: StepMeta[] = [
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_presets',  presetActive: 'scene_review_last_preset_scene-review' },
+  { id: 'motion_review',     label: 'Motion Clips (image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, warning: 'Generates one image-to-video clip per ready scene — provider charges apply' },
   // Timestamp/continuity final render. Runs with built-in export defaults — no
   // server-side preset (its settings live in a per-Mac remembered form).
-  { id: 'timestamp_assemble', label: 'Final Video (timestamp)', icon: '🎬', link: '/timestamp-assemble', presetList: '', presetActive: '' },
+  { id: 'timestamp_assemble', label: 'Final Video (timestamp)', icon: '🎬', link: '/timestamp-assemble', presetList: 'timestamp_assemble_presets', presetActive: 'timestamp_assemble_last_preset' },
   { id: 'video_assembly',    label: 'Video Assembly',    icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
 ]
 const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
@@ -671,7 +679,7 @@ const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
 // preset). Their tiles show a "no preset needed" note instead of the preset
 // dropdown, and they're exempt from the "no active preset" blocking check.
 // Mirrors NO_PRESET_STEPS in electron/server/routes/pipeline.ts.
-const NO_PRESET_STEPS = new Set<StepId>(['timestamp_assemble'])
+const NO_PRESET_STEPS = new Set<StepId>()
 function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 
 // ── Per-format chains ───────────────────────────────────────────────────
@@ -692,7 +700,7 @@ const CHAIN_BROLL: ChainSpec = [
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
-  { external: 'broll' },
+  'broll',
 ]
 // v1.0.363 — Scene Plan, Scene Review (render) and the final Timestamp
 // Assemble are now real chain steps. One "Run all the way" click plans the
@@ -701,22 +709,22 @@ const CHAIN_BROLL: ChainSpec = [
 // stop after the render and review the images by hand). Subtitles slots in
 // right after Audio Merge.
 const CHAIN_TIMESTAMP: ChainSpec = [
-  { external: 'research' },
+  'research',
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
-  'scene_plan', 'scene_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
 // planning. Character Sheet is config-only: the batch writes continuity.json
 // from your saved whole-page preset, so the planner + renderer see the anchor.
 const CHAIN_CONTINUITY: ChainSpec = [
-  { external: 'research' },
+  'research',
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
 // audio-paced scene planning as continuity; Character Sheet stays available
@@ -724,12 +732,11 @@ const CHAIN_CONTINUITY: ChainSpec = [
 // (scenes are NOT hard-locked to the sheet via img2img), but the chain order
 // is identical.
 const CHAIN_NARRATED_SCENES: ChainSpec = [
-  { external: 'research' },
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
 ]
 
 const activeChainSpec = computed<ChainSpec>(() => {
@@ -769,6 +776,8 @@ const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 
 const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
 
 const stepChecked = reactive<Record<StepId, boolean>>({
+  research: true,
+  broll: true,
   'script-only': true,
   // v1.0.363 — Introduction defaults OFF. It was a sleep-story convention;
   // for every current format it's redundant, and nothing downstream gates on
@@ -791,6 +800,10 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   character_sheet: true,
   scene_plan: true,
   scene_review: true,
+  // Audio-paced formats now use text-to-image followed by image-to-video.
+  // Provider spend is surfaced on the tile and preflight, but the step is part
+  // of the requested one-click chain once a Motion Review preset is saved.
+  motion_review: true,
   timestamp_assemble: true,
   // video_assembly defaults ON so "Run all pending" finishes episodes end
   // -to-end in one click. The chain mechanism guarantees it waits for its
@@ -845,6 +858,7 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
   // v1.0.363 — typed-preset steps: untyped pointer as the legacy fallback.
   scene_plan: 'scene_plan_last_preset',
   scene_review: 'scene_review_last_preset',
+  motion_review: 'motion_review_last_preset',
   character_sheet: 'continuity_page_last_preset',
 }
 
@@ -855,11 +869,14 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
 // missing (happens when the active-pointer key is dropped on older saves
 // or when the user removed the active preset without re-selecting one).
 const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
+  research: 'research',
+  broll: 'broll',
   'script-only': 'script',
   'introduction-only': 'introduction',
   // v1.0.363 — match each page's usePresets({ presetType }).
   scene_plan: 'scene-plan',
   scene_review: 'scene-review',
+  motion_review: 'motion-review',
   character_sheet: 'continuity-page',
 }
 
@@ -941,6 +958,7 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 // while the PUT round-trips. Avoids a double-fire if the user mashes the
 // dropdown twice fast.
 const presetSaving = reactive<Record<StepId, boolean>>({
+  research: false, broll: false,
   'script-only': false, 'introduction-only': false, metadata: false,
   image_prompts: false, scene_prompts: false,
   // v1.0.87+: split image steps.
@@ -949,7 +967,7 @@ const presetSaving = reactive<Record<StepId, boolean>>({
   audio: false, audio_merge: false, video_assembly: false,
   // v1.0.363 — audio-paced format steps.
   subtitles: false, character_sheet: false, scene_plan: false,
-  scene_review: false, timestamp_assemble: false,
+  scene_review: false, motion_review: false, timestamp_assemble: false,
 })
 
 async function onPresetChange(stepId: StepMeta['id'], presetId: string) {
@@ -1246,6 +1264,7 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     case 'subtitles':          return !!s.subtitles
     case 'scene_plan':         return !!s.scene_plan
     case 'scene_review':       return !!s.scene_review
+    case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet
     case 'timestamp_assemble': return !!s.video_assembly
     case 'video':              return !!s.video
@@ -1367,6 +1386,7 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'subtitles':         return 'subtitles' in ov
     case 'scene_plan':        return 'scene_plan' in ov
     case 'scene_review':      return 'scene_review' in ov
+    case 'motion_review':     return 'motion_review' in ov
     case 'character_sheet':   return 'character_sheet' in ov
     case 'timestamp_assemble': return 'video_assembly' in ov
     case 'video':             return 'video' in ov
@@ -1578,7 +1598,7 @@ const blockingIssues = computed<string[]>(() => {
   return issues
 })
 
-const canRun = computed(() => blockingIssues.value.length === 0 && !submitting.value)
+const canRun = computed(() => blockingIssues.value.length === 0 && !submitting.value && !preflighting.value)
 const runButtonLabel = computed(() => {
   if (selectedEpisodes.size === 0 || checkedStepCount.value === 0) return 'Run Batch'
   return `Run Batch (${selectedEpisodes.size * checkedStepCount.value} jobs)`
@@ -1586,7 +1606,9 @@ const runButtonLabel = computed(() => {
 
 // ── Submit ─────────────────────────────────────────────────────────────
 const submitting = ref(false)
+const preflighting = ref(false)
 const showConfirm = ref(false)
+const preflightSummary = ref('')
 // Force re-run: opt-in to regenerate every selected step even if its
 // output already exists on disk. Off by default so routine batch runs
 // don't silently burn tokens on work that's already done.
@@ -1595,9 +1617,34 @@ const forceRerunTitle = computed(() => forceRerun.value
   ? 'Force re-run is ON — every selected step will run for every selected episode, regardless of existing output.'
   : 'Force re-run is OFF — steps whose output already exists will be skipped automatically.')
 
-function openConfirm() {
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / (1024 ** index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`
+}
+
+async function openConfirm() {
   if (!canRun.value) return
-  showConfirm.value = true
+  preflighting.value = true
+  preflightSummary.value = ''
+  try {
+    const body = {
+      episode_ids: [...selectedEpisodes],
+      steps: checkedStepsOrdered.value.map(s => s.id),
+      force: forceRerun.value,
+    }
+    const result = await post<any>(`/projects/${slug.value}/pipeline/preflight`, body)
+    const estimated = Number(result?.estimated_bytes || 0)
+    const storage = estimated > 0 ? ` Estimated workspace: ${formatFileSize(estimated)}.` : ''
+    preflightSummary.value = `${result.episodes} episode(s) and ${result.steps} step(s) are ready.${storage}`
+    showConfirm.value = true
+  } catch (e: any) {
+    const issues = Array.isArray(e?.data?.issues) ? e.data.issues : []
+    showError(issues.length ? issues.map((issue: any) => issue.message).join(' ') : (e?.data?.detail || 'Preflight failed'))
+  } finally {
+    preflighting.value = false
+  }
 }
 
 async function submit() {
@@ -1640,6 +1687,18 @@ async function submit() {
 /* Episodes-card header — wraps onto a second line on narrow viewports
  * with a smaller gap than the rest of the page. */
 .episodes-header { gap: 8px; }
+
+.preflight-ok {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
 
 /* "Can't start yet" problems list — bullet indent + slightly smaller
  * type than body copy. */

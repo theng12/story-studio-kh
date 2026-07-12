@@ -22,7 +22,7 @@ export interface BrollPool {
   name: string
   folder_path: string
   /** v1.0.403 — 'image' = Image Pool (slideshow); absent/'video' = B-Roll clips. */
-  media?: 'video' | 'image'
+  media?: 'video' | 'image' | 'audio'
   auto_normalize: boolean
   fps_target: 24 | 30
   resolution_target: '1920x1080'
@@ -35,8 +35,8 @@ export interface BrollPool {
 
 /** Match the backend's `poolMedia()` compatibility rule: pools created before
  *  the media field existed are B-Roll video pools, not untyped/hidden pools. */
-export function poolMediaOf(pool: Pick<BrollPool, 'media'>): 'video' | 'image' {
-  return pool.media === 'image' ? 'image' : 'video'
+export function poolMediaOf(pool: Pick<BrollPool, 'media'>): 'video' | 'image' | 'audio' {
+  return pool.media === 'image' ? 'image' : pool.media === 'audio' ? 'audio' : 'video'
 }
 
 export interface BrollClip {
@@ -82,7 +82,7 @@ export function useBrollPools() {
     auto_normalize?: boolean
     fps_target?: 24 | 30
     // v1.0.403 — Image Pool (slideshow) support.
-    media?: 'video' | 'image'
+    media?: 'video' | 'image' | 'audio'
     slideshow?: { seconds_per_image?: number; dedup_lookback?: number; fit?: 'crop' | 'fit' | 'blur'; motion?: boolean; transition_sec?: number }
   }): Promise<BrollPool> {
     const created = await post<BrollPool>(`/broll-pools`, input)

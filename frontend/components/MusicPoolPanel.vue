@@ -76,9 +76,8 @@
              is mandatory on PoolTrack, more stable as a unique key —
              user-edited labels rename `filename` semantically but the
              path stays). -->
+        <template v-for="t in safeTracks" :key="t.path">
         <div
-          v-for="t in safeTracks"
-          :key="t.path"
           class="mp-track"
           :class="{ 'mp-track-disabled': !t.enabled }"
         >
@@ -213,6 +212,7 @@
             @click="clearAllOverrides(t)"
           >Clear all overrides for this track</button>
         </div>
+        </template>
       </div>
 
       <div class="mp-actions">
@@ -525,7 +525,8 @@ async function onLabelBlur(t: PoolTrack, newLabel: string) {
 }
 
 async function removeTrack(t: PoolTrack) {
-  if (!confirm(`Delete "${t.filename}" from the music pool? This removes the file from disk.`)) return
+  const { ask } = useConfirm()
+  if (!await ask({ title: 'Delete music track?', message: `Delete "${t.filename}" from the music pool? This removes the file from disk.`, confirmLabel: 'Delete', danger: true })) return
   try {
     await del(`/projects/${props.projectSlug}/music-pool/tracks/${encodeURIComponent(t.filename)}`)
     await refresh()

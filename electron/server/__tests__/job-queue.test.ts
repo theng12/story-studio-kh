@@ -145,6 +145,44 @@ describe('getJobs() / getQueueStats()', () => {
   })
 })
 
+describe('pipeline chain handoff failures', () => {
+  test('persists a failed child job instead of reporting a false-success batch', async () => {
+    const proj = await pm.createProject({ name: 'JQ Chain Handoff' })
+    jq.registerExecutor('script-only', async () => {})
+    const batchId = 'batch-handoff-test'
+    jq.enqueue({
+      project_slug: proj.slug,
+      type: 'script-only',
+      episode_id: 'EP001',
+      title: 'chain head',
+      params: {
+        pipeline_batch_id: batchId,
+        pipeline_chain: [{
+          type: 'removed-job-type',
+          title: 'missing next step',
+          params: { marker: 'preserved' },
+        }],
+      },
+    })
+
+    const deadline = Date.now() + 2000
+    let failed: any
+    while (Date.now() < deadline) {
+      const list = await jq.getJobs(proj.slug)
+      failed = list.find(j => (j.params as any)?.pipeline_handoff_failed === true)
+      if (failed) break
+      await new Promise(r => setTimeout(r, 20))
+    }
+
+    assert.ok(failed, 'handoff failure should create a visible child job')
+    assert.equal(failed.status, 'error')
+    assert.equal(failed.type, 'removed-job-type')
+    assert.equal(failed.params.pipeline_batch_id, batchId)
+    assert.equal(failed.params.marker, 'preserved')
+    assert.match(failed.error, /handoff failed/i)
+  })
+})
+
 describe('cancelJob()', () => {
   test('returns false for unknown job ID', () => {
     const ok = jq.cancelJob('does-not-exist')

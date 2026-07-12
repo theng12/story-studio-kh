@@ -4,6 +4,39 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.540 — 2026-07-12
+
+**Optional episode render workers.** Studio Hub mode can now send timestamp assemblies to a dedicated Render Studio Mac.
+
+- Inputs are streamed through Hub, copied locally to the worker, and checksum-verified before FFmpeg starts.
+- Render Studio prefers VideoToolbox, falls back to CPU encoding, fully validates the result, and retains it until Story Studio verifies the returned copy and acknowledges receipt.
+- Hub grants one non-preemptive heavy-work lease per Mac, prioritizes waiting render jobs when a machine becomes free, and prefers faster M4 16 GB workers while retaining older Macs as fallbacks.
+- The feature is off by default under Settings → Local Models. Unavailable workers and transition renders continue using the proven local assembler.
+
+## v1.0.539 — 2026-07-12
+
+**A clean two-pass visual workflow and presentation frames.** Scene timing stays stable while images and motion get separate review gates.
+
+- **Scene Review is image-only:** generate and approve the text-to-image result without animation controls competing for attention.
+- **New Motion Review:** turn approved stills into image-to-video clips, preview each result beside its source image, then choose the clip or intentionally keep the still. Replacing an image invalidates its old clip automatically.
+- **One-click motion chain:** audio-paced Pipeline runs now have a durable Motion Clips step between scene rendering and final assembly. It accepts only image-to-video models, exposes provider-spend warnings, and cannot be overtaken by assembly.
+- **Faster, simpler planning:** full-detail visual prompts are always on, cross-segment continuity is off by default so planning windows can run in parallel, and legacy model/window tuning is collapsed under Advanced.
+- **Presentation frames:** both full Video Assembly and Timestamp Assembly can inset the video onto a coloured board with configurable border width, border colour, rounded corners, background colour, and cover/contain fit. Frame settings are saved in presets and honored by Pipeline.
+
+---
+
+## v1.0.538 — 2026-07-12
+
+**Pipeline hardening and creative freedom.** This release focuses on making unattended runs finish reliably without narrowing every output into the same formula.
+
+- **Full preflight before any work starts:** Pipeline now checks accepted episodes, dependency order, active presets, voices, referenced local files, B-Roll pool availability, and free disk space before writing files or calling a provider.
+- **True end-to-end runs:** Research, B-Roll selection + assembly, and timestamp assembly settings are durable preset-backed queue steps. Chain handoff failures are persisted visibly and Retry runs only unfinished work.
+- **Creative freedom controls:** Ideas, Scripts, and Thumbnail Prompts now offer Balanced, Open, and Guardrails modes plus a free-form creative brief. Thumbnail concepts can be model-led or character, object, environment, typography, mystery, or documentary-led.
+- **Safer and more consistent UI:** destructive, quota-heavy, and provider-spend actions use the same in-app confirmation dialog. Fixed stale frontend contracts and a broken per-track music override drawer discovered by the new typecheck gate.
+- **Security and quality:** upgraded Electron, Nuxt, Vue Router, and HTTP dependencies; both dependency audits report zero vulnerabilities. Added lint/typecheck verification and restored a fully green backend + frontend regression suite.
+
+---
+
 ## v1.0.537 — 2026-07-11
 
 **The introduction is no longer a separate tab you have to remember — it's a toggle on the Script control tab, and it can be one click.** Generating an intro used to mean switching to the Introduction tab and clicking Generate there, which was easy to forget for scripts that need one. Now:

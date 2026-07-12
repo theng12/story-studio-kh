@@ -40,6 +40,23 @@
       <strong>ignored</strong> before saving.
     </p>
 
+    <PresetPicker
+      label="Research preset"
+      hint="Saves the source, model, source limit, and reusable questions for one-click Pipeline runs. The episode title becomes each run's topic."
+      :presets="researchPresets.presets.value"
+      :active-id="researchPresets.activeId.value"
+      :current-machine-label="researchPresets.machineLabel.value"
+      :show-all-devices="researchPresets.showAllDevices.value"
+      :cross-device-count="researchPresets.crossDeviceCount.value"
+      @update:active-id="researchPresets.setActive"
+      @update:show-all-devices="(v: boolean) => researchPresets.showAllDevices.value = v"
+      @apply="researchPresets.applyActive(); success('Research preset applied')"
+      @overwrite="researchPresets.overwrite(); success('Research preset saved')"
+      @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+      @rename="(n: string) => researchPresets.rename(n)"
+      @delete="researchPresets.remove()"
+    />
+
     <!-- Source picker -->
     <section class="card mt-3">
       <h3>1. Source</h3>
@@ -349,6 +366,20 @@ const form = ref<ResearchForm>({
 // specific_questions — those are episode content). source_model already has
 // its own per-project key (above), so it's left out of the allowlist.
 useRememberedForm('research', slug, form, { include: ['source_provider', 'max_sources'] })
+const researchPresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'research',
+  presetType: 'research',
+  snapshot: () => ({
+    form: {
+      source_provider: form.value.source_provider,
+      source_model: form.value.source_model,
+      specific_questions: form.value.specific_questions,
+      max_sources: form.value.max_sources,
+    },
+  }),
+  apply: (data) => { if (data?.form) Object.assign(form.value, data.form) },
+})
 // Persist the model choice whenever it changes.
 watch(() => form.value.source_model, (m) => {
   if (typeof localStorage !== 'undefined') {

@@ -55,7 +55,7 @@
 
     <div class="ep-actions">
       <button class="btn btn-sm btn-ghost" @click="addRow">＋ Add endpoint</button>
-      <button class="btn btn-sm btn-secondary" :disabled="saving" @click="save">
+      <button class="btn btn-sm btn-secondary" :disabled="saving" @click="save()">
         {{ saving ? 'Saving…' : 'Save endpoints' }}
       </button>
       <button class="btn btn-sm btn-ghost" :disabled="testingAll || !anyUrl" @click="testAll">

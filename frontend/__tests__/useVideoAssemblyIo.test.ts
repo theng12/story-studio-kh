@@ -73,6 +73,7 @@ function makeState() {
     vignette:      reactive({ enabled: false, strength: 0.4 }),
     filmGrain:     reactive({ enabled: false, strength: 15 }),
     letterbox:     reactive({ enabled: false, ratio: '2.35:1', color: 'black' }),
+    frame:         reactive({ enabled: false, inset_pct: 4, border_width: 12, corner_radius: 28, border_color: '#fff', background_color: '#111', fit: 'cover' }),
     chromaKey:     reactive({ enabled: false, source_path: '', color: '#00FF00', similarity: 0.15, blend: 0.1 }),
     titleCard:     reactive({ enabled: false, text: 'T', duration: 3, style: 'gold', background: '#000' }),
     chapterTitles: reactive({ enabled: false, style: 'gold', position: 'center', duration: 2.5, font_size: 'medium' }),
@@ -233,6 +234,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     state.vignette.enabled = true
     state.filmGrain.enabled = true
     state.letterbox.enabled = true
+    state.frame.enabled = true
     state.chromaKey.enabled = true
     state.chromaKey.source_path = '/green.mp4'
     state.titleCard.enabled = true
@@ -255,6 +257,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.ok(body.vignette, 'vignette present when enabled')
     assert.ok(body.film_grain, 'film_grain present when enabled')
     assert.ok(body.letterbox, 'letterbox present when enabled')
+    assert.equal(body.frame.corner_radius, 28, 'presentation frame present when enabled')
     assert.ok(body.chroma_key, 'chroma_key present when enabled AND source_path set')
     assert.equal(body.title_card.text, 'T')
     assert.ok(body.outro_card, 'outro_card present when enabled')

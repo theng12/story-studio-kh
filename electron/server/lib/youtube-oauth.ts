@@ -183,7 +183,11 @@ export async function startOAuthFlow(opts: {
   }
   pending.set(flow_id, entry)
 
-  server.on('request', (req, res) => handleCallback(entry, req, res))
+  server.on('request', (req, res) => {
+    void handleCallback(entry, req, res).catch((error) => {
+      finishFlow(flow_id, { ok: false, error: error instanceof Error ? error.message : String(error) })
+    })
+  })
 
   const cancel = () => {
     const p = pending.get(flow_id)

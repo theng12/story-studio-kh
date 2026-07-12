@@ -125,23 +125,6 @@
               >{{ m.label || m.id }}{{ (!m.available || m.disabled_reason) ? ' (unavailable)' : '' }}</option>
             </select>
           </div>
-          <!-- v1.0.470 — image-to-video model for "Animate" (per-scene + bulk).
-               Lists project video models that support image-to-video ('frames'). -->
-          <div v-if="i2vModels.length" class="sr-llm-pick" title="The image-to-video model used to animate scene images into clips (per-scene 🎬 Animate + bulk). Clips save to the '11 Video Assets' folder.">
-            <span class="sr-llm-label">🎬 Animate</span>
-            <select v-model="videoModel" class="select sr-llm-select">
-              <option value="" disabled>Pick an i2v model…</option>
-              <option v-for="m in i2vModels" :key="m.id" :value="m.id">{{ m.label }}</option>
-            </select>
-          </div>
-          <!-- v1.0.475 — duration floor for bulk animation. Scenes shorter than
-               this stay stills; 0 = animate every eligible scene. Per-project. -->
-          <div v-if="i2vModels.length" class="sr-llm-pick" title="Bulk 'Animate missing' only animates scenes whose on-screen time is at least this many seconds (and that are approved + have a motion prompt). Short beats stay stills. 0 = no minimum.">
-            <span class="sr-llm-label">≥ sec</span>
-            <input type="number" min="0" max="60" step="1" :value="animateMinSeconds"
-              @change="setAnimateMinSeconds(Number(($event.target as HTMLInputElement).value))"
-              class="input input-sm" style="width: 64px;" />
-          </div>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
@@ -149,17 +132,6 @@
             title="Approves every scene that has an image. Useful after spot-checking the first few."
           >
             ✓ Approve all
-          </button>
-          <!-- v1.0.470 — bulk-animate every ready scene (has image + motion prompt)
-               that has no clip yet (or a stale one). -->
-          <button
-            v-if="videoModel"
-            class="btn btn-sm btn-secondary"
-            :disabled="animatingAll || stats.with_image === 0"
-            @click="animateMissing"
-            title="Animate every scene that is APPROVED, has an image + a motion prompt, is at least the '≥ sec' length, and has no fresh clip. Short / unapproved / promptless scenes are skipped. One job per scene, queued."
-          >
-            {{ animatingAll ? '⏳ Queuing…' : '🎬 Animate missing' }}
           </button>
           <button
             class="btn btn-sm btn-ghost"
@@ -469,12 +441,6 @@
               <summary class="text-muted text-xs">Visual prompt</summary>
               <p class="review-prompt">{{ scene.visual_prompt }}</p>
             </details>
-            <!-- v1.0.468 — motion prompt (image-to-video instruction). Read-only
-                 here; edit/regenerate on the Scene Plan page. -->
-            <details v-if="scene.motion_prompt" class="review-prompt-details">
-              <summary class="text-muted text-xs">🎬 Motion prompt</summary>
-              <p class="review-prompt">{{ scene.motion_prompt }}</p>
-            </details>
           </div>
 
           <div class="review-actions-cell">
@@ -523,56 +489,11 @@
             >
               {{ approvingId === scene.id ? '⏳' : (scene.approved ? '✓ Approved' : 'Approve') }}
             </button>
-            <!-- v1.0.470 — animate this scene's image into a clip (image-to-video). -->
-            <button
-              v-if="videoModel"
-              class="btn btn-sm btn-ghost"
-              :disabled="!scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
-              @click="animateScene(scene)"
-              :title="!scene.image_filename
-                ? 'Generate the image first'
-                : !scene.motion_prompt
-                  ? 'This scene has no motion prompt — add one on the Scene Plan page'
-                  : (scene.clip_exists ? 'Re-animate this scene (replaces the existing clip)' : 'Animate this image into a clip')"
-            >
-              {{ animatingId === scene.id ? '⏳ Animating…' : (scene.clip_exists ? '🎬 Re-animate' : '🎬 Animate') }}
-            </button>
-            <!-- v1.0.475 — manually drop in an externally-made clip for this scene. -->
-            <button
-              class="btn btn-sm btn-ghost"
-              :disabled="animatingId === scene.id"
-              @click="uploadClipOne(scene)"
-              title="Upload an .mp4 you made elsewhere as this scene's animated clip (saved to '11 Video Assets' as the scene's clip)."
-            >⬆ Clip</button>
           </div>
         </li>
       </ul>
     </section>
 
-    <!-- v1.0.470 — animated-clip preview overlay. Plays the scene's mp4. -->
-    <div
-      v-if="clipPreviewScene"
-      class="sr-lightbox"
-      @click.self="clipPreviewScene = null"
-    >
-      <button class="sr-lb-close" @click="clipPreviewScene = null" title="Close (Esc)">✕</button>
-      <div class="sr-lb-stage" @click.self="clipPreviewScene = null">
-        <video
-          :src="clipUrl(clipPreviewScene)"
-          :key="`${clipPreviewScene.id}:${cacheBuster}`"
-          class="review-thumb"
-          :style="{ maxHeight: '80vh', maxWidth: '90vw' }"
-          controls
-          autoplay
-          loop
-        />
-        <div class="sr-lb-meta">
-          <strong>Scene #{{ clipPreviewScene.scene_index }} — animated clip</strong>
-          <span v-if="clipPreviewScene.clip_stale" class="sr-lb-stale" title="The motion prompt changed since this clip was rendered — re-animate to refresh.">⚠ stale — re-animate</span>
-          <p v-if="clipPreviewScene.motion_prompt" class="text-muted text-xs mt-1">🎬 {{ clipPreviewScene.motion_prompt }}</p>
-        </div>
-      </div>
-    </div>
 
     <!-- v1.0.241 — click-to-preview lightbox. Full-size view of a generated
          scene image, with prev/next nav across scenes that have images. -->
@@ -690,6 +611,7 @@ const slug = computed(() => route.params.slug as string)
 const { config } = useProject()
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 
 // v1.0.475 — per-project duration floor for bulk animation (config-backed). The
 // backend (generate-missing-clips) reads config.animate_min_seconds; the GET
@@ -1111,7 +1033,7 @@ async function regenerateSelected(): Promise<void> {
 async function regenerateUnapproved(): Promise<void> {
   const ids = scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id)
   if (!ids.length) { showError('No unapproved scenes to regenerate'); return }
-  if (!confirm(`Re-render all ${ids.length} unapproved scene(s) in parallel across the pool? Existing images for those scenes are replaced.`)) return
+  if (!await ask({ title: 'Re-render unapproved scenes?', message: `Re-render all ${ids.length} unapproved scene(s) in parallel? Existing images for those scenes are replaced.`, confirmLabel: `Re-render ${ids.length}`, danger: true })) return
   await renderContinuity({ sceneIds: ids })
 }
 watch(() => previewScene.value?.id, (id) => {
@@ -1211,7 +1133,7 @@ async function rewriteSelectedAI(): Promise<void> {
   }
   const targets = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt)
   if (!targets.length) { showError('Select at least one scene that has a prompt'); return }
-  if (!confirm(`Re-write the prompt for ${targets.length} selected scene(s) with "${textModel.value}"? They run one at a time (one rewrite job per episode); existing prompts are replaced. The images stay until you ⚡ Regenerate selected.`)) return
+  if (!await ask({ title: 'Rewrite selected prompts?', message: `Rewrite ${targets.length} selected scene prompt(s) with "${textModel.value}"? Existing prompts are replaced and provider usage may be charged. Images remain until regenerated.`, confirmLabel: `Rewrite ${targets.length}`, danger: true })) return
   bulkRewriting.value = true
   let done = 0
   try {
@@ -1451,7 +1373,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
     const msg = opts.independent
       ? 'Re-render EVERY scene in parallel from scratch? This discards the current renders (style + sheet only, no previous-render continuity).'
       : 'Re-render EVERY scene from scratch? This discards the current renders and runs the full sequential chain again.'
-    if (!confirm(msg)) return
+    if (!await ask({ title: 'Re-render every scene?', message: msg, confirmLabel: 'Re-render all', danger: true })) return
   }
   const ep = episodeId.value
   renderingEpisode.value = ep
@@ -1559,7 +1481,7 @@ async function cancelActiveRender(): Promise<void> {
   const job = activeContinuityRenderJob.value as any
   if (!job?.job_id) return
   const label = job.status === 'queued' ? 'queued render' : 'active render'
-  if (!confirm(`Stop this ${label}? Finished scene images stay on disk, and you can resume later by rendering missing scenes.`)) return
+  if (!await ask({ title: 'Stop scene render?', message: `Stop this ${label}? Finished scene images stay on disk, and you can resume later.`, confirmLabel: 'Stop render', danger: true })) return
   cancelingRender.value = true
   try {
     await del(`/projects/${slug.value}/jobs/${job.job_id}`)

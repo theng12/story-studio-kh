@@ -1648,6 +1648,13 @@
             <span v-else style="font-size:12px;" class="pool-zero">Hub offline{{ hubError ? ' — ' + hubError : '' }} · generation auto-falls-back to Direct</span>
             <span v-if="hubSavedNote" class="text-muted" style="font-size:12px; margin-left:8px;">{{ hubSavedNote }}</span>
           </div>
+          <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:12px; padding:10px; border:1px solid var(--border); border-radius:8px;">
+            <input v-model="renderWorkersEnabled" type="checkbox" @change="saveLocalBackend" style="margin-top:3px;" />
+            <span style="font-size:12px; line-height:1.5;">
+              <strong>Use Render Studio workers for final videos</strong><br />
+              <span class="text-muted">Off by default for safe rollout. Timestamp assemblies use an available worker; transitions and unavailable workers continue using this Mac.</span>
+            </span>
+          </label>
           <p class="text-muted" style="font-size:11px; line-height:1.6; margin-top:10px;">
             In Hub mode, image / voice / chat generation is submitted to the Hub, which delegates to the least-busy capable Mac. If the Hub is unreachable, Story Studio automatically uses the Direct pools below — so this is safe to leave on. The endpoint lists below remain your Direct fallback.
           </p>
@@ -2533,7 +2540,7 @@
           <button
             type="button"
             class="btn btn-sm btn-secondary"
-            :disabled="ytBackfillBusy"
+            :disabled="!!ytBackfillBusy"
             @click="onYoutubeBackfillPreview"
             title="Show what would change without applying"
           >
@@ -2542,7 +2549,7 @@
           <button
             type="button"
             class="btn btn-sm btn-primary"
-            :disabled="ytBackfillBusy"
+            :disabled="!!ytBackfillBusy"
             @click="onYoutubeBackfillApply"
             title="Apply current AI disclosure + category to every uploaded video on this project"
           >
@@ -3124,14 +3131,16 @@ async function loadProjectLocationStatus(): Promise<void> {
 
 async function unlinkFromThisMac(): Promise<void> {
   if (!projectLocationPath.value || unlinking.value) return
-  const confirmed = confirm(
-    `Unlink this project from this Mac?\n\n` +
-    `Folder: ${projectLocationPath.value}\n\n` +
+  const confirmed = await ask({
+    title: 'Unlink project from this Mac?',
+    message: `Folder: ${projectLocationPath.value}\n\n` +
     `The folder and all its contents stay exactly where they are. The ` +
     `app just stops tracking it on this Mac. You can re-add it later via ` +
     `"Add existing project folder…" on the All Projects page.\n\n` +
     `Other Macs that linked the same folder are unaffected.`,
-  )
+    confirmLabel: 'Unlink project',
+    danger: true,
+  })
   if (!confirmed) return
   unlinking.value = true
   try {
@@ -3796,11 +3805,13 @@ async function loadStorageAudit() {
 
 async function runBulkCleanup() {
   if (!storage.value || uploadedFinalsCount.value === 0) return
-  const ok = confirm(
-    `Delete ${uploadedFinalsCount.value} uploaded final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
+  const ok = await ask({
+    title: 'Delete uploaded final videos?',
+    message: `Delete ${uploadedFinalsCount.value} uploaded final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
     `This is safe — the YouTube sidecar keeps the pipeline view marking these as done. ` +
     `You can re-render any time from images + merged audio.`,
-  )
+    confirmLabel: `Delete ${uploadedFinalsCount.value} files`, danger: true,
+  })
   if (!ok) return
   bulkRunning.value = true
   try {
@@ -3819,11 +3830,13 @@ async function runBulkCleanup() {
 
 async function cleanupRow(row: StorageEntry) {
   if (!row.uploaded_to_youtube) {
-    const ok = confirm(
-      `${row.episode_code} is NOT confirmed uploaded to YouTube. ` +
+    const ok = await ask({
+      title: 'Delete unconfirmed final video?',
+      message: `${row.episode_code} is NOT confirmed uploaded to YouTube. ` +
       `Delete the local final video anyway?\n\n` +
       `If you delete this and the upload sidecar isn't present, the pipeline view will go back to showing "video assembly missing".`,
-    )
+      confirmLabel: 'Delete anyway', danger: true,
+    })
     if (!ok) return
   }
   rowCleanupRunning.value = row.episode_code
@@ -3941,12 +3954,14 @@ async function migrateLegacyPresets() {
 
 async function runMigration() {
   if (!externalRootInput.value) return
-  const ok = confirm(
-    `Move all final videos in this project to the external root?\n\n` +
+  const ok = await ask({
+    title: 'Move final videos?',
+    message: `Move all final videos in this project to the external root?\n\n` +
     `${externalRootInput.value}\n\n` +
     `Project-tree files will be removed after a successful move. ` +
     `Detection still works for both locations, so the pipeline view stays accurate.`,
-  )
+    confirmLabel: 'Move videos', danger: true,
+  })
   if (!ok) return
   migrateRunning.value = true
   try {
@@ -3976,12 +3991,14 @@ async function migrateMediaToRoot() {
     const totalFiles = plan.folders.reduce((s, f) => s + f.files, 0)
     const totalBytes = plan.folders.reduce((s, f) => s + f.bytes, 0)
     if (totalFiles === 0) { info('Nothing to migrate — no media found in the project tree.'); return }
-    const ok = confirm(
-      `Move ${totalFiles} media file(s) (${formatBytes(totalBytes)}) across ${plan.folders.length} folder(s) ` +
+    const ok = await ask({
+      title: 'Move project media?',
+      message: `Move ${totalFiles} media file(s) (${formatBytes(totalBytes)}) across ${plan.folders.length} folder(s) ` +
       `from the project tree to:\n\n${mediaRootSavedValue.value}\n\n` +
       `Files are copied, verified, then removed from the project tree. ` +
       `Keep the drive connected until it finishes. This is resumable if interrupted.`,
-    )
+      confirmLabel: `Move ${totalFiles} files`, danger: true,
+    })
     if (!ok) return
     const r = await post<MediaMigrationResult>(
       `/projects/${slug.value}/storage/migrate-media-to-external`, { dry_run: false },
@@ -4446,7 +4463,7 @@ async function runYoutubeBackfill(dryRun: boolean) {
 
 function onYoutubeBackfillPreview() { void runYoutubeBackfill(true) }
 async function onYoutubeBackfillApply() {
-  if (!confirm('Apply the current AI disclosure + category to every uploaded video on this project?\n\nThis hits the YouTube API once per video (50 quota units each). Privacy + schedule are preserved.')) return
+  if (!await ask({ title: 'Update every uploaded video?', message: 'Apply the current AI disclosure and category to every uploaded video? This costs 50 YouTube quota units per video. Privacy and schedule are preserved.', confirmLabel: 'Apply to all', danger: true })) return
   await runYoutubeBackfill(false)
 }
 
@@ -5716,6 +5733,7 @@ type LocalBackendInfo = {
   hub_online: boolean
   hub_app_version: string | null
   hub_error: string | null
+  render_workers_enabled: boolean
 }
 const localBackend = ref<'direct' | 'hub'>('direct')
 const hubUrl = ref('')
@@ -5725,6 +5743,7 @@ const hubTokenSet = ref(false)
 const hubOnline = ref(false)
 const hubAppVersion = ref<string | null>(null)
 const hubError = ref<string | null>(null)
+const renderWorkersEnabled = ref(false)
 const hubBusy = ref(false)
 const hubSavedNote = ref('')
 async function loadLocalBackend() {
@@ -5737,6 +5756,7 @@ async function loadLocalBackend() {
     hubOnline.value = r.hub_online
     hubAppVersion.value = r.hub_app_version
     hubError.value = r.hub_error
+    renderWorkersEnabled.value = r.render_workers_enabled
   } catch { /* leave defaults (direct) */ }
 }
 async function saveLocalBackend() {
@@ -5744,7 +5764,11 @@ async function saveLocalBackend() {
   hubBusy.value = true
   hubSavedNote.value = ''
   try {
-    const body: any = { local_backend: localBackend.value, hub_url: hubUrl.value.trim() }
+    const body: any = {
+      local_backend: localBackend.value,
+      hub_url: hubUrl.value.trim(),
+      render_workers_enabled: renderWorkersEnabled.value,
+    }
     if (hubToken.value.trim()) body.hub_token = hubToken.value.trim()
     const r = await put<LocalBackendInfo & { ok: boolean }>('/app-settings/local-backend', body)
     localBackend.value = r.local_backend
@@ -5752,6 +5776,7 @@ async function saveLocalBackend() {
     hubTokenSet.value = r.hub_token_set
     hubOnline.value = r.hub_online
     hubError.value = r.hub_error
+    renderWorkersEnabled.value = r.render_workers_enabled
     hubToken.value = ''  // never keep the secret in the field
     hubSavedNote.value = 'Saved.'
     setTimeout(() => { hubSavedNote.value = '' }, 2500)
@@ -6158,7 +6183,7 @@ async function saveProject() {
       mark_as_ai_generated: typeof mark_as_ai_generated === 'boolean' ? mark_as_ai_generated : undefined,
     })
     await loadProject(slug.value)
-    if (typeof refreshConfig === 'function') await refreshConfig()
+    if (typeof refreshConfig === 'function') await refreshConfig(slug.value)
     stampSaved('project')
     success('Project settings saved!')
   } catch (e: any) {

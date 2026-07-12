@@ -290,6 +290,21 @@
               <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
             </div>
           </div>
+          <div class="grid-2 mt-2">
+            <div class="form-group">
+              <label>Creative freedom</label>
+              <select v-model="form.creative_mode" class="select">
+                <option value="guided">Balanced — format-aware, flexible</option>
+                <option value="open">Open — let the model lead</option>
+                <option value="strict">Guardrails — predictable and constrained</option>
+              </select>
+              <p class="text-muted text-xs mt-1">Open removes fixed examples and random fiction levers; output structure remains reliable.</p>
+            </div>
+            <div class="form-group">
+              <label>Your creative direction <span class="text-muted">(optional)</span></label>
+              <textarea v-model="form.creative_direction" class="textarea" rows="3" placeholder="What should the model explore, surprise you with, or avoid sounding like?" />
+            </div>
+          </div>
         </fieldset>
 
         <!-- ── 2. Topic & titles ───────────────────────────────────────── -->
@@ -1399,6 +1414,8 @@ const form = reactive({
   keywords: [] as string[],
   count: 5,
   model: 'gpt-4o',
+  creative_mode: 'guided' as 'strict' | 'guided' | 'open',
+  creative_direction: '',
   // v1.0.165+ — optional title template. Empty = LLM titles freely.
   // When set (e.g. "Fall asleep to {X}"), the backend instructs the
   // LLM to shape every generated title to it, substituting {X} with
@@ -1478,6 +1495,8 @@ const ideasPresets = usePresets<any>({
     keywords: [...form.keywords],
     count: form.count,
     model: form.model,
+    creative_mode: form.creative_mode,
+    creative_direction: form.creative_direction,
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
     niche_id: form.niche_id,
@@ -1493,6 +1512,8 @@ const ideasPresets = usePresets<any>({
     if (Array.isArray(data.keywords)) form.keywords = [...data.keywords]
     if (typeof data.count === 'number') form.count = data.count
     if (typeof data.model === 'string') form.model = data.model
+    if (['strict', 'guided', 'open'].includes(data.creative_mode)) form.creative_mode = data.creative_mode
+    if (typeof data.creative_direction === 'string') form.creative_direction = data.creative_direction
     if (typeof data.title_template === 'string') form.title_template = data.title_template
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle

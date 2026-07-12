@@ -59,6 +59,7 @@ export interface EpisodeRow {
     research?: boolean
     scene_plan?: boolean
     scene_review?: boolean
+    motion_review?: boolean
     character_sheet?: boolean
     broll_picked?: boolean
     script: boolean

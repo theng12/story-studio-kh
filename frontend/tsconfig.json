@@ -1,3 +1,17 @@
 {
-  "extends": "./.nuxt/tsconfig.json"
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "~/*": ["./*"],
+      "@/*": ["./*"],
+      "@shared/contracts": ["../electron/server/contracts/index.ts"]
+    },
+    "noUncheckedIndexedAccess": false,
+    "noImplicitAny": false,
+    "strict": false
+  },
+  "vueCompilerOptions": {
+    "strictTemplates": false
+  },
+  "exclude": ["__tests__"]
 }

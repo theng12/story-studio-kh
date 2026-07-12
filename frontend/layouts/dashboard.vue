@@ -174,6 +174,15 @@
         >
           <span class="nav-icon">&#9989;</span> Scene Review
         </NuxtLink>
+        <NuxtLink
+          v-if="usesScenePlan"
+          :to="`/projects/${slug}/motion-review`"
+          class="nav-item"
+          active-class="active"
+          title="Second visual pass: turn approved scene images into reviewed image-to-video clips without changing scene timestamps."
+        >
+          <span class="nav-icon">&#127916;</span> Motion Review
+        </NuxtLink>
         <!-- v1.0.346 — Video Assembly always opens the full editor. Audio-paced
              projects can still use the fast timestamp renderer from the
              Timestamps tab inside the editor area, but the main nav should not

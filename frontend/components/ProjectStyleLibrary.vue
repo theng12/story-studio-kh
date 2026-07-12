@@ -464,11 +464,11 @@ function patchSample(variantId: string, patch: Partial<LiveSampleState>): void {
 
 function savePayload() {
   const includedSamples = liveSamples.value.filter(sample => sample.url && sample.included)
-  const gallery_items = includedSamples.flatMap((sample) => {
-    if (sample.hash) return [{ hash: sample.hash }]
-    if (sample.sourceFile) return [{ source_file: sample.sourceFile }]
-    return []
-  })
+  const gallery_items: Array<{ hash?: string; source_file?: string }> = []
+  for (const sample of includedSamples) {
+    if (sample.hash) gallery_items.push({ hash: sample.hash })
+    else if (sample.sourceFile) gallery_items.push({ source_file: sample.sourceFile })
+  }
   return {
     name: draftName.value.trim(),
     description: draftDescription.value.trim(),
