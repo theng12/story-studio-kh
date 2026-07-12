@@ -35,6 +35,7 @@ import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
+import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
 type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
@@ -641,8 +642,7 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   // ── Concurrency pool ───────────────────────────────────────────────────
-  const rawConcurrency = Number((config as any).audio_concurrency) || 0
-  const baseAudioConcurrency = Math.max(1, Math.min(50, rawConcurrency || 3))
+  const baseAudioConcurrency = resolvePerformanceConcurrency((config as any).audio_concurrency)
   const isLocalAudioProvider = providerId === 'voicestudio'
 
   // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio
@@ -767,10 +767,9 @@ export async function generateAudio(job: Job): Promise<void> {
   // "[per-model chunk-size cap]" above.
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs`
   // so all N workers don't submit to ElevenLabs/fal/GenAIPro in the same
-  // millisecond. Default 0 (no stagger) — opt-in via Settings → Audio →
-  // Launch stagger. Clamp 0..5000.
-  const cfgAudioStagger = Number((config as any).audio_launch_stagger_ms) || 0
-  const launchStaggerMs = Math.max(0, Math.min(5000, cfgAudioStagger))
+  // millisecond. New projects default to 2000 ms; an explicit 0 still
+  // disables it. Clamp 0..20000.
+  const launchStaggerMs = resolveLaunchStaggerMs((config as any).audio_launch_stagger_ms)
   if (tasks.length > 1) {
     job.output_lines.push(
       `Pool: ${Math.min(concurrency, tasks.length)} in parallel` +

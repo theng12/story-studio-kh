@@ -92,7 +92,7 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
 // than each project's config. The queue (job-queue.ts) reads it at boot and on
 // every change. 1 = fully serial (the pre-v1.0.335 behaviour).
 export const SCRIPT_CONCURRENCY_KEY = 'script_concurrency'
-export const SCRIPT_CONCURRENCY_DEFAULT = 2
+export const SCRIPT_CONCURRENCY_DEFAULT = 3
 export const SCRIPT_CONCURRENCY_MIN = 1
 export const SCRIPT_CONCURRENCY_MAX = 50
 

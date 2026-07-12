@@ -28,6 +28,7 @@ import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -223,18 +224,16 @@ export async function generateAiVideo(job: Job): Promise<void> {
   const isCancelled = () => jq.isCancelled(job.job_id)
 
   // ── Concurrency pool ───────────────────────────────────────────────────
-  // Video clips are expensive ($0.50–$2 each on Veo/Sora). Default to 2
-  // in flight — matches fal.ai's starting credit tier — user can bump up
+  // Video clips are expensive ($0.50–$2 each on Veo/Sora). Default to 3
+  // in flight; the user can bump this up
   // up to 50 via Settings → Video → Concurrency once their provider account
   // has the credits / quota to handle it.
-  const rawConcurrency = Number((config as any).video_concurrency) || 0
-  const concurrency = Math.max(1, Math.min(50, rawConcurrency || 2))
+  const concurrency = resolvePerformanceConcurrency((config as any).video_concurrency)
   // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
   // so all workers don't hit Veo / fal / Kie in the same millisecond.
-  // Default 0 (no stagger) — opt-in via Settings → Video → Launch stagger.
-  // Clamp 0..5000.
-  const cfgVideoStagger = Number((config as any).video_launch_stagger_ms) || 0
-  const launchStaggerMs = Math.max(0, Math.min(5000, cfgVideoStagger))
+  // New projects default to 2000 ms; an explicit 0 still disables it.
+  // Clamp 0..20000.
+  const launchStaggerMs = resolveLaunchStaggerMs((config as any).video_launch_stagger_ms)
   if (prompts.length > 1) {
     job.output_lines.push(
       `Pool: ${Math.min(concurrency, prompts.length)} in parallel` +

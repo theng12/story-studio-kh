@@ -315,7 +315,7 @@ function groupOf(type: JobType): string {
 const groupActive: Record<string, number> = {}
 /** Cap for the shared LLM group. Set from app-settings (`script_concurrency`)
  *  at boot + whenever the user changes it in Settings → Performance. */
-let llmConcurrency = 2
+let llmConcurrency = 3
 let subtitleTranscribeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))

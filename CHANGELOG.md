@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.546 — 2026-07-12
+
+**Performance defaults are consistent and gentler on provider APIs.** Every generation category now starts at 3 concurrent jobs, while image, audio, and video requests launch 2 seconds apart by default.
+
+- Raised every launch-stagger control and runtime clamp from 5 seconds to 20 seconds for stricter provider limits.
+- Existing saved values remain unchanged, including an explicit 0 ms to disable staggering; only unset settings receive the new defaults.
+- Text, image, audio, video, and subtitle concurrency now default to 3. Subtitle Auto remains available for matching the live Voice Studio fleet.
+- Centralized backend performance defaults and added regression tests so the settings screen and workers cannot silently drift apart.
+- Concurrency can still be raised as high as 50, with corrected labels and clearer guidance to increase cautiously according to provider quota.
+
 ## v1.0.545 — 2026-07-12
 
 **Long job names stay inside their cards.** Jobs with full chapter lists no longer push Stop, Cancel, Retry, or status controls beyond the window.

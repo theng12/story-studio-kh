@@ -1402,24 +1402,25 @@
       <h3 class="mt-3">Image Generation Concurrency</h3>
       <p class="text-muted mt-1 mb-2">
         Number of image generation requests sent in parallel per job. Higher = faster, but providers have rate limits.
-        Start at 5; raise cautiously if your provider allows. Lower if you see rate-limit errors.
+        Default <strong>3</strong>; raise cautiously if your provider allows. Lower if you see rate-limit errors.
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrency ({{ imageConcurrency }})</label>
         <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">10 (aggressive)</span>
+          <span class="text-muted" style="margin-left:auto">50 (max)</span>
         </div>
       </div>
 
       <div class="form-group mt-2" style="max-width: 360px;">
         <label>Launch stagger ({{ imageLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
         <p class="text-muted mt-1" style="font-size: 12px;">
           Delays each parallel worker's first request by N×stagger so all
           {{ imageConcurrency }} workers don't hit the provider in the same
-          millisecond. Set to <strong>0</strong> to disable.
+          millisecond. Default <strong>2000 ms</strong>; set to <strong>0</strong> to disable.
+          Values up to <strong>20 seconds</strong> are available for strict APIs.
           <strong>1000–2000 ms</strong> typically eliminates per-second 429s
           with no measurable throughput cost (only the first wave is delayed;
           rolling pool continues at full speed afterward).
@@ -1445,22 +1446,21 @@
 
       <div class="form-group mt-2" style="max-width: 360px;">
         <label>Launch stagger ({{ audioLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
         <p class="text-muted mt-1" style="font-size: 12px;">
           Delays each TTS worker's first request by N×stagger to avoid bursty
-          rate-limits at the start of a job. Set to <strong>0</strong> to
-          disable. ElevenLabs is most sensitive to bursts at the Free/Starter
+          rate-limits at the start of a job. Default <strong>2000 ms</strong>;
+          set to <strong>0</strong> to disable. Values up to <strong>20 seconds</strong>
+          are available. ElevenLabs is most sensitive to bursts at the Free/Starter
           tiers — try <strong>1000–1500 ms</strong> if you see 429s. fal.ai
           and GenAIPro queue server-side; stagger usually unnecessary there.
         </p>
       </div>
 
-      <!-- Video concurrency — clips cost $0.50–$2 each so default is lower. -->
-      <!-- fal.ai scales the concurrent-request limit from 2 to 40 as the -->
-      <!-- account buys credits; 2 is the safe new-account default. -->
+      <!-- Video concurrency — clips cost $0.50–$2 each, so raise cautiously. -->
       <h3 class="mt-3">Video Concurrency</h3>
       <p class="text-muted mt-1 mb-2">
-        Parallel video clip generations per job. Video clips are expensive (~$0.50–$2 each), so default <strong>2</strong> is conservative.
+        Parallel video clip generations per job. Video clips are expensive (~$0.50–$2 each), so the default is <strong>3</strong>.
         fal.ai scales 2 → 40 with account credits; Veo via GenAIPro handles backpressure server-side.
       </p>
       <div class="form-group" style="max-width: 360px;">
@@ -1474,11 +1474,12 @@
 
       <div class="form-group mt-2" style="max-width: 360px;">
         <label>Launch stagger ({{ videoLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
         <p class="text-muted mt-1" style="font-size: 12px;">
           Delays each video worker's first submit by N×stagger. Veo / fal /
-          Kie all rate-limit per-second submit attempts. Set to
-          <strong>0</strong> to disable. <strong>1500–2500 ms</strong> is a
+          Kie all rate-limit per-second submit attempts. Default <strong>2000 ms</strong>;
+          set to <strong>0</strong> to disable. Values up to <strong>20 seconds</strong>
+          are available. <strong>1500–2500 ms</strong> is a
           safe starting point if you see 429s during video clip generation.
         </p>
       </div>
@@ -1489,8 +1490,8 @@
       <h3 class="mt-3">Subtitle (Transcription) Concurrency</h3>
       <p class="text-muted mt-1 mb-2">
         How many chapters the Subtitles step transcribes at the same time. With a Voice Studio pool this spreads chapters across your Macs;
-        on cloud Whisper it parallelises requests. <strong>Auto</strong> matches your live pool — one transcription per online Mac (and self-heals
-        if a Mac drops mid-run), or 3 for cloud Whisper. A single local machine resolves to 1 (sequential). Pick a number to pin it.
+        on cloud Whisper it parallelises requests. Default <strong>3</strong>. <strong>Auto</strong> remains available to match your live pool — one
+        transcription per online Mac (and self-heals if a Mac drops mid-run), or 3 for cloud Whisper.
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrency</label>
@@ -5693,10 +5694,13 @@ watch(activeTab, async (tab) => {
 })
 
 // ── Performance (image / audio / video concurrency + TTS timeout) ───────
-const imageConcurrency = ref(5)
-const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
-const videoConcurrency = ref(2)   // fal.ai new-account safe default
-const subtitleConcurrency = ref<string>('auto') // 'auto' (match live pool) or '1'..'50'
+const PERFORMANCE_CONCURRENCY_DEFAULT = 3
+const LAUNCH_STAGGER_DEFAULT_MS = 2_000
+const MAX_LAUNCH_STAGGER_MS = 20_000
+const imageConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
+const audioConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
+const videoConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
+const subtitleConcurrency = ref<string>(String(PERFORMANCE_CONCURRENCY_DEFAULT))
 
 // v1.0.391 — one-click local-server pool health (Local Models tab).
 interface PoolEndpoint { url: string; online: boolean }
@@ -5823,14 +5827,14 @@ async function studioAction(s: FleetStudio, action: 'start' | 'stop' | 'restart'
 // App-level (per-machine): how many text-generation jobs run at once across
 // script outline/expansion + metadata + image-prompts + scene-planning,
 // combined. Stored in app-settings (not project config) — see GET/PUT
-// /app-settings/script-concurrency. Default 2; 1 = serial (old behaviour).
-const scriptConcurrency = ref(2)
-// Launch stagger (ms) per modality. 0 = no stagger (default behaviour).
-// Non-zero values delay each pool worker's FIRST task by index*stagger to
+// /app-settings/script-concurrency. Default 3; 1 = serial (old behaviour).
+const scriptConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
+// Launch stagger (ms) per modality. Default 2000; 0 disables it.
+// Values delay each pool worker's FIRST task by index*stagger to
 // smooth the initial-burst submit that triggers per-second 429s.
-const imageLaunchStaggerMs = ref(0)
-const audioLaunchStaggerMs = ref(0)
-const videoLaunchStaggerMs = ref(0)
+const imageLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
+const audioLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
+const videoLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
 // Empty string means "use provider default" (no override stored). We keep
 // the empty state distinct from 0 so users can clear it without saving 0.
 const ttsTimeoutMinutes = ref<number | ''>('')
@@ -5850,24 +5854,27 @@ const ttsTimeoutActiveLabel = computed(() => {
 })
 watch(config, (c) => {
   if (c && (c as any).image_concurrency) {
-    imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || 5))
+    imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
   }
   if (c && (c as any).audio_concurrency) {
-    audioConcurrency.value = Math.max(1, Math.min(50, Number((c as any).audio_concurrency) || 3))
+    audioConcurrency.value = Math.max(1, Math.min(50, Number((c as any).audio_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
   }
   if (c && (c as any).video_concurrency) {
-    videoConcurrency.value = Math.max(1, Math.min(50, Number((c as any).video_concurrency) || 2))
+    videoConcurrency.value = Math.max(1, Math.min(50, Number((c as any).video_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
   }
   if (c && (c as any).subtitle_concurrency != null) {
     subtitleConcurrency.value = String((c as any).subtitle_concurrency)  // 'auto' or a number
   }
-  // Stagger values default to 0 when unset; clamp 0..5000 to match backend.
-  imageLaunchStaggerMs.value = Math.max(0, Math.min(5000,
-    Number((c as any)?.image_launch_stagger_ms) || 0))
-  audioLaunchStaggerMs.value = Math.max(0, Math.min(5000,
-    Number((c as any)?.audio_launch_stagger_ms) || 0))
-  videoLaunchStaggerMs.value = Math.max(0, Math.min(5000,
-    Number((c as any)?.video_launch_stagger_ms) || 0))
+  // Unset values use 2000 ms; preserve an explicit 0 (disabled).
+  const readStagger = (value: unknown) => {
+    if (value == null || value === '') return LAUNCH_STAGGER_DEFAULT_MS
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return LAUNCH_STAGGER_DEFAULT_MS
+    return Math.max(0, Math.min(MAX_LAUNCH_STAGGER_MS, Math.floor(parsed)))
+  }
+  imageLaunchStaggerMs.value = readStagger((c as any)?.image_launch_stagger_ms)
+  audioLaunchStaggerMs.value = readStagger((c as any)?.audio_launch_stagger_ms)
+  videoLaunchStaggerMs.value = readStagger((c as any)?.video_launch_stagger_ms)
   const t = (c as any)?.generation_timeouts?.tts_minutes
   ttsTimeoutMinutes.value = typeof t === 'number' && t > 0 ? t : ''
 }, { immediate: true })

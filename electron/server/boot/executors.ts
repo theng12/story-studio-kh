@@ -133,7 +133,7 @@ export function registerAllExecutors(): void {
   registerExecutor('expression_markup', runExpressionMarkupJob)
 
   // Load the saved LLM-text concurrency (Settings → Performance) into the
-  // queue. Fire-and-forget: the queue defaults to 2 until this resolves
+  // queue. Fire-and-forget: the queue defaults to 3 until this resolves
   // (a few ms), and the PUT route applies live changes without a restart.
   void getScriptConcurrency()
     .then(setLlmConcurrency)

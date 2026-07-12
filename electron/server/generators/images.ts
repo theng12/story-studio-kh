@@ -21,6 +21,7 @@ import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
 import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
+import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
@@ -532,10 +533,12 @@ export async function generateImages(job: Job): Promise<void> {
   //     failures on jobs queued behind a dozen others
   // Cloud providers (kie.ai) keep the default 5 — their queue scales
   // horizontally and the per-second-rate-limit concern is the real cap.
-  const configConcurrency = Number((config as any).image_concurrency) || 0
+  const configConcurrency = resolvePerformanceConcurrency((config as any).image_concurrency)
   const reqConcurrency = Number((req as any).concurrency) || 0
   const isLocalProvider = providerId === 'imagestudio'
-  const baseConcurrency = Math.max(1, Math.min(50, reqConcurrency || configConcurrency || 5))
+  const baseConcurrency = reqConcurrency
+    ? Math.max(1, Math.min(50, reqConcurrency))
+    : configConcurrency
   let dispatcher: Dispatcher | null = null
   let poolEndpoints: string[] = []
   let lastHealthyPool = new Set<string>()
@@ -596,10 +599,9 @@ export async function generateImages(job: Job): Promise<void> {
   }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
-  // After the spread the rolling pool runs at full concurrency. Default 0
-  // (no stagger) — opt-in via Settings → Images → Launch stagger. Clamp 0..5000.
-  const cfgImageStagger = Number((config as any).image_launch_stagger_ms) || 0
-  const launchStaggerMs = Math.max(0, Math.min(5000, cfgImageStagger))
+  // After the spread the rolling pool runs at full concurrency. New projects
+  // default to 2000 ms; an explicit 0 still disables it. Clamp 0..20000.
+  const launchStaggerMs = resolveLaunchStaggerMs((config as any).image_launch_stagger_ms)
 
   // Read the per-folder task manifests once at the top so we can attempt
   // free recovery (existing-task poll) before issuing any fresh submit.

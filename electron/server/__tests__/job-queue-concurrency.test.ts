@@ -24,7 +24,7 @@ before(async () => {
 })
 
 after(async () => {
-  jq.setLlmConcurrency(2)   // restore default so other files aren't affected
+  jq.setLlmConcurrency(3)   // restore default so other files aren't affected
   jq.setSubtitleTranscribeConcurrency(1)
   await cleanup()
 })

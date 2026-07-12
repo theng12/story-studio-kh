@@ -295,14 +295,13 @@ async function transcribePerChapter(
 
   // v1.0.389/390 — per-chapter transcription concurrency (Settings → Performance
   // → Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
-  // cloud Whisper parallelises requests. Value is a number (clamped 1–16) or
-  // 'auto'. DEFAULT 'auto': match the live pool — one transcription per ready
-  // Voice Studio Mac (self-healing: the dispatcher fails a dropped Mac over),
-  // or 3 for cloud Whisper. A single local machine → 1 = sequential.
+  // cloud Whisper parallelises requests. Value is a number (clamped 1–50) or
+  // 'auto'. New projects default to 3; Auto remains available to match the live
+  // Voice Studio pool (with dispatcher failover) or use 3 for cloud Whisper.
   const { getConfig } = await import('../services/project-manager.js')
   const subConfig = await getConfig(projectSlug)
   const rawConc = (subConfig as any)?.subtitle_concurrency
-  const isAuto = rawConc === 'auto' || rawConc == null
+  const isAuto = rawConc === 'auto'
   let concurrency: number
   if (isAuto) {
     if (engine === 'voicestudio') {
@@ -313,7 +312,7 @@ async function transcribePerChapter(
       concurrency = 3  // cloud Whisper — safe parallel default
     }
   } else {
-    concurrency = Math.max(1, Math.min(50, Math.floor(Number(rawConc) || 1)))
+    concurrency = Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
   }
   const autoNote = isAuto ? (engine === 'voicestudio' ? ` (auto — ${concurrency} online Mac${concurrency === 1 ? '' : 's'})` : ' (auto)') : ''
   job.output_lines.push(
