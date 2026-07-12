@@ -506,6 +506,8 @@ export interface JobEnqueuedResponse {
   finished_at: string | null
   error: string | null
   output_lines: string[]
+  /** Structured terminal outcome for audit-style jobs such as image repair. */
+  result?: Record<string, any>
   params: Record<string, any>
   queue_position?: number
   /**

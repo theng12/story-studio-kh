@@ -60,7 +60,7 @@ class FakeEventSource {
 // Stub $fetch so accidental `cleared` → refreshFull paths don't blow up.
 ;(globalThis as any).$fetch = async () => ({ jobs: [], stats: { running: 0, queued: 0, done: 0, error: 0, total: 0 } })
 
-const { useJobs } = await import('../composables/useJobs.js')
+const { useJobs, jobCompletionNotice } = await import('../composables/useJobs.js')
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -207,5 +207,37 @@ describe('useJobs — SSE transport', () => {
     assert.equal(src.closed, false)
     stopPolling()
     assert.equal(src.closed, true, 'EventSource.close() must be called on stopPolling')
+  })
+})
+
+describe('image repair completion notices', () => {
+  test('does not claim success when no image was recovered', () => {
+    const notice = jobCompletionNotice(mkJob({
+      job_id: 'repair-1', type: 'images_repair', episode_id: 'SS0069', status: 'done',
+      result: { recovered: 0, needs_fresh_generation: 1, unrecoverable: 0 },
+    }))
+    assert.equal(notice.kind, 'info')
+    assert.match(notice.message, /Nothing was restored/)
+    assert.match(notice.message, /fresh generation/)
+    assert.match(notice.message, /repair-1/)
+  })
+
+  test('reports verified recovery and the job id', () => {
+    const notice = jobCompletionNotice(mkJob({
+      job_id: 'repair-2', type: 'images_repair', episode_id: 'SS0070', status: 'done',
+      result: { recovered: 2, needs_fresh_generation: 0, unrecoverable: 0 },
+    }))
+    assert.equal(notice.kind, 'success')
+    assert.match(notice.message, /Restored 2 images/)
+    assert.match(notice.message, /repair-2/)
+  })
+
+  test('reads legacy repair summaries when structured results are absent', () => {
+    const notice = jobCompletionNotice(mkJob({
+      job_id: 'repair-3', type: 'images_repair', episode_id: 'SS0071', status: 'done',
+      output_lines: ['Done. Recovered 0; 2 need fresh generation; 0 unrecoverable; 3 already on disk.'],
+    }))
+    assert.equal(notice.kind, 'info')
+    assert.match(notice.message, /2 images need fresh generation/)
   })
 })

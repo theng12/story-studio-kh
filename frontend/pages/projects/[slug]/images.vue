@@ -393,9 +393,9 @@
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-integrity-heading">
       <h3 id="image-integrity-heading" class="integrity-title">Image integrity</h3>
       <p class="text-muted text-sm integrity-blurb">
-        Check whether every expected image is on disk. <strong>Repair missing</strong>
-        queues a new job with the current form settings — the generator automatically
-        skips {{ activePoolLabel }} that already have ≥1 variant with content.
+        Check whether every expected image is on disk. <strong>Repair</strong> only
+        retrieves already-paid provider tasks at no credit cost. A file with no stored
+        task ID must be generated fresh; existing images are skipped.
       </p>
 
       <div v-if="imageStatus.loading" class="text-muted text-md">
@@ -442,7 +442,7 @@
         </span>
 
         <button
-          v-if="activeMissingCount > 0"
+          v-if="activeRecoverableCount > 0"
           class="btn btn-sm btn-secondary"
           :disabled="submitting || generating || promptsStaleVsOutline.stale"
           :title="promptsStaleVsOutline.stale
@@ -450,7 +450,17 @@
             : `Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
           @click="repairMissing"
         >
-          Repair missing {{ activePoolLabel }} ({{ activeMissingCount }})
+          Repair recoverable ({{ activeRecoverableCount }})
+        </button>
+
+        <button
+          v-if="activeFreshCount > 0"
+          class="btn btn-sm btn-primary"
+          :disabled="submitting || generating || promptsStaleVsOutline.stale"
+          :title="`Creates only the ${activeFreshCount} missing ${activePoolLabel}; existing files are skipped. This submits new provider work and may use credits.`"
+          @click="generateMissingFresh"
+        >
+          Generate missing fresh ({{ activeFreshCount }})
         </button>
 
         <button class="btn btn-sm btn-ghost" :disabled="imageStatus.loading" @click="refreshImageStatus">
@@ -462,6 +472,21 @@
         <div class="text-muted text-sm">
           Missing {{ activePoolLabel }}: {{ activeMissingList }}
         </div>
+        <div v-for="item in activeRepairItems" :key="item.filename" class="repair-task-row">
+          <span>{{ item.filename }}</span>
+          <span v-if="item.task_id" class="repair-task-id">
+            {{ item.provider || 'provider' }} task: {{ item.task_id }}
+          </span>
+          <span v-else class="repair-task-none">Provider task ID: not recorded · fresh generation required</span>
+        </div>
+      </div>
+
+      <div v-if="lastRepairJob" class="repair-job-result mt-2" :class="lastRepairJobClass">
+        <span>
+          Repair job
+          <NuxtLink :to="`/projects/${slug}/jobs`">{{ lastRepairJob.job_id }}</NuxtLink>:
+          {{ lastRepairJobText }}
+        </span>
       </div>
     </div>
 
@@ -701,7 +726,7 @@ const currentModelSupportsRefs = computed(() => {
 const { success, error: showError } = useToast()
 const { imageGenerating, thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
-const { isJobActiveFor } = useJobs()
+const { isJobActiveFor, jobs } = useJobs()
 
 const submitting = ref(false)
 const specificNum = ref<number | null>(null)
@@ -1410,9 +1435,8 @@ const promptsStaleVsOutline = computed<{ stale: boolean; promptCount: number; ch
   return { stale: promptCount < chapterCount, promptCount, chapterCount }
 })
 
-// Fetches asset-status when episode changes. Repair just re-submits the
-// same form — `fileExistsWithContent` in the generator means existing
-// files are skipped, so only missing ones get regenerated.
+// Fetches on-disk status and provider-history recoverability together so the
+// page never presents a fresh-generation gap as a free repair candidate.
 interface ImageStatusState {
   loading: boolean
   error: string
@@ -1423,6 +1447,12 @@ interface ImageStatusState {
   totalMissing: number
   missingScenesList: string    // "3, 7, 12" for the UI
   missingThumbsList: string
+}
+interface RepairMissingItem { filename: string; recoverable: boolean; task_id?: string; provider?: string }
+interface RepairPoolStatus {
+  expected: number; present: number; missing: number
+  with_manifest: number; without_manifest: number
+  missing_items: RepairMissingItem[]
 }
 const imageStatus = reactive<ImageStatusState>({
   loading: false, error: '', hasAny: false,
@@ -1442,13 +1472,49 @@ const activeMissingList = computed(() => form.mode === 'thumbs' ? imageStatus.mi
 const activePoolLabel = computed(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
 const activePreviewKind = computed<'scene' | 'thumbnail'>(() => form.mode === 'thumbs' ? 'thumbnail' : 'scene')
 const activePromptRows = computed(() => form.mode === 'thumbs' ? promptList.thumbnails : promptList.scenes)
+const repairStatus = reactive<{ scene: RepairPoolStatus | null; thumb: RepairPoolStatus | null }>({ scene: null, thumb: null })
+const activeRepairPool = computed(() => form.mode === 'thumbs' ? repairStatus.thumb : repairStatus.scene)
+const activeRepairItems = computed(() => activeRepairPool.value?.missing_items || [])
+const activeRecoverableCount = computed(() => activeRepairPool.value?.with_manifest || 0)
+const activeFreshCount = computed(() => activeRepairPool.value?.without_manifest || 0)
+const lastRepairJobId = ref('')
+const lastRepairJob = computed(() => jobs.value.find(j => j.job_id === lastRepairJobId.value) || null)
+const lastRepairJobClass = computed(() => {
+  if (!lastRepairJob.value || ['queued', 'running'].includes(lastRepairJob.value.status)) return 'busy'
+  const result = lastRepairJob.value.result || {}
+  return Number(result.needs_fresh_generation || 0) + Number(result.unrecoverable || 0) > 0 ? 'warn' : 'ok'
+})
+const lastRepairJobText = computed(() => {
+  const job = lastRepairJob.value
+  if (!job) return ''
+  if (job.status === 'queued') return 'queued'
+  if (job.status === 'running') return 'checking provider history'
+  if (job.status === 'error') return job.error || 'failed'
+  const result = job.result || {}
+  const recovered = Number(result.recovered || 0)
+  const remaining = Number(result.needs_fresh_generation || 0) + Number(result.unrecoverable || 0)
+  if (!recovered && remaining) return `nothing restored; ${remaining} need fresh generation`
+  if (remaining) return `${recovered} restored; ${remaining} need fresh generation`
+  return `${recovered} restored and verified on disk`
+})
+
+watch(() => lastRepairJob.value?.status, (status) => {
+  if (status !== 'done' && status !== 'error' && status !== 'cancelled') return
+  void refreshImageStatus()
+  void loadEditScan()
+})
 
 async function refreshImageStatus() {
   if (!form.episode_id) return
   imageStatus.loading = true
   imageStatus.error = ''
   try {
-    const r = await get<any>(`/projects/${slug.value}/episodes/${form.episode_id}/image-status`)
+    const [r, repair] = await Promise.all([
+      get<any>(`/projects/${slug.value}/episodes/${form.episode_id}/image-status`),
+      get<{ scene: RepairPoolStatus; thumb: RepairPoolStatus }>(
+        `/projects/${slug.value}/episodes/${form.episode_id}/images-repair-status`,
+      ),
+    ])
     imageStatus.scenes = r.scenes ?? null
     imageStatus.thumbnails = r.thumbnails ?? null
     imageStatus.hasAny = !!(r.scenes || r.thumbnails)
@@ -1458,6 +1524,8 @@ async function refreshImageStatus() {
     imageStatus.totalMissing = missScene + missThumb
     imageStatus.missingScenesList = missScene > 0 ? imageStatus.scenes!.missing.join(', ') : ''
     imageStatus.missingThumbsList = missThumb > 0 ? imageStatus.thumbnails!.missing.join(', ') : ''
+    repairStatus.scene = repair.scene
+    repairStatus.thumb = repair.thumb
   } catch (e: any) {
     imageStatus.error = e?.data?.detail || e?.message || 'Could not check image integrity'
   } finally {
@@ -1478,16 +1546,21 @@ async function repairMissing() {
   try {
     // v1.0.306 — scope the repair to this page's pool (thumbnails on the
     // Thumbnail Generator, scenes on the Scene Generator).
-    await post(`/projects/${slug.value}/generate/images-repair`, {
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/images-repair`, {
       episode_id: form.episode_id,
       pool: integrityPool.value,
     })
-    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued — recovers from provider history (no credit cost). Check the Jobs tab.`)
+    lastRepairJobId.value = job.job_id
+    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued · Job ${job.job_id}.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue repair')
   } finally {
     submitting.value = false
   }
+}
+
+async function generateMissingFresh() {
+  await queueGeneration(false, false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel.value}.`)
 }
 
 // ── Edit-existing-images grid (audit pain-point #14) ─────────────────────
@@ -1733,6 +1806,9 @@ function getImagePreviewUrlImages(path: string): string {
 // declarations above — `{ immediate: true }` fires this synchronously
 // during setup, and the else-branch reads those refs. See comment above.
 watch(() => form.episode_id, (v) => {
+  lastRepairJobId.value = ''
+  repairStatus.scene = null
+  repairStatus.thumb = null
   if (v) {
     refreshImageStatus()
     void loadEditScan()
@@ -1744,11 +1820,11 @@ watch(() => form.episode_id, (v) => {
   }
 }, { immediate: true })
 
-async function submit() {
+function generationParams(forceOverride?: boolean, includeSpecific = true) {
   // Translate Generation Mode (M6) → backend `force`. The image generator
   // doesn't have _v2 file naming yet, so 'new_version' currently maps to
   // 'skip' until that lands; the radio option is documented to that effect.
-  const force = activeForm.value.generation_mode === 'regenerate'
+  const force = forceOverride ?? activeForm.value.generation_mode === 'regenerate'
   const params: any = {
     episode_id: form.episode_id,
     model: activeForm.value.model,
@@ -1780,11 +1856,16 @@ async function submit() {
   }
 
   // Send the right optional # field per mode
-  if (specificNum.value) {
+  if (includeSpecific && specificNum.value) {
     if (form.mode === 'thumbs') params.thumb_number = specificNum.value
     else params.scene_number = specificNum.value
   }
 
+  return params
+}
+
+async function queueGeneration(forceOverride?: boolean, includeSpecific = true, queuedMessage = 'Image generation queued!') {
+  const params = generationParams(forceOverride, includeSpecific)
   if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
 
   submitting.value = true
@@ -1793,7 +1874,7 @@ async function submit() {
 
   try {
     await post(`/projects/${slug.value}/generate/images`, params)
-    success('Image generation queued!')
+    success(queuedMessage)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to queue image generation')
     imageGenerating.value = false
@@ -1801,6 +1882,10 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+}
+
+async function submit() {
+  await queueGeneration()
 }
 </script>
 
@@ -2021,6 +2106,24 @@ async function submit() {
   border-color: rgba(245, 158, 11, 0.35);
 }
 .missing-detail { font-family: var(--font-mono, monospace); }
+.repair-task-row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-top: 5px;
+  overflow-wrap: anywhere;
+}
+.repair-task-id { color: var(--text-muted); }
+.repair-task-none { color: rgb(245, 158, 11); }
+.repair-job-result {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.repair-job-result.busy { color: var(--text-muted); }
+.repair-job-result.ok { color: rgb(34, 197, 94); border-color: rgba(34, 197, 94, .35); }
+.repair-job-result.warn { color: rgb(245, 158, 11); border-color: rgba(245, 158, 11, .4); }
 
 /* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
 .generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

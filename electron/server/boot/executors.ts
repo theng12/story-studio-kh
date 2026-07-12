@@ -80,7 +80,7 @@ export function registerAllExecutors(): void {
     const episodeId = (job.params as any)?.episode_id || job.episode_id
     const rawPool = (job.params as any)?.pool
     const pool = rawPool === 'scenes' || rawPool === 'thumbnails' ? rawPool : 'all'
-    await reconcileImages(job.project_slug, episodeId, job, pool)
+    job.result = await reconcileImages(job.project_slug, episodeId, job, pool)
   }))
   // Same shape as images_repair — delegates the per-provider dispatch
   // (kie-video / fal-video) to the reconciler itself.

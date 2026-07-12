@@ -125,17 +125,61 @@ function announceTransitions(next: Job[]) {
     for (const job of next) previousStatuses.set(job.job_id, job.status)
     return
   }
-  const { success, error: showError } = useToast()
+  const { success, info, error: showError } = useToast()
   for (const job of next) {
     const prev = previousStatuses.get(job.job_id)
     if (prev && (prev === 'running' || prev === 'queued')) {
       const label = jobLabel(job)
-      if (job.status === 'done') success(`${label} completed: ${job.episode_id}`)
+      if (job.status === 'done') {
+        const notice = jobCompletionNotice(job, label)
+        if (notice.kind === 'success') success(notice.message)
+        else info(notice.message)
+      }
       else if (job.status === 'error') showError(`${label} failed: ${job.episode_id}`)
     }
   }
   previousStatuses.clear()
   for (const job of next) previousStatuses.set(job.job_id, job.status)
+}
+
+export function jobCompletionNotice(
+  job: Pick<Job, 'job_id' | 'type' | 'episode_id' | 'result' | 'output_lines'>,
+  label = jobLabel(job as Job),
+): { kind: 'success' | 'info'; message: string } {
+  if (job.type !== 'images_repair') {
+    return { kind: 'success', message: `${label} completed: ${job.episode_id}` }
+  }
+
+  const structured = job.result || {}
+  let recovered = Number(structured.recovered)
+  let needsFresh = Number(structured.needs_fresh_generation)
+  let unrecoverable = Number(structured.unrecoverable)
+  if (![recovered, needsFresh, unrecoverable].every(Number.isFinite)) {
+    const summary = [...(job.output_lines || [])].reverse().find(line => /^Done\. Recovered \d+;/.test(line)) || ''
+    const match = summary.match(/Recovered (\d+); (\d+) need fresh generation; (\d+) unrecoverable/)
+    recovered = Number(match?.[1] || 0)
+    needsFresh = Number(match?.[2] || 0)
+    unrecoverable = Number(match?.[3] || 0)
+  }
+
+  const remaining = needsFresh + unrecoverable
+  const id = `Job ${job.job_id}`
+  if (recovered === 0 && remaining > 0) {
+    return {
+      kind: 'info',
+      message: `Nothing was restored for ${job.episode_id}. ${remaining} image${remaining === 1 ? '' : 's'} need${remaining === 1 ? 's' : ''} fresh generation. ${id}.`,
+    }
+  }
+  if (remaining > 0) {
+    return {
+      kind: 'info',
+      message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}; ${remaining} still need fresh generation. ${id}.`,
+    }
+  }
+  return {
+    kind: 'success',
+    message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}. ${id}.`,
+  }
 }
 
 function applySnapshot(snapshot: JobListResponse, slug: string) {

@@ -157,6 +157,15 @@ async function recoverOne(
       }
       try {
         await downloadImage(url, expected.fullPath)
+        if (!await fileNonEmpty(expected.fullPath)) {
+          return {
+            filename: expected.filename,
+            status: 'error',
+            reason: 'Provider download finished but the expected image file was not written.',
+            task_id: entry.task_id,
+            provider: entry.provider,
+          }
+        }
         return { filename: expected.filename, status: 'recovered', task_id: entry.task_id, provider: entry.provider }
       } catch (e: any) {
         return { filename: expected.filename, status: 'error', reason: `Download failed: ${e.message}`, task_id: entry.task_id, provider: entry.provider }
@@ -180,15 +189,18 @@ async function recoverOne(
 export async function getImagesReconcileStatus(
   slug: string, episodeId: string,
 ): Promise<{
-  scene: { expected: number; present: number; missing: number; with_manifest: number; without_manifest: number }
-  thumb: { expected: number; present: number; missing: number; with_manifest: number; without_manifest: number }
+  scene: ImageRepairPoolStatus
+  thumb: ImageRepairPoolStatus
 }> {
+  const empty = (): ImageRepairPoolStatus => ({
+    expected: 0, present: 0, missing: 0, with_manifest: 0, without_manifest: 0, missing_items: [],
+  })
   const sceneFile = await findScenePromptsFile(slug, episodeId).catch(() => '')
   const thumbFile = await findThumbPromptsFile(slug, episodeId).catch(() => '')
   if (!sceneFile && !thumbFile) {
     return {
-      scene: { expected: 0, present: 0, missing: 0, with_manifest: 0, without_manifest: 0 },
-      thumb: { expected: 0, present: 0, missing: 0, with_manifest: 0, without_manifest: 0 },
+      scene: empty(),
+      thumb: empty(),
     }
   }
   const promptsFile = sceneFile || thumbFile
@@ -197,26 +209,56 @@ export async function getImagesReconcileStatus(
   const summarize = async (
     promptsPath: string, dir: string, stemPrefix: string,
   ) => {
-    if (!promptsPath) return { expected: 0, present: 0, missing: 0, with_manifest: 0, without_manifest: 0 }
+    if (!promptsPath) return empty()
     const parsed = await parseImagePromptsDocx(promptsPath)
     // parseImagePromptsDocx returns { scenes, thumbnails, ... }
     const list = stemPrefix === 'Scene' ? parsed.scenes : parsed.thumbnails
     const expected = buildExpected(list, dir, stemPrefix, episodeId)
     const manifest = await readManifest(dir)
     let present = 0, missing = 0, withManifest = 0, withoutManifest = 0
+    const missingItems: ImageRepairMissingItem[] = []
     for (const e of expected) {
       if (await fileNonEmpty(e.fullPath)) { present++; continue }
       missing++
-      if (manifest.tasks[e.filename]) withManifest++
+      const entry = manifest.tasks[e.filename]
+      if (entry) withManifest++
       else withoutManifest++
+      missingItems.push({
+        filename: e.filename,
+        recoverable: !!entry,
+        ...(entry ? { task_id: entry.task_id, provider: entry.provider } : {}),
+      })
     }
-    return { expected: expected.length, present, missing, with_manifest: withManifest, without_manifest: withoutManifest }
+    return {
+      expected: expected.length,
+      present,
+      missing,
+      with_manifest: withManifest,
+      without_manifest: withoutManifest,
+      missing_items: missingItems,
+    }
   }
 
   return {
     scene: await summarize(sceneFile, bgDir, 'Scene'),
     thumb: await summarize(thumbFile, thumbDir, 'Thumb'),
   }
+}
+
+export interface ImageRepairMissingItem {
+  filename: string
+  recoverable: boolean
+  task_id?: string
+  provider?: string
+}
+
+export interface ImageRepairPoolStatus {
+  expected: number
+  present: number
+  missing: number
+  with_manifest: number
+  without_manifest: number
+  missing_items: ImageRepairMissingItem[]
 }
 
 /**

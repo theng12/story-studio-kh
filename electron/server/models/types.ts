@@ -2013,6 +2013,10 @@ export interface Job {
   finished_at: string | null
   error: string | null
   output_lines: string[]
+  /** Structured executor outcome for jobs whose terminal `done` state does
+   * not necessarily mean an asset was restored. Image repair uses this to
+   * distinguish recovered files from gaps that need fresh generation. */
+  result?: Record<string, any>
   progress?: number
   /**
    * Live transfer metrics for jobs that move bytes (YouTube uploads, asset

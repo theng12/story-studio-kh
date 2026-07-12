@@ -178,8 +178,8 @@ async function runAudit() {
 async function repairSingleImages(code: string) {
   repairingRow.value = code
   try {
-    await post(`/projects/${props.slug}/generate/images-repair`, { episode_id: code })
-    success(`Image repair queued for ${code}`)
+    const job = await post<{ job_id: string }>(`/projects/${props.slug}/generate/images-repair`, { episode_id: code })
+    success(`Image repair queued for ${code} · Job ${job.job_id}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Image repair failed to queue')
   } finally {

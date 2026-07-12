@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.548 — 2026-07-12
+
+**Image repair now reports what it actually restored.** A completed provider-history check can no longer appear as a successful repair when no image was recovered.
+
+- Repair jobs persist structured counts for restored files, fresh-generation gaps, and unrecoverable provider tasks; completion notifications use those outcomes instead of treating every finished check as success.
+- The Image Integrity card shows each missing filename together with its provider task ID, or clearly says when no task ID was recorded.
+- Free Repair is offered only for missing files with stored provider history. Files that were never submitted get a separate Generate Missing Fresh action that skips valid images and warns through the normal credit confirmation.
+- The queued Story job ID is displayed immediately with a direct Jobs link, and the image list automatically rescans when repair finishes.
+- Provider downloads are verified at the expected file path before they count as restored, with regression coverage for truthful completion messages and older repair logs.
+
 ## v1.0.547 — 2026-07-12
 
 **Studio Hub is now the authoritative gateway for the complete local AI fleet.** Story Studio discovers models, checks availability, submits generation, and transcribes audio through one Hub address and credential; saved direct Studio URLs are emergency fallback only.
