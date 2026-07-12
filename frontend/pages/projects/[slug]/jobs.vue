@@ -252,13 +252,13 @@
         >
         <!-- Row 1: Status + Type + Episode + Actions -->
         <div class="job-row-main">
-          <div class="flex items-center gap-2">
+          <div class="job-identity">
             <StatusBadge :status="job.status" />
             <span class="job-type">{{ jobDisplayLabel(job) }}</span>
             <span class="job-episode">{{ job.episode_id }}</span>
-            <span v-if="job.title" class="text-muted">- {{ job.title }}</span>
+            <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
           </div>
-          <div class="flex items-center gap-1">
+          <div class="job-actions">
             <button
               v-if="job.status === 'queued' || job.status === 'running'"
               class="btn btn-xs btn-danger"
@@ -431,13 +431,13 @@
           :class="'status-' + job.status"
         >
           <div class="job-row-main">
-            <div class="flex items-center gap-2">
+            <div class="job-identity">
               <StatusBadge :status="job.status" />
               <span class="job-type">{{ jobDisplayLabel(job) }}</span>
               <span class="job-episode">{{ job.episode_id }}</span>
-              <span v-if="job.title" class="text-muted">- {{ job.title }}</span>
+              <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
             </div>
-            <div class="flex items-center gap-1">
+            <div class="job-actions">
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type)"
@@ -1644,18 +1644,50 @@ async function clearFinished() {
   font-size: 12px;
 }
 
-.jobs-list { display: flex; flex-direction: column; gap: 8px; }
+.jobs-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%; }
 
-.job-card { padding: 14px 16px; transition: border-color 0.2s; }
+.job-card {
+  padding: 14px 16px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
 .job-card.status-running { border-left: 3px solid var(--accent); }
 .job-card.status-error { border-left: 3px solid var(--error); }
 .job-card.status-done { border-left: 3px solid #22c55e; }
 .job-card.status-queued { border-left: 3px solid var(--text-muted); }
 .job-card.status-cancelled { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 
-.job-row-main { display: flex; justify-content: space-between; align-items: center; }
-.job-type { font-weight: 600; font-size: 13px; color: var(--text-primary); }
-.job-episode { font-size: 13px; color: var(--accent); font-weight: 500; }
+.job-row-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.job-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.job-type { flex: 0 0 auto; font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.job-episode { flex: 0 0 auto; font-size: 13px; color: var(--accent); font-weight: 500; }
+.job-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
 
 /* Meta row */
 .job-meta {
@@ -1692,7 +1724,7 @@ async function clearFinished() {
 .output-scroll {
   background: var(--bg-primary); border-radius: var(--radius-sm);
   padding: 10px; margin-top: 6px;
-  max-height: 180px; overflow-y: auto;
+  max-height: 180px; overflow: auto;
   font-size: 11px;
 }
 .output-scroll code {
@@ -1713,7 +1745,7 @@ async function clearFinished() {
   font-family: inherit !important;
 }
 
-.jobs-section { display: block; }
+.jobs-section { display: block; min-width: 0; max-width: 100%; }
 .section-heading {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 0; margin-top: 6px;
@@ -1819,4 +1851,10 @@ async function clearFinished() {
   cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 4px;
 }
 .btn-icon:hover { color: var(--error); background: rgba(248, 113, 113, 0.1); }
+
+@media (max-width: 760px) {
+  .job-row-main { align-items: flex-start; flex-wrap: wrap; }
+  .job-identity { flex-basis: 100%; }
+  .job-actions { margin-left: auto; }
+}
 </style>

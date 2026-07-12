@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.545 — 2026-07-12
+
+**Long job names stay inside their cards.** Jobs with full chapter lists no longer push Stop, Cancel, Retry, or status controls beyond the window.
+
+- Job status, type, and episode remain visible while long generated titles truncate safely with a hover tooltip for the full text.
+- Action buttons keep a fixed trailing position instead of being displaced by job details.
+- Cards, lists, and log output now constrain their own width; logs scroll internally rather than widening the page.
+- Narrow windows wrap the action row below the job identity without overlap.
+
 ## v1.0.544 — 2026-07-12
 
 **Voice Studio transcription recognizes protected fleet models again.** Story Studio now authenticates remote Voice Studio requests with the shared Studio Hub fleet credential.
