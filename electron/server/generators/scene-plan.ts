@@ -191,16 +191,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (useResearch) job.output_lines.push(`Research context: ${researchPath}`)
   job.output_lines.push(`Narration docx: ${paths.narration_docx}`)
   if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
-  const DETAIL_LABELS: Record<number, string> = { 1: 'Concise', 2: 'Standard', 3: 'Detailed', 4: 'Cinematic' }
-  job.output_lines.push(`Visual detail: ${DETAIL_LABELS[params.detail_level ?? 4] ?? 'Cinematic'} (level ${params.detail_level ?? 4})`)
-  // v1.0.285 — surface the chosen window size + the resolved count so the
-  // user can see whether 'auto' picked Full or Small for their model.
-  const wsMode = params.window_size || 'auto'
-  const wsIsLocal = model.startsWith('chatstudio:')
-  const wsCount = wsMode === 'small' ? 10 : wsMode === 'full' ? 30 : (wsIsLocal ? 10 : 30)
-  job.output_lines.push(
-    `Window size: ${wsMode}${wsMode === 'auto' ? ` → ${wsCount} scenes/call (${wsIsLocal ? 'local model' : 'cloud model'})` : ` (${wsCount} scenes/call)`}`,
-  )
+  job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
+  job.output_lines.push('Prompt batching: durable Studio Hub packs of up to 10 scenes')
   if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
   if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   job.progress = 10
@@ -264,9 +256,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       } catch { /* stitched SRT duration remains the safe fallback */ }
       if (scenes.length) scenes[scenes.length - 1]!.end_sec = totalDuration
       if (characterDensity != null) assignDensityToUntagged(scenes, characterDensity)
+      const builtAt = new Date().toISOString()
       const plan: ScenePlan = {
         schema_version: 1,
-        generated_at: new Date().toISOString(),
+        generated_at: builtAt,
+        timeline_built_at: builtAt,
         planner_model: model,
         source_stitched_srt: path.basename(stitchedSrt),
         total_duration_sec: totalDuration,
@@ -296,6 +290,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
     if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
     const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    // Preserve a useful timeline timestamp when an older empty-prompt plan is
+    // resumed. Once generated_at starts advancing with prompt saves it can no
+    // longer be used as the timeline build time.
+    if (!plan.timeline_built_at && plan.scenes.every(scene => !scene.visual_prompt?.trim())) {
+      plan.timeline_built_at = plan.generated_at
+    }
     const isMotion = stage === 'motion'
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
@@ -333,6 +333,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       .map(c => c.text)
       .join(' ')
       .slice(0, 3500)
+    let researchContext = ''
+    if (!isMotion && useResearch && existsSync(researchPath)) {
+      researchContext = (await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim().slice(0, 6000)
+    }
 
     const packs: HubChatPack[] = []
     for (let offset = 0; offset < targets.length; offset += 10) {
@@ -362,6 +366,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               effectiveStyle ? `STYLE BIBLE:\n${effectiveStyle}` : '',
               params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
               !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
+              researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
               !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
               `SCENES:\n${JSON.stringify(scenePayload)}`,
             ].filter(Boolean).join('\n\n'),

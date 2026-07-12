@@ -24,7 +24,7 @@
       v-model:episode-id="episodeId"
       filter-field="scene_plan"
       :presets="planPresets"
-      generate-label="1. Build timeline"
+      :generate-label="plan?.scenes?.length ? '1. Rebuild timeline' : '1. Build timeline'"
       loading-label="Building timeline…"
       :generate-loading="planning || planJobActive"
       :generate-disabled="!canPlan"
@@ -37,17 +37,6 @@
       10-scene packs. Motion is a separate optional pass, so still-image videos
       can skip it completely.
     </p>
-
-    <!-- v1.0.193 — continuity-chain density pacing (shown only for that format). -->
-    <div v-if="continuityPacing" class="cc-pacing-chip">
-      <span aria-hidden="true">🎬</span>
-      <span>
-        <strong>Live pacing:</strong>
-        scenes {{ continuityPacing.min_sec }}–{{ continuityPacing.max_sec }}s, cut denser on busy passages.
-        The planner uses these guardrails instead of a fixed scene count.
-      </span>
-      <NuxtLink :to="`/projects/${slug}/character-sheet`" class="cc-pacing-link">Change →</NuxtLink>
-    </div>
 
     <!-- Step 1: Subtitles (created + stitched in the Subtitles workspace) -->
     <section class="card mt-3">
@@ -99,27 +88,10 @@
     <section class="card mt-3">
       <h3>2. Plan settings</h3>
       <p class="text-muted text-sm mt-1">
-        The LLM reads the stitched SRT
-        <span v-if="status?.research_available">+ your research.json</span>
-        + the narration docx and picks scene boundaries based on
-        natural narrative beats.
+        Timeline boundaries are built deterministically from the stitched SRT and pacing range. The selected model is used only for visual prompts and optional motion prompts.
       </p>
-      <div class="grid-2 mt-2">
+      <div class="mt-2">
         <ModelSelector v-model="form.model" :project-slug="slug" />
-        <div class="form-group">
-          <label>
-            Target scene count
-            <span class="text-muted text-xs">— guideline, not strict</span>
-          </label>
-          <input
-            v-model.number="form.target_scene_count"
-            class="input"
-            type="number"
-            min="3"
-            max="200"
-            placeholder="auto (~1 scene per 8s)"
-          />
-        </div>
       </div>
       <label class="flex items-center gap-1 mt-2 text-sm" v-if="status?.research_available">
         <input type="checkbox" v-model="form.use_research" />
@@ -278,16 +250,24 @@
         <div class="stage-step">
           <strong>1. Timeline</strong>
           <span>{{ plan?.scenes?.length || 0 }} scenes · no LLM</span>
-          <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive" @click="planScenes">Build / rebuild timeline</button>
+          <span class="stage-built">{{ timelineBuiltLabel }}</span>
+          <span v-if="continuityPacing" class="stage-setting">
+            Pacing: {{ continuityPacing.min_sec }}–{{ continuityPacing.max_sec }} seconds
+            <NuxtLink :to="`/projects/${slug}/character-sheet`">Change</NuxtLink>
+          </span>
+          <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive" @click="planScenes">
+            {{ plan?.scenes?.length ? 'Rebuild timeline' : 'Build timeline' }}
+          </button>
         </div>
         <div class="stage-step">
           <strong>2. Visual prompts</strong>
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
+          <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
             <button class="btn btn-primary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', 10)">Next 10</button>
             <button class="btn btn-secondary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small>One Hub item contains up to 10 scenes. Ten available servers can process up to 100 prompts in one wave.</small>
+          <small>Each Hub item contains up to 10 scenes. Studio Hub distributes as many packs in parallel as the available model servers can handle.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
@@ -794,6 +774,7 @@ const SCENE_TYPE_OPTIONS: Array<{ value: SceneType; emoji: string; label: string
 interface ScenePlan {
   schema_version: 1
   generated_at: string
+  timeline_built_at?: string
   planner_model?: string
   source_stitched_srt?: string
   total_duration_sec: number
@@ -981,10 +962,7 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
 
 const form = ref({
   model: '',  // ModelSelector auto-picks first usable
-  target_scene_count: null as number | null,
   use_research: true,
-  // Retained in saved presets for compatibility; every new run sends level 4.
-  detail_level: 4,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
@@ -993,42 +971,10 @@ const form = ref({
   // instructions. Both optional.
   style_prompt: '',
   custom_instructions: '',
-  // v1.0.285 — per-window scene count.
-  //   'auto'  — local model → 10 scenes/call; cloud → 30/call (default)
-  //   'full'  — always 30/call (fewer LLM calls, richer cross-scene cohesion)
-  //   'small' — always 10/call (smaller JSON; better for flaky local models)
-  // Surfaced as a dropdown so users with weak local LLMs can drop to 'small'
-  // when they hit the empty-visual_prompts fallback, without sacrificing
-  // the cloud's more efficient batched output.
-  window_size: 'auto' as 'auto' | 'full' | 'small',
-  // v1.0.508 — "story so far" cross-window continuity. false (default) plans
-  // segments sequentially with a rolling recap; false plans them in parallel
-  // (much faster on multi-segment episodes, weaker cross-seam continuity).
-  cross_window_context: false,
-  // v1.0.291 — planning architecture toggle.
-  //   'single-pass' — historical windowed LLM (default; works great on cloud)
-  //   'two-pass'    — deterministic split + per-scene prompts (best for
-  //                   smaller local models that fail JSON output)
-  // UI only surfaces 'two-pass' when an lmstudio:* model is selected — cloud
-  // users have no reason to pay the per-scene request-overhead.
-  planning_mode: 'single-pass' as 'single-pass' | 'two-pass',
-  // v1.0.291 — neighbor-context window for two-pass prompt generation.
-  // The dropdown maps preset combinations: Minimal=0/0, Standard=2/1, Rich=3/2.
-  // Saved as a single label so it survives presets cleanly.
-  neighbor_context: 'standard' as 'minimal' | 'standard' | 'rich',
 })
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
-
-// v1.0.242 — labels for the detail slider stops.
-const DETAIL_LEVELS = [
-  { value: 1, label: 'Concise', hint: 'One short line per scene (~12–20 words).' },
-  { value: 2, label: 'Standard', hint: '2–3 sentences (~30–60 words). The default.' },
-  { value: 3, label: 'Detailed', hint: '3–4 rich sentences (~70–100 words): wardrobe, props, lens, lighting.' },
-  { value: 4, label: 'Cinematic', hint: '4–5 vivid sentences (~110–150 words): full shot, lighting setup, palette, atmosphere.' },
-]
-const detailMeta = computed(() => DETAIL_LEVELS.find(d => d.value === form.value.detail_level) ?? DETAIL_LEVELS[1])
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
@@ -1039,28 +985,6 @@ const MOTION_LEVELS = [
   { value: 4, label: 'Lively', hint: 'Clear but smooth movement and more active ambient elements — never fast or abrupt.' },
 ]
 const motionMeta = computed(() => MOTION_LEVELS.find(m => m.value === form.value.motion_level) ?? MOTION_LEVELS[1])
-
-// v1.0.285 — flagged for the window-size "Auto" tooltip so the user sees which
-// branch will fire (10 scenes for local, 30 for cloud) before they hit Plan.
-const isLocalModel = computed(() => (form.value.model || '').startsWith('chatstudio:'))
-
-// v1.0.291 — neighbor-context preset → {back, forward} mapping. Sent to the
-// backend as numeric fields; surfaced as a 3-option dropdown so the user
-// picks the "feel" rather than tuning two numbers independently.
-const NEIGHBOR_CONTEXT_PRESETS: Record<'minimal' | 'standard' | 'rich', { back: number; forward: number; label: string; hint: string }> = {
-  minimal: { back: 0, forward: 0, label: 'Minimal (independent scenes)', hint: 'Each scene gets prompted in isolation. Fastest + cheapest but visual style may drift across scenes.' },
-  standard: { back: 2, forward: 1, label: 'Standard (2 back · 1 forward)', hint: 'Each prompt sees the previous 2 visual prompts + the next 1 transcript. Good balance.' },
-  rich: { back: 3, forward: 2, label: 'Rich (3 back · 2 forward)', hint: 'Maximum continuity context. Slower + more tokens per call; best for visually-cohesive long episodes.' },
-}
-const neighborContextMeta = computed(() => NEIGHBOR_CONTEXT_PRESETS[form.value.neighbor_context])
-
-// v1.0.291 — when switching away from a local model, force back to single-pass
-// so cloud users don't accidentally trigger 100+ LLM calls for an episode.
-watch(isLocalModel, (nowLocal) => {
-  if (!nowLocal && form.value.planning_mode === 'two-pass') {
-    form.value.planning_mode = 'single-pass'
-  }
-})
 
 const canPlan = computed(() => {
   if (!episodeId.value) return false
@@ -1077,6 +1001,16 @@ const visualDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!
 const visualPendingCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
 const motionDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.motion_prompt?.trim()).length)
 const motionPendingCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.visual_prompt?.trim() && !s.motion_prompt?.trim()).length)
+const timelineBuiltLabel = computed(() => {
+  if (!plan.value?.scenes?.length) return 'Not built yet'
+  const estimated = !plan.value.timeline_built_at && visualDoneCount.value === 0
+  const builtIso = plan.value.timeline_built_at || (estimated ? plan.value.generated_at : '')
+  if (!builtIso) return 'Built before timestamp tracking'
+  const built = new Date(builtIso)
+  if (Number.isNaN(built.getTime())) return 'Build time unavailable'
+  const suffix = estimated ? ' (estimated)' : ''
+  return `Last built ${built.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}${suffix}`
+})
 
 async function loadStatus(): Promise<void> {
   if (!episodeId.value) {
@@ -1109,7 +1043,7 @@ async function planScenes(): Promise<void> {
   if (plan.value?.scenes?.length) {
     const ok = await ask({
       title: 'Rebuild the scene timeline?',
-      message: `This recalculates all ${plan.value.scenes.length} scene windows from the stitched subtitles and clears their current visual and motion prompts. Existing image files are not deleted, but changed scene IDs may no longer match them.`,
+      message: `${timelineBuiltLabel.value}. This recalculates all ${plan.value.scenes.length} scene windows from the stitched subtitles and clears their current visual and motion prompts. Existing image files are not deleted, but changed scene IDs may no longer match them.`,
       confirmLabel: 'Rebuild timeline',
     })
     if (!ok) return
@@ -1117,13 +1051,11 @@ async function planScenes(): Promise<void> {
   const ep = episodeId.value
   planningEpisode.value = ep
   try {
-    const ncPreset = NEIGHBOR_CONTEXT_PRESETS[form.value.neighbor_context]
     await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
       stage: 'timeline',
       opening_mode: openingMode.value,
       opening_reserved_sec: openingMode.value === 'branded-opening' ? openingReservedSec.value : 0,
-      target_scene_count: form.value.target_scene_count || undefined,
       use_research: form.value.use_research,
       detail_level: 4,
       // v1.0.468 — image-to-video motion prompts (off → planner skips them).
@@ -1131,17 +1063,6 @@ async function planScenes(): Promise<void> {
       motion_level: form.value.generate_motion_prompts ? form.value.motion_level : undefined,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
-      // v1.0.285 — only send when not 'auto'; the backend defaults to auto
-      // anyway, so omitting keeps the request payload tidy.
-      window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
-      // v1.0.508 — story-so-far continuity (false = parallel segments).
-      cross_window_context: form.value.cross_window_context,
-      // v1.0.291 — planning mode + neighbor context. Only send when two-pass
-      // is explicitly selected; single-pass is the backend default and we'd
-      // rather omit the field than send a redundant value.
-      planning_mode: form.value.planning_mode === 'two-pass' ? 'two-pass' : undefined,
-      neighbor_context_back: form.value.planning_mode === 'two-pass' ? ncPreset.back : undefined,
-      neighbor_context_forward: form.value.planning_mode === 'two-pass' ? ncPreset.forward : undefined,
     })
     success('Timeline build queued — no LLM call is needed')
     await pollUntilPlanLanded(ep)
@@ -1497,7 +1418,6 @@ async function replanAllEmpty(): Promise<void> {
         detail_level: 4,
         style_prompt: form.value.style_prompt.trim() || undefined,
         custom_instructions: form.value.custom_instructions.trim() || undefined,
-        window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
       })
       await pollUntilPlanLanded(ep, { previousGeneratedAt })
       // After the splice, the original `next.id` is GONE from the plan (it
@@ -1606,8 +1526,6 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
       detail_level: 4,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
-      // v1.0.285 — keep behaviour consistent with the full-plan call.
-      window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
     })
     success('Re-plan queued — watch the Jobs panel; the scene list updates when it lands.')
     await pollUntilPlanLanded(ep)
@@ -1764,17 +1682,12 @@ const planPresets = usePresets<any>({
   presetType: 'scene-plan',
   snapshot: () => ({
     model: form.value.model,
-    target_scene_count: form.value.target_scene_count,
     use_research: form.value.use_research,
     detail_level: 4,
     style_prompt: form.value.style_prompt,
     custom_instructions: form.value.custom_instructions,
-    // v1.0.508 — persist the run-shaping toggles so a preset captures the
-    // speed/quality config (story-so-far continuity, motion prompts, window size).
-    cross_window_context: form.value.cross_window_context,
     generate_motion_prompts: form.value.generate_motion_prompts,
     motion_level: form.value.motion_level,
-    window_size: form.value.window_size,
   }),
   apply: (data) => { Object.assign(form.value, data) },
 })
@@ -1799,6 +1712,15 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   background: linear-gradient(145deg, rgba(240, 198, 116, 0.08), var(--bg-secondary));
 }
 .stage-step > span { margin-top: 6px; color: var(--text-secondary); font-size: 13px; }
+.stage-step .stage-built { color: var(--text-muted); font-size: 12px; }
+.stage-step .stage-setting {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-secondary);
+}
+.stage-setting a { float: right; color: var(--accent); text-decoration: none; }
+.stage-setting a:hover { text-decoration: underline; }
 .stage-step small { margin-top: auto; padding-top: 12px; color: var(--text-muted); line-height: 1.45; }
 .stage-step em {
   color: var(--text-muted);
@@ -1840,44 +1762,6 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   background: var(--bg-secondary);
 }
 .planner-advanced > summary { cursor: pointer; font-weight: 650; }
-
-/* v1.0.291 — planning-mode radio group. Each radio card spans full width
-   with its description below so the user can scan both options at a glance. */
-.planning-mode-radios {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
-}
-.planning-mode-radio {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
-  background: var(--bg-secondary, #1c1c1f);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.planning-mode-radio:hover:not(.disabled) {
-  border-color: var(--accent, #6c8fff);
-}
-.planning-mode-radio.active {
-  border-color: var(--accent, #6c8fff);
-  background: rgba(108, 143, 255, 0.06);
-}
-.planning-mode-radio.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.planning-mode-radio input[type="radio"] {
-  margin-top: 4px;
-}
-.planning-mode-radio p {
-  margin: 4px 0 0;
-  line-height: 1.45;
-}
 
 /* v1.0.288 — bulk-button group on the plan-health head. The two bulk
    options (✨ Regen prompts only / 🪄 Full re-plan) sit side-by-side. */
@@ -1993,25 +1877,6 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 .detail-ticks span:first-child { text-align: left; }
 .detail-ticks span:last-child { text-align: right; }
 .detail-ticks span.on { color: var(--accent); font-weight: 600; }
-
-/* v1.0.193 — continuity-chain live-pacing chip. */
-.cc-pacing-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-left: 3px solid #b07cff;
-  border-radius: 8px;
-  background: rgba(176, 124, 255, 0.07);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-.cc-pacing-chip strong { color: var(--text-primary); }
-.cc-pacing-link { margin-left: auto; white-space: nowrap; color: var(--accent); text-decoration: none; }
-.cc-pacing-link:hover { text-decoration: underline; }
 
 .validation-msg {
   color: #c97a4a;

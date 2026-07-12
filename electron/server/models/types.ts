@@ -3345,8 +3345,11 @@ export interface ScenePlanEntry {
 
 export interface ScenePlan {
   schema_version: 1
-  /** When the LLM planner produced this. ISO8601. */
+  /** Last time any plan content was updated. ISO8601. */
   generated_at: string
+  /** When the deterministic timeline was built. Prompt passes do not change
+   * this, so the UI can distinguish rebuilding from prompt progress. */
+  timeline_built_at?: string
   /** Model id used for the planner pass. */
   planner_model?: string
   /** Stitched SRT filename this plan was built against. Drift-detection

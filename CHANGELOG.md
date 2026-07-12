@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.551 — 2026-07-12
+
+**Scene Plan now shows only the controls that govern the staged workflow.** Timeline state, continuity pacing, full-detail prompting, and Hub batching are visible where the work happens.
+
+- Timeline cards show the scene count, exact last-built time for new plans, active continuity pacing range, and a direct link to change pacing on Character Sheet.
+- Build buttons become Rebuild buttons when a timeline already exists, and the confirmation repeats the last-built state before clearing prompts.
+- Visual Prompt cards explicitly show the fixed full-detail target of 110–150 words per scene and explain adaptive Studio Hub distribution in packs of up to 10 scenes.
+- Removed obsolete target-count, window-size, single/two-pass, neighbor-context, and cross-window fields from new Scene Plan presets and Pipeline jobs. The misleading `auto → 30 scenes/call` job line is gone.
+- Episode research is now included in staged Studio Hub visual-prompt packs when the research option is enabled.
+- Older empty-prompt plans retain an estimated build time when they resume; all newly built timelines store a dedicated timestamp that prompt updates cannot overwrite.
+- Added regression coverage preventing legacy planner settings from returning through Pipeline presets.
+
 ## v1.0.550 — 2026-07-12
 
 **Scene Plan completion is now truthful and self-healing.** A timestamp shell can no longer appear finished when visual-prompt generation failed or stopped partway through.

@@ -278,4 +278,27 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.title_max_length, 100)
     assert.equal(params.tag_count, 15)
   })
+
+  test('scene_plan ignores obsolete window planner settings', () => {
+    const preset = fakePreset({
+      model: 'chatstudio:test-model',
+      use_research: true,
+      style_prompt: 'storybook',
+      target_scene_count: 30,
+      window_size: 'full',
+      planning_mode: 'two-pass',
+      cross_window_context: true,
+      generate_motion_prompts: true,
+    })
+    const params = resolveStepParams('scene_plan', 'EP0042', 'Title', preset, TIMESTAMP_FORMAT)
+    assert.equal(params.model, 'chatstudio:test-model')
+    assert.equal(params.detail_level, 4)
+    assert.equal(params.style_prompt, 'storybook')
+    for (const obsolete of [
+      'target_scene_count', 'window_size', 'planning_mode', 'cross_window_context',
+      'generate_motion_prompts',
+    ]) {
+      assert.equal(obsolete in params, false, `${obsolete} must not leak into the staged planner`)
+    }
+  })
 })

@@ -753,26 +753,16 @@ export function resolveStepParams(
     }
   }
   if (step === 'scene_plan') {
-    // scene_plan preset (scene-plan.vue): the saved default planning attributes.
-    // Mirror the page's POST normalization: drop 'auto' window_size and only
-    // send two-pass neighbor context when two-pass is selected.
-    const twoPass = data.planning_mode === 'two-pass'
+    // Pipeline runs deterministic timing followed by required visual packs.
+    // Legacy window-size / pass-mode fields are intentionally not forwarded.
     return {
       episode_id: episodeId,
       title: title || '',
       model: data.model,
-      target_scene_count: Number(data.target_scene_count) > 0 ? Number(data.target_scene_count) : undefined,
       use_research: data.use_research !== false,
       detail_level: 4,
-      generate_motion_prompts: data.generate_motion_prompts !== false,
-      motion_level: Number.isFinite(Number(data.motion_level)) ? Number(data.motion_level) : 2,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
-      window_size: (data.window_size && data.window_size !== 'auto') ? data.window_size : undefined,
-      cross_window_context: data.cross_window_context === true,
-      planning_mode: twoPass ? 'two-pass' : undefined,
-      neighbor_context_back: twoPass ? data.neighbor_context_back : undefined,
-      neighbor_context_forward: twoPass ? data.neighbor_context_forward : undefined,
     }
   }
   if (step === 'scene_review') {
