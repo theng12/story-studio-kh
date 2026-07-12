@@ -24,6 +24,7 @@ import path from 'path'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
+import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -1247,8 +1248,17 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       }
       if (step === 'script-only') {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
-        chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-        chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+        const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
+        const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId)
+        if (completion.resumable) {
+          // An approved outline plus partial chapter files is recoverable.
+          // Resume only missing work; rebuilding the outline could discard
+          // reviewed creative decisions and spend unnecessary credits.
+          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] repair chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+        } else {
+          chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+        }
         continue
       }
       const jobType = jobTypeForStep(step)

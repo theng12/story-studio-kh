@@ -53,7 +53,7 @@ import {
   chapterFilePath,
   type NarrationParts,
 } from './narration-assembly.js'
-import { resolveReadPath } from './episode-artifacts.js'
+import { matchChapterFile, resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, Format, Character } from '../models/types.js'
 
@@ -150,6 +150,74 @@ function chapterFileLooksValid(filePath: string): boolean {
     return st.isFile() && st.size > 0
   } catch {
     return false
+  }
+}
+
+export interface ChunkedScriptCompletion {
+  complete: boolean
+  has_unified: boolean
+  expected: number
+  present: number
+  missing: number[]
+  resumable: boolean
+  outline_valid: boolean
+}
+
+/**
+ * Inspect the durable chapter sources behind a chunked script. A unified
+ * narration file alone is not proof of completion: an interrupted expansion
+ * can assemble 12 chapters from a 15-chapter outline and still leave a valid
+ * looking document on disk.
+ *
+ * Legacy scripts without a progress sidecar retain the old presence-based
+ * contract because there is no trustworthy expected chapter count for them.
+ */
+export async function inspectChunkedScriptCompletion(
+  scriptDir: string,
+  episodeId: string,
+): Promise<ChunkedScriptCompletion> {
+  const unified = resolveReadPath(path.join(scriptDir, `${episodeId}_Script_Narration.md`))
+  const hasUnified = chapterFileLooksValid(unified)
+  const sidecar = await readSidecar(scriptDir, episodeId)
+
+  if (!sidecar) {
+    return {
+      complete: hasUnified,
+      has_unified: hasUnified,
+      expected: hasUnified ? 1 : 0,
+      present: hasUnified ? 1 : 0,
+      missing: [],
+      resumable: false,
+      outline_valid: true,
+    }
+  }
+
+  const expectedNumbers = Array.from(new Set(
+    sidecar.outline
+      .map(entry => Number(entry.n))
+      .filter(n => Number.isInteger(n) && n > 0),
+  )).sort((a, b) => a - b)
+  const outlineValid = sidecar.total_chapters > 0
+    && expectedNumbers.length === sidecar.total_chapters
+
+  const presentNumbers = new Set<number>()
+  let files: string[] = []
+  try { files = await fs.readdir(scriptDir) } catch { /* missing directory */ }
+  for (const filename of files) {
+    const n = matchChapterFile(filename, episodeId)
+    if (n === null) continue
+    if (chapterFileLooksValid(path.join(scriptDir, filename))) presentNumbers.add(n)
+  }
+
+  const missing = expectedNumbers.filter(n => !presentNumbers.has(n))
+  return {
+    complete: hasUnified && outlineValid && missing.length === 0,
+    has_unified: hasUnified,
+    expected: sidecar.total_chapters,
+    present: expectedNumbers.filter(n => presentNumbers.has(n)).length,
+    missing,
+    resumable: !!sidecar.outline_approved_at,
+    outline_valid: outlineValid,
   }
 }
 
@@ -436,20 +504,24 @@ export async function expandChapters(
     )
   }
 
-  // Disk verification: same zero-byte-resume guard as the original
-  // runChunked. Don't trust chapters_done blindly — verify each file
-  // exists and is non-zero.
+  // Disk verification: the files are authoritative, not chapters_done.
+  // A crash can land a chapter file just before its sidecar update; checking
+  // only chapters_done would regenerate and overwrite that valid chapter.
   const verifiedDone = new Set<number>()
-  for (const n of sidecar.chapters_done) {
+  for (const entry of sidecar.outline) {
+    const n = entry.n
     // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
     // it must still count as done so resume doesn't re-generate it.
     if (chapterFileLooksValid(resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, n)))) {
       verifiedDone.add(n)
     }
   }
-  if (verifiedDone.size !== sidecar.chapters_done.length) {
-    sidecar = { ...sidecar, chapters_done: Array.from(verifiedDone).sort((a, b) => a - b) }
+  const recordedDone = [...sidecar.chapters_done].sort((a, b) => a - b)
+  const actualDone = Array.from(verifiedDone).sort((a, b) => a - b)
+  if (actualDone.length !== recordedDone.length || actualDone.some((n, i) => n !== recordedDone[i])) {
+    sidecar = { ...sidecar, chapters_done: actualDone }
     await writeSidecar(params.scriptDir, sidecar)
+    job.output_lines.push(`[chunked] Reconciled progress sidecar from disk (${actualDone.length}/${sidecar.total_chapters} chapters).`)
   }
 
   // Pending = outline slots whose docx isn't on disk, optionally

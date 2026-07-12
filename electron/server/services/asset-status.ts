@@ -36,6 +36,7 @@ import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/sce
 import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getAudioStatus } from './audio-reconciler.js'
+import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -926,7 +927,8 @@ export async function computeEpisodeStatus(
     const metadataFiles = metadataR.files
 
     const scriptState = deriveScriptFolderState(scriptFiles)
-    status.script = scriptState.script
+    const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
+    status.script = scriptCompletion.complete
     status.introduction = scriptState.introduction
     status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
     status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
@@ -1008,7 +1010,10 @@ export async function computeEpisodeStatus(
       status._unreliable = true
     }
 
-    authoritativeHit = status.script || status.introduction || status.scene_prompts
+    // Presence, not completion, decides whether this is the authoritative
+    // folder. Otherwise a partial chunked script would fall through to the
+    // legacy fuzzy scanner and be incorrectly promoted back to complete.
+    authoritativeHit = scriptFiles.length > 0 || status.introduction || status.scene_prompts
       || status.thumb_prompts || status.metadata
 
     if (process.env.SSKH_STATUS_DEBUG === '1') {
@@ -1045,7 +1050,8 @@ export async function computeEpisodeStatus(
             // Script folder: contains both chapters + (optional) intro sidecar.
             if ((cleanSub.endsWith('script') || cleanSub.includes('01 script')) && !cleanSub.includes('prompt') && !cleanSub.includes('description')) {
               const state = deriveScriptFolderState(files)
-              if (state.script) status.script = true
+              const completion = await inspectChunkedScriptCompletion(subPath, code)
+              if (completion.complete) status.script = true
               if (state.introduction) status.introduction = true
             }
             if (cleanSub.includes('scene prompt')) {

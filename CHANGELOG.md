@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.542 — 2026-07-12
+
+**Chapter expansion now proves completion and repairs partial runs.** A unified narration file is no longer enough to mark a known 15-chapter outline complete when only 12 chapter sources exist.
+
+- Script completion now checks the approved outline's exact chapter count and reports partial expansions as pending.
+- Expansion reconciles stale progress from chapter files on disk, preserving valid work after interruptions instead of regenerating it.
+- One-click and full expansion runs retry missing chapters once, then fail clearly and remain resumable if any gap survives.
+- Pipeline resumes approved partial outlines directly, avoiding an unnecessary outline rebuild and only generating missing chapters.
+- Older cached completion results are invalidated and recomputed under the stronger contract after update.
+
 ## v1.0.541 — 2026-07-12
 
 **Motion Review is optional and fully integrated.** Completion status, manual overrides, external clips, and final assembly now share one explicit contract.

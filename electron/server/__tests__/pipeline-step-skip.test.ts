@@ -303,6 +303,47 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
     assert.equal(chain[0].params.auto_approve, true, 'expansion is auto-approved')
   })
 
+  test('script-only resumes an approved partial outline without rebuilding it', async () => {
+    const proj = await pm.createProject({ name: 'Pipeline Partial Script Repair Test' })
+    await pm.updateConfig(proj.slug, {
+      script_presets: [{ id: 'sp1', name: 'default', type: 'script', data: { form: { model: 'gpt-4o', chapters: 5 }, customStyleText: '' } }],
+      script_last_preset_script: 'sp1',
+    } as any)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(proj.slug, [{
+      title: 'Partial episode', logline: '', themes: [], suggested_chapters: 5, suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(proj.slug, ideas[0].id)
+    const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const paths = await resolveEpisodePaths(proj.slug, episodeId, 'Partial episode')
+    const { writeImportedOutline } = await import('../lib/chunked-narration.js')
+    await writeImportedOutline(
+      paths.script_dir,
+      episodeId,
+      Array.from({ length: 5 }, (_, i) => ({ title: `Chapter ${i + 1}` })),
+    )
+    await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Script_Narration.md`), '# partial narration')
+    for (let n = 1; n <= 4; n++) {
+      await fs.writeFile(
+        path.join(paths.script_dir, `${episodeId}_Chapter_${String(n).padStart(2, '0')}.md`),
+        `## Chapter ${n}: Chapter ${n}\n\nBody`,
+      )
+    }
+
+    const res = await request(app)
+      .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+
+    assert.equal(res.status, 201)
+    assert.equal(res.body.enqueued, 1)
+    assert.equal(res.body.total_jobs_planned, 1, 'repair queues only expansion')
+    assert.equal(res.body.jobs[0].type, 'expand_chapters')
+    const jq = await import('../services/job-queue.js')
+    const repairJob = jq.getJob(res.body.jobs[0].job_id)
+    assert.match(repairJob?.title || '', /repair chapters/)
+  })
+
   test('character_sheet applies the continuity_page preset inline (no job)', async () => {
     const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
     await pm.updateConfig(proj.slug, {

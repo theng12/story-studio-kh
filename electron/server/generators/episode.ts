@@ -26,6 +26,7 @@ import {
   getOutlineEntryForChapter,
   buildOutlineOnly,
   expandChapters,
+  inspectChunkedScriptCompletion,
   readSidecar,
   type ChunkedNarrationParams,
   type ChunkedMode,
@@ -1364,12 +1365,27 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     } else {
       job.output_lines.push(`Expanding all pending chapters…`)
     }
-    const result = await expandChapters(job, params, {
+    let result = await expandChapters(job, params, {
       chaptersToExpand: chaptersFilter,
       auto_approve: autoApprove,
     })
+
+    // One-click self-healing: providers occasionally return only part of a
+    // requested batch without throwing. Retry the still-missing slots once in
+    // the same job instead of reporting a misleading successful completion.
+    let completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id)
+    if (!chaptersFilter?.length && completion.missing.length > 0) {
+      job.output_lines.push(
+        `Self-healing incomplete expansion: retrying missing chapters ${completion.missing.join(', ')} once…`,
+      )
+      result = await expandChapters(job, params, {
+        chaptersToExpand: completion.missing,
+        auto_approve: autoApprove,
+      })
+      completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id)
+    }
     job.output_lines.push(
-      `Expansion complete: ${result.chaptersWritten} chapter file(s) on disk ` +
+      `Expansion pass complete: ${completion.present}/${completion.expected} chapter file(s) on disk ` +
       `(${result.totalBatches} batch${result.totalBatches === 1 ? '' : 'es'}).`,
     )
 
@@ -1380,6 +1396,17 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, params.title)
     await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title)
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+
+    completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)
+    // A deliberately filtered manual run is allowed to remain partial. The
+    // strict whole-script postcondition applies to "expand all" and Pipeline
+    // runs, where success must mean the complete approved outline is present.
+    if (!chaptersFilter?.length && !completion.complete) {
+      const detail = completion.outline_valid
+        ? `${completion.present}/${completion.expected} chapters are present; missing ${completion.missing.join(', ') || 'unknown'}`
+        : `the outline contains an invalid chapter count (${completion.present}/${completion.expected} present)`
+      throw new Error(`Chapter expansion did not pass its completion check: ${detail}. Resume expansion to repair it.`)
+    }
 
     // v1.0.106+ — recency record (same as in the legacy generate path
     // above). Done once per expand-chapters run AFTER the unified docx

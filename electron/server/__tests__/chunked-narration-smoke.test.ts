@@ -21,7 +21,13 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import os from 'os'
-import { generateNarrativeChunked, generateListicleChunked, sidecarPath } from '../lib/chunked-narration.js'
+import {
+  generateNarrativeChunked,
+  generateListicleChunked,
+  inspectChunkedScriptCompletion,
+  sidecarPath,
+  writeImportedOutline,
+} from '../lib/chunked-narration.js'
 import { registry } from '../providers/registry.js'
 import type { Job, Format } from '../models/types.js'
 import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
@@ -199,7 +205,14 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const callsRun1 = fakeCalls.length
     assert.ok(callsRun1 > 0, 'first run made calls')
 
-    // Reset call log; second run must NOT call the LLM (everything's done).
+    // Simulate a crash after chapter 6 landed but before its sidecar update.
+    // Disk must win: resume heals progress instead of overwriting chapter 6.
+    const progressPath = sidecarPath(scriptDir, 'EP0042')
+    const staleProgress = JSON.parse(await fs.readFile(progressPath, 'utf-8'))
+    staleProgress.chapters_done = staleProgress.chapters_done.filter((n: number) => n !== 6)
+    await fs.writeFile(progressPath, JSON.stringify(staleProgress, null, 2))
+
+    // Reset call log; second run must NOT call the LLM (everything's done on disk).
     fakeCalls = []
     const job2 = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job2, {
@@ -210,6 +223,42 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(fakeCalls.length, 0, 'fully-completed run does no LLM calls on resume')
     assert.equal(result.fromResume, true)
     assert.equal(result.chaptersWritten, 6)
+    const healedProgress = JSON.parse(await fs.readFile(progressPath, 'utf-8'))
+    assert.deepEqual(healedProgress.chapters_done, [1, 2, 3, 4, 5, 6])
+  })
+
+  test('completion rejects a unified 12/15 script and identifies exact missing chapters', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EP0035'
+    await writeImportedOutline(
+      scriptDir,
+      episodeId,
+      Array.from({ length: 15 }, (_, i) => ({ title: `Chapter ${i + 1}` })),
+    )
+    await fs.writeFile(path.join(scriptDir, `${episodeId}_Script_Narration.md`), '# partial narration')
+    for (let n = 1; n <= 12; n++) {
+      await fs.writeFile(
+        path.join(scriptDir, `${episodeId}_Chapter_${String(n).padStart(2, '0')}.md`),
+        `## Chapter ${n}: Chapter ${n}\n\nBody`,
+      )
+    }
+
+    const partial = await inspectChunkedScriptCompletion(scriptDir, episodeId)
+    assert.equal(partial.complete, false)
+    assert.equal(partial.expected, 15)
+    assert.equal(partial.present, 12)
+    assert.deepEqual(partial.missing, [13, 14, 15])
+    assert.equal(partial.resumable, true)
+
+    for (let n = 13; n <= 15; n++) {
+      await fs.writeFile(
+        path.join(scriptDir, `${episodeId}_Chapter_${String(n).padStart(2, '0')}.md`),
+        `## Chapter ${n}: Chapter ${n}\n\nBody`,
+      )
+    }
+    const complete = await inspectChunkedScriptCompletion(scriptDir, episodeId)
+    assert.equal(complete.complete, true)
+    assert.deepEqual(complete.missing, [])
   })
 
   test('resume re-generates a chapter whose docx is zero-byte (crash mid-write guard)', async () => {
