@@ -123,6 +123,8 @@ interface ScenePlanRunParams {
   opening_reserved_sec?: number
   /** Limit a manual run to the next N pending scenes. Omit for all pending. */
   prompt_limit?: number
+  /** Output budget for each 10-scene visual Hub pack. */
+  prompt_max_tokens?: 4096 | 6144 | 8192
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -341,6 +343,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       researchContext = (await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim().slice(0, 6000)
     }
 
+    const visualMaxTokens = [4096, 6144, 8192].includes(Number(params.prompt_max_tokens))
+      ? Number(params.prompt_max_tokens) : 4096
+    if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
     const packs: HubChatPack[] = []
     for (let offset = 0; offset < targets.length; offset += 10) {
       const group = targets.slice(offset, offset + 10)
@@ -377,7 +382,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ],
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
-        params: { temperature: isMotion ? 0.35 : 0.5, max_tokens: isMotion ? 2048 : 4096 },
+        params: { temperature: isMotion ? 0.35 : 0.5, max_tokens: isMotion ? 2048 : visualMaxTokens },
       })
     }
 

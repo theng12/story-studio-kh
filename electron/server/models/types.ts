@@ -2790,6 +2790,9 @@ export interface GenerateVideoRequest {
    *  explicitly opt OUT of plan-strict even if filenames happen to match.
    *  Optional — old presets without it rely on the all-scenes-matched check. */
   scene_pool_mode?: 'auto' | 'scene_plan' | 'classic' | 'combined'
+  /** Explicit user acknowledgement that a plan-strict render may omit scenes
+   * whose images are still missing. The route rejects otherwise. */
+  allow_incomplete_scene_plan?: boolean
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

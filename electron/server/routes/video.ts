@@ -1282,6 +1282,20 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   }
   if (!narration_path) return res.status(400).json({ detail: 'narration_path is required' })
 
+  // A plan-strict render must not silently omit timeline rows. The UI exposes
+  // the missing IDs and sends this override only after explicit acknowledgement.
+  const poolMode = req.body.scene_pool_mode || 'auto'
+  if ((poolMode === 'auto' || poolMode === 'scene_plan') && req.body.allow_incomplete_scene_plan !== true) {
+    const assets = await scanEpisodeAssets(slug, episode_id)
+    const coverage = assets.scene_plan_coverage
+    if (coverage && coverage.total > 0 && coverage.missing.length > 0) {
+      return res.status(409).json({
+        detail: `${coverage.missing.length} of ${coverage.total} planned scenes have no image. Return to Scene Review to generate or import them, or acknowledge the incomplete render in Video Assembly.`,
+        scene_plan_coverage: coverage,
+      })
+    }
+  }
+
   // Provide defaults for new required fields if missing
   if (!scene_recycling) {
     req.body.scene_recycling = { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }

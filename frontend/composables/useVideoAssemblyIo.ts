@@ -54,6 +54,7 @@ export interface VideoAssemblyIoState {
   scannedAssets: Ref<any>
   scanning: Ref<boolean>
   scenePoolMode?: Ref<'auto' | 'scene_plan' | 'classic' | 'combined'>
+  allowIncompleteScenePlan?: Ref<boolean>
   scenes: Ref<Array<{
     image_path: string
     filename: string
@@ -190,7 +191,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const planned = all.filter((img: any) => img.source === 'scene_plan')
     const requested = s.scenePoolMode?.value || 'auto'
     return requested === 'auto'
-      ? (planned.length ? 'scene_plan' : 'classic')
+      ? (Number(s.scannedAssets.value?.scene_plan_coverage?.total || 0) > 0 || planned.length ? 'scene_plan' : 'classic')
       : requested as 'scene_plan' | 'classic' | 'combined'
   }
 
@@ -219,7 +220,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       // stem IS the id.
       source: img.source || undefined,
       plan_scene_id: img.source === 'scene_plan'
-        ? String(img.filename || img.path || '').split('/').pop()!.replace(/\.[^.]+$/, '')
+        ? (img.plan_scene_id || String(img.filename || img.path || '').split('/').pop()!.replace(/\.[^.]+$/, ''))
         : undefined,
     }))
   }
@@ -278,6 +279,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
       scene_pool_mode: poolMode,
+      allow_incomplete_scene_plan: s.allowIncompleteScenePlan?.value === true,
       scenes: enabledScenes.map(sc => {
         const planSceneId = (sc as any).plan_scene_id
         return {

@@ -761,6 +761,8 @@ export function resolveStepParams(
       model: data.model,
       use_research: data.use_research !== false,
       detail_level: 4,
+      prompt_max_tokens: [4096, 6144, 8192].includes(Number(data.prompt_max_tokens))
+        ? Number(data.prompt_max_tokens) : 4096,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
     }

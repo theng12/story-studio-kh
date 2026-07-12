@@ -18,7 +18,7 @@
       generate-label="Generate Video"
       loading-label="Rendering…"
       :generate-loading="generating || assemblyJobActiveForEpisode"
-      :generate-disabled="!episodeId"
+      :generate-disabled="!episodeId || !step1Valid"
       :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
       @generate="generateVideo"
       @episode-selected="onEpisodeSelected"
@@ -311,6 +311,33 @@
           <p v-else class="text-muted text-md">No scene assets found</p>
         </div>
 
+        <div v-if="hasIncompletePlannedScenes" class="scene-coverage-warning mt-2">
+          <div class="scene-coverage-title">
+            <strong>{{ plannedSceneCoverage.ready }}/{{ plannedSceneCoverage.total }} planned scene images ready</strong>
+            <span>{{ plannedSceneCoverage.missing.length }} missing</span>
+          </div>
+          <p>
+            Video Assembly found the Scene Plan, but these timeline scenes do not have an image yet:
+            <code>{{ missingPlannedSceneSummary }}</code>
+          </p>
+          <div class="scene-coverage-actions">
+            <NuxtLink
+              class="btn btn-sm btn-primary"
+              :to="`/projects/${slug}/scene-review?episode_id=${episodeId}`"
+            >Open Scene Review</NuxtLink>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="scanning" @click="scanAssets">
+              {{ scanning ? 'Checking…' : 'Check again' }}
+            </button>
+          </div>
+          <label v-if="requiresMissingSceneAcknowledgement" class="scene-coverage-ack">
+            <input v-model="missingScenesAcknowledged" type="checkbox" />
+            I understand these scenes will be omitted and the planned timing may be incomplete. Continue anyway.
+          </label>
+          <p v-else class="text-muted text-xs">
+            The selected Classic/Combined pool does not use strict Scene Plan coverage.
+          </p>
+        </div>
+
         <!-- Thumbnails -->
         <div class="asset-section mt-2" v-if="scannedAssets.thumbnails?.length">
           <label>Thumbnails ({{ scannedAssets.thumbnails.length }})</label>
@@ -364,6 +391,9 @@
               : '* At least 1 scene image is required' }}
           </span>
           <span v-if="!hasMergedAudio">* Merged audio file is required (run Audio Assembly first)</span>
+          <span v-if="requiresMissingSceneAcknowledgement && !missingScenesAcknowledged">
+            * Review the missing planned scenes above, then generate them or acknowledge the incomplete render
+          </span>
         </div>
       </div>
 
@@ -2686,6 +2716,7 @@ const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 const importingSceneAssets = ref(false)
 const scenePoolMode = ref<'auto' | 'scene_plan' | 'classic' | 'combined'>('auto')
+const missingScenesAcknowledged = ref(false)
 const sceneSourceCounts = computed(() => ({
   classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
   scene_plan: Number(scannedAssets.value?.scene_sources?.scene_plan || 0),
@@ -2695,8 +2726,28 @@ const hasMixedSceneSources = computed(() =>
 )
 const effectiveScenePoolMode = computed(() =>
   scenePoolMode.value === 'auto'
-    ? (sceneSourceCounts.value.scene_plan > 0 ? 'scene_plan' : 'classic')
+    ? (Number(scannedAssets.value?.scene_plan_coverage?.total || 0) > 0 || sceneSourceCounts.value.scene_plan > 0 ? 'scene_plan' : 'classic')
     : scenePoolMode.value,
+)
+const plannedSceneCoverage = computed(() => scannedAssets.value?.scene_plan_coverage || {
+  total: 0,
+  ready: 0,
+  missing: [],
+})
+const hasIncompletePlannedScenes = computed(() =>
+  plannedSceneCoverage.value.total > 0 && plannedSceneCoverage.value.missing.length > 0,
+)
+const requiresMissingSceneAcknowledgement = computed(() =>
+  hasIncompletePlannedScenes.value && effectiveScenePoolMode.value === 'scene_plan',
+)
+const missingPlannedSceneSummary = computed(() => {
+  const rows = plannedSceneCoverage.value.missing as Array<{ id: string; scene_index: number }>
+  const shown = rows.slice(0, 12).map(row => `#${row.scene_index} ${row.id}`)
+  return shown.join(', ') + (rows.length > shown.length ? `, +${rows.length - shown.length} more` : '')
+})
+watch(
+  [episodeId, () => JSON.stringify(plannedSceneCoverage.value.missing)],
+  () => { missingScenesAcknowledged.value = false },
 )
 // v1.0.521 — plan-strict: the scene pool is the Scene Plan renders, so the
 // backend uses plan-exact order + timing (no recycling/shuffle/reuse). The
@@ -4563,6 +4614,7 @@ const step1Valid = computed(() => {
     && scannedAssets.value.scenes?.length > 0
     && (scannedAssets.value.merged_audio?.length > 0
         || scannedAssets.value.audio_sections?.length > 0)
+    && (!requiresMissingSceneAcknowledgement.value || missingScenesAcknowledged.value)
 })
 
 const canProceed = computed(() => {
@@ -4970,6 +5022,7 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // still binds to the same refs.
 const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenePoolMode, scenes,
+  allowIncompleteScenePlan: missingScenesAcknowledged,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   colorGrading, vignette, filmGrain, letterbox, frame, chromaKey,
@@ -5428,6 +5481,29 @@ onUnmounted(() => {
 .scene-source-control button:last-child { border-right: 0; }
 .scene-source-control button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 .scene-source-control button.active { background: var(--accent-dim); color: var(--accent); }
+.scene-coverage-warning {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 55%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning, #f59e0b) 9%, var(--bg-secondary));
+  color: var(--text-secondary);
+}
+.scene-coverage-title,
+.scene-coverage-actions,
+.scene-coverage-ack { display: flex; align-items: center; gap: 10px; }
+.scene-coverage-title { justify-content: space-between; color: var(--warning, #fbbf24); }
+.scene-coverage-warning p { margin: 8px 0; line-height: 1.5; }
+.scene-coverage-warning code { overflow-wrap: anywhere; color: var(--text-primary); }
+.scene-coverage-actions { flex-wrap: wrap; margin-top: 10px; }
+.scene-coverage-ack {
+  align-items: flex-start;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.scene-coverage-ack input { margin-top: 2px; }
 
 /* Thumbnail picker with image previews */
 .thumb-picker-images { display: flex; flex-wrap: wrap; gap: 10px; }

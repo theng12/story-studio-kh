@@ -360,11 +360,19 @@ interface ScannedAssets {
     height?: number
     source?: 'classic' | 'scene_plan'
     planned_scene_index?: number
+    plan_scene_id?: string
     /** v1.0.435 — scene_plan renders are surfaced regardless of approval; this
      *  carries the flag so the UI can still distinguish reviewed vs not. */
     approved?: boolean
   }>
   scene_sources?: { classic: number; scene_plan: number }
+  /** Planned-image coverage is separate from the returned pool: the pool only
+   * contains files that exist, while this records how many files should exist. */
+  scene_plan_coverage?: {
+    total: number
+    ready: number
+    missing: Array<{ id: string; scene_index: number }>
+  }
   thumbnails: Array<{ filename: string; path: string; number: number }>
   audio_sections: Array<{ filename: string; path: string; label: string; duration?: number }>
   narration_full?: { path: string; duration: number }
@@ -418,6 +426,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   const result: ScannedAssets = {
     scenes: [],
     scene_sources: { classic: 0, scene_plan: 0 },
+    scene_plan_coverage: undefined,
     thumbnails: [],
     audio_sections: [],
     merged_audio: [],
@@ -473,12 +482,13 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   if (existsSync(planPath)) {
     try {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      const seenPaths = new Set(result.scenes.map(s => path.resolve(s.path)))
+      const planScenes = Array.isArray(plan.scenes) ? plan.scenes : []
+      const missingPlannedScenes: Array<{ id: string; scene_index: number }> = []
       let nextNumber = result.scenes.length
         ? Math.max(...result.scenes.map(s => s.number)) + 1
         : 1
       let plannedCount = 0
-      for (const scene of plan.scenes || []) {
+      for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
         // stored absolute image_path (which can be stale across Macs/users —
         // /Users/theng/… vs /build/…), then the legacy flat folder.
@@ -490,20 +500,27 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           (namedPath && existsSync(namedPath)) ? namedPath
           : (scene.image_path && existsSync(scene.image_path)) ? scene.image_path
           : flatPath
-        const resolvedPath = path.resolve(plannedPath)
-        if (!existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
-        seenPaths.add(resolvedPath)
+        if (!existsSync(plannedPath)) {
+          missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
+          continue
+        }
         result.scenes.push({
           filename: path.basename(plannedPath),
           path: plannedPath,
           number: nextNumber++,
           source: 'scene_plan',
           planned_scene_index: scene.scene_index,
+          plan_scene_id: scene.id,
           approved: !!scene.approved,
         })
         plannedCount++
       }
       result.scene_sources!.scene_plan = plannedCount
+      result.scene_plan_coverage = {
+        total: planScenes.length,
+        ready: planScenes.length - missingPlannedScenes.length,
+        missing: missingPlannedScenes,
+      }
     } catch {
       // Invalid or mid-write plan: leave the classic scan result unchanged.
     }

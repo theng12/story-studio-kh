@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.554 — 2026-07-13
+
+**Scene prompts have adjustable output headroom, and Video Assembly now validates the real continuity timeline before rendering.**
+
+- Scene Plan adds a saved visual-prompt output budget with safe 4,096, 6,144, and 8,192-token choices. The 4,096 default remains recommended, unsupported values self-heal, and one-click Pipeline runs use the same saved setting.
+- Video Assembly episode readiness now follows Scene Plan and Scene Review for continuity projects instead of the legacy numbered-images check.
+- Asset scanning reports exact planned-image coverage, including the missing stable scene IDs, and Auto mode recognizes a Scene Plan even when no planned images have rendered yet.
+- Incomplete plans show a direct Scene Review action and block Continue and Generate until the missing images are supplied or the user explicitly acknowledges an incomplete render.
+- The backend independently rejects unacknowledged plan-strict renders with missing images, so Pipeline calls and stale frontends cannot silently bypass the safeguard.
+- Planned assets now carry their stable Scene Plan ID directly, preserving exact timing even when an image was imported externally or renamed.
+
 ## v1.0.553 — 2026-07-12
 
 **Local visual-prompt packs now have enough output space to finish.** Ten full-detail prompts can no longer be silently squeezed into Chat Studio's 1,024-token default.

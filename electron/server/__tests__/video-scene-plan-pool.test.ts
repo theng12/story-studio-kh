@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
@@ -80,6 +81,15 @@ describe('Video Assembly mixed scene pool', () => {
           approved: false,
           image_path: unapprovedPath,
         },
+        {
+          id: 'scene-missing',
+          scene_index: 3,
+          start_sec: 10,
+          end_sec: 15,
+          transcript_segment: 'Three',
+          visual_prompt: 'Three',
+          approved: false,
+        },
       ],
     }, null, 2))
 
@@ -87,6 +97,11 @@ describe('Video Assembly mixed scene pool', () => {
     const assets = await scanEpisodeAssets(SLUG, CODE)
 
     assert.deepEqual(assets.scene_sources, { classic: 1, scene_plan: 2 })
+    assert.deepEqual(assets.scene_plan_coverage, {
+      total: 3,
+      ready: 2,
+      missing: [{ id: 'scene-missing', scene_index: 3 }],
+    })
     assert.equal(assets.scenes.length, 3)
     assert.equal(assets.scenes[0]?.source, 'classic')
 
@@ -94,6 +109,7 @@ describe('Video Assembly mixed scene pool', () => {
     // flag so the UI can still distinguish reviewed (approved) from unreviewed.
     assert.equal(assets.scenes[1]?.source, 'scene_plan')
     assert.equal(assets.scenes[1]?.planned_scene_index, 1)
+    assert.equal(assets.scenes[1]?.plan_scene_id, 'scene-planned')
     assert.equal(assets.scenes[1]?.approved, true)
     assert.equal(assets.scenes[2]?.source, 'scene_plan')
     assert.equal(assets.scenes[2]?.planned_scene_index, 2)
@@ -102,5 +118,19 @@ describe('Video Assembly mixed scene pool', () => {
     // Every scene gets a distinct pool number.
     const numbers = assets.scenes.map(s => s.number)
     assert.equal(new Set(numbers).size, numbers.length)
+
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const { app } = await import('../app.js')
+    const guarded = await request(app)
+      .post(`/api/projects/${SLUG}/generate/video-assembly`)
+      .send({
+        episode_id: CODE,
+        scenes: [{ image_path: plannedPath, plan_scene_id: 'scene-planned' }],
+        narration_path: '/tmp/test-narration.mp3',
+        scene_pool_mode: 'scene_plan',
+      })
+    assert.equal(guarded.status, 409)
+    assert.match(guarded.body.detail, /1 of 3 planned scenes have no image/)
+    assert.deepEqual(guarded.body.scene_plan_coverage, assets.scene_plan_coverage)
   })
 })

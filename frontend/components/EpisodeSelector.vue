@@ -402,6 +402,13 @@ function statusSuffix(ep: any): string {
   // by the former; per-scene-clip pages still filter by the latter.
   if (props.filterField === 'video_assembly') {
     if (s.video_assembly) return ' ✓ rendered'
+    // Continuity/timestamp projects use scene_review, not the legacy images
+    // folder. Prefer that source of truth whenever a complete plan exists.
+    if (s.scene_plan) {
+      if (!s.scene_review) return ' ○ missing planned images'
+      if (!s.merged_audio) return ' ○ missing merged audio'
+      return ' ● ready to assemble'
+    }
     if (s.video_ready) return ' ● ready to assemble'
     if (!s.images) return ' ○ missing scenes'
     if (!s.merged_audio) return ' ○ missing merged audio'

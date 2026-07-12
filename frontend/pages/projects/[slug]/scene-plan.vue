@@ -125,6 +125,18 @@
         <span>Always on: composition, lighting, palette, atmosphere, and camera direction.</span>
       </div>
 
+      <div class="form-group mt-2" style="max-width: 440px">
+        <label>Visual prompt output budget</label>
+        <select v-model.number="form.prompt_max_tokens" class="select">
+          <option :value="4096">4,096 tokens — recommended</option>
+          <option :value="6144">6,144 tokens — extra headroom</option>
+          <option :value="8192">8,192 tokens — slowest, most headroom</option>
+        </select>
+        <p class="text-muted text-xs mt-1">
+          Maximum output for each 10-scene Hub pack. Raise it only if complete packs are still being truncated. Motion prompts use a smaller automatic budget.
+        </p>
+      </div>
+
       <!-- v1.0.468 — motion-prompt controls. The planner also writes a per-scene
            motion_prompt (image-to-video instruction) cohesive with the visual
            prompt. Intensity biases how lively the motion is — always slow/smooth. -->
@@ -911,6 +923,7 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
 const form = ref({
   model: '',  // ModelSelector auto-picks first usable
   use_research: true,
+  prompt_max_tokens: 4096 as 4096 | 6144 | 8192,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
@@ -923,6 +936,9 @@ const form = ref({
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
+if (![4096, 6144, 8192].includes(Number(form.value.prompt_max_tokens))) {
+  form.value.prompt_max_tokens = 4096
+}
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
@@ -1024,6 +1040,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       stage,
       prompt_limit: promptLimit,
       use_research: form.value.use_research,
+      prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
       detail_level: 4,
       motion_level: form.value.motion_level,
       style_prompt: form.value.style_prompt.trim() || undefined,
@@ -1613,8 +1630,8 @@ function removeScene(i: number): void {
   plan.value.scenes.splice(i, 1)
 }
 
-// v1.0.242 — savable presets for the plan settings (model, target count,
-// research toggle, detail level, style, custom instructions). Mirrors the
+// v1.0.242 — savable presets for the plan settings (model, research toggle,
+// output budget, style, motion, and custom instructions). Mirrors the
 // device-aware PresetPicker pattern used on the Ideas / Scripts pages. Stored
 // under config.scene_plan_presets; episode_id/title are stripped automatically.
 const planPresets = usePresets<any>({
@@ -1624,13 +1641,19 @@ const planPresets = usePresets<any>({
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,
+    prompt_max_tokens: form.value.prompt_max_tokens,
     detail_level: 4,
     style_prompt: form.value.style_prompt,
     custom_instructions: form.value.custom_instructions,
     generate_motion_prompts: form.value.generate_motion_prompts,
     motion_level: form.value.motion_level,
   }),
-  apply: (data) => { Object.assign(form.value, data) },
+  apply: (data) => {
+    Object.assign(form.value, data)
+    if (![4096, 6144, 8192].includes(Number(form.value.prompt_max_tokens))) {
+      form.value.prompt_max_tokens = 4096
+    }
+  },
 })
 
 onMounted(() => { void loadStatus(); void loadContinuity(); void planPresets.load() })
