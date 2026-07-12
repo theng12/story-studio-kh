@@ -86,12 +86,12 @@
 
     <!-- Step 2: Plan options -->
     <section class="card mt-3">
-      <h3>2. Plan settings</h3>
+      <h3>2. Scene workflow settings</h3>
       <p class="text-muted text-sm mt-1">
-        Timeline boundaries are built deterministically from the stitched SRT and pacing range. The selected model is used only for visual prompts and optional motion prompts.
+        Timeline uses no LLM. The selected model generates full-detail visual prompts and, when enabled, optional motion prompts.
       </p>
       <div class="mt-2">
-        <ModelSelector v-model="form.model" :project-slug="slug" />
+        <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" />
       </div>
       <label class="flex items-center gap-1 mt-2 text-sm" v-if="status?.research_available">
         <input type="checkbox" v-model="form.use_research" />
@@ -163,30 +163,6 @@
           <p class="text-muted text-xs mt-1">{{ motionMeta?.hint }}</p>
         </div>
       </div>
-
-      <details class="planner-advanced mt-3">
-        <summary>Advanced planner tuning</summary>
-        <p class="text-muted text-xs mt-1">Defaults are tuned for fast parallel planning. Open this only for a weak local model or a project that truly needs cross-segment continuity.</p>
-
-      <!-- v1.0.509 — fast "prompt model" for the short LLM tasks (motion +
-           thumbnail prompts). Off = each step uses its own model. -->
-      <div class="form-group mt-3">
-        <label class="flex items-center gap-2" style="cursor: pointer;">
-          <input type="checkbox" v-model="usePromptModel" @change="onTogglePromptModel" />
-          <span>Use a separate fast model for prompts <span class="text-muted text-xs">— motion + thumbnail prompts</span></span>
-        </label>
-        <div v-if="usePromptModel" class="mt-2" style="max-width: 380px;">
-          <ModelSelector :model-value="promptModel" :project-slug="slug" @update:model-value="setPromptModel" />
-        </div>
-        <p class="text-muted text-xs mt-1">
-          Motion + thumbnail prompts are short, simple outputs — a fast/cheap model (e.g. Haiku, a mini, or a fast local) here speeds up those phases a lot, while your planning model stays strong. Off = each step uses its own model.
-        </p>
-      </div>
-
-      <p class="text-muted text-xs mt-3">
-        Scene timing is always deterministic and prompt packs are always capped at 10 scenes. There is no longer a single-pass/window-size decision to tune.
-      </p>
-      </details>
 
       <!-- v1.0.364 — unified channel Look. The same shipped-style gallery used
            on the Character Sheet; picking one sets the Style Bible applied to
@@ -659,43 +635,15 @@ async function saveOpeningSettings() {
   }
 }
 
-// v1.0.475 — image-to-video (motion) planning settings, persisted to project
-// config. motion_prompts_enabled (default true) toggles whether the planner
-// writes a per-scene motion_prompt; default_motion_level (1–4) sets the baseline
-// intensity. Both are read by the scene planner.
+// Image-to-video prompt settings are optional and persisted per project.
 const motionEnabled = ref<boolean>(((projectConfig.value as any)?.motion_prompts_enabled) === true)
 const motionLevel = ref<number>(Number((projectConfig.value as any)?.default_motion_level) || 2)
-// v1.0.509 — fast "prompt model" for short prompt tasks (motion + thumbnail
-// prompts). Empty = each step falls back to its own model. Persisted to config.
-const promptModel = ref<string>(String((projectConfig.value as any)?.prompt_model || ''))
-// Separate boolean so the ModelSelector can mount (and auto-pick) even while
-// promptModel is still empty; unchecking clears the saved config value.
-const usePromptModel = ref<boolean>(!!promptModel.value)
 watch(projectConfig, (c) => {
   motionEnabled.value = ((c as any)?.motion_prompts_enabled) === true
   motionLevel.value = Number((c as any)?.default_motion_level) || 2
-  promptModel.value = String((c as any)?.prompt_model || '')
-  usePromptModel.value = !!promptModel.value
   form.value.generate_motion_prompts = motionEnabled.value
   form.value.motion_level = motionLevel.value
 })
-function onTogglePromptModel() {
-  if (!usePromptModel.value) void setPromptModel('') // off → fall back to each step's own model
-  // on → the ModelSelector mounts below and auto-picks a first usable model,
-  // which fires setPromptModel with the chosen id.
-}
-async function setPromptModel(v: string) {
-  const prev = promptModel.value
-  promptModel.value = v
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { prompt_model: v })
-    if (projectConfig.value) (projectConfig.value as any).prompt_model = v
-    success(v ? `Prompt model set to ${v} — used for motion + thumbnail prompts.` : 'Prompt model cleared — each step uses its own model.')
-  } catch (e: any) {
-    promptModel.value = prev
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
-  }
-}
 async function setMotionEnabled(v: boolean) {
   motionEnabled.value = v
   try {
@@ -1052,17 +1000,9 @@ async function planScenes(): Promise<void> {
   planningEpisode.value = ep
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
-      model: form.value.model,
       stage: 'timeline',
       opening_mode: openingMode.value,
       opening_reserved_sec: openingMode.value === 'branded-opening' ? openingReservedSec.value : 0,
-      use_research: form.value.use_research,
-      detail_level: 4,
-      // v1.0.468 — image-to-video motion prompts (off → planner skips them).
-      generate_motion_prompts: form.value.generate_motion_prompts,
-      motion_level: form.value.generate_motion_prompts ? form.value.motion_level : undefined,
-      style_prompt: form.value.style_prompt.trim() || undefined,
-      custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success('Timeline build queued — no LLM call is needed')
     await pollUntilPlanLanded(ep)
@@ -1080,9 +1020,10 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
   const previousGeneratedAt = plan.value.generated_at || null
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
-      model: stage === 'motion' && promptModel.value ? promptModel.value : form.value.model,
+      model: form.value.model,
       stage,
       prompt_limit: promptLimit,
+      use_research: form.value.use_research,
       detail_level: 4,
       motion_level: form.value.motion_level,
       style_prompt: form.value.style_prompt.trim() || undefined,
@@ -1755,14 +1696,6 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
 }
 .detail-default span { color: var(--text-muted); font-size: 12px; }
-.planner-advanced {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-}
-.planner-advanced > summary { cursor: pointer; font-weight: 650; }
-
 /* v1.0.288 — bulk-button group on the plan-health head. The two bulk
    options (✨ Regen prompts only / 🪄 Full re-plan) sit side-by-side. */
 .bulk-buttons {

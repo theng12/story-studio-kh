@@ -1,7 +1,7 @@
 <template>
   <div class="form-group">
     <label>
-      AI Model
+      {{ label || 'AI Model' }}
       <!-- v1.0.48: visible loading state. Empty &lt;select&gt; during fetch
            used to look identical to a broken/no-models state — same
            class of bug as EpisodeSelector. -->
@@ -83,6 +83,8 @@ interface LlmModelRow {
 const props = defineProps<{
   modelValue: string
   projectSlug: string
+  /** Optional task-specific label; defaults to the shared "AI Model" label. */
+  label?: string
   /**
    * v1.0.283 — when true, models that don't `supports_vision` are shown but
    * disabled with a "Text-only model" tooltip. Used by Co-writer when the

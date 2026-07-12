@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.552 — 2026-07-12
+
+**Scene Plan is now exactly three stages with one optional LLM choice.** There is no separate planning model because timeline creation is deterministic.
+
+- Timeline sends no model and job logs explicitly identify it as deterministic with no LLM.
+- A single selector, “Visual & motion prompt model,” drives both full-detail visual prompts and the optional motion-prompt pass.
+- Removed the separate fast prompt-model control and the obsolete Advanced Planner section from Scene Plan.
+- Visual and motion stages continue using durable Studio Hub packs of up to 10 scenes; motion remains completely optional.
+- The research preference is now passed with visual-prompt jobs rather than the model-free timeline job.
+- Per-scene repair actions remain available for exceptions but are not additional required workflow passes.
+
 ## v1.0.551 — 2026-07-12
 
 **Scene Plan now shows only the controls that govern the staged workflow.** Timeline state, continuity pacing, full-detail prompting, and Hub batching are visible where the work happens.

@@ -186,15 +186,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     } catch { /* default density applies */ }
   }
 
-  job.output_lines.push(`Model: ${model}`)
+  const timelineOnly = params.stage === 'timeline'
+  if (timelineOnly) job.output_lines.push('Timeline engine: deterministic (no LLM)')
+  else job.output_lines.push(`Prompt model: ${model}`)
   job.output_lines.push(`Stitched SRT: ${stitchedSrt}`)
-  if (useResearch) job.output_lines.push(`Research context: ${researchPath}`)
-  job.output_lines.push(`Narration docx: ${paths.narration_docx}`)
+  if (!timelineOnly && useResearch) job.output_lines.push(`Research context: ${researchPath}`)
   if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
-  job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
-  job.output_lines.push('Prompt batching: durable Studio Hub packs of up to 10 scenes')
-  if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
-  if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
+  if (!timelineOnly) {
+    job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
+    job.output_lines.push('Prompt batching: durable Studio Hub packs of up to 10 scenes')
+    if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
+    if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
+  }
   job.progress = 10
 
   // v1.0.467 — scene_plan.json lives in the "03 Scene Prompts" folder now
