@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.550 — 2026-07-12
+
+**Scene Plan completion is now truthful and self-healing.** A timestamp shell can no longer appear finished when visual-prompt generation failed or stopped partway through.
+
+- Scene Plan is complete only when the plan contains scenes and every scene has a non-empty visual prompt; timeline-only and partially prompted plans stay pending.
+- Scene Review cannot report complete before its required Scene Plan prompts are complete, even if image files happen to exist.
+- The one-click Pipeline now creates the deterministic timeline and automatically continues through all required visual-prompt packs before advancing. A missing model or incomplete Hub batch fails visibly instead of producing a false success.
+- Manual staged planning remains flexible: Timeline can be built by itself, Visual Prompts can resume only missing stable scene IDs, and Motion Prompts remain optional.
+- Status caches are invalidated on upgrade so previously cached false positives, including DK0038's 273-scene plan with zero prompts, are recalculated immediately.
+- Added regression coverage for empty and partially prompted plans.
+
 ## v1.0.549 — 2026-07-12
 
 **Scene planning is now staged, durable, and aligned with short branded openings.** Long Introduction narration no longer forces a multi-minute title-card hold or delays story scenes until Chapter 1.

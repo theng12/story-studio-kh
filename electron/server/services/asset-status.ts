@@ -661,16 +661,14 @@ export interface EpisodeStatus {
   // episode list by, so a finished research run drops out of pending.
   // NOT folded into all_done — research is optional for most formats.
   research: boolean
-  // v1.0.273 — timestamp/continuity scene plan (`scene_plan.json` at the
-  // episode_dir root). This is what the Scene Plan page filters its "pending"
-  // list by — distinct from `scene_prompts` (the legacy image-prompts docx) and
-  // from `script` (an episode can have a full script + subtitles but no scene
-  // plan yet). NOT folded into all_done — only the timestamp/continuity
-  // pipelines produce it.
+  // Timestamp/continuity Scene Plan is complete when scene_plan.json has at
+  // least one timeline row and every row has a non-empty visual prompt. A
+  // timeline-only or partially prompted plan remains pending and resumable.
+  // Distinct from `scene_prompts` (the legacy image-prompts document).
   scene_plan: boolean
   // v1.0.276 — Scene Review "done" for the timestamp/continuity pipeline: the
-  // scene plan exists AND every scene has a generated image (image_path set in
-  // the plan). Matches "I've generated all the scene images" — approval/
+  // scene plan is complete AND every scene has a generated image on disk (or
+  // a recorded image_path). Matches "I've generated all the scene images" — approval/
   // greenlight is a separate gate handled on the Video Assembly page. Distinct
   // from `images` (legacy naming, unreliable for the per-scene
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
@@ -963,10 +961,17 @@ export async function computeEpisodeStatus(
       // v1.0.362 — broll selection picked for this episode (stock-footage flow).
       status.broll_picked = await fileHasContent(path.join(byCode.episode_dir, 'broll-selection.json'))
       const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir)
-      status.scene_plan = await fileHasContent(planPath)
-      if (status.scene_plan) {
+      const hasPlanFile = await fileHasContent(planPath)
+      if (hasPlanFile) {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
         const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
+        // A deterministic timeline is only the first stage of Scene Plan. The
+        // production step is complete only when every scene has a usable visual
+        // prompt. This prevents failed/partial LLM runs from being promoted to
+        // done merely because scene_plan.json exists (for example, 273/273
+        // timestamp rows with 0 prompts).
+        const hasVisualPrompt = (s: any) => typeof s?.visual_prompt === 'string' && s.visual_prompt.trim().length > 0
+        status.scene_plan = scenes.length > 0 && scenes.every(hasVisualPrompt)
         // Scene Review done = plan exists AND every scene has a generated image
         // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
         // named or legacy scene-images folder), which is exactly how the Scene
@@ -987,7 +992,7 @@ export async function computeEpisodeStatus(
             || existsSync(path.join(legacyDir, `${s.id}.png`))
           ))
           || (typeof s?.image_path === 'string' && s.image_path.length > 0)
-        status.scene_review = scenes.length > 0 && scenes.every(hasImage)
+        status.scene_review = status.scene_plan && scenes.every(hasImage)
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
         status.motion_review = scenes.length > 0 && scenes.every((s: any) => {
           if (s?.motion_choice === 'still') return true

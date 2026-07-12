@@ -132,7 +132,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const { episode_id } = params
   let model = params.model || ''
   if (!episode_id) throw new Error('episode_id is required')
-  const needsModel = params.stage === 'visual' || params.stage === 'motion' || !!(
+  // Only an explicitly requested timeline-only run is model-free. A Pipeline
+  // run omits `stage`, which means timeline + all required visual prompts.
+  const needsModel = params.stage !== 'timeline' || !!(
     params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
     || params.replan_scene_id
@@ -219,7 +221,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     || params.replan_scene_id
   )
   if (params.stage || !isLegacyRepair) {
-    const stage = params.stage || 'timeline'
+    const pipelineAutoVisual = params.stage == null && !isLegacyRepair
+    let stage: 'timeline' | 'visual' | 'motion' = params.stage || 'timeline'
     if (stage === 'timeline') {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
@@ -277,11 +280,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       await fs.mkdir(path.dirname(outPath), { recursive: true })
       await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
       job.output_dir = paths.episode_dir
-      job.progress = 100
       job.output_lines.push(
         `Timeline ready: ${scenes.length} cue-aligned scene(s), starting at ${openingReserved.toFixed(1)}s. No LLM was used.`,
       )
-      return
+      if (!pipelineAutoVisual) {
+        job.progress = 100
+        return
+      }
+      // The one-click Pipeline owns the complete required Scene Plan step. It
+      // may not report success after creating only the timing shell.
+      stage = 'visual'
+      job.progress = 20
+      job.output_lines.push('Continuing automatically with required visual prompts; motion prompts remain optional.')
     }
 
     if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')

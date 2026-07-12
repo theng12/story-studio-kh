@@ -35,11 +35,9 @@ import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
-// v3 (v1.0.278) — scene_plan/scene_review now resolve the episode dir BY CODE
-// (title-based resolution missed renamed/special-char folders → false pending).
-// Bumped so v2 caches (which stored the wrong by-title values) are discarded +
-// recomputed. v2 (v1.0.277) introduced the scene_plan/scene_review fields.
-export const SCHEMA_VERSION = 6 as const
+// v7 (v1.0.550) — scene_plan requires a visual prompt for every timeline row;
+// discard cached true values produced from empty or partial prompt plans.
+export const SCHEMA_VERSION = 7 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence

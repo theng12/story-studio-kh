@@ -359,4 +359,29 @@ describe('episode-status-cache', () => {
     assert.equal(status.scene_plan, true)
     assert.equal(status.scene_review, false, 's2 has no image on disk and no image_path → pending')
   })
+
+  test('scene_plan: timeline-only and partially prompted plans remain pending', async () => {
+    const { epDir } = await makeProject()
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    const imagesDir = path.join(epDir, `${CODE} - 05 Scene Images`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.rm(imagesDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.mkdir(imagesDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      planning_stage: 'timeline',
+      scenes: [
+        { id: 's1', visual_prompt: 'complete prompt' },
+        { id: 's2', visual_prompt: '   ' },
+      ],
+    }))
+    // Even existing images cannot make Scene Review complete while its required
+    // prompt-producing stage is incomplete.
+    await fs.writeFile(path.join(imagesDir, 's1.png'), 'png-bytes')
+    await fs.writeFile(path.join(imagesDir, 's2.png'), 'png-bytes')
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.scene_plan, false, 'one missing visual prompt keeps Scene Plan pending')
+    assert.equal(status.scene_review, false, 'Scene Review cannot precede a complete Scene Plan')
+  })
 })
