@@ -991,12 +991,12 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     }
     setSubtitleTranscribeConcurrency(1)
   } else {
-    const { DEFAULT_VOICESTUDIO_BASE_URL, availableTranscribeEndpointCount } = await import('../lib/voicestudio-client.js')
+    const { DEFAULT_VOICESTUDIO_BASE_URL, readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
     const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) {
       return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models, or pick the OpenAI engine.' })
     }
-    const readyEndpoints = await availableTranscribeEndpointCount(baseUrl, req.body?.model).catch(() => 1)
+    const readyEndpoints = await readyTranscribeBackendCount(baseUrl, req.body?.model).catch(() => 1)
     // One Whisper inference per Mac. With 2-3 model-ready Voice Studio URLs,
     // different episode transcription jobs can run together; one URL stays
     // serial so we don't pile multiple long STT requests onto the same modal.

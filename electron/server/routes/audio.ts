@@ -922,8 +922,20 @@ router.get('/macos/voices', async (req, res) => {
 // showing all registered voicestudio models so the dropdown never empties.
 router.get('/voicestudio/models', async (req, res) => {
   try {
-    const { listAvailableEngines, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { listAvailableEngines, listAvailableHubEngines, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getHubBackend, hubModels } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const rows = await hubModels(hub.hubUrl, hub.hubToken, 'voice', req.query.refresh === '1')
+        const result = listAvailableHubEngines(rows)
+        if (result.models.length) {
+          res.json({ ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' })
+          return
+        }
+      } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+    }
     const stored = await getApiKey('voicestudio')
     const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
@@ -951,7 +963,18 @@ router.get('/voicestudio/transcribe-availability', async (req, res) => {
     // wrongly disabled the feature whenever that one Mac was offline even
     // though other online Macs could run it.
     const { pooledTranscribeAvailability } = await import('../lib/voicestudio-client.js')
+    const { getHubBackend, hubTranscription } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, req.query.refresh === '1')
+        if (inventory.models.length || inventory.endpoint_count > 0) {
+          res.json({ ...inventory, configured: true, source: 'hub' })
+          return
+        }
+      } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+    }
     const stored = await getApiKey('voicestudio')
     const r = await swrFetch(vsTranscribeCache, `vs-transcribe-pool:${stored || ''}`, async () => {
       const avail = await pooledTranscribeAvailability(stored)
@@ -971,7 +994,21 @@ router.post('/voicestudio/download-model', async (req, res) => {
     const repo = typeof req.body?.repo === 'string' ? req.body.repo.trim() : ''
     if (!repo) return res.status(400).json({ detail: 'repo is required' })
     const { downloadTranscribeModel, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getHubBackend, hubTranscription, hubBroadcastDownload } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, true)
+        const model = inventory.models.find(m => m.repo === repo)
+        const studios = [...new Set((model?.machines || []).map(m => m.studio).filter(Boolean))]
+        if (studios.length) {
+          const result = await hubBroadcastDownload(hub.hubUrl, hub.hubToken, repo, studios)
+          res.json({ ok: true, source: 'hub', ...result })
+          return
+        }
+      } catch { /* Hub unavailable: direct endpoint is the emergency fallback. */ }
+    }
     const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models.' })
     const r = await downloadTranscribeModel(baseUrl, repo)

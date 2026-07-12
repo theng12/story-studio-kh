@@ -37,6 +37,7 @@ import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
 import { parseEndpoints, parseEnabledEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
+import { studioFetch } from './studio-auth.js'
 
 // ── Multi-endpoint dispatcher (v1.0.306) ────────────────────────────────────
 // The Image Studio URL setting may hold SEVERAL base URLs (one per Mac running
@@ -385,7 +386,7 @@ export function detectSiblingStudio(...paths: Array<string | undefined | null>):
 /** Liveness probe. Never throws — returns `{ ok: false, error }` on failure. */
 export async function health(baseUrl: string, timeoutMs = 5_000): Promise<ImageStudioHealth> {
   try {
-    const resp = await fetch(joinUrl(baseUrl, '/api/health'), {
+    const resp = await studioFetch(joinUrl(baseUrl, '/api/health'), {
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!resp.ok) {
@@ -419,7 +420,7 @@ export async function health(baseUrl: string, timeoutMs = 5_000): Promise<ImageS
 export async function catalog(baseUrl: string): Promise<ImageStudioCatalog> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/catalog'), {
+    resp = await studioFetch(joinUrl(baseUrl, '/api/catalog'), {
       signal: AbortSignal.timeout(8_000),
     })
   } catch (e) {
@@ -479,7 +480,7 @@ export interface ImageStudioDiagnosticsEngine {
 export async function diagnostics(baseUrl: string): Promise<{ device?: string; engines: ImageStudioDiagnosticsEngine[] }> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/generate/diagnostics'), { signal: AbortSignal.timeout(8_000) })
+    resp = await studioFetch(joinUrl(baseUrl, '/api/generate/diagnostics'), { signal: AbortSignal.timeout(8_000) })
   } catch (e) {
     throw friendlyConnectError(baseUrl, e)
   }
@@ -500,7 +501,7 @@ export async function diagnostics(baseUrl: string): Promise<{ device?: string; e
 /** Host hardware — used to gate models whose memory floor the Mac can't meet. */
 export async function system(baseUrl: string): Promise<{ chip?: string; unified_memory_gb?: number }> {
   try {
-    const resp = await fetch(joinUrl(baseUrl, '/api/system'), { signal: AbortSignal.timeout(6_000) })
+    const resp = await studioFetch(joinUrl(baseUrl, '/api/system'), { signal: AbortSignal.timeout(6_000) })
     if (!resp.ok) return {}
     const d = await resp.json() as any
     return {
@@ -600,6 +601,45 @@ export async function listAvailableModels(baseUrl: string): Promise<{
   }
 }
 
+/** Convert the Hub's per-studio image catalog into one picker row per repo. */
+export function listAvailableHubModels(rows: any[]): {
+  ok: boolean
+  models: ImageStudioModelInfo[]
+} {
+  const byRepo = new Map<string, any[]>()
+  for (const row of rows) {
+    if (!row || typeof row.repo !== 'string') continue
+    const group = byRepo.get(row.repo) || []
+    group.push(row)
+    byRepo.set(row.repo, group)
+  }
+  const models = [...byRepo.entries()].map(([repo, copies]) => {
+    const m = copies.find(r => r.hub_cached) || copies[0]
+    const isCloud = !!m.is_cloud
+    const cloudCredsMissing = isCloud
+      && copies.every(r => r.cloud_credentials_ok === false || r.fit?.state === 'needs_key')
+    const fits = isCloud || copies.some(r => !['risky', 'blocked'].includes(String(r.fit?.state || '')))
+    return {
+      id: modelIdForRepo(repo), repo, label: m.label || repo,
+      family: m.family, family_label: m.family_label || m.family,
+      capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
+      size_gb: m.size_gb, gated: m.gated, apple_optimized: m.apple_optimized,
+      best_for: m.best_for,
+      ready: isCloud ? !cloudCredsMissing : copies.some(r => r.runtime_compatible !== false),
+      fits_memory: fits, is_cloud: isCloud, cloud_provider: m.cloud_provider,
+      downloaded: isCloud || copies.some(r => r.hub_cached),
+      needs_credentials: cloudCredsMissing,
+      cloud_provider_label: m.cloud_provider_label,
+      cloud_signup_url: m.cloud_signup_url,
+      sizes: Array.isArray(m.sizes) ? m.sizes : undefined,
+      default_aspect_ratio: m.default_aspect_ratio,
+      supports_custom_dimensions: m.supports_custom_dimensions,
+      custom: m.custom ?? undefined,
+    } as ImageStudioModelInfo
+  })
+  return { ok: models.length > 0, models }
+}
+
 // Short-lived catalog cache so the provider can resolve a repo's
 // capabilities (txt2img/img2img/edit) without a network round-trip on
 // every generate. 60s TTL — the catalog rarely changes mid-session.
@@ -631,7 +671,7 @@ export async function capabilitiesForRepo(baseUrl: string, repo: string): Promis
 export async function listLoras(baseUrl: string): Promise<ImageStudioLora[]> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/loras'), {
+    resp = await studioFetch(joinUrl(baseUrl, '/api/loras'), {
       signal: AbortSignal.timeout(6_000),
     })
   } catch (e) {
@@ -667,7 +707,7 @@ export async function submitTxt2Img(
 
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/generate/txt2img'), {
+    resp = await studioFetch(joinUrl(baseUrl, '/api/generate/txt2img'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -750,7 +790,7 @@ async function submitMultipart(
 
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, `/api/generate/${mode}`), {
+    resp = await studioFetch(joinUrl(baseUrl, `/api/generate/${mode}`), {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(60_000),
@@ -840,7 +880,7 @@ export async function pollJob(
 
     let resp: Response
     try {
-      resp = await fetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
+      resp = await studioFetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
         signal: AbortSignal.timeout(15_000),
       })
     } catch (e) {
@@ -879,7 +919,7 @@ export async function pollJob(
 /** Best-effort server-side cancel. Never throws. */
 export async function cancelJob(baseUrl: string, jobId: string): Promise<void> {
   try {
-    await fetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
+    await studioFetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
       method: 'DELETE',
       signal: AbortSignal.timeout(5_000),
     })
@@ -912,7 +952,7 @@ export async function downloadImage(
   await fs.mkdir(path.dirname(outPath), { recursive: true })
   let resp: Response
   try {
-    resp = await fetch(jobImageUrl(baseUrl, jobId), {
+    resp = await studioFetch(jobImageUrl(baseUrl, jobId), {
       signal: opts.signal ?? AbortSignal.timeout(180_000),
     })
   } catch (e) {

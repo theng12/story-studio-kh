@@ -35,66 +35,10 @@ import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
 import { createDispatcher, parseEndpoints, parseEnabledEndpoints, runOnPool, type Dispatcher } from './endpoint-pool.js'
-import type { HubBackend } from './studiohub-client.js'
+import { resolveStudioFleetToken, studioFetch as voiceStudioFetch } from './studio-auth.js'
 
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
-
-/**
- * Resolve the credential Voice Studio requires for non-loopback API calls.
- * A configured remote Hub token is the shared fleet token. On the primary Mac
- * the Hub URL is loopback and needs no client token, so its protected
- * `/api/hub/fleet` endpoint reveals the fleet token only to that local caller.
- */
-export async function resolveVoiceStudioFleetToken(
-  backend?: HubBackend,
-  fetchImpl: FetchLike = fetch,
-): Promise<string> {
-  // Lazy import avoids a startup cycle: model defaults import this client,
-  // while Studio Hub settings also depend on the model/defaults graph.
-  let hub: HubBackend
-  if (backend) hub = backend
-  else hub = await import('./studiohub-client.js').then(m => m.getHubBackend())
-  if (hub.hubToken.trim()) return hub.hubToken.trim()
-  if (!hub.hubUrl || !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(hub.hubUrl.trim())) return ''
-  try {
-    const hubUrl = hub.hubUrl.trim().replace(/\/+$/, '')
-    const resp = await fetchImpl(`${hubUrl}/api/hub/fleet`, {
-      signal: AbortSignal.timeout(4_000),
-    })
-    if (!resp.ok) return ''
-    const data = await resp.json() as { token?: string }
-    return typeof data.token === 'string' ? data.token.trim() : ''
-  } catch {
-    return ''
-  }
-}
-
-let fleetTokenCache: { token: string; expiresAt: number } | null = null
-let fleetTokenInflight: Promise<string> | null = null
-
-async function cachedVoiceStudioFleetToken(): Promise<string> {
-  if (fleetTokenCache && fleetTokenCache.expiresAt > Date.now()) return fleetTokenCache.token
-  if (fleetTokenInflight) return fleetTokenInflight
-  fleetTokenInflight = resolveVoiceStudioFleetToken()
-    .then(token => {
-      // Retry a missing token quickly (Hub may still be starting); keep a
-      // successful token for five minutes to avoid a Hub lookup per chapter.
-      fleetTokenCache = { token, expiresAt: Date.now() + (token ? 300_000 : 15_000) }
-      return token
-    })
-    .finally(() => { fleetTokenInflight = null })
-  return fleetTokenInflight
-}
-
-async function voiceStudioFetch(
-  input: string | URL | Request,
-  init: RequestInit = {},
-): Promise<Response> {
-  const headers = new Headers(init.headers)
-  const token = await cachedVoiceStudioFleetToken()
-  if (token && !headers.has('X-Studio-Token')) headers.set('X-Studio-Token', token)
-  return fetch(input, { ...init, headers })
-}
+// Backward-compatible export for tests and callers introduced by v1.0.544.
+export const resolveVoiceStudioFleetToken = resolveStudioFleetToken
 
 /**
  * Voice Studio modal base URL default.
@@ -697,6 +641,23 @@ export async function listAvailableEngines(
   return { configured, ok: avail.ok, models, error: avail.error }
 }
 
+/** Map Hub repo inventory back to Story Studio's stable Voice model ids. */
+export function listAvailableHubEngines(rows: Array<{ repo?: string; downloaded?: boolean }>): {
+  configured: boolean; ok: boolean; models: VoiceStudioModelInfo[]
+} {
+  const repos = new Set(rows.filter(r => r.downloaded !== false).map(r => r.repo).filter(Boolean))
+  const models = VOICESTUDIO_ENGINES
+    .filter(engine => repos.has(engine.repo))
+    .map(engine => ({
+      id: engine.modelId,
+      label: engine.label,
+      family: engine.family,
+      tts_soft_max_chars: engine.softMaxChars,
+      voicepack: engine.voiceField !== 'voice_library_id',
+    }))
+  return { configured: true, ok: models.length > 0, models }
+}
+
 /** List the user's saved voice library (uploaded reference clips). */
 export async function listVoices(baseUrl: string): Promise<VoiceStudioLibraryVoice[]> {
   let resp: Response
@@ -1151,6 +1112,31 @@ export async function runOnTranscribePool<T>(
   })
 }
 
+/** Hub-first transcription; direct Voice Studio pool is connection fallback. */
+export async function transcribeViaConfiguredBackend(
+  stored: string | null | undefined,
+  audioPath: string,
+  opts: { model?: string; language?: string; wordTimestamps?: boolean; signal?: AbortSignal } = {},
+): Promise<VoiceStudioTranscribeResult> {
+  const { getHubBackend, hubTranscription, hubTranscribeFile } = await import('./studiohub-client.js')
+  const hub = await getHubBackend()
+  if (hub.mode === 'hub' && hub.hubUrl) {
+    try {
+      let model = opts.model
+      if (!model) {
+        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
+        model = inventory.default_model || inventory.models.find(m => m.cached)?.repo
+      }
+      if (!model) throw new Error('Studio Hub has no downloaded Whisper model')
+      return await hubTranscribeFile(hub.hubUrl, hub.hubToken, audioPath, { ...opts, model })
+    } catch (error: any) {
+      if (!/Connection error|fetch failed|ECONN|timed? ?out/i.test(String(error?.message || error))) throw error
+    }
+  }
+  return runOnTranscribePool(stored, opts.model, (endpoint, model) =>
+    transcribeFile(endpoint, audioPath, { ...opts, model }))
+}
+
 /**
  * How many Voice Studio endpoints are READY to transcribe right now (online +
  * the requested/any Whisper model cached). Subtitle 'auto' concurrency uses this
@@ -1162,6 +1148,28 @@ export async function readyTranscribeEndpointCount(
 ): Promise<number> {
   const candidates = await transcribePoolCandidates(stored, requestedModel)
   return candidates.length
+}
+
+/** Hub fleet count first; direct endpoint count only when Hub is unavailable. */
+export async function readyTranscribeBackendCount(
+  stored: string | null | undefined,
+  requestedModel?: string,
+): Promise<number> {
+  const { getHubBackend, hubTranscription } = await import('./studiohub-client.js')
+  const hub = await getHubBackend()
+  if (hub.mode === 'hub' && hub.hubUrl) {
+    try {
+      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
+      if (requestedModel) {
+        const model = inventory.models.find(m => m.repo === requestedModel && m.cached)
+        return model?.available_on?.length || 0
+      }
+      const preferred = inventory.models.find(m => m.repo === inventory.default_model && m.cached)
+        || inventory.models.find(m => m.cached)
+      return preferred?.available_on?.length || 0
+    } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+  }
+  return readyTranscribeEndpointCount(stored, requestedModel)
 }
 
 /** Kick off a one-time Whisper model download on the modal (same generic

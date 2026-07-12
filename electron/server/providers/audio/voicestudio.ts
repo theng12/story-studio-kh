@@ -28,6 +28,7 @@ import {
 } from '../../lib/voicestudio-client.js'
 import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
 import { isConnectionError } from '../../lib/endpoint-pool.js'
+import { studioFetch } from '../../lib/studio-auth.js'
 import type { AudioProvider, AudioGenerationRequest, AudioGenerationResult } from '../types.js'
 
 /**
@@ -40,7 +41,7 @@ async function downloadUrlToFile(
   outPath: string,
   opts: { signal?: AbortSignal; onProgress?: (received: number, total?: number) => void } = {},
 ): Promise<void> {
-  const resp = await fetch(url, opts.signal ? { signal: opts.signal } : {})
+  const resp = await studioFetch(url, opts.signal ? { signal: opts.signal } : {})
   if (!resp.ok) throw new Error(`Studio Hub artifact download failed (${resp.status}) for ${url}`)
   const total = Number(resp.headers.get('content-length')) || undefined
   await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {})

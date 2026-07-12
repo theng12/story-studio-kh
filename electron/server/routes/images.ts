@@ -511,6 +511,17 @@ router.post('/imagestudio/test', async (req, res) => {
 
 router.get('/imagestudio/catalog', async (_req, res) => {
   try {
+    const { getHubBackend, hubCatalog } = await import('../lib/studiohub-client.js')
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const models = await hubCatalog(hub.hubUrl, hub.hubToken, 'image')
+        if (models.length) {
+          res.json({ baseUrl: hub.hubUrl, families: {}, models, source: 'hub' })
+          return
+        }
+      } catch { /* Hub unavailable: direct endpoint is the emergency fallback. */ }
+    }
     const { catalog: isCatalog, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const baseUrl = firstEndpoint(await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
@@ -538,9 +549,23 @@ const IMG_MODELS_CACHE_TTL_MS = 10 * 60_000
 
 router.get('/imagestudio/models', async (req, res) => {
   try {
-    const { listAvailableModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { listAvailableModels, listAvailableHubModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { getHubBackend, hubCatalog } = await import('../lib/studiohub-client.js')
     const { parseEnabledEndpoints } = await import('../lib/endpoint-pool.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'image', req.query.refresh === '1')
+        const result = listAvailableHubModels(rows)
+        if (result.models.length) {
+          const payload = { ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' }
+          imgModelsCache = { at: Date.now(), payload }
+          res.json(payload)
+          return
+        }
+      } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+    }
     const stored = await getApiKey('imagestudio')
     const eps = parseEnabledEndpoints(stored)
     const candidates = (eps.length ? eps : [DEFAULT_IMAGESTUDIO_BASE_URL]).filter(Boolean)

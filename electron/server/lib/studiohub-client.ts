@@ -83,6 +83,143 @@ export async function getHubBackend(): Promise<HubBackend> {
   return { mode, hubUrl: trimHubUrl(hubUrl), hubToken: (hubToken || '').trim() }
 }
 
+export interface HubModelMachine {
+  studio: string
+  machine: string
+  cached: boolean
+  ready?: boolean
+}
+
+export interface HubModelInfo {
+  repo: string
+  label: string
+  modality: string
+  family_label?: string
+  size_gb?: number
+  is_cloud?: boolean
+  downloaded: boolean
+  available?: boolean
+  recommended?: boolean
+  note?: string
+  cached_on?: string[]
+  available_on?: string[]
+  machines?: HubModelMachine[]
+}
+
+export interface HubTranscriptionInventory {
+  available: boolean
+  default_model?: string
+  endpoint_count: number
+  ready_count: number
+  models: Array<HubModelInfo & { cached: boolean }>
+}
+
+async function hubGetJson<T>(
+  hubUrl: string,
+  token: string | undefined,
+  path: string,
+  timeoutMs = 20_000,
+): Promise<T> {
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}${path}`, {
+      headers: { Accept: 'application/json', ...hubHeaders(token) },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (e: any) {
+    throw new Error(`Can't reach Studio Hub inventory: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub inventory failed (${resp.status}): ${detail.slice(0, 300)}`)
+  }
+  return resp.json() as Promise<T>
+}
+
+export async function hubModels(
+  hubUrl: string,
+  token: string | undefined,
+  modality?: string,
+  force = false,
+): Promise<HubModelInfo[]> {
+  const query = new URLSearchParams()
+  if (modality) query.set('modality', modality)
+  if (force) query.set('force', 'true')
+  const suffix = query.size ? `?${query}` : ''
+  const result = await hubGetJson<{ models?: HubModelInfo[] }>(hubUrl, token, `/models${suffix}`)
+  return Array.isArray(result.models) ? result.models : []
+}
+
+export async function hubCatalog(
+  hubUrl: string,
+  token: string | undefined,
+  modality?: string,
+  force = false,
+): Promise<any[]> {
+  const query = new URLSearchParams()
+  if (modality) query.set('modality', modality)
+  if (force) query.set('force', 'true')
+  const suffix = query.size ? `?${query}` : ''
+  const result = await hubGetJson<{ models?: any[] }>(hubUrl, token, `/catalog${suffix}`)
+  return Array.isArray(result.models) ? result.models : []
+}
+
+export function hubTranscription(
+  hubUrl: string,
+  token: string | undefined,
+  force = false,
+): Promise<HubTranscriptionInventory> {
+  return hubGetJson(hubUrl, token, `/transcription${force ? '?force=true' : ''}`)
+}
+
+export async function hubBroadcastDownload(
+  hubUrl: string,
+  token: string | undefined,
+  repo: string,
+  studios: string[],
+): Promise<any> {
+  const resp = await fetch(`${hubApiBase(hubUrl)}/broadcast/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...hubHeaders(token) },
+    body: JSON.stringify({ repo, studios }),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub model download failed (${resp.status}): ${detail.slice(0, 300)}`)
+  }
+  return resp.json()
+}
+
+export async function hubTranscribeFile(
+  hubUrl: string,
+  token: string | undefined,
+  audioPath: string,
+  opts: { model: string; language?: string; wordTimestamps?: boolean; signal?: AbortSignal },
+): Promise<any> {
+  const data = await fsp.readFile(audioPath)
+  const form = new FormData()
+  form.append('file', new Blob([new Uint8Array(data)]), path.basename(audioPath))
+  form.append('model', opts.model)
+  if (opts.language) form.append('language', opts.language)
+  if (opts.wordTimestamps) form.append('word_timestamps', 'true')
+  const timeout = AbortSignal.timeout(300_000)
+  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/transcribe`, {
+      method: 'POST', headers: hubHeaders(token), body: form, signal,
+    })
+  } catch (e: any) {
+    throw new Error(`Can't reach Studio Hub transcription: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub transcription failed (${resp.status}): ${detail.slice(0, 500)}`)
+  }
+  return resp.json()
+}
+
 // ── Batch job API (image / voice / video) — Phase 2+ ───────────────────────
 //
 // One uniform async API: submit a batch → poll until queued+running == 0 →

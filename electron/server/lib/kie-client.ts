@@ -9,6 +9,7 @@ import { createWriteStream } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
+import { studioFetch } from './studio-auth.js'
 import { sleepCancellable } from './http-retry.js'
 import { redactSecrets } from './redact-secrets.js'
 import type { ImageModelConfig } from '../models/types.js'
@@ -423,7 +424,8 @@ export async function downloadImage(
     return
   }
 
-  const resp = await fetch(url, { signal: AbortSignal.timeout(120000) })
+  const isStudioArtifact = /\/api\/generate\/jobs\/[^/]+\/image(?:\?|$)/.test(url)
+  const resp = await (isStudioArtifact ? studioFetch : fetch)(url, { signal: AbortSignal.timeout(120000) })
   if (!resp.ok || !resp.body) throw new Error(`Download failed: ${resp.status}`)
   const cl = resp.headers.get('content-length')
   const total = cl ? Number(cl) || undefined : undefined

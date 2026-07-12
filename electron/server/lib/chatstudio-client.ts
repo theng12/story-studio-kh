@@ -20,6 +20,7 @@
  */
 
 import { parseEndpoints, parseEnabledEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
+import { studioFetch } from './studio-auth.js'
 
 /** No universal default — it's the user's own machine. Empty = unconfigured.
  *  (Chat Studio's default port is 47871; the user provides host:port.) */
@@ -47,7 +48,7 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), ms)
   try {
-    return await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } })
+    return await studioFetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } })
   } finally {
     clearTimeout(timer)
   }

@@ -129,21 +129,15 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       // Same local-pool dispatcher the per-chapter path uses: least-busy Mac
       // with mid-job failover. Never falls back to OpenAI.
       const { getApiKey } = await import('../services/app-secrets-store.js')
-      const { transcribeFile, DEFAULT_VOICESTUDIO_BASE_URL, runOnTranscribePool } =
+      const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
         await import('../lib/voicestudio-client.js')
       const vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-      if (!vsStoredUrl) {
-        throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
-      }
-      job.output_lines.push(`Engine: Voice Studio (local pool) · ${req.model || 'default Whisper model'}`)
+      job.output_lines.push(`Engine: Studio Hub (Voice fleet; direct fallback) · ${req.model || 'default Whisper model'}`)
       job.progress = Math.max(job.progress ?? 0, 10)
-      const result = await runOnTranscribePool(vsStoredUrl, req.model, async (endpoint, model) => {
-        job.output_lines.push(`Voice Studio endpoint: ${endpoint} · ${model}`)
-        return transcribeFile(endpoint, sourceAudio, {
-          model,
-          language: req.language || 'en',
-          signal: controller.signal,
-        })
+      const result = await transcribeViaConfiguredBackend(vsStoredUrl, sourceAudio, {
+        model: req.model,
+        language: req.language || 'en',
+        signal: controller.signal,
       })
       srtRaw = result.srt
       job.progress = Math.max(job.progress ?? 0, 90)
@@ -195,7 +189,7 @@ async function transcribePerChapter(
   // v1.0.217+ — resolve the chosen engine up front. 'voicestudio' uses the
   // local modal's free Whisper STT; 'openai' is the paid fallback.
   const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
-  const { transcribeFile, DEFAULT_VOICESTUDIO_BASE_URL, runOnTranscribePool } =
+  const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
     await import('../lib/voicestudio-client.js')
   let apiKey = ''            // OpenAI key (openai engine)
   let vsStoredUrl = ''       // Voice Studio modal URL list (voicestudio engine)
@@ -207,10 +201,7 @@ async function transcribePerChapter(
     // the shared least-busy transcription dispatcher, so separate episode jobs
     // can run on separate Macs instead of every job choosing endpoint #1.
     vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!vsStoredUrl) {
-      throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
-    }
-    job.output_lines.push(`Engine: Voice Studio (local pool) · ${vsModel || 'default Whisper model'}`)
+    job.output_lines.push(`Engine: Studio Hub (Voice fleet; direct fallback) · ${vsModel || 'default Whisper model'}`)
   } else {
     apiKey = await resolveApiKeyForProviderId(projectSlug, 'openai', {
       model: req.model || 'whisper',
@@ -305,8 +296,8 @@ async function transcribePerChapter(
   let concurrency: number
   if (isAuto) {
     if (engine === 'voicestudio') {
-      const { readyTranscribeEndpointCount } = await import('../lib/voicestudio-client.js')
-      const n = await readyTranscribeEndpointCount(vsStoredUrl, vsModel).catch(() => 1)
+      const { readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
+      const n = await readyTranscribeBackendCount(vsStoredUrl, vsModel).catch(() => 1)
       concurrency = Math.max(1, Math.min(50, n || 1))
     } else {
       concurrency = 3  // cloud Whisper — safe parallel default
@@ -364,14 +355,10 @@ async function transcribePerChapter(
     try {
       let srtRaw: string
       if (engine === 'voicestudio') {
-        const result = await runOnTranscribePool(vsStoredUrl, vsModel, async (endpoint, model) => {
-          job.output_lines.push(`  Voice Studio endpoint: ${endpoint} · ${model}`)
-          vsModel = model
-          return transcribeFile(endpoint, audioPath, {
-            model,
-            language: req.language || 'en',
-            signal: controller.signal,
-          })
+        const result = await transcribeViaConfiguredBackend(vsStoredUrl, audioPath, {
+          model: vsModel,
+          language: req.language || 'en',
+          signal: controller.signal,
         })
         srtRaw = result.srt
       } else {

@@ -235,7 +235,9 @@ const chatstudioProvider: TextProvider = {
         )
       }
     }
-    return runAgainst(apiKey)
+    const { cachedStudioFleetToken } = await import('../../lib/studio-auth.js')
+    const studioToken = await cachedStudioFleetToken()
+    return runAgainst(apiKey, studioToken ? { 'X-Studio-Token': studioToken } : undefined)
   },
 }
 

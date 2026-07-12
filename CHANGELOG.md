@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.547 — 2026-07-12
+
+**Studio Hub is now the authoritative gateway for the complete local AI fleet.** Story Studio discovers models, checks availability, submits generation, and transcribes audio through one Hub address and credential; saved direct Studio URLs are emergency fallback only.
+
+- Image, Voice, Chat, and Whisper model pickers now read Studio Hub's fleet-wide inventory instead of probing individual LAN/Tailscale endpoints in Hub mode.
+- Whisper transcription uploads route through Studio Hub, which selects a free Voice Studio Mac with the requested model downloaded.
+- Whisper model downloads broadcast through Studio Hub to compatible Voice Studio machines.
+- Direct Image, Voice, and Chat fallback traffic now shares one authenticated `X-Studio-Token` request layer, including catalogs, generation, polling, cancellation, and protected artifacts.
+- Image catalog capabilities and downloaded state merge across the fleet, so a sleeping first-listed Mac can no longer hide models available elsewhere.
+- Chat's dedicated and global model pickers now use Hub inventory, while direct Chat completions receive fleet authentication when fallback is required.
+- Added regression coverage for Hub inventory conversion, fleet download-state merging, stable Voice model IDs, and shared fleet-token behavior.
+
 ## v1.0.546 — 2026-07-12
 
 **Performance defaults are consistent and gentler on provider APIs.** Every generation category now starts at 3 concurrent jobs, while image, audio, and video requests launch 2 seconds apart by default.

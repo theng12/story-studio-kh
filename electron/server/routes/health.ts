@@ -258,7 +258,35 @@ router.get('/models', async (req, res) => {
   // local-model surfacing.
   try {
     const lmBaseRaw = await getApiKey('chatstudio').catch(() => '')
-    if (lmBaseRaw) {
+    const { getHubBackend, hubCatalog } = await import('../lib/studiohub-client.js')
+    const hub = await getHubBackend()
+    let entries: Array<{
+      id: string; label: string; cloud: boolean; provider_key?: string;
+      provider_name?: string; free?: boolean; key_set?: boolean
+    }> = []
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      try {
+        const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'chat')
+        const seen = new Set<string>()
+        for (const row of rows) {
+          if (!row?.repo || seen.has(row.repo)) continue
+          const cloud = !!row.is_cloud
+          const runnable = cloud ? row.cloud_credentials_ok !== false : !!row.hub_cached
+          if (!runnable) continue
+          seen.add(row.repo)
+          entries.push({
+            id: row.repo,
+            label: row.label || row.repo,
+            cloud,
+            provider_key: row.cloud_provider,
+            provider_name: row.cloud_provider_label,
+            free: row.requires_billing !== true,
+            key_set: row.cloud_credentials_ok !== false,
+          })
+        }
+      } catch { /* Hub unavailable: direct pool remains the emergency fallback. */ }
+    }
+    if (!entries.length && lmBaseRaw) {
       // v1.0.497 — catalog instead of the raw /v1/models dump: Chat Studio now
       // proxies free cloud LLM providers (OpenRouter / NVIDIA / Groq / Gemini /
       // HF Router / …) and its /v1/models lists ~450 upstream models. The
@@ -268,8 +296,9 @@ router.get('/models', async (req, res) => {
       // Studio" reason (Image Studio v1.0.477 precedent). Union across ALL
       // configured endpoints so a sleeping endpoints[0] doesn't empty the list.
       const { listCatalogPooled } = await import('../lib/chatstudio-client.js')
-      const entries = await listCatalogPooled(lmBaseRaw, 2000)
-      for (const e of entries) {
+      entries = await listCatalogPooled(lmBaseRaw, 2000)
+    }
+    for (const e of entries) {
         const needsKey = e.cloud && e.key_set === false
         // Tier: local MLX → 'local'; cloud free tier → 'free'; cloud paid → 'paid'.
         const tier: CostTier = !e.cloud ? 'local' : (e.free === false ? 'paid' : 'free')
@@ -294,7 +323,6 @@ router.get('/models', async (req, res) => {
           supports_vision: true,
           cost_tier: tier,
         })
-      }
     }
   } catch { /* server off / unreachable — surface nothing, don't block */ }
 
