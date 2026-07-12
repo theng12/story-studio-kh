@@ -219,8 +219,14 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   scene_plan: ['subtitles'],
   scene_review: ['scene_plan'],
   motion_review: ['scene_review'],
-  timestamp_assemble: ['motion_review', 'audio_merge'],
+  // Motion Review is optional. Final assembly can use reviewed clips where
+  // available and approved stills everywhere else.
+  timestamp_assemble: ['scene_review', 'audio_merge'],
   video_assembly: ['scene_images', 'audio_merge'],
+}
+
+export function prerequisitesForStep(step: BatchStep): BatchStep[] {
+  return [...(STEP_PREREQUISITES[step] || [])]
 }
 
 function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
@@ -309,7 +315,7 @@ async function preflightBatch(
         available.add(step)
         continue
       }
-      const missing = (STEP_PREREQUISITES[step] || []).filter(required => !available.has(required))
+      const missing = prerequisitesForStep(step).filter(required => !available.has(required))
       for (const required of missing) {
         issues.push({
           code: 'missing_prerequisite',

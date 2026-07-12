@@ -142,6 +142,7 @@
               >
                 <span class="step-h-icon">{{ col.icon }}</span>
                 <span class="step-h-label">{{ col.label }}</span>
+                <span v-if="col.optional" class="step-h-optional">optional</span>
                 <span class="step-h-count">{{ doneCount(col) }}/{{ episodes.length }}</span>
               </button>
             </th>
@@ -354,9 +355,10 @@ const visibleEpisodes = computed(() => {
   return [...list].sort((a, b) => a.episode_code.localeCompare(b.episode_code))
 })
 
-/** Fully done = every SHOWN column's step is done for this episode. */
+/** Fully done = every required SHOWN column's step is done. Optional columns
+ * remain visible and filterable, but never keep an episode in Needs work. */
 function isFullyDone(ep: any): boolean {
-  return columns.value.every(col => ep.status?.[col.field] === true)
+  return columns.value.filter(col => !col.optional).every(col => ep.status?.[col.field] === true)
 }
 
 // ── Active jobs (row-level 🔄) ─────────────────────────────────────────────
@@ -384,6 +386,7 @@ function cellClass(ep: any, col: BoardCol): Record<string, boolean> {
     'cell-done': done,
     'cell-pending': !done,
     'cell-manual': isManual(ep, col.field),
+    'cell-optional': col.optional === true,
   }
 }
 function cellMark(ep: any, col: BoardCol): string {
@@ -395,7 +398,7 @@ function cellTitle(ep: any, col: BoardCol): string {
   const state = done
     ? (manual ? 'done (marked by hand)' : 'done')
     : 'pending'
-  return `${ep.episode_code} · ${col.label}: ${state} — click to open`
+  return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state} — click to open`
 }
 function doneCount(col: BoardCol): number {
   return episodes.value.filter(ep => ep.status?.[col.field] === true).length
@@ -640,6 +643,7 @@ async function markCell(ep: any, col: BoardCol) {
 }
 .step-h-icon { font-size: 13px; }
 .step-h-label { font-size: 10px; line-height: 1.1; color: var(--text-primary); text-align: center; }
+.step-h-optional { font-size: 8px; line-height: 1; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }
 .step-h-count { font-size: 9px; color: var(--text-muted); }
 
 /* Cheap virtualization: skip layout/paint for off-screen rows. The fixed
@@ -724,6 +728,7 @@ async function markCell(ep: any, col: BoardCol) {
 .cell-loading { opacity: 0.5; }
 .cell-done { color: var(--success, #22c55e); }
 .cell-pending { color: var(--text-muted); opacity: 0.55; }
+.cell-optional.cell-pending { opacity: 0.32; }
 /* Manual override — dashed underline ring echoes the EpisodeSelector chips. */
 .cell-manual {
   text-decoration: underline dashed;

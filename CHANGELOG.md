@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.541 — 2026-07-12
+
+**Motion Review is optional and fully integrated.** Completion status, manual overrides, external clips, and final assembly now share one explicit contract.
+
+- Fixed the `/episodes` status response dropping `motion_review`, which made Pipeline and Production Board show every Motion Review as pending even after whole-episode Mark Done.
+- Added Motion Review to the manual per-step completion chips and labeled it optional in Pipeline, Production Board, and the Motion Review page.
+- Motion Review no longer counts toward Pipeline missing-core selection, Production Board Needs Work, or Final Video prerequisites. Approved still images remain the safe default.
+- Added a visible per-scene external MP4 upload in Motion Review for Chrome-extension or other third-party image-to-video results. Uploaded clips remain pending until explicitly approved with Use clip.
+- Clarified assembly timing: long clips are trimmed, short clips freeze their final frame, clip audio is discarded, and every clip stays inside the scene's narration-timed window.
+- Future EpisodeStatus booleans now pass through the `/episodes` response automatically, with regression tests covering Motion Review status and optional prerequisites.
+
 ## v1.0.540 — 2026-07-12
 
 **Optional episode render workers.** Studio Hub mode can now send timestamp assemblies to a dedicated Render Studio Mac.

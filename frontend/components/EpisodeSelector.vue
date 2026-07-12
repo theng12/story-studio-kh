@@ -169,7 +169,7 @@ const { success, error: showError, info: showInfo } = useToast()
 const selectedEp = computed(() =>
   props.modelValue ? episodes.value.find(e => e.episode_code === props.modelValue) || null : null)
 
-interface StepChip { field: string; label: string; conditional?: boolean }
+interface StepChip { field: string; label: string; conditional?: boolean; activePath?: string }
 // Pipeline-ordered. `conditional` steps only apply to some formats
 // (research / scene-plan / scene-review for transcript-timed pipelines,
 // per-scene Clips for AI-video formats) — they'd read as forever-pending
@@ -191,6 +191,7 @@ const STEP_CHIPS: StepChip[] = [
   { field: 'broll_picked',   label: 'B-Roll picked', conditional: true },
   { field: 'scene_plan',     label: 'Scene plan', conditional: true },
   { field: 'scene_review',   label: 'Scene review', conditional: true },
+  { field: 'motion_review',  label: 'Motion review (optional)', conditional: true, activePath: '/motion-review' },
   { field: 'video_assembly', label: 'Final video' },
 ]
 
@@ -210,6 +211,7 @@ const visibleChips = computed(() => {
     return ep.status?.[c.field] === true
       || overrideFor(c.field) !== undefined
       || props.filterField === c.field
+      || (c.activePath ? route.path.endsWith(c.activePath) : false)
   })
 })
 const doneChipCount = computed(() =>

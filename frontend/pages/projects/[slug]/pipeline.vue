@@ -598,6 +598,8 @@ interface StepMeta {
   costly?: boolean
   /** Human-readable warning rendered on the step tile when costly. */
   warning?: string
+  /** Opt-in stage that never makes an otherwise finished episode pending. */
+  optional?: boolean
 }
 
 // v1.0.167 — External chain nodes. These are real steps in the broll /
@@ -667,7 +669,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_presets',  presetActive: 'scene_review_last_preset_scene-review' },
-  { id: 'motion_review',     label: 'Motion Clips (image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, warning: 'Generates one image-to-video clip per ready scene — provider charges apply' },
+  { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   // Timestamp/continuity final render. Runs with built-in export defaults — no
   // server-side preset (its settings live in a per-Mac remembered form).
   { id: 'timestamp_assemble', label: 'Final Video (timestamp)', icon: '🎬', link: '/timestamp-assemble', presetList: 'timestamp_assemble_presets', presetActive: 'timestamp_assemble_last_preset' },
@@ -1111,7 +1113,7 @@ const searchQuery = ref('')
 // stops at audio_merge — correct, since the final render is a separate,
 // page-driven step.)
 const CORE_STEP_IDS = computed<StepId[]>(() =>
-  visibleSteps.value.map(s => s.id).filter(id => id !== 'video'),
+  visibleSteps.value.filter(s => !s.optional && s.id !== 'video').map(s => s.id),
 )
 
 function missingCoreSteps(ep: Episode): number {
@@ -1283,13 +1285,12 @@ function selectAllPending() {
   // Only AI per-scene video generation stays opt-in — video_assembly is
   // the final packaging step and we WANT the batch to include it so
   // "Run all pending" finishes episodes end-to-end.
-  const EXCLUDED_FROM_PENDING: StepId[] = ['video']
   // Operate on the filtered set so "Select all pending" respects the
   // user's current filter choice. When the filter is "all", this is
   // every episode; when "missing-only", it's already the narrower pool.
   for (const ep of sortedFilteredEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
-      if (EXCLUDED_FROM_PENDING.includes(step.id)) return false
+      if (step.id === 'video' || step.optional) return false
       return !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
@@ -1300,10 +1301,9 @@ function selectAllPending() {
 // page. Doesn't clear existing selection so the user can build a working
 // set across pages if they really want to.
 function selectAllPendingOnPage() {
-  const EXCLUDED_FROM_PENDING: StepId[] = ['video']
   for (const ep of paginatedEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
-      if (EXCLUDED_FROM_PENDING.includes(step.id)) return false
+      if (step.id === 'video' || step.optional) return false
       return !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)

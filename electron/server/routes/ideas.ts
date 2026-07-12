@@ -1084,6 +1084,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       research: researchDone,
       scene_plan: scenePlanDone,
       scene_review: sceneReviewDone,
+      motion_review: motionReviewDone,
       character_sheet: characterSheetDone,
       broll_picked: brollPickedDone,
       script: scriptDone,
@@ -1099,6 +1100,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       video: videoDone,
       video_assembly: videoAssemblyDone,
     } = status
+    // Publish every current and future EpisodeStatus field by default. This
+    // prevents a newly-added workflow step from being computed correctly in
+    // asset-status but silently disappearing when this route rebuilds status.
+    const { _unreliable: _internalStatusFlag, ...publicStatus } = status
 
     return {
       // v1.0.70: idea.id surfaced so the Scripts page can PATCH back
@@ -1149,6 +1154,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       //   metadata       — at least one metadata file (.txt/.json/.md) in the metadata folder.
       //   all_done       — every primary asset present (output, not inputs).
       status: {
+        ...publicStatus,
         // v1.0.246 — research was computed upstream (asset-status) but dropped
         // by this destructure/re-assembly, so the Research page's "Pending
         // only" filter (filter-field="research") read undefined and never
@@ -1160,6 +1166,9 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // and never excluded finished episodes. Surfaced now.
         scene_plan: scenePlanDone,
         scene_review: sceneReviewDone,
+        // Optional image-to-video review. Surfaced even when false so manual
+        // overrides, Pipeline chips and Production Board share one contract.
+        motion_review: motionReviewDone,
         // v1.0.361 — surfaced so the Character Sheet page filters its pending
         // list by "continuity config saved" instead of borrowing `script`.
         character_sheet: characterSheetDone,

@@ -186,6 +186,29 @@ describe('Ideas routes', () => {
     assert.ok(Array.isArray(res.body))
   })
 
+  test('whole-episode Mark Done includes new Motion Review status fields', async () => {
+    const project = await request(app).post('/api/projects').send({
+      name: 'Motion Status Contract Project', episode_prefix: 'MS', episode_digits: 3,
+    })
+    const isolatedSlug = project.body.slug
+    const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
+      title: 'Motion Status Contract', suggested_chapters: 4,
+    })
+    assert.equal(created.status, 200)
+    const accepted = await request(app)
+      .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    assert.equal(accepted.status, 200)
+    const code = accepted.body.episode_code
+    const marked = await request(app)
+      .patch(`/api/projects/${isolatedSlug}/episodes/${code}/mark-done`).send({ done: true })
+    assert.equal(marked.status, 200)
+    const episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
+    const episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.ok(episode)
+    assert.equal(episode.status.motion_review, true,
+      'new EpisodeStatus fields must survive the /episodes public response')
+  })
+
   // ── Paste-import tests ─────────────────────────────────────────────────
   // These pin the validation rules for the `/ideas/import-paste` route so
   // a future tightening of the shape (e.g. requiring suggested_length be

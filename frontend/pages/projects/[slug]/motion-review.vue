@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Motion Review</h1>
+      <h1 class="page-title">Motion Review <span class="optional-badge">Optional</span></h1>
     </div>
 
     <TopActionBar
@@ -20,10 +20,15 @@
 
     <div class="motion-intro mt-2">
       <div>
-        <strong>Pass 2 of 2: image to video</strong>
-        <p>Scene timing stays locked. Review motion here; choosing a clip only replaces the still inside the same timestamp window.</p>
+        <strong>Optional pass 2: image to video</strong>
+        <p>Skip this page when a video should use still images. Scene timing stays locked; choosing a clip only replaces the still inside the same timestamp window.</p>
       </div>
       <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
+    </div>
+
+    <div class="external-motion-note mt-2">
+      <strong>Using an external Chrome extension?</strong>
+      Generate the image-to-video result there, then use <b>Upload external MP4</b> on the matching scene below. Story Studio saves it with the correct scene ID for you. Click <b>Use clip</b> after reviewing it; otherwise assembly keeps the still. Long clips are trimmed to the planned scene window, short clips hold their final frame, and clip audio is discarded in favor of narration.
     </div>
 
     <section v-if="stats" class="card mt-3" :class="{ 'motion-ready': stats.all_motion_reviewed }">
@@ -86,6 +91,11 @@
         <div class="motion-actions">
           <button
             class="btn btn-sm btn-secondary"
+            :disabled="uploadingId === scene.id || animatingId === scene.id"
+            @click="uploadClipOne(scene)"
+          >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload external MP4' }}</button>
+          <button
+            class="btn btn-sm btn-secondary"
             :disabled="!videoModel || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
             @click="generateOne(scene)"
           >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-generate clip' : 'Generate clip') }}</button>
@@ -144,6 +154,7 @@ const queuing = ref(false)
 const savingAll = ref(false)
 const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
+const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
 const cacheBuster = ref(Date.now())
 const motionPresets = usePresets({
@@ -234,6 +245,34 @@ async function generateMissing() {
   }
 }
 
+async function uploadClipOne(scene: MotionScene) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'video/mp4,.mp4'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    uploadingId.value = scene.id
+    try {
+      const response = await fetch(
+        `/api/projects/${slug.value}/scene-review/${episodeId.value}/upload-clip/${scene.id}`,
+        { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
+      )
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({} as any))
+        throw new Error(detail.detail || `Upload failed (${response.status})`)
+      }
+      await loadReview()
+      success(`External clip uploaded for scene ${scene.scene_index}. Review it, then choose Use clip.`)
+    } catch (error: any) {
+      showError(error?.message || 'Could not upload the external clip')
+    } finally {
+      uploadingId.value = null
+    }
+  }
+  input.click()
+}
+
 async function setChoice(scene: MotionScene, choice: 'clip' | 'still') {
   savingId.value = scene.id
   try {
@@ -274,6 +313,9 @@ watch(episodeId, () => { void loadReview() })
 .motion-intro, .motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
 .motion-intro { justify-content: space-between; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary)); }
 .motion-intro p { margin: 4px 0 0; color: var(--text-muted); }
+.optional-badge { display: inline-block; vertical-align: middle; margin-left: 8px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 999px; color: var(--accent); font: 700 10px/1.2 var(--font-sans, sans-serif); letter-spacing: .06em; text-transform: uppercase; }
+.external-motion-note { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-tertiary); color: var(--text-muted); font-size: 13px; line-height: 1.55; }
+.external-motion-note strong { color: var(--text-primary); }
 .motion-summary { justify-content: space-between; align-items: flex-end; }
 .motion-summary h3, .motion-summary p { margin: 0; }
 .motion-tools { flex-wrap: wrap; justify-content: flex-end; }

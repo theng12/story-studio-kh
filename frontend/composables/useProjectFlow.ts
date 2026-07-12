@@ -83,6 +83,8 @@ export interface FlowStep {
   path: string
   /** For pages that share a path via ?tab= (image-prompts, images). */
   tab?: 'thumbnails' | 'scenes'
+  /** Visible in the workflow, but never blocks an episode from being done. */
+  optional?: boolean
 }
 
 // ── Shared steps (referenced by multiple flows) ────────────────────────────
@@ -101,7 +103,7 @@ const STEP = {
   characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet' },
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan' },
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review' },
-  motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review' },
+  motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', optional: true },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
   timestampAssemble: { key: 'timestamp-assemble', label: 'Timestamp Assemble', icon: '🎞', path: '/timestamp-assemble' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.

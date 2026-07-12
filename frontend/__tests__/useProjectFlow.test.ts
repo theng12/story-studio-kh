@@ -64,13 +64,16 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('timestamp-driven: research + scene plan/review + video assembly, no scene-prompts', () => {
-    const k = keys('timestamp-driven')
+    const flow = flowForVisualSource('timestamp-driven')
+    const k = flow.map(s => s.key)
     for (const s of ['research', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `timestamp-driven should include ${s}`)
     }
     assert.ok(!k.includes('scene-prompts'))
     assert.ok(!k.includes('character-sheet'), 'timestamp-driven has no character sheet')
     assert.ok(!k.includes('timestamp-assemble'), 'uses full video-assembly as the default final step')
+    assert.equal(flow.find(s => s.key === 'motion-review')?.optional, true,
+      'Motion Review must remain visible but non-blocking')
   })
 
   test('continuity-chain: adds character sheet on top of the audio-paced flow', () => {

@@ -376,3 +376,9 @@ describe('every pipeline step maps to a real job-queue lane', () => {
     assert.equal(jobTypeForStep('scene_prompts'), 'image_prompts')
   })
 })
+
+test('timestamp assembly does not require optional Motion Review', async () => {
+  const { prerequisitesForStep } = await import('../routes/pipeline.js')
+  assert.deepEqual(prerequisitesForStep('timestamp_assemble'), ['scene_review', 'audio_merge'])
+  assert.ok(!prerequisitesForStep('timestamp_assemble').includes('motion_review'))
+})
