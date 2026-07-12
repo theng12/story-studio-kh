@@ -630,14 +630,10 @@
             <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
 
-          <!-- v1.0.424 — sleep-story auto-hold preview. When "Skip the Introduction
-               chapter" is on for the project, the render overrides the Duration below
-               and holds the card until the story starts. -->
-          <div v-if="introHold?.skip_intro_scenes && introHold?.has_intro_chapter" class="intro-hold-note mt-2">
-            ⏱ <strong>Auto-held ~{{ Math.round(introHold.hold_sec) }}s</strong> through the intro
-            (story starts {{ Math.round(introHold.story_start_sec) }}s<span v-if="introHold.intro_video_sec"> − {{ Math.round(introHold.intro_video_sec) }}s intro video</span>).
-            The Duration slider below is <em>overridden</em> while “Skip the Introduction chapter” is on
-            (set on the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="ffmpeg-inline-link">Scene Plan</NuxtLink> page).
+          <!-- The staged Scene Plan owns branded-opening timing. -->
+          <div v-if="introHold?.opening_mode === 'branded-opening'" class="intro-hold-note mt-2">
+            <strong>Opening timing is controlled by Scene Plan.</strong>
+            The intro clip is trimmed or padded to the reserved opening window, then scene 1 starts immediately.
           </div>
 
           <div class="grid-3 mt-1">
@@ -2728,11 +2724,10 @@ const intro = reactive({
   save_as_default: false,
 })
 
-// v1.0.424 — read-only preview of the sleep-story title-card auto-hold so Step 3
-// can show how long the thumbnail is held through the intro before render. The
-// render computes the same value; this just surfaces it.
+// Read-only opening mode preview; render timing comes from scene_plan.json.
 const introHold = ref<{
   skip_intro_scenes: boolean
+  opening_mode?: 'branded-opening' | 'from-start'
   has_intro_chapter: boolean
   story_start_sec: number
   intro_video_sec: number
@@ -3606,7 +3601,7 @@ const subtitles = reactive({
 let introSubDefaulted = false
 watch(vaConfig, (c) => {
   if (!introSubDefaulted && c) {
-    subtitles.hide_during_intro = !!(c as any).skip_intro_scenes
+    subtitles.hide_during_intro = (c as any).visual_opening_mode === 'branded-opening'
     introSubDefaulted = true
   }
 }, { immediate: true })

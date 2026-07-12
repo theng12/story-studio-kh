@@ -379,6 +379,109 @@ export async function hubPollBatch(
   )
 }
 
+// Durable Chat prompt packs. Unlike the OpenAI-compatible gateway, this queue
+// survives app restarts and assigns one <=10-scene pack to each Chat Studio.
+export interface HubChatPack {
+  pack_id: string
+  scene_ids: string[]
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  params?: Record<string, any>
+}
+
+export interface HubChatResult {
+  scene_id: string
+  text: string
+}
+
+export interface HubChatPackStatus {
+  pack_id: string
+  scene_ids: string[]
+  state: 'queued' | 'running' | 'done' | 'partial' | 'error' | 'cancelled'
+  studio?: string | null
+  error?: string | null
+  missing_scene_ids?: string[]
+  results?: HubChatResult[]
+}
+
+export interface HubChatBatchStatus {
+  id: string
+  status: 'queued' | 'running' | 'done' | 'partial' | 'error' | 'cancelled'
+  total_scenes: number
+  completed_scenes: number
+  packs: HubChatPackStatus[]
+}
+
+export async function hubSubmitChatPacks(
+  hubUrl: string,
+  token: string | undefined,
+  body: {
+    model: string
+    kind: 'visual' | 'motion'
+    label?: string
+    project?: string
+    episode?: string
+    packs: HubChatPack[]
+  },
+): Promise<{ batch_id: string; packs: number; scenes: number }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/chat/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...hubHeaders(token) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    })
+  } catch (e: any) {
+    throw new Error(`Can't reach Studio Hub to submit Chat packs: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub Chat submit failed (${resp.status}): ${detail.slice(0, 500)}`)
+  }
+  const value = await resp.json() as { batch_id?: string; packs?: number; scenes?: number }
+  if (!value.batch_id) throw new Error('Studio Hub Chat submit returned no batch_id')
+  return { batch_id: value.batch_id, packs: value.packs || body.packs.length, scenes: value.scenes || 0 }
+}
+
+export async function hubPollChatPacks(
+  hubUrl: string,
+  token: string | undefined,
+  batchId: string,
+  opts: {
+    isCancelled?: () => boolean
+    timeoutMs?: number
+    onProgress?: (status: HubChatBatchStatus) => void | Promise<void>
+  } = {},
+): Promise<HubChatBatchStatus> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 60 * 60_000)
+  while (Date.now() < deadline) {
+    if (opts.isCancelled?.()) {
+      await fetch(`${hubApiBase(hubUrl)}/chat/jobs/${batchId}`, {
+        method: 'DELETE', headers: hubHeaders(token),
+      }).catch(() => {})
+      throw new Error('Cancelled by user')
+    }
+    let resp: Response
+    try {
+      resp = await fetch(`${hubApiBase(hubUrl)}/chat/jobs/${batchId}`, {
+        headers: { Accept: 'application/json', ...hubHeaders(token) },
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (e: any) {
+      throw new Error(`Can't reach Studio Hub while polling Chat batch ${batchId}: ${e?.message || e}. Connection error.`)
+    }
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '')
+      throw new Error(`Studio Hub Chat poll failed (${resp.status}): ${detail.slice(0, 500)}`)
+    }
+    const status = await resp.json() as HubChatBatchStatus
+    await opts.onProgress?.(status)
+    if (['done', 'partial', 'error', 'cancelled'].includes(status.status)) return status
+    await sleepCancellable(2_000, opts.isCancelled)
+  }
+  throw new Error(`Studio Hub Chat batch ${batchId} did not complete within the allowed time`)
+}
+
 // ── Reference-image assets (upload-once) ───────────────────────────────────
 //
 // Continuity render reuses ONE reference (a character sheet / style ref) across

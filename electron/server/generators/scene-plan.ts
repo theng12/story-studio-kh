@@ -19,6 +19,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { getHubBackend, hubPollChatPacks, hubSubmitChatPacks, type HubChatBatchStatus, type HubChatPack } from '../lib/studiohub-client.js'
 import { scanEpisodeAssets } from './video.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
@@ -115,15 +117,28 @@ interface ScenePlanRunParams {
    *  CTA / breathing) so scenes are planned only for the story. Per-episode
    *  override; falls back to the project default (config.skip_intro_scenes). */
   skip_intro?: boolean
+  /** New staged workflow. Timeline is deterministic; prompts are separate. */
+  stage?: 'timeline' | 'visual' | 'motion'
+  opening_mode?: 'branded-opening' | 'from-start'
+  opening_reserved_sec?: number
+  /** Limit a manual run to the next N pending scenes. Omit for all pending. */
+  prompt_limit?: number
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
 export async function runScenePlanJob(job: Job): Promise<void> {
   const params = job.params as ScenePlanRunParams
-  const { episode_id, model } = params
+  const { episode_id } = params
+  let model = params.model || ''
   if (!episode_id) throw new Error('episode_id is required')
-  if (!model) throw new Error('model is required')
+  const needsModel = params.stage === 'visual' || params.stage === 'motion' || !!(
+    params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
+    || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
+    || params.replan_scene_id
+  )
+  if (!model && needsModel) throw new Error('model is required')
+  if (!model) model = 'deterministic-timeline'
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
@@ -192,6 +207,242 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // (with a legacy episode-root fallback for older episodes). One resolved
   // path drives every read + in-place rewrite below, so they all stay in sync.
   const outPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
+
+  // ── Staged continuity workflow ──────────────────────────────────────────
+  // Timeline creation is deterministic and free. Visual and optional motion
+  // prompts are durable Hub packs of <=10 scene IDs, with direct generation as
+  // a connection-only fallback. This branch is intentionally before all legacy
+  // re-plan modes so those remain available for repairing old plans.
+  const isLegacyRepair = !!(
+    params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
+    || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
+    || params.replan_scene_id
+  )
+  if (params.stage || !isLegacyRepair) {
+    const stage = params.stage || 'timeline'
+    if (stage === 'timeline') {
+      const srtText = await fs.readFile(stitchedSrt, 'utf-8')
+      const allCues = parseSrt(srtText)
+      if (!allCues.length) throw new Error('The stitched subtitle timeline has no cues.')
+      let configuredOpeningMode: 'branded-opening' | 'from-start' = 'from-start'
+      let configuredOpeningSec = 15
+      try {
+        const cfg = await getConfig(job.project_slug) as any
+        configuredOpeningMode = cfg?.visual_opening_mode === 'branded-opening'
+          || (cfg?.visual_opening_mode == null && cfg?.skip_intro_scenes === true)
+          ? 'branded-opening' : 'from-start'
+        configuredOpeningSec = Number(cfg?.branded_opening_duration_sec) || 15
+      } catch { /* defaults apply */ }
+      const openingMode = params.opening_mode || configuredOpeningMode
+      const openingReserved = openingMode === 'branded-opening'
+        ? Math.max(0, Math.min(120, Number(params.opening_reserved_sec) || configuredOpeningSec))
+        : 0
+      const cues = allCues.filter(c => c.end_sec > openingReserved + 0.001)
+      if (!cues.length) throw new Error(`The ${openingReserved.toFixed(1)}s opening covers the entire subtitle timeline.`)
+      const { splitScenesDeterministically } = await import('../services/scene-planner.js')
+      const minSec = pacing?.min_sec ?? 3
+      const maxSec = pacing?.max_sec ?? 12
+      const scenes = splitScenesDeterministically({
+        cues,
+        min_sec: minSec,
+        max_sec: maxSec,
+        target_sec: (minSec + maxSec) / 2,
+        initial_start_sec: openingReserved,
+        idGen: i => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`,
+      })
+      let totalDuration = allCues[allCues.length - 1]!.end_sec
+      try {
+        const assets = await scanEpisodeAssets(job.project_slug, episode_id)
+        const merged = assets?.merged_audio?.[0]?.path
+        if (merged && existsSync(merged)) {
+          const audioDuration = (await getAudioDuration(merged)) || 0
+          if (audioDuration > totalDuration) totalDuration = audioDuration
+        }
+      } catch { /* stitched SRT duration remains the safe fallback */ }
+      if (scenes.length) scenes[scenes.length - 1]!.end_sec = totalDuration
+      if (characterDensity != null) assignDensityToUntagged(scenes, characterDensity)
+      const plan: ScenePlan = {
+        schema_version: 1,
+        generated_at: new Date().toISOString(),
+        planner_model: model,
+        source_stitched_srt: path.basename(stitchedSrt),
+        total_duration_sec: totalDuration,
+        research_used: useResearch && existsSync(researchPath),
+        scenes,
+        planned_in_windows: 0,
+        planning_stage: 'timeline',
+        opening_mode: openingMode,
+        opening_reserved_sec: openingReserved,
+      }
+      await fs.mkdir(path.dirname(outPath), { recursive: true })
+      await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+      job.output_dir = paths.episode_dir
+      job.progress = 100
+      job.output_lines.push(
+        `Timeline ready: ${scenes.length} cue-aligned scene(s), starting at ${openingReserved.toFixed(1)}s. No LLM was used.`,
+      )
+      return
+    }
+
+    if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
+    const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const isMotion = stage === 'motion'
+    const pending = plan.scenes
+      .map((scene, index) => ({ scene, index }))
+      .filter(({ scene }) => isMotion
+        ? !!scene.visual_prompt?.trim() && !scene.motion_prompt?.trim()
+        : !scene.visual_prompt?.trim())
+    const limit = params.prompt_limit == null ? pending.length : Math.max(1, Math.min(5000, Math.round(params.prompt_limit)))
+    const targets = pending.slice(0, limit)
+    if (!targets.length) {
+      job.progress = 100
+      job.output_dir = paths.episode_dir
+      job.output_lines.push(isMotion ? 'No pending motion prompts.' : 'No pending visual prompts.')
+      return
+    }
+
+    const effectiveStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
+    const allCues = parseSrt(await fs.readFile(stitchedSrt, 'utf-8'))
+    let storyStartSec = 0
+    try {
+      const chaptersPath = path.join(paths.episode_dir, 'audio_chapters.json')
+      if (existsSync(chaptersPath)) {
+        const chapters = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
+        const assets = await scanEpisodeAssets(job.project_slug, episode_id).catch(() => null)
+        const story = await computeStoryStartSec(
+          assets?.merged_audio?.[0]?.path || null,
+          chapters.sections || [],
+          Number(chapters.gap_duration_s) || 0,
+        )
+        storyStartSec = story?.story_start_sec || 0
+      }
+    } catch { /* story context falls back to later transcript */ }
+    const storyContext = allCues
+      .filter(c => c.start_sec >= storyStartSec - 0.01)
+      .slice(0, 14)
+      .map(c => c.text)
+      .join(' ')
+      .slice(0, 3500)
+
+    const packs: HubChatPack[] = []
+    for (let offset = 0; offset < targets.length; offset += 10) {
+      const group = targets.slice(offset, offset + 10)
+      const scenePayload = group.map(({ scene }) => ({
+        scene_id: scene.id,
+        start_sec: scene.start_sec,
+        end_sec: scene.end_sec,
+        narration: scene.transcript_segment,
+        visual_prompt: isMotion ? scene.visual_prompt : undefined,
+        introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
+      }))
+      const task = isMotion
+        ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
+        : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Keep recurring subjects, wardrobe, locations, and visual style continuous.'
+      packs.push({
+        pack_id: `${stage}-${String(offset / 10 + 1).padStart(4, '0')}`,
+        scene_ids: group.map(({ scene }) => scene.id),
+        messages: [
+          {
+            role: 'system',
+            content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Return every ID exactly once. Never invent IDs.`,
+          },
+          {
+            role: 'user',
+            content: [
+              effectiveStyle ? `STYLE BIBLE:\n${effectiveStyle}` : '',
+              params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
+              !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
+              !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
+              `SCENES:\n${JSON.stringify(scenePayload)}`,
+            ].filter(Boolean).join('\n\n'),
+          },
+        ],
+        params: { temperature: isMotion ? 0.45 : 0.65 },
+      })
+    }
+
+    const rawModel = model.replace(/^chatstudio:/, '')
+    const persistHubResults = async (status: HubChatBatchStatus) => {
+      let changed = false
+      for (const pack of status.packs || []) {
+        for (const result of pack.results || []) {
+          const scene = plan.scenes.find(s => s.id === result.scene_id)
+          if (!scene || !result.text?.trim()) continue
+          if (isMotion) {
+            if (scene.motion_prompt !== result.text.trim()) { scene.motion_prompt = result.text.trim(); changed = true }
+          } else if (scene.visual_prompt !== result.text.trim()) {
+            scene.visual_prompt = result.text.trim(); changed = true
+          }
+        }
+      }
+      if (changed) {
+        plan.generated_at = new Date().toISOString()
+        plan.planning_stage = isMotion ? 'motion' : 'visual'
+        await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+      }
+      job.progress = 10 + Math.round((status.completed_scenes / Math.max(1, status.total_scenes)) * 85)
+    }
+
+    let usedHub = false
+    if (model.startsWith('chatstudio:')) {
+      const hub = await getHubBackend()
+      if (hub.mode === 'hub' && hub.hubUrl) {
+        try {
+          const submitted = await hubSubmitChatPacks(hub.hubUrl, hub.hubToken, {
+            model: rawModel,
+            kind: isMotion ? 'motion' : 'visual',
+            label: `${episode_id} ${stage} prompts`,
+            project: job.project_slug,
+            episode: episode_id,
+            packs,
+          })
+          if (isMotion) plan.motion_prompt_batch_id = submitted.batch_id
+          else plan.visual_prompt_batch_id = submitted.batch_id
+          await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+          job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to 10 scenes per Chat Studio.`)
+          const finalStatus = await hubPollChatPacks(hub.hubUrl, hub.hubToken, submitted.batch_id, {
+            isCancelled: () => isCancelled(job.job_id),
+            onProgress: persistHubResults,
+          })
+          await persistHubResults(finalStatus)
+          usedHub = true
+          if (finalStatus.completed_scenes < finalStatus.total_scenes) {
+            throw new Error(`Hub batch ${submitted.batch_id} saved ${finalStatus.completed_scenes}/${finalStatus.total_scenes} prompts. Retry this stage to submit only the missing scene IDs.`)
+          }
+        } catch (e: any) {
+          if (!/Connection error|Can't reach Studio Hub/i.test(String(e?.message || e))) throw e
+          job.output_lines.push(`Studio Hub unavailable — using the direct Chat Studio pool fallback. (${e?.message || e})`)
+        }
+      }
+    }
+
+    if (!usedHub) {
+      const [a, o, k] = await Promise.all([
+        getApiKey('anthropic').catch(() => ''), getApiKey('openai').catch(() => ''), getApiKey('kie').catch(() => ''),
+      ])
+      const indices = targets.map(t => t.index)
+      if (isMotion) {
+        await generateMotionPromptsForScenes(plan.scenes, indices, {
+          model, motion_level: params.motion_level, style_prompt: effectiveStyle,
+          custom_instructions: params.custom_instructions, apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+          slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
+        })
+      } else {
+        await generatePromptsForScenes(plan.scenes, indices, {
+          model, detail_level: 4, style_prompt: effectiveStyle,
+          custom_instructions: params.custom_instructions, apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+          slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
+        })
+      }
+      plan.generated_at = new Date().toISOString()
+      plan.planning_stage = isMotion ? 'motion' : 'visual'
+      await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+    }
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    job.output_lines.push(`Saved ${targets.length} ${stage} prompt(s) by stable scene ID.`)
+    return
+  }
 
   // ── v1.0.288 — REGENERATE just the visual_prompt for one scene ──────────
   // Keeps time range + transcript_segment + every other scene EXACTLY as-is.

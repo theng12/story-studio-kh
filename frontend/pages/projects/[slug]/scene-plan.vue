@@ -24,19 +24,18 @@
       v-model:episode-id="episodeId"
       filter-field="scene_plan"
       :presets="planPresets"
-      generate-label="Plan scenes"
-      loading-label="Planning…"
+      generate-label="1. Build timeline"
+      loading-label="Building timeline…"
       :generate-loading="planning || planJobActive"
       :generate-disabled="!canPlan"
-      :generate-status="(planning || planJobActive) ? `Planning scenes for ${episodeId}…` : (canPlan ? '' : planDisabledReason)"
+      :generate-status="(planning || planJobActive) ? `Building the timeline for ${episodeId}…` : (canPlan ? '' : planDisabledReason)"
       @generate="planScenes"
     />
 
     <p class="text-muted mt-1 mb-2">
-      Plan scenes against the stitched audio timeline. Step 1 stitches
-      per-chapter SRTs into one global timeline (using the gap from
-      v1.0.140's audio sidecar). Step 2 asks an LLM to pick natural
-      narrative beats. Step 3 lets you edit before sending to Scene Review.
+      Build the timing first, then generate full visual prompts in durable
+      10-scene packs. Motion is a separate optional pass, so still-image videos
+      can skip it completely.
     </p>
 
     <!-- v1.0.193 — continuity-chain density pacing (shown only for that format). -->
@@ -133,14 +132,21 @@
         No <code>research.json</code> sidecar found. The planner will run without research context.
       </p>
 
-      <!-- v1.0.423 — sleep-story intro skip (per-project default). -->
-      <label class="flex items-center gap-1 mt-2 text-sm" title="For sleep-story formats whose first audio chapter is the Introduction (welcome / context / CTA / breathing). Plans scenes only from the first story chapter.">
-        <input type="checkbox" :checked="skipIntro" @change="setSkipIntro(($event.target as HTMLInputElement).checked)" />
-        Skip the <strong>Introduction</strong> chapter when planning scenes
-      </label>
-      <p class="text-muted text-xs mt-1" v-if="skipIntro">
-        Project-wide. Scenes are planned from the first story chapter onward. At render, the title (thumbnail) card is auto-held through the intro and intro captions are hidden by default — so story scenes line up with their narration.
-      </p>
+      <div class="form-group mt-3">
+        <label>Opening visuals</label>
+        <select v-model="openingMode" class="select" style="max-width: 520px" @change="saveOpeningSettings">
+          <option value="branded-opening">Play a branded opening, then story scenes</option>
+          <option value="from-start">Generate story scenes from the first second</option>
+        </select>
+        <div v-if="openingMode === 'branded-opening'" class="flex items-center gap-2 mt-2">
+          <label class="text-sm">Reserve</label>
+          <input v-model.number="openingReservedSec" class="input" type="number" min="1" max="120" step="0.5" style="max-width: 110px" @change="saveOpeningSettings" />
+          <span class="text-sm text-muted">seconds for the branded intro clip</span>
+        </div>
+        <p class="text-muted text-xs mt-1">
+          The rest of the Introduction narration still gets scenes, but its prompts depict the story rather than welcome, CTA, or breathing language.
+        </p>
+      </div>
 
       <div class="detail-default mt-3">
         <strong>Full-detail visual prompts</strong>
@@ -152,8 +158,8 @@
            prompt. Intensity biases how lively the motion is — always slow/smooth. -->
       <div class="form-group mt-3">
         <label class="flex items-center gap-1">
-          <input v-model="form.generate_motion_prompts" type="checkbox" />
-          Also write motion prompts (for animating scenes into clips)
+          <input v-model="form.generate_motion_prompts" type="checkbox" @change="setMotionEnabled(form.generate_motion_prompts)" />
+          Enable the optional motion-prompt stage
         </label>
         <div v-if="form.generate_motion_prompts" class="mt-2">
           <label>
@@ -168,6 +174,7 @@
             step="1"
             class="detail-slider"
             list="motion-stops"
+            @change="setMotionLevel(form.motion_level)"
           />
           <datalist id="motion-stops">
             <option value="1" label="Still"></option>
@@ -204,82 +211,9 @@
         </p>
       </div>
 
-      <!-- v1.0.291 — planning mode. Two-pass is only meaningful for local
-           models (cloud LLMs handle structured JSON fine), so the
-           two-pass radio is only enabled when a chatstudio:* model is
-           selected. -->
-      <div class="form-group mt-3">
-        <label>
-          Planning mode
-          <span class="text-muted text-xs">— how the LLM produces the plan</span>
-        </label>
-        <div class="planning-mode-radios">
-          <label class="planning-mode-radio" :class="{ active: form.planning_mode === 'single-pass' }">
-            <input type="radio" v-model="form.planning_mode" value="single-pass" />
-            <div>
-              <strong>Single-pass</strong> <span class="text-muted text-xs">(default — recommended for cloud)</span>
-              <p class="text-muted text-xs">One LLM call per ~10–30-scene window produces timing + transcript + visual prompts as structured JSON.</p>
-            </div>
-          </label>
-          <label
-            class="planning-mode-radio"
-            :class="{ active: form.planning_mode === 'two-pass', disabled: !isLocalModel }"
-            :title="isLocalModel ? '' : 'Only available for local Chat Studio models. Pick a local model above to enable.'"
-          >
-            <input type="radio" v-model="form.planning_mode" value="two-pass" :disabled="!isLocalModel" />
-            <div>
-              <strong>Two-pass</strong> <span class="text-muted text-xs">(recommended for local models)</span>
-              <p class="text-muted text-xs">Pass 1: deterministic cue-walk produces scene timing instantly (no LLM). Pass 2: one prose LLM call per scene for the visual prompt. No structured JSON anywhere — works on small local models that fail single-pass.</p>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <!-- v1.0.285 — per-window scene count control. Only meaningful in
-           single-pass mode; hidden in two-pass since there are no JSON
-           windows to size. -->
-      <div v-if="form.planning_mode === 'single-pass'" class="form-group mt-3">
-        <label>
-          Scenes per LLM call
-          <span class="text-muted text-xs">— chunked planning window size</span>
-        </label>
-        <select v-model="form.window_size" class="select" style="max-width: 380px;">
-          <option value="auto">Auto — pick from model ({{ isLocalModel ? '10 (local)' : '30 (cloud)' }})</option>
-          <option value="full">Full — 30 scenes per call (fewer calls, richer cohesion)</option>
-          <option value="small">Small — 10 scenes per call (smaller JSON; safer for local LLMs)</option>
-        </select>
-        <p class="text-muted text-xs mt-1">
-          Switch to <strong>Small</strong> if your local model returns empty visual prompts after planning —
-          the planner fell back to cue-aligned splits because the JSON output failed to parse twice.
-          Smaller windows = smaller per-call output = less likely to hit truncation.
-        </p>
-
-        <!-- v1.0.508 — "story so far" continuity toggle. ON = sequential with
-             a rolling recap (better cross-seam continuity). OFF = parallel
-             segments (much faster on long episodes). -->
-        <label class="flex items-center gap-2 mt-3" style="cursor: pointer;">
-          <input type="checkbox" v-model="form.cross_window_context" />
-          <span>“Story so far” continuity across segments</span>
-        </label>
-        <p class="text-muted text-xs mt-1">
-          <strong>Off</strong> (default): segments plan in parallel for much faster long-video planning.
-          <strong>On</strong>: segments run one after another with a rolling recap when recurring details truly must cross segment boundaries.
-        </p>
-      </div>
-
-      <!-- v1.0.291 — neighbor-context dropdown for two-pass. Only shown when
-           two-pass is selected. Maps to {back, forward} numeric fields in
-           the POST body via NEIGHBOR_CONTEXT_PRESETS. -->
-      <div v-else class="form-group mt-3">
-        <label>
-          Neighbor context
-          <span class="text-muted text-xs">— how much surrounding context each prompt sees</span>
-        </label>
-        <select v-model="form.neighbor_context" class="select" style="max-width: 380px;">
-          <option v-for="(meta, key) in NEIGHBOR_CONTEXT_PRESETS" :key="key" :value="key">{{ meta.label }}</option>
-        </select>
-        <p class="text-muted text-xs mt-1">{{ neighborContextMeta.hint }}</p>
-      </div>
+      <p class="text-muted text-xs mt-3">
+        Scene timing is always deterministic and prompt packs are always capped at 10 scenes. There is no longer a single-pass/window-size decision to tune.
+      </p>
       </details>
 
       <!-- v1.0.364 — unified channel Look. The same shipped-style gallery used
@@ -336,6 +270,38 @@
 
       <!-- v1.0.357 — the Plan preset moved to the page-level preset row at the
            top (TopActionBar), matching every other generator tab. -->
+    </section>
+
+    <section class="card mt-3 stage-card">
+      <h3>3-stage scene workflow</h3>
+      <div class="stage-grid mt-2">
+        <div class="stage-step">
+          <strong>1. Timeline</strong>
+          <span>{{ plan?.scenes?.length || 0 }} scenes · no LLM</span>
+          <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive" @click="planScenes">Build / rebuild timeline</button>
+        </div>
+        <div class="stage-step">
+          <strong>2. Visual prompts</strong>
+          <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
+          <div class="flex gap-1 mt-2 flex-wrap">
+            <button class="btn btn-primary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', 10)">Next 10</button>
+            <button class="btn btn-secondary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
+          </div>
+          <small>One Hub item contains up to 10 scenes. Ten available servers can process up to 100 prompts in one wave.</small>
+        </div>
+        <div class="stage-step" :class="{ optional: true }">
+          <strong>3. Motion prompts <em>optional</em></strong>
+          <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
+          <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
+            <button class="btn btn-primary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', 10)">Next 10</button>
+            <button class="btn btn-secondary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
+          </div>
+          <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
+        </div>
+      </div>
+      <p v-if="plan?.visual_prompt_batch_id || plan?.motion_prompt_batch_id" class="text-muted text-xs mt-2">
+        Last Hub task: <code>{{ plan.motion_prompt_batch_id || plan.visual_prompt_batch_id }}</code>
+      </p>
     </section>
 
     <!-- Step 3: Plan + edit -->
@@ -679,22 +645,36 @@ const { ask } = useConfirm()
 // v1.0.364 — project config (image_models) for the StylePicker preview models.
 const { config: projectConfig } = useProject()
 
-// v1.0.423 — sleep-story intro skip (per-project default). Persisted to project
-// config so it applies to every episode and is read by BOTH the planner (skips
-// the Introduction chapter) and the renderer (holds the title card + hides intro
-// captions). No per-call plumbing — the backend reads config.skip_intro_scenes.
-const skipIntro = ref<boolean>(!!(projectConfig.value as any)?.skip_intro_scenes)
-watch(projectConfig, (c) => { skipIntro.value = !!(c as any)?.skip_intro_scenes })
-async function setSkipIntro(v: boolean) {
-  skipIntro.value = v
+const openingMode = ref<'branded-opening' | 'from-start'>(
+  (projectConfig.value as any)?.visual_opening_mode === 'branded-opening'
+    || ((projectConfig.value as any)?.visual_opening_mode == null && (projectConfig.value as any)?.skip_intro_scenes === true)
+    ? 'branded-opening' : 'from-start',
+)
+const openingReservedSec = ref<number>(Number((projectConfig.value as any)?.branded_opening_duration_sec) || 15)
+watch(projectConfig, (c) => {
+  openingMode.value = (c as any)?.visual_opening_mode === 'branded-opening'
+    || ((c as any)?.visual_opening_mode == null && (c as any)?.skip_intro_scenes === true)
+    ? 'branded-opening' : 'from-start'
+  openingReservedSec.value = Number((c as any)?.branded_opening_duration_sec) || 15
+})
+async function saveOpeningSettings() {
+  const duration = Math.max(1, Math.min(120, Number(openingReservedSec.value) || 15))
+  openingReservedSec.value = duration
   try {
-    await put(`/projects/${slug.value}/settings/config`, { skip_intro_scenes: v })
-    if (projectConfig.value) (projectConfig.value as any).skip_intro_scenes = v
-    success(v
-      ? 'Scenes will skip the Introduction chapter for this project.'
-      : 'Scenes will be planned for the full transcript.')
+    await put(`/projects/${slug.value}/settings/config`, {
+      visual_opening_mode: openingMode.value,
+      branded_opening_duration_sec: duration,
+      skip_intro_scenes: false,
+    })
+    if (projectConfig.value) {
+      ;(projectConfig.value as any).visual_opening_mode = openingMode.value
+      ;(projectConfig.value as any).branded_opening_duration_sec = duration
+      ;(projectConfig.value as any).skip_intro_scenes = false
+    }
+    success(openingMode.value === 'branded-opening'
+      ? `Branded opening reserved for ${duration}s; story scenes continue through the remaining Introduction narration.`
+      : 'Story scenes will begin at the first second.')
   } catch (e: any) {
-    skipIntro.value = !v
     showError(e?.data?.detail || e?.message || 'Could not save the setting')
   }
 }
@@ -703,7 +683,7 @@ async function setSkipIntro(v: boolean) {
 // config. motion_prompts_enabled (default true) toggles whether the planner
 // writes a per-scene motion_prompt; default_motion_level (1–4) sets the baseline
 // intensity. Both are read by the scene planner.
-const motionEnabled = ref<boolean>(((projectConfig.value as any)?.motion_prompts_enabled) !== false)
+const motionEnabled = ref<boolean>(((projectConfig.value as any)?.motion_prompts_enabled) === true)
 const motionLevel = ref<number>(Number((projectConfig.value as any)?.default_motion_level) || 2)
 // v1.0.509 — fast "prompt model" for short prompt tasks (motion + thumbnail
 // prompts). Empty = each step falls back to its own model. Persisted to config.
@@ -712,10 +692,12 @@ const promptModel = ref<string>(String((projectConfig.value as any)?.prompt_mode
 // promptModel is still empty; unchecking clears the saved config value.
 const usePromptModel = ref<boolean>(!!promptModel.value)
 watch(projectConfig, (c) => {
-  motionEnabled.value = ((c as any)?.motion_prompts_enabled) !== false
+  motionEnabled.value = ((c as any)?.motion_prompts_enabled) === true
   motionLevel.value = Number((c as any)?.default_motion_level) || 2
   promptModel.value = String((c as any)?.prompt_model || '')
   usePromptModel.value = !!promptModel.value
+  form.value.generate_motion_prompts = motionEnabled.value
+  form.value.motion_level = motionLevel.value
 })
 function onTogglePromptModel() {
   if (!usePromptModel.value) void setPromptModel('') // off → fall back to each step's own model
@@ -817,6 +799,11 @@ interface ScenePlan {
   total_duration_sec: number
   research_used: boolean
   scenes: ScenePlanEntry[]
+  planning_stage?: 'timeline' | 'visual' | 'motion'
+  opening_mode?: 'branded-opening' | 'from-start'
+  opening_reserved_sec?: number
+  visual_prompt_batch_id?: string
+  motion_prompt_batch_id?: string
 }
 
 const status = ref<ScenePlanStatus | null>(null)
@@ -1000,7 +987,7 @@ const form = ref({
   detail_level: 4,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
-  generate_motion_prompts: true,
+  generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
   motion_level: 2,
   // Global style woven into every scene's visual_prompt, + free-text planner
   // instructions. Both optional.
@@ -1078,16 +1065,18 @@ watch(isLocalModel, (nowLocal) => {
 const canPlan = computed(() => {
   if (!episodeId.value) return false
   if (!status.value?.stitched_srt) return false
-  if (!form.value.model) return false
   return true
 })
 const planDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
-  if (!form.value.model) return 'Pick a model'
   return ''
 })
 const dirty = computed(() => plan.value && JSON.stringify(plan.value) !== serverPlan.value)
+const visualDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.visual_prompt?.trim()).length)
+const visualPendingCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
+const motionDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.motion_prompt?.trim()).length)
+const motionPendingCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.visual_prompt?.trim() && !s.motion_prompt?.trim()).length)
 
 async function loadStatus(): Promise<void> {
   if (!episodeId.value) {
@@ -1117,12 +1106,23 @@ async function loadStatus(): Promise<void> {
 
 async function planScenes(): Promise<void> {
   if (!canPlan.value) return
+  if (plan.value?.scenes?.length) {
+    const ok = await ask({
+      title: 'Rebuild the scene timeline?',
+      message: `This recalculates all ${plan.value.scenes.length} scene windows from the stitched subtitles and clears their current visual and motion prompts. Existing image files are not deleted, but changed scene IDs may no longer match them.`,
+      confirmLabel: 'Rebuild timeline',
+    })
+    if (!ok) return
+  }
   const ep = episodeId.value
   planningEpisode.value = ep
   try {
     const ncPreset = NEIGHBOR_CONTEXT_PRESETS[form.value.neighbor_context]
     await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
+      stage: 'timeline',
+      opening_mode: openingMode.value,
+      opening_reserved_sec: openingMode.value === 'branded-opening' ? openingReservedSec.value : 0,
       target_scene_count: form.value.target_scene_count || undefined,
       use_research: form.value.use_research,
       detail_level: 4,
@@ -1143,10 +1143,34 @@ async function planScenes(): Promise<void> {
       neighbor_context_back: form.value.planning_mode === 'two-pass' ? ncPreset.back : undefined,
       neighbor_context_forward: form.value.planning_mode === 'two-pass' ? ncPreset.forward : undefined,
     })
-    success('Scene planner queued — watch the Jobs panel')
+    success('Timeline build queued — no LLM call is needed')
     await pollUntilPlanLanded(ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start planner')
+  } finally {
+    if (planningEpisode.value === ep) planningEpisode.value = null
+  }
+}
+
+async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number): Promise<void> {
+  if (!form.value.model || !plan.value) return
+  const ep = episodeId.value
+  planningEpisode.value = ep
+  const previousGeneratedAt = plan.value.generated_at || null
+  try {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
+      model: stage === 'motion' && promptModel.value ? promptModel.value : form.value.model,
+      stage,
+      prompt_limit: promptLimit,
+      detail_level: 4,
+      motion_level: form.value.motion_level,
+      style_prompt: form.value.style_prompt.trim() || undefined,
+      custom_instructions: form.value.custom_instructions.trim() || undefined,
+    })
+    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued in Studio Hub${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
+    await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || `Failed to start ${stage} prompt stage`)
   } finally {
     if (planningEpisode.value === ep) planningEpisode.value = null
   }
@@ -1193,7 +1217,10 @@ async function pollUntilPlanLanded(
       } catch { /* transient job-poll error — keep waiting on generated_at */ }
     }
     await loadStatus()
-    if (plan.value && plan.value.generated_at) {
+    // A tracked staged job persists every completed Hub pack immediately, so
+    // generated_at may advance long before the full batch is terminal. Keep
+    // polling the Story job; only untracked legacy calls use timestamp change.
+    if (!trackJobId && plan.value && plan.value.generated_at) {
       if (prev !== null) {
         // Wait specifically for generated_at to advance past `prev`.
         if (plan.value.generated_at !== prev) return
@@ -1757,6 +1784,30 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.stage-step {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(240, 198, 116, 0.08), var(--bg-secondary));
+}
+.stage-step > span { margin-top: 6px; color: var(--text-secondary); font-size: 13px; }
+.stage-step small { margin-top: auto; padding-top: 12px; color: var(--text-muted); line-height: 1.45; }
+.stage-step em {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+@media (max-width: 900px) { .stage-grid { grid-template-columns: 1fr; } }
 /* v1.0.364 — read-only channel Look (Style Bible) box on the Scene Plan page. */
 .channel-look-box {
   border: 1px solid var(--border, #333);

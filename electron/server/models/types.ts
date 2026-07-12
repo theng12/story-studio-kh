@@ -2389,6 +2389,8 @@ export interface VideoLogoConfig {
 export interface VideoIntroConfig {
   enabled: boolean
   video_path: string
+  /** Exact reserved opening length from Scene Plan. The clip is trimmed/padded. */
+  duration?: number
 }
 
 /**
@@ -2863,11 +2865,8 @@ export interface GenerateVideoRequest {
   frame?: VideoFrameConfig
   subtitles?: VideoSubtitleConfig
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
-  /** v1.0.423 — sleep-story intro handling. When on, the title (thumbnail) card
-   *  is auto-held until the story chapter begins (intro video + title tile to
-   *  story_start) so the first matched story scene lands on its narration. Pairs
-   *  with the Scene Plan "skip Introduction" option (both derive story_start the
-   *  same way). Per-project default lives in config.skip_intro_scenes. */
+  /** @deprecated Whole-Introduction skipping is retired. New plans persist an
+   * exact opening_reserved_sec in scene_plan.json. */
   skip_intro_scenes?: boolean
   /** v1.0.468 — per-project image-to-video defaults. `default_motion_level`
    *  (1–4, see MOTION_SPECS) sets this channel's baseline motion intensity for
@@ -3365,6 +3364,14 @@ export interface ScenePlan {
    *  plan from. 1 for short episodes; >1 for long ones planned in segments so
    *  the model's output never truncates. */
   planned_in_windows?: number
+  /** Explicit staged workflow state. Timeline generation never needs an LLM. */
+  planning_stage?: 'timeline' | 'visual' | 'motion'
+  /** Opening visuals reserved before scene 1. Zero means visuals start at 0. */
+  opening_reserved_sec?: number
+  opening_mode?: 'branded-opening' | 'from-start'
+  /** Last durable Hub Chat batch IDs, useful for support and recovery. */
+  visual_prompt_batch_id?: string
+  motion_prompt_batch_id?: string
 }
 
 /** Options passed to the scene planner. */

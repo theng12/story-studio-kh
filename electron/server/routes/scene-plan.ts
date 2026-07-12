@@ -69,8 +69,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
+  const stage: 'timeline' | 'visual' | 'motion' =
+    body.stage === 'visual' || body.stage === 'motion' ? body.stage : 'timeline'
   const model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
+  if (!model && stage !== 'timeline') return res.status(400).json({ detail: 'model is required' })
 
   const targetSceneCount = typeof body.target_scene_count === 'number' ? body.target_scene_count : undefined
   const useResearch = body.use_research === false ? false : true  // default true
@@ -107,6 +109,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // Independent windows are the fast/default path. Continuity is explicit now
   // that reviewed image-to-video clips no longer rely on previous-frame img2img.
   const crossWindowContext = body.cross_window_context === true
+  const openingMode: 'branded-opening' | 'from-start' | undefined =
+    body.opening_mode === 'branded-opening' || body.opening_mode === 'from-start' ? body.opening_mode : undefined
+  const openingReservedSec = typeof body.opening_reserved_sec === 'number'
+    ? Math.max(0, Math.min(120, body.opening_reserved_sec)) : undefined
+  const promptLimit = typeof body.prompt_limit === 'number'
+    ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -116,11 +124,11 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
-    title: `Plan scenes — ${episodeId}`,
+    title: `${stage === 'timeline' ? 'Build scene timeline' : stage === 'visual' ? 'Generate visual prompts' : 'Generate motion prompts'} — ${episodeId}`,
     params: {
       episode_id: episodeId,
       title,
-      model,
+      model: model || 'deterministic-timeline',
       target_scene_count: targetSceneCount,
       use_research: useResearch,
       detail_level: detailLevel,
@@ -133,6 +141,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       planning_mode: planningMode,
       neighbor_context_back: ncBack,
       neighbor_context_forward: ncForward,
+      stage,
+      opening_mode: openingMode,
+      opening_reserved_sec: openingReservedSec,
+      prompt_limit: promptLimit,
     },
   })
   res.status(201).json(job)

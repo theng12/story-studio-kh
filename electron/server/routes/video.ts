@@ -309,12 +309,8 @@ router.get('/projects/:slug/video-editor/audio-chapters', async (req, res) => {
   }
 })
 
-// v1.0.424 — read-only preview of the sleep-story title-card auto-hold so the
-// Video Assembly UI can show "Auto-held ~Ns through the intro" before render.
-// hold = story_start (lead-in + Introduction chapter + gap) − intro-video length;
-// the render computes the same value. Pass the chosen intro video as a query
-// param so the hold reflects it. Returns zeros when skip-intro is off or there's
-// no "Introduction" chapter.
+// Read-only opening preview. Kept at the historical route so old clients do not
+// break; new assembly timing is read from scene_plan.json during render.
 router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
   const { slug } = req.params
   const episodeId = String(req.query.episode_id || '').trim()
@@ -322,11 +318,11 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
   if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
   try {
     const cfg = await pm.getConfig(slug)
-    const skip_intro_scenes = !!(cfg as any)?.skip_intro_scenes
+    const opening_mode = (cfg as any)?.visual_opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start'
     const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
     const sidecarPath = episodeDir ? path.join(episodeDir, 'audio_chapters.json') : ''
     if (!episodeDir || !sidecarPath || !existsSync(sidecarPath)) {
-      return res.json({ skip_intro_scenes, has_intro_chapter: false, story_start_sec: 0, intro_video_sec: 0, hold_sec: 0, intro_label: null })
+      return res.json({ skip_intro_scenes: false, opening_mode, has_intro_chapter: false, story_start_sec: 0, intro_video_sec: 0, hold_sec: 0, intro_label: null })
     }
     const sc = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
     const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
@@ -341,7 +337,8 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
     const story_start_sec = story?.story_start_sec || 0
     const hold_sec = Math.max(0, Math.round((story_start_sec - intro_video_sec) * 100) / 100)
     res.json({
-      skip_intro_scenes,
+      skip_intro_scenes: false,
+      opening_mode,
       has_intro_chapter: !!story,
       intro_label: story?.intro_label || null,
       story_start_sec,

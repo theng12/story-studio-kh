@@ -17,6 +17,8 @@ import {
   hubHeaders,
   isLoopbackHub,
   hubSubmitJob,
+  hubSubmitChatPacks,
+  hubPollChatPacks,
 } from '../lib/studiohub-client.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 
@@ -82,5 +84,56 @@ describe('hubSubmitJob fallback contract', () => {
     } catch (e) { err = e }
     assert.ok(err, 'expected a throw')
     assert.equal(isConnectionError(err), true, `isConnectionError must match: ${err?.message}`)
+  })
+})
+
+describe('durable Hub Chat packs', () => {
+  test('submits packs and polls stable scene-id results', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    let polls = 0
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/chat/jobs')) {
+        return new Response(JSON.stringify({ batch_id: 'chat-123', packs: 1, scenes: 2 }), { status: 201 })
+      }
+      polls++
+      return new Response(JSON.stringify({
+        id: 'chat-123', status: 'done', total_scenes: 2, completed_scenes: 2,
+        packs: [{
+          pack_id: 'visual-0001', scene_ids: ['s1', 's2'], state: 'done',
+          results: [{ scene_id: 's2', text: 'second' }, { scene_id: 's1', text: 'first' }],
+        }],
+      }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const submitted = await hubSubmitChatPacks('http://hub:47873/', ' token ', {
+        model: 'repo/model', kind: 'visual',
+        packs: [{
+          pack_id: 'visual-0001', scene_ids: ['s1', 's2'],
+          messages: [{ role: 'user', content: 'Return both scene IDs.' }],
+        }],
+      })
+      assert.equal(submitted.batch_id, 'chat-123')
+      const final = await hubPollChatPacks('http://hub:47873/', 'token', submitted.batch_id)
+      assert.equal(final.completed_scenes, 2)
+      assert.deepEqual(final.packs[0]?.results?.map(r => r.scene_id), ['s2', 's1'])
+      assert.equal(polls, 1)
+      assert.equal(calls[0], 'http://hub:47873/api/hub/chat/jobs')
+      assert.equal(calls[1], 'http://hub:47873/api/hub/chat/jobs/chat-123')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('a dead Hub Chat queue preserves direct-fallback wording', async () => {
+    await assert.rejects(
+      () => hubSubmitChatPacks('http://127.0.0.1:1', undefined, {
+        model: 'repo/model', kind: 'motion',
+        packs: [{ pack_id: 'p1', scene_ids: ['s1'], messages: [{ role: 'user', content: 'x' }] }],
+      }),
+      /Connection error/i,
+    )
   })
 })

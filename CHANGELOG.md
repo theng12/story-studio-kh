@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.549 — 2026-07-12
+
+**Scene planning is now staged, durable, and aligned with short branded openings.** Long Introduction narration no longer forces a multi-minute title-card hold or delays story scenes until Chapter 1.
+
+- Replaced whole-Introduction skipping with two explicit choices: reserve an exact branded opening window, or generate story visuals from the first second.
+- After a branded opening, scenes immediately cover the remaining Introduction narration; prompt packs are instructed to depict the story premise instead of welcome, CTA, subscription, or breathing language.
+- Scene timing is now a deterministic first stage with no LLM call. Visual prompts and optional motion prompts run as separate resumable stages.
+- Local visual and motion work routes through Studio Hub's durable Chat queue in packs of up to 10 scenes per server. Ten available Chat Studio machines can process up to 100 prompts in one wave.
+- Results are stitched and saved by stable scene ID, completed packs survive restarts, partial runs retain their results, and rerunning submits only pending scenes. Direct Chat Studio remains a connection-failure fallback.
+- Video Assembly reads the opening duration saved in `scene_plan.json`, trims or pads the branded clip to that exact window, and blocks a render when the required clip is missing.
+- Removed the legacy automatic thumbnail hold. A sequential title card is skipped when a branded opening owns the reserved window so scene timestamps cannot drift.
+- Motion prompting defaults off for new projects and is clearly optional; still-image episodes remain complete and renderable.
+- Added visible Hub task IDs in Scene Plan plus regression coverage for durable Chat submission, polling, authentication, stable-ID results, and fallback behavior.
+
 ## v1.0.548 — 2026-07-12
 
 **Image repair now reports what it actually restored.** A completed provider-history check can no longer appear as a successful repair when no image was recovered.

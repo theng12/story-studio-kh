@@ -34,7 +34,6 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
-import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import type {
@@ -696,16 +695,13 @@ export async function generateVideo(job: Job): Promise<void> {
   const req = params as GenerateVideoRequest
   const code = episode_id.toUpperCase()
 
-  // v1.0.423 — sleep-story intro handling falls back to the per-project default
-  // (config.skip_intro_scenes) when the request didn't set it explicitly, so the
-  // only UI needed is one project-level toggle. Intro-caption hiding defaults to
-  // the same setting unless the Subtitles step explicitly overrides it.
+  // Legacy whole-Introduction skipping is retired. New plans either reserve an
+  // exact branded-opening duration or begin scenes at the first second.
   try {
     const cfg = await pm.getConfig(project_slug)
-    const projSkip = !!(cfg as any)?.skip_intro_scenes
-    if (req.skip_intro_scenes == null) req.skip_intro_scenes = projSkip
+    req.skip_intro_scenes = false
     if (req.subtitles && req.subtitles.hide_during_intro == null) {
-      req.subtitles.hide_during_intro = !!req.skip_intro_scenes
+      req.subtitles.hide_during_intro = (cfg as any)?.visual_opening_mode === 'branded-opening'
     }
   } catch { /* no config — leave request values as-is */ }
 
@@ -918,10 +914,13 @@ export async function generateVideo(job: Job): Promise<void> {
   // v1.0.522 — kept for the audio-coverage gate below (runs after the
   // narration duration is probed; needs the plan's timeline, not req.scenes).
   let planCoverageScenes: Array<{ id: string; start_sec: number; end_sec: number }> | null = null
+  let planOpeningReservedSec = 0
   try {
     const planPath = await resolveScenePlanPath(project_slug, code, episodeDir)
     if (existsSync(planPath)) {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      planOpeningReservedSec = plan.opening_mode === 'branded-opening'
+        ? Math.max(0, Number(plan.opening_reserved_sec) || 0) : 0
       planCoverageScenes = (plan.scenes || []).map(s => ({ id: s.id, start_sec: s.start_sec, end_sec: s.end_sec }))
       const planById = new Map<string, ScenePlan['scenes'][number]>()
       for (const scene of plan.scenes || []) {
@@ -1400,43 +1399,17 @@ export async function generateVideo(job: Job): Promise<void> {
       planTransitionTail,
     )
 
-    // v1.0.423 — sleep-story intro handling. Compute where the STORY begins on
-    // the final-video timeline (lead-in + "Introduction" chapter + gap), the
-    // SAME value the Scene Plan used to skip the intro. Used to (a) auto-hold the
-    // title card until the story starts, and (b) trim intro captions from the
-    // burn. Computed once; 0 when not requested / no Introduction chapter.
-    let storyStartSec = 0
-    if ((req.skip_intro_scenes || req.subtitles?.hide_during_intro) && req.merged_audio_path) {
-      try {
-        const chaptersPath = path.join(episodeDir, 'audio_chapters.json')
-        if (existsSync(chaptersPath)) {
-          const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
-          const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
-          const story = await computeStoryStartSec(req.merged_audio_path, sc.sections || [], gap)
-          if (story) storyStartSec = story.story_start_sec
-        }
-      } catch { /* leave 0 — falls back to configured title duration / full captions */ }
-    }
-
-    // Auto-hold the title (thumbnail) card so intro video + title tile exactly to
-    // the story start. Longer intro video → shorter hold. Assumes no before/after-
-    // intro timeline clips (the sleep-story flow doesn't use them).
-    if (req.skip_intro_scenes && storyStartSec > 0 && req.title_image?.enabled && req.title_image.image_path) {
-      let introVideoDur = 0
-      if (req.intro?.enabled && req.intro.video_path && existsSync(req.intro.video_path)) {
-        introVideoDur = (await getAudioDuration(req.intro.video_path)) || 0
+    const storyStartSec = planOpeningReservedSec
+    if (planStrict && planOpeningReservedSec > 0) {
+      if (!req.intro?.enabled || !req.intro.video_path) {
+        throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no intro video is enabled. Add the opening clip or rebuild the timeline with "from first second".`)
       }
-      const hold = Math.round((storyStartSec - introVideoDur) * 100) / 100
-      if (hold >= 1) {
-        req.title_image.duration = hold
-        job.output_lines.push(
-          `Intro hold: title card held ${hold.toFixed(1)}s (story starts ${storyStartSec.toFixed(1)}s − intro video ${introVideoDur.toFixed(1)}s) so the first story scene lands on its narration.`,
-        )
-      } else {
-        job.output_lines.push(
-          `⚠ Intro hold: intro video (${introVideoDur.toFixed(1)}s) covers ~all of the pre-story span (${storyStartSec.toFixed(1)}s) — keeping the configured title duration. Shorten the intro video if scenes drift early.`,
-        )
+      req.intro.duration = planOpeningReservedSec
+      if (req.title_image?.enabled) {
+        req.title_image.enabled = false
+        job.output_lines.push('Title card skipped: the branded opening already owns the full reserved opening window.')
       }
+      job.output_lines.push(`Opening sync: intro clip will be trimmed/padded to exactly ${planOpeningReservedSec.toFixed(1)}s, matching Scene Plan.`)
     }
 
     // Optional: drop intro captions from the BURN copy (welcome / CTA / breathing).
@@ -2788,6 +2761,9 @@ async function prepareIntroClip(
   // the fps token inside the -vf because `-r quality.fps` downstream sets output fps;
   // dropping the fps token keeps the chain short.
   const introFrame = normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps='))
+  if (intro.duration && intro.duration > 0) {
+    introFrame.push(`tpad=stop_mode=clone:stop_duration=${intro.duration}`)
+  }
   // Same bt709 tagging rationale as prepareSceneClips: every segment in the
   // stream-copy concat must agree on colour metadata or libx265 rejects the
   // intermediate at final composition init (EINVAL). prepareTitleClip and
@@ -2801,6 +2777,7 @@ async function prepareIntroClip(
     '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
     '-color_range', 'tv', '-colorspace', 'bt709',
     '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    ...(intro.duration && intro.duration > 0 ? ['-t', intro.duration.toFixed(3)] : []),
     '-an',
     clipPath,
   ]
