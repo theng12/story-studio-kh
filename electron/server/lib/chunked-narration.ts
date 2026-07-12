@@ -155,6 +155,7 @@ function chapterFileLooksValid(filePath: string): boolean {
 
 export interface ChunkedScriptCompletion {
   complete: boolean
+  approved: boolean
   has_unified: boolean
   expected: number
   present: number
@@ -183,6 +184,7 @@ export async function inspectChunkedScriptCompletion(
   if (!sidecar) {
     return {
       complete: hasUnified,
+      approved: true,
       has_unified: hasUnified,
       expected: hasUnified ? 1 : 0,
       present: hasUnified ? 1 : 0,
@@ -210,13 +212,18 @@ export async function inspectChunkedScriptCompletion(
   }
 
   const missing = expectedNumbers.filter(n => !presentNumbers.has(n))
+  const approved = !!sidecar.outline_approved_at
   return {
-    complete: hasUnified && outlineValid && missing.length === 0,
+    // A draft outline supersedes any older narration in this folder. Until
+    // the user approves it, those chapter files cannot prove that the current
+    // creative plan has been expanded, even when their counts happen to match.
+    complete: approved && hasUnified && outlineValid && missing.length === 0,
+    approved,
     has_unified: hasUnified,
     expected: sidecar.total_chapters,
     present: expectedNumbers.filter(n => presentNumbers.has(n)).length,
     missing,
-    resumable: !!sidecar.outline_approved_at,
+    resumable: approved,
     outline_valid: outlineValid,
   }
 }

@@ -1402,7 +1402,9 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     // strict whole-script postcondition applies to "expand all" and Pipeline
     // runs, where success must mean the complete approved outline is present.
     if (!chaptersFilter?.length && !completion.complete) {
-      const detail = completion.outline_valid
+      const detail = !completion.approved
+        ? 'the current outline is not approved'
+        : completion.outline_valid
         ? `${completion.present}/${completion.expected} chapters are present; missing ${completion.missing.join(', ') || 'unknown'}`
         : `the outline contains an invalid chapter count (${completion.present}/${completion.expected} present)`
       throw new Error(`Chapter expansion did not pass its completion check: ${detail}. Resume expansion to repair it.`)

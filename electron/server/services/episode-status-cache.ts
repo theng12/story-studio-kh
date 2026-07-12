@@ -39,7 +39,7 @@ import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.
 // (title-based resolution missed renamed/special-char folders → false pending).
 // Bumped so v2 caches (which stored the wrong by-title values) are discarded +
 // recomputed. v2 (v1.0.277) introduced the scene_plan/scene_review fields.
-export const SCHEMA_VERSION = 5 as const
+export const SCHEMA_VERSION = 6 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence

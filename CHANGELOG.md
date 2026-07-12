@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.543 — 2026-07-12
+
+**Draft outlines can no longer inherit completion from older scripts.** Script completion now requires the current outline to be explicitly approved before any narration or chapter files can count as complete.
+
+- Fixed DK0045's exact case: an unapproved 15-chapter outline was sitting over an older 12-chapter narration, but the older narration file made Script appear complete.
+- Even when older files happen to match every slot in a new draft outline, the episode remains pending until that outline is approved and expanded.
+- Invalidated episode-status cache again so existing false-positive completion marks are recomputed immediately after update.
+
 ## v1.0.542 — 2026-07-12
 
 **Chapter expansion now proves completion and repairs partial runs.** A unified narration file is no longer enough to mark a known 15-chapter outline complete when only 12 chapter sources exist.

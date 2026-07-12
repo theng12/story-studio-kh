@@ -261,6 +261,35 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.deepEqual(complete.missing, [])
   })
 
+  test('completion rejects an unapproved outline even when old files match every slot', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EP0045'
+    await writeImportedOutline(
+      scriptDir,
+      episodeId,
+      Array.from({ length: 15 }, (_, i) => ({ title: `Draft chapter ${i + 1}` })),
+    )
+    const progressPath = sidecarPath(scriptDir, episodeId)
+    const draft = JSON.parse(await fs.readFile(progressPath, 'utf-8'))
+    draft.outline_approved_at = null
+    draft.chapters_done = []
+    await fs.writeFile(progressPath, JSON.stringify(draft, null, 2))
+    await fs.writeFile(path.join(scriptDir, `${episodeId}_Script_Narration.md`), '# older narration')
+    for (let n = 1; n <= 15; n++) {
+      await fs.writeFile(
+        path.join(scriptDir, `${episodeId}_Chapter_${String(n).padStart(2, '0')}.md`),
+        `## Chapter ${n}: Older chapter ${n}\n\nBody`,
+      )
+    }
+
+    const completion = await inspectChunkedScriptCompletion(scriptDir, episodeId)
+    assert.equal(completion.approved, false)
+    assert.equal(completion.present, 15)
+    assert.deepEqual(completion.missing, [])
+    assert.equal(completion.complete, false, 'draft outline supersedes matching older files')
+    assert.equal(completion.resumable, false)
+  })
+
   test('resume re-generates a chapter whose docx is zero-byte (crash mid-write guard)', async () => {
     // Regression: A crash / ENOSPC / kill -9 mid-write can leave a 0-byte
     // chapter docx on disk while the sidecar still claims the chapter is
