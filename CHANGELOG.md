@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.544 — 2026-07-12
+
+**Voice Studio transcription recognizes protected fleet models again.** Story Studio now authenticates remote Voice Studio requests with the shared Studio Hub fleet credential.
+
+- Fixed Whisper models appearing “not downloaded” even though Voice Studio reported them ready locally. Remote model probes were being rejected after Voice Studio added fleet-token protection.
+- On the main Mac, Story Studio securely reads the credential from Studio Hub's loopback-only fleet endpoint; remote Story Studio installs can use their configured Hub token.
+- The credential is attached to transcription availability, model downloads, transcription uploads, TTS generation, job polling, voice catalogs, and audio downloads.
+- Token lookup is cached and deduplicated, while missing tokens retry quickly during Studio Hub startup.
+- No separate transcription Pinokio app is required; Voice Studio remains the dedicated local transcription service.
+
 ## v1.0.543 — 2026-07-12
 
 **Draft outlines can no longer inherit completion from older scripts.** Script completion now requires the current outline to be explicitly approved before any narration or chapter files can count as complete.

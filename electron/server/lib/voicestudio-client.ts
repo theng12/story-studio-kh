@@ -35,6 +35,66 @@ import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
 import { createDispatcher, parseEndpoints, parseEnabledEndpoints, runOnPool, type Dispatcher } from './endpoint-pool.js'
+import type { HubBackend } from './studiohub-client.js'
+
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+/**
+ * Resolve the credential Voice Studio requires for non-loopback API calls.
+ * A configured remote Hub token is the shared fleet token. On the primary Mac
+ * the Hub URL is loopback and needs no client token, so its protected
+ * `/api/hub/fleet` endpoint reveals the fleet token only to that local caller.
+ */
+export async function resolveVoiceStudioFleetToken(
+  backend?: HubBackend,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> {
+  // Lazy import avoids a startup cycle: model defaults import this client,
+  // while Studio Hub settings also depend on the model/defaults graph.
+  let hub: HubBackend
+  if (backend) hub = backend
+  else hub = await import('./studiohub-client.js').then(m => m.getHubBackend())
+  if (hub.hubToken.trim()) return hub.hubToken.trim()
+  if (!hub.hubUrl || !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(hub.hubUrl.trim())) return ''
+  try {
+    const hubUrl = hub.hubUrl.trim().replace(/\/+$/, '')
+    const resp = await fetchImpl(`${hubUrl}/api/hub/fleet`, {
+      signal: AbortSignal.timeout(4_000),
+    })
+    if (!resp.ok) return ''
+    const data = await resp.json() as { token?: string }
+    return typeof data.token === 'string' ? data.token.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+let fleetTokenCache: { token: string; expiresAt: number } | null = null
+let fleetTokenInflight: Promise<string> | null = null
+
+async function cachedVoiceStudioFleetToken(): Promise<string> {
+  if (fleetTokenCache && fleetTokenCache.expiresAt > Date.now()) return fleetTokenCache.token
+  if (fleetTokenInflight) return fleetTokenInflight
+  fleetTokenInflight = resolveVoiceStudioFleetToken()
+    .then(token => {
+      // Retry a missing token quickly (Hub may still be starting); keep a
+      // successful token for five minutes to avoid a Hub lookup per chapter.
+      fleetTokenCache = { token, expiresAt: Date.now() + (token ? 300_000 : 15_000) }
+      return token
+    })
+    .finally(() => { fleetTokenInflight = null })
+  return fleetTokenInflight
+}
+
+async function voiceStudioFetch(
+  input: string | URL | Request,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers)
+  const token = await cachedVoiceStudioFleetToken()
+  if (token && !headers.has('X-Studio-Token')) headers.set('X-Studio-Token', token)
+  return fetch(input, { ...init, headers })
+}
 
 /**
  * Voice Studio modal base URL default.
@@ -555,7 +615,7 @@ export async function health(baseUrl: string): Promise<VoiceStudioHealth> {
 export async function availability(baseUrl: string): Promise<VoiceStudioAvailability> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/generate/availability'), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/generate/availability'), {
       signal: AbortSignal.timeout(8_000),
     })
   } catch (e) {
@@ -641,7 +701,7 @@ export async function listAvailableEngines(
 export async function listVoices(baseUrl: string): Promise<VoiceStudioLibraryVoice[]> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/voices'), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/voices'), {
       signal: AbortSignal.timeout(8_000),
     })
   } catch (e) {
@@ -729,7 +789,7 @@ export async function submitTxt2Speech(
 
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/generate/txt2speech'), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/generate/txt2speech'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -779,7 +839,7 @@ export async function pollJob(
 
     let resp: Response
     try {
-      resp = await fetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
+      resp = await voiceStudioFetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
         signal: AbortSignal.timeout(15_000),
       })
     } catch (e) {
@@ -818,7 +878,7 @@ export async function pollJob(
 /** Best-effort server-side cancel. Never throws. */
 export async function cancelJob(baseUrl: string, jobId: string): Promise<void> {
   try {
-    await fetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
+    await voiceStudioFetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}`), {
       method: 'DELETE',
       signal: AbortSignal.timeout(5_000),
     })
@@ -837,7 +897,7 @@ export async function downloadAudio(
   await fs.mkdir(path.dirname(outPath), { recursive: true })
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}/audio`), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, `/api/generate/jobs/${jobId}/audio`), {
       signal: opts.signal ?? AbortSignal.timeout(180_000),
     })
   } catch (e) {
@@ -920,7 +980,7 @@ const transcribeDispatchers = new Map<string, Dispatcher>()
 export async function transcribeAvailability(baseUrl: string): Promise<VoiceStudioTranscribeAvailability> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/transcribe/availability'), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/transcribe/availability'), {
       signal: AbortSignal.timeout(15_000),
     })
   } catch (e) {
@@ -1109,7 +1169,7 @@ export async function readyTranscribeEndpointCount(
 export async function downloadTranscribeModel(baseUrl: string, repo: string): Promise<any> {
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/downloads'), {
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/downloads'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo }),
@@ -1153,7 +1213,7 @@ export async function transcribeFile(
 
   let resp: Response
   try {
-    resp = await fetch(joinUrl(baseUrl, '/api/transcribe'), { method: 'POST', body: fd, signal })
+    resp = await voiceStudioFetch(joinUrl(baseUrl, '/api/transcribe'), { method: 'POST', body: fd, signal })
   } catch (e) {
     throw friendlyConnectError(baseUrl, e)
   }
