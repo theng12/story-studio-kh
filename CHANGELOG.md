@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.553 — 2026-07-12
+
+**Local visual-prompt packs now have enough output space to finish.** Ten full-detail prompts can no longer be silently squeezed into Chat Studio's 1,024-token default.
+
+- Visual packs request 4,096 output tokens; optional motion packs request 2,048. Ten 110–150 word visual prompts now fit in one Hub response.
+- Structured-output instructions explicitly prohibit reasoning, thought channels, markdown, and commentary before the JSON result.
+- Reduced prompt temperature for more reliable scene IDs and JSON formatting.
+- Local model choices now display their minimum unified-memory requirement, reasoning status, and catalog hardware guidance.
+- This makes the 8 GB recommendation clear: Qwen3 4B Instruct 2507 (MLX 4-bit) is the preferred prompt-pack model; Gemma 4 E2B is labeled as requiring at least 12 GB.
+- Studio Hub independently recovers complete scene objects from reasoning-prefixed or truncated responses, preserving partial work before retrying only missing IDs.
+
 ## v1.0.552 — 2026-07-12
 
 **Scene Plan is now exactly three stages with one optional LLM choice.** There is no separate planning model because timeline creation is deterministic.

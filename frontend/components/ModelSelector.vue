@@ -78,6 +78,8 @@ interface LlmModelRow {
   // 'free' = free cloud API, 'paid' = uses paid credits. Absent → treated as
   // 'paid' (safe default; older backends only served paid cloud models).
   cost_tier?: 'local' | 'free' | 'paid'
+  min_unified_memory_gb?: number
+  is_reasoning?: boolean
 }
 
 const props = defineProps<{
@@ -119,6 +121,11 @@ function suffixFor(m: LlmModelRow) {
   if (m.disabled_reason) return ' (unavailable)'
   if (!m.available) return ' (no key)'
   if (props.requireVision && m.supports_vision === false) return ' (text-only)'
+  if (tierOf(m) === 'local') {
+    const memory = m.min_unified_memory_gb ? ` · ≥${m.min_unified_memory_gb} GB` : ''
+    const reasoning = m.is_reasoning ? ' · reasoning' : ''
+    return `${memory}${reasoning}`
+  }
   // v1.0.498 — flag paid models in the option text so an accidental pick in the
   // "All" tab is visible even without reading the tooltip. Free/local stay clean.
   if (tierOf(m) === 'paid') return ' · 💲 paid'

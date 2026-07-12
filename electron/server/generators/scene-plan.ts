@@ -361,7 +361,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         messages: [
           {
             role: 'system',
-            content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Return every ID exactly once. Never invent IDs.`,
+            content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.`,
           },
           {
             role: 'user',
@@ -375,7 +375,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             ].filter(Boolean).join('\n\n'),
           },
         ],
-        params: { temperature: isMotion ? 0.45 : 0.65 },
+        // Chat Studio defaults to only 1,024 output tokens, which cannot hold
+        // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
+        params: { temperature: isMotion ? 0.35 : 0.5, max_tokens: isMotion ? 2048 : 4096 },
       })
     }
 

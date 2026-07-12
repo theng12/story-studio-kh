@@ -238,7 +238,8 @@ router.get('/models', async (req, res) => {
   const models: Array<{
     id: string; label: string; provider: string; available: boolean;
     disabled_reason: string | null; hint: string | null;
-    supports_vision: boolean; cost_tier: CostTier
+    supports_vision: boolean; cost_tier: CostTier;
+    min_unified_memory_gb?: number; is_reasoning?: boolean
   }> = Object.entries(MODEL_LABELS).map(([id, label]) => ({
     id,
     label,
@@ -262,7 +263,9 @@ router.get('/models', async (req, res) => {
     const hub = await getHubBackend()
     let entries: Array<{
       id: string; label: string; cloud: boolean; provider_key?: string;
-      provider_name?: string; free?: boolean; key_set?: boolean
+      provider_name?: string; free?: boolean; key_set?: boolean;
+      min_unified_memory_gb?: number; recommended_hardware?: string;
+      best_for?: string; is_reasoning?: boolean
     }> = []
     if (hub.mode === 'hub' && hub.hubUrl) {
       try {
@@ -282,6 +285,10 @@ router.get('/models', async (req, res) => {
             provider_name: row.cloud_provider_label,
             free: row.requires_billing !== true,
             key_set: row.cloud_credentials_ok !== false,
+            min_unified_memory_gb: Number(row.min_unified_memory_gb) || undefined,
+            recommended_hardware: row.recommended_hardware,
+            best_for: row.best_for,
+            is_reasoning: row.is_reasoning === true,
           })
         }
       } catch { /* Hub unavailable: direct pool remains the emergency fallback. */ }
@@ -317,11 +324,15 @@ router.get('/models', async (req, res) => {
             ? (tier === 'paid'
                 ? `Paid cloud API proxied through Chat Studio (${provName}) — uses your ${provName} credits.`
                 : `Free cloud API proxied through Chat Studio (${provName}).`)
-            : 'Runs locally on your machine — free, no rate limits.',
+            : [e.best_for, e.recommended_hardware, e.is_reasoning
+                ? 'Reasoning model: may spend more output tokens before the final answer.' : '']
+                .filter(Boolean).join(' '),
           // v1.0.283 — see isVisionCapableCloud comment above; Chat Studio
           // models assumed vision-capable per user preference.
           supports_vision: true,
           cost_tier: tier,
+          min_unified_memory_gb: e.min_unified_memory_gb,
+          is_reasoning: e.is_reasoning,
         })
     }
   } catch { /* server off / unreachable — surface nothing, don't block */ }
