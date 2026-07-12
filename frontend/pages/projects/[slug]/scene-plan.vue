@@ -619,13 +619,18 @@ const openingMode = ref<'branded-opening' | 'from-start'>(
     ? 'branded-opening' : 'from-start',
 )
 const openingReservedSec = ref<number>(Number((projectConfig.value as any)?.branded_opening_duration_sec) || 15)
+// Once a preset supplies opening controls, keep those values authoritative.
+// The project-config watcher is only the fallback for legacy presets.
+const openingPresetControlsActive = ref(false)
 watch(projectConfig, (c) => {
+  if (openingPresetControlsActive.value) return
   openingMode.value = (c as any)?.visual_opening_mode === 'branded-opening'
     || ((c as any)?.visual_opening_mode == null && (c as any)?.skip_intro_scenes === true)
     ? 'branded-opening' : 'from-start'
   openingReservedSec.value = Number((c as any)?.branded_opening_duration_sec) || 15
 })
 async function saveOpeningSettings() {
+  openingPresetControlsActive.value = false
   const duration = Math.max(1, Math.min(120, Number(openingReservedSec.value) || 15))
   openingReservedSec.value = duration
   try {
@@ -1631,7 +1636,7 @@ function removeScene(i: number): void {
 }
 
 // v1.0.242 — savable presets for the plan settings (model, research toggle,
-// output budget, style, motion, and custom instructions). Mirrors the
+// opening visuals, output budget, style, motion, and custom instructions). Mirrors the
 // device-aware PresetPicker pattern used on the Ideas / Scripts pages. Stored
 // under config.scene_plan_presets; episode_id/title are stripped automatically.
 const planPresets = usePresets<any>({
@@ -1641,6 +1646,8 @@ const planPresets = usePresets<any>({
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,
+    opening_mode: openingMode.value,
+    opening_reserved_sec: openingReservedSec.value,
     prompt_max_tokens: form.value.prompt_max_tokens,
     detail_level: 4,
     style_prompt: form.value.style_prompt,
@@ -1650,6 +1657,11 @@ const planPresets = usePresets<any>({
   }),
   apply: (data) => {
     Object.assign(form.value, data)
+    if (data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') {
+      openingMode.value = data.opening_mode
+      openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
+      openingPresetControlsActive.value = true
+    }
     if (![4096, 6144, 8192].includes(Number(form.value.prompt_max_tokens))) {
       form.value.prompt_max_tokens = 4096
     }

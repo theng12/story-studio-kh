@@ -290,12 +290,16 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
       cross_window_context: true,
       generate_motion_prompts: true,
       prompt_max_tokens: 6144,
+      opening_mode: 'branded-opening',
+      opening_reserved_sec: 18,
     })
     const params = resolveStepParams('scene_plan', 'EP0042', 'Title', preset, TIMESTAMP_FORMAT)
     assert.equal(params.model, 'chatstudio:test-model')
     assert.equal(params.detail_level, 4)
     assert.equal(params.style_prompt, 'storybook')
     assert.equal(params.prompt_max_tokens, 6144)
+    assert.equal(params.opening_mode, 'branded-opening')
+    assert.equal(params.opening_reserved_sec, 18)
     for (const obsolete of [
       'target_scene_count', 'window_size', 'planning_mode', 'cross_window_context',
       'generate_motion_prompts',
@@ -306,5 +310,6 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     const unsafePreset = fakePreset({ prompt_max_tokens: 32000 })
     const safeParams = resolveStepParams('scene_plan', 'EP0042', 'Title', unsafePreset, TIMESTAMP_FORMAT)
     assert.equal(safeParams.prompt_max_tokens, 4096)
+    assert.equal('opening_mode' in safeParams, false, 'legacy presets keep the project-level opening fallback')
   })
 })

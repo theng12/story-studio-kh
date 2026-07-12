@@ -761,6 +761,11 @@ export function resolveStepParams(
       model: data.model,
       use_research: data.use_research !== false,
       detail_level: 4,
+      ...((data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') ? {
+        opening_mode: data.opening_mode,
+        opening_reserved_sec: data.opening_mode === 'branded-opening'
+          ? Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15)) : 0,
+      } : {}),
       prompt_max_tokens: [4096, 6144, 8192].includes(Number(data.prompt_max_tokens))
         ? Number(data.prompt_max_tokens) : 4096,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,

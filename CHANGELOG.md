@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.555 — 2026-07-13
+
+**Scene Plan presets now remember Opening Visuals.** Applying or reopening a preset restores both the opening mode and its reserved duration instead of reverting to the project fallback.
+
+- Saved presets include “Play a branded opening, then story scenes” versus “Generate story scenes from the first second.”
+- Branded-opening presets also retain the selected 1–120 second reserve.
+- One-click Pipeline runs receive the same saved opening settings, so manual Scene Plan and batch generation build identical timelines.
+- Legacy presets without opening fields continue using the project-level setting rather than being changed silently.
+
 ## v1.0.554 — 2026-07-13
 
 **Scene prompts have adjustable output headroom, and Video Assembly now validates the real continuity timeline before rendering.**
