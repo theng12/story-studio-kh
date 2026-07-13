@@ -37,7 +37,7 @@
       placeholder="Search models (name / provider)…"
       aria-label="Search AI models"
     />
-    <select :value="modelValue" :disabled="loading && allModels.length === 0" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)" class="select">
+    <select :value="modelValue" :disabled="loading && allModels.length === 0" @change="selectModel" class="select">
       <option v-if="loading && allModels.length === 0" value="" disabled>Loading AI models… please wait</option>
       <optgroup v-for="g in filteredGroups" :key="g.provider" :label="g.label">
         <option
@@ -98,6 +98,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'model-meta': [value: LlmModelRow | null]
 }>()
 
 const { get } = useApi()
@@ -108,6 +109,16 @@ const allModels = ref<LlmModelRow[]>([])
 // instead of an empty pulldown that looks indistinguishable from a
 // broken-no-models state.
 const loading = ref(false)
+
+function emitModelMeta(value: string) {
+  emit('model-meta', allModels.value.find(model => model.id === value) || null)
+}
+
+function selectModel(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  emit('update:modelValue', value)
+  emitModelMeta(value)
+}
 
 function isDisabled(m: LlmModelRow) {
   if (!m.available || !!m.disabled_reason) return true
@@ -211,7 +222,10 @@ async function loadModels() {
       const firstUsable = allModels.value.find(m => !isDisabled(m))
       if (firstUsable) {
         emit('update:modelValue', firstUsable.id)
+        emit('model-meta', firstUsable)
       }
+    } else {
+      emit('model-meta', current)
     }
   } catch {} finally {
     loading.value = false
@@ -219,6 +233,7 @@ async function loadModels() {
 }
 
 watch(() => props.projectSlug, loadModels, { immediate: true })
+watch(() => props.modelValue, emitModelMeta)
 </script>
 
 <style scoped>

@@ -20,6 +20,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { computePlanCoverage, repairPlanCoverage, reconcilePlanToSubtitles } from '../services/scene-planner.js'
+import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
@@ -115,6 +116,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     ? Math.max(0, Math.min(120, body.opening_reserved_sec)) : undefined
   const promptLimit = typeof body.prompt_limit === 'number'
     ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
+  const modelCostTier = body.model_cost_tier === 'local' || body.model_cost_tier === 'free' || body.model_cost_tier === 'paid'
+    ? body.model_cost_tier : undefined
+  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -145,6 +150,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       opening_mode: openingMode,
       opening_reserved_sec: openingReservedSec,
       prompt_limit: promptLimit,
+      model_cost_tier: modelCostTier,
+      prompt_pack_size: promptPackSize,
+      prompt_max_tokens: promptMaxTokens,
     },
   })
   res.status(201).json(job)

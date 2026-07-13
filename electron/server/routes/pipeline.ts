@@ -25,6 +25,7 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
+import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -769,6 +770,8 @@ export function resolveStepParams(
       episode_id: episodeId,
       title: title || '',
       model: data.model,
+      model_cost_tier: data.model_cost_tier === 'local' || data.model_cost_tier === 'free' || data.model_cost_tier === 'paid'
+        ? data.model_cost_tier : undefined,
       use_research: data.use_research !== false,
       detail_level: 4,
       ...((data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') ? {
@@ -776,8 +779,8 @@ export function resolveStepParams(
         opening_reserved_sec: data.opening_mode === 'branded-opening'
           ? Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15)) : 0,
       } : {}),
-      prompt_max_tokens: [4096, 6144, 8192].includes(Number(data.prompt_max_tokens))
-        ? Number(data.prompt_max_tokens) : 4096,
+      prompt_pack_size: parseScenePromptPackSetting(data.prompt_pack_size),
+      prompt_max_tokens: parseScenePromptTokenSetting(data.prompt_max_tokens),
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
     }

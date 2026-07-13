@@ -380,7 +380,7 @@ export async function hubPollBatch(
 }
 
 // Durable Chat prompt packs. Unlike the OpenAI-compatible gateway, this queue
-// survives app restarts and assigns one <=10-scene pack to each Chat Studio.
+// survives app restarts and assigns one adaptive pack to each Chat Studio.
 export interface HubChatPack {
   pack_id: string
   scene_ids: string[]
@@ -416,6 +416,7 @@ export async function hubSubmitChatPacks(
   token: string | undefined,
   body: {
     model: string
+    model_cost_tier?: 'local' | 'free' | 'paid'
     kind: 'visual' | 'motion'
     label?: string
     project?: string

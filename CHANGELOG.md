@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.557 — 2026-07-13
+
+**Scene prompt batching now adapts to the selected model instead of forcing every provider into a 10-scene pack.**
+
+- Local and free-cloud models remain capped at 10 scenes per request; paid cloud defaults to 20 and has a guarded maximum of 30.
+- Output budgets adapt with the pack: 4,096 tokens for local/free cloud and 8,192 for paid cloud, with larger packs protected from an undersized manual budget.
+- Scene Plan shows the effective tier, pack size, and output budget before generation, with an Advanced override that only offers 20/30 for paid cloud.
+- Presets and one-click Pipeline retain the adaptive settings and model tier. Invalid or stale values self-heal to Automatic.
+- Studio Hub receives and preserves the tier with each durable batch, while direct paid-cloud providers use the same pack policy and save completed stable scene IDs after every response.
+- Fixed the manual Scene Plan route dropping its saved output-budget setting before the job was queued.
+
 ## v1.0.556 — 2026-07-13
 
 **Audio presets can no longer leave out the Introduction.** Section checkboxes are episode-specific and are no longer stored inside reusable voice/model presets.

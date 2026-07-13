@@ -34,7 +34,7 @@
 
     <p class="text-muted mt-1 mb-2">
       Build the timing first, then generate full visual prompts in durable
-      10-scene packs. Motion is a separate optional pass, so still-image videos
+      adaptive packs. Motion is a separate optional pass, so still-image videos
       can skip it completely.
     </p>
 
@@ -91,7 +91,7 @@
         Timeline uses no LLM. The selected model generates full-detail visual prompts and, when enabled, optional motion prompts.
       </p>
       <div class="mt-2">
-        <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" />
+        <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
       </div>
       <label class="flex items-center gap-1 mt-2 text-sm" v-if="status?.research_available">
         <input type="checkbox" v-model="form.use_research" />
@@ -127,15 +127,34 @@
 
       <div class="form-group mt-2" style="max-width: 440px">
         <label>Visual prompt output budget</label>
-        <select v-model.number="form.prompt_max_tokens" class="select">
-          <option :value="4096">4,096 tokens — recommended</option>
+        <select v-model="form.prompt_max_tokens" class="select">
+          <option value="auto">Automatic — {{ automaticTokenBudget.toLocaleString() }} for this model</option>
+          <option :value="4096">4,096 tokens</option>
           <option :value="6144">6,144 tokens — extra headroom</option>
           <option :value="8192">8,192 tokens — slowest, most headroom</option>
         </select>
         <p class="text-muted text-xs mt-1">
-          Maximum output for each 10-scene Hub pack. Raise it only if complete packs are still being truncated. Motion prompts use a smaller automatic budget.
+          Effective output: <strong>{{ effectivePromptTokenBudget.toLocaleString() }} tokens</strong> per pack. Larger paid-cloud packs require 8,192 tokens; motion uses a smaller automatic budget.
         </p>
       </div>
+
+      <details class="advanced-panel mt-2" style="max-width: 620px">
+        <summary>Advanced batching</summary>
+        <div class="form-group mt-2" style="max-width: 440px">
+          <label>Scenes per prompt pack</label>
+          <select v-model="form.prompt_pack_size" class="select">
+            <option value="auto">Automatic — {{ automaticPromptPackSize }} scenes</option>
+            <option :value="5">5 scenes</option>
+            <option :value="10">10 scenes</option>
+            <option :value="20" :disabled="selectedModelCostTier !== 'paid'">20 scenes — paid cloud only</option>
+            <option :value="30" :disabled="selectedModelCostTier !== 'paid'">30 scenes — paid cloud maximum</option>
+          </select>
+          <p class="text-muted text-xs mt-1">
+            Using <strong>{{ effectivePromptPackSize }} scenes per pack</strong> for this {{ selectedModelTierLabel }} model.
+            Local and free-cloud models are hard-capped at 10; paid cloud defaults to 20 and is capped at 30.
+          </p>
+        </div>
+      </details>
 
       <!-- v1.0.468 — motion-prompt controls. The planner also writes a per-scene
            motion_prompt (image-to-video instruction) cohesive with the visual
@@ -252,16 +271,16 @@
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', 10)">Next 10</button>
+            <button class="btn btn-primary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small>Each Hub item contains up to 10 scenes. Studio Hub distributes as many packs in parallel as the available model servers can handle.</small>
+          <small>{{ effectivePromptPackSize }} scenes per {{ selectedModelTierLabel }} pack. Studio Hub distributes as many packs in parallel as the available compatible servers can handle.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', 10)">Next 10</button>
+            <button class="btn btn-primary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
@@ -925,10 +944,18 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
   scene.scene_type_locked = true
 }
 
+type PromptCostTier = 'local' | 'free' | 'paid'
+type PromptPackSetting = 'auto' | 5 | 10 | 20 | 30
+type PromptTokenSetting = 'auto' | 4096 | 6144 | 8192
+interface SelectedModelMeta { id: string; cost_tier?: PromptCostTier }
+
+const selectedModelMeta = ref<SelectedModelMeta | null>(null)
+
 const form = ref({
   model: '',  // ModelSelector auto-picks first usable
   use_research: true,
-  prompt_max_tokens: 4096 as 4096 | 6144 | 8192,
+  prompt_pack_size: 'auto' as PromptPackSetting,
+  prompt_max_tokens: 'auto' as PromptTokenSetting,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
@@ -941,9 +968,35 @@ const form = ref({
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
-if (![4096, 6144, 8192].includes(Number(form.value.prompt_max_tokens))) {
-  form.value.prompt_max_tokens = 4096
+if (!['auto', 5, 10, 20, 30].includes(form.value.prompt_pack_size)) {
+  form.value.prompt_pack_size = 'auto'
 }
+if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
+  form.value.prompt_max_tokens = 'auto'
+}
+
+const selectedModelCostTier = computed<PromptCostTier>(() => {
+  if (selectedModelMeta.value?.id === form.value.model && selectedModelMeta.value.cost_tier) {
+    return selectedModelMeta.value.cost_tier
+  }
+  if (form.value.model.startsWith('chatstudio:provider:')) return 'free'
+  if (form.value.model.startsWith('chatstudio:')) return 'local'
+  return 'paid'
+})
+const selectedModelTierLabel = computed(() => selectedModelCostTier.value === 'local'
+  ? 'local' : selectedModelCostTier.value === 'free' ? 'free-cloud' : 'paid-cloud')
+const automaticPromptPackSize = computed<10 | 20>(() => selectedModelCostTier.value === 'paid' ? 20 : 10)
+const effectivePromptPackSize = computed<5 | 10 | 20 | 30>(() => {
+  const requested = form.value.prompt_pack_size === 'auto'
+    ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
+  return Math.min(requested, selectedModelCostTier.value === 'paid' ? 30 : 10) as 5 | 10 | 20 | 30
+})
+const automaticTokenBudget = computed<4096 | 8192>(() => selectedModelCostTier.value === 'paid' ? 8192 : 4096)
+const effectivePromptTokenBudget = computed<4096 | 6144 | 8192>(() => {
+  const requested = form.value.prompt_max_tokens === 'auto'
+    ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
+  return (effectivePromptPackSize.value > 10 ? 8192 : requested) as 4096 | 6144 | 8192
+})
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
@@ -1042,8 +1095,10 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
+      model_cost_tier: selectedModelCostTier.value,
       stage,
       prompt_limit: promptLimit,
+      prompt_pack_size: form.value.prompt_pack_size,
       use_research: form.value.use_research,
       prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
       detail_level: 4,
@@ -1648,6 +1703,8 @@ const planPresets = usePresets<any>({
     use_research: form.value.use_research,
     opening_mode: openingMode.value,
     opening_reserved_sec: openingReservedSec.value,
+    model_cost_tier: selectedModelCostTier.value,
+    prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
     detail_level: 4,
     style_prompt: form.value.style_prompt,
@@ -1662,8 +1719,11 @@ const planPresets = usePresets<any>({
       openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
       openingPresetControlsActive.value = true
     }
-    if (![4096, 6144, 8192].includes(Number(form.value.prompt_max_tokens))) {
-      form.value.prompt_max_tokens = 4096
+    if (!['auto', 5, 10, 20, 30].includes(form.value.prompt_pack_size)) {
+      form.value.prompt_pack_size = 'auto'
+    }
+    if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
+      form.value.prompt_max_tokens = 'auto'
     }
   },
 })
@@ -1673,6 +1733,20 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+.advanced-panel {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+}
+.advanced-panel summary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.advanced-panel[open] summary { color: var(--text-primary); }
 .stage-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

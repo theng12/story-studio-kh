@@ -298,6 +298,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
   test('scene_plan ignores obsolete window planner settings', () => {
     const preset = fakePreset({
       model: 'chatstudio:test-model',
+      model_cost_tier: 'local',
       use_research: true,
       style_prompt: 'storybook',
       target_scene_count: 30,
@@ -306,6 +307,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
       cross_window_context: true,
       generate_motion_prompts: true,
       prompt_max_tokens: 6144,
+      prompt_pack_size: 10,
       opening_mode: 'branded-opening',
       opening_reserved_sec: 18,
     })
@@ -314,6 +316,8 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.detail_level, 4)
     assert.equal(params.style_prompt, 'storybook')
     assert.equal(params.prompt_max_tokens, 6144)
+    assert.equal(params.prompt_pack_size, 10)
+    assert.equal(params.model_cost_tier, 'local')
     assert.equal(params.opening_mode, 'branded-opening')
     assert.equal(params.opening_reserved_sec, 18)
     for (const obsolete of [
@@ -325,7 +329,8 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
 
     const unsafePreset = fakePreset({ prompt_max_tokens: 32000 })
     const safeParams = resolveStepParams('scene_plan', 'EP0042', 'Title', unsafePreset, TIMESTAMP_FORMAT)
-    assert.equal(safeParams.prompt_max_tokens, 4096)
+    assert.equal(safeParams.prompt_max_tokens, 'auto')
+    assert.equal(safeParams.prompt_pack_size, 'auto')
     assert.equal('opening_mode' in safeParams, false, 'legacy presets keep the project-level opening fallback')
   })
 })

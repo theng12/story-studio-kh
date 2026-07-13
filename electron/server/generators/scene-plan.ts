@@ -21,6 +21,15 @@ import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getHubBackend, hubPollChatPacks, hubSubmitChatPacks, type HubChatBatchStatus, type HubChatPack } from '../lib/studiohub-client.js'
+import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import {
+  parseScenePromptPackSetting,
+  parseScenePromptTokenSetting,
+  resolveScenePromptCostTier,
+  resolveScenePromptPackSize,
+  resolveScenePromptTokenBudget,
+  type ScenePromptCostTier,
+} from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
@@ -123,8 +132,50 @@ interface ScenePlanRunParams {
   opening_reserved_sec?: number
   /** Limit a manual run to the next N pending scenes. Omit for all pending. */
   prompt_limit?: number
-  /** Output budget for each 10-scene visual Hub pack. */
-  prompt_max_tokens?: 4096 | 6144 | 8192
+  /** Catalog tier used by adaptive prompt packs. The model id still wins when
+   *  it unambiguously identifies a local or direct-cloud model. */
+  model_cost_tier?: ScenePromptCostTier
+  /** Auto uses 10 scenes for local/free cloud and 20 for paid cloud. */
+  prompt_pack_size?: 'auto' | 5 | 10 | 20 | 30
+  /** Auto uses 4K output for local/free cloud and 8K for paid cloud. */
+  prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192
+}
+
+function parseDirectPackResults(
+  raw: string,
+  expectedIds: string[],
+  kind: 'visual' | 'motion',
+): Map<string, string> {
+  const clean = raw.trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+  let parsed: any
+  try {
+    parsed = JSON.parse(sanitizeJsonControlChars(clean))
+  } catch {
+    return new Map()
+  }
+  const candidate = Array.isArray(parsed)
+    ? parsed
+    : parsed?.results ?? parsed?.prompts ?? parsed
+  const allowed = new Set(expectedIds)
+  const results = new Map<string, string>()
+  if (Array.isArray(candidate)) {
+    const keys = kind === 'motion'
+      ? ['motion_prompt', 'prompt', 'text']
+      : ['visual_prompt', 'prompt', 'text']
+    for (const row of candidate) {
+      const id = row?.scene_id ?? row?.id
+      const value = keys.map(key => row?.[key]).find(value => typeof value === 'string' && value.trim())
+      if (allowed.has(id) && value) results.set(id, value.trim())
+    }
+  } else if (candidate && typeof candidate === 'object') {
+    for (const [id, value] of Object.entries(candidate)) {
+      if (allowed.has(id) && typeof value === 'string' && value.trim()) results.set(id, value.trim())
+    }
+  }
+  return results
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -143,6 +194,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   )
   if (!model && needsModel) throw new Error('model is required')
   if (!model) model = 'deterministic-timeline'
+
+  const promptCostTier = resolveScenePromptCostTier(model, params.model_cost_tier)
+  const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
+  const promptPackSize = resolveScenePromptPackSize(promptCostTier, promptPackSetting)
+  const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
+  const visualMaxTokens = resolveScenePromptTokenBudget(promptCostTier, promptTokenSetting, promptPackSize)
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
@@ -196,7 +253,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
   if (!timelineOnly) {
     job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
-    job.output_lines.push('Prompt batching: durable Studio Hub packs of up to 10 scenes')
+    job.output_lines.push(
+      `Prompt batching: ${promptPackSize} scenes per pack (${promptCostTier} model${promptPackSetting === 'auto' ? ', adaptive' : ', override'})`,
+    )
     if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
     if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   }
@@ -209,7 +268,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
   // ── Staged continuity workflow ──────────────────────────────────────────
   // Timeline creation is deterministic and free. Visual and optional motion
-  // prompts are durable Hub packs of <=10 scene IDs, with direct generation as
+  // prompts are durable adaptive Hub packs keyed by stable scene IDs, with direct generation as
   // a connection-only fallback. This branch is intentionally before all legacy
   // re-plan modes so those remain available for repairing old plans.
   const isLegacyRepair = !!(
@@ -343,12 +402,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       researchContext = (await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim().slice(0, 6000)
     }
 
-    const visualMaxTokens = [4096, 6144, 8192].includes(Number(params.prompt_max_tokens))
-      ? Number(params.prompt_max_tokens) : 4096
     if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
     const packs: HubChatPack[] = []
-    for (let offset = 0; offset < targets.length; offset += 10) {
-      const group = targets.slice(offset, offset + 10)
+    for (let offset = 0; offset < targets.length; offset += promptPackSize) {
+      const group = targets.slice(offset, offset + promptPackSize)
       const scenePayload = group.map(({ scene }) => ({
         scene_id: scene.id,
         start_sec: scene.start_sec,
@@ -361,7 +418,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
         : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Keep recurring subjects, wardrobe, locations, and visual style continuous.'
       packs.push({
-        pack_id: `${stage}-${String(offset / 10 + 1).padStart(4, '0')}`,
+        pack_id: `${stage}-${String(offset / promptPackSize + 1).padStart(4, '0')}`,
         scene_ids: group.map(({ scene }) => scene.id),
         messages: [
           {
@@ -382,7 +439,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ],
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
-        params: { temperature: isMotion ? 0.35 : 0.5, max_tokens: isMotion ? 2048 : visualMaxTokens },
+        params: {
+          temperature: isMotion ? 0.35 : 0.5,
+          max_tokens: isMotion ? (promptPackSize > 10 ? 4096 : 2048) : visualMaxTokens,
+        },
       })
     }
 
@@ -415,6 +475,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         try {
           const submitted = await hubSubmitChatPacks(hub.hubUrl, hub.hubToken, {
             model: rawModel,
+            model_cost_tier: promptCostTier,
             kind: isMotion ? 'motion' : 'visual',
             label: `${episode_id} ${stage} prompts`,
             project: job.project_slug,
@@ -424,7 +485,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           if (isMotion) plan.motion_prompt_batch_id = submitted.batch_id
           else plan.visual_prompt_batch_id = submitted.batch_id
           await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
-          job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to 10 scenes per Chat Studio.`)
+          job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to ${promptPackSize} scenes per Chat Studio.`)
           const finalStatus = await hubPollChatPacks(hub.hubUrl, hub.hubToken, submitted.batch_id, {
             isCancelled: () => isCancelled(job.job_id),
             onProgress: persistHubResults,
@@ -446,16 +507,66 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         getApiKey('anthropic').catch(() => ''), getApiKey('openai').catch(() => ''), getApiKey('kie').catch(() => ''),
       ])
       const indices = targets.map(t => t.index)
-      if (isMotion) {
+      const apiKeys = { anthropic_api_key: a, openai_api_key: o, kie_api_key: k }
+      const isDirectCloud = !model.startsWith('chatstudio:')
+      if (isDirectCloud) {
+        job.output_lines.push(`Studio Hub has no direct worker route for ${model}; processing ${packs.length} adaptive cloud pack(s) through the configured provider.`)
+        let completed = 0
+        for (const pack of packs) {
+          if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+          const saved = new Set<string>()
+          let lastError = ''
+          for (let attempt = 1; attempt <= 3 && saved.size < pack.scene_ids.length; attempt++) {
+            const missing = pack.scene_ids.filter(id => !saved.has(id))
+            const correction = attempt > 1
+              ? `\n\nYour previous response was incomplete. Return JSON for ONLY these missing scene IDs: ${JSON.stringify(missing)}. Do not repeat completed IDs.`
+              : ''
+            try {
+              const raw = await callAi(
+                model,
+                pack.messages[0]!.content,
+                `${pack.messages.slice(1).map(message => message.content).join('\n\n')}${correction}`,
+                apiKeys,
+                false,
+                { slug: job.project_slug, jobId: job.job_id, maxTokens: Number(pack.params?.max_tokens) || visualMaxTokens },
+              )
+              const results = parseDirectPackResults(raw, missing, isMotion ? 'motion' : 'visual')
+              for (const [sceneId, text] of results) {
+                const scene = plan.scenes.find(item => item.id === sceneId)
+                if (!scene) continue
+                if (isMotion) scene.motion_prompt = text
+                else scene.visual_prompt = text
+                saved.add(sceneId)
+              }
+              plan.generated_at = new Date().toISOString()
+              plan.planning_stage = isMotion ? 'motion' : 'visual'
+              await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+              lastError = results.size
+                ? `response omitted ${pack.scene_ids.length - saved.size} scene(s)`
+                : 'response was not valid scene-result JSON'
+            } catch (error: any) {
+              lastError = error?.message || String(error)
+            }
+          }
+          if (saved.size < pack.scene_ids.length) {
+            const missing = pack.scene_ids.filter(id => !saved.has(id))
+            throw new Error(
+              `${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length} prompts after 3 attempts (${lastError}). Missing: ${missing.join(', ')}`,
+            )
+          }
+          completed += saved.size
+          job.progress = 10 + Math.round((completed / targets.length) * 85)
+        }
+      } else if (isMotion) {
         await generateMotionPromptsForScenes(plan.scenes, indices, {
           model, motion_level: params.motion_level, style_prompt: effectiveStyle,
-          custom_instructions: params.custom_instructions, apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+          custom_instructions: params.custom_instructions, apiKeys,
           slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
         })
       } else {
         await generatePromptsForScenes(plan.scenes, indices, {
           model, detail_level: 4, style_prompt: effectiveStyle,
-          custom_instructions: params.custom_instructions, apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+          custom_instructions: params.custom_instructions, apiKeys,
           slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
         })
       }
