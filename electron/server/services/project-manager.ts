@@ -975,10 +975,13 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // ignored on read but kept on disk so older app builds still see them.
     voice_presets: await (async () => {
       const { getVoicePresetsGlobal } = await import('./app-settings.js')
+      const { normalizeVoicePresets } = await import('./voice-presets.js')
       const global = await getVoicePresetsGlobal()
       if (global.length > 0) return global
       // Pre-migration fallback: per-project value if set, else seeded default.
-      if (config.voice_presets && config.voice_presets.length) return config.voice_presets
+      if (config.voice_presets && config.voice_presets.length) {
+        return normalizeVoicePresets(config.voice_presets)
+      }
       return [...DEFAULT_VOICE_PRESETS]
     })(),
     voice_favourites: await (async () => {

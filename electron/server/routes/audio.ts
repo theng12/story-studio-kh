@@ -12,6 +12,8 @@ import { getAudioStatus, reconcileAudio } from '../services/audio-reconciler.js'
 import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
 import type { AudioModelConfig } from '../models/types.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
+import { voiceSupportsProvider } from '../services/voice-presets.js'
+import { getVoicePresetsGlobal } from '../services/app-settings.js'
 
 export const router = Router()
 
@@ -64,6 +66,19 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   // no key — URL alone is the enable). v1.0.150 dropped the standalone
   // Chatterbox provider entirely (rolled into Voice Studio's family list).
   const providerId = resolveAudioProvider(req.body.model, config.audio_models)
+  if (!['voicestudio', 'macos'].includes(providerId)) {
+    const savedVoices = await getVoicePresetsGlobal()
+    if (!voiceSupportsProvider(savedVoices, req.body.voice, providerId)) {
+      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
+        : providerId === 'genaipro' ? 'GenAIPro'
+          : providerId === 'fishaudio' ? 'Fish Audio'
+            : providerId === 'kie' ? 'kie.ai'
+              : 'fal.ai'
+      return res.status(400).json({
+        detail: `The selected voice is not labelled for ${label}. Pick a compatible voice or update it in Settings → Voices.`,
+      })
+    }
+  }
   if (providerId === 'voicestudio') {
     // v1.0.149+ — no per-project enable flag; the modal URL is app-level
     // (set in App Settings → Local Models). If the URL is missing OR the
@@ -77,7 +92,8 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       const label = providerId === 'elevenlabs' ? 'ElevenLabs'
         : providerId === 'genaipro' ? 'GenAIPro'
           : providerId === 'fishaudio' ? 'Fish Audio'
-            : 'fal.ai'
+            : providerId === 'kie' ? 'kie.ai'
+              : 'fal.ai'
       return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
     }
   }

@@ -591,7 +591,7 @@ router.get('/connectivity/precheck', async (_req, res) => {
     { host: 'openrouter.ai',     probeUrl: 'https://openrouter.ai/api/v1/models', label: 'OpenRouter' },
     { host: 'api.kie.ai',        probeUrl: 'https://api.kie.ai/api/v1/chat/credit', label: 'kie.ai' },
     { host: 'queue.fal.run',     probeUrl: 'https://queue.fal.run/',              label: 'fal.ai' },
-    { host: 'api.elevenlabs.io', probeUrl: 'https://api.elevenlabs.io/v1/voices', label: 'ElevenLabs' },
+    { host: 'api.elevenlabs.io', probeUrl: 'https://api.elevenlabs.io/v1/user/subscription', label: 'ElevenLabs' },
     { host: 'genaipro.io',       probeUrl: 'https://genaipro.io/api/v1/labs/task', label: 'GenAIPro' },
   ] as const
   const started = Date.now()

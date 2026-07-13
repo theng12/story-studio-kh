@@ -37,6 +37,8 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { getVoicePresetsGlobal } from '../services/app-settings.js'
+import { voiceSupportsProvider } from '../services/voice-presets.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
 type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
@@ -225,6 +227,16 @@ export async function generateAudio(job: Job): Promise<void> {
     : providerId === 'fishaudio' ? 'Fish Audio'
     : providerId === 'kie' ? 'ElevenLabs (kie.ai)'
     : 'fal.ai'
+
+  if (!['voicestudio', 'macos'].includes(providerId)) {
+    const savedVoices = await getVoicePresetsGlobal()
+    if (!voiceSupportsProvider(savedVoices, req.voice, providerId)) {
+      throw new Error(
+        `Voice compatibility check failed: the selected voice is not labelled for ${providerLabel}. `
+        + 'Pick a compatible voice or update it in Settings → Voices.',
+      )
+    }
+  }
 
   // Voice Studio KH is special — there is no API key. The "key" we resolve
   // is the base URL of the Tailscale-reachable Pinokio modal stored in the

@@ -161,104 +161,76 @@
       </div>
     </div>
 
-    <!-- Voices (Editable) -->
+    <!-- Saved cloud voices -->
     <div v-if="activeTab === 'voices'" class="card mt-2">
-      <h3>Voices</h3>
-      <p class="text-muted mt-1 mb-2">
-        Save ElevenLabs voice IDs for quick access from the Audio Generator.
-        These show up as <strong>My Custom Voices</strong> in the picker.
-      </p>
-
-      <!-- Where-to-find-the-id helper. New users don't know ElevenLabs's
-           voice URLs, and copy/paste from the dashboard isn't obvious. -->
-      <p class="text-muted voice-helper-line">
-        💡 Find a voice's ID in
-        <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener" class="voice-helper-link">ElevenLabs → Voice Library</a>:
-        click any voice → "View Voice" → copy the long alphanumeric ID from the URL or the "Voice ID" field.
-      </p>
-
-      <div v-if="catalogLoadError" class="voice-catalog-warn">
-        ⚠ Couldn't load your live ElevenLabs catalog ({{ catalogLoadError }}). Voice availability won't be checked here.
-      </div>
-
-      <div class="voice-list">
-        <!--
-          v1.0.71: the "unavailable" pill USED to grey out the entire row
-          and disable use of the preset, but the catalog probe is
-          ElevenLabs-only — voices not in your ElevenLabs account may
-          still be perfectly usable via GenAIPro / fal-audio (which use
-          the same voice IDs but don't gate on ElevenLabs subscription
-          tier). The pill is now informational only: it flags voices
-          that won't preview locally (preview hits ElevenLabs), but
-          generation jobs against other providers still work.
-        -->
-        <div
-          v-for="(voice, i) in editVoices"
-          :key="i"
-          class="voice-row-edit"
-        >
-          <input v-model="voice.name" class="input input-sm voice-name-input" placeholder="Voice name" />
-          <input v-model="voice.voice_id" class="input input-sm voice-id-input" placeholder="Voice ID (works across providers)" />
-          <span
-            v-if="isVoicePresetUnavailable(voice.voice_id)"
-            class="voice-unavailable-pill"
-            title="Not in your ElevenLabs catalog — preview button is disabled because preview uses ElevenLabs. Generation jobs against GenAIPro / fal-audio (same voice ID, different provider) still work normally."
-          >
-            not on ElevenLabs
-          </span>
-          <button
-            class="btn-icon"
-            :disabled="!voice.voice_id || isVoicePresetUnavailable(voice.voice_id) || previewingVoiceId === voice.voice_id"
-            :title="!voice.voice_id ? 'Enter a voice ID first' : isVoicePresetUnavailable(voice.voice_id) ? 'Preview unavailable — voice not in your ElevenLabs catalog. Generation against other TTS providers still works.' : (previewingVoiceId === voice.voice_id ? 'Stop preview' : 'Preview voice (1-sentence sample via ElevenLabs)')"
-            @click="togglePreviewVoicePreset(voice.voice_id)"
-          >
-            {{ previewingVoiceId === voice.voice_id ? '◼' : '▶' }}
-          </button>
-          <button class="btn-icon danger" @click="editVoices.splice(i, 1)" title="Remove">&#10005;</button>
+      <div class="voice-library-heading">
+        <div>
+          <h3>Voice library</h3>
+          <p class="text-muted mt-1">
+            Save voice or clone IDs once, then label every provider that can use them. Audio Generator only shows compatible voices.
+          </p>
         </div>
+        <span class="voice-count">{{ editVoices.length }} saved</span>
       </div>
 
-      <div class="flex gap-2 mt-2 items-center flex-wrap">
-        <button class="btn btn-secondary btn-sm" @click="editVoices.push({ name: '', voice_id: '' })">
-          + Add Voice
-        </button>
-        <button
-          class="btn btn-secondary btn-sm"
-          :disabled="catalogLoading"
-          :title="catalogLoading ? 'Loading catalog…' : 'Pick from your ElevenLabs voices instead of pasting an ID'"
-          @click="openCatalogPickerForPreset"
-        >
-          {{ catalogLoading ? 'Loading…' : '+ Add from catalog…' }}
-        </button>
-        <button class="btn btn-primary btn-sm" @click="saveVoices">Save Voices</button>
+      <div class="voice-library-toolbar">
+        <div class="voice-provider-filters" aria-label="Filter voices by provider">
+          <button
+            type="button"
+            class="voice-filter"
+            :class="{ active: voiceProviderFilter === 'all' }"
+            @click="voiceProviderFilter = 'all'"
+          >All <span>{{ editVoices.length }}</span></button>
+          <button
+            v-for="provider in VOICE_PROVIDER_OPTIONS"
+            :key="provider.id"
+            type="button"
+            class="voice-filter"
+            :class="{ active: voiceProviderFilter === provider.id }"
+            @click="voiceProviderFilter = provider.id"
+          >{{ provider.label }} <span>{{ voiceProviderCounts[provider.id] || 0 }}</span></button>
+        </div>
+        <select v-model="voiceSort" class="select select-sm voice-sort" aria-label="Sort voices">
+          <option value="provider">Provider, then name</option>
+          <option value="name-asc">Name A-Z</option>
+          <option value="name-desc">Name Z-A</option>
+        </select>
+      </div>
+
+      <div v-if="filteredVoiceRows.length" class="voice-list">
+        <article v-for="row in filteredVoiceRows" :key="row.voice.voice_id || row.index" class="voice-row-edit">
+          <div class="voice-fields">
+            <input v-model="row.voice.name" class="input input-sm voice-name-input" placeholder="Voice name" />
+            <input v-model="row.voice.voice_id" class="input input-sm voice-id-input" placeholder="Voice or reference ID" spellcheck="false" />
+          </div>
+          <div class="voice-provider-labels">
+            <span class="voice-provider-prompt">Works with</span>
+            <label
+              v-for="provider in VOICE_PROVIDER_OPTIONS"
+              :key="provider.id"
+              class="voice-provider-toggle"
+              :class="{ active: row.voice.providers.includes(provider.id) }"
+            >
+              <input
+                type="checkbox"
+                :checked="row.voice.providers.includes(provider.id)"
+                @change="toggleVoiceProvider(row.voice, provider.id)"
+              />
+              {{ provider.label }}
+            </label>
+          </div>
+          <button class="btn-icon danger voice-remove" type="button" title="Remove voice" @click="editVoices.splice(row.index, 1)">&#10005;</button>
+        </article>
+      </div>
+      <div v-else class="voice-empty">
+        No voices match this provider. Add one below or choose another filter.
+      </div>
+
+      <div class="flex gap-2 mt-3 items-center flex-wrap">
+        <button class="btn btn-secondary btn-sm" type="button" @click="addVoice">+ Add Voice</button>
+        <button class="btn btn-primary btn-sm" type="button" @click="saveVoices">Save Voices</button>
         <SaveIndicator v-bind="savedHintProps('voices')" />
       </div>
-
-      <!-- Catalog picker dialog — minimal flow: VoicePicker is reused, the
-           emitted `update:modelValue` fills the next blank row (or appends
-           one), and the dialog closes. -->
-      <Modal v-if="showCatalogPicker" :visible="showCatalogPicker" size="md" labelledby="vp-add-from-catalog-title" @close="showCatalogPicker = false">
-        <h3 id="vp-add-from-catalog-title">Add from your ElevenLabs catalog</h3>
-        <p class="text-muted text-sm mt-1 mb-2">
-          Pick any voice from your current ElevenLabs library — we'll fill the name and voice ID on a new voice row for you.
-        </p>
-        <VoicePicker
-          v-model="pendingCatalogPick"
-          :project-slug="slug"
-          :custom-voices="[]"
-          default-label="Pick a voice…"
-        />
-        <div class="flex gap-2 mt-3 justify-end">
-          <button class="btn btn-secondary btn-sm" @click="showCatalogPicker = false">Cancel</button>
-          <button
-            class="btn btn-primary btn-sm"
-            :disabled="!pendingCatalogPick"
-            @click="confirmCatalogPick"
-          >
-            Add voice
-          </button>
-        </div>
-      </Modal>
     </div>
 
     <div v-if="activeTab === 'styles'" class="card mt-2">
@@ -3000,6 +2972,13 @@ import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
 // Bare named export (not a useX composable), so import it explicitly —
 // mirrors image-prompts.vue.
 import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
+import {
+  VOICE_PROVIDER_OPTIONS,
+  firstVoiceProviderIndex,
+  normalizeSavedVoices,
+  type SavedVoice,
+  type VoiceProviderId,
+} from '~/utils/voice-providers'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Settings')
@@ -5354,165 +5333,48 @@ const confirmPrefs = reactive<Record<string, boolean>>({})
 const editImageModels = ref<Record<string, any>>({})
 const editAudioModels = ref<Record<string, any>>({})
 const editVideoModels = ref<Record<string, any>>({})
-const editVoices = ref<Array<{ name: string; voice_id: string }>>([])
+const editVoices = ref<SavedVoice[]>([])
+const voiceProviderFilter = ref<'all' | VoiceProviderId>('all')
+const voiceSort = ref<'provider' | 'name-asc' | 'name-desc'>('provider')
 
-// ── Voice catalog probe (Settings → Voices tab) ─────────────────────────
-// We pull the live ElevenLabs catalog once when the user opens this tab so
-// we can grey out saved presets that are no longer in their account
-// (deleted upstream, subscription lapsed). Loaded lazily — not on every
-// settings open — to avoid a wasted fetch on users who never visit this tab.
-interface VoiceCatalogVoice { voice_id: string; name: string; category?: string }
-const voiceCatalogIds = ref<Set<string>>(new Set())
-const catalogLoading = ref(false)
-const catalogLoadError = ref('')
-const catalogLoadedOnce = ref(false)
-
-async function loadVoiceCatalogForSettings() {
-  if (catalogLoadedOnce.value || catalogLoading.value) return
-  catalogLoading.value = true
-  catalogLoadError.value = ''
-  try {
-    const data = await get<{ voices: VoiceCatalogVoice[]; source: string }>(
-      `/projects/${slug.value}/voices/catalog`,
-    )
-    // Snapshot source can't tell us about cloned voices the user owns —
-    // skip the availability check in that case (treat all as available).
-    if (data.source === 'snapshot') {
-      voiceCatalogIds.value = new Set()  // empty set → isVoicePresetUnavailable always false
-    } else {
-      voiceCatalogIds.value = new Set(data.voices.map(v => v.voice_id))
-    }
-    catalogLoadedOnce.value = true
-  } catch (e: any) {
-    catalogLoadError.value = e?.data?.detail || e?.message || 'Network error'
-  } finally {
-    catalogLoading.value = false
+const voiceProviderCounts = computed<Record<VoiceProviderId, number>>(() => {
+  const counts = Object.fromEntries(VOICE_PROVIDER_OPTIONS.map(provider => [provider.id, 0])) as Record<VoiceProviderId, number>
+  for (const voice of editVoices.value) {
+    for (const provider of voice.providers) counts[provider]++
   }
-}
-
-function isVoicePresetUnavailable(voiceId: string): boolean {
-  if (!voiceId) return false
-  // While loading or if the catalog isn't usable, optimistic — don't
-  // flash "unavailable" on every preset for several seconds.
-  if (catalogLoading.value || !catalogLoadedOnce.value) return false
-  if (voiceCatalogIds.value.size === 0) return false  // snapshot or empty
-  return !voiceCatalogIds.value.has(voiceId)
-}
-
-// Per-row preview for saved voice presets. Reuses the same /preview-voice
-// endpoint Audio Generator uses, with sensible TTS defaults so the user
-// can audition a saved voice without leaving Settings.
-const previewingVoiceId = ref<string>('')
-const previewAudioEl = ref<HTMLAudioElement | null>(null)
-
-function stopVoicePreview() {
-  if (previewAudioEl.value) {
-    previewAudioEl.value.pause()
-    previewAudioEl.value = null
-  }
-  previewingVoiceId.value = ''
-}
-
-async function togglePreviewVoicePreset(voiceId: string) {
-  if (!voiceId) return
-  if (previewingVoiceId.value === voiceId) {
-    stopVoicePreview()
-    return
-  }
-  stopVoicePreview()
-  previewingVoiceId.value = voiceId
-  try {
-    const resp = await post<{ audio_url?: string }>(
-      `/projects/${slug.value}/preview-voice`,
-      { voice_id: voiceId, model: 'turbo-v2.5', speed: 1.0, stability: 0.5, similarity: 0.75 },
-    )
-    if (!resp?.audio_url) {
-      throw new Error('No audio returned')
-    }
-    const audio = new Audio(resp.audio_url)
-    audio.addEventListener('ended', () => { stopVoicePreview() })
-    audio.addEventListener('error', () => {
-      stopVoicePreview()
-      showError('Voice preview audio failed to load — the voice may be unavailable in your ElevenLabs account.')
-    })
-    previewAudioEl.value = audio
-    await audio.play().catch((err) => {
-      console.error('[settings/voices] preview play failed:', err)
-      stopVoicePreview()
-      showError(`Couldn't play preview for ${voiceId.slice(0, 8)}… — see console for details.`)
-    })
-  } catch (e: any) {
-    console.error('[settings/voices] preview request failed:', e)
-    stopVoicePreview()
-    showError(e?.data?.detail || `Voice preview failed for ${voiceId.slice(0, 8)}…`)
-  }
-}
-
-// "+ Add from catalog…" flow. The picker writes the picked voice_id to
-// `pendingCatalogPick`; confirmCatalogPick then resolves it against the
-// loaded catalog to fill name + voice_id on a new preset row.
-const showCatalogPicker = ref(false)
-const pendingCatalogPick = ref<string | null>(null)
-const lastCatalogVoices = ref<VoiceCatalogVoice[]>([])
-
-async function openCatalogPickerForPreset() {
-  // Make sure we have catalog data so confirmCatalogPick can resolve names.
-  // The picker itself fetches independently, but we need the same data
-  // here for the name lookup on confirm.
-  if (!catalogLoadedOnce.value) {
-    catalogLoading.value = true
-    try {
-      const data = await get<{ voices: VoiceCatalogVoice[]; source: string }>(
-        `/projects/${slug.value}/voices/catalog`,
-      )
-      lastCatalogVoices.value = data.voices || []
-      voiceCatalogIds.value = new Set(lastCatalogVoices.value.map(v => v.voice_id))
-      catalogLoadedOnce.value = true
-    } catch (e: any) {
-      catalogLoadError.value = e?.data?.detail || e?.message || 'Network error'
-      showError('Could not load ElevenLabs catalog — paste a voice ID manually instead.')
-      catalogLoading.value = false
-      return
-    } finally {
-      catalogLoading.value = false
-    }
-  }
-  pendingCatalogPick.value = null
-  showCatalogPicker.value = true
-}
-
-function confirmCatalogPick() {
-  const id = pendingCatalogPick.value
-  if (!id) return
-  // Look up the name in the cached catalog. If we missed it (cache was
-  // empty at fetch time), fall back to the id as the name — user can
-  // rename inline before saving.
-  const found = lastCatalogVoices.value.find(v => v.voice_id === id)
-  const name = found?.name || id.slice(0, 12) + '…'
-  // If there's an empty trailing row, fill that — otherwise append.
-  const last = editVoices.value[editVoices.value.length - 1]
-  if (last && !last.name && !last.voice_id) {
-    last.name = name
-    last.voice_id = id
-  } else {
-    editVoices.value.push({ name, voice_id: id })
-  }
-  showCatalogPicker.value = false
-  pendingCatalogPick.value = null
-  success(`Added "${name}" — remember to hit Save below.`)
-}
-
-// Trigger catalog probe when the user lands on the voices tab.
-watch(activeTab, (tab) => {
-  if (tab === 'voices') {
-    void loadVoiceCatalogForSettings()
-  } else if (previewingVoiceId.value) {
-    // Stop any in-flight preview when leaving the tab.
-    stopVoicePreview()
-  }
+  return counts
 })
 
-onUnmounted(() => stopVoicePreview())
+const filteredVoiceRows = computed(() => {
+  const rows = editVoices.value
+    .map((voice, index) => ({ voice, index }))
+    .filter(row => voiceProviderFilter.value === 'all' || row.voice.providers.includes(voiceProviderFilter.value))
+  return rows.sort((a, b) => {
+    const nameOrder = a.voice.name.localeCompare(b.voice.name, undefined, { sensitivity: 'base' })
+    if (voiceSort.value === 'name-asc') return nameOrder
+    if (voiceSort.value === 'name-desc') return -nameOrder
+    return firstVoiceProviderIndex(a.voice) - firstVoiceProviderIndex(b.voice) || nameOrder
+  })
+})
+
+function toggleVoiceProvider(voice: SavedVoice, provider: VoiceProviderId) {
+  if (voice.providers.includes(provider)) {
+    if (voice.providers.length === 1) {
+      info('Each voice needs at least one provider label.')
+      return
+    }
+    voice.providers = voice.providers.filter(item => item !== provider)
+  } else {
+    voice.providers = VOICE_PROVIDER_OPTIONS
+      .map(option => option.id)
+      .filter(item => item === provider || voice.providers.includes(item))
+  }
+}
+
+function addVoice() {
+  const provider: VoiceProviderId = voiceProviderFilter.value === 'all' ? 'elevenlabs' : voiceProviderFilter.value
+  editVoices.value.push({ name: '', voice_id: '', providers: [provider] })
+}
 
 // Folder config
 interface FolderEntry { key: string; label: string; generator: string; order: number; template: string }
@@ -5635,7 +5497,7 @@ watch(config, (c) => {
     editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
     editAudioModels.value = JSON.parse(JSON.stringify(c.audio_models || {}))
     editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
-    editVoices.value = JSON.parse(JSON.stringify(c.voice_presets || []))
+    editVoices.value = normalizeSavedVoices(c.voice_presets || [])
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
     introStandards.value = (c as any).intro_standards || ''
@@ -6047,7 +5909,17 @@ async function saveVideoPricing() {
 }
 
 async function saveVoices() {
-  const valid = editVoices.value.filter(v => v.name && v.voice_id)
+  const unfinished = editVoices.value.find(voice => !voice.name.trim() || !voice.voice_id.trim())
+  if (unfinished) {
+    showError('Every voice needs both a name and a voice/reference ID. Remove unfinished rows or fill them in.')
+    return
+  }
+  const invalid = editVoices.value.find(voice => voice.providers.length === 0)
+  if (invalid) {
+    showError(`Choose at least one provider for "${invalid.name}".`)
+    return
+  }
+  const valid = normalizeSavedVoices(editVoices.value)
   try {
     await put(`/projects/${slug.value}/settings/config`, { voice_presets: valid })
     await refreshConfig(slug.value)
@@ -6469,51 +6341,103 @@ async function deleteProject() {
 .voice-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
+.voice-library-heading,
+.voice-library-toolbar,
 .voice-row-edit {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-/* Two-column input split — name compact, voice ID wider since it's longer. */
-.voice-row-edit .voice-name-input { flex: 1; }
-.voice-row-edit .voice-id-input   { flex: 1.5; }
-/* v1.0.71: dropped the row-dimming on .voice-row-unavailable. The pill
- * is informational only now — the voice can still be used by non-
- * ElevenLabs providers (GenAIPro, fal-audio), so dimming the row
- * over-stated the constraint. The pill itself still renders in an
- * amber tone so it catches the eye without obscuring the inputs. */
-.voice-unavailable-pill {
+.voice-library-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.voice-count {
+  color: var(--text-muted);
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.18);
-  color: rgb(180, 83, 9);
+  background: var(--bg-hover);
   white-space: nowrap;
 }
-
-/* Helper line + warning above the voice list. */
-.voice-helper-line {
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-.voice-helper-link {
-  color: var(--accent);
-  text-decoration: underline;
-}
-.voice-helper-link:hover {
-  filter: brightness(1.1);
-}
-.voice-catalog-warn {
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+.voice-library-toolbar {
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.voice-provider-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.voice-filter {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  padding: 5px 9px;
+  cursor: pointer;
   font-size: 12px;
-  color: rgb(180, 83, 9);
+}
+.voice-filter span { opacity: .7; margin-left: 3px; }
+.voice-filter:hover,
+.voice-filter.active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.voice-sort { width: 180px; flex: 0 0 auto; }
+.voice-row-edit {
+  position: relative;
+  align-items: stretch;
+  padding: 12px;
+  padding-right: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  flex-direction: column;
+}
+.voice-fields { display: grid; grid-template-columns: minmax(180px, .75fr) minmax(260px, 1.25fr); gap: 8px; }
+.voice-name-input,
+.voice-id-input { width: 100%; }
+.voice-provider-labels { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.voice-provider-prompt { color: var(--text-muted); font-size: 11px; margin-right: 2px; }
+.voice-provider-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+.voice-provider-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.voice-provider-toggle.active {
+  color: var(--text-primary);
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.voice-remove { position: absolute; top: 9px; right: 8px; }
+.voice-empty {
+  padding: 22px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+@media (max-width: 820px) {
+  .voice-library-toolbar { flex-direction: column; }
+  .voice-sort { width: 100%; }
+  .voice-fields { grid-template-columns: 1fr; }
 }
 
 .sync-zone {

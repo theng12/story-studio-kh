@@ -1613,6 +1613,7 @@ export interface VideoModelConfig {
 export interface VoicePreset {
   name: string
   voice_id: string
+  providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio'>
 }
 
 /**

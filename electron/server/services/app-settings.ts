@@ -13,6 +13,10 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import {
+  normalizeVoicePresets,
+  type NormalizedVoicePreset,
+} from './voice-presets.js'
 
 // `ffmpeg_path` lives in this file and is fed to `spawn()` by ffmpeg-manager.
 // Any process running as the user that can write this file gets
@@ -119,12 +123,12 @@ export async function setScriptConcurrency(n: unknown): Promise<number> {
 // Voices the user curates (named presets, ★ favourites) are personal-taste
 // signals — they don't change between channels. Storing them per-project
 // duplicates work (re-favourite the same voice in 5 projects). The
-// ElevenLabs voice CATALOG was already per-machine via voices-cache; this
-// lifts the user's CURATION to the same scope.
+// This lifts the user's CURATION to the same per-machine scope.
 //
 // Schema:
 //   app-settings.json
-//     "voice_presets":    [{ "name": "Vincent", "voice_id": "..." }, ...]
+//     "voice_presets":    [{ "name": "Vincent", "voice_id": "...",
+//                             "providers": ["elevenlabs", "fal"] }, ...]
 //     "voice_favourites": ["voice_id_1", "voice_id_2", ...]
 //
 // Migration: boot/migrations.ts merges each project's legacy
@@ -134,23 +138,15 @@ export async function setScriptConcurrency(n: unknown): Promise<number> {
 export const VOICE_PRESETS_KEY = 'voice_presets'
 export const VOICE_FAVOURITES_KEY = 'voice_favourites'
 
-export interface GlobalVoicePreset {
-  name: string
-  voice_id: string
-}
+export type GlobalVoicePreset = NormalizedVoicePreset
 
 export async function getVoicePresetsGlobal(): Promise<GlobalVoicePreset[]> {
   const v = await getAppSetting(VOICE_PRESETS_KEY)
-  if (!Array.isArray(v)) return []
-  return v.filter(
-    (e): e is GlobalVoicePreset =>
-      e && typeof e === 'object' &&
-      typeof e.name === 'string' && typeof e.voice_id === 'string',
-  )
+  return normalizeVoicePresets(v)
 }
 
-export async function setVoicePresetsGlobal(value: GlobalVoicePreset[]): Promise<void> {
-  await setAppSetting(VOICE_PRESETS_KEY, value)
+export async function setVoicePresetsGlobal(value: unknown): Promise<void> {
+  await setAppSetting(VOICE_PRESETS_KEY, normalizeVoicePresets(value))
 }
 
 export async function getVoiceFavouritesGlobal(): Promise<string[]> {

@@ -15,8 +15,8 @@
       generate-label="Generate Audio"
       loading-label="Queuing…"
       :generate-loading="submitting || audioJobActiveForEpisode"
-      :generate-disabled="!form.episode_id || !scriptReady || !form.voice"
-      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : ''))"
+      :generate-disabled="!form.episode_id || !scriptReady || !form.voice || !selectedVoiceCompatible"
+      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? `This voice is not labelled for ${currentAudioProviderLabel}.` : '')))"
       @generate="submit"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
@@ -53,7 +53,7 @@
       </button>
     </div>
 
-    <p class="text-muted mt-1 mb-2">Generate TTS narration audio via fal.ai (ElevenLabs) or GenAIPro.</p>
+    <p class="text-muted mt-1 mb-2">Generate TTS narration with a cloud provider or your local Voice Studio fleet.</p>
 
     <div class="card mt-3">
       <div class="grid-2">
@@ -71,46 +71,12 @@
 
       <div class="form-group">
         <label>Voice</label>
-
-        <!-- Fish: pick a saved voice (your named reference IDs). -->
-        <div v-if="currentAudioProvider === 'fishaudio' && fishSavedVoices.length" class="fish-saved-row">
-          <select
-            class="select"
-            :value="fishCurrentIsSaved ? form.voice : ''"
-            title="Your saved Fish voices"
-            @change="form.voice = ($event.target as HTMLSelectElement).value"
-          >
-            <option value="">— saved voices —</option>
-            <option v-for="v in fishSavedVoices" :key="v.voice_id" :value="v.voice_id">{{ v.name }}</option>
-          </select>
-          <button
-            v-if="fishCurrentIsSaved"
-            type="button"
-            class="btn btn-sm btn-ghost"
-            title="Remove this saved voice"
-            @click="deleteFishVoice(form.voice)"
-          >✕ Remove</button>
-        </div>
-
         <div class="voice-row">
-          <!-- Fish Audio has no curated voice catalogue — voices are
-               reference_ids (your cloned voice, or any model id from
-               fish.audio), so we surface a free-text field + a saved list. -->
-          <input
-            v-if="currentAudioProvider === 'fishaudio'"
-            v-model.trim="form.voice"
-            type="text"
-            class="input voice-picker-flex"
-            placeholder="Fish reference ID — e.g. c332dba836014c85903124a522991138"
-            spellcheck="false"
-            autocapitalize="off"
-            autocorrect="off"
-          />
           <VoicePicker
-            v-else
             v-model="form.voice"
             :project-slug="slug"
             :custom-voices="config?.voice_presets || []"
+            :custom-voices-loaded="!!config"
             :audio-model-provider="currentAudioProvider"
             :audio-model-id="form.model"
             require-selection
@@ -118,25 +84,6 @@
             @preview="previewVoiceId"
             @voice-saved="refreshConfig(slug)"
           />
-          <button
-            v-if="currentAudioProvider === 'fishaudio'"
-            type="button"
-            class="btn btn-sm btn-ghost"
-            :disabled="!form.voice || previewing"
-            :title="!form.voice ? 'Paste a reference ID first' : 'Preview this voice'"
-            @click="previewVoiceId()"
-          >
-            {{ previewing ? '…' : '▶ Preview' }}
-          </button>
-          <button
-            v-if="currentAudioProvider === 'fishaudio' && form.voice && !fishCurrentIsSaved && !showFishSave"
-            type="button"
-            class="btn btn-sm btn-ghost"
-            title="Save this reference ID as a named voice to reuse later"
-            @click="showFishSave = true"
-          >
-            💾 Save
-          </button>
           <button
             v-if="previewAudio"
             type="button"
@@ -147,32 +94,10 @@
             ■ Stop
           </button>
         </div>
-
-        <!-- Fish: name + confirm when saving a new voice. -->
-        <div v-if="showFishSave && currentAudioProvider === 'fishaudio'" class="fish-save-row">
-          <input
-            v-model.trim="fishNameDraft"
-            type="text"
-            class="input"
-            placeholder="Name this voice — e.g. Aiden (narrator)"
-            @keyup.enter="saveFishVoice"
-          />
-          <button type="button" class="btn btn-sm" :disabled="!fishNameDraft || fishSaving" @click="saveFishVoice">
-            {{ fishSaving ? 'Saving…' : 'Save' }}
-          </button>
-          <button type="button" class="btn btn-sm btn-ghost" @click="showFishSave = false; fishNameDraft = ''">Cancel</button>
-        </div>
-
         <span class="text-muted text-xs">
-          <template v-if="currentAudioProvider === 'fishaudio'">
-            Pick a <strong>saved voice</strong> above, or paste a <strong>reference ID</strong> (your cloned voice, or any from
-            <a href="https://fish.audio" target="_blank" rel="noopener">fish.audio</a>) and hit <strong>💾 Save</strong> to name &amp; reuse it.
-            Speed maps to Fish prosody; Stability / Similarity don’t apply.
-          </template>
-          <template v-else>
-            Click ▶ next to any voice for a 1-sentence preview. ★ to pin favourites to the top (per-project).
-            Hit <strong>Refresh</strong> inside the picker to pull the latest voices from ElevenLabs.
-          </template>
+          Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
+          <NuxtLink :to="`/projects/${slug}/settings#voices`">Settings → Voices</NuxtLink>.
+          <template v-if="isFish"> Speed maps to Fish prosody; Stability and Similarity do not apply.</template>
         </span>
       </div>
 
@@ -399,11 +324,18 @@
 </template>
 
 <script setup lang="ts">
+import {
+  normalizeSavedVoices,
+  voiceProviderLabel,
+  voiceSupportsProvider,
+  type VoiceProviderId,
+} from '~/utils/voice-providers'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { post, get, put } = useApi()
+const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
 
 // v1.0.203+ — which Voice Studio engines the live modal can actually run.
@@ -513,12 +445,9 @@ useRememberedForm('audio', slug, form, {
   include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
 })
 
-// v1.0.150+ — resolve the provider of the currently-picked audio model so
-// the VoicePicker can surface the right voice section. Cloud providers
-// (elevenlabs / fal / genaipro) all share the ElevenLabs voice id space;
-// 'voicestudio' has its own UUID space, so the picker uses this signal
-// to gate which voices are compatible. Empty string means "no model yet"
-// → picker shows everything.
+// Resolve the selected model's provider so VoicePicker can enforce the
+// provider labels attached to each saved cloud voice. Voice Studio and macOS
+// remain separate live voice sources.
 //
 // v1.0.157 — moved BELOW the `form = reactive({...})` declaration. See
 // the placeholder comment above where this used to live (line ~250).
@@ -526,6 +455,21 @@ const currentAudioProvider = computed<string>(() => {
   if (!form.model) return ''
   const entry = config.value?.audio_models?.[form.model] as any
   return resolveAudioProvider(form.model, entry || {})
+})
+
+const CLOUD_VOICE_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio'])
+const currentAudioProviderLabel = computed(() => {
+  const provider = currentAudioProvider.value
+  return CLOUD_VOICE_PROVIDERS.has(provider)
+    ? voiceProviderLabel(provider as VoiceProviderId)
+    : provider === 'voicestudio' ? 'Voice Studio' : provider === 'macos' ? 'macOS' : 'the selected provider'
+})
+const selectedVoiceCompatible = computed(() => {
+  if (!form.voice) return false
+  const provider = currentAudioProvider.value
+  if (!CLOUD_VOICE_PROVIDERS.has(provider)) return true
+  return normalizeSavedVoices(config.value?.voice_presets || []).some(voice =>
+    voice.voice_id === form.voice && voiceSupportsProvider(voice, provider))
 })
 
 // Fish S2-Pro is the only model with inline expression tags — gate the
@@ -537,49 +481,6 @@ const isFishS2Pro = computed(() => isFish.value && form.model === 'fishaudio-s2-
 // (via fal / GenAIPro). Expressiveness (temperature) stays Fish-only.
 const isTagCapable = computed(() => ['fishaudio-s2-pro', 'eleven-v3', 'genaipro-v3'].includes(form.model))
 watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
-
-// Fish saved voices share the global voice_presets list (same one ElevenLabs
-// uses), tagged provider:'fishaudio' so the two reference-id spaces never mix.
-// The ElevenLabs picker is fed the filtered list; here we surface only Fish.
-const fishSavedVoices = computed<Array<{ name: string; voice_id: string }>>(() =>
-  (((config.value as any)?.voice_presets || []) as any[]).filter(v => v?.provider === 'fishaudio'))
-const fishCurrentIsSaved = computed(() => !!form.voice && fishSavedVoices.value.some(v => v.voice_id === form.voice))
-const showFishSave = ref(false)
-const fishNameDraft = ref('')
-const fishSaving = ref(false)
-
-async function saveFishVoice() {
-  const refId = (form.voice || '').trim()
-  const name = fishNameDraft.value.trim()
-  if (!refId || !name) return
-  fishSaving.value = true
-  try {
-    const all = (((config.value as any)?.voice_presets || []) as any[]).slice()
-    const idx = all.findIndex(v => v?.provider === 'fishaudio' && v.voice_id === refId)
-    const entry = { name, voice_id: refId, provider: 'fishaudio' }
-    if (idx >= 0) all[idx] = entry
-    else all.push(entry)
-    await put(`/projects/${slug.value}/settings/config`, { voice_presets: all })
-    await refreshConfig(slug.value)
-    showFishSave.value = false
-    fishNameDraft.value = ''
-    success(`Saved voice "${name}"`)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Could not save the voice')
-  } finally { fishSaving.value = false }
-}
-
-async function deleteFishVoice(refId: string) {
-  try {
-    const all = (((config.value as any)?.voice_presets || []) as any[])
-      .filter(v => !(v?.provider === 'fishaudio' && v.voice_id === refId))
-    await put(`/projects/${slug.value}/settings/config`, { voice_presets: all })
-    await refreshConfig(slug.value)
-    success('Voice removed')
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Could not remove the voice')
-  }
-}
 
 // v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
 // chars). Null = use the chunker default (~4800). Surfaced read-only in the
@@ -879,6 +780,10 @@ async function submit() {
     showError('Pick a voice first — audio generation needs an explicit voice (no default).')
     return
   }
+  if (!selectedVoiceCompatible.value) {
+    showError(`The selected voice is not labelled for ${currentAudioProviderLabel.value}. Pick a compatible voice or update it in Settings → Voices.`)
+    return
+  }
   // Build the actual payload. If the user picked specific sections in the
   // selector, we send them as the comma-joined `sections` string the backend
   // already understands. If nothing is selected and they hit Generate, treat
@@ -1056,8 +961,6 @@ async function submit() {
 
 .voice-row { display: flex; gap: 6px; align-items: stretch; }
 .voice-row .select { flex: 1; }
-.fish-saved-row, .fish-save-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-.fish-saved-row .select, .fish-save-row .input { flex: 1; min-width: 0; }
 .voice-picker-flex { flex: 1; min-width: 0; }
 .preview-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 

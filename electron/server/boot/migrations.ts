@@ -19,8 +19,8 @@ import { readLastSession } from '../services/last-session.js'
 import {
   voiceCurationGlobalIsUnset,
   setVoicePresetsGlobal, setVoiceFavouritesGlobal,
-  type GlobalVoicePreset,
 } from '../services/app-settings.js'
+import { normalizeVoicePresets } from '../services/voice-presets.js'
 
 // Module-level flag that flips true once every async migration has either
 // resolved or rejected. Exposed via /api/health so the frontend can wait
@@ -97,7 +97,7 @@ export function runBootMigrations(): void {
   // Voice-curation lift: voice_presets and voice_favourites used to live
   // per-project (config.json). They're personal-taste data that doesn't
   // change between channels, so they were lifted to app-settings.json
-  // (per-machine, like the elevenlabs-voices catalog cache). This
+  // (per-machine). This
   // migration runs ONCE per machine: walks every project, merges their
   // legacy lists (deduped), writes to global. Per-project fields stay
   // readable so older app builds keep working. Idempotent — gated on
@@ -106,7 +106,7 @@ export function runBootMigrations(): void {
   tasks.push(((async () => {
     if (!await voiceCurationGlobalIsUnset()) return
     const projects = await pm.listProjects().catch(() => [])
-    const presetsByVoiceId = new Map<string, GlobalVoicePreset>()
+    const presetInputs: unknown[] = []
     const favouriteIds = new Set<string>()
     let scannedProjects = 0
     for (const p of projects) {
@@ -114,19 +114,12 @@ export function runBootMigrations(): void {
       if (!cfg) continue
       scannedProjects++
       const presets = Array.isArray(cfg.voice_presets) ? cfg.voice_presets : []
-      for (const vp of presets) {
-        if (vp && typeof vp.name === 'string' && typeof vp.voice_id === 'string') {
-          // First write wins on duplicate voice_id — preserves the
-          // earliest project's chosen display name.
-          if (!presetsByVoiceId.has(vp.voice_id)) {
-            presetsByVoiceId.set(vp.voice_id, { name: vp.name, voice_id: vp.voice_id })
-          }
-        }
-      }
+      presetInputs.push(...presets)
       const favs = Array.isArray(cfg.voice_favourites) ? cfg.voice_favourites : []
       for (const id of favs) if (typeof id === 'string' && id.length > 0) favouriteIds.add(id)
     }
-    const presets = [...presetsByVoiceId.values()]
+    // First display name wins while provider labels from duplicate IDs merge.
+    const presets = normalizeVoicePresets(presetInputs)
     const favourites = [...favouriteIds]
     await setVoicePresetsGlobal(presets)
     await setVoiceFavouritesGlobal(favourites)

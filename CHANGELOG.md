@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.571 — 2026-07-14
+
+**Saved voices now belong to the providers that can actually use them.**
+
+- Replaced the ElevenLabs online catalog with a private saved-voice library that never downloads or refreshes ElevenLabs voices.
+- Added multi-provider labels for ElevenLabs, fal.ai, GenAIPro, kie.ai, and Fish Audio voice or clone IDs.
+- Added provider filters and provider-aware sorting to Settings → Voices, with clear counts and compact editing controls.
+- Unified cloud voice selection in Audio Generator so each model only shows compatible voices, including Fish Audio and kie.ai.
+- Added front-end, queue, and worker safeguards that reject mismatched voice and provider combinations before a generation request starts.
+- Migrated existing saved voices safely: legacy ElevenLabs-compatible IDs keep working across their existing gateways, while existing Fish Audio clones remain Fish-only.
+- Added regression coverage for normalization, duplicate merging, compatibility checks, labels, filtering, and sorting.
+
 ## v1.0.570 — 2026-07-14
 
 **App connections are now easier to scan, configure, and manage without a long settings page.**

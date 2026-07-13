@@ -321,7 +321,11 @@ export interface SafeProjectConfigResponse {
    */
   accounts?: Record<string, AccountSummaryResponse[]>
   image_models: Record<string, any>
-  voice_presets: Array<{ name: string; voice_id: string }>
+  voice_presets: Array<{
+    name: string
+    voice_id: string
+    providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio'>
+  }>
   style_presets?: Array<{
     id: string
     name: string

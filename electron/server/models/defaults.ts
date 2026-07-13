@@ -270,7 +270,11 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
 }
 
 export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [
-  { name: 'Vincent', voice_id: 'Qe9WSybioZxssVEwlBSo' },
+  {
+    name: 'Vincent',
+    voice_id: 'Qe9WSybioZxssVEwlBSo',
+    providers: ['elevenlabs', 'fal', 'genaipro', 'kie'],
+  },
 ]
 
 // Per-model extra fields live in provider_params on the stored config (not the typed interface)
