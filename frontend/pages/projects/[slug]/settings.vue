@@ -4456,7 +4456,7 @@ const tabZones = [
       { title: 'App', tabs: [
         // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
         // the old standalone App-Settings modal. One "Settings" surface now.
-        { id: 'app', label: 'API Keys & Appearance' },
+        { id: 'app', label: 'App & Connections' },
       ] },
       { title: 'Local & system', tabs: [
         // id stays 'local-tts' for saved-tab-state / deep-link back-compat.

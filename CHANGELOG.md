@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.570 — 2026-07-14
+
+**App connections are now easier to scan, configure, and manage without a long settings page.**
+
+- Reworked API Keys & Appearance into the compact App & Connections workspace with quick section navigation.
+- Promoted Server Mode from a hidden advanced disclosure to a first-class settings section with denser networking, credentials, and live diagnostics layouts.
+- Grouped API providers in the requested LLM, Audio, Image, Video, and Mix order, with configured counts and one category visible at a time.
+- Preserved every existing save, test, remove, affiliate, credential, rate-limit, and server restart action while reducing page length.
+- Added responsive layouts, keyboard-accessible provider tabs, and regression coverage for category order and provider completeness.
+
 ## v1.0.569 — 2026-07-14
 
 **Model setup is now owned by the studio apps instead of duplicated inside Story Studio.**

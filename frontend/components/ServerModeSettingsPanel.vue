@@ -1,6 +1,7 @@
 <template>
   <div class="ssm-panel">
     <header class="ssm-panel-head">
+      <span class="ssm-kicker">Remote access</span>
       <h3>
         Server Mode
         <span v-if="state?.is_currently_active" class="state-pill state-set">running</span>
@@ -8,9 +9,8 @@
         <span v-else class="state-pill state-empty">disabled</span>
       </h3>
       <p class="ssm-help">
-        Run Story Studio KH on a headless Mac mini and access it from another machine's browser at
-        <code>http://this-mac:{{ state?.port || 8765 }}/</code>. Auth via username + password.
-        Tailscale handles transport security; don't expose the port to the public internet.
+        Open Story Studio from another machine at <code>http://this-mac:{{ state?.port || 8765 }}/</code>.
+        Use Tailscale for transport security and never expose this port directly to the public internet.
       </p>
       <!-- v1.0.109 — replaced the "credentials are locked from the web" wall
            with an informational banner. The previous lockout was over-defensive
@@ -18,11 +18,9 @@
            at all because its DOM-heuristic bypass misfired). Typo-lockout is
            now handled by the "Confirm new password" field instead. -->
       <p v-if="state?.is_currently_active" class="ssm-locked">
-        You're connected via the web UI right now. <strong>Changing your password will sign you
-        out</strong> — the server rotates its session secret on every credential change, so your
-        current browser cookie becomes invalid. Log back in with the new password to continue.
-        If you fat-finger it, run <code>npm run reset-server-auth</code> at the Mac mini to clear
-        the hash and start over.
+        You are connected through Server Mode. <strong>Changing the password signs this browser
+        out.</strong> Log back in with the new password. If needed, run
+        <code>npm run reset-server-auth</code> on the Mac mini to reset access.
       </p>
 
       <!-- One-click "switch back to desktop" — most prominent action when active. -->
@@ -44,6 +42,7 @@
 
     <div v-if="loading" class="ssm-loading">Loading…</div>
     <div v-else-if="state" class="ssm-fields">
+      <div class="ssm-config-grid">
       <!-- Networking — editable from anywhere. Disabling here is a deliberate action. -->
       <fieldset :disabled="!!saving" class="ssm-fieldset">
         <legend>Networking</legend>
@@ -61,30 +60,31 @@
             of localhost. Restart the app to apply.
           </span>
         </label>
-        <label class="ssm-field">
-          <span class="ssm-field-label">Port</span>
-          <input
-            v-model.number="form.port"
-            type="number"
-            min="1"
-            max="65535"
-            class="input ssm-input ssm-input-narrow"
-            @blur="saveNetworkingDebounced"
-          >
-        </label>
-        <label class="ssm-field">
-          <span class="ssm-field-label">Bind interface</span>
-          <input
-            v-model="form.bind"
-            class="input ssm-input ssm-input-narrow"
-            placeholder="0.0.0.0"
-            @blur="saveNetworkingDebounced"
-          >
-          <span class="ssm-field-hint">
-            <code>0.0.0.0</code> = all interfaces. Use <code>127.0.0.1</code> to restrict to local
-            (effectively disables remote access while leaving the toggle on).
-          </span>
-        </label>
+        <div class="ssm-inline-fields">
+          <label class="ssm-field">
+            <span class="ssm-field-label">Port</span>
+            <input
+              v-model.number="form.port"
+              type="number"
+              min="1"
+              max="65535"
+              class="input ssm-input"
+              @blur="saveNetworkingDebounced"
+            >
+          </label>
+          <label class="ssm-field">
+            <span class="ssm-field-label">Bind interface</span>
+            <input
+              v-model="form.bind"
+              class="input ssm-input"
+              placeholder="0.0.0.0"
+              @blur="saveNetworkingDebounced"
+            >
+          </label>
+        </div>
+        <span class="ssm-field-hint ssm-network-hint">
+          <code>0.0.0.0</code> allows your private network; <code>127.0.0.1</code> keeps access local.
+        </span>
       </fieldset>
 
       <!-- v1.0.109 — credentials are editable from anywhere. Typo-lockout is
@@ -97,50 +97,52 @@
           <span v-if="state.has_credentials" class="state-pill state-set">configured</span>
           <span v-else class="state-pill state-empty">not set</span>
         </legend>
-        <label class="ssm-field">
-          <span class="ssm-field-label">Username</span>
-          <input
-            v-model="credForm.username"
-            class="input ssm-input"
-            :placeholder="state.username || 'admin'"
-            autocomplete="username"
-          >
-        </label>
-        <label class="ssm-field">
-          <span class="ssm-field-label">{{ state.has_credentials ? 'New password' : 'Password' }}</span>
-          <input
-            v-model="credForm.password"
-            type="password"
-            class="input ssm-input"
-            placeholder="At least 8 characters"
-            autocomplete="new-password"
-          >
-          <span
-            v-if="credForm.password && credForm.password.length > 0 && credForm.password.length < 8"
-            class="ssm-field-hint ssm-field-hint-warn"
-          >
-            {{ 8 - credForm.password.length }} more character{{ 8 - credForm.password.length === 1 ? '' : 's' }} to go.
-          </span>
-        </label>
+        <div class="ssm-credential-grid">
+          <label class="ssm-field">
+            <span class="ssm-field-label">Username</span>
+            <input
+              v-model="credForm.username"
+              class="input ssm-input"
+              :placeholder="state.username || 'admin'"
+              autocomplete="username"
+            >
+          </label>
+          <label class="ssm-field">
+            <span class="ssm-field-label">{{ state.has_credentials ? 'New password' : 'Password' }}</span>
+            <input
+              v-model="credForm.password"
+              type="password"
+              class="input ssm-input"
+              placeholder="At least 8 characters"
+              autocomplete="new-password"
+            >
+            <span
+              v-if="credForm.password && credForm.password.length > 0 && credForm.password.length < 8"
+              class="ssm-field-hint ssm-field-hint-warn"
+            >
+              {{ 8 - credForm.password.length }} more character{{ 8 - credForm.password.length === 1 ? '' : 's' }} to go.
+            </span>
+          </label>
         <!-- v1.0.109 — Confirm new password. Industry-standard typo guard;
              replaces the old origin-based credential lockout. Save is gated
              on this matching the password field above. -->
-        <label class="ssm-field">
-          <span class="ssm-field-label">Confirm password</span>
-          <input
-            v-model="credForm.passwordConfirm"
-            type="password"
-            class="input ssm-input"
-            placeholder="Re-enter the password"
-            autocomplete="new-password"
-          >
-          <span
-            v-if="credForm.passwordConfirm && credForm.password !== credForm.passwordConfirm"
-            class="ssm-field-hint ssm-field-hint-warn"
-          >
-            Doesn't match the password above.
-          </span>
-        </label>
+          <label class="ssm-field">
+            <span class="ssm-field-label">Confirm password</span>
+            <input
+              v-model="credForm.passwordConfirm"
+              type="password"
+              class="input ssm-input"
+              placeholder="Re-enter password"
+              autocomplete="new-password"
+            >
+            <span
+              v-if="credForm.passwordConfirm && credForm.password !== credForm.passwordConfirm"
+              class="ssm-field-hint ssm-field-hint-warn"
+            >
+              Doesn't match the password above.
+            </span>
+          </label>
+        </div>
         <div class="ssm-buttons">
           <button
             class="btn btn-primary btn-sm"
@@ -231,6 +233,7 @@
           </span>
         </div>
       </fieldset>
+      </div>
 
       <div v-if="message" :class="['ssm-message', message.kind]">{{ message.text }}</div>
     </div>
@@ -238,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 
 interface ServerModeView {
   enabled: boolean
@@ -501,148 +504,142 @@ defineExpose({ reload: load })
 </script>
 
 <style scoped>
-.ssm-panel { padding-top: 4px; }
+.ssm-panel { min-width: 0; }
+.ssm-kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 .ssm-panel-head h3 {
-  margin: 0;
-  font-size: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin: 0;
+  font-size: 15px;
 }
-.ssm-help {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
+.ssm-help { margin: 4px 0 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
 .ssm-locked {
-  margin: 8px 0 0;
-  padding: 8px 12px;
-  background: var(--accent-dim);
+  margin: 9px 0 0;
+  padding: 7px 10px;
   border-left: 3px solid var(--accent);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
   border-radius: 4px;
+  background: var(--accent-dim);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .ssm-loading { padding: 16px 0; color: var(--text-muted); font-size: 13px; }
-.ssm-fieldset {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 14px 14px;
-  margin: 12px 0 0;
+.ssm-config-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(420px, 1.18fr);
+  gap: 9px;
+  margin-top: 12px;
 }
+.ssm-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 9px 11px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-primary);
+}
+.ssm-fieldset:nth-child(3) { grid-column: 1 / -1; }
 .ssm-fieldset legend {
-  padding: 0 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 0 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
 }
-.ssm-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
+.ssm-field { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; }
 .ssm-field:first-of-type { margin-top: 4px; }
 .ssm-field-label {
-  font-size: 12px;
-  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.ssm-field-hint {
+  color: var(--text-secondary);
   font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
-/* v1.0.109 — amber inline hint for the typo guards on the credentials
-   form (password too short, confirm mismatch). Sits under the input. */
-.ssm-field-hint-warn {
-  color: #ca8a04;
-}
-.ssm-input { font-size: 13px; }
+.ssm-field-hint { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.ssm-field-hint-warn { color: #ca8a04; }
+.ssm-input { font-size: 11.5px; }
 .ssm-input-narrow { max-width: 180px; }
-.ssm-buttons {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-.ssm-message {
-  margin-top: 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-}
+.ssm-inline-fields,
+.ssm-credential-grid { display: grid; gap: 7px; }
+.ssm-inline-fields { grid-template-columns: minmax(90px, 0.7fr) minmax(130px, 1.3fr); }
+.ssm-credential-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ssm-inline-fields .ssm-field,
+.ssm-credential-grid .ssm-field { min-width: 0; }
+.ssm-inline-fields .ssm-input,
+.ssm-credential-grid .ssm-input { width: 100%; min-width: 0; }
+.ssm-network-hint { display: block; margin-top: 7px; }
+.ssm-buttons { display: flex; gap: 7px; margin-top: 8px; }
+.ssm-message { margin-top: 9px; padding: 7px 9px; border-radius: 6px; font-size: 11px; }
 .ssm-message.ok { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .ssm-message.err { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
-.state-pill {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-weight: 500;
-}
+.state-pill { padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; }
 .state-set { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .state-warn { background: rgba(234, 179, 8, 0.12); color: #ca8a04; }
 .state-empty { background: var(--bg-tertiary); color: var(--text-muted); }
 .ssm-quick-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--bg-primary);
+  gap: 10px;
+  margin-top: 9px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
+  background: var(--bg-primary);
   flex-wrap: wrap;
 }
-.ssm-quick-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  flex: 1;
-  min-width: 200px;
-  line-height: 1.4;
-}
-
-/* v1.0.99+ Server Status diagnostic. Two-column grid of label/value rows
-   with a refresh footer. Sits below the Networking + Credentials cards,
-   visible only when the server is actively running in server mode. */
+.ssm-quick-hint { flex: 1; min-width: 200px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
 .ssm-diag-grid {
   display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 8px 12px;
-  margin-top: 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 3px;
 }
 .ssm-diag-row {
-  display: contents;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
 }
 .ssm-diag-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
-  align-self: center;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 .ssm-diag-value {
-  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-primary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ssm-diag-value code {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 3px;
+.ssm-diag-value code { padding: 2px 5px; border-radius: 3px; background: var(--bg-tertiary); font-size: 10px; }
+.ssm-diag-refresh { display: flex; align-items: baseline; gap: 9px; margin-top: 8px; flex-wrap: wrap; }
+
+@media (max-width: 1000px) {
+  .ssm-config-grid { grid-template-columns: 1fr; }
+  .ssm-fieldset:nth-child(3) { grid-column: auto; }
+  .ssm-diag-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-.ssm-diag-refresh {
-  margin-top: 12px;
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  flex-wrap: wrap;
+
+@media (max-width: 680px) {
+  .ssm-credential-grid { grid-template-columns: 1fr; }
+  .ssm-diag-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ssm-quick-actions { align-items: flex-start; flex-direction: column; }
 }
 </style>

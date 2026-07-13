@@ -1,27 +1,27 @@
 <template>
-  <!-- v1.0.185 (S2) — "This Mac" settings body, extracted from AppSettingsModal
-       so it can render BOTH inside the modal (opened from the all-projects
-       index, where no project is selected) AND embedded in the project
-       Settings page's "This Mac" zone. One implementation, two mount points —
-       the merge the user asked for, without losing pre-project reachability.
-       Everything here is per-machine: API keys, appearance, server mode. -->
   <div class="this-mac-settings">
-    <p class="text-muted tms-scope-note">
-      These apply to <strong>this Mac only</strong> — they're never synced
-      across machines. Keys live at
-      <code>~/Library/Application&nbsp;Support/Story Studio KH/app-secrets.json</code>
-      (mode 0600) and never leave your machine.
-    </p>
+    <header class="tms-overview">
+      <div>
+        <span class="tms-eyebrow">This Mac</span>
+        <h3>App &amp; connections</h3>
+      </div>
+      <p>
+        Appearance, remote access, and provider keys stay on this machine.
+        API keys are stored locally with restricted file permissions and never sync with projects.
+      </p>
+    </header>
 
-    <!-- Appearance -->
-    <section class="appearance-section">
-      <div class="appearance-head">
+    <nav class="tms-jump-nav" aria-label="App settings sections">
+      <a href="#appearance-settings">Appearance</a>
+      <a href="#server-mode-settings">Server mode</a>
+      <a href="#api-key-settings">API connections</a>
+    </nav>
+
+    <section id="appearance-settings" class="tms-section appearance-section">
+      <div class="tms-section-copy">
+        <span class="tms-section-kicker">Display</span>
         <h4>Appearance</h4>
-        <p class="text-muted appearance-help">
-          Choose how the app looks. <strong>System</strong> follows your
-          Mac's appearance and flips automatically at sunset if you have
-          macOS set to <em>Auto</em>.
-        </p>
+        <p>System follows your Mac and changes automatically when macOS switches themes.</p>
       </div>
       <div class="theme-picker" role="radiogroup" aria-label="Theme">
         <button
@@ -61,31 +61,71 @@
       </div>
     </section>
 
-    <!-- API keys -->
-    <h4 class="tms-section-title">API Keys</h4>
-    <p class="text-muted tms-section-help">One key per provider, used by every project on this Mac.</p>
-    <div v-if="loading" class="text-muted modal-loading">Loading…</div>
-    <div v-else class="provider-list">
+    <section id="server-mode-settings" class="tms-section server-section">
+      <ServerModeSettingsPanel />
+    </section>
+
+    <section id="api-key-settings" class="tms-section api-section">
+      <header class="api-section-head">
+        <div class="tms-section-copy">
+          <span class="tms-section-kicker">Providers</span>
+          <h4>API connections</h4>
+          <p>One key per provider, shared by every project on this Mac.</p>
+        </div>
+        <span class="api-total">{{ configuredProviderCount }}/{{ API_PROVIDER_META.length }} configured</span>
+      </header>
+
+      <div class="provider-category-tabs" role="tablist" aria-label="API provider category">
+        <button
+          v-for="group in API_PROVIDER_GROUPS"
+          :key="group.id"
+          :id="`provider-tab-${group.id}`"
+          type="button"
+          role="tab"
+          :aria-selected="activeProviderCategory === group.id"
+          :aria-controls="`provider-panel-${group.id}`"
+          :tabindex="activeProviderCategory === group.id ? 0 : -1"
+          :class="['provider-category-tab', { active: activeProviderCategory === group.id }]"
+          @click="activeProviderCategory = group.id"
+          @keydown.left.prevent="selectAdjacentProviderCategory(group.id, -1)"
+          @keydown.right.prevent="selectAdjacentProviderCategory(group.id, 1)"
+        >
+          <span>{{ group.label }}</span>
+          <span class="provider-category-count">{{ configuredCountFor(group.id) }}/{{ providersFor(group.id).length }}</span>
+        </button>
+      </div>
+
       <div
-        v-for="p in PROVIDER_META"
-        :key="p.id"
-        class="provider-row"
+        :id="`provider-panel-${activeProviderCategory}`"
+        class="provider-category-panel"
+        role="tabpanel"
+        :aria-labelledby="`provider-tab-${activeProviderCategory}`"
       >
-        <div class="provider-head">
-          <h4>
-            {{ p.name }}
-            <span v-if="byId[p.id]?.hasKey" class="state-pill state-set">configured</span>
-            <span v-else class="state-pill state-empty">not set</span>
-          </h4>
-          <p v-if="p.helpText" class="provider-help">{{ p.helpText }}</p>
-          <p v-if="p.affiliateUrl" class="provider-affiliate">
-            <a :href="p.affiliateUrl" target="_blank" rel="noopener noreferrer" class="affiliate-link">
-              Get API key →
-            </a>
-          </p>
+        <div class="provider-group-summary">
+          <div>
+            <strong>{{ activeProviderGroup.label }}</strong>
+            <span>{{ activeProviderGroup.description }}</span>
+          </div>
+          <span>{{ providersFor(activeProviderCategory).length }} provider{{ providersFor(activeProviderCategory).length === 1 ? '' : 's' }}</span>
         </div>
 
-        <div class="provider-row-controls">
+        <div v-if="loading" class="text-muted modal-loading">Loading connections…</div>
+        <div v-else class="provider-grid">
+          <article
+            v-for="p in providersFor(activeProviderCategory)"
+            :key="p.id"
+            :class="['provider-card', { configured: byId[p.id]?.hasKey }]"
+          >
+          <header class="provider-head">
+            <div>
+              <h5>{{ p.name }}</h5>
+              <p v-if="p.helpText" class="provider-help">{{ p.helpText }}</p>
+            </div>
+            <span v-if="byId[p.id]?.hasKey" class="state-pill state-set">configured</span>
+            <span v-else class="state-pill state-empty">not set</span>
+          </header>
+
+          <div class="provider-key-line">
           <input
             type="password"
             :placeholder="p.placeholder || 'sk-…'"
@@ -95,6 +135,12 @@
             spellcheck="false"
             @keyup.enter="onSave(p.id)"
           />
+            <span v-if="byId[p.id]?.hasKey && !drafts[p.id]" class="current-key">
+              Saved {{ byId[p.id]?.keyMasked || '••••' }}
+            </span>
+          </div>
+
+          <div class="provider-actions">
           <button
             class="btn btn-primary btn-sm"
             :disabled="!!busy[p.id] || !drafts[p.id]?.trim()"
@@ -119,23 +165,30 @@
           >
             {{ busy[p.id] === 'clearing' ? 'Clearing…' : 'Remove' }}
           </button>
-        </div>
+            <a
+              v-if="p.affiliateUrl"
+              :href="p.affiliateUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="affiliate-link"
+            >Get key ↗</a>
+          </div>
 
-        <div v-if="byId[p.id]?.hasKey && !drafts[p.id]" class="text-muted current-key">
-          Currently saved: <code>{{ byId[p.id]?.keyMasked || '••••' }}</code>
-        </div>
-
-        <div v-if="results[p.id]" :class="['test-result', results[p.id]?.kind]">
-          {{ results[p.id]?.message }}
+          <div v-if="results[p.id]" :class="['test-result', results[p.id]?.kind]">
+            {{ results[p.id]?.message }}
+          </div>
+          </article>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Server Mode — collapsed; lazily mounts the panel when expanded. -->
-    <details class="ssm-section">
-      <summary>Server Mode (advanced — headless web UI)</summary>
-      <ServerModeSettingsPanel />
-    </details>
+    <footer class="tms-security-note">
+      <span aria-hidden="true">◇</span>
+      <span>
+        Keys are stored in <code>~/Library/Application Support/Story Studio KH/app-secrets.json</code>
+        with mode 0600.
+      </span>
+    </footer>
   </div>
 </template>
 
@@ -147,6 +200,13 @@
  * shown in the modal). No props; no modal coupling.
  */
 import { ref, reactive, computed, onMounted } from 'vue'
+import {
+  API_PROVIDER_GROUPS,
+  API_PROVIDER_META,
+  apiProvidersFor,
+  type ApiProviderCategory,
+  type ApiProviderMeta,
+} from '../utils/api-provider-groups'
 
 const { get, put, del, post } = useApi()
 const { ask } = useConfirm()
@@ -158,38 +218,42 @@ interface ProviderRow {
   keyMasked: string
 }
 
-const PROVIDER_META: Array<{
-  id: string
-  name: string
-  helpText?: string
-  placeholder?: string
-  affiliateUrl?: string
-}> = [
-  { id: 'openai', name: 'OpenAI', helpText: 'Used for script and metadata text generation (GPT models) and image vision fallback.', placeholder: 'sk-proj-…' },
-  { id: 'deepseek', name: 'DeepSeek', helpText: 'Official DeepSeek API — text generation (V4 Flash is the default model; V4 Pro).', placeholder: 'sk-…', affiliateUrl: 'https://platform.deepseek.com/api_keys' },
-  { id: 'openrouter', name: 'OpenRouter', helpText: 'OpenAI-compatible gateway — currently DeepSeek V4 Flash. One key, many models.', placeholder: 'sk-or-…', affiliateUrl: 'https://openrouter.ai/keys' },
-  { id: 'kie', name: 'Kie.ai', helpText: 'Text (Claude / GPT / Gemini), image, and video generation gateway.', placeholder: 'kie-…' },
-  { id: 'fal', name: 'Fal.ai', helpText: 'Image and audio generation (Flux LoRA, voice cloning).', placeholder: 'fal-…' },
-  { id: 'genaipro', name: 'GenAI Pro', helpText: 'Veo video and audio generation gateway.', placeholder: '…' },
-  { id: 'elevenlabs', name: 'ElevenLabs', helpText: 'Voice synthesis for narration.', placeholder: 'xi-…' },
-  { id: 'fishaudio', name: 'Fish Audio', helpText: 'Affordable cloud voice synthesis (~$0.015/1k chars). Supports your cloned voices via reference ID — paste it in the Audio Generator’s Voice field.', placeholder: '…', affiliateUrl: 'https://fish.audio/go-api/' },
-  { id: 'google', name: 'Google', helpText: 'Used for selected Google AI Studio endpoints.', placeholder: '…' },
-  { id: 'pexels', name: 'Pexels', helpText: 'Free CC-licensed stock video. Get a key at pexels.com/api — 200 req/hr free tier.', placeholder: '…', affiliateUrl: 'https://www.pexels.com/api/new/' },
-  { id: 'pixabay', name: 'Pixabay', helpText: 'Free CC-licensed stock video. Get a key at pixabay.com/api/docs — free tier.', placeholder: '…', affiliateUrl: 'https://pixabay.com/api/docs/' },
-  { id: 'perplexity', name: 'Perplexity', helpText: 'Optional. Powers the live-web-search source of the Research phase. The LLM-only research source works without it.', placeholder: 'pplx-…', affiliateUrl: 'https://www.perplexity.ai/settings/api' },
-]
-
 const loading = ref(false)
 const providers = ref<ProviderRow[]>([])
 const drafts = reactive<Record<string, string>>({})
 const busy = reactive<Record<string, '' | 'saving' | 'testing' | 'clearing'>>({})
 const results = reactive<Record<string, { kind: 'ok' | 'warn' | 'err'; message: string } | null>>({})
+const activeProviderCategory = ref<ApiProviderCategory>('llm')
 
 const byId = computed(() => {
   const out: Record<string, ProviderRow> = {}
   for (const r of providers.value) out[r.providerId] = r
   return out
 })
+
+const configuredProviderCount = computed(() => (
+  API_PROVIDER_META.filter(provider => byId.value[provider.id]?.hasKey).length
+))
+
+const activeProviderGroup = computed(() => (
+  API_PROVIDER_GROUPS.find(group => group.id === activeProviderCategory.value) || API_PROVIDER_GROUPS[0]
+))
+
+function providersFor(category: ApiProviderCategory): ApiProviderMeta[] {
+  return apiProvidersFor(category)
+}
+
+function configuredCountFor(category: ApiProviderCategory): number {
+  return providersFor(category).filter(provider => byId.value[provider.id]?.hasKey).length
+}
+
+function selectAdjacentProviderCategory(current: ApiProviderCategory, direction: -1 | 1): void {
+  const index = API_PROVIDER_GROUPS.findIndex(group => group.id === current)
+  const nextIndex = (index + direction + API_PROVIDER_GROUPS.length) % API_PROVIDER_GROUPS.length
+  const nextCategory = API_PROVIDER_GROUPS[nextIndex].id
+  activeProviderCategory.value = nextCategory
+  requestAnimationFrame(() => document.getElementById(`provider-tab-${nextCategory}`)?.focus())
+}
 
 async function load() {
   loading.value = true
@@ -260,102 +324,260 @@ async function onTest(providerId: string) {
 </script>
 
 <style scoped>
-.tms-scope-note { margin: 0 0 12px; font-size: 12px; line-height: 1.55; }
-.tms-section-title { margin: 8px 0 2px; font-size: 14px; font-weight: 600; }
-.tms-section-help { margin: 0 0 4px; font-size: 12px; }
-.modal-loading { padding: 32px 0; text-align: center; }
-
-.provider-list { margin-top: 12px; }
-.provider-row {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
+.this-mac-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.provider-row:last-child { border-bottom: none; }
-.provider-head h4 {
+.tms-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  align-items: end;
+  gap: 28px;
+  padding: 4px 2px 10px;
+}
+.tms-overview h3 { margin: 2px 0 0; font-size: 20px; }
+.tms-overview p {
   margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.tms-eyebrow,
+.tms-section-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.tms-jump-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.provider-help { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
-.provider-affiliate { margin: 4px 0 0; font-size: 12px; }
-.affiliate-link { color: var(--accent); text-decoration: none; }
-.affiliate-link:hover { text-decoration: underline; }
-.provider-row-controls {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.input-key {
-  flex: 1;
-  min-width: 240px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-}
-.current-key { margin-top: 6px; font-size: 12px; }
-.test-result { margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 12px; }
-.test-result.ok { background: var(--success-bg, rgba(34, 197, 94, 0.12)); color: var(--success, #16a34a); }
-.test-result.warn { background: var(--warning-bg, rgba(234, 179, 8, 0.12)); color: var(--warning, #ca8a04); }
-.test-result.err { background: var(--danger-bg, rgba(239, 68, 68, 0.12)); color: var(--danger, #dc2626); }
-.state-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
-.state-set { background: var(--success-bg, rgba(34, 197, 94, 0.12)); color: var(--success, #16a34a); }
-.state-empty { background: var(--bg-tertiary); color: var(--text-muted); }
-
-.ssm-section {
-  margin-top: 20px;
-  padding: 12px 14px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  backdrop-filter: blur(12px);
 }
-.ssm-section summary {
-  cursor: pointer;
-  font-size: 13px;
+.tms-jump-nav a {
+  padding: 6px 11px;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
-  user-select: none;
+  text-decoration: none;
 }
-.ssm-section[open] summary { margin-bottom: 8px; }
-
-/* Appearance picker */
-.appearance-section {
-  margin: 10px 0 14px;
-  padding: 12px 14px;
+.tms-jump-nav a:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.tms-section {
+  scroll-margin-top: 58px;
+  padding: 15px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  border-radius: 12px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--bg-secondary) 96%, var(--accent) 4%), var(--bg-secondary));
 }
-.appearance-head { margin-bottom: 10px; }
-.appearance-head h4 { margin: 0; font-size: 14px; font-weight: 600; }
-.appearance-help { margin: 4px 0 0; font-size: 12px; line-height: 1.55; }
+.tms-section-copy h4 { margin: 2px 0 0; font-size: 15px; }
+.tms-section-copy p { margin: 3px 0 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
+.modal-loading { padding: 34px 0; text-align: center; }
+
+.appearance-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 72px;
+}
 .theme-picker {
   display: inline-flex;
-  gap: 4px;
+  flex-shrink: 0;
+  gap: 3px;
   padding: 3px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 9px;
 }
 .theme-option {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border: none;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
 }
 .theme-option:hover:not(.active) { background: var(--bg-hover); color: var(--text-primary); }
 .theme-option.active { background: var(--accent); color: var(--accent-on); }
-.theme-glyph { font-size: 14px; line-height: 1; }
-.theme-resolved { font-size: 11px; opacity: 0.8; text-transform: capitalize; }
+.theme-glyph { font-size: 13px; line-height: 1; }
+.theme-resolved { font-size: 10px; opacity: 0.78; text-transform: capitalize; }
+
+.server-section { padding: 16px; }
+.api-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.api-total {
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.provider-category-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+}
+.provider-category-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.provider-category-tab:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.provider-category-tab.active { color: var(--accent-on); background: var(--accent); }
+.provider-category-count {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+.provider-group-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 2px 9px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+.provider-group-summary > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-group-summary strong { color: var(--text-secondary); font-size: 11px; }
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.provider-card {
+  position: relative;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-primary);
+}
+.provider-card.configured { border-color: color-mix(in srgb, #22c55e 30%, var(--border)); }
+.provider-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 43px;
+}
+.provider-head > div { min-width: 0; }
+.provider-head h5 { margin: 0; font-size: 13px; }
+.provider-help {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-key-line { position: relative; margin-top: 8px; }
+.input-key {
+  width: 100%;
+  padding-right: 112px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+.current-key {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  max-width: 100px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-top: 7px;
+}
+.provider-actions .btn { min-height: 26px; padding: 4px 9px; font-size: 10.5px; }
+.affiliate-link { margin-left: auto; color: var(--accent); font-size: 10.5px; text-decoration: none; }
+.affiliate-link:hover { text-decoration: underline; }
+.test-result { margin-top: 7px; padding: 6px 8px; border-radius: 6px; font-size: 10.5px; }
+.test-result.ok { background: var(--success-bg, rgba(34, 197, 94, 0.12)); color: var(--success, #16a34a); }
+.test-result.warn { background: var(--warning-bg, rgba(234, 179, 8, 0.12)); color: var(--warning, #ca8a04); }
+.test-result.err { background: var(--danger-bg, rgba(239, 68, 68, 0.12)); color: var(--danger, #dc2626); }
+.state-pill { flex-shrink: 0; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; }
+.state-set { background: var(--success-bg, rgba(34, 197, 94, 0.12)); color: var(--success, #16a34a); }
+.state-empty { background: var(--bg-tertiary); color: var(--text-muted); }
+.tms-security-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.tms-security-note code { font-size: 9.5px; }
+
+@media (max-width: 820px) {
+  .tms-overview { grid-template-columns: 1fr; gap: 7px; }
+  .appearance-section { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .provider-grid { grid-template-columns: 1fr; }
+  .provider-category-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .tms-jump-nav { position: static; }
+  .tms-jump-nav a { flex: 1; padding-inline: 6px; text-align: center; }
+  .provider-category-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .theme-picker { width: 100%; }
+  .theme-option { flex: 1; justify-content: center; padding-inline: 7px; }
+  .theme-resolved { display: none; }
+  .provider-group-summary > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+}
 </style>
