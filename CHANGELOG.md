@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.573 — 2026-07-14
+
+**Settings now has one modern, consistent control-room design across every tab.**
+
+- Added a shared Settings header, clear This Mac versus This Project navigation, descriptive section summaries, and consistent modern panels across all 17 settings surfaces.
+- Split Local Models into focused Overview, Studio Hub, Voice, Image, and Chat views so setup, fleet routing, and endpoint controls no longer form one long page.
+- Split model pricing into compact Image, Audio, and Video categories while preserving every existing pricing and chunk-limit control.
+- Modernized older secondary navigation used by Niche and Standards, strengthened tables and panel hierarchy, and added responsive layouts with no horizontal overflow at smaller window sizes.
+- Added regression coverage for the shared Settings shell, Local Models views, and model-pricing categories.
+
 ## v1.0.572 — 2026-07-14
 
 **The unused shared Brand profile system has been removed completely.**

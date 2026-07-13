@@ -1,6 +1,16 @@
 <template>
-  <div>
-    <h1>Settings</h1>
+  <div class="settings-workspace">
+    <header class="settings-page-hero">
+      <div class="settings-page-copy">
+        <span class="settings-page-eyebrow">Control room</span>
+        <h1>Settings</h1>
+        <p>Configure this Mac and shape how <strong>{{ project?.name || 'this project' }}</strong> creates, stores, and finishes every episode.</p>
+      </div>
+      <div class="settings-page-key" aria-label="Settings storage key">
+        <span><i class="key-dot key-machine" />This Mac</span>
+        <span><i class="key-dot key-project" />This Project</span>
+      </div>
+    </header>
 
     <!-- v1.0.184 (S1) — grouped + scope-zoned settings nav. Replaces the flat
          15-tab row. Two scopes (This Mac vs This Project) make it obvious what
@@ -20,43 +30,67 @@
               v-for="tab in group.tabs"
               :key="tab.id"
               :class="['tab', { active: activeTab === tab.id }]"
+              :aria-current="activeTab === tab.id ? 'page' : undefined"
               @click="activeTab = tab.id"
-            >{{ tab.label }}</button>
+            >
+              <span class="settings-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+              <span>{{ tab.label }}</span>
+            </button>
           </div>
         </div>
       </div>
     </nav>
 
-    <!-- v1.0.186 (S3) — scope banner. Mirrors the active tab's zone so the
-         user always knows, in plain language, whether the panel they're
-         editing stays on this Mac or travels with the project. -->
-    <div
-      v-if="activeZone"
-      :class="['settings-scope-banner', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
+    <section
+      v-if="activeZone && activeTabMeta"
+      :class="['settings-active-intro', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
     >
-      <span class="scope-banner-icon" aria-hidden="true">{{ activeZone.id === 'machine' ? '⚙' : '📁' }}</span>
-      <span class="scope-banner-text">
-        <strong>{{ activeZone.title }}</strong>
-        <template v-if="activeZone.id === 'machine'">
-          — these stay on this Mac and are never synced. They're shared by every project you open on this machine.
-        </template>
-        <template v-else>
-          — these travel with the project. Copy or sync the project folder to another Mac and they come along.
-        </template>
+      <span class="settings-active-icon" aria-hidden="true">{{ activeTabMeta.icon }}</span>
+      <div class="settings-active-copy">
+        <span class="settings-active-kicker">{{ activeZone.title }}</span>
+        <h2>{{ activeTabMeta.label }}</h2>
+        <p>{{ activeTabMeta.description }}</p>
+      </div>
+      <span class="settings-scope-pill">
+        {{ activeZone.id === 'machine' ? 'Stays on this Mac' : 'Travels with project' }}
       </span>
-    </div>
+    </section>
 
     <!-- App (per-machine): API Keys + Appearance + Server Mode.
          v1.0.185 (S2) — folded the standalone App-Settings modal into the
          "This Mac" zone here. Same <ThisMacSettings> component the modal now
          wraps, so there is one source of truth. It owns its own data
          lifecycle (loads on mount / when this tab is shown). -->
-    <div v-if="activeTab === 'app'" class="card mt-2">
+    <div v-if="activeTab === 'app'" class="card settings-panel settings-panel-embedded mt-2">
       <ThisMacSettings />
     </div>
 
     <!-- Models (Editable) -->
-    <div v-if="activeTab === 'models'" class="card mt-2">
+    <div v-if="activeTab === 'models'" class="card settings-panel mt-2">
+      <div class="settings-section-head">
+        <div>
+          <span class="settings-section-kicker">Generation catalog</span>
+          <h3>Model pricing &amp; limits</h3>
+          <p>Maintain only the operational values Story Studio needs for estimates and safe provider requests.</p>
+        </div>
+        <span class="settings-section-count">{{ Object.keys(editImageModels).length + Object.keys(editAudioModels).length + Object.keys(editVideoModels).length }} models</span>
+      </div>
+
+      <nav class="settings-segmented-nav" aria-label="Model pricing categories">
+        <button
+          v-for="view in modelPricingViews"
+          :key="view.id"
+          type="button"
+          :class="['settings-segmented-button', { active: modelPricingView === view.id }]"
+          :aria-current="modelPricingView === view.id ? 'page' : undefined"
+          @click="modelPricingView = view.id"
+        >
+          <span aria-hidden="true">{{ view.icon }}</span>
+          <span><strong>{{ view.label }}</strong><small>{{ view.description }}</small></span>
+        </button>
+      </nav>
+
+      <section v-if="modelPricingView === 'image'" class="settings-subpanel">
       <div class="card-header">
         <h3>Image Model Pricing</h3>
         <span class="text-muted" style="font-size:12px" v-if="config?.image_pricing_last_updated">
@@ -80,8 +114,10 @@
         <button class="btn btn-primary" @click="saveImagePricing">Save Image Pricing</button>
         <SaveIndicator v-bind="savedHintProps('image_pricing')" />
       </div>
+      </section>
 
-      <div class="card-header mt-3" id="audio-models">
+      <section v-if="modelPricingView === 'audio'" id="audio-models" class="settings-subpanel">
+      <div class="card-header">
         <h3>Audio Model Pricing</h3>
         <span class="text-muted" style="font-size:12px" v-if="config?.audio_pricing_last_updated">
           Updated: {{ config.audio_pricing_last_updated }}
@@ -127,8 +163,10 @@
         <button class="btn btn-primary" @click="saveAudioPricing">Save Audio Pricing</button>
         <SaveIndicator v-bind="savedHintProps('audio_pricing')" />
       </div>
+      </section>
 
-      <div class="card-header mt-3">
+      <section v-if="modelPricingView === 'video'" class="settings-subpanel">
+      <div class="card-header">
         <h3>Video Model Pricing</h3>
         <span class="text-muted" style="font-size:12px" v-if="(config as any)?.video_pricing_last_updated">
           Updated: {{ (config as any).video_pricing_last_updated }}
@@ -159,10 +197,11 @@
         <button class="btn btn-primary" @click="saveVideoPricing">Save Video Pricing</button>
         <SaveIndicator v-bind="savedHintProps('video_pricing')" />
       </div>
+      </section>
     </div>
 
     <!-- Saved cloud voices -->
-    <div v-if="activeTab === 'voices'" class="card mt-2">
+    <div v-if="activeTab === 'voices'" class="card settings-panel mt-2">
       <div class="voice-library-heading">
         <div>
           <h3>Voice library</h3>
@@ -233,7 +272,7 @@
       </div>
     </div>
 
-    <div v-if="activeTab === 'styles'" class="card mt-2">
+    <div v-if="activeTab === 'styles'" class="card settings-panel mt-2">
       <ProjectStyleLibrary
         :project-slug="slug"
         :image-models="config?.image_models || {}"
@@ -243,7 +282,7 @@
     </div>
 
     <!-- Format -->
-    <div v-if="activeTab === 'format'" class="card mt-2">
+    <div v-if="activeTab === 'format'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
           <h3>Format</h3>
@@ -352,7 +391,7 @@
          so all niche-related stuff lives in one place. Sub-tabs:
            1. Project niche       — pick the niche this project uses
            2. Niche library       — browse all built-in + custom; create custom -->
-    <div v-if="activeTab === 'niche'" class="card mt-2">
+    <div v-if="activeTab === 'niche'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
           <h3>Niche</h3>
@@ -555,7 +594,7 @@
     </Modal>
 
     <!-- Standards -->
-    <div v-if="activeTab === 'standards'" class="card mt-2">
+    <div v-if="activeTab === 'standards'" class="card settings-panel mt-2">
       <div class="sub-tabs">
         <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
           {{ st.label }}
@@ -625,7 +664,7 @@
     </div>
 
     <!-- Folders -->
-    <div v-if="activeTab === 'folders'" class="card mt-2">
+    <div v-if="activeTab === 'folders'" class="card settings-panel mt-2">
       <h3>Folder Structure</h3>
       <p class="text-muted mt-1 mb-2">
         Customize how episode subfolders are named. Each template must include <code>{'{code}'}</code> which is replaced with the episode code (e.g. TN0024).
@@ -668,7 +707,7 @@
          video files that bog down iCloud sync. Once a video is on
          YouTube (sidecar shows video_id), the local copy is
          operationally redundant and can be deleted to reclaim disk. -->
-    <div v-if="activeTab === 'storage'" class="card mt-2">
+    <div v-if="activeTab === 'storage'" class="card settings-panel mt-2">
       <h3>Storage</h3>
 
       <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
@@ -1270,7 +1309,7 @@
     </div>
 
     <!-- Confirmations -->
-    <div v-if="activeTab === 'confirmations'" class="card mt-2">
+    <div v-if="activeTab === 'confirmations'" class="card settings-panel mt-2">
       <h3>Generation Confirmations</h3>
       <p class="text-muted mt-1 mb-2">
         Choose which generators show a cost estimation dialog before starting. Disabled generators will skip the confirmation and start immediately.
@@ -1310,7 +1349,7 @@
     </div>
 
     <!-- Performance -->
-    <div v-if="activeTab === 'performance'" class="card mt-2">
+    <div v-if="activeTab === 'performance'" class="card settings-panel mt-2">
       <!-- Text/LLM generation concurrency — app-level (per machine). Lets you -->
       <!-- run several episodes' script/metadata/prompt/scene-plan jobs at once -->
       <!-- instead of one-at-a-time, spread across the LM Studio endpoint pool. -->
@@ -1500,12 +1539,47 @@
          TTS modals will append below. v1.0.150 removed the legacy
          Chatterbox section entirely (chatterbox-mlx is reachable
          through Voice Studio's family list if needed). -->
-    <div v-if="activeTab === 'local-tts'" class="card mt-2">
+    <div v-if="activeTab === 'local-tts'" class="card settings-panel local-models-panel mt-2">
+      <header class="local-models-head">
+        <div>
+          <span class="local-models-kicker">Private generation fleet</span>
+          <h3>Local Models</h3>
+          <p>Connect once, then let Story Studio route work to the right local service.</p>
+        </div>
+        <div class="local-models-state">
+          <span class="pool-dot" :class="localBackend === 'hub' && hubOnline ? 'on' : 'off'" />
+          <span>{{ localBackend === 'hub' ? (hubOnline ? 'Hub online' : 'Hub fallback active') : 'Direct routing' }}</span>
+        </div>
+      </header>
+
+      <nav class="local-model-tabs" aria-label="Local model setup sections">
+        <button
+          v-for="view in localModelViews"
+          :key="view.id"
+          type="button"
+          :class="['local-model-tab', { active: localModelsView === view.id }]"
+          :aria-current="localModelsView === view.id ? 'page' : undefined"
+          @click="localModelsView = view.id"
+        >
+          <span class="local-model-tab-icon" aria-hidden="true">{{ view.icon }}</span>
+          <span class="local-model-tab-copy">
+            <strong>{{ view.label }}</strong>
+            <small>{{ view.short }}</small>
+          </span>
+        </button>
+      </nav>
+
+      <div v-if="activeLocalModelView" class="local-model-pane-intro">
+        <span>{{ activeLocalModelView.eyebrow }}</span>
+        <strong>{{ activeLocalModelView.title }}</strong>
+        <p>{{ activeLocalModelView.description }}</p>
+      </div>
+
       <!-- v1.0.207 — setup explainer. Local models run on YOUR Mac (free,
            private, no per-use cost or rate limits). The two wrappers below
            are the author's own open-source projects; Pinokio installs them
            with their framework + Python dependencies in one click. -->
-      <div class="local-help">
+      <div v-if="localModelsView === 'overview'" class="local-help">
         <h3 style="margin-top:0;">💻 Run your own local AI models (free &amp; private)</h3>
         <p class="text-muted mt-1" style="font-size: 12.5px; line-height: 1.6;">
           Story Studio can generate <strong>narration</strong> and
@@ -1554,7 +1628,7 @@
       </div>
 
       <!-- v1.0.528 — Generation backend: Direct per-studio pools vs Studio Hub -->
-      <div class="pool-status-card">
+      <div v-if="localModelsView === 'hub'" class="pool-status-card local-model-surface">
         <div class="pool-status-head">
           <strong>⚙️ Generation backend</strong>
           <span :style="`font-size:11px; padding:2px 8px; border-radius:10px; background:${localBackend==='hub' ? 'var(--accent,#3b82f6)' : 'var(--border,#ccc)'}; color:${localBackend==='hub' ? '#fff' : 'inherit'};`">
@@ -1626,7 +1700,7 @@
 
       <!-- v1.0.391 — one-click pool health: probe every configured local Mac
            and show how many are online (Voice Studio + Image Studio). -->
-      <div class="pool-status-card">
+      <div v-if="localModelsView === 'overview'" class="pool-status-card local-model-surface">
         <div class="pool-status-head">
           <strong>Local server pool</strong>
           <button class="btn btn-sm" :disabled="poolChecking" @click="checkLocalServers">
@@ -1659,9 +1733,11 @@
         </p>
       </div>
 
-      <hr style="border: 0; border-top: 1px solid var(--border); margin: 22px 0 18px;" />
-
-      <h3>Voice Studio KH (local TTS modal)</h3>
+      <section v-if="localModelsView === 'voice'" class="studio-config-pane">
+      <div class="studio-pane-head">
+        <span class="studio-pane-icon" aria-hidden="true">◖</span>
+        <div><span>Local narration</span><h3>Voice Studio KH</h3></div>
+      </div>
       <p class="text-muted mt-1" style="font-size: 12px;">
         Narration via a Pinokio-launched wrapper fronting many TTS engine
         families (VoxCPM-MLX, Kokoro-MLX, Qwen3-TTS, Chatterbox-MLX, Bark…)
@@ -1694,8 +1770,7 @@
         per-project enable flag — set the URL once on this Mac and every
         project can use it.
       </p>
-
-      <hr style="border: 0; border-top: 1px solid var(--border); margin: 28px 0 18px;" />
+      </section>
 
       <!-- ─── Image Studio KH (v1.0.151+) ──────────────────────────────
            Sibling of Voice Studio: Pinokio FastAPI wrapper hosting
@@ -1703,7 +1778,11 @@
            Apple Silicon MLX. Distinct port (Pinokio assigns one per
            modal). v1.0.158+ Bonjour .local hostname.
            v1.0.159+ runs on the M1 (Voice Studio split off to M4). -->
-      <h3>Image Studio KH (local TTI modal)</h3>
+      <section v-if="localModelsView === 'image'" class="studio-config-pane">
+      <div class="studio-pane-head">
+        <span class="studio-pane-icon" aria-hidden="true">▧</span>
+        <div><span>Local visuals</span><h3>Image Studio KH</h3></div>
+      </div>
       <p class="text-muted mt-1" style="font-size: 12px;">
         Scene + thumbnail images via a Pinokio-launched wrapper hosting
         FLUX-family + Qwen-Image + Z-Image + FIBO models (text-to-image,
@@ -1735,15 +1814,18 @@
         catalog — runnable models first, oversized ones shown but disabled.
         No per-project enable flag.
       </p>
-
-      <hr style="border: 0; border-top: 1px solid var(--border); margin: 28px 0 18px;" />
+      </section>
 
       <!-- ─── Chat Studio (local LLM) ───────────────────────────────────
            Local Apple-Silicon MLX OpenAI-compatible LLM server on the user's
            own machine — part of the Studio family (Voice/Image/Music Studio)
            and self-healing across crashes/hangs. The URL slot carries the
            server base URL; text models surface dynamically from /v1/models. -->
-      <h3>Chat Studio (local LLM)</h3>
+      <section v-if="localModelsView === 'chat'" class="studio-config-pane">
+      <div class="studio-pane-head">
+        <span class="studio-pane-icon" aria-hidden="true">⌁</span>
+        <div><span>Local language models</span><h3>Chat Studio</h3></div>
+      </div>
       <p class="text-muted mt-1" style="font-size: 12px;">
         Script, metadata, scene-plan and idea text generation via
         <strong>Chat Studio</strong> — the local Apple-Silicon MLX LLM server
@@ -1776,11 +1858,12 @@
         model in Chat Studio and it appears here after a refresh. No per-project
         enable flag.
       </p>
+      </section>
 
     </div>
 
     <!-- FFmpeg -->
-    <div v-if="activeTab === 'ffmpeg'" id="ffmpeg-section" class="card mt-2">
+    <div v-if="activeTab === 'ffmpeg'" id="ffmpeg-section" class="card settings-panel mt-2">
       <h3>FFmpeg</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
         FFmpeg is the engine behind Audio Assembly and Video Assembly — it concatenates
@@ -1922,7 +2005,7 @@
     </div>
 
     <!-- Notifications -->
-    <div v-if="activeTab === 'notifications'" class="card mt-2">
+    <div v-if="activeTab === 'notifications'" class="card settings-panel mt-2">
       <h3>Desktop notifications</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
         Pops a macOS / Windows notification when an overnight batch finishes
@@ -2298,7 +2381,7 @@
     </div>
 
     <!-- Named Roots -->
-    <div v-if="activeTab === 'roots'" class="card mt-2">
+    <div v-if="activeTab === 'roots'" class="card settings-panel mt-2">
       <h3>Named Roots</h3>
       <p class="text-muted mt-1 mb-2" style="font-size: 12px;">
         Map a label (e.g. <code>TERRANASH</code>) to a folder on <em>this</em> computer.
@@ -2362,7 +2445,7 @@
     </div>
 
     <!-- Project -->
-    <div v-if="activeTab === 'project'" class="card mt-2">
+    <div v-if="activeTab === 'project'" class="card settings-panel mt-2">
       <h3>Project Settings</h3>
       <div class="grid-2 mt-2">
         <div class="form-group">
@@ -2840,7 +2923,7 @@
     <!-- About — version + build info, copyable for bug reports.
          Read at frontend build time from the root package.json (see
          nuxt.config.ts → runtimeConfig.public.appVersion). -->
-    <div v-if="activeTab === 'about'" class="card mt-2">
+    <div v-if="activeTab === 'about'" class="card settings-panel mt-2">
       <h3>About Story Studio KH</h3>
       <p class="text-muted mt-1" style="font-size:13px">
         When reporting an issue or asking for help, copy the version string below — it tells us exactly which build you're on so we can match it to the change history.
@@ -4420,13 +4503,13 @@ const tabZones = [
       { title: 'App', tabs: [
         // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
         // the old standalone App-Settings modal. One "Settings" surface now.
-        { id: 'app', label: 'App & Connections' },
+        { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and API provider connections shared by every project on this Mac.' },
       ] },
       { title: 'Local & system', tabs: [
         // id stays 'local-tts' for saved-tab-state / deep-link back-compat.
-        { id: 'local-tts', label: 'Local Models' },
-        { id: 'ffmpeg', label: 'FFmpeg' },
-        { id: 'notifications', label: 'Notifications' },
+        { id: 'local-tts', label: 'Local Models', icon: '⌘', description: 'Connect Studio Hub and your local Chat, Image, and Voice Studio workers without mixing their setup flows.' },
+        { id: 'ffmpeg', label: 'FFmpeg', icon: '▶', description: 'Install and verify the media engine used for audio mixing, subtitles, effects, and final video exports.' },
+        { id: 'notifications', label: 'Notifications', icon: '◉', description: 'Choose which job events reach the desktop or Telegram and tune the daily production digest.' },
       ] },
     ],
   },
@@ -4436,25 +4519,25 @@ const tabZones = [
     scope: 'travels with the project',
     groups: [
       { title: 'Content', tabs: [
-        { id: 'format', label: 'Format' },
-        { id: 'niche', label: 'Niche' },
-        { id: 'standards', label: 'Standards' },
+        { id: 'format', label: 'Format', icon: '▱', description: 'Define the production shape of this channel and the pipeline stages each episode follows.' },
+        { id: 'niche', label: 'Niche', icon: '✦', description: 'Set the subject-domain context that guides ideas, scripts, metadata, and visual direction.' },
+        { id: 'standards', label: 'Standards', icon: '✓', description: 'Keep reusable creative rules, templates, and project-wide production instructions in one place.' },
       ] },
       { title: 'Generation', tabs: [
-        { id: 'models', label: 'Models' },
-        { id: 'voices', label: 'Voices' },
-        { id: 'styles', label: 'Styles' },
-        { id: 'performance', label: 'Performance' },
+        { id: 'models', label: 'Models', icon: '◈', description: 'Review supported generation models and maintain pricing or operational limits for this project.' },
+        { id: 'voices', label: 'Voices', icon: '◖', description: 'Build a provider-aware voice library so generators only offer compatible saved voices.' },
+        { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
+        { id: 'performance', label: 'Performance', icon: '↯', description: 'Balance concurrency, launch staggering, and timeouts for reliable high-volume generation.' },
       ] },
       { title: 'Files', tabs: [
-        { id: 'folders', label: 'Folders' },
-        { id: 'storage', label: 'Storage' },
-        { id: 'roots', label: 'Named Roots' },
+        { id: 'folders', label: 'Folders', icon: '▤', description: 'Control the portable episode folder structure used throughout the production pipeline.' },
+        { id: 'storage', label: 'Storage', icon: '◫', description: 'Inspect project media placement, cloud-sync safety, migrations, and recoverable storage issues.' },
+        { id: 'roots', label: 'Named Roots', icon: '⌁', description: 'Map portable asset tokens to folders on this Mac without hard-coding machine-specific paths.' },
       ] },
       { title: 'Other', tabs: [
-        { id: 'confirmations', label: 'Confirmations' },
-        { id: 'project', label: 'Project' },
-        { id: 'about', label: 'About' },
+        { id: 'confirmations', label: 'Confirmations', icon: '!', description: 'Choose where the app pauses for approval and where trusted actions may continue directly.' },
+        { id: 'project', label: 'Project', icon: '□', description: 'Edit identity, numbering, grouping, output paths, and lifecycle controls for this project.' },
+        { id: 'about', label: 'About', icon: 'i', description: 'Review app, build, project, and storage details useful for support and diagnostics.' },
       ] },
     ],
   },
@@ -4470,6 +4553,16 @@ const tabs = tabZones.flatMap(z => z.groups.flatMap(g => g.tabs))
 const activeZone = computed(() =>
   tabZones.find(z => z.groups.some(g => g.tabs.some(t => t.id === activeTab.value))) || null,
 )
+
+const activeTabMeta = computed(() => tabs.find(tab => tab.id === activeTab.value) || null)
+
+type ModelPricingView = 'image' | 'audio' | 'video'
+const modelPricingView = ref<ModelPricingView>('image')
+const modelPricingViews: Array<{ id: ModelPricingView; label: string; icon: string; description: string }> = [
+  { id: 'image', label: 'Image', icon: '▧', description: 'Per render' },
+  { id: 'audio', label: 'Audio', icon: '◖', description: 'Cost & chunking' },
+  { id: 'video', label: 'Video', icon: '▶', description: 'Image to video' },
+]
 
 // ── FFmpeg tab state ─────────────────────────────────────────────────────
 // The backend exposes a self-contained installer at POST /ffmpeg/install
@@ -5472,6 +5565,25 @@ const audioConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
 const videoConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
 const subtitleConcurrency = ref<string>(String(PERFORMANCE_CONCURRENCY_DEFAULT))
 
+type LocalModelView = 'overview' | 'hub' | 'voice' | 'image' | 'chat'
+const localModelsView = ref<LocalModelView>('overview')
+const localModelViews: Array<{
+  id: LocalModelView
+  label: string
+  icon: string
+  short: string
+  eyebrow: string
+  title: string
+  description: string
+}> = [
+  { id: 'overview', label: 'Overview', icon: '⌘', short: 'Setup & health', eyebrow: 'Start here', title: 'Your private AI workspace', description: 'See how local generation works, install the Studio apps, and check the health of configured workers.' },
+  { id: 'hub', label: 'Studio Hub', icon: '◎', short: 'Routing & fleet', eyebrow: 'Control plane', title: 'Route work across your fleet', description: 'Choose Hub or direct routing, configure secure access, and manage available Studio workers.' },
+  { id: 'voice', label: 'Voice', icon: '◖', short: 'Narration', eyebrow: 'Voice Studio', title: 'Local narration workers', description: 'Connect one or more Voice Studio Macs for private, provider-free narration generation.' },
+  { id: 'image', label: 'Image', icon: '▧', short: 'Scenes & thumbs', eyebrow: 'Image Studio', title: 'Local image workers', description: 'Connect Image Studio machines and distribute scene or thumbnail rendering across them.' },
+  { id: 'chat', label: 'Chat', icon: '⌁', short: 'Scripts & prompts', eyebrow: 'Chat Studio', title: 'Local language-model workers', description: 'Connect local LLM servers for scripts, ideas, metadata, and high-volume scene prompts.' },
+]
+const activeLocalModelView = computed(() => localModelViews.find(view => view.id === localModelsView.value) || null)
+
 // v1.0.391 — one-click local-server pool health (Local Models tab).
 interface PoolEndpoint { url: string; online: boolean }
 interface PoolSide { online: number; total: number; endpoints: PoolEndpoint[] }
@@ -6127,116 +6239,271 @@ async function deleteProject() {
 .precheck-host-ok  { border-color: rgba(34, 197, 94, 0.35);  background: rgba(34, 197, 94, 0.08); }
 .precheck-host-bad { border-color: rgba(239, 68, 68, 0.45);  background: rgba(239, 68, 68, 0.10); }
 
-.tabs {
+.settings-workspace {
+  --settings-green: #58c692;
+  --settings-gold: #e3b45a;
+  padding-bottom: 48px;
+}
+.settings-page-hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  padding: 24px 26px;
+  border: 1px solid color-mix(in srgb, var(--settings-green) 28%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 5%, rgba(227, 180, 90, 0.16), transparent 28%),
+    radial-gradient(circle at 5% 110%, rgba(88, 198, 146, 0.18), transparent 35%),
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-secondary) 92%, #123a2b), var(--bg-secondary));
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.14);
 }
-
-.tab {
-  padding: 10px 18px;
-  font-size: 14px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: inherit;
+.settings-page-hero::after {
+  content: '';
+  position: absolute;
+  right: 11%;
+  top: -54px;
+  width: 160px;
+  height: 160px;
+  border: 1px solid rgba(227, 180, 90, 0.18);
+  border-radius: 50%;
+  pointer-events: none;
 }
-
-.tab:hover { color: var(--text-primary); }
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+.settings-page-copy { position: relative; z-index: 1; max-width: 720px; }
+.settings-page-copy h1 { margin: 3px 0 6px; font-size: clamp(28px, 3vw, 40px); letter-spacing: -0.035em; }
+.settings-page-copy p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
+.settings-page-eyebrow,
+.settings-active-kicker,
+.local-models-kicker {
+  color: var(--settings-gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
+.settings-page-key {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 12px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(0,0,0,0.12);
+  white-space: nowrap;
+}
+.settings-page-key span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.key-dot { width: 7px; height: 7px; border-radius: 50%; }
+.key-machine { background: var(--settings-gold); }
+.key-project { background: var(--settings-green); }
 
-/* v1.0.184 (S1) — grouped + scope-zoned settings nav. */
 .settings-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(540px, 1.28fr);
+  gap: 12px;
 }
 .settings-zone {
-  border: 1px solid var(--border, #2a2a2a);
-  border-radius: var(--radius-sm, 6px);
-  padding: 10px 14px 12px;
-  background: var(--bg-secondary, transparent);
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  box-shadow: inset 0 1px rgba(255,255,255,0.025);
 }
 .settings-zone-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
-  margin-bottom: 6px;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid var(--border);
 }
-.settings-zone-title {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--text-primary);
-}
-.settings-zone-scope {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
-}
-.settings-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 4px 0;
-}
-.settings-group + .settings-group { border-top: 1px dashed var(--border, #2a2a2a); }
+.settings-zone-title { font-size: 13px; font-weight: 750; letter-spacing: 0.01em; color: var(--text-primary); }
+.settings-zone-scope { font-size: 10px; color: var(--text-muted); }
+.settings-group { padding: 10px 0 0; }
+.settings-group + .settings-group { margin-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
 .settings-group-label {
-  flex: 0 0 88px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: block;
+  margin: 0 2px 6px;
   color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
-.settings-group-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-/* In the grouped nav, tabs read as pills rather than underline-tabs. */
+.settings-group-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings-group-tabs .tab {
-  padding: 6px 14px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 10px;
   border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  transition: border-color .16s, background .16s, color .16s, transform .16s;
 }
+.settings-group-tabs .tab:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
 .settings-group-tabs .tab.active {
-  background: rgba(108, 143, 255, 0.10);
-  border-color: var(--accent, #6c8fff);
-  border-bottom-color: var(--accent, #6c8fff);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--settings-green) 48%, var(--border));
+  background: linear-gradient(135deg, rgba(88, 198, 146, 0.14), rgba(227, 180, 90, 0.06));
+  box-shadow: 0 5px 18px rgba(0,0,0,0.12);
+}
+.settings-tab-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--settings-gold); font-size: 12px; }
+
+.settings-active-intro {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+}
+.settings-active-intro.scope-machine { border-left: 3px solid var(--settings-gold); }
+.settings-active-intro.scope-project { border-left: 3px solid var(--settings-green); }
+.settings-active-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: var(--settings-gold);
+  background: linear-gradient(145deg, rgba(227,180,90,.16), rgba(88,198,146,.1));
+  border: 1px solid rgba(227,180,90,.18);
+  font-size: 20px;
+}
+.settings-active-copy h2 { margin: 1px 0 3px; font-size: 18px; letter-spacing: -0.015em; }
+.settings-active-copy p { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
+.settings-scope-pill {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-/* v1.0.186 (S3) — scope banner. Colour-keyed to the active zone so the
-   per-machine vs per-project distinction is obvious at a glance. */
-.settings-scope-banner {
+.settings-panel {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--border) 88%, var(--settings-green));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, #17362a), var(--bg-secondary) 180px);
+  box-shadow: 0 20px 45px rgba(0,0,0,.12), inset 0 1px rgba(255,255,255,.025);
+}
+.settings-panel-embedded { padding: 14px; }
+.settings-panel > h3:first-child,
+.settings-panel > .card-header:first-child h3 { font-size: 18px; letter-spacing: -.015em; }
+.settings-section-head {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 14px 0 4px;
-  padding: 10px 14px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 2px 2px 16px;
+}
+.settings-section-kicker {
+  color: var(--settings-gold);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.settings-section-head h3 { margin: 3px 0 4px; font-size: 20px; letter-spacing: -.025em; }
+.settings-section-head p { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.5; }
+.settings-section-count {
+  flex: 0 0 auto;
+  padding: 6px 9px;
   border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  line-height: 1.5;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.settings-segmented-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-primary) 52%, transparent);
+}
+.settings-segmented-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   color: var(--text-secondary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: .16s ease;
 }
-.settings-scope-banner .scope-banner-icon { font-size: 15px; line-height: 1.4; }
-.settings-scope-banner strong { color: var(--text-primary); }
-.scope-machine {
-  border-left-color: #b07cff;
-  background: rgba(176, 124, 255, 0.07);
+.settings-segmented-button > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--settings-gold);
+  background: rgba(227,180,90,.09);
 }
-.scope-project {
-  border-left-color: var(--accent, #6c8fff);
-  background: rgba(108, 143, 255, 0.07);
+.settings-segmented-button > span:last-child { display: flex; min-width: 0; flex-direction: column; }
+.settings-segmented-button strong { font-size: 11.5px; }
+.settings-segmented-button small { color: var(--text-muted); font-size: 9px; }
+.settings-segmented-button:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
+.settings-segmented-button.active {
+  color: var(--text-primary);
+  border-color: rgba(88,198,146,.4);
+  background: linear-gradient(145deg, rgba(88,198,146,.14), rgba(227,180,90,.06));
+  box-shadow: 0 8px 22px rgba(0,0,0,.12);
+}
+.settings-subpanel {
+  display: block;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
+}
+.settings-panel .edit-table { border: 1px solid var(--border); border-radius: 12px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.settings-panel .edit-table th { background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--settings-green)); }
+.settings-panel .edit-table tbody tr:hover td { background: rgba(88,198,146,.035); }
+
+@media (max-width: 1100px) {
+  .settings-nav { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .settings-page-hero { align-items: flex-start; flex-direction: column; padding: 20px; }
+  .settings-page-key { width: 100%; justify-content: space-around; }
+  .settings-group-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-group-tabs .tab { width: 100%; }
+  .settings-active-intro { grid-template-columns: 40px 1fr; }
+  .settings-active-icon { width: 38px; height: 38px; }
+  .settings-scope-pill { grid-column: 1 / -1; justify-self: start; }
+  .settings-section-head { align-items: flex-start; flex-direction: column; }
+  .settings-segmented-button { justify-content: center; }
+  .settings-segmented-button small { display: none; }
 }
 
 .edit-table {
@@ -6753,25 +7020,30 @@ async function deleteProject() {
 /* Standards sub-tabs */
 .sub-tabs {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 52%, transparent);
 }
 .sub-tab {
-  padding: 8px 14px;
-  font-size: 13px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
   cursor: pointer;
   font-family: inherit;
+  font-size: 11.5px;
   transition: all 0.15s;
 }
-.sub-tab:hover { color: var(--text-primary); }
+.sub-tab:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); }
 .sub-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+  border-color: rgba(88,198,146,.4);
+  background: linear-gradient(145deg, rgba(88,198,146,.14), rgba(227,180,90,.06));
 }
 
 .standards-toolbar {
@@ -6903,11 +7175,91 @@ async function deleteProject() {
 }
 
 /* Local models — setup explainer (v1.0.207) */
+.local-models-panel { padding: 16px; }
+.local-models-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 2px 14px;
+}
+.local-models-head h3 { margin: 3px 0; font-size: 21px; letter-spacing: -.025em; }
+.local-models-head p { margin: 0; color: var(--text-muted); font-size: 11.5px; }
+.local-models-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.local-model-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-primary) 52%, transparent);
+}
+.local-model-tab {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: .16s ease;
+}
+.local-model-tab:hover { border-color: var(--border); color: var(--text-primary); background: var(--bg-tertiary); transform: translateY(-1px); }
+.local-model-tab.active {
+  color: var(--text-primary);
+  border-color: rgba(88,198,146,.4);
+  background: linear-gradient(145deg, rgba(88,198,146,.14), rgba(227,180,90,.06));
+  box-shadow: 0 8px 22px rgba(0,0,0,.12);
+}
+.local-model-tab-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--settings-gold);
+  background: rgba(227,180,90,.09);
+  font-size: 14px;
+}
+.local-model-tab-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.local-model-tab-copy strong { font-size: 11.5px; }
+.local-model-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.local-model-pane-intro {
+  display: grid;
+  grid-template-columns: 120px minmax(180px, .55fr) minmax(280px, 1fr);
+  align-items: baseline;
+  gap: 14px;
+  padding: 16px 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.local-model-pane-intro > span { color: var(--settings-gold); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.local-model-pane-intro > strong { font-size: 14px; }
+.local-model-pane-intro > p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
 .local-help {
-  background: rgba(91, 179, 124, 0.06);
-  border: 1px solid rgba(91, 179, 124, 0.28);
-  border-radius: var(--radius-md, 8px);
-  padding: 14px 16px;
+  margin-top: 12px;
+  background: linear-gradient(145deg, rgba(88, 198, 146, 0.08), rgba(227, 180, 90, 0.035));
+  border: 1px solid rgba(88, 198, 146, 0.28);
+  border-radius: 14px;
+  padding: 18px;
 }
 .local-help-steps { margin: 10px 0 2px; padding-left: 20px; font-size: 12.5px; line-height: 1.65; color: var(--text-secondary); }
 .local-help-steps > li { margin-bottom: 8px; }
@@ -6916,6 +7268,39 @@ async function deleteProject() {
 .local-help-steps a:hover { text-decoration: underline; }
 .local-help-repos { list-style: none; margin: 6px 0 2px; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
 .local-help-repos > li { font-size: 12px; }
+.local-model-surface,
+.studio-config-pane {
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
+  box-shadow: inset 0 1px rgba(255,255,255,.025);
+}
+.studio-pane-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
+.studio-pane-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(227,180,90,.22);
+  border-radius: 12px;
+  color: var(--settings-gold);
+  background: linear-gradient(145deg, rgba(227,180,90,.14), rgba(88,198,146,.08));
+  font-size: 19px;
+}
+.studio-pane-head span:not(.studio-pane-icon) { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.studio-pane-head h3 { margin: 1px 0 0; font-size: 18px; }
+
+@media (max-width: 900px) {
+  .local-model-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .local-model-pane-intro { grid-template-columns: 1fr; gap: 4px; }
+}
+@media (max-width: 620px) {
+  .local-models-head { align-items: flex-start; flex-direction: column; }
+  .local-model-tabs { grid-template-columns: 1fr 1fr; }
+  .local-model-tab-copy small { display: none; }
+}
 
 /* Local TTS (Chatterbox) tab */
 .local-tts-row { display: flex; flex-direction: column; gap: 4px; }
