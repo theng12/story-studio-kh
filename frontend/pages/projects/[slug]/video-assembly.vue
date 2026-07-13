@@ -3453,9 +3453,12 @@ const subtitles = reactive({
     background: 'none' as 'none' | 'semi' | 'full',
     position: 'bottom' as 'top' | 'center' | 'bottom',
     align: 'center' as 'left' | 'center' | 'right',
+    position_x_pct: 50,
+    position_y_pct: 92,
+    safe_margin_pct: 8,
     max_chars_per_line: 42,
     max_lines: 2,
-    // v1.0.353 — caption entrance animation (none = static force_style path).
+    // Static precise placement and animations use a generated ASS document.
     animation: 'none' as 'none' | 'fade' | 'pop' | 'slide-up',
   },
 })

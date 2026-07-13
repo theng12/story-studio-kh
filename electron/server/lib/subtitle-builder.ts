@@ -186,6 +186,49 @@ const REFERENCE_HEIGHT = 1080
 /** Round to 2 decimals — libass parses Fontsize/Outline as floats. */
 function round2(n: number): number { return Math.round(n * 100) / 100 }
 
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n))
+}
+
+export function hasPreciseSubtitlePlacement(style: VideoSubtitleStyle): boolean {
+  return Number.isFinite(style.position_x_pct) && Number.isFinite(style.position_y_pct)
+}
+
+export interface ResolvedSubtitlePlacement {
+  x: number
+  y: number
+  safeMarginPx: number
+  alignment: number
+}
+
+/** Resolve precise percentage placement into safe, edge-aware ASS anchors. */
+export function resolveSubtitlePlacement(
+  style: VideoSubtitleStyle,
+  width: number,
+  height: number,
+): ResolvedSubtitlePlacement {
+  const w = Math.max(2, Math.round(width || 1920))
+  const h = Math.max(2, Math.round(height || 1080))
+  const safePct = clamp(Number(style.safe_margin_pct) || 8, 5, 20)
+  const xPct = hasPreciseSubtitlePlacement(style)
+    ? clamp(Number(style.position_x_pct), safePct, 100 - safePct)
+    : style.align === 'left' ? safePct : style.align === 'right' ? 100 - safePct : 50
+  const yPct = hasPreciseSubtitlePlacement(style)
+    ? clamp(Number(style.position_y_pct), safePct, 100 - safePct)
+    : style.position === 'top' ? safePct : style.position === 'center' ? 50 : 100 - safePct
+
+  // Anchor text inward at the outer thirds so its box grows away from the
+  // protected edges. This is what keeps a dragged caption inside the frame.
+  const hAlign = xPct <= 33 ? 0 : xPct >= 67 ? 2 : 1
+  const vBase = yPct <= 33 ? 7 : yPct >= 67 ? 1 : 4
+  return {
+    x: Math.round((w * xPct) / 100),
+    y: Math.round((h * yPct) / 100),
+    safeMarginPx: Math.round((h * safePct) / 100),
+    alignment: vBase + hAlign,
+  }
+}
+
 /**
  * Build the libass `force_style=...` fragment for the `subtitles=` filter.
  * Colours are encoded as `&HBBGGRR&` (yes, reversed — that's an ASS quirk).
@@ -246,9 +289,10 @@ function hexToAss(hex: string): string {
 // ── v1.0.353 — animated captions (full ASS document) ────────────────────────
 //
 // `force_style` on the `subtitles=` filter can only set a static style — it
-// can't animate. For an entrance animation we render a complete ASS file and
-// burn it with the `ass=` filter instead. SRT cues → ASS Dialogue lines, each
-// prefixed with the chosen animation's override tags.
+// can't animate or place a caption at an arbitrary point. For animation or
+// precise placement we render a complete ASS file and burn it with the `ass=`
+// filter instead. SRT cues → ASS Dialogue lines, each prefixed with the chosen
+// positioning / animation override tags.
 
 export type SubtitleAnimation = 'none' | 'fade' | 'pop' | 'slide-up'
 
@@ -267,25 +311,29 @@ function assTime(totalSec: number): string {
  *  the style's alignment point, so slide-up's coords are derived from the
  *  resolution + position/align + margin. */
 function animationTag(animation: SubtitleAnimation, style: VideoSubtitleStyle, w: number, h: number): string {
-  if (animation === 'fade') return '{\\fad(180,180)}'
-  if (animation === 'pop') return '{\\fad(60,60)\\fscx72\\fscy72\\t(0,150,\\fscx100\\fscy100)}'
+  const precise = hasPreciseSubtitlePlacement(style)
+  const placement = resolveSubtitlePlacement(style, w, h)
+  const pos = precise ? `\\pos(${placement.x},${placement.y})` : ''
+  if (animation === 'fade') return `{${pos}\\fad(180,180)}`
+  if (animation === 'pop') return `{${pos}\\fad(60,60)\\fscx72\\fscy72\\t(0,150,\\fscx100\\fscy100)}`
   if (animation === 'slide-up') {
     const scale = h / REFERENCE_HEIGHT
-    const marginV = Math.round(40 * scale)
-    const marginH = marginV
     const rise = Math.round(36 * scale)
-    const x = style.align === 'left' ? marginH : style.align === 'right' ? Math.max(marginH, w - marginH) : Math.round(w / 2)
-    const yEnd = style.position === 'top' ? marginV : style.position === 'center' ? Math.round(h / 2) : Math.max(marginV, h - marginV)
-    const yStart = style.position === 'top' ? Math.max(0, yEnd - rise) : yEnd + rise
+    const x = placement.x
+    const yEnd = placement.y
+    const safeTop = placement.safeMarginPx
+    const safeBottom = h - placement.safeMarginPx
+    const below = yEnd + rise
+    const yStart = below <= safeBottom ? below : Math.max(safeTop, yEnd - rise)
     return `{\\fad(160,80)\\move(${x},${yStart},${x},${yEnd})}`
   }
-  return ''
+  return precise ? `{${pos}}` : ''
 }
 
 /**
  * Render SRT cues into a complete ASS document with the user's style + an
- * entrance animation per line. Used by video.ts when `style.animation` is set;
- * the static `force_style` path stays for `animation: 'none'`.
+ * entrance animation per line. Used when animation or precise placement needs
+ * a full ASS document; legacy static coarse anchors keep the force_style path.
  */
 export function srtToAss(
   cues: SrtCue[],
@@ -301,7 +349,9 @@ export function srtToAss(
   const fontSize = round2((style.font_size_px || 28) * scale)
   const vBase = style.position === 'top' ? 7 : style.position === 'center' ? 4 : 1
   const hOffset = style.align === 'center' ? 1 : style.align === 'right' ? 2 : 0
-  const alignment = vBase + hOffset
+  const alignment = hasPreciseSubtitlePlacement(style)
+    ? resolveSubtitlePlacement(style, w, h).alignment
+    : vBase + hOffset
   const borderStyle = (style.background === 'full' || style.background === 'semi') ? 3 : 1
   const backColour = style.background === 'full' ? '&H00000000' : style.background === 'semi' ? '&H80000000' : '&H00000000'
   const outline = round2(Math.max(0, Math.min(style.outline_px ?? 2, 6)) * scale)

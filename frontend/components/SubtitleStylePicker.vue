@@ -63,18 +63,18 @@
           <button
             v-for="p in POSITIONS" :key="p.id"
             :class="['btn btn-sm', style.position === p.id ? 'btn-primary' : 'btn-secondary']"
-            @click="update('position', p.id)"
+            @click="setVerticalPosition(p.id)"
           >{{ p.label }}</button>
         </div>
       </div>
 
       <div class="form-group">
-        <label>Alignment</label>
+        <label>Horizontal position</label>
         <div class="ssp-btn-row">
           <button
             v-for="a in ALIGNMENTS" :key="a.id"
             :class="['btn btn-sm', style.align === a.id ? 'btn-primary' : 'btn-secondary']"
-            @click="update('align', a.id)"
+            @click="setHorizontalPosition(a.id)"
           >{{ a.label }}</button>
         </div>
       </div>
@@ -104,6 +104,45 @@
         <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
           How each line enters. The CSS preview above is static — use "Render exact preview" to see it animate.
         </p>
+      </div>
+    </div>
+
+    <div class="ssp-placement-panel">
+      <div class="ssp-placement-heading">
+        <div>
+          <strong>Precise safe-area position</strong>
+          <p class="text-muted">Drag the caption inside the closed box. The protected edge keeps its anchor away from cropping and player controls.</p>
+        </div>
+        <button type="button" class="btn btn-sm btn-secondary" @click="resetPlacement">Bottom centre</button>
+      </div>
+      <div
+        ref="placementPadEl"
+        class="ssp-placement-pad"
+        role="application"
+        aria-label="Subtitle position control"
+        @pointerdown="startPlacementDrag"
+        @pointermove="movePlacementDrag"
+        @pointerup="stopPlacementDrag"
+        @pointercancel="stopPlacementDrag"
+      >
+        <div class="ssp-safe-boundary" :style="safeBoundaryStyle" />
+        <div class="ssp-placement-crosshair ssp-crosshair-x" :style="{ top: `${positionY}%` }" />
+        <div class="ssp-placement-crosshair ssp-crosshair-y" :style="{ left: `${positionX}%` }" />
+        <div class="ssp-placement-caption" :style="placementCaptionStyle">Subtitle</div>
+      </div>
+      <div class="ssp-placement-values">
+        <label>
+          Horizontal ({{ positionX.toFixed(1) }}%)
+          <input type="range" :min="safeMargin" :max="100 - safeMargin" step="0.5" :value="positionX" @input="setPlacementAxis('x', Number(($event.target as HTMLInputElement).value))" />
+        </label>
+        <label>
+          Vertical ({{ positionY.toFixed(1) }}%)
+          <input type="range" :min="safeMargin" :max="100 - safeMargin" step="0.5" :value="positionY" @input="setPlacementAxis('y', Number(($event.target as HTMLInputElement).value))" />
+        </label>
+        <label>
+          Safe edge ({{ safeMargin.toFixed(0) }}%)
+          <input type="range" min="5" max="20" step="1" :value="safeMargin" @input="setSafeMargin(Number(($event.target as HTMLInputElement).value))" />
+        </label>
       </div>
     </div>
 
@@ -142,6 +181,9 @@ interface SubtitleStyle {
   background: 'none' | 'semi' | 'full'
   position: 'top' | 'center' | 'bottom'
   align: 'left' | 'center' | 'right'
+  position_x_pct?: number
+  position_y_pct?: number
+  safe_margin_pct?: number
   max_chars_per_line: number
   max_lines: number
   // v1.0.353 — entrance animation per caption line.
@@ -209,6 +251,102 @@ function update<K extends keyof SubtitleStyle>(key: K, value: SubtitleStyle[K]) 
   emit('update:style', { ...props.style, [key]: value })
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+const safeMargin = computed(() => clamp(Number(props.style.safe_margin_pct) || 8, 5, 20))
+const positionX = computed(() => clamp(
+  Number.isFinite(props.style.position_x_pct) ? Number(props.style.position_x_pct) : props.style.align === 'left' ? safeMargin.value : props.style.align === 'right' ? 100 - safeMargin.value : 50,
+  safeMargin.value,
+  100 - safeMargin.value,
+))
+const positionY = computed(() => clamp(
+  Number.isFinite(props.style.position_y_pct) ? Number(props.style.position_y_pct) : props.style.position === 'top' ? safeMargin.value : props.style.position === 'center' ? 50 : 100 - safeMargin.value,
+  safeMargin.value,
+  100 - safeMargin.value,
+))
+
+function horizontalAnchor(x: number): SubtitleStyle['align'] {
+  return x <= 33 ? 'left' : x >= 67 ? 'right' : 'center'
+}
+
+function verticalAnchor(y: number): SubtitleStyle['position'] {
+  return y <= 33 ? 'top' : y >= 67 ? 'bottom' : 'center'
+}
+
+function setPlacement(x: number, y: number, margin = safeMargin.value) {
+  const safe = clamp(margin, 5, 20)
+  const nextX = clamp(x, safe, 100 - safe)
+  const nextY = clamp(y, safe, 100 - safe)
+  emit('update:style', {
+    ...props.style,
+    position_x_pct: nextX,
+    position_y_pct: nextY,
+    safe_margin_pct: safe,
+    align: horizontalAnchor(nextX),
+    position: verticalAnchor(nextY),
+  })
+}
+
+function setHorizontalPosition(align: SubtitleStyle['align']) {
+  const x = align === 'left' ? safeMargin.value : align === 'right' ? 100 - safeMargin.value : 50
+  setPlacement(x, positionY.value)
+}
+
+function setVerticalPosition(position: SubtitleStyle['position']) {
+  const y = position === 'top' ? safeMargin.value : position === 'bottom' ? 100 - safeMargin.value : 50
+  setPlacement(positionX.value, y)
+}
+
+function setPlacementAxis(axis: 'x' | 'y', value: number) {
+  setPlacement(axis === 'x' ? value : positionX.value, axis === 'y' ? value : positionY.value)
+}
+
+function setSafeMargin(value: number) {
+  setPlacement(positionX.value, positionY.value, value)
+}
+
+function resetPlacement() {
+  setPlacement(50, 100 - safeMargin.value)
+}
+
+const placementPadEl = ref<HTMLElement | null>(null)
+const placementDragging = ref(false)
+
+function placementFromPointer(event: PointerEvent) {
+  const rect = placementPadEl.value?.getBoundingClientRect()
+  if (!rect?.width || !rect.height) return
+  setPlacement(
+    ((event.clientX - rect.left) / rect.width) * 100,
+    ((event.clientY - rect.top) / rect.height) * 100,
+  )
+}
+
+function startPlacementDrag(event: PointerEvent) {
+  placementDragging.value = true
+  placementPadEl.value?.setPointerCapture(event.pointerId)
+  placementFromPointer(event)
+}
+
+function movePlacementDrag(event: PointerEvent) {
+  if (placementDragging.value) placementFromPointer(event)
+}
+
+function stopPlacementDrag(event: PointerEvent) {
+  placementDragging.value = false
+  if (placementPadEl.value?.hasPointerCapture(event.pointerId)) placementPadEl.value.releasePointerCapture(event.pointerId)
+}
+
+const safeBoundaryStyle = computed(() => ({ inset: `${safeMargin.value}%` }))
+const placementCaptionStyle = computed(() => {
+  const x = positionX.value
+  const y = positionY.value
+  const tx = x <= 33 ? '0%' : x >= 67 ? '-100%' : '-50%'
+  const ty = y <= 33 ? '0%' : y >= 67 ? '-100%' : '-50%'
+  return { left: `${x}%`, top: `${y}%`, transform: `translate(${tx}, ${ty})` }
+})
+
 // v1.0.413 — track the live preview frame's pixel height so the caption font
 // scales to match the 1080-referenced render (see captionStyle).
 const frameEl = ref<HTMLElement | null>(null)
@@ -230,6 +368,9 @@ const previewFrameStyle = computed(() => {
 })
 
 const captionLayerStyle = computed(() => {
+  if (Number.isFinite(props.style.position_x_pct) && Number.isFinite(props.style.position_y_pct)) {
+    return { display: 'block', padding: '0' }
+  }
   const justify = props.style.align === 'left'
     ? 'flex-start'
     : props.style.align === 'right' ? 'flex-end' : 'center'
@@ -262,7 +403,7 @@ const captionStyle = computed(() => {
   else if (props.style.background === 'semi') background = 'rgba(0, 0, 0, 0.5)'
   else background = 'transparent'
 
-  return {
+  const result: Record<string, string> = {
     fontFamily: props.style.font_family,
     fontSize: `${Math.round(props.style.font_size_px * previewFactor)}px`,
     color: props.style.color_hex,
@@ -270,12 +411,27 @@ const captionStyle = computed(() => {
     background,
     padding: props.style.background === 'none' ? '0' : '4px 10px',
     borderRadius: '3px',
-    maxWidth: '90%',
+    maxWidth: `${100 - safeMargin.value * 2}%`,
     whiteSpace: 'normal',
     lineHeight: '1.3',
     textAlign: props.style.align,
     display: 'inline-block',
-  } as Record<string, string>
+  }
+  if (Number.isFinite(props.style.position_x_pct) && Number.isFinite(props.style.position_y_pct)) {
+    const x = positionX.value
+    const y = positionY.value
+    const tx = x <= 33 ? '0%' : x >= 67 ? '-100%' : '-50%'
+    const ty = y <= 33 ? '0%' : y >= 67 ? '-100%' : '-50%'
+    const availableWidth = x <= 33
+      ? 100 - safeMargin.value - x
+      : x >= 67 ? x - safeMargin.value : 2 * Math.min(x - safeMargin.value, 100 - safeMargin.value - x)
+    result.position = 'absolute'
+    result.left = `${x}%`
+    result.top = `${y}%`
+    result.transform = `translate(${tx}, ${ty})`
+    result.maxWidth = `${Math.max(20, availableWidth)}%`
+  }
+  return result
 })
 
 const { post: _post } = useApi() // unused but keeps the module scaffolding consistent
@@ -297,8 +453,12 @@ async function renderExact() {
       background: props.style.background,
       position: props.style.position,
       align: props.style.align,
+      position_x_pct: String(positionX.value),
+      position_y_pct: String(positionY.value),
+      safe_margin_pct: String(safeMargin.value),
       max_chars_per_line: String(props.style.max_chars_per_line),
       max_lines: String(props.style.max_lines),
+      animation: props.style.animation || 'none',
     })
     if (props.episodeId) qs.set('episode', props.episodeId)
     // Adding a cache-bust parameter so the preview tag reloads when style changes.
@@ -329,6 +489,77 @@ async function renderExact() {
   gap: 4px;
   flex-wrap: wrap;
 }
+
+.ssp-placement-panel {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
+}
+
+.ssp-placement-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ssp-placement-heading p { margin: 3px 0 0; font-size: 12px; }
+
+.ssp-placement-pad {
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(145deg, #111827, #26354a);
+  background-size: 10% 10%, 10% 10%, auto;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.ssp-safe-boundary {
+  position: absolute;
+  border: 2px solid rgba(240, 198, 116, 0.8);
+  border-radius: 5px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.ssp-placement-crosshair { position: absolute; pointer-events: none; opacity: 0.24; }
+.ssp-crosshair-x { left: 0; right: 0; height: 1px; background: var(--accent); }
+.ssp-crosshair-y { top: 0; bottom: 0; width: 1px; background: var(--accent); }
+.ssp-placement-caption {
+  position: absolute;
+  z-index: 2;
+  max-width: 70%;
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255,255,255,0.72);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ssp-placement-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.ssp-placement-values label { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.ssp-placement-values input { width: 100%; }
 
 .color-picker {
   width: 56px;
@@ -376,5 +607,10 @@ async function renderExact() {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: #000;
+}
+
+@media (max-width: 720px) {
+  .ssp-placement-heading { flex-direction: column; }
+  .ssp-placement-values { grid-template-columns: 1fr; }
 }
 </style>

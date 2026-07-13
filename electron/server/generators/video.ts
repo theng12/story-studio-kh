@@ -3649,6 +3649,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
   const args: string[] = ['-y']
   const filterParts: string[] = []
+  const generatedSubtitleFiles: string[] = []
   let nextInputIdx = 0
 
   // Input 0: intermediate video (pre-concatenated)
@@ -3909,24 +3910,26 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   //     sit inside the safe area; placed before the logo so the logo
   //     always renders on top.
   if (subtitles?.enabled && subtitles.srt_path && existsSync(subtitles.srt_path)) {
-    const anim = subtitles.style?.animation
+    const anim = subtitles.style?.animation || 'none'
+    const { hasPreciseSubtitlePlacement, parseSrt, srtToAss } = await import('../lib/subtitle-builder.js')
+    const precisePlacement = hasPreciseSubtitlePlacement(subtitles.style)
     const st = vn()
     // FFmpeg filter-graph paths escape: backslashes, colons (Windows drive
     // letters). Forward slashes are fine even on Windows.
     const escFor = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:')
     let wired = false
-    if (anim && anim !== 'none') {
+    if (anim !== 'none' || precisePlacement) {
       // v1.0.353 — animated captions need a full ASS document (force_style
       // can't animate). Render the SRT into ASS with the entrance animation,
       // then burn it with the `ass=` filter. Falls back to the static path on
       // any error so a malformed ASS never silently drops the subtitles.
       try {
-        const { parseSrt, srtToAss } = await import('../lib/subtitle-builder.js')
         const cues = parseSrt(await fs.readFile(subtitles.srt_path, 'utf-8'))
         if (cues.length) {
           const assDoc = srtToAss(cues, subtitles.style, { width: w, height: h, animation: anim })
           const assPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.ass`)
           await fs.writeFile(assPath, assDoc, 'utf-8')
+          generatedSubtitleFiles.push(assPath)
           // NOTE: do NOT append `gateEnable` here. FFmpeg's libass filters
           // (`ass` / `subtitles`) do NOT support the timeline `enable` option —
           // adding it makes the WHOLE filtergraph fail to initialise
@@ -3936,11 +3939,12 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // excluded because the stitched SRT's cue timestamps are offset past
           // the intro/title lead-in, so there are no cues to suppress in 0–startSec.
           filterParts.push(`${vLabel}ass=filename='${escFor(assPath)}'${st}`)
-          job.output_lines.push(`Burning in animated subtitles (${anim}): ${path.basename(subtitles.srt_path)}`)
+          const mode = anim !== 'none' ? `animated (${anim})` : 'precisely positioned'
+          job.output_lines.push(`Burning in ${mode} subtitles: ${path.basename(subtitles.srt_path)}`)
           wired = true
         }
       } catch (e: any) {
-        job.output_lines.push(`Animated-subtitle build failed (${e?.message || e}) — using static subtitles.`)
+        job.output_lines.push(`Subtitle document build failed (${e?.message || e}) — using coarse static anchors.`)
       }
     }
     if (!wired) {
@@ -4358,6 +4362,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
     lastError = result.error
   }
+
+  // The filter graph no longer needs generated ASS documents after all encode
+  // attempts finish. Best-effort cleanup covers success and recovery failure.
+  await Promise.all(generatedSubtitleFiles.map(file => fs.rm(file, { force: true }).catch(() => undefined)))
 
   if (!succeededTier) {
     // All tiers failed — emit the full diagnostic trail so the user can

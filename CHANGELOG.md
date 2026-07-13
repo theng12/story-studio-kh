@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.565 — 2026-07-14
+
+**Subtitle placement is now precise, previewable, and protected from unsafe screen edges.**
+
+- Added a draggable 16:9 subtitle placement control with independent horizontal and vertical sliders, quick anchors, and a configurable 5–20% protected edge.
+- Caption anchors automatically face inward near each edge so text grows into the frame instead of off-screen; coordinates remain resolution-independent across 720p, 1080p, 1440p, and 4K exports.
+- Updated both live and exact FFmpeg previews to show the chosen placement and caption animation accurately.
+- Applied the same precise placement to standard Scene Plan assembly and image/B-Roll pool assembly, including static and animated subtitles.
+- Subtitle presets, bundle presets, and one-click assembly payloads preserve the new placement settings.
+- Added regression coverage for safe clamping, edge-aware anchors, static placement, animation placement, legacy compatibility, and final payload persistence.
+
 ## v1.0.564 — 2026-07-14
 
 **Video Assembly effects are now stable, accurately previewed, and built around the current Scene Plan timeline.**

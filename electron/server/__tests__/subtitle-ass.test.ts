@@ -6,7 +6,13 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { srtToAss, parseSrt, buildAssStyle } from '../lib/subtitle-builder.js'
+import {
+  srtToAss,
+  parseSrt,
+  buildAssStyle,
+  hasPreciseSubtitlePlacement,
+  resolveSubtitlePlacement,
+} from '../lib/subtitle-builder.js'
 
 const baseStyle: any = {
   font_family: 'Avenir Next', font_size_px: 32, color_hex: '#FFEE00',
@@ -63,6 +69,58 @@ describe('srtToAss — animated captions (v1.0.353)', () => {
     const ass = srtToAss(parseSrt(srt), baseStyle, { width: 1920, height: 1080, animation: 'fade' })
     assert.match(ass, /Hi there/)
     assert.match(ass, /Dialogue: 0,0:00:00\.00,0:00:02\.50,/)
+  })
+})
+
+describe('precise safe-area placement', () => {
+  test('detects precise placement only when both coordinates exist', () => {
+    assert.equal(hasPreciseSubtitlePlacement({ ...baseStyle, position_x_pct: 50 }), false)
+    assert.equal(hasPreciseSubtitlePlacement({ ...baseStyle, position_x_pct: 50, position_y_pct: 90 }), true)
+  })
+
+  test('clamps coordinates to the protected edge and anchors text inward', () => {
+    const placement = resolveSubtitlePlacement({
+      ...baseStyle,
+      position_x_pct: 99,
+      position_y_pct: 1,
+      safe_margin_pct: 10,
+    }, 1920, 1080)
+    assert.deepEqual(placement, {
+      x: 1728,
+      y: 108,
+      safeMarginPx: 108,
+      alignment: 9,
+    })
+  })
+
+  test('emits an exact position for static subtitles', () => {
+    const style = {
+      ...baseStyle,
+      position_x_pct: 12.5,
+      position_y_pct: 22,
+      safe_margin_pct: 8,
+    }
+    const ass = srtToAss(cues, style, { width: 1920, height: 1080, animation: 'none' })
+    assert.match(ass, /Style: Default,[^\n]+,7,/, 'top-left anchor keeps text inside the frame')
+    assert.match(ass, /\{\\pos\(240,238\)\}Hello world/)
+  })
+
+  test('uses the custom anchor for animated subtitles too', () => {
+    const style = {
+      ...baseStyle,
+      position_x_pct: 25,
+      position_y_pct: 75,
+      safe_margin_pct: 8,
+    }
+    const fade = srtToAss(cues, style, { width: 1920, height: 1080, animation: 'fade' })
+    assert.match(fade, /\{\\pos\(480,810\)\\fad\(180,180\)\}/)
+    const slide = srtToAss(cues, style, { width: 1920, height: 1080, animation: 'slide-up' })
+    assert.match(slide, /\\move\(480,846,480,810\)/)
+  })
+
+  test('keeps legacy static subtitles on the coarse-anchor path', () => {
+    const ass = srtToAss(cues, baseStyle, { width: 1920, height: 1080, animation: 'none' })
+    assert.doesNotMatch(ass, /\\pos\(/)
   })
 })
 

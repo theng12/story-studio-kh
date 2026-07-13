@@ -39,7 +39,12 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
-import { buildAssStyle } from '../lib/subtitle-builder.js'
+import {
+  buildAssStyle,
+  hasPreciseSubtitlePlacement,
+  parseSrt,
+  srtToAss,
+} from '../lib/subtitle-builder.js'
 import { resolveBurnSubtitle } from '../lib/subtitle-selection.js'
 import type { Job, BrollUsageEntry, VideoSubtitleStyle } from '../models/types.js'
 
@@ -76,10 +81,9 @@ interface AssembleParams {
    *  behaviour: callers who don't pass the field still get subtitles
    *  burned when a file is present. */
   subtitles_enabled?: boolean
-  /** v1.0.127+ — when present, ffmpeg's `subtitles` filter receives a
-   *  `force_style=…` argument built via buildAssStyle(). Matches the
-   *  scene-based video-assembly path's per-style override mechanism.
-   *  Omitted → the SRT's own formatting (or libass defaults) drives. */
+  /** When present, subtitle style is applied to the burn-in. Precise placement
+   *  or animation uses a generated ASS document; legacy static placement uses
+   *  the subtitles filter's force_style override. */
   subtitles_style?: VideoSubtitleStyle
 }
 
@@ -220,6 +224,32 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     ? `:force_style='${escapeForceStyleValue(buildAssStyle(subtitles_style))}'`
     : ''
 
+  // Precise percentage placement and caption animation both need a full ASS
+  // document. Keep this path aligned with the primary scene assembler so a
+  // preset never shifts merely because the episode uses an image/B-Roll pool.
+  let generatedSubtitleAssPath: string | null = null
+  if (subPath && subtitles_style && (
+    hasPreciseSubtitlePlacement(subtitles_style) ||
+    (subtitles_style.animation && subtitles_style.animation !== 'none')
+  )) {
+    try {
+      const cues = parseSrt(await fsp.readFile(subPath, 'utf-8'))
+      if (cues.length > 0) {
+        generatedSubtitleAssPath = path.join(finalDir, `.tmp-${Date.now()}-${episode_id}-subtitles.ass`)
+        await fsp.writeFile(generatedSubtitleAssPath, srtToAss(cues, subtitles_style, {
+          width: 1920,
+          height: 1080,
+          animation: subtitles_style.animation || 'none',
+        }), 'utf-8')
+      } else {
+        job.output_lines.push('Subtitles: selected file could not be converted for precise placement; using its original formatting.')
+      }
+    } catch (error: any) {
+      job.output_lines.push(`Subtitles: precise placement preparation failed (${error?.message || error}); using legacy anchors.`)
+      generatedSubtitleAssPath = null
+    }
+  }
+
   // ── Resolve per-segment motion + transition for this episode ──────
   //
   // The selection sidecar carries motion_mode + motion_default + motion_pool
@@ -316,10 +346,11 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
 
   // Final video label — subtitle burn-in if enabled AND a file exists.
   let finalVideoLabel = stitchLabel
-  if (subPath) {
-    filterParts.push(
-      `${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}':original_size=1920x1080${forceStyleClause}[vout]`,
-    )
+  if (generatedSubtitleAssPath) {
+    filterParts.push(`${stitchLabel}ass=filename='${escapeForSubtitlesFilter(generatedSubtitleAssPath)}'[vout]`)
+    finalVideoLabel = '[vout]'
+  } else if (subPath) {
+    filterParts.push(`${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}':original_size=1920x1080${forceStyleClause}[vout]`)
     finalVideoLabel = '[vout]'
   } else if (!subtitles_enabled) {
     job.output_lines.push(`Subtitles: disabled by request — skipping burn-in even though a file may exist.`)
@@ -422,8 +453,11 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     // effort — if removal fails (file already gone, perms), we just
     // rethrow the original ffmpeg error.
     await fsp.rm(tempPath, { force: true }).catch(() => { /* swallow */ })
+    if (generatedSubtitleAssPath) await fsp.rm(generatedSubtitleAssPath, { force: true }).catch(() => { /* swallow */ })
     throw err
   }
+
+  if (generatedSubtitleAssPath) await fsp.rm(generatedSubtitleAssPath, { force: true }).catch(() => { /* swallow */ })
 
   // Atomic rename so a half-encoded file never appears as final. Same
   // filesystem (we write the temp INTO finalDir in v1.0.130+), so this

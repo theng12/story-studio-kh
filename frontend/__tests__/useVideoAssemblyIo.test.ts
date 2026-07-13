@@ -237,6 +237,11 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     state.outroCard.enabled = true
     state.subtitles.enabled = true
     state.subtitles.srt_path = '/subs.srt'
+    state.subtitles.style = {
+      position_x_pct: 37.5,
+      position_y_pct: 84,
+      safe_margin_pct: 10,
+    }
 
     let body: any
     await generateVideo({
@@ -258,6 +263,11 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(body.title_card.text, 'T')
     assert.ok(body.outro_card, 'outro_card present when enabled')
     assert.equal(body.subtitles.srt_path, '/subs.srt')
+    assert.deepEqual(body.subtitles.style, {
+      position_x_pct: 37.5,
+      position_y_pct: 84,
+      safe_margin_pct: 10,
+    }, 'precise safe-area placement survives the final assembly payload')
   })
 
   test('timeline_clips filters disabled/empty rows and omits the key when none remain', async () => {

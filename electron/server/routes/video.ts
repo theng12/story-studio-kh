@@ -15,7 +15,7 @@ import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
-import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle, parseSrt } from '../lib/subtitle-builder.js'
+import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
@@ -1170,8 +1170,12 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
     background: ((req.query.background as any) || 'none'),
     position: ((req.query.position as any) || 'bottom'),
     align: ((req.query.align as any) || 'center'),
+    position_x_pct: req.query.position_x_pct == null ? undefined : Number(req.query.position_x_pct),
+    position_y_pct: req.query.position_y_pct == null ? undefined : Number(req.query.position_y_pct),
+    safe_margin_pct: req.query.safe_margin_pct == null ? undefined : Number(req.query.safe_margin_pct),
     max_chars_per_line: Number(req.query.max_chars_per_line) || 42,
     max_lines: Number(req.query.max_lines) || 2,
+    animation: ((req.query.animation as any) || 'none'),
   }
   if (!await hasLibass()) {
     return res.status(501).json({ detail: 'FFmpeg build lacks libass — subtitles cannot be rendered' })
@@ -1187,12 +1191,12 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
 
   const W = 640, H = 360, FPS = 24, DURATION = 1.5
   const key = [
-    // v2: cache-buster for the v1.0.517 font-size scaling fix — v1 entries
-    // were rendered with the 3.75×-too-big force_style values.
-    'subtitle-v2', sampleText.slice(0, 64), bg || 'synthetic',
+    // v3: precise safe-area placement + exact animation preview.
+    'subtitle-v3', sampleText.slice(0, 64), bg || 'synthetic',
     style.font_family, style.font_size_px, style.color_hex, style.outline_color_hex,
     style.outline_px, style.background, style.position, style.align,
-    style.max_chars_per_line, style.max_lines,
+    style.position_x_pct, style.position_y_pct, style.safe_margin_pct,
+    style.max_chars_per_line, style.max_lines, style.animation,
   ].join('|')
 
   try {
@@ -1202,10 +1206,14 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
       const oneCue = `1\n00:00:00,100 --> 00:00:${(DURATION).toFixed(0).padStart(2, '0')},000\n${sampleText}\n`
       await fs.writeFile(srtFile, oneCue, 'utf-8')
 
-      const ass = buildAssStyle(style).replace(/'/g, "\\'")
-      // Escape the SRT path for FFmpeg filter graphs (colons in Windows paths
-      // collide with the filter argument separator).
-      const escapedSrt = srtFile.replace(/\\/g, '/').replace(/:/g, '\\:')
+      const assFile = path.join(path.dirname(outPath), `${path.basename(outPath, '.webm')}.ass`)
+      const assDoc = srtToAss(parseSrt(oneCue), style, {
+        width: W,
+        height: H,
+        animation: style.animation || 'none',
+      })
+      await fs.writeFile(assFile, assDoc, 'utf-8')
+      const escapedAss = assFile.replace(/\\/g, '/').replace(/:/g, '\\:')
       const args: string[] = ['-y']
       if (bg && existsSync(bg)) {
         args.push(...(await stillDecoderArgs(bg)), '-loop', '1', '-t', DURATION.toString(), '-i', bg)
@@ -1213,13 +1221,8 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
         args.push('-f', 'lavfi', '-t', DURATION.toString(),
           '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
       }
-      // v1.0.517 — proportional sizing comes from buildAssStyle pre-scaling
-      // values into the SRT-default 384×288 PlayRes space, which libass then
-      // scales to this 360p frame exactly like it scales to the 1080p render.
-      // (original_size= does NOT pin a 1080 reference as the v1.0.413 comment
-      // claimed — it only corrects aspect-ratio distortion.)
       args.push('-vf',
-        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,subtitles=filename='${escapedSrt}':original_size=1920x1080:force_style='${ass}',format=yuv420p`,
+        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,ass=filename='${escapedAss}',format=yuv420p`,
       )
       args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
       args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
@@ -1227,9 +1230,13 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
       args.push(outPath)
       // v1.0.515 — previews are ~1-2s clips; 90s only trips on a genuine wedge
       // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
-      await runFfmpeg(args, { timeoutMs: 90_000 })
-      // Clean up the one-cue SRT now that the preview is encoded.
-      try { await fs.unlink(srtFile) } catch {}
+      try {
+        await runFfmpeg(args, { timeoutMs: 90_000 })
+      } finally {
+        // A failed preview must not accumulate subtitle documents in cache.
+        try { await fs.unlink(srtFile) } catch {}
+        try { await fs.unlink(assFile) } catch {}
+      }
     })
 
     const stat = await fs.stat(cached)

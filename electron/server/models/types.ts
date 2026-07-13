@@ -2738,6 +2738,12 @@ export interface VideoSubtitleStyle {
   background: 'none' | 'semi' | 'full'  // box behind text
   position: 'top' | 'center' | 'bottom' // vertical placement
   align: 'left' | 'center' | 'right'
+  /** Precise caption anchor as percentages of the video canvas. When both are
+   * present, they override the coarse position/alignment anchors. */
+  position_x_pct?: number
+  position_y_pct?: number
+  /** Protected edge area for precise placement, clamped to 5-20%. */
+  safe_margin_pct?: number
   max_chars_per_line: number            // wrap target, default 42
   max_lines: number                     // libass `WrapStyle` + `MaxLines`
   /** v1.0.353 — entrance animation per caption line. 'none' = static (the
