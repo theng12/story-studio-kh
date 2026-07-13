@@ -623,15 +623,9 @@ interface ExternalNode {
 type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
 
 // v1.0.363 — Character Sheet, Scene Plan, Scene Review and Timestamp Assemble
-// were promoted from read-only external nodes to real batchable steps (the
-// chain now runs them). Only Research and B-Roll remain external: Research is
-// a separate up-front run the user kicks off deliberately, and B-Roll fetch/
-// assemble lives entirely on its own pool-driven page.
+// were promoted from read-only external nodes to real batchable steps. B-Roll
+// remains external because fetch/assemble lives on its pool-driven page.
 const EXTERNAL_NODES: Record<string, ExternalNode> = {
-  research: {
-    kind: 'external', key: 'research', label: 'Research', icon: '🔍', link: '/research',
-    note: 'Runs on the Research page — produces the citations sidecar the script consumes.',
-  },
   broll: {
     kind: 'external', key: 'broll', label: 'B-Roll Fetch + Assemble', icon: '🎞', link: '/broll',
     note: 'Runs on the B-Roll page — fetch/pick clips from the pool, then assemble the final video there.',
@@ -649,7 +643,7 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 // actually SEES is `chainEntries` — a per-format ordered slice of this
 // list interleaved with EXTERNAL_NODES (see below).
 const stepsMeta: StepMeta[] = [
-  { id: 'research',          label: 'Research',          icon: '🔍', link: '/research',       presetList: 'research_presets',        presetActive: 'research_last_preset_research' },
+  { id: 'research',          label: 'Research (optional)', icon: '🔍', link: '/research',      presetList: 'research_presets',        presetActive: 'research_last_preset_research', optional: true },
   { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
@@ -778,7 +772,9 @@ const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 
 const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
 
 const stepChecked = reactive<Record<StepId, boolean>>({
-  research: true,
+  // Research enriches factual projects but must never make an episode pending
+  // or run unexpectedly as part of the default one-click chain.
+  research: false,
   broll: true,
   'script-only': true,
   // v1.0.363 — Introduction defaults OFF. It was a sleep-story convention;
@@ -2045,8 +2041,7 @@ async function submit() {
    so the styles need to be global to apply. */
 
 /* v1.0.167 — External chain node: read-only "Open page" tile for steps the
-   batch runner does not enqueue (research, broll, scene-plan, scene-review,
-   timestamp-assemble). Dashed + dimmer + no checkbox so it reads as
+   batch runner does not enqueue (currently B-Roll). Dashed + dimmer so it reads as
    informational, not selectable. */
 .step-tile-external {
   cursor: default;

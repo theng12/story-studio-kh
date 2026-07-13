@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import {
   normalizeVisualSource,
   flowForVisualSource,
+  requiredFlowSteps,
   type VisualSource,
 } from '../composables/useProjectFlow.js'
 
@@ -86,11 +87,23 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('narrated-scenes: audio-paced flow with optional research + character sheet', () => {
-    const k = keys('narrated-scenes')
+    const flow = flowForVisualSource('narrated-scenes')
+    const k = flow.map(s => s.key)
     for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `narrated-scenes should include ${s}`)
     }
     assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
+    assert.equal(flow.find(s => s.key === 'research')?.optional, true,
+      'Research must remain visible but non-blocking')
+  })
+
+  test('Research never counts toward required production completion', () => {
+    const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    for (const vs of sources) {
+      assert.ok(keys(vs).includes('research'), `${vs} should keep optional Research available`)
+      assert.ok(!requiredFlowSteps(vs).some(step => step.key === 'research'),
+        `${vs} must not require Research for completion`)
+    }
   })
 
   test('every step is a well-formed FlowStep with a unique key', () => {

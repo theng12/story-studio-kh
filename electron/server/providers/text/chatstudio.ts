@@ -63,7 +63,7 @@ const chatstudioProvider: TextProvider = {
     // Multimodal content. Chat Studio currently runs models text-only, so any
     // attached images will be ignored/error server-side; we keep the same
     // OpenAI content-array packing so a future vision-capable build works
-    // without a client change. The Co-writer UI soft-warns for local models.
+    // without a client change.
     const userContent: any = images && images.length > 0
       ? [
         { type: 'text', text: userMessage },

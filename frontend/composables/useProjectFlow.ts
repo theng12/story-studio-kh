@@ -90,7 +90,7 @@ export interface FlowStep {
 // ── Shared steps (referenced by multiple flows) ────────────────────────────
 const STEP = {
   ideas:        { key: 'ideas',        label: 'Ideas',          icon: '✨', path: '/ideas' },
-  research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research' },
+  research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research', optional: true },
   script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts' },
   metadata:     { key: 'metadata',     label: 'Metadata',       icon: '📋', path: '/metadata' },
   thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', tab: 'thumbnails' },
@@ -163,6 +163,11 @@ export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES
   return FLOW_SCENE_IMAGES
+}
+
+/** Steps that may block an episode from being considered production-ready. */
+export function requiredFlowSteps(vs: VisualSource): FlowStep[] {
+  return flowForVisualSource(vs).filter(step => !step.optional)
 }
 
 export function useProjectFlow(

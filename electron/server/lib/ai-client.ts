@@ -41,9 +41,8 @@ export interface CallAiContext {
    * entry is a base64 data URL. Forwarded to the provider's `callText`
    * (which repackages into the SDK's multimodal content-array). Only
    * meaningful for OpenAI's gpt-4o family + LM Studio when a vision model
-   * is loaded; non-vision providers silently ignore. Used by the Co-writer
-   * (frontend gates the model picker to vision-capable models when images
-   * are attached, so we never reach a non-vision provider with images set).
+   * is loaded; non-vision providers silently ignore. Used by shared vision
+   * workflows such as image analysis and reference-assisted generation.
    */
   images?: string[]
 }

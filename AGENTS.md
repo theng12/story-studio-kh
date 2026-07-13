@@ -23,3 +23,8 @@ Every generation flow must prove its output is complete before a job, pipeline s
 - Optional steps may be skipped only through explicit project configuration. A skipped optional step is not missing; a required step with partial output is never done.
 - New generators and material changes to existing generators require regression tests for complete, partial, empty, stale, malformed, provider-failure, and retry/self-healing outcomes.
 - When auditing or changing generation code, search for swallowed per-item errors, warning-only failures, unconditional `progress = 100`, and queue executors that return after partial work.
+
+## Optional Research and Retired Co-writer
+
+- Research is an opt-in enrichment step. It may appear in supported format flows and expose its own pending filter, but it must never count as a missing Production Board asset, block episode completion, or run by default in the one-click Pipeline.
+- The Co-writer feature is retired. Do not restore its page, navigation entry, API routes, local-storage stores, or completion dependencies. Idea development belongs in Ideas, Research, and Script Generator workflows.

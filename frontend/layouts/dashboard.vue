@@ -63,9 +63,6 @@
         >
           <span class="nav-icon">&#128270;</span> Research
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/cowriter`" class="nav-item" active-class="active" title="Chat with the app's LLM to develop an idea, outline, or full script — then send it straight into the pipeline.">
-          <span class="nav-icon">&#128172;</span> Co-writer
-        </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/scripts`" class="nav-item" active-class="active">
           <span class="nav-icon">&#128221;</span> Script Generator <span v-if="scriptGenerating" class="nav-pulse" />
         </NuxtLink>

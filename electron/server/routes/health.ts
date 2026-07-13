@@ -206,8 +206,7 @@ router.get('/models', async (req, res) => {
   // v1.0.283 — vision-capable model detection. We can't query a "capabilities"
   // endpoint generically — every provider does it differently — so we keep a
   // hardcoded list of KNOWN vision-capable cloud model id patterns. The frontend
-  // uses `supports_vision` to gate the model picker when images are attached
-  // in the Co-writer chat.
+  // uses `supports_vision` to gate model pickers for image-aware workflows.
   //
   // For LOCAL LM Studio models we set `supports_vision: true` unconditionally:
   // we have no reliable way to detect capability from the model slug alone

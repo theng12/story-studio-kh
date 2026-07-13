@@ -69,10 +69,8 @@ interface LlmModelRow {
   // is available. Other tooltip states (disabled reason, no key) take
   // precedence — those are gating; the hint is optional context.
   hint?: string | null
-  // v1.0.283 — true when the model accepts image input. Used by callers
-  // that pass `require-vision` to grey out text-only models (e.g. Co-writer
-  // when the user has attached an image). Local LM Studio models claim true
-  // unconditionally — see the comment in routes/health.ts.
+  // True when the model accepts image input. Image-aware callers can require
+  // this capability while keeping one shared model picker.
   supports_vision?: boolean
   // v1.0.498 — cost tier for the picker tabs. 'local' = on-machine (free),
   // 'free' = free cloud API, 'paid' = uses paid credits. Absent → treated as
@@ -89,9 +87,8 @@ const props = defineProps<{
   label?: string
   /**
    * v1.0.283 — when true, models that don't `supports_vision` are shown but
-   * disabled with a "Text-only model" tooltip. Used by Co-writer when the
-   * user has attached an image to the chat. Default false preserves the
-   * existing behaviour for every other ModelSelector caller.
+   * disabled with a "Text-only model" tooltip. Default false preserves the
+   * standard text-only picker behavior.
    */
   requireVision?: boolean
 }>()

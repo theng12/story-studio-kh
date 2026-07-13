@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.563 — 2026-07-14
+
+**Research is now explicitly optional, and the redundant Co-writer feature has been removed.**
+
+- Research remains available for factual projects but no longer runs by default or contributes to Production Board, pending, or completion requirements.
+- Added regression coverage proving Research stays visible but non-blocking across timestamp, continuity, and narrated-scene formats.
+- Removed the Co-writer page, sidebar entry, API endpoints, and its private browser-history and artifact stores.
+- Preserved shared Chat Studio and multimodal AI infrastructure used by active generators, Vision, and B-Roll workflows.
+- Added permanent project rules preventing Research from becoming required or the retired Co-writer surface from being reintroduced.
+
 ## v1.0.562 — 2026-07-13
 
 **One-click completion is now verified from the full expected output set instead of inferred from partial files or a worker returning normally.**

@@ -288,7 +288,7 @@ export async function listCatalogPooled(
 // Mirrors the pool pattern from Image Studio / Voice Studio: same module
 // owns the Dispatcher lifecycle so the text provider doesn't have to. The
 // cache is MODULE-SCOPED so least-busy tracking spans every code path
-// (cowriter sessions, idea generation, two-pass scene planner). Down-state
+// (idea generation, prompt generation, and scene planning). Down-state
 // is sticky; call `resetChatstudioDispatcher` at the start of a fresh
 // long-running workload (scene plan run, batch idea gen) so endpoints that
 // recovered get a fair retry.
