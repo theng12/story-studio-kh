@@ -82,11 +82,24 @@ export interface StitchResult {
   gap_sec: number
   /** v1.0.397 — intro lead-in the timeline was offset by (0 = none). */
   lead_in_sec: number
+  /** True only when every audio section contributed usable subtitle cues. */
+  complete: boolean
+  /** Empty for successful stitches; included for status/API consistency. */
+  missing_sections: string[]
 }
 
 interface AudioChaptersSidecar {
   sections?: Array<{ slug: string; duration_s: number; source_file?: string }>
   gap_duration_s?: number
+}
+
+/** Sections with audio but no usable subtitle cues must never form a timeline. */
+export function findIncompleteSubtitleSections(
+  sections: Array<Pick<StitchedSection, 'slug' | 'source_srt' | 'cues_added'>> | null | undefined,
+): string[] {
+  return (sections || [])
+    .filter(section => !section.source_srt || !Number.isFinite(section.cues_added) || section.cues_added <= 0)
+    .map(section => section.slug)
 }
 
 /**
@@ -219,6 +232,24 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
   // Total duration is the cursor minus the trailing gap (no audio
   // follows the last section).
   const totalDuration = Math.max(0, cursor - gapSec)
+  const outputPath = path.join(subtitles_dir, `${episode_code}_stitched.srt`)
+
+  // A partial stitch is more dangerous than no stitch: Scene Plan used to
+  // bridge the missing chapter duration with one giant scene and still looked
+  // complete. Invalidate any older derivative and require every audio section
+  // to contribute cues before exposing a timeline.
+  const incompleteSections = findIncompleteSubtitleSections(sectionsResult)
+  if (incompleteSections.length) {
+    await Promise.all([
+      fs.unlink(outputPath).catch(() => undefined),
+      fs.unlink(`${outputPath}.json`).catch(() => undefined),
+    ])
+    throw new Error(
+      `Subtitle timeline is incomplete: ${incompleteSections.length} of ${sectionsResult.length} audio section(s) have no usable subtitles: ` +
+      `${incompleteSections.join(', ')}. Open Subtitles, transcribe those missing chapters, then stitch again. ` +
+      `Scene Plan is blocked until every audio section is represented so it cannot silently create a scene across missing narration.`,
+    )
+  }
 
   // v1.0.218 — FAIL LOUDLY on an empty stitch instead of writing a blank
   // SRT. Previously a 0-cue stitch silently wrote an empty file, which the
@@ -253,7 +284,6 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     srtLines.push(c.text)
     srtLines.push('')
   }
-  const outputPath = path.join(subtitles_dir, `${episode_code}_stitched.srt`)
   await fs.writeFile(outputPath, srtLines.join('\n'), 'utf-8')
 
   // Companion meta sidecar — same pattern as the chapters-derived
@@ -267,6 +297,8 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     lead_in_sec: leadIn,
     total_cues: stitchedCues.length,
     total_duration_sec: totalDuration,
+    complete: true,
+    missing_sections: [],
     sections: sectionsResult,
   }
   await fs.writeFile(`${outputPath}.json`, JSON.stringify(meta, null, 2), 'utf-8')
@@ -278,5 +310,7 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     total_duration_sec: totalDuration,
     gap_sec: gapSec,
     lead_in_sec: leadIn,
+    complete: true,
+    missing_sections: [],
   }
 }

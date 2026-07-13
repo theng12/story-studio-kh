@@ -1,13 +1,10 @@
 <!--
   v1.0.143+ — Scene Plan page real content.
-  Three-step flow:
-    1. Stitch subtitles (uses the gap from audio_chapters.json).
-    2. Plan scenes (LLM picks natural beats; runs as a job).
-    3. Edit + save the plan.
+  Three-stage flow: deterministic timeline, visual prompts, optional motion.
 
   Surfaces drift detection: if the audio merge gap changed since the
   stitched SRT was built, prompt for re-stitch. If the stitched SRT
-  changed since the plan was built, prompt for re-plan.
+  changed since the timeline was built, prompt for deterministic repair.
 
   v1.0.144's Scene Review page reads the saved scene_plan.json to
   render the per-scene approval grid.
@@ -54,18 +51,26 @@
       <div v-else class="mt-2">
         <div class="text-sm text-muted">
           Audio merged with gap = <strong>{{ status.audio_merge_gap_s }}s</strong>.
-          <span v-if="status.stitched_srt">
+          <span v-if="status.stitched_srt && subtitleTimelineComplete">
             Stitched SRT ready:
             <strong>{{ status.stitched_srt.meta?.total_cues ?? '?' }} cues</strong>
             across
             <strong>{{ status.stitched_srt.meta?.sections?.length ?? '?' }} section(s)</strong>,
             <strong>{{ status.stitched_srt.meta?.total_duration_sec?.toFixed(1) ?? '?' }}s</strong> total. ✓
           </span>
+          <span v-else-if="status.stitched_srt">Stitched SRT is incomplete.</span>
           <span v-else>No stitched SRT yet.</span>
         </div>
         <div v-if="!status.stitched_srt" class="validation-msg text-sm mt-2">
           ⚠ Stitch the subtitles first —
           <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">open Subtitles → "Stitch into the timeline"</NuxtLink>.
+        </div>
+        <div v-else-if="missingSubtitleSections.length" class="validation-msg validation-msg-strong text-sm mt-2">
+          ⚠ <strong>Do not rebuild or re-plan yet.</strong>
+          Audio exists but subtitles are missing for
+          <strong>{{ missingSubtitleSections.join(', ') }}</strong>.
+          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Open Subtitles and transcribe those chapters</NuxtLink>,
+          then stitch again. The current long scene crosses narration the app could not see.
         </div>
         <div v-else-if="status.stitched_srt?.drifts_from_current_merge" class="validation-msg text-sm mt-2">
           ⚠ Stitched SRT was built with a different gap
@@ -271,8 +276,8 @@
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="!form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
+            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
           <small>{{ effectivePromptPackSize }} scenes per {{ selectedModelTierLabel }} pack. Studio Hub distributes as many packs in parallel as the available compatible servers can handle.</small>
         </div>
@@ -280,8 +285,8 @@
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="!form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
+            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
@@ -298,7 +303,7 @@
            matches the new timeline. -->
       <div v-if="status?.plan_stale_vs_stitched && !planning" class="validation-msg text-sm mb-2">
         ⚠ This plan is <strong>older than the current stitched subtitles</strong> — it was built from a previous audio/timeline.
-        Re-run <strong>Plan scenes</strong> (action bar) so it matches the latest stitch.
+        Use <strong>Repair long scenes</strong> for isolated gaps; rebuild the timeline only when the whole episode timing changed.
       </div>
       <div class="flex justify-between items-center">
         <h3>3. Scenes</h3>
@@ -310,6 +315,17 @@
           </span>
           <button class="btn btn-sm btn-primary" :disabled="saving || !dirty" @click="savePlan">
             {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
+          </button>
+          <button
+            v-if="overlongSceneCount"
+            class="btn btn-sm btn-secondary"
+            :disabled="repairingLongScenes || !!dirty || !subtitleTimelineComplete"
+            :title="!subtitleTimelineComplete
+              ? 'Transcribe and stitch every missing subtitle chapter first'
+              : dirty ? 'Save your edits first' : 'Split only abnormal long scenes against the current subtitle cues. No LLM; unaffected prompts and images are preserved.'"
+            @click="repairLongScenes"
+          >
+            {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} long scene${overlongSceneCount === 1 ? '' : 's'}` }}
           </button>
           <button
             class="btn btn-sm btn-secondary"
@@ -373,45 +389,24 @@
           </div>
         </div>
 
-        <!-- v1.0.245 — Plan-health banner. Surfaces scenes that look broken
-             (no prompt, over-long, or a planner fallback) so you don't have to
-             scroll hundreds of scenes to find them. Click to jump.
-             v1.0.286 — bulk re-plan button for the empty-prompt subset. -->
+        <!-- Plan health surfaces missing prompts and timeline defects without
+             reviving the retired LLM scene-boundary planner. -->
         <div v-if="problemScenes.length" class="plan-health mt-2">
           <div class="plan-health-head">
             <span>
               ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
               <span class="text-muted text-xs">— no prompt, over-long, or planner fallback</span>
             </span>
-            <!-- Bulk re-plan: only offers to re-plan empty-prompt scenes (the
-                 planner-failure class). Over-long / boundary-reason scenes
-                 stay on the per-row Re-plan button because they're judgement
-                 calls, not pure failures. -->
             <div class="bulk-buttons" v-if="emptyPromptCount > 0">
-              <!-- v1.0.288 — prompt-only bulk lives next to Re-plan-all. It's
-                   the better default for local models because each call is
-                   prose (no JSON), so failure rates are much lower. The
-                   heavier "🪄 Re-plan all" stays available for users who
-                   want the planner to also re-segment the empties. -->
               <button
                 class="btn btn-sm btn-primary"
-                :disabled="!form.model || planning || bulkReplan.active"
+                :disabled="!subtitleTimelineComplete || !form.model || planning || bulkReplan.active"
                 :title="!form.model
                   ? 'Pick a model above first'
-                  : `Regenerate ONLY the visual prompts for ${emptyPromptCount} scene(s). Time ranges + transcripts unchanged. Much more reliable on local models than full Re-plan.`"
+                  : `Regenerate only the visual prompts for ${emptyPromptCount} scene(s). Time ranges and transcripts stay unchanged.`"
                 @click="regenAllEmptyPrompts"
               >
                 ✨ Regen {{ emptyPromptCount }} prompt{{ emptyPromptCount === 1 ? '' : 's' }} only
-              </button>
-              <button
-                class="btn btn-sm btn-secondary"
-                :disabled="!form.model || planning || bulkReplan.active"
-                :title="!form.model
-                  ? 'Pick a model above first'
-                  : `Full re-plan: each scene gets re-segmented + re-prompted (can change time ranges).`"
-                @click="replanAllEmpty"
-              >
-                🪄 Full re-plan {{ emptyPromptCount }}
               </button>
             </div>
           </div>
@@ -425,16 +420,9 @@
               ></div>
             </div>
             <div class="bulk-progress-text">
-              <template v-if="bulkReplan.parallel">
-                Regenerating {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in parallel across your model pool ·
-                {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
-                <button class="link-btn-danger" @click="cancelBulkReplan">Cancel</button>
-              </template>
-              <template v-else>
-                Re-planning scene #{{ bulkReplan.currentSceneIndex ?? '?' }} ·
-                {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
-                <button class="link-btn-danger" @click="cancelBulkReplan">Cancel after this scene</button>
-              </template>
+              Regenerating {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in parallel across your model pool ·
+              {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
+              <button class="link-btn-danger" @click="cancelBulkReplan">Cancel</button>
             </div>
           </div>
 
@@ -450,7 +438,12 @@
             </button>
           </div>
           <p class="text-muted text-xs mt-1">
-            Tip: pick a model above, then click <strong>🪄 Re-plan</strong> on a scene to regenerate just that range (other scenes + their images are kept).
+            <template v-if="missingSubtitleSections.length">
+              Fix the missing subtitle chapters first. Prompt generation and timeline repair are paused to protect this plan.
+            </template>
+            <template v-else>
+              Use <strong>Prompt only</strong> for missing text prompts, or <strong>Repair long scenes</strong> for abnormal timing. Neither action uses the retired LLM boundary planner.
+            </template>
           </p>
         </div>
 
@@ -489,7 +482,7 @@
                 >
                   <option v-for="t in SCENE_TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.emoji }} {{ t.label }}</option>
                 </select>
-                <span v-if="scene.scene_type_locked" class="scene-type-lock" title="You set this — kept on re-plan.">🔒</span>
+                <span v-if="scene.scene_type_locked" class="scene-type-lock" title="You set this — kept during deterministic repairs.">🔒</span>
               </span>
             </div>
             <div class="form-group mt-1">
@@ -553,24 +546,22 @@
               >{{ scene.emotion_locked ? '🔒 locked' : '🔓 auto' }}</button>
             </div>
             <div class="scene-row-actions mt-1">
-              <!-- v1.0.245 — re-plan just this scene's time range via the LLM. -->
+              <NuxtLink
+                v-if="sceneOverlapsMissingSubtitles(scene)"
+                :to="`/projects/${slug}/subtitles`"
+                class="btn-icon"
+                title="This scene crosses audio with no subtitles. Transcribe the named chapters and stitch again before repairing it."
+              >Fix subtitles first</NuxtLink>
               <button
                 class="btn-icon"
-                :disabled="!form.model || replanningId === scene.id || planning || bulkReplan.active || regenPromptId === scene.id"
-                :title="!form.model ? 'Pick a model above first' : 'Re-plan this time range with the LLM — replaces it with proper sub-scenes (other scenes + images untouched)'"
-                @click="replanScene(scene)"
-              >{{ replanningId === scene.id ? '⏳ Re-planning…' : '🪄 Re-plan' }}</button>
-              <!-- v1.0.288 — prompt-only regeneration. Keeps the scene's time
-                   boundaries and transcript exactly as-is; only rewrites
-                   visual_prompt. Works on local models that fail full Re-plan. -->
-              <button
-                class="btn-icon"
-                :disabled="!form.model || regenPromptId === scene.id || planning || bulkReplan.active || replanningId === scene.id || !scene.transcript_segment?.trim()"
-                :title="!form.model
+                :disabled="!subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim()"
+                :title="!subtitleTimelineComplete
+                  ? 'Complete the subtitle timeline first'
+                  : !form.model
                   ? 'Pick a model above first'
                   : !scene.transcript_segment?.trim()
                     ? 'Scene has no transcript_segment — fill that in first'
-                    : 'Regenerate ONLY the visual prompt — time range + transcript stay exactly the same. Works on local models that fail full Re-plan.'"
+                    : 'Regenerate only the visual prompt; the deterministic time range and transcript stay unchanged.'"
                 @click="regenerateScenePrompt(scene)"
               >{{ regenPromptId === scene.id ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
               <button
@@ -581,8 +572,8 @@
               >▲ Merge up</button>
               <button
                 class="btn-icon"
-                :disabled="(scene.end_sec - scene.start_sec) < 6"
-                title="Split this scene in half (min 6s)"
+                :disabled="sceneOverlapsMissingSubtitles(scene) || (scene.end_sec - scene.start_sec) < 6"
+                :title="sceneOverlapsMissingSubtitles(scene) ? 'Fix missing subtitles first; splitting now would still have no narration text' : 'Split this scene in half (min 6s)'"
                 @click="splitScene(i)"
               >✂ Split</button>
               <button
@@ -715,10 +706,19 @@ interface ScenePlanStatus {
       gap_duration_s?: number
       total_cues?: number
       total_duration_sec?: number
-      sections?: Array<{ slug: string; source_srt?: string; cues_added: number }>
+      complete?: boolean
+      missing_sections?: string[]
+      sections?: Array<{
+        slug: string
+        source_srt?: string
+        cues_added: number
+        offset_sec: number
+        duration_sec: number
+      }>
     } | null
     drifts_from_current_merge: boolean
     stale_vs_subtitles?: boolean
+    incomplete_sections?: string[]
   } | null
   scene_plan: ScenePlan | null
   plan_stale_vs_stitched?: boolean
@@ -774,6 +774,34 @@ interface ScenePlan {
 const status = ref<ScenePlanStatus | null>(null)
 const plan = ref<ScenePlan | null>(null)
 const serverPlan = ref<string>('')  // snapshot for dirty check
+const missingSubtitleSections = computed(() => {
+  const stitched = status.value?.stitched_srt
+  if (!stitched) return []
+  const reported = [
+    ...(stitched.incomplete_sections || []),
+    ...(stitched.meta?.missing_sections || []),
+  ]
+  const derived = (stitched.meta?.sections || [])
+    .filter(section => !section.source_srt || section.cues_added <= 0)
+    .map(section => section.slug)
+  return Array.from(new Set([...reported, ...derived]))
+})
+const subtitleTimelineComplete = computed(() =>
+  !!status.value?.stitched_srt && missingSubtitleSections.value.length === 0,
+)
+const missingSubtitleRanges = computed(() =>
+  (status.value?.stitched_srt?.meta?.sections || [])
+    .filter(section => missingSubtitleSections.value.includes(section.slug))
+    .map(section => ({
+      start: section.offset_sec,
+      end: section.offset_sec + section.duration_sec,
+    })),
+)
+function sceneOverlapsMissingSubtitles(scene: ScenePlanEntry): boolean {
+  return missingSubtitleRanges.value.some(range =>
+    scene.end_sec > range.start + 0.01 && scene.start_sec < range.end - 0.01,
+  )
+}
 // v1.0.272 — per-episode in-flight flags. A plan/recipe run holds its flag
 // through a long poll; keying it to the episode means switching episodes
 // mid-job doesn't disable the newly-selected episode's buttons. (See
@@ -937,7 +965,7 @@ function toggleEmotionLock(scene: ScenePlanEntry): void {
   scene.emotion_locked = !scene.emotion_locked
 }
 
-/** Set a scene's type and lock it so a re-plan keeps the user's choice. The
+/** Set a scene's type and lock it so deterministic repairs keep the choice. The
  *  `dirty` computed picks up the mutation; the user saves with the Save button. */
 function setSceneType(scene: ScenePlanEntry, value: string): void {
   scene.scene_type = value as SceneType
@@ -1010,12 +1038,12 @@ const motionMeta = computed(() => MOTION_LEVELS.find(m => m.value === form.value
 
 const canPlan = computed(() => {
   if (!episodeId.value) return false
-  if (!status.value?.stitched_srt) return false
-  return true
+  return subtitleTimelineComplete.value
 })
 const planDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
+  if (!subtitleTimelineComplete.value) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
   return ''
 })
 const dirty = computed(() => plan.value && JSON.stringify(plan.value) !== serverPlan.value)
@@ -1088,6 +1116,10 @@ async function planScenes(): Promise<void> {
 }
 
 async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number): Promise<void> {
+  if (!subtitleTimelineComplete.value) {
+    showError(`Complete the missing subtitle chapters first: ${missingSubtitleSections.value.join(', ')}`)
+    return
+  }
   if (!form.value.model || !plan.value) return
   const ep = episodeId.value
   planningEpisode.value = ep
@@ -1126,12 +1158,12 @@ async function pollUntilPlanLanded(
   const timeoutMs = opts?.timeoutMs ?? 120_000
   const trackJobId = opts?.trackJobId ?? null
   // v1.0.287 — `previousGeneratedAt` lets callers wait specifically for a
-  // NEW plan to land, not any-existing-recent plan. Bulk re-plan (v1.0.286)
-  // hit this: on iteration 2+, the previous replan's generated_at was still
+  // NEW plan to land, not any-existing-recent plan. An old serial repair loop
+  // hit this: on iteration 2+, the previous job's generated_at was still
   // < 120s old, so the legacy "is generated_at recent?" check returned
   // immediately — the second job hadn't even started running yet. The loop
   // then raced ahead, hit isDuplicate 409s on every subsequent POST, and
-  // only ONE scene actually got re-planned out of (e.g.) 77 placeholders.
+  // only ONE scene actually got repaired out of (e.g.) 77 placeholders.
   // Now: when previousGeneratedAt is supplied we keep polling until the
   // server's generated_at differs from it. Legacy callers (no opts) keep
   // the old "any-recent" behaviour for backwards compat.
@@ -1172,7 +1204,7 @@ async function pollUntilPlanLanded(
   if (episodeId.value === ep) showError('Scene planner taking longer than expected — check the Jobs panel.')
 }
 
-// ── v1.0.245 — Plan health + per-scene re-plan ──────────────────────────
+// ── Plan health + deterministic repair guidance ─────────────────────────
 // Flag scenes that look broken so they're findable without scrolling: no
 // visual prompt, suspiciously long (normal scenes are ≤8–12s), or a planner
 // fallback boundary_reason. 20s is well above any normal scene length.
@@ -1183,18 +1215,19 @@ const problemScenes = computed(() => {
     const reasons: string[] = []
     const dur = s.end_sec - s.start_sec
     if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
-    if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
-    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('planner fallback')
+    if (sceneOverlapsMissingSubtitles(s)) reasons.push('missing subtitle narration')
+    else if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
+    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('legacy fallback')
     if (reasons.length) list.push({ scene: s, index: i + 1, reasons })
   })
   return list
 })
 const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
+const overlongSceneCount = computed(() =>
+  (plan.value?.scenes || []).filter(scene => scene.end_sec - scene.start_sec > OVERLONG_SEC).length,
+)
 
-// v1.0.286 — subset count for the bulk re-plan button: only the
-// empty-visual-prompt scenes (the planner-failure class). Over-long /
-// boundary-reason problems aren't bulk-replannable because the user
-// needs to judge each case.
+// Empty visual prompts can be regenerated without changing timeline bounds.
 const emptyPromptCount = computed(() => {
   return (plan.value?.scenes || []).filter(
     s => !s.visual_prompt || !s.visual_prompt.trim(),
@@ -1211,13 +1244,10 @@ function jumpToScene(id: string): void {
   }
 }
 
-const replanningId = ref<string | null>(null)
-
-// v1.0.288 — prompt-only regeneration. Distinct from re-plan because the
-// backend call is much smaller (prose, not JSON) and the user might want
-// to regenerate a prompt without altering the scene's time boundaries.
+// Prompt-only regeneration never changes deterministic timeline boundaries.
 const regenPromptId = ref<string | null>(null)
 async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
+  if (!subtitleTimelineComplete.value) { showError('Complete and stitch every subtitle chapter first.'); return }
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (!scene.transcript_segment?.trim()) { showError('Scene has no transcript_segment to base a prompt on.'); return }
   const ep = episodeId.value
@@ -1347,164 +1377,40 @@ async function regenAllEmptyPrompts(): Promise<void> {
   }
 }
 
-// v1.0.286 — bulk re-plan state. Holds the in-progress loop so the UI can
-// surface "Re-planning N of M…" and disable other actions. `cancelRequested`
-// lets the user bail out between scenes (we don't tear down the active LLM
-// call mid-stream — the current scene finishes, then the loop exits).
+// Bulk prompt regeneration state. Timeline boundaries never change here.
 const bulkReplan = ref<{
   active: boolean
   completed: number
   total: number
   currentSceneIndex: number | null
   cancelRequested: boolean
-  /** v1.0.458 — true when the run is a single parallel pool job (bulk regen
-   *  prompts) rather than the legacy one-scene-at-a-time loop (full re-plan).
-   *  The progress strip + cancel behave differently for each. */
+  /** True while the backend fans prompt packs across the model pool. */
   parallel?: boolean
   /** v1.0.458 — backend job id for the parallel run, so Cancel can stop it. */
   jobId?: string | null
 }>({ active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false })
-
-/**
- * v1.0.286 — bulk re-plan every scene with an empty visual prompt. Walks
- * the plan one scene at a time (the backend's isDuplicate guard only allows
- * one scene_plan_run per episode at a time, so this MUST be sequential).
- *
- * The loop is robust to scene-id shifts: after each re-plan the generator
- * splices new scenes in place of the target and renumbers scene_index, but
- * IDs of UNRELATED scenes stay stable. We re-read `plan.value` each
- * iteration to find the next still-empty scene rather than trusting a
- * snapshot taken before the first re-plan.
- *
- * Cap of 200 iterations is a safety guard — even a totally broken plan
- * shouldn't have more empty scenes than that, and if every re-plan
- * paradoxically produced MORE empty scenes we'd notice in the progress
- * count and the cancel button is one click away.
- */
-async function replanAllEmpty(): Promise<void> {
-  if (!form.value.model) { showError('Pick a model above first'); return }
-  if (bulkReplan.value.active) return
-  const empty = (plan.value?.scenes || []).filter(
-    s => !s.visual_prompt || !s.visual_prompt.trim(),
-  )
-  if (!empty.length) {
-    success('No placeholder scenes to re-plan — every scene already has a visual prompt.')
-    return
-  }
-  const ep = episodeId.value
-  const ok = await ask({
-    title: `Re-plan ${empty.length} placeholder scene${empty.length === 1 ? '' : 's'}?`,
-    message:
-      `These scenes have empty visual prompts (the planner couldn't generate one — usually a local-model JSON failure). `
-      + `Re-runs the planner on each one's time range, one at a time. `
-      + `Estimated ~${Math.ceil(empty.length * 0.5)}-${empty.length}min depending on your model. `
-      + `You can cancel between scenes.${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
-    confirmLabel: `Re-plan all ${empty.length}`,
-  })
-  if (!ok) return
-
-  bulkReplan.value = {
-    active: true, completed: 0, total: empty.length,
-    currentSceneIndex: null, cancelRequested: false,
-  }
-
-  let safetyCap = 200
-  let succeeded = 0
-  let failed = 0
-  // v1.0.287 — tracks scene IDs we've already marked as "failed" so the
-  // .find() doesn't pick them up again after the marker gets wiped by the
-  // next loadStatus() (plan.value is fully replaced on each fetch, so
-  // in-memory mutations don't persist). Skip-set is the only reliable way
-  // to avoid retrying the same hopeless scene.
-  const skipIds = new Set<string>()
-  while (safetyCap-- > 0 && !bulkReplan.value.cancelRequested) {
-    if (episodeId.value !== ep) break // user switched episodes — stop
-    const next = (plan.value?.scenes || []).find(
-      s => !skipIds.has(s.id) && (!s.visual_prompt || !s.visual_prompt.trim()),
-    )
-    if (!next) break
-    bulkReplan.value.currentSceneIndex = next.scene_index
-    // v1.0.287 — capture the plan's CURRENT generated_at BEFORE posting,
-    // so pollUntilPlanLanded waits specifically for THIS new re-plan to
-    // land (not the previous iteration's, which would still be < 120s old
-    // and falsely satisfy the legacy "any recent" check).
-    const previousGeneratedAt = plan.value?.generated_at || null
-    try {
-      await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
-        scene_id: next.id,
-        model: form.value.model,
-        detail_level: 4,
-        style_prompt: form.value.style_prompt.trim() || undefined,
-        custom_instructions: form.value.custom_instructions.trim() || undefined,
-      })
-      await pollUntilPlanLanded(ep, { previousGeneratedAt })
-      // After the splice, the original `next.id` is GONE from the plan (it
-      // got replaced by 1-N new scenes). If we can't find it anymore, the
-      // re-plan succeeded. If we CAN still find it AND it's still empty,
-      // the re-plan produced no prompts (model failure) — skip it forever.
-      const stillThereAndEmpty = (plan.value?.scenes || []).some(
-        s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()),
-      )
-      if (stillThereAndEmpty) {
-        failed++
-        skipIds.add(next.id)
-      } else {
-        succeeded++
-      }
-    } catch (e: any) {
-      failed++
-      skipIds.add(next.id)
-      // Only show the first few errors — a 50-scene cascade of toasts is
-      // worse than a silent failure-counter in the progress strip.
-      if (failed <= 3) {
-        showError(`Scene #${next.scene_index} re-plan failed: ${e?.data?.detail || e?.message || 'unknown'}`)
-      } else if (failed === 4) {
-        showError(`Multiple re-plans failing — suppressing further toasts. See the final summary for counts.`)
-      }
-    }
-    bulkReplan.value.completed++
-  }
-
-  const wasCancelled = bulkReplan.value.cancelRequested
-  bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false }
-  if (wasCancelled) {
-    success(`Bulk re-plan cancelled. Re-planned ${succeeded}, ${failed} skipped (model couldn't produce a prompt).`)
-  } else if (failed > 0 && succeeded > 0) {
-    // Partial success — common with smaller local models that succeed
-    // sporadically. Surface both numbers so the user knows their next move.
-    success(`Bulk re-plan finished. Succeeded: ${succeeded}. Skipped (model failure): ${failed}. Re-run the bulk button to retry the skipped ones, or fill them in manually.`)
-  } else if (failed > 0 && succeeded === 0) {
-    // The model literally can't do any of these — escalate.
-    showError(`Bulk re-plan finished with ${failed} failure${failed === 1 ? '' : 's'} and 0 successes. Your selected model can't produce valid prompts for these scenes. Try a stronger model (e.g. qwen3-coder, claude-sonnet, gpt-4o) or fill the prompts in by hand.`)
-  } else {
-    success(`Re-planned ${succeeded} placeholder scene${succeeded === 1 ? '' : 's'}.`)
-  }
-}
 
 function cancelBulkReplan(): void {
   if (!bulkReplan.value.active) return
   bulkReplan.value.cancelRequested = true
   // v1.0.458 — the parallel bulk regen is a single backend job; cancelling the
   // frontend poll alone would leave it churning. Tell the server to stop it
-  // (the generator polls isCancelled() between chunks). The legacy full-re-plan
-  // loop has no job to cancel — it just stops between scenes.
+  // The generator polls isCancelled() between chunks.
   const jobId = bulkReplan.value.jobId
   if (bulkReplan.value.parallel && jobId) {
     void del(`/projects/${slug.value}/jobs/${jobId}`).catch(() => { /* already finished — harmless */ })
   }
 }
 
-// v1.0.286 — Back-to-top floating button. Tracks scroll position on the
-// page's scrollable ancestor so the button only appears once the user is
-// far enough down to notice the scroll burden. The dashboard layout uses
-// .page-content as the scroll container (see layouts/dashboard.vue) — we
-// listen there rather than on window because the page itself doesn't scroll.
+// Back-to-top tracks the dashboard's real scroll container. The previous
+// selector targeted .page-content from another layout, so the button could
+// never appear on project pages even after scrolling through 100+ scenes.
 const showBackToTop = ref(false)
 const SCROLL_THRESHOLD = 800   // px before the button surfaces
 
 function getScrollContainer(): HTMLElement | null {
   if (typeof document === 'undefined') return null
-  return document.querySelector('.page-content') as HTMLElement | null
+  return document.querySelector('.main-content') as HTMLElement | null
 }
 function onScroll(): void {
   const el = getScrollContainer()
@@ -1519,38 +1425,37 @@ function scrollToTop(): void {
 
 onMounted(() => {
   const el = getScrollContainer()
-  if (el) el.addEventListener('scroll', onScroll, { passive: true })
+  if (el) {
+    el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+  }
 })
 onUnmounted(() => {
   const el = getScrollContainer()
   if (el) el.removeEventListener('scroll', onScroll)
 })
 
-async function replanScene(scene: ScenePlanEntry): Promise<void> {
-  if (!form.value.model) { showError('Pick a model above first'); return }
-  const dur = (scene.end_sec - scene.start_sec).toFixed(0)
+const repairingLongScenes = ref(false)
+async function repairLongScenes(): Promise<void> {
+  if (!episodeId.value || repairingLongScenes.value || !subtitleTimelineComplete.value) return
   const ok = await ask({
-    title: `Re-plan scene #${scene.scene_index}?`,
-    message: `Re-runs the planner on just this ${dur}s range (${scene.start_sec.toFixed(1)}–${scene.end_sec.toFixed(1)}s) and replaces it with proper sub-scenes. Every other scene and its generated image is kept.${dirty.value ? ' Your unsaved edits to the plan will be discarded first.' : ''}`,
-    confirmLabel: 'Re-plan scene',
+    title: `Repair ${overlongSceneCount.value} long scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
+    message: 'Uses the restored subtitle cues to split only abnormal long ranges. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.',
+    confirmLabel: 'Repair long scenes',
   })
   if (!ok) return
-  const ep = episodeId.value
-  replanningId.value = scene.id
+  repairingLongScenes.value = true
   try {
-    await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
-      scene_id: scene.id,
-      model: form.value.model,
-      detail_level: 4,
-      style_prompt: form.value.style_prompt.trim() || undefined,
-      custom_instructions: form.value.custom_instructions.trim() || undefined,
-    })
-    success('Re-plan queued — watch the Jobs panel; the scene list updates when it lands.')
-    await pollUntilPlanLanded(ep)
+    const result = await post<{ repairedCount: number; addedCount: number }>(
+      `/projects/${slug.value}/scene-plan/${episodeId.value}/repair-long-scenes`,
+      {},
+    )
+    await loadStatus()
+    success(`Repaired ${result.repairedCount} long scene${result.repairedCount === 1 ? '' : 's'} and restored ${result.addedCount} cue-aligned scene${result.addedCount === 1 ? '' : 's'}. Generate prompts only for the new scenes.`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to start re-plan')
+    showError(e?.data?.detail || 'Failed to repair long scenes')
   } finally {
-    replanningId.value = null
+    repairingLongScenes.value = false
   }
 }
 
@@ -1805,17 +1710,14 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
 }
 .detail-default span { color: var(--text-muted); font-size: 12px; }
-/* v1.0.288 — bulk-button group on the plan-health head. The two bulk
-   options (✨ Regen prompts only / 🪄 Full re-plan) sit side-by-side. */
+/* Bulk prompt action group. */
 .bulk-buttons {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-/* v1.0.286 — Plan-health head: room for the new bulk re-plan button next to
-   the heading. Was just a static line; now needs flex so the button hangs
-   on the right edge. */
+/* Plan-health head wraps actions on narrow windows. */
 .plan-health-head {
   display: flex;
   align-items: center;
@@ -1824,10 +1726,7 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   flex-wrap: wrap;
 }
 
-/* v1.0.286 — bulk re-plan progress strip. Subtle bar + status line, visible
-   only while the loop is active. The cancel button is a link-button (less
-   weight than a danger button) because it's "stop after this scene", not
-   "kill the running call". */
+/* Bulk prompt-regeneration progress strip. */
 .bulk-progress {
   margin: 10px 0 6px;
   display: flex; flex-direction: column; gap: 6px;
@@ -1853,9 +1752,7 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 }
 .link-btn-danger:hover { text-decoration: underline; }
 
-/* v1.0.286 — back-to-top floating button. Sits above the dashboard's bottom
-   chrome (sidebar credits) and pulls to the right so it doesn't obscure
-   scene-row Re-plan buttons on hover. Subtle fade-in via a brief transform. */
+/* Back-to-top floats above the dashboard chrome and stays clear of row actions. */
 .back-to-top {
   position: fixed;
   bottom: 24px;

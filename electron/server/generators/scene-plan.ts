@@ -31,6 +31,7 @@ import {
   type ScenePromptCostTier,
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
+import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 /**
@@ -279,6 +280,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (params.stage || !isLegacyRepair) {
     const pipelineAutoVisual = params.stage == null && !isLegacyRepair
     let stage: 'timeline' | 'visual' | 'motion' = params.stage || 'timeline'
+    const stitchedMetaPath = `${stitchedSrt}.json`
+    if (existsSync(stitchedMetaPath)) {
+      const stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
+      const incomplete = Array.from(new Set([
+        ...findIncompleteSubtitleSections(stitchedMeta?.sections),
+        ...(Array.isArray(stitchedMeta?.missing_sections) ? stitchedMeta.missing_sections : []),
+      ]))
+      if (incomplete.length) {
+        throw new Error(
+          `Subtitle timeline is incomplete. Transcribe these missing audio sections first: ${incomplete.join(', ')}; ` +
+          `then stitch subtitles again. Scene work is blocked so no result can silently span missing narration.`,
+        )
+      }
+    }
     if (stage === 'timeline') {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
@@ -301,6 +316,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const { splitScenesDeterministically } = await import('../services/scene-planner.js')
       const minSec = pacing?.min_sec ?? 3
       const maxSec = pacing?.max_sec ?? 12
+      const suspiciousGap = allCues.find((cue, index) => {
+        if (index === 0) return false
+        return cue.start_sec - allCues[index - 1]!.end_sec > Math.max(30, maxSec * 3)
+      })
+      if (suspiciousGap) {
+        const previous = allCues[allCues.indexOf(suspiciousGap) - 1]!
+        throw new Error(
+          `Subtitle timeline contains an unexplained ${(suspiciousGap.start_sec - previous.end_sec).toFixed(1)}s gap ` +
+          `near ${previous.end_sec.toFixed(1)}s. Re-open Subtitles, transcribe any missing chapters, and stitch again.`,
+        )
+      }
       const scenes = splitScenesDeterministically({
         cues,
         min_sec: minSec,

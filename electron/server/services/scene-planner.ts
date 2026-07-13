@@ -965,6 +965,93 @@ export function splitScenesDeterministically(opts: {
   return scenes
 }
 
+export interface RepairOverlongScenesResult {
+  scenes: ScenePlanEntry[]
+  repairedCount: number
+  addedCount: number
+  repairedIds: string[]
+}
+
+/**
+ * Replace only abnormally long scenes with deterministic cue-aligned parts.
+ * The first part keeps the original scene id and generated media; new parts
+ * start without prompts/media so existing work elsewhere in the episode is
+ * never disturbed. This is the safe repair after missing chapter subtitles
+ * have been restored and re-stitched.
+ */
+export function repairOverlongScenesDeterministically(opts: {
+  scenes: ScenePlanEntry[]
+  cues: SrtCue[]
+  threshold_sec?: number
+  min_sec?: number
+  max_sec?: number
+}): RepairOverlongScenesResult {
+  const thresholdSec = Math.max(1, opts.threshold_sec ?? 20)
+  const minSec = Math.max(1, opts.min_sec ?? MIN_SCENE_SEC)
+  const maxSec = Math.max(minSec, opts.max_sec ?? MAX_SCENE_SEC)
+  const repairedIds: string[] = []
+  const result: ScenePlanEntry[] = []
+
+  for (const scene of opts.scenes) {
+    if (scene.end_sec - scene.start_sec <= thresholdSec) {
+      result.push({ ...scene })
+      continue
+    }
+    const cues = opts.cues.filter(cue =>
+      cue.end_sec > scene.start_sec + 0.01 && cue.start_sec < scene.end_sec - 0.01,
+    )
+    if (cues.length < 2) {
+      result.push({ ...scene })
+      continue
+    }
+    const parts = splitScenesDeterministically({
+      cues,
+      min_sec: minSec,
+      max_sec: maxSec,
+      target_sec: (minSec + maxSec) / 2,
+      initial_start_sec: scene.start_sec,
+      idGen: index => index === 0 ? scene.id : freshId(),
+    })
+    if (parts.length < 2) {
+      result.push({ ...scene })
+      continue
+    }
+
+    parts[parts.length - 1]!.end_sec = scene.end_sec
+    parts.forEach((part, index) => {
+      if (index === 0) {
+        result.push({ ...scene, ...part, id: scene.id, visual_prompt: scene.visual_prompt })
+        return
+      }
+      result.push({
+        ...scene,
+        ...part,
+        visual_prompt: '',
+        visual_prompt_raw: undefined,
+        motion_prompt: undefined,
+        approved: false,
+        image_path: undefined,
+        rendered_prompt: undefined,
+        image_version: undefined,
+        clip_path: undefined,
+        rendered_motion_prompt: undefined,
+        clip_source_image_version: undefined,
+        motion_choice: undefined,
+        boundary_reason: 'deterministic repair (restored subtitle cues)',
+      })
+    })
+    repairedIds.push(scene.id)
+  }
+
+  result.forEach((scene, index) => { scene.scene_index = index + 1 })
+  return {
+    scenes: result,
+    repairedCount: repairedIds.length,
+    addedCount: Math.max(0, result.length - opts.scenes.length),
+    repairedIds,
+  }
+}
+
 /**
  * v1.0.458 — shared per-scene visual-prompt generator. Fans the work out
  * across the LM Studio endpoint pool (concurrency = pool size) and RETRIES

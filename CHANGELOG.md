@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.558 — 2026-07-13
+
+**Scene Plan can no longer hide missing chapter subtitles inside one extremely long scene.**
+
+- Subtitle stitching now requires usable cues for every audio section and names each missing chapter instead of writing a misleading partial timeline.
+- Older partial stitches are detected in Scene Plan; timeline rebuilds and prompt generation pause until the missing chapters are transcribed and stitched.
+- The retired LLM scene-boundary Re-plan controls are removed. Older clients receive a clear retirement response instead of quietly starting the legacy workflow.
+- Added deterministic “Repair long scenes”: after subtitles are restored, it splits only abnormal ranges against real cues while preserving all unaffected prompts, images, approvals, and stable scene IDs.
+- Abnormal scenes that overlap missing subtitle audio now say “missing subtitle narration” and link directly to the Subtitles workspace.
+- Fixed the floating Back to top button listening to the wrong page container, so it now appears during long Scene Plan scrolls.
+- Added regression coverage for partial subtitle stitches and non-destructive long-scene repair.
+
 ## v1.0.557 — 2026-07-13
 
 **Scene prompt batching now adapts to the selected model instead of forcing every provider into a 10-scene pack.**

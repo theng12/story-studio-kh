@@ -17,9 +17,14 @@ import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
-import { computePlanCoverage, repairPlanCoverage, reconcilePlanToSubtitles } from '../services/scene-planner.js'
+import {
+  computePlanCoverage,
+  repairOverlongScenesDeterministically,
+  repairPlanCoverage,
+  reconcilePlanToSubtitles,
+} from '../services/scene-planner.js'
 import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
@@ -158,55 +163,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   res.status(201).json(job)
 })
 
-// ── POST /scene-plan/:ep/replan-scene ─────────────────────────────────
-// v1.0.245 — re-plan ONE scene's time range (fixes an over-long / auto-filled
-// segment). Reuses the scene_plan_run job; the generator splices the result in
-// place of the target scene, leaving every other scene + its image untouched.
-router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, res) => {
-  const { slug, episodeId } = req.params
-
-  const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-  // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
-  // front with a clear, fast error (passing one used to time out deep in the
-  // text client as "Unsupported model").
-  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
-    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
-  }
-  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
-  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
-
-  const detailLevel = typeof body.detail_level === 'number'
-    ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
-    : undefined
-  const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
-  const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
-  // v1.0.285 — per-window scene count tuning (mirrors the full-plan route).
-  const windowSize: 'auto' | 'full' | 'small' =
-    body.window_size === 'full' || body.window_size === 'small' ? body.window_size : 'auto'
-
-  // Shares the scene_plan_run lane, so it won't run alongside a full plan.
-  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
-    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
-  }
-
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
-    episode_id: episodeId,
-    title: `Re-plan scene — ${episodeId}`,
-    params: {
-      episode_id: episodeId,
-      model,
-      replan_scene_id: sceneId,
-      detail_level: detailLevel,
-      style_prompt: stylePrompt || undefined,
-      custom_instructions: customInstructions || undefined,
-      window_size: windowSize,
-    },
+// Kept as a clear compatibility response for older installed clients. Scene
+// boundaries are deterministic now; callers must use repair-long-scenes.
+router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', (_req, res) => {
+  res.status(410).json({
+    detail: 'LLM scene re-planning has been retired. Complete and stitch subtitles, then use Repair long scenes (deterministic, no LLM).',
   })
-  res.status(201).json(job)
 })
 
 // ── POST /scene-plan/:ep/regenerate-prompt ───────────────────────────
@@ -391,6 +353,80 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
   }
 })
 
+// ── POST /scene-plan/:ep/repair-long-scenes ───────────────────────────
+// Deterministic replacement for the retired per-scene LLM re-plan action.
+// Intended for an old plan that bridged missing subtitle chapters: after the
+// chapters are transcribed and re-stitched, split only the abnormal ranges and
+// preserve every unaffected scene, id, prompt, image, and approval.
+router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedMetaPath = `${stitchedPath}.json`
+    if (!existsSync(planPath)) return res.status(404).json({ detail: 'No scene plan found.' })
+    if (!existsSync(stitchedPath) || !existsSync(stitchedMetaPath)) {
+      return res.status(400).json({ detail: 'Stitch a complete subtitle timeline first.' })
+    }
+
+    const stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
+    const incomplete = Array.from(new Set([
+      ...findIncompleteSubtitleSections(stitchedMeta?.sections),
+      ...(Array.isArray(stitchedMeta?.missing_sections) ? stitchedMeta.missing_sections : []),
+    ]))
+    if (incomplete.length) {
+      return res.status(400).json({
+        detail: `Transcribe the missing subtitle chapters first: ${incomplete.join(', ')}. Then stitch again and retry this repair.`,
+      })
+    }
+
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
+
+    let minSec = 3
+    let maxSec = 12
+    const continuityPath = path.join(paths.episode_dir, 'continuity.json')
+    if (existsSync(continuityPath)) {
+      const continuity = JSON.parse(await fs.readFile(continuityPath, 'utf-8')).pacing
+      const configuredMin = Number(continuity?.min_sec)
+      const configuredMax = Number(continuity?.max_sec)
+      if (Number.isFinite(configuredMin) && Number.isFinite(configuredMax) && configuredMax >= configuredMin) {
+        minSec = configuredMin
+        maxSec = configuredMax
+      }
+    }
+
+    const repaired = repairOverlongScenesDeterministically({
+      scenes: plan.scenes || [],
+      cues,
+      threshold_sec: 20,
+      min_sec: minSec,
+      max_sec: maxSec,
+    })
+    if (!repaired.repairedCount) {
+      return res.status(400).json({
+        detail: 'No long scene could be repaired. If subtitles were just restored, stitch them again before retrying.',
+      })
+    }
+    plan.scenes = repaired.scenes
+    plan.generated_at = new Date().toISOString()
+    plan.planning_stage = 'timeline'
+    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+    res.json({
+      ok: true,
+      repairedCount: repaired.repairedCount,
+      addedCount: repaired.addedCount,
+      repairedIds: repaired.repairedIds,
+      totalScenes: repaired.scenes.length,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to repair long scenes'))
+  }
+})
+
 // ── POST /scene-plan/:ep/reconcile-timings ────────────────────────────
 // v1.0.523 — re-anchor an existing plan's scene timings to the CURRENT
 // stitched subtitles by matching each scene's transcript text. Fixes a plan
@@ -552,9 +588,16 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     let stitchedMeta: any = null
     let scenePlan: ScenePlan | null = null
     let audioMergeGap: number | null = null
+    let incompleteSubtitleSections: string[] = []
 
     if (existsSync(stitchedMetaPath)) {
-      try { stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8')) } catch { /* ignore */ }
+      try {
+        stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
+        incompleteSubtitleSections = Array.from(new Set([
+          ...findIncompleteSubtitleSections(stitchedMeta?.sections),
+          ...(Array.isArray(stitchedMeta?.missing_sections) ? stitchedMeta.missing_sections : []),
+        ]))
+      } catch { /* ignore */ }
     }
     if (existsSync(scenePlanPath)) {
       try { scenePlan = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan } catch { /* ignore */ }
@@ -612,6 +655,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
         meta: stitchedMeta,
         drifts_from_current_merge: stitchedDrift,
         stale_vs_subtitles: stitchedStaleVsSubs,
+        incomplete_sections: incompleteSubtitleSections,
       } : null,
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,

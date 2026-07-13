@@ -60,10 +60,51 @@ describe('subtitle stitcher', () => {
     }, { 'EP0001_whisper.srt': SRT })  // merged-mode file, no per-chapter SRT
     await assert.rejects(
       () => stitch.stitchSubtitles(inputs),
-      /produced 0 cues|no per-chapter subtitle file matched/i,
+      /incomplete|produced 0 cues|no per-chapter subtitle file matched/i,
     )
     // And it must NOT have written a stitched file.
     const exists = await fs.access(path.join(inputs.subtitles_dir, 'EP0001_stitched.srt')).then(() => true).catch(() => false)
     assert.equal(exists, false)
+  })
+
+  test('rejects a partial stitch and identifies every missing audio section', async () => {
+    const inputs = await makeCase('partial', {
+      gap_duration_s: 1,
+      sections: [
+        { slug: 'Chapter_01', duration_s: 60 },
+        { slug: 'Chapter_02', duration_s: 70 },
+        { slug: 'Chapter_03', duration_s: 80 },
+      ],
+    }, { 'EP0001_Chapter_01.srt': SRT })
+    await assert.rejects(
+      () => stitch.stitchSubtitles(inputs),
+      error => {
+        assert.match(String(error), /subtitle timeline is incomplete/i)
+        assert.match(String(error), /Chapter_02/)
+        assert.match(String(error), /Chapter_03/)
+        return true
+      },
+    )
+    const exists = await fs.access(path.join(inputs.subtitles_dir, 'EP0001_stitched.srt')).then(() => true).catch(() => false)
+    assert.equal(exists, false)
+  })
+
+  test('marks a fully stitched timeline complete in its metadata', async () => {
+    const inputs = await makeCase('complete-meta', {
+      gap_duration_s: 1,
+      sections: [
+        { slug: 'Chapter_01', duration_s: 60 },
+        { slug: 'Chapter_02', duration_s: 70 },
+      ],
+    }, {
+      'EP0001_Chapter_01.srt': SRT,
+      'EP0001_Chapter_02.srt': SRT,
+    })
+    const result = await stitch.stitchSubtitles(inputs)
+    const meta = JSON.parse(await fs.readFile(`${result.output_path}.json`, 'utf-8'))
+    assert.equal(result.complete, true)
+    assert.deepEqual(result.missing_sections, [])
+    assert.equal(meta.complete, true)
+    assert.deepEqual(meta.missing_sections, [])
   })
 })
