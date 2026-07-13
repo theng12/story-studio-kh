@@ -589,7 +589,7 @@
 
       <PresetPicker
         label="Timeline preset"
-        hint="Captures everything on this step — title image, recycling, duration, post-audio, transition and animation."
+        hint="Saves reusable timing and motion settings. The selected title image file stays episode-specific and is never saved."
         :presets="timelinePresets.presets.value"
         :active-id="timelinePresets.activeId.value"
         @update:active-id="timelinePresets.setActive"
@@ -608,6 +608,10 @@
           </label>
           <h4>Title Image</h4>
         </div>
+
+        <p class="text-muted text-xs hint-line mt-1">
+          The selected image belongs to this episode and is never saved in Timeline or all-steps presets.
+        </p>
 
         <div v-if="titleImage.enabled" class="mt-2">
           <!-- Thumbnail picker with image previews -->
@@ -2534,6 +2538,7 @@
 import type { CSSProperties } from 'vue'
 import { poolMediaOf } from '~/composables/useBrollPools'
 import { buildSceneAssetImportItems } from '~/utils/video-assembly-assets'
+import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Video Assembly')
@@ -3648,7 +3653,7 @@ const timelinePresets = usePresets({
   slug: slug.value,
   configKey: 'timeline',
   snapshot: () => ({
-    title_image: { ...titleImage },
+    title_image: snapshotTitleImagePreset(titleImage),
     scene_recycling: { ...sceneRecycling },
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
@@ -3656,7 +3661,7 @@ const timelinePresets = usePresets({
   }),
   apply: (data: any) => {
     if (!data) return
-    if (data.title_image) Object.assign(titleImage, data.title_image)
+    applyTitleImagePreset(titleImage, data.title_image)
     if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
     if (data.post_audio) Object.assign(postAudio, data.post_audio)
     // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.
@@ -3670,6 +3675,8 @@ const timelinePresets = usePresets({
       if (Array.isArray(data.scene_animation.pool)) sceneAnimation.pool = [...data.scene_animation.pool]
     }
   },
+  // Also strips image_path from legacy stored presets before apply.
+  excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'image_path'],
 })
 
 const effectsPresets = usePresets({
@@ -3787,7 +3794,7 @@ function applyIntroData(data: any) { if (data) Object.assign(intro, data) }
 
 function snapshotTimelineData() {
   return {
-    title_image: { ...titleImage },
+    title_image: snapshotTitleImagePreset(titleImage),
     scene_recycling: { ...sceneRecycling },
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
@@ -3796,7 +3803,7 @@ function snapshotTimelineData() {
 }
 function applyTimelineData(data: any) {
   if (!data) return
-  if (data.title_image) Object.assign(titleImage, data.title_image)
+  applyTitleImagePreset(titleImage, data.title_image)
   if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
   if (data.post_audio) Object.assign(postAudio, data.post_audio)
   // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.

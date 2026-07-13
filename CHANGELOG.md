@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.566 — 2026-07-14
+
+**Timeline presets no longer carry a title image from one episode into another.**
+
+- Removed the episode-specific title-image file path from Step 3 Timeline presets and all-steps bundle fallbacks.
+- Preserved reusable title-image settings such as enabled state, duration, transition type, and transition duration.
+- Legacy presets that already contain a title-image path can no longer overwrite the image selected for the current episode.
+- Added an in-app explanation and regression coverage for both new saves and legacy preset application.
+
 ## v1.0.565 — 2026-07-14
 
 **Subtitle placement is now precise, previewable, and protected from unsafe screen edges.**

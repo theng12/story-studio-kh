@@ -11,6 +11,11 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - `image_prompts_*` and `image_generator_*` are legacy compatibility keys only. They should not be the primary keys for new thumbnail/scene UI or Pipeline selectors.
 - The Pipeline batch step named `image_prompts` must use the active format to choose prompt mode. Classic chapter-distributed scene-image formats may run `mode: "all"`; B-Roll, timestamp-driven, continuity-chain, and narrated-scenes formats must run thumbnail prompts only (`mode: "thumbnails"`) because scene prompts come from Scene Plan.
 
+## Video Assembly Preset Boundaries
+
+- `title_image.image_path` is episode-specific. Timeline presets and all-steps bundle fallbacks must never save or restore it.
+- Reusable title-image settings such as enabled state, duration, transition type, and transition duration may remain in presets.
+
 ## Verified Completion Contract
 
 Every generation flow must prove its output is complete before a job, pipeline step, Production Board cell, or one-click run may report success.
