@@ -32,6 +32,8 @@ import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ImageModelConfig, ScenePlan } from '../models/types.js'
+import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 
 /** Legacy flat folder at the episode root where continuity / scene-review
  *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
@@ -112,6 +114,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
 
   // Load + locate the scene by id.
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+  assertScenePromptsRenderable(plan.scenes, [scene_id])
   const scene = plan.scenes.find(s => s.id === scene_id)
   if (!scene) throw new Error(`Scene ${scene_id} not in scene_plan.json (was it deleted?)`)
   if (!scene.visual_prompt?.trim()) {

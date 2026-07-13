@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.559 — 2026-07-13
+
+**Scene prompts must now be real, unique, and backed by complete narration before images or final video can render.**
+
+- Removed obsolete “planner fallback” warnings from older deterministic timelines; opening Scene Plan or Scene Review safely cleans those stale labels without changing prompts, timings, or images.
+- Exact duplicate visual prompts no longer count as completed work. The first remains valid, later copies return to the pending pool and are included by Next/All pending and prompt repair.
+- Scene Review names missing and duplicated prompts, pauses image rendering, and links directly to the repair step instead of allowing repeated visuals into a finished episode.
+- Missing subtitle chapters now block Scene Review, per-scene generation, fleet batches, continuity rendering, completion status, and final assembly at the backend as well as in the UI.
+- Scene Plan and production status only mark the step complete when every prompt is unique and the stitched subtitle timeline verifies every audio section.
+- Older numbered images from a superseded timeline are reported separately and intentionally left unmapped; the app never guesses which new stable scene ID they belong to.
+- Verified the affected Dozing Knight plans: DK0035/36 contain unique prompts and only stale labels; DK0037/38 each contain four duplicate prompt copies that are now surfaced for repair.
+
 ## v1.0.558 — 2026-07-13
 
 **Scene Plan can no longer hide missing chapter subtitles inside one extremely long scene.**

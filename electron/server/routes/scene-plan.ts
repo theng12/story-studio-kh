@@ -26,6 +26,7 @@ import {
   reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
 import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
+import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
@@ -222,7 +223,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
 })
 
 // ── POST /scene-plan/:ep/regenerate-empty-prompts ─────────────────────
-// v1.0.458 — bulk-regenerate EVERY empty visual_prompt in ONE job that fans
+// v1.0.458 — bulk-regenerate EVERY missing or duplicated visual_prompt in one job
 // out across the LM Studio pool (concurrency = pool size) and retries
 // transient connection failures. Replaces the old frontend loop that fired
 // one regenerate-prompt job per scene, serially, through a single endpoint —
@@ -253,7 +254,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
-    title: `Regen empty prompts — ${episodeId}`,
+    title: `Repair scene prompts — ${episodeId}`,
     params: {
       episode_id: episodeId,
       model,
@@ -600,7 +601,12 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       } catch { /* ignore */ }
     }
     if (existsSync(scenePlanPath)) {
-      try { scenePlan = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan } catch { /* ignore */ }
+      try {
+        scenePlan = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan
+        if (clearLegacyPlannerFallbackReasons(scenePlan.scenes)) {
+          await fs.writeFile(scenePlanPath, JSON.stringify(scenePlan, null, 2), 'utf-8')
+        }
+      } catch { /* ignore */ }
     }
     if (existsSync(audioChaptersPath)) {
       try {

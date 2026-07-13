@@ -37,6 +37,8 @@ import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
+import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
+import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -970,8 +972,9 @@ export async function computeEpisodeStatus(
         // prompt. This prevents failed/partial LLM runs from being promoted to
         // done merely because scene_plan.json exists (for example, 273/273
         // timestamp rows with 0 prompts).
-        const hasVisualPrompt = (s: any) => typeof s?.visual_prompt === 'string' && s.visual_prompt.trim().length > 0
-        status.scene_plan = scenes.length > 0 && scenes.every(hasVisualPrompt)
+        const promptIntegrity = inspectScenePromptIntegrity(scenes)
+        const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code)
+        status.scene_plan = scenes.length > 0 && promptIntegrity.complete && subtitleIntegrity.complete
         // Scene Review done = plan exists AND every scene has a generated image
         // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
         // named or legacy scene-images folder), which is exactly how the Scene

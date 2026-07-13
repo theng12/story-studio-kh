@@ -41,6 +41,20 @@
       approval.
     </p>
 
+    <div v-if="subtitleIntegrity && !subtitleIntegrity.complete" class="sr-blocking-warning mt-2">
+      <strong>Scene rendering paused: subtitle narration is incomplete.</strong>
+      Missing: {{ subtitleIntegrity.missing_sections.join(', ') }}.
+      <NuxtLink :to="`/projects/${slug}/subtitles`" class="sr-health-link">Complete transcription and stitch again →</NuxtLink>
+    </div>
+    <div v-if="promptIntegrity && !promptIntegrity.complete" class="sr-blocking-warning mt-2">
+      <strong>Scene rendering paused: prompts are not ready.</strong>
+      {{ promptIntegrity.empty_ids.length }} missing and {{ promptIntegrity.duplicate_ids.length }} duplicated.
+      <NuxtLink :to="`/projects/${slug}/scene-plan`" class="sr-health-link">Run All pending on Scene Plan →</NuxtLink>
+    </div>
+    <div v-if="stats?.legacy_unmapped_images" class="sr-legacy-note mt-2">
+      {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} belong to a previous timeline and are intentionally not counted. They cannot be safely assigned to these stable scene IDs.
+    </div>
+
     <!-- Greenlight panel -->
     <section v-if="stats" class="card mt-3" :class="{ 'is-greenlit': stats.all_approved }">
       <div class="flex justify-between items-center sr-greenlight-head">
@@ -145,7 +159,7 @@
           <button
             v-if="isContinuity"
             class="btn btn-sm btn-secondary"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
             @click="renderContinuity()"
             title="SEQUENTIAL — render every scene in order, each anchored to the PREVIOUS render + your character sheet/characters. Best frame-to-frame continuity, but slow (one scene at a time). Resumes where it left off. Runs in the Jobs panel."
           >
@@ -154,7 +168,7 @@
           <button
             v-if="isContinuity && stats.with_image > 0"
             class="btn btn-sm btn-ghost"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
             @click="renderContinuity({ force: true })"
             title="Re-render ALL scenes sequentially from scratch (discards current renders)."
           >
@@ -165,7 +179,7 @@
           <button
             v-if="isContinuity"
             class="btn btn-sm btn-primary"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
             @click="renderContinuity({ independent: true })"
             title="PARALLEL — render scenes concurrently using ONLY the style image + character sheet/characters (no previous-render reference). Much faster, but loses frame-to-frame continuity. Fills in any scene that's still missing an image."
           >
@@ -174,7 +188,7 @@
           <button
             v-if="isContinuity && stats.with_image > 0"
             class="btn btn-sm btn-ghost"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
             @click="renderContinuity({ independent: true, force: true })"
             title="Re-render ALL scenes in parallel from scratch (style + sheet only, no prev-render). Fast bulk re-roll."
           >
@@ -338,10 +352,8 @@
         </div>
       </div>
 
-      <!-- v1.0.245 — Plan-health banner. Flags broken scenes (no prompt,
-           over-long, planner fallback) so you don't scroll hundreds to find
-           them. Click to jump; fixing happens on the Scene Plan page (re-plan
-           needs an LLM model, which lives there). -->
+      <!-- Plan-health banner. Missing and duplicated prompts are blocking work;
+           timing warnings remain visible without reviving the retired planner. -->
       <div v-if="problemScenes.length" class="sr-health mt-2">
         <div class="sr-health-head">
           ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
@@ -659,6 +671,16 @@ interface ReviewStats {
   approved: number
   with_image: number
   all_approved: boolean
+  legacy_unmapped_images?: number
+}
+interface PromptIntegrity {
+  complete: boolean
+  empty_ids: string[]
+  duplicate_ids: string[]
+}
+interface SubtitleIntegrity {
+  complete: boolean
+  missing_sections: string[]
 }
 interface PlanMeta {
   schema_version: 1
@@ -691,6 +713,8 @@ const plan = ref<PlanMeta | null>(null)
 const scenes = ref<ReviewScene[]>([])
 const audioPath = ref<string | null>(null)
 const stats = ref<ReviewStats | null>(null)
+const promptIntegrity = ref<PromptIntegrity | null>(null)
+const subtitleIntegrity = ref<SubtitleIntegrity | null>(null)
 const loading = ref(false)
 const renderStatus = ref<RenderStatus | null>(null)
 const activeRenderJobFromReview = ref<any | null>(null)
@@ -875,23 +899,26 @@ const currentSceneId = computed(() => {
   return scenes.value.find(s => t >= s.start_sec && t < s.end_sec)?.id ?? null
 })
 
-// ── v1.0.245 — Plan health detection (same rules as the Scene Plan page) ──
-// Surface broken scenes so they're findable without scrolling: no visual
-// prompt, suspiciously long (normal scenes are ≤8–12s), or a planner fallback.
+// Plan health mirrors the backend's prompt-integrity result. Later copies of an
+// exact prompt are pending work and may not be rendered as another scene.
 const OVERLONG_SEC = 20
+const duplicatePromptIds = computed(() => new Set(promptIntegrity.value?.duplicate_ids || []))
 const problemScenes = computed(() => {
   const list: Array<{ scene: ReviewScene; index: number; reasons: string[] }> = []
   scenes.value.forEach((s, i) => {
     const reasons: string[] = []
     const dur = s.end_sec - s.start_sec
     if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
+    else if (duplicatePromptIds.value.has(s.id)) reasons.push('duplicate prompt')
     if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
-    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('planner fallback')
     if (reasons.length) list.push({ scene: s, index: s.scene_index ?? i + 1, reasons })
   })
   return list
 })
 const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
+const sceneInputsComplete = computed(() =>
+  promptIntegrity.value?.complete === true && subtitleIntegrity.value?.complete === true,
+)
 function jumpToScene(id: string): void {
   if (typeof document === 'undefined') return
   const el = document.getElementById(`sr-scene-${id}`)
@@ -905,12 +932,15 @@ const canBulkGenerate = computed(() => {
   if (!episodeId.value) return false
   if (!form.value.model) return false
   if (!stats.value) return false
+  if (!sceneInputsComplete.value) return false
   return stats.value.total_scenes > stats.value.with_image
 })
 const bulkStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.model) return 'Pick a model'
   if (!stats.value) return ''
+  if (subtitleIntegrity.value && !subtitleIntegrity.value.complete) return 'Complete and re-stitch subtitles first'
+  if (promptIntegrity.value && !promptIntegrity.value.complete) return 'Repair missing or duplicated prompts first'
   const missing = stats.value.total_scenes - stats.value.with_image
   if (missing === 0) return 'All scenes have images'
   return `${missing} scene${missing === 1 ? '' : 's'} missing — queue ${missing} job${missing === 1 ? '' : 's'}`
@@ -1171,6 +1201,8 @@ async function loadReview(): Promise<void> {
     scenes.value = []
     audioPath.value = null
     stats.value = null
+    promptIntegrity.value = null
+    subtitleIntegrity.value = null
     return
   }
   loading.value = true
@@ -1182,12 +1214,16 @@ async function loadReview(): Promise<void> {
       stats: ReviewStats | null
       render_status: RenderStatus | null
       active_render_job?: any | null
+      prompt_integrity?: PromptIntegrity
+      subtitle_integrity?: SubtitleIntegrity
     }
     const r = await get<ReviewResponse>(`/projects/${slug.value}/scene-review/${episodeId.value}`)
     plan.value = r.scene_plan
     scenes.value = r.scenes
     audioPath.value = r.audio_path
     stats.value = r.stats
+    promptIntegrity.value = r.prompt_integrity || null
+    subtitleIntegrity.value = r.subtitle_integrity || null
     renderStatus.value = r.render_status || null
     activeRenderJobFromReview.value = r.active_render_job || null
   } catch (e: any) {
@@ -1199,6 +1235,10 @@ async function loadReview(): Promise<void> {
 
 // ── Actions ─────────────────────────────────────────────────────────
 async function generateOne(scene: ReviewScene): Promise<void> {
+  if (!sceneInputsComplete.value) {
+    showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
+    return
+  }
   if (!form.value.model) {
     showError('Pick a model in the Greenlight panel before regenerating')
     return
@@ -1365,6 +1405,10 @@ async function loadContinuityFlag(): Promise<void> {
 }
 
 async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; independent?: boolean; sceneIds?: string[] } = {}): Promise<void> {
+  if (!sceneInputsComplete.value) {
+    showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
+    return
+  }
   if (!form.value.model) { showError('Pick a model in the Greenlight panel first'); return }
   const selection = opts.sceneIds && opts.sceneIds.length ? opts.sceneIds : undefined
   // A full force-re-render of EVERY scene needs a confirm; an explicit selection
@@ -1886,6 +1930,24 @@ watch(episodeId, () => { void loadReview() })
 }
 .sr-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .sr-health-why { color: var(--text-muted); }
+.sr-blocking-warning {
+  border: 1px solid rgba(232, 91, 91, 0.55);
+  border-left: 4px solid #e85b5b;
+  border-radius: 10px;
+  background: rgba(232, 91, 91, 0.09);
+  padding: 11px 13px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.sr-blocking-warning strong { color: var(--text-primary); margin-right: 4px; }
+.sr-legacy-note {
+  border: 1px solid rgba(224, 162, 58, 0.35);
+  border-radius: 10px;
+  background: rgba(224, 162, 58, 0.08);
+  padding: 10px 13px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .sr-row-problem { border-left: 3px solid #e0a23a; }
 .sr-row-flash { animation: sr-row-flash-kf 1.4s ease; }
 @keyframes sr-row-flash-kf {

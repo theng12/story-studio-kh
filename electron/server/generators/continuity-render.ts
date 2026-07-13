@@ -34,9 +34,10 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getCharacter, referenceImagePath } from '../services/character-manager.js'
-import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -131,6 +132,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     throw new Error(`No scene_plan.json at ${planPath}. Run Scene Plan first.`)
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+  const requestedIds = params.scene_ids?.length
+    ? params.scene_ids
+    : (params.single_scene_id ? [params.single_scene_id] : undefined)
+  assertScenePromptsRenderable(plan.scenes, requestedIds)
   const scenes = [...plan.scenes].sort((a, b) => a.scene_index - b.scene_index)
   if (!scenes.length) throw new Error('scene_plan.json has no scenes.')
 

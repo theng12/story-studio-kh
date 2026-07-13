@@ -66,6 +66,18 @@ async function makeProject() {
   return { projDir, epDir, scriptDir }
 }
 
+async function writeVerifiedSubtitleTimeline(epDir: string) {
+  const dir = path.join(epDir, `${CODE} - 09 Subtitles Output`)
+  const stitched = path.join(dir, `${CODE}_stitched.srt`)
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:05,000\nNarration\n')
+  await fs.writeFile(`${stitched}.json`, JSON.stringify({
+    complete: true,
+    missing_sections: [],
+    sections: [{ slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1 }],
+  }))
+}
+
 describe('episode-status-cache', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -333,6 +345,7 @@ describe('episode-status-cache', () => {
     await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
       scenes: [{ id: 's1', visual_prompt: 'a' }, { id: 's2', visual_prompt: 'b' }],
     }))
+    await writeVerifiedSubtitleTimeline(epDir)
     await fs.mkdir(imagesDir, { recursive: true })
     await fs.writeFile(path.join(imagesDir, 's1.png'), 'png-bytes')
     await fs.writeFile(path.join(imagesDir, 's2.png'), 'png-bytes')
@@ -352,12 +365,31 @@ describe('episode-status-cache', () => {
     await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
       scenes: [{ id: 's1', visual_prompt: 'a' }, { id: 's2', visual_prompt: 'b' }],
     }))
+    await writeVerifiedSubtitleTimeline(epDir)
     await fs.mkdir(imagesDir, { recursive: true })
     await fs.writeFile(path.join(imagesDir, 's1.png'), 'png-bytes')  // s2 missing
 
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
     assert.equal(status.scene_plan, true)
     assert.equal(status.scene_review, false, 's2 has no image on disk and no image_path → pending')
+  })
+
+  test('scene_plan: duplicated prompts remain pending even when every row is filled', async () => {
+    const { epDir } = await makeProject()
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        { id: 's1', visual_prompt: 'the same repeated visual' },
+        { id: 's2', visual_prompt: ' The same   repeated visual ' },
+      ],
+    }))
+    await writeVerifiedSubtitleTimeline(epDir)
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.scene_plan, false)
+    assert.equal(status.scene_review, false)
   })
 
   test('scene_plan: timeline-only and partially prompted plans remain pending', async () => {

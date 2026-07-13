@@ -92,6 +92,15 @@ describe('Video Assembly mixed scene pool', () => {
         },
       ],
     }, null, 2))
+    const subtitlesDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
+    const stitchedPath = path.join(subtitlesDir, `${CODE}_stitched.srt`)
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    await fs.writeFile(stitchedPath, '1\n00:00:00,000 --> 00:00:15,000\nNarration\n')
+    await fs.writeFile(`${stitchedPath}.json`, JSON.stringify({
+      complete: true,
+      missing_sections: [],
+      sections: [{ slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1 }],
+    }))
 
     const { scanEpisodeAssets } = await import('../generators/video.js')
     const assets = await scanEpisodeAssets(SLUG, CODE)

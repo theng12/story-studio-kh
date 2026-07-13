@@ -32,9 +32,28 @@ import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { registry } from '../providers/registry.js'
 import { getHubBackend } from '../lib/studiohub-client.js'
 import { isImageStudioModelId } from '../lib/imagestudio-client.js'
+import {
+  assertScenePromptsRenderable,
+  clearLegacyPlannerFallbackReasons,
+  inspectScenePromptIntegrity,
+} from '../services/scene-prompt-integrity.js'
+import {
+  assertSubtitleTimelineComplete,
+  readSubtitleTimelineIntegrity,
+} from '../services/scene-timeline-integrity.js'
 import type { ImageModelConfig, JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
+
+async function validateSceneRenderRequest(slug: string, episodeId: string, sceneIds?: string[]) {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  if (!existsSync(planPath)) throw new Error('No scene_plan.json yet')
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId)
+  assertScenePromptsRenderable(plan.scenes, sceneIds)
+  return { paths, plan, planPath }
+}
 
 interface ReviewSceneAugmented {
   id: string
@@ -75,6 +94,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       return res.json({ scene_plan: null, scenes: [], audio_path: null, stats: null })
     }
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    if (clearLegacyPlannerFallbackReasons(plan.scenes)) {
+      await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+    }
+    const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
+    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
 
     // Annotate each scene with whether its image exists on disk. v1.0.457 —
     // check the unified named folder first, then the legacy flat scene_images/,
@@ -83,6 +107,9 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     // v1.0.470 — clips live in the "11 Video Assets" folder as <scene_id>.mp4.
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const legacyNumberedPattern = new RegExp(`^${episodeId.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_Scene\\d+_v\\d+\\.(?:png|jpe?g|webp)$`, 'i')
+    const legacyUnmappedImages = (await fs.readdir(namedDir).catch(() => [] as string[]))
+      .filter(filename => legacyNumberedPattern.test(filename)).length
     const scenes: ReviewSceneAugmented[] = []
     let approvedCount = 0
     let withImageCount = 0
@@ -189,14 +216,20 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       render_status: renderStatus,
       active_render_job: activeJob,
       animate_min_seconds: animateMinSeconds,
+      prompt_integrity: promptIntegrity,
+      subtitle_integrity: subtitleIntegrity,
       stats: {
         total_scenes: plan.scenes.length,
         approved: approvedCount,
         with_image: withImageCount,
-        all_approved: plan.scenes.length > 0 && approvedCount === plan.scenes.length,
+        all_approved: plan.scenes.length > 0
+          && approvedCount === plan.scenes.length
+          && promptIntegrity.complete
+          && subtitleIntegrity.complete,
         with_clip: withClipCount,
         motion_reviewed: motionReviewedCount,
         all_motion_reviewed: plan.scenes.length > 0 && motionReviewedCount === plan.scenes.length,
+        legacy_unmapped_images: legacyUnmappedImages,
       },
     })
   } catch (e: any) {
@@ -250,27 +283,32 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
-  // Per-scene dedupe — don't re-queue an in-flight regen of the same scene.
-  if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
-    return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
-  }
+  try {
+    await validateSceneRenderRequest(slug, episodeId, [sceneId])
+    // Per-scene dedupe — don't re-queue an in-flight regen of the same scene.
+    if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
+      return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
+    }
 
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'scene_image_generate' as JobType,
-    episode_id: episodeId,
-    title: `Scene ${sceneId.slice(0, 12)} image`,
-    params: {
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'scene_image_generate' as JobType,
       episode_id: episodeId,
-      title: typeof body.title === 'string' ? body.title : '',
-      scene_id: sceneId,
-      model,
-      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-      width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
-      height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-    },
-  })
-  res.status(201).json(job)
+      title: `Scene ${sceneId.slice(0, 12)} image`,
+      params: {
+        episode_id: episodeId,
+        title: typeof body.title === 'string' ? body.title : '',
+        scene_id: sceneId,
+        model,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+        height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+      },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Scene image is not ready to generate'))
+  }
 })
 
 // ── POST /scene-review/:ep/generate-missing ───────────────────────────
@@ -283,10 +321,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const { paths, plan } = await validateSceneRenderRequest(slug, episodeId)
 
     // v1.0.457 — "missing" means missing from BOTH the unified named folder and
     // the legacy flat folder, so an un-consolidated episode isn't re-queued.
@@ -347,7 +382,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     }
     res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue scene-image jobs'))
+    res.status(400).json(humanizeBackendError(e, 'Failed to queue scene-image jobs'))
   }
 })
 
@@ -458,6 +493,14 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   const singleSceneId = typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined
+  const requestedSceneIds = Array.isArray(body.scene_ids)
+    ? body.scene_ids.filter((s: any) => typeof s === 'string')
+    : (singleSceneId ? [singleSceneId] : undefined)
+  try {
+    await validateSceneRenderRequest(slug, episodeId, requestedSceneIds)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Scene images are not ready to render'))
+  }
   // v1.0.244 — scene-aware dedupe. The queue runs ONE continuity_render at a
   // time, so multiple jobs just queue and run back-to-back. A per-scene render
   // (the "Generate (refs)" button → single_scene_id) should therefore only
@@ -501,9 +544,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         // v1.0.344 — render an explicit SET of scenes in one parallel job (Scene
         // Review "Regenerate selected ⚡" / "all unapproved ⚡"). Distributes
         // across the whole Mac pool instead of N serial single-scene jobs.
-        scene_ids: Array.isArray(body.scene_ids)
-          ? body.scene_ids.filter((s: any) => typeof s === 'string')
-          : undefined,
+        scene_ids: requestedSceneIds,
         // v1.0.241 — independent/parallel mode (no prev-render reference).
         independent: body.independent === true,
         concurrency: body.concurrency === 'auto'

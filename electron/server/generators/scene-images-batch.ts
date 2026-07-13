@@ -25,6 +25,8 @@ import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -46,6 +48,8 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error(`No scene_plan.json at ${planPath}. Run Scene Plan first.`)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+  assertScenePromptsRenderable(plan.scenes, params.scene_ids)
 
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
@@ -53,7 +57,6 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   // Which scenes: the explicit id list, else every scene missing an image.
   const idSet = Array.isArray(params.scene_ids) && params.scene_ids.length ? new Set(params.scene_ids) : null
   const targets = plan.scenes.filter((s) => {
-    if (!s.visual_prompt?.trim()) return false
     if (idSet) return idSet.has(s.id)
     return !existsSync(path.join(outDir, `${s.id}.png`))
   })

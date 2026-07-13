@@ -395,7 +395,7 @@
           <div class="plan-health-head">
             <span>
               ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
-              <span class="text-muted text-xs">— no prompt, over-long, or planner fallback</span>
+              <span class="text-muted text-xs">— missing/duplicated prompt, incomplete narration, or abnormal timing</span>
             </span>
             <div class="bulk-buttons" v-if="emptyPromptCount > 0">
               <button
@@ -403,10 +403,10 @@
                 :disabled="!subtitleTimelineComplete || !form.model || planning || bulkReplan.active"
                 :title="!form.model
                   ? 'Pick a model above first'
-                  : `Regenerate only the visual prompts for ${emptyPromptCount} scene(s). Time ranges and transcripts stay unchanged.`"
+                  : `Regenerate the ${emptyPromptCount} missing or duplicated visual prompts. Time ranges and transcripts stay unchanged.`"
                 @click="regenAllEmptyPrompts"
               >
-                ✨ Regen {{ emptyPromptCount }} prompt{{ emptyPromptCount === 1 ? '' : 's' }} only
+                ✨ Repair {{ emptyPromptCount }} prompt{{ emptyPromptCount === 1 ? '' : 's' }}
               </button>
             </div>
           </div>
@@ -1047,10 +1047,27 @@ const planDisabledReason = computed(() => {
   return ''
 })
 const dirty = computed(() => plan.value && JSON.stringify(plan.value) !== serverPlan.value)
-const visualDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.visual_prompt?.trim()).length)
+const duplicateVisualPromptIds = computed(() => {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const scene of plan.value?.scenes || []) {
+    const normalized = scene.visual_prompt?.trim().replace(/\s+/g, ' ').toLocaleLowerCase() || ''
+    if (!normalized) continue
+    if (seen.has(normalized)) duplicates.add(scene.id)
+    else seen.add(normalized)
+  }
+  return duplicates
+})
+const visualDoneCount = computed(() => (plan.value?.scenes || []).filter(
+  s => !!s.visual_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id),
+).length)
 const visualPendingCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
-const motionDoneCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.motion_prompt?.trim()).length)
-const motionPendingCount = computed(() => (plan.value?.scenes || []).filter(s => !!s.visual_prompt?.trim() && !s.motion_prompt?.trim()).length)
+const motionDoneCount = computed(() => (plan.value?.scenes || []).filter(
+  s => !!s.motion_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id),
+).length)
+const motionPendingCount = computed(() => (plan.value?.scenes || []).filter(
+  s => !!s.visual_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id) && !s.motion_prompt?.trim(),
+).length)
 const timelineBuiltLabel = computed(() => {
   if (!plan.value?.scenes?.length) return 'Not built yet'
   const estimated = !plan.value.timeline_built_at && visualDoneCount.value === 0
@@ -1205,9 +1222,8 @@ async function pollUntilPlanLanded(
 }
 
 // ── Plan health + deterministic repair guidance ─────────────────────────
-// Flag scenes that look broken so they're findable without scrolling: no
-// visual prompt, suspiciously long (normal scenes are ≤8–12s), or a planner
-// fallback boundary_reason. 20s is well above any normal scene length.
+// Flag scenes that look broken so they're findable without scrolling. An exact
+// duplicate is pending work, not a valid prompt for another scene.
 const OVERLONG_SEC = 20
 const problemScenes = computed(() => {
   const list: Array<{ scene: ScenePlanEntry; index: number; reasons: string[] }> = []
@@ -1215,9 +1231,9 @@ const problemScenes = computed(() => {
     const reasons: string[] = []
     const dur = s.end_sec - s.start_sec
     if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
+    else if (duplicateVisualPromptIds.value.has(s.id)) reasons.push('duplicate prompt')
     if (sceneOverlapsMissingSubtitles(s)) reasons.push('missing subtitle narration')
     else if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
-    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('legacy fallback')
     if (reasons.length) list.push({ scene: s, index: i + 1, reasons })
   })
   return list
@@ -1227,10 +1243,10 @@ const overlongSceneCount = computed(() =>
   (plan.value?.scenes || []).filter(scene => scene.end_sec - scene.start_sec > OVERLONG_SEC).length,
 )
 
-// Empty visual prompts can be regenerated without changing timeline bounds.
+// Missing and duplicated prompts can be regenerated without changing bounds.
 const emptyPromptCount = computed(() => {
   return (plan.value?.scenes || []).filter(
-    s => !s.visual_prompt || !s.visual_prompt.trim(),
+    s => !s.visual_prompt || !s.visual_prompt.trim() || duplicateVisualPromptIds.value.has(s.id),
   ).length
 })
 
@@ -1319,21 +1335,22 @@ async function regenAllEmptyPrompts(): Promise<void> {
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (bulkReplan.value.active) return
   const empty = (plan.value?.scenes || []).filter(
-    s => (!s.visual_prompt || !s.visual_prompt.trim()) && (s.transcript_segment && s.transcript_segment.trim()),
+    s => (!s.visual_prompt || !s.visual_prompt.trim() || duplicateVisualPromptIds.value.has(s.id))
+      && (s.transcript_segment && s.transcript_segment.trim()),
   )
   if (!empty.length) {
-    success('No regenerable scenes — either every scene already has a prompt, or empty scenes also have empty transcripts.')
+    success('No repairable scenes — every narrated scene already has a unique prompt.')
     return
   }
   const ep = episodeId.value
   const ok = await ask({
-    title: `Regenerate ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
+    title: `Repair ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
     message:
-      `Rewrites the visual_prompt for every empty-prompt scene in a SINGLE job that fans out across your Chat Studio pool `
+      `Rewrites every missing or duplicated visual prompt in a single job that fans out across your Chat Studio pool `
       + `(one scene per endpoint, in parallel) and retries transient disconnects. Time boundaries + transcript_segment stay exactly as-is. `
       + `Much faster than the old one-at-a-time loop when you have more than one endpoint configured.`
       + `${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
-    confirmLabel: `Regen all ${empty.length}`,
+    confirmLabel: `Repair all ${empty.length}`,
   })
   if (!ok) return
 

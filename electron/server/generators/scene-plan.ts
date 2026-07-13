@@ -31,7 +31,11 @@ import {
   type ScenePromptCostTier,
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
-import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import {
+  clearLegacyPlannerFallbackReasons,
+  inspectScenePromptIntegrity,
+} from '../services/scene-prompt-integrity.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 /**
@@ -277,23 +281,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
     || params.replan_scene_id
   )
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
   if (params.stage || !isLegacyRepair) {
     const pipelineAutoVisual = params.stage == null && !isLegacyRepair
     let stage: 'timeline' | 'visual' | 'motion' = params.stage || 'timeline'
-    const stitchedMetaPath = `${stitchedSrt}.json`
-    if (existsSync(stitchedMetaPath)) {
-      const stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
-      const incomplete = Array.from(new Set([
-        ...findIncompleteSubtitleSections(stitchedMeta?.sections),
-        ...(Array.isArray(stitchedMeta?.missing_sections) ? stitchedMeta.missing_sections : []),
-      ]))
-      if (incomplete.length) {
-        throw new Error(
-          `Subtitle timeline is incomplete. Transcribe these missing audio sections first: ${incomplete.join(', ')}; ` +
-          `then stitch subtitles again. Scene work is blocked so no result can silently span missing narration.`,
-        )
-      }
-    }
     if (stage === 'timeline') {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
@@ -380,6 +371,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
     if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
     const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    clearLegacyPlannerFallbackReasons(plan.scenes)
     // Preserve a useful timeline timestamp when an older empty-prompt plan is
     // resumed. Once generated_at starts advancing with prompt saves it can no
     // longer be used as the timeline build time.
@@ -387,11 +379,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       plan.timeline_built_at = plan.generated_at
     }
     const isMotion = stage === 'motion'
+    const duplicateVisualIds = new Set(inspectScenePromptIntegrity(plan.scenes).duplicate_ids)
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
       .filter(({ scene }) => isMotion
         ? !!scene.visual_prompt?.trim() && !scene.motion_prompt?.trim()
-        : !scene.visual_prompt?.trim())
+        : !scene.visual_prompt?.trim() || duplicateVisualIds.has(scene.id))
     const limit = params.prompt_limit == null ? pending.length : Math.max(1, Math.min(5000, Math.round(params.prompt_limit)))
     const targets = pending.slice(0, limit)
     if (!targets.length) {
@@ -601,6 +594,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
     }
     job.output_dir = paths.episode_dir
+    if (!isMotion) {
+      const remainingInvalid = new Set(inspectScenePromptIntegrity(plan.scenes).invalid_ids)
+      const failedTargets = targets.filter(({ scene }) => remainingInvalid.has(scene.id))
+      if (failedTargets.length) {
+        throw new Error(
+          `${failedTargets.length} visual prompt(s) are still missing or duplicated after generation. `
+          + 'Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
+        )
+      }
+    }
     job.progress = 100
     job.output_lines.push(`Saved ${targets.length} ${stage} prompt(s) by stable scene ID.`)
     return
@@ -665,6 +668,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (target.visual_prompt_raw) {
       target.visual_prompt_raw = newPrompt
     }
+    clearLegacyPlannerFallbackReasons([target])
     existing.generated_at = new Date().toISOString()
     await fs.mkdir(path.dirname(outPath), { recursive: true })
     await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
@@ -674,7 +678,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     return
   }
 
-  // ── v1.0.458 — BULK regenerate every empty visual_prompt in ONE job ─────
+  // ── v1.0.458 — BULK regenerate every invalid visual_prompt in ONE job ───
   // Same per-scene prose call as the single regenerate above, but it finds
   // EVERY empty-prompt scene (with a non-empty transcript) and generates them
   // in one job that fans out across the LM Studio pool — replacing the old
@@ -684,20 +688,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (params.regenerate_empty_prompts) {
     if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate prompts for — run the full planner first.')
     const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    clearLegacyPlannerFallbackReasons(existing.scenes)
+    const duplicateIds = new Set(inspectScenePromptIntegrity(existing.scenes).duplicate_ids)
     const targetIndices: number[] = []
     existing.scenes.forEach((s, i) => {
       const noPrompt = !s.visual_prompt || !s.visual_prompt.trim()
       const hasTranscript = !!(s.transcript_segment && s.transcript_segment.trim())
-      if (noPrompt && hasTranscript) targetIndices.push(i)
+      if ((noPrompt || duplicateIds.has(s.id)) && hasTranscript) targetIndices.push(i)
     })
     if (!targetIndices.length) {
       job.progress = 100
-      job.output_lines.push('No empty prompts to regenerate — every scene with a transcript already has a prompt.')
+      job.output_lines.push('No missing or duplicated prompts to regenerate — every scene has a unique prompt.')
       job.output_dir = paths.episode_dir
       return
     }
     job.output_lines.push(
-      `Bulk-regenerating ${targetIndices.length} empty visual prompt(s) of ${existing.scenes.length} scene(s) — `
+      `Bulk-regenerating ${targetIndices.length} missing or duplicated visual prompt(s) of ${existing.scenes.length} scene(s) — `
       + `time ranges + transcripts unchanged, prompts that already exist serve as continuity context.`,
     )
     const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
@@ -733,10 +739,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_dir = paths.episode_dir
     job.progress = 100
     const succeeded = targetIndices.length - failed
+    const remainingTargetIds = new Set(inspectScenePromptIntegrity(existing.scenes).invalid_ids)
+    const stillInvalid = targetIndices.filter(index => remainingTargetIds.has(existing.scenes[index]!.id)).length
     job.output_lines.push(
       `✓ Bulk regen complete — ${succeeded} prompt(s) filled`
       + (failed ? `, ${failed} still empty (re-run the button to retry, or fill them in manually).` : '.'),
     )
+    if (stillInvalid) {
+      throw new Error(
+        `${stillInvalid} regenerated prompt(s) are still missing or duplicated. `
+        + 'Retry the repair; image rendering remains blocked.',
+      )
+    }
     return
   }
 

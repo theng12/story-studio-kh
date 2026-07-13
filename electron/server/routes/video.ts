@@ -19,7 +19,11 @@ import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle,
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import type { VideoSubtitleStyle } from '../models/types.js'
+import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
+import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
 
 export const router = Router()
 
@@ -1285,14 +1289,29 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   // A plan-strict render must not silently omit timeline rows. The UI exposes
   // the missing IDs and sends this override only after explicit acknowledgement.
   const poolMode = req.body.scene_pool_mode || 'auto'
-  if ((poolMode === 'auto' || poolMode === 'scene_plan') && req.body.allow_incomplete_scene_plan !== true) {
-    const assets = await scanEpisodeAssets(slug, episode_id)
-    const coverage = assets.scene_plan_coverage
-    if (coverage && coverage.total > 0 && coverage.missing.length > 0) {
+  if (poolMode === 'auto' || poolMode === 'scene_plan') {
+    try {
+      const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
+      const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
+      if (existsSync(planPath)) {
+        const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+        await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+        assertScenePromptsRenderable(plan.scenes)
+      }
+    } catch (e: any) {
       return res.status(409).json({
-        detail: `${coverage.missing.length} of ${coverage.total} planned scenes have no image. Return to Scene Review to generate or import them, or acknowledge the incomplete render in Video Assembly.`,
-        scene_plan_coverage: coverage,
+        detail: e?.message || 'Scene Plan integrity check failed. Repair the plan before assembly.',
       })
+    }
+    if (req.body.allow_incomplete_scene_plan !== true) {
+      const assets = await scanEpisodeAssets(slug, episode_id)
+      const coverage = assets.scene_plan_coverage
+      if (coverage && coverage.total > 0 && coverage.missing.length > 0) {
+        return res.status(409).json({
+          detail: `${coverage.missing.length} of ${coverage.total} planned scenes have no image. Return to Scene Review to generate or import them, or acknowledge the incomplete render in Video Assembly.`,
+          scene_plan_coverage: coverage,
+        })
+      }
     }
   }
 
