@@ -130,7 +130,7 @@ describe('fromUnified', () => {
       { id: 'custom-aud', provider: 'fal', type: 'audio', label: 'Custom TTS', is_custom: true,
         params: { cost_per_1k_chars: 0.05 } },
       { id: 'custom-vid', provider: 'fal-video', type: 'video', label: 'Custom Video', is_custom: true,
-        params: { credits_per_video: 10, modes: ['text'] } },
+        params: { credits_per_video: 10, modes: ['frames'] } },
     ])
     assert.equal(split.image_models['custom-img'].is_custom, true)
     assert.equal(split.audio_models['custom-aud'].is_custom, true)

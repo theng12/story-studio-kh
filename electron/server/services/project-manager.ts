@@ -15,6 +15,7 @@ import {
   DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS, DEFAULT_VIDEO_MODELS,
 } from '../models/defaults.js'
 import { toUnified, fromUnified } from '../models/unified.js'
+import { sanitizeUnifiedVideoModels, sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type {
   CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
@@ -910,7 +911,7 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   // tier-aware pricing despite running a tier-aware build.
   raw.image_models = mergeCatalog(DEFAULT_IMAGE_MODELS, raw.image_models)
   raw.audio_models = mergeCatalog(DEFAULT_AUDIO_MODELS, raw.audio_models)
-  raw.video_models = mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models)
+  raw.video_models = sanitizeVideoCatalog(mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models))
   if (!raw.voice_presets || !raw.voice_presets.length) {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]
   }
@@ -921,7 +922,7 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   // to the Settings UI and adds a writer for custom entries.
   raw.models = toUnified(
     { image_models: raw.image_models, audio_models: raw.audio_models, video_models: raw.video_models },
-    { customs: Array.isArray(raw.models) ? raw.models : [] },
+    { customs: sanitizeUnifiedVideoModels(Array.isArray(raw.models) ? raw.models : []) },
   )
 
   // Merge secrets in for callers that need the keys (generators, providers).
@@ -1141,11 +1142,15 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     // Pass through any extra settings (script_settings, youtube_templates, etc.)
     // Excludes voice_presets / voice_favourites — those went to global above
     // and must not be re-written into the project config.
-    const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'models']
+    const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
     for (const key of Object.keys(req)) {
       if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
         (data as any)[key] = (req as any)[key]
       }
+    }
+    if ((req as any).video_models) {
+      data.video_models = sanitizeVideoCatalog((req as any).video_models)
+      data.video_pricing_last_updated = new Date().toISOString().split('T')[0]
     }
     // If the caller sent the unified `models` array, split it back into the
     // legacy dicts so generators (which still key off image_models / audio_models
@@ -1153,7 +1158,7 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     // fields above take precedence if the caller sent both — we only project
     // from `models` for types the caller didn't explicitly overwrite.
     if (Array.isArray((req as any).models)) {
-      const unified = (req as any).models
+      const unified = sanitizeUnifiedVideoModels((req as any).models)
       const split = fromUnified(unified)
       if (!req.image_models && Object.keys(split.image_models).length) {
         data.image_models = split.image_models
@@ -1162,7 +1167,7 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
         data.audio_models = split.audio_models
       }
       if (!(req as any).video_models && Object.keys(split.video_models).length) {
-        data.video_models = split.video_models
+        data.video_models = sanitizeVideoCatalog(split.video_models)
       }
       data.models = unified
     }

@@ -1,5 +1,5 @@
 /**
- * fal.ai video provider — Veo 3.1, Sora 2, Hailuo-02, Wan, etc.
+ * fal.ai image-to-video provider — Veo, Hailuo, Wan, etc.
  * Each fal video model is addressed by a different slug; the slug lives in
  * the per-project `video_models[id].provider_params.slug` field.
  *
@@ -44,6 +44,7 @@ const falVideoProvider: VideoProvider = {
   async generateVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
     const { mode, prompt, apiKey, aspectRatio, numberOfVideos, startImagePath, providerParams, isCancelled } = request
     if (!apiKey) throw new Error('No fal.ai API key configured. Add one in Settings → API Keys.')
+    if (mode !== 'frames' || !startImagePath) throw new Error('fal.ai image-to-video requires a source image.')
 
     const slug = providerParams?.slug
     if (!slug) throw new Error('fal.ai video model config is missing `provider_params.slug`.')
@@ -61,10 +62,7 @@ const falVideoProvider: VideoProvider = {
     if (providerParams?.default_resolution) payload.resolution = providerParams.default_resolution
 
     // Image-to-video: attach local image as base64 data URI
-    if (mode === 'frames') {
-      if (!startImagePath) throw new Error('Image-to-video requires a start image.')
-      payload.image_url = await fileToDataUri(startImagePath)
-    }
+    payload.image_url = await fileToDataUri(startImagePath)
 
     // Allow provider_params to add/override any fields (e.g. generate_audio)
     if (providerParams?.extra_payload && typeof providerParams.extra_payload === 'object') {

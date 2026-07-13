@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.568 — 2026-07-14
+
+**Video generation is now a safer image-to-video-only workflow.**
+
+- Removed Sora 2, Runway Gen-3, and every text-to-video entry from the built-in video catalog.
+- Existing projects automatically discard stale retired/text-only entries; mixed custom models are safely limited to image-to-video.
+- Removed the Text → Video controls and made source scene images mandatory in the Video Generator and server API.
+- Fixed single-scene generation so a selected image cannot be reused across unrelated prompts; every prompt must match its exact numbered scene image before a paid request starts.
+- Documented `videostudio-mac` as the future owner of live provider/model discovery, intentionally deferred until its inventory and dispatch APIs are ready.
+- Added regression coverage for the image-to-video catalog policy and legacy catalog cleanup.
+
 ## v1.0.567 — 2026-07-14
 
 **Ideas Generator now restores the model you actually used instead of defaulting to GPT-4o.**

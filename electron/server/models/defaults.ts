@@ -276,15 +276,10 @@ export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [
 // Per-model extra fields live in provider_params on the stored config (not the typed interface)
 // so we cast via `as any` on each object. Keeps VideoModelConfig lean.
 export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
+  // Video generation is image-to-video only. New provider models belong in
+  // Video Studio once its catalog API is ready; keep this compatibility list
+  // deliberately small in the meantime.
   // ── fal.ai video models (base64 data-URI i2v) ────────────────────────────
-  'fal-veo-3.1': {
-    label: 'Veo 3.1 [fal.ai] — premium',
-    credits_per_video: 30,
-    provider: 'fal-video',
-    modes: ['text', 'frames'],
-    max_duration: 8,
-    ...({ provider_params: { slug: 'fal-ai/veo3.1', default_duration: 8, default_resolution: '720p' } } as any),
-  } as any,
   'fal-veo-3.1-i2v': {
     label: 'Veo 3.1 Image-to-Video [fal.ai]',
     credits_per_video: 30,
@@ -292,30 +287,6 @@ export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
     modes: ['frames'],
     max_duration: 8,
     ...({ provider_params: { slug: 'fal-ai/veo3.1/image-to-video', default_duration: 8 } } as any),
-  } as any,
-  'fal-sora-2-t2v': {
-    label: 'Sora 2 Text-to-Video [fal.ai]',
-    credits_per_video: 20,
-    provider: 'fal-video',
-    modes: ['text'],
-    max_duration: 20,
-    ...({ provider_params: { slug: 'fal-ai/sora-2/text-to-video', default_duration: 8 } } as any),
-  } as any,
-  'fal-sora-2-i2v': {
-    label: 'Sora 2 Image-to-Video [fal.ai]',
-    credits_per_video: 20,
-    provider: 'fal-video',
-    modes: ['frames'],
-    max_duration: 20,
-    ...({ provider_params: { slug: 'fal-ai/sora-2/image-to-video', default_duration: 8 } } as any),
-  } as any,
-  'fal-hailuo-02-t2v': {
-    label: 'Hailuo-02 Text-to-Video [fal.ai] — cheap',
-    credits_per_video: 3,
-    provider: 'fal-video',
-    modes: ['text'],
-    max_duration: 10,
-    ...({ provider_params: { slug: 'fal-ai/minimax/hailuo-02/standard/text-to-video', default_duration: 6 } } as any),
   } as any,
   'fal-hailuo-02-i2v': {
     label: 'Hailuo-02 Image-to-Video [fal.ai]',
@@ -335,36 +306,20 @@ export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
   } as any,
 
   // ── kie.ai video models (jobs endpoint, base64 data-URI for i2v) ─────────
-  'kie-sora-2-t2v': {
-    label: 'Sora 2 Text-to-Video [kie.ai]',
-    credits_per_video: 20,
-    provider: 'kie-video',
-    modes: ['text'],
-    max_duration: 20,
-    ...({ provider_params: { api_model: 'sora-2-text-to-video' } } as any),
-  } as any,
-  'kie-sora-2-i2v': {
-    label: 'Sora 2 Image-to-Video [kie.ai]',
-    credits_per_video: 20,
-    provider: 'kie-video',
-    modes: ['frames'],
-    max_duration: 20,
-    ...({ provider_params: { api_model: 'sora-2-image-to-video' } } as any),
-  } as any,
   'kie-kling-3': {
-    label: 'Kling 3.0 [kie.ai] — text + image, up to 15s',
+    label: 'Kling 3.0 Image-to-Video [kie.ai] — up to 15s',
     credits_per_video: 10,
     provider: 'kie-video',
-    modes: ['text', 'frames'],
+    modes: ['frames'],
     max_duration: 15,
     ...({ provider_params: { type: 'jobs', api_model: 'kling-3.0/video', default_duration: 5, extra_input: { mode: 'std' } } } as any),
   } as any,
-  // ── kie.ai dedicated endpoints (Veo / Runway) ────────────────────────────
+  // ── kie.ai dedicated Veo endpoints ───────────────────────────────────────
   'kie-veo3-fast': {
     label: 'Veo 3 Fast [kie.ai] — cheap, 8s',
     credits_per_video: 10,
     provider: 'kie-video',
-    modes: ['text', 'frames'],
+    modes: ['frames'],
     max_duration: 8,
     ...({ provider_params: { type: 'veo', api_model: 'veo3_fast' } } as any),
   } as any,
@@ -372,7 +327,7 @@ export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
     label: 'Veo 3 [kie.ai] — premium, 8s, 1080p',
     credits_per_video: 30,
     provider: 'kie-video',
-    modes: ['text', 'frames'],
+    modes: ['frames'],
     max_duration: 8,
     ...({ provider_params: { type: 'veo', api_model: 'veo3' } } as any),
   } as any,
@@ -380,24 +335,8 @@ export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
     label: 'Veo 3 Lite [kie.ai]',
     credits_per_video: 5,
     provider: 'kie-video',
-    modes: ['text', 'frames'],
+    modes: ['frames'],
     max_duration: 8,
     ...({ provider_params: { type: 'veo', api_model: 'veo3_lite' } } as any),
-  } as any,
-  'kie-runway-720p': {
-    label: 'Runway Gen-3 [kie.ai] — 720p, 5 or 10s',
-    credits_per_video: 8,
-    provider: 'kie-video',
-    modes: ['text', 'frames'],
-    max_duration: 10,
-    ...({ provider_params: { type: 'runway', default_duration: 5, default_quality: '720p' } } as any),
-  } as any,
-  'kie-runway-1080p': {
-    label: 'Runway Gen-3 [kie.ai] — 1080p, 5s only',
-    credits_per_video: 15,
-    provider: 'kie-video',
-    modes: ['text', 'frames'],
-    max_duration: 5,
-    ...({ provider_params: { type: 'runway', default_duration: 5, default_quality: '1080p' } } as any),
   } as any,
 }

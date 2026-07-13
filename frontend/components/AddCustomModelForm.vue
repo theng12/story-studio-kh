@@ -128,18 +128,11 @@
         </div>
         <div class="form-group form-group-wide">
           <label>
-            Supported modes
-            <span class="hint">Text-to-video, image-to-video (frames), or reference-image composition (ingredients).</span>
+            Generation mode
+            <span class="hint">Story Studio accepts image-to-video models only. Every video begins from a generated scene image.</span>
           </label>
           <div class="mode-chips">
-            <label v-for="mode in VIDEO_MODES" :key="mode" class="mode-chip">
-              <input
-                type="checkbox"
-                :checked="form.video.modes.includes(mode)"
-                @change="toggleMode(mode)"
-              />
-              {{ mode }}
-            </label>
+            <span class="mode-chip mode-chip-fixed">Image → Video</span>
           </div>
         </div>
         <div class="form-group">
@@ -198,8 +191,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{ add: [model: UnifiedModel] }>()
 
-const VIDEO_MODES = ['text', 'frames', 'ingredients'] as const
-
 const PROVIDERS_BY_TYPE: Record<ModelType, Array<{ id: string; label: string }>> = {
   image: [
     { id: 'kie', label: 'kie.ai' },
@@ -239,7 +230,7 @@ const form = reactive({
   video: {
     credits_per_video: 5,
     max_duration: undefined as number | undefined,
-    modes: ['text'] as string[],
+    modes: ['frames'] as string[],
     provider_slug: '',
     default_duration: undefined as number | undefined,
   },
@@ -299,8 +290,8 @@ const imageEndpointHint = computed(() => {
 })
 
 const videoSlugHint = computed(() => {
-  if (form.provider === 'fal-video') return 'fal-ai/veo3.1'
-  if (form.provider === 'kie-video') return 'sora-2-text-to-video'
+  if (form.provider === 'fal-video') return 'fal-ai/example/image-to-video'
+  if (form.provider === 'kie-video') return 'provider-image-to-video-model'
   return ''
 })
 
@@ -309,17 +300,10 @@ const missingReason = computed(() => {
   if (!form.label.trim()) return 'Enter a label to continue.'
   if (form.type === 'image' && !form.image.api_model.trim()) return 'Enter api_model — the slug the provider expects.'
   if (form.type === 'video' && !form.video.provider_slug.trim()) return 'Enter the provider slug (queue id).'
-  if (form.type === 'video' && form.video.modes.length === 0) return 'Pick at least one supported mode.'
   return ''
 })
 
 const canSubmit = computed(() => !missingReason.value)
-
-function toggleMode(mode: string) {
-  const i = form.video.modes.indexOf(mode)
-  if (i >= 0) form.video.modes.splice(i, 1)
-  else form.video.modes.push(mode)
-}
 
 function buildParams(): Record<string, any> {
   switch (form.type) {
@@ -338,7 +322,7 @@ function buildParams(): Record<string, any> {
     case 'video': {
       const params: Record<string, any> = {
         credits_per_video: form.video.credits_per_video,
-        modes: [...form.video.modes],
+        modes: ['frames'],
       }
       if (form.video.max_duration !== undefined) params.max_duration = form.video.max_duration
       const providerParams: Record<string, any> = {}
@@ -364,7 +348,7 @@ function resetForm() {
   form.video.provider_slug = ''
   form.video.max_duration = undefined
   form.video.default_duration = undefined
-  form.video.modes = ['text']
+  form.video.modes = ['frames']
 }
 
 async function submit() {
@@ -466,6 +450,7 @@ async function submit() {
   user-select: none;
 }
 .mode-chip input { margin: 0; }
+.mode-chip-fixed { cursor: default; }
 
 .text-info {
   font-size: 12px;

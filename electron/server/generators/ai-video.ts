@@ -182,26 +182,35 @@ export async function generateAiVideo(job: Job): Promise<void> {
   if (providerId === 'fal' || providerId === 'fal-video') await assertBalanceAvailable('fal', apiKey)
   else if (providerId === 'kie' || providerId === 'kie-video') await assertBalanceAvailable('kie', apiKey)
 
-  // Validate mode is supported by this model
-  const mode = req.mode || 'text'
-  if (!modelConfig.modes?.includes(mode)) {
-    throw new Error(`Model ${modelId} does not support mode "${mode}". Supported: ${modelConfig.modes?.join(', ')}`)
+  const mode = 'frames' as const
+  if (req.mode && req.mode !== mode) {
+    throw new Error('Text-to-video has been retired. Generate the scene image first, then animate it.')
+  }
+  if (!modelConfig.modes?.includes('frames')) {
+    throw new Error(`Model ${modelId} is not image-to-video capable.`)
   }
 
-  const prompts = await loadPrompts(project_slug, episode_id, req)
+  let prompts = await loadPrompts(project_slug, episode_id, req)
   if (!prompts.length) throw new Error('No prompts found to generate from.')
   job.output_lines.push(`Loaded ${prompts.length} prompt(s)`)
 
-  // For frames mode, match prompts with scene images
-  let sceneImages: Array<{ number: number; path: string }> = []
-  if (mode === 'frames') {
-    sceneImages = await loadSceneImages(project_slug, episode_id)
-    if (!sceneImages.length) throw new Error('No scene images found. Generate scene images first, or switch to text-to-video mode.')
-    if (req.scene_image_filenames?.length) {
-      sceneImages = sceneImages.filter(s => req.scene_image_filenames!.some(f => s.path.endsWith(f)))
-    }
-    job.output_lines.push(`Matched ${sceneImages.length} scene image(s)`)
+  let sceneImages = await loadSceneImages(project_slug, episode_id)
+  if (!sceneImages.length) throw new Error('No scene images found. Generate and approve scene images before creating motion clips.')
+  if (req.scene_image_filenames?.length) {
+    sceneImages = sceneImages.filter(s => req.scene_image_filenames!.some(f => s.path.endsWith(f)))
+    const selectedNumbers = new Set(sceneImages.map(scene => scene.number))
+    prompts = prompts.filter(prompt => selectedNumbers.has(prompt.number))
+    if (!prompts.length) throw new Error('The selected scene image does not have a matching numbered prompt.')
   }
+  const availableNumbers = new Set(sceneImages.map(scene => scene.number))
+  const missingSourceImages = prompts.filter(prompt => !availableNumbers.has(prompt.number)).map(prompt => prompt.number)
+  if (missingSourceImages.length) {
+    throw new Error(
+      `Missing source image(s) for scene ${missingSourceImages.join(', ')}. ` +
+      'Generate those scene images first; Story Studio will not reuse a different scene image.',
+    )
+  }
+  job.output_lines.push(`Matched ${sceneImages.length} exact scene image(s)`)
 
   // Resolve output dir via config subfolder names
   const code = episode_id.toUpperCase()
@@ -296,9 +305,8 @@ export async function generateAiVideo(job: Job): Promise<void> {
     job.output_lines.push(`[${index + 1}/${prompts.length}] ${p.title || `Clip ${p.number}`}`)
 
     try {
-      const startImage = mode === 'frames'
-        ? sceneImages.find(s => s.number === p.number) || sceneImages[index % sceneImages.length]
-        : undefined
+      const startImage = sceneImages.find(s => s.number === p.number)
+      if (!startImage) throw new Error(`Scene ${p.number} has no matching source image.`)
 
       const result = await provider.generateVideo({
         mode,
@@ -307,7 +315,8 @@ export async function generateAiVideo(job: Job): Promise<void> {
         aspectRatio: aspect,
         numberOfVideos: nPerPrompt,
         modelId,
-        startImagePath: startImage?.path,
+        startImagePath: startImage.path,
+        providerParams: (modelConfig as any).provider_params || {},
         isCancelled,
       })
       if (!result.videoUrls.length) throw new Error(`${provider.meta.name} returned no video URL`)

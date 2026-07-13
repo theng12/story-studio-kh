@@ -4,9 +4,9 @@
  * genuinely-useful templates; today: the cozy campfire loop the user
  * asked for as part of test feedback.
  *
- * Each preset is a complete prompt tuned for the "paste into text-to-video
- * and render" flow. Length target ~80 words — short enough that the LLM
- * doesn't drift, long enough to carry lighting/camera/loop cues.
+ * Each preset is motion direction for animating an existing source image.
+ * Length target ~80 words — short enough that the model doesn't drift,
+ * long enough to carry lighting/camera/loop cues.
  */
 
 export interface BuiltInVideoPrompt {

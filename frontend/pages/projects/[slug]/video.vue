@@ -6,15 +6,14 @@
     </div>
 
     <!-- v1.0.114 — wrong-pipeline banner for B-Roll formats. The Video
-         Generator turns scene images into AI video clips (image-to-video
-         via Veo / Sora); broll projects skip image generation entirely,
+         Generator turns scene images into AI video clips; broll projects skip image generation entirely,
          so this page has nothing to feed. Banner redirects to B-Roll Video. -->
     <div v-if="isBrollFormat" class="card wrong-pipeline-banner">
       <div class="wpb-icon" aria-hidden="true">🎬</div>
       <div class="wpb-body">
         <div class="wpb-title">This project uses B-Roll, not AI-generated video clips.</div>
         <div class="wpb-text">
-          The Video Generator turns scene images into AI video via Veo / Sora —
+          The Video Generator animates scene images with an image-to-video model —
           but B-Roll formats source video from your stock-footage pool instead.
           Use the <strong>B-Roll Video</strong> page for clip selection and final assembly.
         </div>
@@ -69,9 +68,7 @@
               </option>
             </optgroup>
           </select>
-          <span class="text-muted text-xs">
-            Supported modes: {{ currentModelModes.join(', ') || '—' }}
-          </span>
+          <span class="text-muted text-xs">Image → Video</span>
         </div>
         <div class="form-group">
           <label>Aspect Ratio</label>
@@ -84,24 +81,9 @@
 
       <div class="grid-2 mt-2">
         <div class="form-group">
-          <label>Mode</label>
-          <div class="mode-tabs">
-            <button
-              type="button"
-              :class="['mode-tab', { active: form.mode === 'text' }]"
-              :disabled="!currentModelModes.includes('text')"
-              @click="form.mode = 'text'"
-            >Text → Video</button>
-            <button
-              type="button"
-              :class="['mode-tab', { active: form.mode === 'frames' }]"
-              :disabled="!currentModelModes.includes('frames')"
-              @click="form.mode = 'frames'"
-            >Image → Video</button>
-          </div>
-          <span class="text-muted text-xs">
-            Image-to-video uses your generated scene images as the starting frame.
-          </span>
+          <label>Generation flow</label>
+          <div><strong>Scene image → motion clip</strong></div>
+          <span class="text-muted text-xs">A matching generated scene image is required for every clip.</span>
         </div>
         <div class="form-group">
           <label>Videos per prompt</label>
@@ -186,17 +168,14 @@
       </div>
     </div>
 
-    <!-- Scene images preview — visible whenever the prompts map 1:1 to -->
-    <!-- scene images: image-to-video mode OR text-to-video while reusing -->
-    <!-- scene prompts. (Previously hidden in reuse-scene-prompts mode -->
-    <!-- even though the mapping is the same.) -->
-    <div v-if="form.mode === 'frames' || form.prompt_source === 'scene_prompts'" class="card mt-2">
+    <!-- Every clip is image-to-video, so the exact numbered source image is mandatory. -->
+    <div class="card mt-2">
       <div class="card-header">
         <h3>Scene images</h3>
         <p class="text-muted text-sm">
           {{ sceneImages.length
-            ? `${sceneImages.length} image(s) found. Each clip uses the scene image matching its prompt number. Tiles show the scene number; any gaps mean that scene's image is missing and the clip will be skipped.`
-            : 'No scene images found. Generate scene images first, or switch to Text → Video mode.' }}
+            ? `${sceneImages.length} image(s) found. Each clip uses the scene image matching its prompt number. Tiles show the scene number; any gap blocks generation until that scene image is added.`
+            : 'No scene images found. Generate and approve scene images before creating motion clips.' }}
         </p>
       </div>
       <p class="text-muted text-xs scene-images-hint">
@@ -320,7 +299,6 @@ const generatedPrompts = ref<Array<{ number: number; title: string; prompt: stri
 
 const form = reactive({
   model: 'kie-veo3-fast',
-  mode: 'text' as 'text' | 'frames',
   aspect_ratio: 'landscape' as 'landscape' | 'portrait',
   number_of_videos_per_prompt: 1,
   prompt_source: 'scene_prompts' as 'scene_prompts' | 'video_prompts' | 'manual',
@@ -341,7 +319,10 @@ const videoPresets = usePresets<any>({
   configKey: 'video_generator',
   snapshot: () => ({ form: { ...form }, promptsForm: { ...promptsForm } }),
   apply: (data) => {
-    if (data?.form) Object.assign(form, data.form)
+    if (data?.form) {
+      const { mode: _retiredMode, ...safeForm } = data.form
+      Object.assign(form, safeForm)
+    }
     if (data?.promptsForm) Object.assign(promptsForm, data.promptsForm)
   },
 })
@@ -356,7 +337,7 @@ const videoPresets = usePresets<any>({
  * Saved presets still override these — preset.load() runs after seeding.
  */
 // v1.0.114 — wrong-pipeline banner. The Video Generator page generates
-// AI video clips from scene images (image-to-video via Veo / Sora). For
+// AI video clips from scene images. For
 // broll formats there are no scene images to feed it — this page would
 // just sit empty / fail. Set in applyVideoFormatDefaultsIfNoPreset to
 // piggyback on the existing format roundtrip.
@@ -397,17 +378,11 @@ function insertBuiltInPrompt(p: BuiltInVideoPrompt) {
   success(`Inserted: ${p.label}`)
 }
 
-const videoModels = computed(() => (config.value as any)?.video_models || {})
+const videoModels = computed(() => Object.fromEntries(
+  Object.entries((config.value as any)?.video_models || {})
+    .filter(([, model]: [string, any]) => Array.isArray(model?.modes) && model.modes.includes('frames')),
+))
 const videoModelGroups = computed(() => groupModels(videoModels.value, (_id, m: any) => m.provider || 'other'))
-const currentModelModes = computed<string[]>(() => {
-  const m = videoModels.value[form.model]
-  return m?.modes || []
-})
-
-watch(() => form.model, () => {
-  const modes = currentModelModes.value
-  if (!modes.includes(form.mode)) form.mode = (modes[0] as any) || 'text'
-})
 
 const sceneImages = ref<Array<{ filename: string; scene_number: number | null; path: string }>>([])
 async function loadSceneImages() {
@@ -439,7 +414,7 @@ const canSubmit = computed(() => {
   if (!episodeId.value) return false
   if (!scriptReady.value) return false
   if (form.prompt_source === 'manual' && !manualPromptsText.value.trim()) return false
-  if (form.mode === 'frames' && !sceneImages.value.length && form.prompt_source !== 'manual') return false
+  if (!sceneImages.value.length) return false
   return true
 })
 
@@ -543,7 +518,7 @@ async function submitVideo() {
       episode_id: episodeId.value,
       title: selectedEpisode.value?.title || '',
       model: form.model,
-      mode: form.mode,
+      mode: 'frames',
       aspect_ratio: form.aspect_ratio,
       number_of_videos_per_prompt: form.number_of_videos_per_prompt,
       prompt_source: form.prompt_source,
@@ -585,7 +560,7 @@ async function generateSingleScene(img: { filename: string; path: string; scene_
       episode_id: episodeId.value,
       title: selectedEpisode.value?.title || '',
       model: form.model,
-      mode: form.mode,
+      mode: 'frames',
       aspect_ratio: form.aspect_ratio,
       number_of_videos_per_prompt: form.number_of_videos_per_prompt,
       prompt_source: form.prompt_source,
@@ -682,35 +657,6 @@ async function generateSingleScene(img: { filename: string; path: string; scene_
   background: rgba(245, 158, 11, 0.14);
   color: rgb(180, 83, 9);
   border-color: rgba(245, 158, 11, 0.35);
-}
-
-.mode-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  padding: 3px;
-}
-.mode-tab {
-  flex: 1;
-  padding: 8px 14px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  border-radius: var(--radius-sm);
-  transition: all 0.15s;
-}
-.mode-tab.active {
-  background: var(--accent);
-  color: #0f1117;
-  font-weight: 500;
-}
-.mode-tab:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 .source-grid {

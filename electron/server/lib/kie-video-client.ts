@@ -1,5 +1,5 @@
 /**
- * kie.ai video generation client — Sora 2, Kling 3.0, etc. via /jobs/createTask + /jobs/recordInfo.
+ * kie.ai image-to-video client — Kling, Veo, etc.
  * Piggybacks on the existing "jobs" endpoint pattern but looks for video URLs in the response.
  *
  * Auth: Bearer <key>.
@@ -12,16 +12,16 @@ const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
 const POLL_INTERVAL = 6000
 const MAX_WAIT = 600000 // 10 minutes (video takes longer than images)
 
-export type KieVideoEndpointType = 'jobs' | 'veo' | 'runway'
+export type KieVideoEndpointType = 'jobs' | 'veo'
 
 export interface KieVideoOptions {
   apiKey: string
   /** Which kie endpoint family to call — default 'jobs'. */
   type?: KieVideoEndpointType
-  /** kie model slug (for 'jobs' and 'veo'): e.g. 'sora-2-text-to-video', 'veo3_fast'. Unused by 'runway'. */
+  /** kie model slug for the jobs or Veo endpoint. */
   apiModel?: string
   /** Payload for 'jobs' — goes inside { model, input: {...} }.
-   *  For 'veo' and 'runway' this is the FLAT payload sent as the request body (merged with prompt/aspect/etc. populated by the provider). */
+   *  For 'veo' this is the FLAT payload sent as the request body. */
   input: Record<string, any>
   /** Probe for user cancel — stops polling immediately. */
   isCancelled?: () => boolean
@@ -42,10 +42,6 @@ export async function generateKieVideo(opts: KieVideoOptions): Promise<string[]>
     submitPath = '/veo/generate'
     pollPath = '/veo/record-info'
     body = { ...input, model: apiModel }
-  } else if (type === 'runway') {
-    submitPath = '/runway/generate'
-    pollPath = '/runway/record-info'
-    body = { ...input }
   } else {
     if (!apiModel) throw new Error('kie.ai jobs endpoint requires provider_params.api_model')
     submitPath = '/jobs/createTask'

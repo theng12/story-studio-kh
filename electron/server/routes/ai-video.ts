@@ -132,7 +132,7 @@ router.post('/projects/:slug/generate/video-prompts/save', async (req, res) => {
   }
 })
 
-// ── Enqueue AI video generation job (text-to-video or image-to-video) ──
+// ── Enqueue image-to-video generation job ─────────────────────────────
 
 router.post('/projects/:slug/generate/video', async (req, res) => {
   const { slug } = req.params
@@ -150,6 +150,12 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   const videoModels: Record<string, any> = (config as any).video_models || {}
   const modelConfig = videoModels[modelId]
   if (!modelConfig) return res.status(400).json({ detail: `Unknown video model: ${modelId}` })
+  if (!Array.isArray(modelConfig.modes) || !modelConfig.modes.includes('frames')) {
+    return res.status(400).json({ detail: `Video model ${modelId} is not image-to-video capable.` })
+  }
+  if (req.body.mode && req.body.mode !== 'frames') {
+    return res.status(400).json({ detail: 'Text-to-video has been retired. Choose an image-to-video model and generate the scene image first.' })
+  }
 
   const apiKeyField = modelConfig.provider === 'kie' || modelConfig.provider === 'kie-video' ? 'kie_api_key'
     : modelConfig.provider === 'fal' || modelConfig.provider === 'fal-video' ? 'fal_api_key'
@@ -167,7 +173,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     type: 'video',
     episode_id: episodeId,
     title: req.body.title || '',
-    params: req.body,
+    params: { ...req.body, mode: 'frames' },
   })
   res.status(201).json(job)
 })

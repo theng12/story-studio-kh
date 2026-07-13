@@ -121,7 +121,7 @@ export interface AudioProvider {
 
 // ── Video Provider ────────────────────────────────────────────────────────
 
-export type VideoMode = 'text' | 'frames' | 'ingredients'
+export type VideoMode = 'frames'
 
 export interface VideoGenerationRequest {
   mode: VideoMode
@@ -134,8 +134,6 @@ export interface VideoGenerationRequest {
   startImagePath?: string
   /** For frames mode: path to an optional end image on disk */
   endImagePath?: string
-  /** For ingredients mode: 1-3 reference image paths on disk */
-  referenceImagePaths?: string[]
   /** Provider-specific params */
   providerParams?: Record<string, any>
   /** Probe for user cancel — honoured in poll loops. */

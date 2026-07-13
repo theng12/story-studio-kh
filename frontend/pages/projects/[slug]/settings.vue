@@ -157,6 +157,11 @@
           Updated: {{ (config as any).video_pricing_last_updated }}
         </span>
       </div>
+      <p class="text-muted mt-1 mb-2" style="font-size: 12px; line-height: 1.5;">
+        Image-to-video only. Each clip starts from a generated scene image. A future Video Studio
+        connection will own live provider discovery; it is intentionally not connected yet, so this
+        compatibility list stays small and stable.
+      </p>
       <table class="edit-table mt-1">
         <thead>
           <tr><th>Model</th><th>Credits/Video</th><th>Modes</th><th></th></tr>
@@ -171,7 +176,7 @@
               <input v-model.number="model.credits_per_video" type="number" step="1" min="0" class="input input-sm" />
             </td>
             <td class="text-muted" style="font-size: 11px;">
-              {{ (model.modes || []).join(', ') || '—' }}
+              Image → Video
             </td>
             <td>
               <button

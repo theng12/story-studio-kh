@@ -21,6 +21,13 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - Generator model pickers must restore the user's last explicit choice before they mount. Do not hardcode a paid model such as GPT-4o as the form default.
 - If the remembered model is no longer available, let the live model inventory choose a usable fallback and persist that healed choice.
 
+## Video Model Boundary
+
+- Story Studio video generation is image-to-video only. Do not restore text-to-video modes, models, UI controls, preset values, or fallback behavior.
+- Sora 2 and Runway Gen-3 are retired from the built-in catalog.
+- New provider/model discovery will eventually come from `videostudio-mac`. That integration is deferred until Video Studio exposes a stable provider inventory and dispatch API; do not half-wire or duplicate new provider catalogs in Story Studio meanwhile.
+- Every video request must use the exact scene image for its stable scene number. Missing images are blocking errors, never permission to reuse a different scene image.
+
 ## Verified Completion Contract
 
 Every generation flow must prove its output is complete before a job, pipeline step, Production Board cell, or one-click run may report success.

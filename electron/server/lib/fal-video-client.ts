@@ -1,6 +1,6 @@
 /**
  * fal.ai video generation client — submits to queue, polls, extracts video URL.
- * Works for Veo 3.1, Sora 2, Hailuo-02, Wan, and any other fal model that returns
+ * Works for Veo, Hailuo, Wan, and any other fal image-to-video model that returns
  * a result containing `{ video: { url } }` or `{ video_url }` or similar.
  *
  * Auth: `Authorization: Key <key>` header (different from Bearer).
@@ -15,7 +15,7 @@ const MAX_WAIT = 600000 // 10 minutes
 
 export interface FalVideoOptions {
   apiKey: string
-  /** fal model slug, e.g. 'fal-ai/veo3.1' or 'fal-ai/sora-2/image-to-video' */
+  /** fal image-to-video queue slug. */
   modelSlug: string
   /** The JSON payload to submit — varies per model but always includes `prompt` */
   payload: Record<string, any>

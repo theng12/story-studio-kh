@@ -1594,7 +1594,7 @@ export interface UnifiedModel {
   provider: string
   type: ModelType
   label: string
-  /** Free-form tags, e.g. ['text-to-video','image-to-video']. */
+  /** Free-form tags, e.g. ['image-to-video']. */
   capabilities?: string[]
   /** True when added by the user via Settings UI (Delivery 4). */
   is_custom?: boolean
@@ -1634,8 +1634,8 @@ export interface VideoModelConfig {
   label: string
   credits_per_video: number
   provider: string  // 'kie-video' | 'fal-video'
-  /** Modes this model supports: 'text', 'frames' (image-to-video), 'ingredients' */
-  modes: Array<'text' | 'frames' | 'ingredients'>
+  /** Story Studio supports image-to-video only. */
+  modes: Array<'frames'>
   /** Max duration in seconds, if known */
   max_duration?: number
   /** Set on user-added entries. See `ImageModelConfig.is_custom` for rationale. */
@@ -2911,7 +2911,7 @@ export interface GenerateVideoRequest {
 
 // ── Video Generation ────────────────────────────────────────────────────────
 
-export type VideoGenerationMode = 'text' | 'frames' | 'ingredients'
+export type VideoGenerationMode = 'frames'
 
 export interface GenerateVideoPromptsRequest {
   episode_id: string
