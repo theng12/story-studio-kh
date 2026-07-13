@@ -27,6 +27,8 @@ import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
+import { requireJobCompletion } from '../services/job-completion.js'
+import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 
 // Preset shape we expect in job.params (from the Image Prompts page's
 // usePresets snapshot { form: {...} }, unwrapped by routes/pipeline.ts).
@@ -189,6 +191,13 @@ function parseImagePromptsJson(raw: string): { scenes?: any[]; thumbnails?: any[
     scenes: Array.isArray(obj.scenes) ? obj.scenes : [],
     thumbnails: Array.isArray(obj.thumbnails) ? obj.thumbnails : [],
   }
+}
+
+export function normalizeGeneratedPromptItems(items: any[], expected: number): any[] {
+  return (Array.isArray(items) ? items : [])
+    .filter(item => item && typeof item.prompt === 'string' && item.prompt.trim())
+    .slice(0, Math.max(0, expected))
+    .map((item, index) => ({ ...item, number: index + 1, prompt: item.prompt.trim() }))
 }
 
 /** Shape of `format.imagePrompts.thumbnail` (see ImagePromptFormat). */
@@ -755,7 +764,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
           ) + `\n\nIMPORTANT: This response must contain ONLY scenes ${from}..${to}. The "thumbnails" array MUST be empty.`
 
           let done = false
-          let lastErr: any
+          let bestGot: any[] = []
           for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS && !aborted; attempt++) {
             if (jq.isCancelled(job.job_id)) { aborted = true; return }
             try {
@@ -775,17 +784,20 @@ export async function generateImagePrompts(job: Job): Promise<void> {
                 ...s,
                 number: from + i,
               }))
-              collected.push(...got)
-              completed++
+              if (got.length > bestGot.length) bestGot = got
               const tail = rawScenes.length > expected ? ` (truncated from ${rawScenes.length})` : ''
               const retryNote = attempt > 1 ? ` (recovered on retry ${attempt - 1})` : ''
               job.output_lines.push(
                 `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${expected}${tail}${retryNote} (${completed}/${batches.length} batches done)`,
               )
+              if (got.length !== expected) {
+                throw new Error(`model returned ${got.length}/${expected} usable scene prompts`)
+              }
+              collected.push(...got)
+              completed++
               done = true
               break
             } catch (e: any) {
-              lastErr = e
               if (jq.isCancelled(job.job_id) || controller.signal.aborted) { aborted = true; return }
               const isLast = attempt === MAX_BATCH_ATTEMPTS
               job.output_lines.push(
@@ -795,7 +807,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
               if (!isLast) await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS))
             }
           }
-          if (!done && !aborted) failed.push({ from, to })
+          if (!done && !aborted) {
+            collected.push(...bestGot)
+            failed.push({ from, to })
+          }
         }
       }
 
@@ -844,7 +859,23 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     clearInterval(cancelWatcher)
   }
 
-  job.output_lines.push(`Parsed ${scenes.length} scene(s), ${thumbnails.length} thumbnail(s).`)
+  if (sceneCount > 0) scenes = normalizeGeneratedPromptItems(scenes, sceneCount)
+  if (thumbs > 0) {
+    const generatedThumbs = normalizeGeneratedPromptItems(thumbnails, thumbs)
+    if (fillGaps) {
+      const merged = new Map<number, any>()
+      for (const item of normalizeGeneratedPromptItems(existingThumbs, thumbs)) merged.set(item.number, item)
+      for (const item of generatedThumbs) merged.set(item.number, item)
+      thumbnails = [...merged.values()].sort((a, b) => a.number - b.number)
+    } else {
+      thumbnails = generatedThumbs
+    }
+  }
+  const missingScenes = Array.from({ length: sceneCount }, (_, i) => i + 1)
+    .filter(number => !scenes.some(scene => scene.number === number && scene.prompt?.trim()))
+  const missingThumbnails = Array.from({ length: thumbs }, (_, i) => i + 1)
+    .filter(number => !thumbnails.some(thumb => thumb.number === number && thumb.prompt?.trim()))
+  job.output_lines.push(`Parsed ${scenes.length}/${sceneCount} scene(s), ${thumbnails.length}/${thumbs} thumbnail(s).`)
 
   // v1.0.416 — GUARANTEE every thumbnail prompt carries the aspect ratio, the
   // "YouTube thumbnail" framing, and (AI mode) the literal title — appending
@@ -896,25 +927,31 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const names = await resolveSubfolderNames(project_slug, episode_id)
 
   // Save scenes
-  if (scenes.length > 0) {
+  if (sceneCount > 0) {
     const sceneDir = await resolveSubfolder(episodeDir, names.scene_prompts)
     if (!sceneDir) throw new Error(`Scene prompts folder not found: ${names.scene_prompts}`)
-    let sceneText = `# Scene Prompts\n\n`
-    for (const s of scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
-    const outPath = path.join(sceneDir, `${episode_id}_Scene_Prompts.md`)
-    await buildImagePromptsDocx(sceneText, episode_id, title, outPath)
-    job.output_lines.push(`Saved scenes → ${path.basename(outPath)}`)
+    if (scenes.length > 0) {
+      let sceneText = `# Scene Prompts\n\n`
+      for (const s of scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
+      const outPath = path.join(sceneDir, `${episode_id}_Scene_Prompts.md`)
+      await buildImagePromptsDocx(sceneText, episode_id, title, outPath)
+      job.output_lines.push(`Saved scenes → ${path.basename(outPath)}`)
+    }
+    await writePromptCompletionManifest(sceneDir, episode_id, 'scene', sceneCount)
   }
 
   // Save thumbnails
-  if (thumbnails.length > 0) {
+  if (thumbs > 0) {
     const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
     if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
-    let thumbText = `# Thumbnail Prompts\n\n`
-    for (const t of thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
-    const outPath = path.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`)
-    await buildImagePromptsDocx(thumbText, episode_id, title, outPath)
-    job.output_lines.push(`Saved thumbnails → ${path.basename(outPath)}`)
+    if (thumbnails.length > 0) {
+      let thumbText = `# Thumbnail Prompts\n\n`
+      for (const t of thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
+      const outPath = path.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`)
+      await buildImagePromptsDocx(thumbText, episode_id, title, outPath)
+      job.output_lines.push(`Saved thumbnails → ${path.basename(outPath)}`)
+    }
+    await writePromptCompletionManifest(thumbDir, episode_id, 'thumbnail', thumbs)
   }
 
   await trackGeneration(project_slug, 'prompts').catch(() => {})
@@ -925,14 +962,20 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // counts — the partial scenes are already saved above (preserved, not lost),
   // so the user can re-run to fill only the gaps once the endpoint is back.
   if (failedSceneBatches.length > 0) {
-    const missing = failedSceneBatches.reduce((n, b) => n + (b.to - b.from + 1), 0)
-    const ranges = failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')
-    throw new Error(
-      `Generated ${scenes.length} of ${sceneCount} scene prompts — ` +
-      `${failedSceneBatches.length} batch(es) failed after ${3} attempts (${missing} scenes missing: ${ranges}). ` +
-      `Likely an unreachable local endpoint. The ${scenes.length} generated scene(s) were saved; ` +
-      `click Retry on this job once the endpoint is back — it regenerates only the ${missing} missing scene(s) and keeps the rest.`,
-    )
+    job.output_lines.push(`Failed scene ranges after 3 attempts: ${failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')}`)
+  }
+  if (mode === 'scenes') {
+    requireJobCompletion(job, {
+      label: 'Scene prompt generation', expected: sceneCount, completed: sceneCount - missingScenes.length,
+      missing: missingScenes.map(number => `Scene ${number}`),
+      retry_hint: 'Successful prompts were saved; Retry generates only the missing prompts.',
+    })
+  } else {
+    requireJobCompletion(job, {
+      label: 'Thumbnail prompt generation', expected: thumbs, completed: thumbs - missingThumbnails.length,
+      missing: missingThumbnails.map(number => `Thumbnail ${number}`),
+      retry_hint: 'Successful prompts were saved; Retry fills the remaining thumbnail prompts.',
+    })
   }
   job.output_lines.push(`Done.`)
 }

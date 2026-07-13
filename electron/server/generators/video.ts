@@ -36,6 +36,7 @@ import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -57,6 +58,36 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
 
 const SCENE_PLAN_FILENAME = 'scene_plan.json'
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
+
+async function selfHealFinalPromotion(
+  currentPath: string,
+  projectTreeFinalPath: string,
+  finalName: string,
+  job: Job,
+): Promise<string> {
+  if (path.basename(currentPath) === finalName && fileExistsNonEmpty(currentPath)) return currentPath
+  if (!fileExistsNonEmpty(currentPath)) return currentPath
+  try {
+    await fs.copyFile(currentPath, projectTreeFinalPath)
+    if (!fileExistsNonEmpty(projectTreeFinalPath)) throw new Error('copied file is empty')
+    await fs.rm(currentPath, { force: true })
+    job.output_lines.push(`Self-healed final promotion → ${finalName} (project tree)`)
+    return projectTreeFinalPath
+  } catch (error: any) {
+    job.output_lines.push(`⚠ Could not self-heal final promotion: ${error?.message || error}`)
+    return currentPath
+  }
+}
+
+async function verifyFinalVideo(job: Job, outputPath: string, finalName: string): Promise<void> {
+  const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
+  requireJobCompletion(job, {
+    label: 'Final video assembly', expected: 1, completed: valid ? 1 : 0,
+    missing: valid ? [] : [finalName],
+    invalid: valid ? [] : [path.basename(outputPath)],
+    retry_hint: 'The encoded file was retained when possible. Retry promotion or import it as the canonical final.',
+  })
+}
 
 /**
  * Quality tier → default (CRF, x264/x265 preset) pair.
@@ -1249,6 +1280,8 @@ export async function generateVideo(job: Job): Promise<void> {
         }
       }
 
+      compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
+      await verifyFinalVideo(job, compResolvedPath, compFinalName)
       job.progress = 100
       job.output_lines.push(`Video saved: ${path.basename(compResolvedPath)}`)
       job.output_lines.push(`Full path: ${compResolvedPath}`)
@@ -1849,6 +1882,8 @@ export async function generateVideo(job: Job): Promise<void> {
       }
     }
 
+    resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
+    await verifyFinalVideo(job, resolvedOutputPath, finalName)
     job.progress = 100
     job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
     job.output_lines.push(`Full path: ${resolvedOutputPath}`)

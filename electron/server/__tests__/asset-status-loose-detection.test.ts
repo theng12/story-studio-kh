@@ -1,14 +1,8 @@
 /**
- * Tests for the prompts-less ("looser") asset detection in
- * services/asset-status.ts (Part 2 of the mark-done plan).
+ * Tests for authoritative asset completion in services/asset-status.ts.
  *
  * Coverage:
- *   - getImageStatus: PNGs in bg_dir without a Scene_Prompts docx →
- *     scenes detected (total === present, missing === [])
- *   - getImageStatus: PNGs in thumb_dir without a Thumb_Prompts docx →
- *     thumbnails detected
- *   - getVideoStatus: MP4s in video_dir without a prompts docx → videos
- *     detected
+ *   - Files without prompts do not invent their own expected totals.
  *   - With a prompts docx present, the existing strict expected-vs-present
  *     behaviour is preserved (partial generations still flag false)
  *   - Empty episodes (no files, no docx) report no scenes/thumbs/video
@@ -20,6 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 
 let pm: typeof import('../services/project-manager.js')
 let assetStatus: typeof import('../services/asset-status.js')
@@ -87,7 +82,7 @@ const PNG_BYTES = Buffer.from(
 
 const MP4_BYTES = Buffer.from('not-actually-an-mp4-but-non-empty-for-content-check', 'utf-8')
 
-describe('asset-status looser detection (no prompts docx)', () => {
+describe('asset-status verified completion', () => {
   before(async () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
@@ -112,7 +107,7 @@ describe('asset-status looser detection (no prompts docx)', () => {
     assert.equal(result.thumbnails, undefined)
   })
 
-  test('PNGs in bg_dir without prompts → scenes detected with total === present', async () => {
+  test('PNGs in bg_dir without prompts do not mark scenes complete', async () => {
     const { bgDir } = await makeProject()
     // 5 hand-named scenes, each with a single v1 variant.
     for (let n = 1; n <= 5; n++) {
@@ -120,27 +115,21 @@ describe('asset-status looser detection (no prompts docx)', () => {
       await fs.writeFile(path.join(bgDir, `${stem}_v1.png`), PNG_BYTES)
     }
     const result = await assetStatus.getImageStatus(SLUG, CODE)
-    assert.ok(result.scenes, 'scenes bucket present')
-    assert.equal(result.scenes!.total, 5)
-    assert.equal(result.scenes!.present, 5)
-    assert.deepEqual(result.scenes!.missing, [])
+    assert.equal(result.scenes, undefined, 'files cannot define their own expected total')
     assert.equal(result.thumbnails, undefined, 'no thumbs found → no bucket')
   })
 
-  test('PNGs in thumb_dir without prompts → thumbnails detected', async () => {
+  test('PNGs in thumb_dir without prompts do not mark thumbnails complete', async () => {
     const { thumbDir } = await makeProject()
     for (let n = 1; n <= 3; n++) {
       const stem = `${CODE}_Thumb${n.toString().padStart(2, '0')}`
       await fs.writeFile(path.join(thumbDir, `${stem}_v1.png`), PNG_BYTES)
     }
     const result = await assetStatus.getImageStatus(SLUG, CODE)
-    assert.ok(result.thumbnails, 'thumbnails bucket present')
-    assert.equal(result.thumbnails!.total, 3)
-    assert.equal(result.thumbnails!.present, 3)
-    assert.deepEqual(result.thumbnails!.missing, [])
+    assert.equal(result.thumbnails, undefined, 'files cannot define their own expected total')
   })
 
-  test('multiple variants of the same scene count as ONE present scene', async () => {
+  test('multiple unmanifested variants still do not establish completion', async () => {
     const { bgDir } = await makeProject()
     // 3 scenes, each with v1 + v2 + v3 (regenerations). Should still report 3.
     for (let n = 1; n <= 3; n++) {
@@ -150,41 +139,82 @@ describe('asset-status looser detection (no prompts docx)', () => {
       }
     }
     const result = await assetStatus.getImageStatus(SLUG, CODE)
-    assert.equal(result.scenes!.total, 3, 'unique scene numbers, not file count')
-    assert.equal(result.scenes!.present, 3)
+    assert.equal(result.scenes, undefined)
   })
 
-  test('zero-byte PNG does NOT count as present', async () => {
+  test('mixed valid and zero-byte unmanifested PNGs remain pending', async () => {
     const { bgDir } = await makeProject()
     // Scene 1 has a v1 with content; scene 2 only has an empty v1.
     await fs.writeFile(path.join(bgDir, `${CODE}_Scene01_v1.png`), PNG_BYTES)
     await fs.writeFile(path.join(bgDir, `${CODE}_Scene02_v1.png`), Buffer.alloc(0))
     const result = await assetStatus.getImageStatus(SLUG, CODE)
-    assert.equal(result.scenes!.total, 1, 'only the non-empty scene counts')
-    assert.equal(result.scenes!.present, 1)
+    assert.equal(result.scenes, undefined)
   })
 
-  test('MP4s in video_dir without prompts → video detected', async () => {
+  test('MP4s in video_dir without prompts do not mark video generation complete', async () => {
     const { videoDir } = await makeProject()
     for (let n = 1; n <= 4; n++) {
       const stem = `${CODE}_Video${n.toString().padStart(2, '0')}`
       await fs.writeFile(path.join(videoDir, `${stem}_v1.mp4`), MP4_BYTES)
     }
     const result = await assetStatus.getVideoStatus(SLUG, CODE)
-    assert.equal(result.total, 4)
-    assert.equal(result.present, 4)
+    assert.equal(result.total, 0)
+    assert.equal(result.present, 0)
     assert.deepEqual(result.missing, [])
   })
 
-  test('computeEpisodeStatus reports images=true when scenes/thumbs detected loosely', async () => {
+  test('computeEpisodeStatus keeps unmanifested scenes and thumbnails pending', async () => {
     const { bgDir, thumbDir } = await makeProject()
     for (let n = 1; n <= 2; n++) {
       await fs.writeFile(path.join(bgDir, `${CODE}_Scene0${n}_v1.png`), PNG_BYTES)
       await fs.writeFile(path.join(thumbDir, `${CODE}_Thumb0${n}_v1.png`), PNG_BYTES)
     }
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(status.images, true, 'looser scene detection flips images→true')
-    assert.equal(status.thumbnails, true, 'looser thumb detection flips thumbnails→true')
+    assert.equal(status.images, false)
+    assert.equal(status.thumbnails, false)
+  })
+
+  test('a corrupt introduction marker cannot mark the introduction complete', async () => {
+    const { episodeDir } = await makeProject()
+    const scriptDir = path.join(episodeDir, `${CODE} - 01 Script`)
+    await fs.mkdir(scriptDir, { recursive: true })
+    await fs.writeFile(path.join(scriptDir, `${CODE}_Script_Narration.intro.json`), '{}')
+
+    let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.introduction, false)
+
+    await fs.writeFile(path.join(scriptDir, `${CODE}_Script_Narration.intro.json`), JSON.stringify({ word_count: 120 }))
+    cacheMod.episodeStatusCache.clear()
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.introduction, true)
+  })
+
+  test('an authoritative partial prompt run cannot be promoted by the legacy scanner', async () => {
+    const { scenePromptsDir } = await makeProject()
+    await fs.writeFile(path.join(scenePromptsDir, `${CODE}_Scene_Prompts.md`), [
+      '# Scene Prompts', '',
+      '## Scene 1: One', '', 'first prompt', '',
+      '## Scene 2: Two', '', 'second prompt', '',
+    ].join('\n'))
+    await writePromptCompletionManifest(scenePromptsDir, CODE, 'scene', 3)
+
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.scene_prompts, false, '2/3 prompts must remain pending')
+  })
+
+  test('image completion preserves the original expected prompt count', async () => {
+    const { scenePromptsDir, bgDir } = await makeProject()
+    await fs.writeFile(path.join(scenePromptsDir, `${CODE}_Scene_Prompts.md`), [
+      '# Scene Prompts', '',
+      '## Scene 1: One', '', 'first prompt', '',
+      '## Scene 2: Two', '', 'second prompt', '',
+    ].join('\n'))
+    await writePromptCompletionManifest(scenePromptsDir, CODE, 'scene', 3)
+    await fs.writeFile(path.join(bgDir, `${CODE}_Scene01_v1.png`), PNG_BYTES)
+    await fs.writeFile(path.join(bgDir, `${CODE}_Scene02_v1.png`), PNG_BYTES)
+
+    const images = await assetStatus.getImageStatus(SLUG, CODE)
+    assert.deepEqual(images.scenes, { total: 3, present: 2, missing: [3] })
   })
 
   test('subtitles remain pending until every audio section has an SRT', async () => {
@@ -251,7 +281,7 @@ describe('asset-status looser detection (no prompts docx)', () => {
     // Save the picked selection (what the B-Roll page's pick route writes).
     await fs.writeFile(
       path.join(episodeDir, 'broll-selection.json'),
-      JSON.stringify({ schema_version: 1, clips: [{ scene: 1, asset_id: 'a1' }] }),
+      JSON.stringify({ schema_version: 1, selection: [{ scene: 1, asset_id: 'a1' }] }),
     )
     cacheMod.episodeStatusCache.clear()
     status = await assetStatus.computeEpisodeStatus(SLUG, CODE)

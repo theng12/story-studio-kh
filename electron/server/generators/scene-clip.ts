@@ -132,6 +132,8 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     // Coarse 70→95 progress band while the clip downloads.
     if (received > 0 && (job.progress ?? 0) < 95) job.progress = Math.min(95, (job.progress ?? 0) + 1)
   })
+  const outputStat = await fs.stat(outPath)
+  if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded clip is empty for scene ${scene_id}`)
   job.progress = 95
 
   // Record clip_path + the motion prompt it was rendered from (stale detection).

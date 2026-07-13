@@ -28,6 +28,8 @@ import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/resear
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
+import { requireJobCompletion } from '../services/job-completion.js'
+import { writeMetadataCompletionManifest } from '../services/metadata-completion.js'
 
 interface MetadataParams {
   episode_id: string
@@ -399,6 +401,26 @@ Requirements:
     await trackGeneration(project_slug, 'description').catch(() => {})
     job.output_lines.push(`Saved → ${json} + ${txt}`)
     job.output_dir = dir
+
+    const expectedTitleCount = templateOutput?.title || title_mode !== 'paraphrase' ? 1 : title_count
+    const expectedTagCount = templateOutput?.tags.length ? Math.min(tag_count, templateOutput.tags.length) : tag_count
+    const missing: string[] = []
+    if (!interpolatedDescription.trim()) missing.push('description')
+    for (let index = interpolatedTitles.length; index < expectedTitleCount; index++) {
+      missing.push(`title option ${index + 1}`)
+    }
+    for (let index = interpolatedTags.length; index < expectedTagCount; index++) {
+      missing.push(`tag ${index + 1}`)
+    }
+    const expected = 1 + expectedTitleCount + expectedTagCount
+    await writeMetadataCompletionManifest(dir, episode_id, json, expectedTitleCount, expectedTagCount)
+    requireJobCompletion(job, {
+      label: 'Metadata generation',
+      expected,
+      completed: expected - missing.length,
+      missing,
+      retry_hint: 'The partial metadata file was kept. Retry to generate the missing fields.',
+    })
   } finally {
     clearInterval(cancelWatcher)
   }

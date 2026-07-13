@@ -35,9 +35,9 @@ import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
-// v8 — subtitles require complete expected-section coverage; discard cached
-// true values produced by the old "any SRT exists" rule.
-export const SCHEMA_VERSION = 8 as const
+// v9 — generated prompts and final videos now require authoritative completion
+// evidence; discard cached true values produced by loose file-presence guesses.
+export const SCHEMA_VERSION = 9 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence

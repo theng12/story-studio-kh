@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.562 — 2026-07-13
+
+**One-click completion is now verified from the full expected output set instead of inferred from partial files or a worker returning normally.**
+
+- Added a shared completion contract: multi-item jobs save successful partial work, fail loudly with exact missing/invalid items, and remain safely retryable rather than showing a green Done badge.
+- Hardened script expansion, introductions, prompts, metadata, research, images, audio, clips, B-Roll, repairs, scene planning, and final assembly against empty, short, corrupt, or partial results.
+- Added durable expected-count manifests for scene prompts, thumbnail prompts, metadata, and merged audio, preventing partial documents from shrinking the downstream definition of “complete.”
+- Production Board and Pipeline status now validate real output content, unique Scene Plan prompts, complete subtitles, non-empty images/clips, and canonical final videos; legacy folder scanning can no longer override an authoritative incomplete result.
+- Every declared job type must have a queue lane and executor. Startup and regression tests now fail when a future module is added without complete one-click wiring.
+- Final render naming is consistent across local, B-Roll, timestamp, and Render Studio assembly, and YouTube Upload only accepts that canonical verified final instead of guessing among preview files.
+- Added a permanent Verified Completion Contract to the project instructions so new features must ship with failure, retry, status, and partial-output regression coverage.
+
 ## v1.0.561 — 2026-07-13
 
 **Partial transcription jobs now fail loudly instead of showing a misleading green Done badge.**

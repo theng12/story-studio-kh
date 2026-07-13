@@ -305,7 +305,7 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
     const reach = await externalRootIsReachable().catch(() => ({ ok: false, root: '' }))
     if (reach.ok) finalDir = await ensureExternalFinalVideoDir(job.project_slug, episodeId, params.title || '') || finalDir
     await fs.mkdir(finalDir, { recursive: true })
-    const outPath = path.join(finalDir, `${episodeId.toUpperCase()}_timestamp.mp4`)
+    const outPath = path.join(finalDir, `${episodeId.toUpperCase()}_final_video.mp4`)
     const proxyUrl = `${hubApiBase(backend.hubUrl)}/jobs/${submittedJob.batch_id}/items/0/artifact`
     await hubDownloadRenderResult(proxyUrl, backend.hubToken, outPath, result.sha256)
     await validateMainCopy(outPath)
@@ -315,6 +315,7 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
     if (!ack.ok) throw new Error(`Main copy verified, but worker receipt acknowledgement failed (${ack.status}).`)
     job.output_dir = finalDir
     const stat = await fs.stat(outPath)
+    if (!stat.isFile() || stat.size <= 0) throw new Error('Verified render download is empty.')
     job.output_lines.push(`Done via Render Studio -> ${path.basename(outPath)} (${(stat.size / 1024 / 1024).toFixed(1)} MB, ${result.encoder || 'verified encoder'})`)
     return true
   } finally {

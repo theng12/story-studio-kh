@@ -202,6 +202,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
   await downloadImage(url, outPath)
+  const outputStat = await fs.stat(outPath)
+  if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)
   job.progress = 90
 
   // Update scene_plan.json with the resolved image_path so the Scene

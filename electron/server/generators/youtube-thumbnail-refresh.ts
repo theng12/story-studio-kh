@@ -30,6 +30,7 @@ import { readQuota, QUOTA_COST } from '../services/upload-quota.js'
 import type { UploadSidecar } from '../services/upload-sidecar.js'
 import type { UploadPlatform } from '../services/upload-store.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 export interface RefreshRow {
   episode_code: string
@@ -143,6 +144,7 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
 
   const cost = QUOTA_COST.thumbnails_set
   let done = 0, failed = 0, noImage = 0, remaining = 0
+  const unresolved: string[] = []
   let stopped: '' | 'cancelled' | 'quota' = ''
 
   for (let i = 0; i < targets.length; i++) {
@@ -156,6 +158,7 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
     const meta = await resolveUploadMetadata({ slug, episode_code: row.episode_code, fallback_title: row.title, platform }).catch(() => null)
     if (!meta?.thumbnailPath || !existsSync(meta.thumbnailPath)) {
       noImage++
+      unresolved.push(row.episode_code)
       job.output_lines.push(`• ${row.episode_code}: no thumbnail image on disk — make/pin one first.`)
       continue
     }
@@ -167,8 +170,14 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
     } catch (e: any) {
       const msg = String(e?.message || 'thumbnail failed')
       await patchSidecarThumbnail(row.sidecar_path, false, msg).catch(() => {})
-      if (/quota/i.test(msg)) { stopped = 'quota'; remaining = targets.length - (i + 1); break }
+      if (/quota/i.test(msg)) {
+        unresolved.push(row.episode_code)
+        stopped = 'quota'
+        remaining = targets.length - (i + 1)
+        break
+      }
       failed++
+      unresolved.push(row.episode_code)
       job.output_lines.push(`⚠ ${row.episode_code}: ${msg}`)
     }
   }
@@ -177,4 +186,15 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
   const summary = `Backfill complete — set ${done}, failed ${failed}, no-image ${noImage}` +
     (remaining > 0 ? `, ${remaining} remaining (stopped: ${stopped === 'quota' ? 'daily quota reached — re-run tomorrow' : 'cancelled'}).` : '.')
   job.output_lines.push(summary)
+  if (remaining > 0) {
+    const processed = targets.length - remaining
+    for (const row of targets.slice(processed)) unresolved.push(row.episode_code)
+  }
+  requireJobCompletion(job, {
+    label: 'YouTube thumbnail backfill', expected: targets.length, completed: done,
+    missing: [...new Set(unresolved)],
+    retry_hint: stopped === 'quota'
+      ? 'Daily quota was reached; Retry tomorrow. Completed thumbnails remain set.'
+      : 'Completed thumbnails remain set; add missing images or Retry failed uploads.',
+  })
 }

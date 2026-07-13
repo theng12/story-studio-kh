@@ -38,6 +38,7 @@ import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -394,6 +395,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
   let rendered = 0
   let skipped = 0
+  const failedSceneIds: string[] = []
 
   // Live status sidecar — written before each render, cleared when the job ends.
   // Serialise writes through a tiny promise chain so concurrent workers in
@@ -561,6 +563,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             const outPath = path.join(outDir, `${b.scene.id}.png`)
             try {
               if (result.error || !result.url) {
+                failedSceneIds.push(b.scene.id)
                 job.output_lines.push(`Scene ${b.scene.scene_index} failed: ${result.error || 'no image'}`)
               } else {
                 if (result.taskId) {
@@ -589,6 +592,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         if (!isConnectionError(e)) throw e
         inFlight.clear()
         done = 0
+        failedSceneIds.length = 0
         job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-scene rendering.`)
         await pushStatus()
       }
@@ -645,6 +649,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sref.refPaths.length} ref(s)${sref.includeCharacter ? '' : ' · no-character'}`)
           } catch (e: any) {
             // Independent scenes don't block each other — log + keep going.
+            failedSceneIds.push(scene.id)
             job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
           } finally {
             inFlight.delete(scene.scene_index)
@@ -707,7 +712,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
     job.output_dir = outDir
     job.progress = 100
-    job.output_lines.push(`Done (parallel) — rendered ${rendered}, skipped ${skipped} (already had images / no prompt).`)
+    requireJobCompletion(job, {
+      label: 'Continuity scene rendering', expected: toRender.length,
+      completed: toRender.length - new Set(failedSceneIds).size,
+      missing: [...new Set(failedSceneIds)],
+      retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
+    })
+    job.output_lines.push(`Done (parallel) — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
     return
   }
 

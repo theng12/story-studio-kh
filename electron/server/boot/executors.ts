@@ -7,7 +7,7 @@
  * grep across app.ts.
  */
 
-import { registerExecutor, setLlmConcurrency } from '../services/job-queue.js'
+import { registerExecutor, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
 import { getScriptConcurrency } from '../services/app-settings.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
@@ -42,8 +42,9 @@ import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { runExpressionMarkupJob } from '../services/audio-expression.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
-export function registerAllExecutors(): void {
+export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {
   // Level B — fail-loud guard for jobs that WRITE into the media-routed heavy
   // subfolders (05 Scene Images / 06 Thumbnails / 07-08 Audio / 10 Video). For
   // a project with an external media_root, this throws a clear error if the
@@ -80,13 +81,33 @@ export function registerAllExecutors(): void {
     const episodeId = (job.params as any)?.episode_id || job.episode_id
     const rawPool = (job.params as any)?.pool
     const pool = rawPool === 'scenes' || rawPool === 'thumbnails' ? rawPool : 'all'
-    job.result = await reconcileImages(job.project_slug, episodeId, job, pool)
+    const result = await reconcileImages(job.project_slug, episodeId, job, pool)
+    if (result.total_expected === 0) throw new Error('No expected images were found to repair. Generate prompts first, then use Generate missing.')
+    job.result = result
+    const unresolved = [...result.scene_results, ...result.thumb_results]
+      .filter(item => item.status !== 'recovered' && item.status !== 'skipped_ok')
+      .map(item => item.filename)
+    requireJobCompletion(job, {
+      label: 'Image repair', expected: result.total_expected,
+      completed: result.recovered + result.skipped_ok, missing: unresolved,
+      retry_hint: 'Recovered files were saved. Items without a task result need fresh generation.',
+    })
   }))
   // Same shape as images_repair — delegates the per-provider dispatch
   // (kie-video / fal-video) to the reconciler itself.
   registerExecutor('video_repair', guardMedia(async (job) => {
     const episodeId = (job.params as any)?.episode_id || job.episode_id
-    await reconcileVideos(job.project_slug, episodeId, job)
+    const result = await reconcileVideos(job.project_slug, episodeId, job)
+    if (result.total_expected === 0) throw new Error('No tracked video tasks were found to repair. Run fresh generation first.')
+    job.result = result
+    const unresolved = result.outcomes
+      .filter(item => item.status !== 'recovered' && item.status !== 'skipped_ok')
+      .map(item => item.filename)
+    requireJobCompletion(job, {
+      label: 'Video repair', expected: result.total_expected,
+      completed: result.recovered + result.skipped_ok, missing: unresolved,
+      retry_hint: 'Recovered clips were saved. Items without a usable task result need fresh generation.',
+    })
   }))
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
@@ -96,6 +117,7 @@ export function registerAllExecutors(): void {
   registerExecutor('subtitles_transcribe', generateSubtitlesTranscribe)
   registerExecutor('youtube_upload', generateYoutubeUpload)
   registerExecutor('youtube_playlist_update', generateYoutubePlaylistUpdate)
+  registerExecutor('youtube_thumbnail_refresh', generateThumbnailRefresh)
   // v1.0.89+: B-Roll pipeline. Re-encodes one stock clip to 1080p at the
   // pool's target fps (24 or 30) so Video Assembly can concat-demux for
   // speed instead of running a per-frame filtergraph at render time.
@@ -132,10 +154,17 @@ export function registerAllExecutors(): void {
   // section (survives leaving the Audio Generator page).
   registerExecutor('expression_markup', runExpressionMarkupJob)
 
+  const missingExecutors = unregisteredJobTypes()
+  if (missingExecutors.length) {
+    throw new Error(`Job executor registration incomplete: ${missingExecutors.join(', ')}`)
+  }
+
   // Load the saved LLM-text concurrency (Settings → Performance) into the
   // queue. Fire-and-forget: the queue defaults to 3 until this resolves
   // (a few ms), and the PUT route applies live changes without a restart.
-  void getScriptConcurrency()
-    .then(setLlmConcurrency)
-    .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
+  if (options.loadSettings !== false) {
+    void getScriptConcurrency()
+      .then(setLlmConcurrency)
+      .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
+  }
 }

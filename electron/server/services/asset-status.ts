@@ -39,6 +39,8 @@ import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
+import { inspectPromptCompletion } from './prompt-completion.js'
+import { inspectMetadataCompletion } from './metadata-completion.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -161,6 +163,21 @@ export function deriveScriptFolderState(files: string[]): ScriptFolderState {
   }
 }
 
+async function hasValidIntroduction(dir: string, files: string[]): Promise<boolean> {
+  for (const file of files.filter(isIntroductionMarker)) {
+    const unwrapped = unwrapICloudPlaceholderName(file)
+    if (unwrapped !== file) return true
+    const candidate = path.join(dir, file)
+    if (!await fileHasContent(candidate)) continue
+    if (!unwrapped.endsWith('.intro.json')) return true
+    try {
+      const marker = JSON.parse(await fs.readFile(candidate, 'utf-8'))
+      if (Number(marker?.word_count) > 0) return true
+    } catch { /* corrupt marker is not completion */ }
+  }
+  return false
+}
+
 async function fileHasContent(p: string): Promise<boolean> {
   try {
     if (!existsSync(p)) return false
@@ -201,80 +218,6 @@ export interface ImageStatus {
 }
 
 /**
- * Looser-detection fallback: when no prompts docx exists, scan the
- * canonical bg + thumb directories for `{code}_Scene{NN}_v*.png` and
- * `{code}_Thumb{NN}_v*.png` files. Each unique scene/thumb number with at
- * least one non-empty variant counts as "present". Total === present so
- * the caller treats the asset bundle as complete.
- *
- * Used by Situation B (pre-Story-Studio episodes whose user has placed
- * hand-named files in the canonical folders but never had us generate
- * prompts docs for them). Additive — episodes that DO have prompts go
- * through the strict expected-vs-present path above.
- */
-async function detectImagesWithoutPrompts(slug: string, code: string): Promise<ImageStatus> {
-  // Resolve the canonical bg + thumb dirs without going through
-  // resolveImageDirs (which derives them from a prompts file path). We
-  // need an episode title to plug into the folder template — pull it
-  // from the accepted-ideas list. If the title can't be resolved we just
-  // bail to the empty `{ mode: 'all' }` shape the original code returned.
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())
-  if (!idea) return { mode: 'all' }
-
-  let paths: any
-  try {
-    paths = await resolveEpisodePaths(slug, code, idea.title || '')
-  } catch {
-    return { mode: 'all' }
-  }
-  const bgDir: string = paths.bg_dir
-  const thumbDir: string = paths.thumb_dir
-
-  // For each *_Scene{NN}_v*.png present (with content), bucket by NN. If
-  // any bucket has ≥1 non-empty variant, it counts. We treat the SET of
-  // discovered numbers as the expected set (no docx = no expectation gap).
-  async function discoverNumbers(dir: string, kind: 'Scene' | 'Thumb'): Promise<number[]> {
-    const files = await safeReaddir(dir)
-    const re = new RegExp(`^${code}_${kind}(\\d{1,3})_v\\d+\\.png$`, 'i')
-    const buckets = new Map<number, string[]>()
-    for (const f of files) {
-      const m = f.match(re)
-      if (!m) continue
-      const n = parseInt(m[1], 10)
-      const arr = buckets.get(n) || []
-      arr.push(f)
-      buckets.set(n, arr)
-    }
-    const present: number[] = []
-    for (const [n, fs] of buckets.entries()) {
-      // Need ≥1 variant with content for the scene/thumb to count.
-      let ok = false
-      for (const f of fs) {
-        if (await fileHasContent(path.join(dir, f))) { ok = true; break }
-      }
-      if (ok) present.push(n)
-    }
-    return present.sort((a, b) => a - b)
-  }
-
-  const sceneNumbers = await discoverNumbers(bgDir, 'Scene')
-  const thumbNumbers = await discoverNumbers(thumbDir, 'Thumb')
-
-  // Empty + empty → unchanged "no signal" shape so consumers see the
-  // same `{ mode: 'all' }` they used to. Only emit per-bucket counts when
-  // we actually found files.
-  const result: ImageStatus = { mode: 'all', dir: { bg: bgDir, thumb: thumbDir } }
-  if (sceneNumbers.length > 0) {
-    result.scenes = { total: sceneNumbers.length, present: sceneNumbers.length, missing: [] }
-  }
-  if (thumbNumbers.length > 0) {
-    result.thumbnails = { total: thumbNumbers.length, present: thumbNumbers.length, missing: [] }
-  }
-  return result
-}
-
-/**
  * For each expected scene (and thumbnail) prompt, does at least one
  * `{code}_Scene{NN}_v*.png` (or `_Thumb{NN}_v*.png`) file exist in the
  * output dir with non-zero size? If so → present. Otherwise → missing.
@@ -294,18 +237,10 @@ export async function getImageStatus(slug: string, episodeId: string): Promise<I
   try { thumbPromptsPath = await findThumbPromptsFile(slug, episodeId) } catch { /* no thumb prompts yet */ }
 
   if (!scenePromptsPath && !thumbPromptsPath) {
-    // Fallback: looser, prompts-less detection (Situation B).
-    // Pre-Story-Studio episodes often have hand-named scene/thumb PNGs on
-    // disk without an accompanying prompts docx (because the user authored
-    // them outside our flow). Treat the files themselves as authoritative
-    // — count every {code}_Scene{NN}_v*.png as one present scene with NO
-    // expectation gap (total = present, missing = []), so the pipeline
-    // treats it as "complete" and stops asking for regenerations.
-    //
-    // We only fall through to this path when BOTH prompts are absent —
-    // if even one prompts docx exists, the existing expected-vs-present
-    // logic above is honoured (so partial gens still flag correctly).
-    return await detectImagesWithoutPrompts(slug, code)
+    // No prompt manifest means there is no authoritative expected set. A
+    // handful of hand-dropped files must not silently complete an unknown-size
+    // generation step. Import/Mark Done remains the explicit legacy pathway.
+    return { mode: 'all' }
   }
 
   const promptsPathForDirs = scenePromptsPath || thumbPromptsPath!
@@ -315,7 +250,10 @@ export async function getImageStatus(slug: string, episodeId: string): Promise<I
 
   if (scenePromptsPath) {
     const parsed = await parseImagePromptsDocx(scenePromptsPath)
-    const expected = parsed.scenes.map(s => s.number)
+    const promptAudit = await inspectPromptCompletion(path.dirname(scenePromptsPath), code, 'scene')
+    const expected = promptAudit.authoritative
+      ? Array.from({ length: promptAudit.expected }, (_, index) => index + 1)
+      : parsed.scenes.map(s => s.number)
     const presentFiles = await safeReaddir(bgDir)
     const missing: number[] = []
     let present = 0
@@ -341,7 +279,10 @@ export async function getImageStatus(slug: string, episodeId: string): Promise<I
 
   if (thumbPromptsPath) {
     const parsed = await parseImagePromptsDocx(thumbPromptsPath)
-    const expected = parsed.thumbnails.map(t => t.number)
+    const promptAudit = await inspectPromptCompletion(path.dirname(thumbPromptsPath), code, 'thumbnail')
+    const expected = promptAudit.authoritative
+      ? Array.from({ length: promptAudit.expected }, (_, index) => index + 1)
+      : parsed.thumbnails.map(t => t.number)
     const presentFiles = await safeReaddir(thumbDir)
     const missing: number[] = []
     let present = 0
@@ -408,37 +349,9 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
 
   const promptsPath = await findFirstPrompts()
   if (!promptsPath) {
-    // Looser-detection fallback (Situation B): no prompts docx but the
-    // user may have hand-placed `{code}_Video{NN}_v*.mp4` clips into the
-    // canonical video dir. Treat each present clip as one expected slot
-    // (total === present), so the pipeline reports video as complete and
-    // stops nagging. Episodes WITH a prompts docx still hit the strict
-    // expected-vs-present path below.
-    const names = await resolveSubfolderNames(slug, code)
-    const epDir = await findEpisodeDir(outputRoot, code)
-    if (!epDir) return { total: 0, present: 0, missing: [] }
-    const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
-    const files = await safeReaddir(videoDir)
-    const re = new RegExp(`^${code}_Video(\\d{1,3})_v\\d+\\.mp4$`, 'i')
-    const buckets = new Map<number, string[]>()
-    for (const f of files) {
-      const m = f.match(re)
-      if (!m) continue
-      const n = parseInt(m[1], 10)
-      const arr = buckets.get(n) || []
-      arr.push(f)
-      buckets.set(n, arr)
-    }
-    const present: number[] = []
-    for (const [n, fs] of buckets.entries()) {
-      let ok = false
-      for (const f of fs) {
-        if (await fileHasContent(path.join(videoDir, f))) { ok = true; break }
-      }
-      if (ok) present.push(n)
-    }
-    if (present.length === 0) return { total: 0, present: 0, missing: [], dir: videoDir }
-    return { total: present.length, present: present.length, missing: [], dir: videoDir }
+    // Files alone cannot establish how many clips were expected. Keep this
+    // pending until prompts provide an authoritative target set.
+    return { total: 0, present: 0, missing: [] }
   }
 
   const parsed = await parseImagePromptsDocx(promptsPath)
@@ -525,6 +438,19 @@ export async function getAudioMergeStatus(slug: string, episodeId: string): Prom
   }
 
   if (!best) return { present: false, dir: mergedDir }
+  const completionPath = path.join(mergedDir, `${code}_merged_audio.completion.json`)
+  if (existsSync(completionPath)) {
+    try {
+      const completion = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
+      const finalPath = path.join(mergedDir, best.file)
+      const stat = await fs.stat(finalPath)
+      const verified = completion?.output_filename === best.file
+        && Number(completion?.bytes) === stat.size
+        && stat.size > 0
+        && Number(completion?.duration_sec) > 0
+      if (!verified) return { present: false, file: best.file, dir: mergedDir }
+    } catch { return { present: false, file: best.file, dir: mergedDir } }
+  }
   return { present: true, file: best.file, dir: mergedDir }
 }
 
@@ -651,8 +577,8 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
 //
 // Every field is a boolean. Derivation rules mirror what `buildRow` did
 // inline before this was extracted:
-//   - script / introduction / scene_prompts / thumb_prompts / metadata:
-//     cheap source-doc presence checks in the episode folder
+//   - script / prompts / metadata: authoritative expected-output checks when
+//     a completion manifest exists; legacy source-doc presence otherwise
 //   - images / thumbnails / audio / merged_audio / video: authoritative
 //     asset-reconciler checks (partial generations report as NOT done)
 
@@ -712,7 +638,7 @@ export interface EpisodeStatus {
   // Video-assembly final render — the single merged output that the
   // Video Assembly page produces. Named `{code}_final_video.{ext}` under
   // the episode's video_dir (same folder the per-scene clips live in).
-  // Detected by file presence; absent = user still needs to run assembly.
+  // Detected only from a canonical non-empty output or confirmed upload.
   video_assembly: boolean
   /**
    * Size in bytes of the final assembled video file, when one was located
@@ -790,8 +716,14 @@ function _isVideoFile(name: string): boolean {
   const i = name.lastIndexOf('.')
   return i >= 0 && _VIDEO_EXTS.has(name.slice(i).toLowerCase())
 }
-function _isPerSceneClip(name: string): boolean {
-  return /[_\- ]scene[_\- ]?\d+/i.test(name)
+
+async function findCanonicalFinal(dir: string, code: string): Promise<string | null> {
+  const files = await safeReaddir(dir)
+  for (const file of files) {
+    if (_isVideoFile(file) && file.startsWith(`${code}_final_video.`)
+      && await fileHasContent(path.join(dir, file))) return file
+  }
+  return null
 }
 
 export async function hasFinalVideoFast(
@@ -802,10 +734,7 @@ export async function hasFinalVideoFast(
   try {
     // Path A: project tree (canonical _final_video, or any non-scene mp4).
     const paths = await resolveEpisodePaths(slug, code, title || '')
-    const videoDirFiles = await safeReaddir(paths.video_dir)
-    if (videoDirFiles.some(f =>
-      _isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !_isPerSceneClip(f)),
-    )) return true
+    if (await findCanonicalFinal(paths.video_dir, code)) return true
 
     // Path B: external_final_video_root (per-machine Settings → Storage).
     // Mirror Path E in computeEpisodeStatus so the upload queue and the
@@ -817,8 +746,7 @@ export async function hasFinalVideoFast(
       const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
       const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
       if (externalDir) {
-        const extFiles = await safeReaddir(externalDir)
-        if (extFiles.some(f => _isVideoFile(f) && f.startsWith(`${code}_final_video.`))) return true
+        if (await findCanonicalFinal(externalDir, code)) return true
       }
     } catch { /* external store not configured / import failure → skip */ }
 
@@ -847,10 +775,7 @@ export async function getFinalVideoBytes(
 ): Promise<number | undefined> {
   try {
     const paths = await resolveEpisodePaths(slug, code, title || '')
-    const videoDirFiles = await safeReaddir(paths.video_dir)
-    const localMatch = videoDirFiles.find(f =>
-      _isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !_isPerSceneClip(f)),
-    )
+    const localMatch = await findCanonicalFinal(paths.video_dir, code)
     if (localMatch) {
       const st = await fs.stat(path.join(paths.video_dir, localMatch)).catch(() => null)
       if (st?.isFile() && st.size > 0) return st.size
@@ -859,8 +784,7 @@ export async function getFinalVideoBytes(
       const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
       const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
       if (externalDir) {
-        const extFiles = await safeReaddir(externalDir)
-        const extMatch = extFiles.find(f => _isVideoFile(f) && f.startsWith(`${code}_final_video.`))
+        const extMatch = await findCanonicalFinal(externalDir, code)
         if (extMatch) {
           const st = await fs.stat(path.join(externalDir, extMatch)).catch(() => null)
           if (st?.isFile() && st.size > 0) return st.size
@@ -929,11 +853,23 @@ export async function computeEpisodeStatus(
 
     const scriptState = deriveScriptFolderState(scriptFiles)
     const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
+    const [scenePromptCompletion, thumbPromptCompletion] = await Promise.all([
+      inspectPromptCompletion(paths.scene_prompts_dir, code, 'scene'),
+      inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail'),
+    ])
     status.script = scriptCompletion.complete
     status.introduction = scriptState.introduction
-    status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
-    status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
-    status.metadata = metadataFiles.some(f => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))
+      && await hasValidIntroduction(paths.script_dir, scriptFiles)
+    status.scene_prompts = scenePromptCompletion.authoritative
+      ? scenePromptCompletion.complete
+      : scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
+    status.thumb_prompts = thumbPromptCompletion.authoritative
+      ? thumbPromptCompletion.complete
+      : thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
+    const metadataCompletion = await inspectMetadataCompletion(paths.metadata_dir, code)
+    status.metadata = metadataCompletion.authoritative
+      ? metadataCompletion.complete
+      : metadataFiles.some(f => f.endsWith('.txt') || (f.endsWith('.json') && !f.endsWith('.completion.json')) || f.endsWith('.md'))
 
     // One chapter SRT is not episode completion. Compare against the audio
     // assembly manifest so partial transcription remains in Pending. Resolve
@@ -954,7 +890,12 @@ export async function computeEpisodeStatus(
     // (resolveResearchPaths auto-migrates any legacy loose copy). episode_dir
     // is a watched folder for the cache, so a freshly written research file
     // advances its mtime and invalidates the entry.
-    status.research = await fileHasContent((await resolveResearchPaths(paths.episode_dir, code)).jsonPath)
+    try {
+      const researchPath = (await resolveResearchPaths(paths.episode_dir, code)).jsonPath
+      const research = JSON.parse(await fs.readFile(researchPath, 'utf-8'))
+      status.research = (typeof research?.summary === 'string' && !!research.summary.trim())
+        || (Array.isArray(research?.claims) && research.claims.some((claim: any) => typeof claim?.text === 'string' && claim.text.trim()))
+    } catch { status.research = false }
 
     // v1.0.278 — scene_plan + scene_review resolve the REAL episode dir BY CODE
     // (how the generators write these), not the title-template path
@@ -969,7 +910,10 @@ export async function computeEpisodeStatus(
       // resolution as scene_plan so a renamed-folder episode still resolves.
       status.character_sheet = await fileHasContent(path.join(byCode.episode_dir, 'continuity.json'))
       // v1.0.362 — broll selection picked for this episode (stock-footage flow).
-      status.broll_picked = await fileHasContent(path.join(byCode.episode_dir, 'broll-selection.json'))
+      try {
+        const selection = JSON.parse(await fs.readFile(path.join(byCode.episode_dir, 'broll-selection.json'), 'utf-8'))
+        status.broll_picked = Array.isArray(selection?.selection) && selection.selection.length > 0
+      } catch { status.broll_picked = false }
       const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir)
       const hasPlanFile = await fileHasContent(planPath)
       if (hasPlanFile) {
@@ -997,22 +941,24 @@ export async function computeEpisodeStatus(
         // (nothing that was complete before becomes pending).
         const namedDir = await resolveSceneImagesDir(slug, code.toUpperCase(), byCode.episode_dir)
         const legacyDir = path.join(byCode.episode_dir, SCENE_IMAGES_SUBFOLDER)
-        const hasImage = (s: any) =>
-          (typeof s?.id === 'string' && (
-            existsSync(path.join(namedDir, `${s.id}.png`))
-            || existsSync(path.join(legacyDir, `${s.id}.png`))
-          ))
-          || (typeof s?.image_path === 'string' && s.image_path.length > 0)
-        status.scene_review = status.scene_plan && scenes.every(hasImage)
+        const imageReady = await Promise.all(scenes.map(async (s: any) => {
+          if (typeof s?.id === 'string') {
+            if (await fileHasContent(path.join(namedDir, `${s.id}.png`))) return true
+            if (await fileHasContent(path.join(legacyDir, `${s.id}.png`))) return true
+          }
+          return typeof s?.image_path === 'string' && await fileHasContent(s.image_path)
+        }))
+        status.scene_review = status.scene_plan && imageReady.every(Boolean)
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
-        status.motion_review = scenes.length > 0 && scenes.every((s: any) => {
+        const motionReady = await Promise.all(scenes.map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
-          const hasClip = typeof s?.id === 'string' && existsSync(path.join(clipsDir, `${s.id}.mp4`))
+          const hasClip = typeof s?.id === 'string' && await fileHasContent(path.join(clipsDir, `${s.id}.mp4`))
           if (!hasClip || s?.motion_choice === 'pending') return false
           if (typeof s?.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')) return false
           if (typeof s?.image_version === 'string' && s.clip_source_image_version !== s.image_version) return false
           return s?.motion_choice === 'clip' || s?.motion_choice == null
-        })
+        }))
+        status.motion_review = scenes.length > 0 && motionReady.every(Boolean)
       }
     } catch { /* unresolved / unreadable plan → leave both false */ }
 
@@ -1029,8 +975,9 @@ export async function computeEpisodeStatus(
     // Presence, not completion, decides whether this is the authoritative
     // folder. Otherwise a partial chunked script would fall through to the
     // legacy fuzzy scanner and be incorrectly promoted back to complete.
-    authoritativeHit = scriptFiles.length > 0 || status.introduction || status.scene_prompts
-      || status.thumb_prompts || status.metadata
+    authoritativeHit = scriptFiles.length > 0 || scenePromptFiles.length > 0
+      || thumbPromptFiles.length > 0 || metadataFiles.length > 0
+      || status.introduction
 
     if (process.env.SSKH_STATUS_DEBUG === '1') {
       console.log('[status-debug]', code, {
@@ -1068,16 +1015,25 @@ export async function computeEpisodeStatus(
               const state = deriveScriptFolderState(files)
               const completion = await inspectChunkedScriptCompletion(subPath, code)
               if (completion.complete) status.script = true
-              if (state.introduction) status.introduction = true
+              if (state.introduction && await hasValidIntroduction(subPath, files)) status.introduction = true
             }
             if (cleanSub.includes('scene prompt')) {
-              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))) status.scene_prompts = true
+              const completion = await inspectPromptCompletion(subPath, code, 'scene')
+              status.scene_prompts = completion.authoritative
+                ? completion.complete
+                : files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md'))
             }
             if (cleanSub.includes('thumbnail prompt')) {
-              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))) status.thumb_prompts = true
+              const completion = await inspectPromptCompletion(subPath, code, 'thumbnail')
+              status.thumb_prompts = completion.authoritative
+                ? completion.complete
+                : files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md'))
             }
             if (cleanSub.includes('metadata') || cleanSub.includes('description')) {
-              if (files.some((f: string) => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))) status.metadata = true
+              const completion = await inspectMetadataCompletion(subPath, code)
+              status.metadata = completion.authoritative
+                ? completion.complete
+                : files.some((f: string) => f.endsWith('.txt') || (f.endsWith('.json') && !f.endsWith('.completion.json')) || f.endsWith('.md'))
             }
           } catch {}
         }
@@ -1115,31 +1071,8 @@ export async function computeEpisodeStatus(
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
 
-  // Video-assembly completion. Three detection paths, any one is enough:
-  //   A. `{code}_final_video.*` in video_dir — what our native assembly writes.
-  //   B. Any other video file in video_dir that's NOT a per-scene clip
-  //      (per-scene clips are named `{code}_Scene*.{ext}` by the video
-  //      generator, so anything else = likely a merged/manually-produced final).
-  //   C. Any video file at the episode_dir root, OR inside a sibling folder
-  //      whose name contains "final" / "assembled" / "output" — common places
-  //      users drop a hand-made render. Case-insensitive.
-  //
-  // Broader than the original `{code}_final_video.*`-only check so that a
-  // user who assembled the episode outside Story Studio (DaVinci, Premiere,
-  // etc.) and copied the result into the episode folder stops appearing as
-  // "pending" on the Pipeline page. Detection is intentionally loose rather
-  // than conservative: false positives here just mean "Video Assembly" won't
-  // auto-queue for that episode — easy to fix by deleting the stray file.
-  const VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v'])
-  const isVideoFile = (name: string) => {
-    const i = name.lastIndexOf('.')
-    return i >= 0 && VIDEO_EXTS.has(name.slice(i).toLowerCase())
-  }
-  const isPerSceneClip = (name: string) => {
-    // Matches `{code}_Scene_01.mp4`, `{code}_Scene01_v2.mov`, etc.
-    // Case-insensitive on "scene" because user-renames sometimes lowercase it.
-    return /[_\- ]scene[_\- ]?\d+/i.test(name)
-  }
+  // Video-assembly completion requires the canonical final filename, a valid
+  // upload sidecar, or the same canonical final at the configured external root.
   try {
     const ideasList = await getIdeasOnce()
     const CODE = code.toUpperCase()
@@ -1153,40 +1086,9 @@ export async function computeEpisodeStatus(
     let finalVideoAbsPath: string | null = null
 
     // Path A + B — inside video_dir
-    const videoDirFiles = await safeReaddir(paths.video_dir)
-    const finalInVideoDir = videoDirFiles.find(f =>
-      isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !isPerSceneClip(f)),
-    )
+    const finalInVideoDir = await findCanonicalFinal(paths.video_dir, code)
     const hasFinalInVideoDir = !!finalInVideoDir
     if (finalInVideoDir) finalVideoAbsPath = path.join(paths.video_dir, finalInVideoDir)
-
-    // Path C — episode_dir root + "final"/"assembled"/"output" subfolders
-    let hasFinalAtEpisodeLevel = false
-    if (!hasFinalInVideoDir) {
-      try {
-        const epEntries = await fs.readdir(paths.episode_dir, { withFileTypes: true })
-        // Root-level videos (user dropped the finished file next to the folders)
-        const rootVideo = epEntries.find(e => e.isFile() && isVideoFile(e.name))
-        if (rootVideo) {
-          hasFinalAtEpisodeLevel = true
-          finalVideoAbsPath = path.join(paths.episode_dir, rootVideo.name)
-        } else {
-          // Sibling folders like "Final", "Assembled Output", "Exports"
-          const finalishFolders = epEntries.filter(e => e.isDirectory()
-            && /(final|assembl|output|export)/i.test(e.name))
-          for (const f of finalishFolders) {
-            const innerDir = path.join(paths.episode_dir, f.name)
-            const inner = await safeReaddir(innerDir)
-            const innerVideo = inner.find(n => isVideoFile(n))
-            if (innerVideo) {
-              hasFinalAtEpisodeLevel = true
-              finalVideoAbsPath = path.join(innerDir, innerVideo)
-              break
-            }
-          }
-        }
-      } catch { /* ignore */ }
-    }
 
     // Path D — YouTube sidecar shows uploaded. Once `video_id` is set in
     // {episode_dir}/youtube_upload.json, the local final video is
@@ -1197,7 +1099,7 @@ export async function computeEpisodeStatus(
     // itself is small (a few KB) and is always inside episode_dir, so
     // it survives any iCloud-sync cleanup the user did on the videos.
     let hasSidecarUploaded = false
-    if (!hasFinalInVideoDir && !hasFinalAtEpisodeLevel) {
+    if (!hasFinalInVideoDir) {
       try {
         const { readSidecar } = await import('./upload-sidecar.js')
         const sc = await readSidecar(slug, code, title, 'youtube')
@@ -1213,15 +1115,12 @@ export async function computeEpisodeStatus(
     // pipeline view sees finals that live outside the iCloud-synced
     // project folder.
     let hasFinalAtExternalRoot = false
-    if (!hasFinalInVideoDir && !hasFinalAtEpisodeLevel && !hasSidecarUploaded) {
+    if (!hasFinalInVideoDir && !hasSidecarUploaded) {
       try {
         const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
         const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
         if (externalDir) {
-          const extFiles = await safeReaddir(externalDir)
-          const extFinal = extFiles.find(f =>
-            isVideoFile(f) && f.startsWith(`${code}_final_video.`),
-          )
+          const extFinal = await findCanonicalFinal(externalDir, code)
           if (extFinal) {
             hasFinalAtExternalRoot = true
             finalVideoAbsPath = path.join(externalDir, extFinal)
@@ -1231,7 +1130,6 @@ export async function computeEpisodeStatus(
     }
 
     status.video_assembly = hasFinalInVideoDir
-      || hasFinalAtEpisodeLevel
       || hasSidecarUploaded
       || hasFinalAtExternalRoot
 

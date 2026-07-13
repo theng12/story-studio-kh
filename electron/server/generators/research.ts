@@ -14,6 +14,7 @@ import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveResearchPaths, RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
 import type { Job } from '../models/types.js'
 import type { ResearchOutput, ResearchSourceProvider } from '../models/types.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 // Re-exported for back-compat with importers that referenced these here.
 export { RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
@@ -81,6 +82,14 @@ export async function runResearchJob(job: Job): Promise<void> {
   job.output_lines.push(`Wrote ${RESEARCH_MD_FILENAME}`)
 
   job.output_dir = dir
+  const hasUsableResearch = !!result.summary?.trim() || result.claims.some(claim => !!claim.text?.trim())
+  requireJobCompletion(job, {
+    label: 'Research generation',
+    expected: 1,
+    completed: hasUsableResearch ? 1 : 0,
+    missing: hasUsableResearch ? [] : ['research summary or claim'],
+    retry_hint: 'The returned sidecars were kept for diagnosis. Retry with another source or model.',
+  })
   job.progress = 100
 }
 

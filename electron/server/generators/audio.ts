@@ -36,6 +36,7 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
 type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
@@ -1185,6 +1186,21 @@ export async function generateAudio(job: Job): Promise<void> {
     const preview = errors.slice(0, 3).join('; ')
     const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
     throw new Error(`${errors.length} section(s) failed: ${preview}${suffix}`)
+  }
+  if (!isCancelled()) {
+    const { getAudioStatus } = await import('../services/audio-reconciler.js')
+    const status = await getAudioStatus(project_slug, episode_id)
+    const selectedLabels = new Set(sections.map(section => section.label))
+    const expected = status.expected.filter(chunk => selectedLabels.has(chunk.sectionLabel))
+    const missingSet = new Set(status.missing)
+    const missing = expected.filter(chunk => missingSet.has(chunk.filename)).map(chunk => chunk.filename)
+    requireJobCompletion(job, {
+      label: 'Audio generation',
+      expected: Math.max(1, expected.length),
+      completed: expected.length > 0 ? expected.length - missing.length : 0,
+      missing: expected.length > 0 ? missing : sections.map(section => section.label),
+      retry_hint: 'Completed audio files were kept. Retry generates or recovers only the missing sections.',
+    })
   }
   job.output_lines.push(`All audio saved to: ${audioDir}`)
   job.output_dir = audioDir

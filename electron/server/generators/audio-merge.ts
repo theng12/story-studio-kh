@@ -29,6 +29,7 @@ import type {
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 // ── Run FFmpeg and capture stderr (needed for loudnorm measurement) ────────
 
@@ -721,10 +722,30 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     await fs.rm(tempDir, { recursive: true, force: true })
 
     // 7. Log output
-    const finalDuration = await getAudioDuration(outputPath)
+    const finalDuration = Number(await getAudioDuration(outputPath)) || 0
+    const finalBytes = (await fs.stat(outputPath)).size
     job.output_lines.push(`Output: ${outputPath}`)
     job.output_lines.push(`Duration: ${finalDuration ? finalDuration.toFixed(1) + 's' : 'unknown'}`)
     job.output_dir = path.dirname(outputPath)
+    await fs.writeFile(
+      path.join(path.dirname(outputPath), `${code}_merged_audio.completion.json`),
+      JSON.stringify({
+        schema_version: 1,
+        output_filename: path.basename(outputPath),
+        bytes: finalBytes,
+        duration_sec: finalDuration,
+        generated_at: new Date().toISOString(),
+      }, null, 2),
+      'utf-8',
+    )
+    requireJobCompletion(job, {
+      label: 'Audio assembly',
+      expected: 1,
+      completed: finalBytes > 0 && finalDuration > 0 ? 1 : 0,
+      missing: finalBytes > 0 && finalDuration > 0 ? [] : [path.basename(outputPath)],
+      invalid: finalBytes <= 0 ? ['output file is empty'] : finalDuration <= 0 ? ['output duration could not be verified'] : [],
+      retry_hint: 'The invalid output will not count as complete. Retry after checking the source chapter audio.',
+    })
 
     // v1.0.107+ — when the request was pre-filled from the music-pool
     // cycler, record the actual use so the cursor advances + usage log

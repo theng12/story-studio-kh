@@ -29,6 +29,7 @@ import { recordTask, hashInput, readManifest, type Manifest } from '../services/
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -250,9 +251,10 @@ export async function generateAiVideo(job: Job): Promise<void> {
     // A matching `.mp4` of non-zero size is a cache hit. A zero-byte file
     // from a prior aborted download is NOT — we re-run instead of leaving
     // the assembly step to choke on a truncated clip.
-    const existing = await fs.readdir(videoDir).catch(() => [])
-    const candidate = existing.find(f => f.startsWith(stem) && f.endsWith('.mp4'))
-    if (!req.force && candidate && await fileExistsWithContent(path.join(videoDir, candidate))) {
+    const expectedVariants = Array.from({ length: nPerPrompt }, (_, variant) =>
+      path.join(videoDir, `${stem}_v${variant + 1}.mp4`))
+    const existingReady = await Promise.all(expectedVariants.map(fileExistsWithContent))
+    if (!req.force && existingReady.every(Boolean)) {
       job.output_lines.push(`Skipping ${stem} (exists)`)
       return
     }
@@ -308,6 +310,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
         startImagePath: startImage?.path,
         isCancelled,
       })
+      if (!result.videoUrls.length) throw new Error(`${provider.meta.name} returned no video URL`)
 
       // Persist the provider task ids so the Repair button can later
       // recover any clip that failed to download without re-billing the
@@ -374,6 +377,18 @@ export async function generateAiVideo(job: Job): Promise<void> {
     const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
     throw new Error(`${errors.length} clip(s) failed: ${preview}${suffix}`)
   }
+  const expectedFiles = prompts.flatMap(prompt =>
+    Array.from({ length: nPerPrompt }, (_, variant) => ({
+      label: `Clip ${prompt.number} variant ${variant + 1}`,
+      path: path.join(videoDir, `${code}_Video${prompt.number.toString().padStart(2, '0')}_v${variant + 1}.mp4`),
+    })))
+  const outputReady = await Promise.all(expectedFiles.map(file => fileExistsWithContent(file.path)))
+  const missing = expectedFiles.filter((_, index) => !outputReady[index]).map(file => file.label)
+  requireJobCompletion(job, {
+    label: 'AI video generation', expected: expectedFiles.length,
+    completed: expectedFiles.length - missing.length, missing,
+    retry_hint: 'Existing clips and provider task IDs were kept. Retry recovers or generates only the missing variants.',
+  })
   job.output_lines.push(`All clips saved to: ${videoDir}`)
   job.output_dir = videoDir
 }

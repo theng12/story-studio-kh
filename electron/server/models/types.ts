@@ -1989,7 +1989,21 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'broll_select' | 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'youtube_thumbnail_refresh' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'scene_images_batch' | 'scene_clip_generate' | 'scene_clips_batch' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup' | 'image_pool_generate'
+export const JOB_TYPES = [
+  'broll_select', 'script-only', 'introduction-only', 'chapter-only',
+  'outline_only', 'expand_chapters', 'image_prompts', 'images',
+  'scene_images', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
+  'metadata', 'video', 'video_repair', 'video_assembly',
+  'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
+  'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
+  'broll_autotag', 'broll_fetch', 'research_run', 'scene_plan_run',
+  'scene_image_generate', 'scene_images_batch', 'scene_clip_generate',
+  'scene_clips_batch', 'timestamp_video_assemble', 'continuity_render',
+  'prompt_director', 'composition_generate', 'expression_markup',
+  'image_pool_generate',
+] as const
+
+export type JobType = typeof JOB_TYPES[number]
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**
@@ -2013,9 +2027,8 @@ export interface Job {
   finished_at: string | null
   error: string | null
   output_lines: string[]
-  /** Structured executor outcome for jobs whose terminal `done` state does
-   * not necessarily mean an asset was restored. Image repair uses this to
-   * distinguish recovered files from gaps that need fresh generation. */
+  /** Structured executor outcome. `complete: false` is a queue-enforced
+   * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>
   progress?: number
   /**

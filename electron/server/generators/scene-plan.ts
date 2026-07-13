@@ -32,6 +32,7 @@ import {
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
@@ -597,12 +598,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!isMotion) {
       const remainingInvalid = new Set(inspectScenePromptIntegrity(plan.scenes).invalid_ids)
       const failedTargets = targets.filter(({ scene }) => remainingInvalid.has(scene.id))
-      if (failedTargets.length) {
-        throw new Error(
-          `${failedTargets.length} visual prompt(s) are still missing or duplicated after generation. `
-          + 'Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
-        )
-      }
+      requireJobCompletion(job, {
+        label: 'Visual prompt generation', expected: targets.length, completed: targets.length - failedTargets.length,
+        missing: failedTargets.map(({ scene }) => scene.id),
+        retry_hint: 'Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
+      })
+    } else {
+      const missingMotion = targets.filter(({ scene }) => !scene.motion_prompt?.trim())
+      requireJobCompletion(job, {
+        label: 'Motion prompt generation', expected: targets.length, completed: targets.length - missingMotion.length,
+        missing: missingMotion.map(({ scene }) => scene.id),
+        retry_hint: 'Motion is optional until enabled; once enabled, Retry fills only the missing prompts.',
+      })
     }
     job.progress = 100
     job.output_lines.push(`Saved ${targets.length} ${stage} prompt(s) by stable scene ID.`)
@@ -845,6 +852,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       `✓ Bulk motion regen complete — ${succeeded} prompt(s) filled`
       + (failed ? `, ${failed} still empty (re-run to retry, or fill them in manually).` : '.'),
     )
+    const stillMissing = targetIndices.filter(index => !existing.scenes[index]?.motion_prompt?.trim())
+    requireJobCompletion(job, {
+      label: 'Motion prompt repair', expected: targetIndices.length, completed: targetIndices.length - stillMissing.length,
+      missing: stillMissing.map(index => existing.scenes[index]!.id),
+      retry_hint: 'Existing motion prompts were kept; Retry fills only the remaining gaps.',
+    })
     return
   }
 
@@ -1062,6 +1075,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // visual planner's chunking gives.
   await fs.mkdir(path.dirname(outPath), { recursive: true })
   await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+  const visualIntegrity = inspectScenePromptIntegrity(plan.scenes)
+  requireJobCompletion(job, {
+    label: 'Scene planning visual prompts',
+    expected: plan.scenes.length,
+    completed: plan.scenes.length - visualIntegrity.invalid_ids.length,
+    missing: visualIntegrity.invalid_ids,
+    retry_hint: 'The valid timeline and prompts were kept. Run All pending to fill missing or duplicated prompts.',
+  })
 
   // ── v1.0.468 — motion-prompt pass ───────────────────────────────────────
   // Generate a per-scene image-to-video motion_prompt, seeded with each scene's
@@ -1130,6 +1151,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           ? `✓ Motion prompts: ${made}/${targets.length} written (${failed} left empty — use "Regen empty motion prompts").`
           : `✓ Motion prompts: ${made}/${targets.length} written.`,
       )
+      const stillMissing = targets.filter(index => !plan.scenes[index]?.motion_prompt?.trim())
+      requireJobCompletion(job, {
+        label: 'Motion prompt generation', expected: targets.length, completed: targets.length - stillMissing.length,
+        missing: stillMissing.map(index => plan.scenes[index]!.id),
+        retry_hint: 'Motion prompts already written were kept; Retry fills only the remaining gaps.',
+      })
     }
   }
 

@@ -34,6 +34,7 @@ import {
 } from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Character } from '../models/types.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -741,6 +742,18 @@ export async function generateScriptOnly(job: Job): Promise<void> {
   await fs.unlink(path.join(paths.script_dir, `${job.episode_id}_Introduction.docx`)).catch(() => {})
 
   await generateEpisode({ ...job, params: baseParams })
+  const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)
+  requireJobCompletion(job, {
+    label: 'Script generation',
+    expected: scriptCompletion.expected,
+    completed: scriptCompletion.present,
+    missing: scriptCompletion.missing.map(chapter => `Chapter ${chapter}`),
+    invalid: [
+      ...(!scriptCompletion.approved ? ['outline approval'] : []),
+      ...(!scriptCompletion.outline_valid ? ['outline chapter count'] : []),
+    ],
+    retry_hint: 'Completed chapter files were kept. Resume expansion to fill only missing chapters.',
+  })
 
   // v1.0.70 — auto-rewrite the idea title's leading count number when
   // it disagrees with the chapter count we actually generated. Catches
@@ -960,6 +973,7 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     const headingMatch = chapterText.trim().match(/^##\s+Chapter\s+\d+\s*[:\-–—]\s*(.+)$/im)
     const newTitle = headingMatch ? headingMatch[1].trim() : `Chapter ${chapterNumber}`
     const body = chapterText.replace(/^##\s+Chapter\s+\d+[^\n]*\n+/m, '').trim()
+    if (!body) throw new Error(`Chapter ${chapterNumber} generation returned no usable body text.`)
 
     await writeChapterFiles(paths.script_dir, episode_id, title, {
       chapters: [{ number: chapterNumber, title: newTitle, text: body }],
@@ -1103,7 +1117,9 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
   try {
     const introText = await callAiWithRetry(style === 'custom' ? 'deepseek-v4-flash' : req.model, sysPrompt, introPrompt, apiKeys, true,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-    const wordCount = introText.split(/\s+/).length
+    const cleanedIntro = introText.trim()
+    if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
+    const wordCount = cleanedIntro.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
 
     // Write _Introduction.docx as its own source file (no title-block
@@ -1111,7 +1127,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     // file by assembleUnifiedNarration).
     await writeChapterFiles(paths.script_dir, episode_id, title, {
       chapters: [],
-      intro: { text: introText.trim() },
+      intro: { text: cleanedIntro },
     })
     job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
 
@@ -1329,6 +1345,17 @@ export async function generateOutlineOnly(job: Job): Promise<void> {
   try {
     job.output_lines.push(`Building outline (${mode})…`)
     const result = await buildOutlineOnly(job, params, mode, { auto_approve: autoApprove })
+    requireJobCompletion(job, {
+      label: 'Script outline generation',
+      expected: params.totalChapters,
+      completed: Math.min(params.totalChapters, result.outline.length),
+      missing: Array.from(
+        { length: Math.max(0, params.totalChapters - result.outline.length) },
+        (_, index) => `Chapter ${result.outline.length + index + 1}`,
+      ),
+      invalid: result.outline.length > params.totalChapters ? ['extra outline chapters'] : [],
+      retry_hint: 'The partial outline was kept. Retry outline generation before approval and expansion.',
+    })
     job.output_lines.push(
       `Outline ${result.fromCache ? 'loaded from cache' : 'built'}: ` +
       `${result.outline.length} chapter slots ` +

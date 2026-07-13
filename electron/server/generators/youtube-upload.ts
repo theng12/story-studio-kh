@@ -3,8 +3,7 @@
  *
  * Runs as a normal queued job so the UI gets SSE progress for free. Flow:
  *   1. Read job params (slug, episode_code, account_id, scheduled_for optional)
- *   2. Locate the video file via episode paths (prefers `{code}_final_video.*`,
- *      falls back to the broadened detection from asset-status.ts)
+ *   2. Locate the canonical non-empty `{code}_final_video.*` output
  *   3. ffprobe sanity-check (duration / video stream / audio)
  *   4. Resolve metadata (title/description/tags/thumbnail) via upload-metadata
  *   5. Sidecar check — if a video_id already exists, metadata-only update.
@@ -410,9 +409,9 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
 }
 
 /**
- * Find the final assembled video for an episode. Mirrors the broadened
- * detection in asset-status.ts but returns a concrete path rather than a
- * boolean — pick the first match the detection logic surfaces.
+ * Find the canonical final assembled video for an episode. This intentionally
+ * matches asset-status.ts so Upload cannot silently choose a preview or
+ * intermediate render that the Production Board does not consider final.
  */
 async function findFinalVideoPath(
   paths: { episode_dir: string; video_dir: string },
@@ -420,9 +419,15 @@ async function findFinalVideoPath(
   code: string,
   title: string,
 ): Promise<string> {
+  code = code.toUpperCase()
   const VIDEO_EXTS = ['.mp4', '.mov', '.mkv', '.webm', '.m4v']
   const isVideo = (n: string) => VIDEO_EXTS.some(e => n.toLowerCase().endsWith(e))
-  const isScene = (n: string) => /[_\- ]scene[_\- ]?\d+/i.test(n)
+  const isCanonical = (n: string) => n.startsWith(`${code}_final_video.`) && isVideo(n)
+  async function validFile(dir: string, name: string): Promise<string> {
+    const candidate = path.join(dir, name)
+    const stat = await fsp.stat(candidate).catch(() => null)
+    return stat?.isFile() && stat.size > 0 ? candidate : ''
+  }
 
   // 0. EXTERNAL final-video root takes priority over the project tree.
   // When the user has configured `external_final_video_root` (Settings →
@@ -438,8 +443,11 @@ async function findFinalVideoPath(
     if (externalDir) {
       try {
         const extFiles = await fsp.readdir(externalDir)
-        const final = extFiles.find(n => /^[A-Z]+\d+_final_video\./i.test(n) && isVideo(n))
-        if (final) return path.join(externalDir, final)
+        const final = extFiles.find(isCanonical)
+        if (final) {
+          const valid = await validFile(externalDir, final)
+          if (valid) return valid
+        }
       } catch { /* external dir not yet created — fall through */ }
     }
   } catch { /* import failure — fall through */ }
@@ -447,27 +455,12 @@ async function findFinalVideoPath(
   // 1. Native `{code}_final_video.*` wins.
   try {
     const videoDirFiles = await fsp.readdir(paths.video_dir)
-    const final = videoDirFiles.find(n => /^[A-Z]+\d+_final_video\./i.test(n) && isVideo(n))
-    if (final) return path.join(paths.video_dir, final)
-    // 2. Any non-scene video in video_dir.
-    const nonScene = videoDirFiles.find(n => isVideo(n) && !isScene(n))
-    if (nonScene) return path.join(paths.video_dir, nonScene)
-  } catch { /* fall through */ }
-
-  // 3. Any video at episode_dir root.
-  try {
-    const epEntries = await fsp.readdir(paths.episode_dir, { withFileTypes: true })
-    const rootVideo = epEntries.find(e => e.isFile() && isVideo(e.name))
-    if (rootVideo) return path.join(paths.episode_dir, rootVideo.name)
-    // 4. Any video inside a final/assembl/output/export sibling folder.
-    for (const e of epEntries) {
-      if (!e.isDirectory()) continue
-      if (!/(final|assembl|output|export)/i.test(e.name)) continue
-      const inner = await fsp.readdir(path.join(paths.episode_dir, e.name))
-      const hit = inner.find(n => isVideo(n))
-      if (hit) return path.join(paths.episode_dir, e.name, hit)
+    const final = videoDirFiles.find(isCanonical)
+    if (final) {
+      const valid = await validFile(paths.video_dir, final)
+      if (valid) return valid
     }
-  } catch { /* ignore */ }
+  } catch { /* fall through */ }
 
   return ''
 }

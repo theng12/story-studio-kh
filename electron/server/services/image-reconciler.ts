@@ -345,7 +345,7 @@ export async function reconcileImages(
   job.output_dir = path.dirname(bgDir)
 
   job.output_lines.push(
-    `Done. Recovered ${result.recovered}; ` +
+    `Repair pass finished. Recovered ${result.recovered}; ` +
     `${result.needs_fresh_generation} need fresh generation; ` +
     `${result.unrecoverable} unrecoverable; ` +
     `${result.skipped_ok} already on disk.`,

@@ -86,8 +86,7 @@ export async function generateBrollAutotag(job: Job): Promise<void> {
 
   const suggestedTags = parseTagsResponse(result.style_text)
   if (!suggestedTags.length) {
-    job.output_lines.push(`⚠ No tags parsed from vision response — leaving existing tags untouched.`)
-    return
+    throw new Error('Vision response contained no usable tags. Existing tags were left untouched; Retry with a stronger vision model.')
   }
 
   const existing = new Set((clip.tags || []).map(t => t.toLowerCase()))

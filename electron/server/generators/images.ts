@@ -22,6 +22,7 @@ import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
 import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
 import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
@@ -318,6 +319,8 @@ export async function generateImages(job: Job): Promise<void> {
   }
 
   job.output_lines.push(`Parsed: ${scenes.length} scenes, ${thumbnails.length} thumbnails`)
+  if (mode === 'scenes' && scenes.length === 0) throw new Error('The scene prompt file contains no usable scene prompts.')
+  if (mode === 'thumbs' && thumbnails.length === 0) throw new Error('The thumbnail prompt file contains no usable thumbnail prompts.')
 
   // Phase 8 — load this episode's character cast once for reference-image
   // wiring. Auto-detect: scan each scene's prompt text for character names
@@ -673,6 +676,7 @@ export async function generateImages(job: Job): Promise<void> {
         isCancelled: () => jq.isCancelled(job.job_id),
       })
       const urls = result.urls
+      if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
       // Record the provider task id BEFORE downloading. Reasoning: even if
       // a download fails halfway, the manifest still points at the
       // (already-charged) provider job, so the Repair button can recover
@@ -772,6 +776,7 @@ export async function generateImages(job: Job): Promise<void> {
         isCancelled: () => jq.isCancelled(job.job_id),
       })
       const urls = result.urls
+      if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
       if (result.taskId) {
         await Promise.all(urls.map((_, i) => recordTask(thumbDir, `${stem}_v${i + 1}.png`, {
           provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
@@ -957,6 +962,20 @@ export async function generateImages(job: Job): Promise<void> {
     const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
     throw new Error(`${errors.length} item(s) failed: ${preview}${suffix}`)
   }
+  const expectedItems = mode === 'scenes'
+    ? (req.scene_number ? scenes.filter(scene => scene.number === req.scene_number) : scenes)
+      .map(scene => ({ label: `Scene ${scene.number}`, path: path.join(bgDir, `${episode_id.toUpperCase()}_Scene${scene.number.toString().padStart(2, '0')}_v1.png`) }))
+    : (req.thumb_number ? thumbnails.filter(thumb => thumb.number === req.thumb_number) : thumbnails)
+      .map(thumb => ({ label: `Thumbnail ${thumb.number}`, path: path.join(thumbDir, `${episode_id.toUpperCase()}_Thumb${thumb.number.toString().padStart(2, '0')}_v1.png`) }))
+  const outputReady = await Promise.all(expectedItems.map(item => fileExistsWithContent(item.path)))
+  const missing = expectedItems.filter((_, index) => !outputReady[index]).map(item => item.label)
+  requireJobCompletion(job, {
+    label: mode === 'scenes' ? 'Scene image generation' : 'Thumbnail generation',
+    expected: expectedItems.length,
+    completed: expectedItems.length - missing.length,
+    missing,
+    retry_hint: 'Existing images were kept. Retry generates or recovers only the missing files.',
+  })
   job.output_lines.push('All images generated successfully')
   // When the user ran mixed mode (all), reveal the parent episode dir so
   // they can see both scene + thumbnail folders side-by-side. Otherwise

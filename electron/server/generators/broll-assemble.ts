@@ -144,7 +144,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // dance isn't needed. Falls back to the project tree's `video_dir` if
   // the external root isn't set or resolution fails — never blocks a
   // render because of misconfigured optional storage.
-  const outFilename = `${episode_id}_BRoll.mp4`
+  const outFilename = `${episode_id}_final_video.mp4`
   let finalDir = paths.video_dir
   try {
     const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
@@ -430,6 +430,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // is a metadata-only rename — no cross-volume copy needed.
   await fsp.rename(tempPath, outPath)
   const stat = await fsp.stat(outPath)
+  if (!stat.isFile() || stat.size <= 0) throw new Error(`Final video is empty: ${outFilename}`)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
   job.output_dir = finalDir
 

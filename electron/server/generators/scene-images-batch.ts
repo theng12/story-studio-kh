@@ -27,6 +27,7 @@ import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -183,5 +184,15 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
 
   job.output_dir = outDir
   job.progress = 100
-  job.output_lines.push(`Done — ${made} rendered${failed ? `, ${failed} failed` : ''}.`)
+  const missing: string[] = []
+  for (const scene of targets) {
+    const stat = await fs.stat(path.join(outDir, `${scene.id}.png`)).catch(() => null)
+    if (!stat?.isFile() || stat.size === 0) missing.push(scene.id)
+  }
+  requireJobCompletion(job, {
+    label: 'Scene image generation', expected: targets.length, completed: targets.length - missing.length,
+    missing,
+    retry_hint: 'Successful images were saved; Retry renders only the missing scenes.',
+  })
+  job.output_lines.push(`Done — ${made} rendered; ${targets.length}/${targets.length} target image(s) verified.`)
 }

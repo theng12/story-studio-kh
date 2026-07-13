@@ -78,11 +78,15 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   if (!req.force && await fileExistsWithContent(outPath)) {
-    job.output_lines.push(`Skipping — ${code}_whisper.srt already exists. Tick "Re-run transcription" to overwrite.`)
-    job.output_dir = outDir
-    ;(job as any).result = { srt_path: outPath, skipped: true }
-    job.progress = 100
-    return
+    const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
+    if (existing.cues > 0) {
+      job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${existing.cues} cue(s) were verified. Tick "Re-run transcription" to overwrite.`)
+      job.output_dir = outDir
+      ;(job as any).result = { srt_path: outPath, cues: existing.cues, skipped: true, complete: true }
+      job.progress = 100
+      return
+    }
+    job.output_lines.push(`Existing ${code}_whisper.srt has no valid cues — regenerating it.`)
   }
 
   const config = await pm.getConfig(project_slug)
@@ -546,7 +550,7 @@ async function finalizeTranscript(
   job.output_lines.push(`Wrote ${cues} cues → ${outPath}`)
   job.output_dir = outDir
   job.progress = 100
-  ;(job as any).result = { srt_path: outPath, cues }
+  ;(job as any).result = { srt_path: outPath, cues, complete: true }
 }
 
 /**

@@ -134,6 +134,12 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(status.video_assembly, true, 'local file always counts as done')
   })
 
+  test('zero-byte final cannot mark video assembly complete', async () => {
+    const seed = await seedAcceptedEpisode('TN0099', 0)
+    const status = await assetStatus.computeEpisodeStatus(SLUG, seed.code)
+    assert.equal(status.video_assembly, false, 'empty final is not a successful render')
+  })
+
   // ── Part C: external-root detection ───────────────────────────────
 
   test('final at external root flips video_assembly true', async () => {

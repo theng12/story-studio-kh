@@ -14,7 +14,6 @@
  * keys resolve; the target pool is app-level (by id).
  */
 
-import fs from 'fs/promises'
 import path from 'path'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
@@ -27,6 +26,7 @@ import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
@@ -174,7 +174,12 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   job.output_lines.push('Indexing new images into the pool…')
   const scan = await scanPoolFolder(pool.folder_path, undefined, 'image')
   job.progress = 100
+  requireJobCompletion(job, {
+    label: 'Image pool generation', expected: total, completed: made,
+    missing: Array.from({ length: failed }, (_, index) => `failed item ${index + 1}`),
+    retry_hint: 'Generated images were kept; Retry the failed items.',
+  })
   job.output_lines.push(
-    `Done — generated ${made} image(s)${failed ? `, ${failed} failed` : ''}; pool indexed (+${scan.added.length} new).`,
+    `Done — generated ${made}/${total} image(s); pool indexed (+${scan.added.length} new).`,
   )
 }

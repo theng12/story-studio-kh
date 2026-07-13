@@ -183,6 +183,27 @@ describe('pipeline chain handoff failures', () => {
   })
 })
 
+describe('verified completion backstop', () => {
+  test('an executor cannot return incomplete output as a green Done job', async () => {
+    const proj = await pm.createProject({ name: 'JQ Incomplete Result' })
+    jq.registerExecutor('metadata', async (job) => {
+      job.result = { complete: false, completion_error: 'Metadata incomplete: description is missing.' }
+    })
+    const queued = jq.enqueue({
+      project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'partial', params: {},
+    })
+
+    const deadline = Date.now() + 2000
+    let settled = jq.getJob(queued.job_id)
+    while (Date.now() < deadline && settled?.status !== 'error') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      settled = jq.getJob(queued.job_id)
+    }
+    assert.equal(settled?.status, 'error')
+    assert.match(settled?.error || '', /description is missing/)
+  })
+})
+
 describe('cancelJob()', () => {
   test('returns false for unknown job ID', () => {
     const ok = jq.cancelJob('does-not-exist')

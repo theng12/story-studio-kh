@@ -8,7 +8,7 @@
  *   - <episode_dir>/merged_audio/<largest>.mp3 (the merged narration)
  *   - subtitles/<code>_stitched.srt (optional — burned in if present)
  *
- * Output: <output_dir>/<code>_timestamp.mp4 where output_dir is the
+ * Output: <output_dir>/<code>_final_video.mp4 where output_dir is the
  * external_final_video_root if configured (v1.0.130 pattern), else the
  * project tree's Video Assembly Output.
  *
@@ -239,7 +239,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   job.progress = 10
 
   // ── Resolve output dir (mirrors v1.0.130 broll pattern) ──────────
-  const outFilename = `${episode_id.toUpperCase()}_timestamp.mp4`
+  const outFilename = `${episode_id.toUpperCase()}_final_video.mp4`
   let finalDir = paths.video_dir
   try {
     const { ensureExternalFinalVideoDir, externalRootIsReachable } = await import('../services/external-video-store.js')
@@ -623,6 +623,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   for (const f of chunkFiles) await fs.rm(f, { force: true }).catch(() => {})
   if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
   const stat = await fs.stat(outPath)
+  if (!stat.isFile() || stat.size <= 0) throw new Error(`Final video is empty: ${outFilename}`)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
   job.output_dir = finalDir
 }

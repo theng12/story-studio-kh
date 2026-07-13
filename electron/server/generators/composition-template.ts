@@ -108,6 +108,8 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, COMPOSITION_FILENAME)
   await downloadImage(result.urls[0]!, outPath)
+  const outputStat = await fs.stat(outPath)
+  if (!outputStat.isFile() || outputStat.size <= 0) throw new Error('Downloaded composition template is empty.')
 
   job.output_dir = outDir
   job.progress = 100

@@ -26,6 +26,7 @@ import { getCharacter } from '../services/character-manager.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan, ScenePlanEntry, VisualRecipe } from '../models/types.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 interface PromptDirectorParams {
   episode_id: string
@@ -162,6 +163,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
   const byId = new Map<string, ScenePlanEntry>(plan.scenes.map(s => [s.id, s]))
   let composed = 0
   let failed = 0
+  const failedIds = new Set<string>()
   const totalBatches = Math.ceil(workable.length / BATCH_SIZE)
 
   for (let b = 0; b < totalBatches; b++) {
@@ -203,7 +205,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
         const r = results.get(src.id)
         const target = byId.get(src.id)
         if (!target) continue
-        if (!r?.prompt?.trim()) { failed++; continue }
+        if (!r?.prompt?.trim()) { failed++; failedIds.add(src.id); continue }
         // Preserve the planner's original as the raw source on first run.
         if (!target.visual_prompt_raw) target.visual_prompt_raw = target.visual_prompt
         target.visual_prompt = r.prompt.trim()
@@ -220,6 +222,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
       }
     } else {
       failed += slice.length
+      for (const src of slice) failedIds.add(src.id)
     }
 
     job.progress = Math.round(((b + 1) / totalBatches) * 100)
@@ -228,6 +231,11 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
 
   await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
   job.progress = 100
+  requireJobCompletion(job, {
+    label: 'Prompt Director', expected: workable.length, completed: workable.length - failedIds.size,
+    missing: [...failedIds],
+    retry_hint: 'Composed prompts were saved; Retry safely re-applies the recipe and repairs omitted scenes.',
+  })
   job.output_lines.push(
     `Visual Recipe applied: ${composed} scene(s) composed${failed ? `, ${failed} left unchanged` : ''}. Re-render to see the new layout.`,
   )

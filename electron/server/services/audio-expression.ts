@@ -227,7 +227,7 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
   const targets = (Array.isArray(params.slugs) && params.slugs.length)
     ? parsed.filter(s => params.slugs!.includes(s.slug))
     : parsed
-  if (!targets.length) { job.output_lines.push('No matching sections to tag.'); job.progress = 100; return }
+  if (!targets.length) throw new Error('No matching narration sections were found to tag. Refresh the script or clear the stale section selection.')
 
   const apiKeys: AiKeys = {
     anthropic_api_key: (config as any).anthropic_api_key,

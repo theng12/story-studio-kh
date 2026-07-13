@@ -133,6 +133,7 @@ export async function normalizeBroll(job: Job): Promise<void> {
   await bp.markClipNormalized(pool_id, filename)
 
   const stat = await fsp.stat(finalPath)
+  if (!stat.isFile() || stat.size <= 0) throw new Error(`Normalized clip is empty: ${filename}`)
   job.output_lines.push(`Done → ${path.basename(normalizedDir)}/${filename} (${Math.round(stat.size / 1024 / 1024)} MB)`)
   job.output_dir = normalizedDir
 }

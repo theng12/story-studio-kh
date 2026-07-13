@@ -15,6 +15,7 @@ import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
+import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -287,6 +288,11 @@ export function knownJobTypes(): JobType[] {
   return Object.keys(queues) as JobType[]
 }
 
+/** Preventive audit hook: every declared job type must be wired at boot. */
+export function unregisteredJobTypes(): JobType[] {
+  return knownJobTypes().filter(type => queues[type].executor == null)
+}
+
 // ── Concurrency groups ──────────────────────────────────────────────────────
 //
 // Most job types run strictly one-at-a-time (their own group, limit 1):
@@ -540,13 +546,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     emitUpdate(job)
 
     try {
-      if (q.executor) {
-        // Run the executor inside a per-job AsyncLocalStorage context so any
-        // child processes spawned deep in the call tree register against this
-        // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
-        // assembly would keep running until it finished or hit an error.
-        await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
-      }
+      if (!q.executor) throw new Error(`No executor registered for job type: ${type}`)
+      // Run the executor inside a per-job AsyncLocalStorage context so any
+      // child processes spawned deep in the call tree register against this
+      // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
+      // assembly would keep running until it finished or hit an error.
+      await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+      assertJobDidNotDeclareIncomplete(job)
       if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
         // (cancelJob may have already set status from another call context)
@@ -729,6 +735,7 @@ export async function enqueueOrRun(opts: {
   }
   try {
     await executor(job)
+    assertJobDidNotDeclareIncomplete(job)
     job.status = 'done'
     job.finished_at = new Date().toISOString()
   } catch (e: any) {
