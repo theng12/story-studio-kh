@@ -13,8 +13,9 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
-import { resolveSubfolderNames, resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { scanEpisodeAssets } from './video.js'
 import { transcribeToSrt } from '../lib/whisper-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
@@ -275,6 +276,7 @@ async function transcribePerChapter(
   const sections = [...bySlug.values()]
   let done = 0
   let totalCues = 0
+  let generatedSections = 0
   // v1.0.393 — per-chapter failure isolation. A chapter whose transcription
   // exhausts the Voice Studio pool's failover (e.g. a Mac slept mid-request and
   // the pool was momentarily empty) used to THROW out of the worker, rejecting
@@ -347,6 +349,7 @@ async function transcribePerChapter(
       if (tmpConcat) await fs.unlink(tmpConcat).catch(() => {})
       if (tmpList) await fs.unlink(tmpList).catch(() => {})
       job.output_lines.push(`  ⚠ ${sec.slug}: chapter audio is missing or empty (0 bytes) — skipped. Re-generate this chapter's audio.`)
+      failures.push({ slug: sec.slug, error: 'chapter audio is missing or empty (0 bytes)' })
       done++; job.progress = Math.round((done / sections.length) * 100)
       return
     }
@@ -374,9 +377,11 @@ async function transcribePerChapter(
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
       if (cues === 0) {
         job.output_lines.push(`  ⚠ ${sec.slug}: zero cues — skipped`)
+        failures.push({ slug: sec.slug, error: 'transcription returned zero usable cues' })
       } else {
         await fs.writeFile(outPath, srt, 'utf-8')
         totalCues += cues
+        generatedSections += 1
         job.output_lines.push(`  ✓ ${sec.slug}: ${cues} cues → ${path.basename(outPath)}`)
       }
     } finally {
@@ -417,29 +422,48 @@ async function transcribePerChapter(
     clearInterval(cancelWatcher)
   }
 
-  // Only hard-fail when NOTHING usable came out. If some chapters succeeded we
-  // keep their SRTs and report which ones to retry — one unreachable Mac no
-  // longer throws away a near-complete episode.
-  if (totalCues === 0) {
-    if (failures.length) {
-      throw new Error(
-        `All ${failures.length} chapter(s) failed to transcribe. First error: ${failures[0]!.error}`,
-      )
-    }
-    throw new Error('No cues produced — every chapter transcript was empty.')
-  }
-  if (failures.length) {
-    job.output_lines.push(
-      `⚠ ${failures.length} of ${sections.length} chapter(s) failed: ${failures.map(f => f.slug).join(', ')}. ` +
-      `Re-run transcription for this episode to fill in just these — chapters with an existing SRT are skipped.`,
-    )
-  }
   job.output_dir = outDir
   job.progress = 100
-  job.output_lines.push(
-    `Per-chapter transcription complete: ${sections.length} chapter(s), ${totalCues} cues total → ${outDir}`,
+
+  // Never trust "the worker returned" as completion. Verify the files against
+  // Audio Assembly's authoritative section manifest. This catches provider
+  // errors, zero-cue responses, empty audio, and a whole missing audio section.
+  const epaths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
+  const coverage = await inspectSubtitleCompletion(
+    epaths.episode_dir,
+    outDir,
+    code,
+    { require_per_section: true },
   )
-  ;(job as any).result = { subtitles_dir: outDir, chapters: sections.length, cues: totalCues }
+  const failedSlugs = Array.from(new Set([
+    ...coverage.missing_sections,
+    ...failures.map(failure => failure.slug),
+  ]))
+  job.result = {
+    subtitles_dir: outDir,
+    complete: coverage.complete && failures.length === 0,
+    expected_sections: coverage.expected_sections.length,
+    ready_sections: coverage.completed_sections.length,
+    generated_sections: generatedSections,
+    new_cues: totalCues,
+    missing_sections: failedSlugs,
+  }
+
+  if (!coverage.complete || failures.length) {
+    const missingLabel = failedSlugs.length
+      ? failedSlugs.join(', ')
+      : 'coverage could not be verified; run Audio Assembly to rebuild audio_chapters.json'
+    const message =
+      `Transcription incomplete: ${coverage.completed_sections.length}/${coverage.expected_sections.length} sections ready. ` +
+      `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.`
+    job.output_lines.push(`✗ INCOMPLETE — ${message}`)
+    throw new Error(message)
+  }
+
+  job.output_lines.push(
+    `✓ Transcription complete: ${coverage.completed_sections.length}/${coverage.expected_sections.length} sections ready` +
+    ` · ${generatedSections} generated now · ${totalCues} new cues → ${outDir}`,
+  )
 
   // v1.0.251 — auto-stitch cascade. Scene Plan reads the STITCHED SRT, and
   // users kept forgetting to re-stitch after a (re-)transcribe — leaving the
@@ -447,7 +471,6 @@ async function transcribePerChapter(
   // {CODE}_stitched.srt right here. Best-effort: a missing prerequisite (e.g.
   // audio not merged yet) logs a note but never fails the transcribe job.
   try {
-    const epaths = await resolveEpisodePathsByCode(projectSlug, episodeId)
     // v1.0.398 — self-heal a missing audio_chapters.json (episodes merged
     // before the sidecar was written reliably) by rebuilding it from the
     // per-chapter audio on disk, so both the lead-in read below AND the stitch

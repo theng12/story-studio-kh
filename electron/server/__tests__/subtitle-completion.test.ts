@@ -85,4 +85,19 @@ describe('subtitle completion', () => {
       assert.equal(result.mode, 'full-track')
     }
   })
+
+  test('strict transcription audit does not let a whole-track file hide a missing chapter', async () => {
+    const dirs = await fixture()
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_whisper.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Introduction.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter_01.srt`), SRT)
+    const result = await inspectSubtitleCompletion(
+      dirs.episodeDir,
+      dirs.subtitlesDir,
+      CODE,
+      { require_per_section: true },
+    )
+    assert.equal(result.complete, false)
+    assert.deepEqual(result.missing_sections, ['Chapter_02'])
+  })
 })

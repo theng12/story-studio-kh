@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.561 — 2026-07-13
+
+**Partial transcription jobs now fail loudly instead of showing a misleading green Done badge.**
+
+- Every per-chapter transcription run performs a final on-disk audit against all sections in `audio_chapters.json`.
+- A provider error, zero-cue response, empty audio file, or absent chapter now produces a red Failed job naming every missing section.
+- Successfully transcribed chapters remain saved; Retry skips those files and fills only the remaining gaps.
+- The success summary now reports verified ready sections, newly generated sections, and new cue count instead of claiming all chapters completed when one failed.
+- Whole-episode tracks cannot mask missing per-chapter source files during this strict post-job audit.
+
 ## v1.0.560 — 2026-07-13
 
 **Pending Subtitles now means every expected narration section is actually covered.**

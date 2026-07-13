@@ -11,6 +11,11 @@ export interface SubtitleCompletion {
   full_track_filename?: string
 }
 
+export interface SubtitleCompletionOptions {
+  /** Transcription jobs must produce one source SRT per expected audio section. */
+  require_per_section?: boolean
+}
+
 const BURNABLE = /\.(srt|ass|vtt)$/i
 
 interface AudioChapterManifest {
@@ -109,6 +114,7 @@ export async function inspectSubtitleCompletion(
   episodeDir: string,
   subtitlesDir: string,
   episodeCode: string,
+  options: SubtitleCompletionOptions = {},
 ): Promise<SubtitleCompletion> {
   const code = episodeCode.toUpperCase()
   const [expected, files, pinned] = await Promise.all([
@@ -119,16 +125,18 @@ export async function inspectSubtitleCompletion(
 
   const sectionByFile = new Map(files.map(filename => [filename, sectionForFile(filename, code, expected)]))
   const fullTrackPattern = new RegExp(`^${escapeRegExp(code)}(?:_(?:imported|whisper|chapters))?\\.(?:srt|ass|vtt)$`, 'i')
-  let fullTrack = files.find(filename => fullTrackPattern.test(filename))
+  let fullTrack = options.require_per_section
+    ? undefined
+    : files.find(filename => fullTrackPattern.test(filename))
 
   // A custom pinned file is an explicit whole-track choice unless its name
   // maps to one expected chapter. This preserves hand-imported legacy tracks.
-  if (!fullTrack && pinned && files.includes(pinned) && !sectionByFile.get(pinned) && !/_stitched\./i.test(pinned)) {
+  if (!options.require_per_section && !fullTrack && pinned && files.includes(pinned) && !sectionByFile.get(pinned) && !/_stitched\./i.test(pinned)) {
     fullTrack = pinned
   }
 
   const stitchedCovered = new Set<string>()
-  if (!fullTrack) {
+  if (!options.require_per_section && !fullTrack) {
     for (const filename of files.filter(name => /_stitched\.(srt|ass|vtt)$/i.test(name))) {
       const coverage = await stitchedCoverage(subtitlesDir, filename, expected)
       for (const section of coverage?.covered || []) stitchedCovered.add(section)
