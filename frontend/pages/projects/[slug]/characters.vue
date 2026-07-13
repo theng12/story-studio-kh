@@ -6,7 +6,7 @@
         <p class="text-muted">
           Persistent cast for this project. Characters stop the LLM from inventing new names every
           episode and keep image generation visually consistent. Episode-scoped characters stay tied
-          to specific episodes; project-scoped characters appear for every episode (the brand cast).
+          to specific episodes; project-scoped characters appear for every episode (the channel cast).
         </p>
       </div>
       <div class="header-actions">
@@ -161,7 +161,7 @@
 
           <div class="form-group">
             <label>Scope <span class="req">*</span></label>
-            <span class="hint">Episode-only = picker shows this character for the listed episodes only. Project = appears for every episode (channel mascot / brand cast).</span>
+            <span class="hint">Episode-only = picker shows this character for the listed episodes only. Project = appears for every episode (channel mascot / recurring cast).</span>
             <div class="scope-toggle">
               <label><input type="radio" :value="'episode'" v-model="draft.scope" /> Episode-only</label>
               <label><input type="radio" :value="'project'" v-model="draft.scope" /> Project-wide</label>

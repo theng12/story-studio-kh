@@ -412,56 +412,6 @@ describe('format-loader', () => {
     loader._clearFormatCaches()
   })
 
-  test('getEffectiveFormat: brand format_overrides apply between format and project', async () => {
-    const brandsDir = path.join(pm.PROJECTS_ROOT, '.brands')
-    await fs.mkdir(brandsDir, { recursive: true })
-    await fs.writeFile(path.join(brandsDir, 'demo.json'), JSON.stringify({
-      id: 'demo', name: 'Demo Brand', schemaVersion: 1,
-      format_overrides: { script: { closingHint: 'BRAND closing.' }, metadata: { broadKeywords: ['brand-kw'] } },
-    }))
-    const brandLoader = await import('../services/brand-loader.js')
-    brandLoader._clearBrandCaches()
-    const projDir = path.join(pm.PROJECTS_ROOT, 'brand-only-project')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('brand-only-project', {
-      format_id: 'scenes', brand_id: 'demo',
-    }))
-    const fmt = await loader.getEffectiveFormat('brand-only-project')
-    assert.equal(fmt.script.closingHint, 'BRAND closing.', 'brand override should win over base format')
-    assert.deepEqual(fmt.metadata.broadKeywords, ['brand-kw'], 'brand keywords replace base')
-  })
-
-  test('getEffectiveFormat: project overrides win over brand', async () => {
-    const brandsDir = path.join(pm.PROJECTS_ROOT, '.brands')
-    await fs.mkdir(brandsDir, { recursive: true })
-    await fs.writeFile(path.join(brandsDir, 'demo.json'), JSON.stringify({
-      id: 'demo', name: 'Demo Brand', schemaVersion: 1,
-      format_overrides: { script: { closingHint: 'BRAND closing.' }, metadata: { broadKeywords: ['brand-kw'] } },
-    }))
-    const brandLoader = await import('../services/brand-loader.js')
-    brandLoader._clearBrandCaches()
-    const projDir = path.join(pm.PROJECTS_ROOT, 'brand-and-project-override')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('brand-and-project-override', {
-      format_id: 'scenes', brand_id: 'demo',
-      format_overrides: { script: { closingHint: 'PROJECT closing.' } },
-    }))
-    const fmt = await loader.getEffectiveFormat('brand-and-project-override')
-    assert.equal(fmt.script.closingHint, 'PROJECT closing.', 'project override wins over brand')
-    assert.deepEqual(fmt.metadata.broadKeywords, ['brand-kw'], 'brand keywords survive when project does not override')
-  })
-
-  test('getEffectiveFormat: dangling brand_id falls back gracefully', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'dangling-brand')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('dangling-brand', {
-      format_id: 'scenes', brand_id: 'this-brand-does-not-exist',
-    }))
-    const fmt = await loader.getEffectiveFormat('dangling-brand')
-    assert.equal(fmt.id, 'scenes')
-    assert.ok(fmt.script.closingHint.length > 0, 'falls back to base format closing hint')
-  })
-
   test('fillPacingArcPlaceholders substitutes {last} and {lastButOne}', () => {
     const arc = ['Chapters 1-3: setup', 'Chapters 7-{lastButOne}: slow', 'Chapter {last}: end']
     const filled = loader.fillPacingArcPlaceholders(arc, 10)

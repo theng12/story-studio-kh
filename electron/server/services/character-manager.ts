@@ -127,7 +127,7 @@ export async function listOwnCharacters(slug: string, opts?: { episodeCode?: str
       console.warn(`[character-manager] skipping malformed character '${id}' for project '${slug}': ${e.message}`)
     }
   }
-  // Stable order: project-scoped characters first (brand cast appears at the top of pickers).
+  // Stable order: project-scoped characters first (channel cast appears at the top of pickers).
   out.sort((a, b) => {
     if (a.scope !== b.scope) return a.scope === 'project' ? -1 : 1
     return a.name.localeCompare(b.name)

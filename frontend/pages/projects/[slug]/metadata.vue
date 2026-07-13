@@ -598,19 +598,6 @@
         </div>
       </div>
 
-      <!-- Brand banned-word warning chip. Server-side scan persists the
-           list onto the saved metadata; chip renders only when the active
-           version had matches. The warning is non-blocking — user can
-           keep the metadata as-is or edit and save again. -->
-      <div v-if="brandWarnings.length" class="brand-warning" role="status">
-        <span class="brand-warning-icon" aria-hidden="true">⚠</span>
-        <span>
-          <strong>Brand banned words found:</strong>
-          <code v-for="w in brandWarnings" :key="w" class="brand-warning-term">{{ w }}</code>
-        </span>
-        <span class="brand-warning-hint text-muted">Edit + save to clear, or accept and move on.</span>
-      </div>
-
       <div class="form-group mt-1">
         <label>
           Title
@@ -783,18 +770,8 @@ const preview = reactive({
   description: '',
   tags: [] as string[],
 })
-const versions = ref<Array<{ version: number; title: string; title_options?: string[]; description: string; tags: string[]; brand_warnings?: string[]; savedAt: string | null }>>([])
+const versions = ref<Array<{ version: number; title: string; title_options?: string[]; description: string; tags: string[]; savedAt: string | null }>>([])
 const selectedVersion = ref<number>(1)
-
-// Brand banned-word matches recorded at the latest save. Surfaced as a
-// chip above the Preview card so the user notices flagged terms after
-// generation or save without having to scan the job log. Empty array =
-// no chip rendered. Older metadata files won't carry the field; treated
-// as no-warnings for back-compat.
-const brandWarnings = computed<string[]>(() => {
-  const active = versions.value.find(v => v.version === selectedVersion.value)
-  return active?.brand_warnings ?? []
-})
 
 // Section builder
 interface SectionConfig { [key: string]: any }
@@ -2125,37 +2102,5 @@ onMounted(async () => {
   max-width: calc(100vw - 48px);
 }
 .modal-small h3 { font-size: 16px; font-weight: 600; }
-
-/* Brand banned-word warning chip — non-blocking, sits above the Preview
- * fields. Uses a warm amber tint so it reads as "heads up" not "error". */
-.brand-warning {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: var(--accent-dim);
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-.brand-warning-icon {
-  font-size: 16px;
-  line-height: 1;
-}
-.brand-warning-term {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  padding: 2px 8px;
-  border-radius: 3px;
-  margin-left: 6px;
-  font-size: 12px;
-}
-.brand-warning-hint {
-  margin-left: auto;
-  font-size: 12px;
-}
 
 </style>

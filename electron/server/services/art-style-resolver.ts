@@ -2,24 +2,20 @@
  * Art-style resolver — the single source of truth for a project's active
  * visual style (v1.0.518).
  *
- * Before this, image style leaked in from four scattered places:
+ * Before this, image style leaked in from several scattered places:
  *   - project `style_presets` (a picker that was never applied to real
  *     generation — only preview renders),
- *   - `brand.imagePrompts` (auto-applied but not a picker),
  *   - format `defaultStyleTag` + niche `visualStyleSheet` (merged tag).
  *
  * The consolidation: a project now carries ONE persisted art style
  * (`config.active_style_preset_id`, pointing at a `style_presets` entry).
  * When set it is authoritative — it replaces the format+niche style tag in
  * generated prompts, and its preview image is fed into img2img generation
- * as a style reference. `brand.imagePrompts` is folded in as the fallback
- * when no preset is active, so existing brand projects keep their look with
- * zero migration.
+ * as a style reference.
  *
  * Precedence (highest first):
  *   1. Active `style_presets` entry (`active_style_preset_id`).
- *   2. Brand `imagePrompts` (via `project.brand_id`).
- *   3. null → callers fall back to the legacy format+niche merged tag.
+ *   2. null → callers fall back to the format+niche merged tag.
  *
  * This resolver deliberately does NOT know about per-run overrides (a
  * free-text `style_tag` typed into the Image Prompts page). Callers apply
@@ -30,13 +26,12 @@
 import path from 'path'
 import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
-import { getEffectiveBrand } from './brand-loader.js'
 import type { StylePreset } from '../models/types.js'
 
 export interface ResolvedArtStyle {
   /** Where the style came from — for logging / UI hints. */
-  source: 'preset' | 'brand'
-  /** Id of the active preset (absent for the brand fallback). */
+  source: 'preset'
+  /** Id of the active preset. */
   presetId?: string
   /** Human-facing name, when available. */
   name?: string
@@ -46,9 +41,8 @@ export interface ResolvedArtStyle {
   negatives: string[]
   /**
    * Absolute paths to the style's reference image(s), resolved from the
-   * project's `style-previews/` dir. Fed into img2img generation. Empty for
-   * the brand fallback (brands have no rendered preview). Only files that
-   * exist on disk are included.
+   * project's `style-previews/` dir. Fed into img2img generation. Only files
+   * that exist on disk are included.
    */
   referenceImagePaths: string[]
 }
@@ -75,19 +69,9 @@ function resolvePresetReferenceImages(slug: string, preset: StylePreset): string
   return existsSync(abs) ? [abs] : []
 }
 
-/** Fold a brand's imagePrompts block into a single style description. */
-function brandDescription(styleSheet?: string, keywords?: string[]): string {
-  const pieces: string[] = []
-  const sheet = (styleSheet || '').trim()
-  if (sheet) pieces.push(sheet)
-  if (keywords?.length) pieces.push(keywords.join(', '))
-  return pieces.join('\n\n').trim()
-}
-
 /**
  * Resolve the effective art style for a project. Returns null when the
- * project has neither an active preset nor a brand imagePrompts block — the
- * caller then keeps the legacy format+niche merged tag.
+ * project has no active preset; the caller then keeps the format+niche tag.
  */
 export async function resolveProjectArtStyle(slug: string): Promise<ResolvedArtStyle | null> {
   const config = await pm.getConfig(slug)
@@ -110,27 +94,6 @@ export async function resolveProjectArtStyle(slug: string): Promise<ResolvedArtS
     }
   }
 
-  // 2. Brand imagePrompts fallback (folded into the one art-style concept).
-  try {
-    const brand = await getEffectiveBrand(slug)
-    const ip = brand?.imagePrompts
-    if (ip) {
-      const description = brandDescription(ip.style_sheet, ip.style_keywords)
-      const negatives = Array.isArray(ip.negative_prompts) ? ip.negative_prompts.filter(Boolean) : []
-      if (description || negatives.length) {
-        return {
-          source: 'brand',
-          name: brand?.name,
-          description,
-          negatives,
-          referenceImagePaths: [],
-        }
-      }
-    }
-  } catch {
-    // Brand resolution must never break generation — fall through to null.
-  }
-
-  // 3. No project art style → caller uses the legacy format+niche tag.
+  // No project art style → caller uses the format+niche tag.
   return null
 }

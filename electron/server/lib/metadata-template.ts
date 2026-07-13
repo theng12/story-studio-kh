@@ -12,7 +12,7 @@
  *
  * Net effect: every episode's metadata reads like it came from the same
  * editorial voice, with only the variable parts (topic, focus, date)
- * changing per episode. Brand consistency that the LLM can't randomly
+ * changing per episode. Channel consistency that the LLM can't randomly
  * override on a re-roll.
  *
  * Recognised placeholders (others pass through unchanged):

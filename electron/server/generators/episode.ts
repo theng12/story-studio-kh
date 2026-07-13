@@ -13,7 +13,6 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
-import { getEffectiveBrand } from '../services/brand-loader.js'
 // v1.0.166 — pattern-loader import removed with the Pattern system.
 import { resolveCharacters } from '../services/character-manager.js'
 
@@ -194,7 +193,7 @@ export function stripImagePromptSections(standards: string): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
-function systemPrompt(format: Format, productionStandards: string, brand?: import('../models/types.js').Brand | null): string {
+function systemPrompt(format: Format, productionStandards: string): string {
   // Format-specific addendum is prepended to the user's free-form standards.
   // Both flow into the same "Follow these production standards exactly:" block
   // so the LLM treats them with the same priority. Empty addendum = no change.
@@ -235,14 +234,6 @@ ${additionalRules}
 
 ${ttsWritingGuidance}`
 
-  // Brand persona (if the project has a brand attached) wins position-wise:
-  // it sets channel-level voice context that the format-level role refines.
-  // No brand → unchanged. Use a synchronous import via lazy require so this
-  // function stays sync-safe; callers fetch the brand themselves and pass
-  // it down.
-  if (brand?.narration?.persona) {
-    return `${brand.narration.persona.trim()}\n\n${baseSystem}`
-  }
   return baseSystem
 }
 
@@ -562,8 +553,7 @@ async function generateEpisode(job: Job): Promise<void> {
   }
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const brand = await getEffectiveBrand(project_slug)
-  const sysPrompt = systemPrompt(format, standards, brand)
+  const sysPrompt = systemPrompt(format, standards)
 
   const skipImages = !req.generate_image_prompts
   const skipYoutube = !req.generate_youtube_desc
@@ -591,7 +581,7 @@ async function generateEpisode(job: Job): Promise<void> {
     // (Anthropic streaming) ≈ 12k words. Two signals can trigger chunking:
     //   1. word-count heuristic (CHUNK_THRESHOLD_WORDS) — fast pre-check
     //   2. dynamic budget check — projects with a heavy character cast,
-    //      long production standards, or large brand persona can crowd
+    //      long production standards or a large character cast can crowd
     //      the cap even at lower word counts. Assemble the user prompt
     //      once and feed its real size into `shouldChunkByBudget`.
     // Chunked mode writes per-chapter docx files incrementally, so cancel
@@ -843,9 +833,8 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   format = await applyRecencyToFormat(format, project_slug)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
-  const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards, brand)
+  const sysPrompt = systemPrompt(format, standards)
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
 
   const {
@@ -1042,8 +1031,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   await fs.mkdir(paths.script_dir, { recursive: true })
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const brand = await getEffectiveBrand(project_slug)
-  const sysPrompt = systemPrompt(format, standards, brand)
+  const sysPrompt = systemPrompt(format, standards)
   const introStandardsText = (config as any).intro_standards || ''
 
   job.output_lines.push(`Generating introduction...`)
@@ -1051,12 +1039,12 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   // v1.0.71+: format-supplied example text. Listicle / explainer
   // formats ship a short host-personality template that's far more
   // useful than abstract beats for matching the channel's voice. We
-  // substitute {host_name} and {channel_name} from the request +
-  // brand so the example stays generic in the format JSON. Empty
+  // substitute {host_name} and {channel_name} from the request and project
+  // so the example stays generic in the format JSON. Empty
   // when the format doesn't ship one (sleep-story, etc.).
   let formatExampleBlock = ''
   if (fmtIntro?.exampleText?.trim()) {
-    const channelName = brand?.channel?.name?.trim() || project?.name?.trim() || ''
+    const channelName = project?.name?.trim() || ''
     const hostName = (introSettings.host_name || '').trim() || '[your name]'
     const filled = fmtIntro.exampleText
       .replace(/\{host_name\}/g, hostName)
@@ -1157,7 +1145,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
 // Phase 2 of the outline-first refactor. The chunked-narration module
 // already has buildOutlineOnly() and expandChapters() — these are thin
 // job executors that wire up the same setup generateEpisode does (config
-// load, format resolution, brand persona, character cast, paths, abort
+// load, format resolution, character cast, paths, abort
 // signal) and then delegate to the chunked-narration helpers.
 //
 // generateScriptOnly stays as the legacy one-shot path (Phase 3 will
@@ -1277,9 +1265,8 @@ async function setupChunkedJobContext(
     openai_api_key: config.openai_api_key,
     kie_api_key: config.kie_api_key,
   }
-  const brand = await getEffectiveBrand(project_slug)
   const narratorStyle = customStyleText || narratorStyleFor(format, style).description
-  const sysPrompt = `${systemPrompt(format, standards, brand)}
+  const sysPrompt = `${systemPrompt(format, standards)}
 
 NARRATOR STYLE — binding for both outline and chapter prose:
 ${narratorStyle}`

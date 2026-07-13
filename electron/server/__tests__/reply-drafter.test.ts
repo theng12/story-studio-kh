@@ -5,55 +5,22 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildReplyDraftPrompt, parseReplyDrafts } from '../lib/reply-drafter.js'
-import type { Brand } from '../models/types.js'
 
 describe('buildReplyDraftPrompt', () => {
-  test('includes channel name from brand.channel.name', () => {
-    const brand: Brand = {
-      id: 'b', name: 'Demo', schemaVersion: 1,
-      channel: { name: 'Sleep Studio Asia' },
-    }
+  test('includes the project name as channel context', () => {
     const prompt = buildReplyDraftPrompt({
       commentText: 'lovely!',
       commentAuthor: 'Alice',
-      brand,
+      projectName: 'Sleep Studio Asia',
     })
     assert.match(prompt, /channel owner of "Sleep Studio Asia"/)
     assert.match(prompt, /by Alice/)
     assert.match(prompt, /lovely!/)
   })
 
-  test('falls back to projectName when brand has no channel name', () => {
-    const prompt = buildReplyDraftPrompt({
-      commentText: 'hi',
-      commentAuthor: 'Alice',
-      projectName: 'My Channel',
-    })
-    assert.match(prompt, /channel owner of "My Channel"/)
-  })
-
-  test('falls back to "this channel" when neither brand nor project name', () => {
+  test('falls back to "this channel" when there is no project name', () => {
     const prompt = buildReplyDraftPrompt({ commentText: 'hi', commentAuthor: 'Alice' })
     assert.match(prompt, /channel owner of "this channel"/)
-  })
-
-  test('includes brand persona when present', () => {
-    const brand: Brand = {
-      id: 'b', name: 'Demo', schemaVersion: 1,
-      narration: { persona: 'Calm and slow narrator. Always third person.' },
-    }
-    const prompt = buildReplyDraftPrompt({
-      commentText: 'lovely!',
-      commentAuthor: 'Alice',
-      brand,
-    })
-    assert.match(prompt, /Channel persona/)
-    assert.match(prompt, /Calm and slow narrator/)
-  })
-
-  test('omits persona block when none provided', () => {
-    const prompt = buildReplyDraftPrompt({ commentText: 'hi', commentAuthor: 'A' })
-    assert.doesNotMatch(prompt, /Channel persona/)
   })
 
   test('includes video title when supplied', () => {

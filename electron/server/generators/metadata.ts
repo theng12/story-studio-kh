@@ -271,7 +271,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       let topBlock = ''
       try {
         const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
-        const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
+        const { formatTopPerformersBlock } = await import('../lib/top-performers.js')
         const top = await getTopPerformersForSlug(project_slug, 5)
         topBlock = formatTopPerformersBlock(top)
         if (top.length) job.output_lines.push(`Inspired by ${top.length} top performer(s) from this channel.`)
@@ -349,43 +349,14 @@ Requirements:
     const hasV1 = existing.some(f => f === `${episode_id}_Metadata.json`)
     const writeVersion = hasV1 ? nextVersion(existing, episode_id) : 1
 
-    // Brand-aware post-processing: interpolate {channel_name} placeholders
-    // and surface any banned-word matches as warnings (don't block).
-    let interpolatedTitles = titles
-    let interpolatedDescription = description
-    let interpolatedTags = tags
-    let bannedFlagged: string[] = []
-    try {
-      const { getEffectiveBrand } = await import('../services/brand-loader.js')
-      const { interpolateBrandPlaceholders, findBannedWords } = await import('../lib/brand-prompt.js')
-      const project = await pm.getProject(project_slug)
-      const brand = await getEffectiveBrand(project_slug)
-      const interp = (s: string) => interpolateBrandPlaceholders(s, brand, project)
-      interpolatedTitles = titles.map(interp)
-      interpolatedDescription = interp(description)
-      interpolatedTags = tags.map(interp)
-      // Banned-word scan over the combined output. Persisted on the saved
-      // metadata so the page can render a warning chip alongside the
-      // existing title/description/tag UI without re-scanning client-side.
-      const haystack = [interpolatedTitles.join('\n'), interpolatedDescription, interpolatedTags.join(' ')].join('\n')
-      bannedFlagged = findBannedWords(haystack, brand)
-      if (bannedFlagged.length) {
-        job.output_lines.push(`⚠ Brand banned-word warning: matched ${bannedFlagged.join(', ')}`)
-      }
-    } catch { /* brand layer must never break metadata generation */ }
-
     const meta = {
-      title: interpolatedTitles[0] || title,    // auto-pick the first title for batch mode
+      title: titles[0] || title,    // auto-pick the first title for batch mode
       // Preserve all AI-generated title options so the user can pick a different
       // one later from the metadata page without re-running generation. The
       // metadata page hydrates its title-picker from this array on load.
-      title_options: interpolatedTitles.length ? interpolatedTitles : (title ? [title] : []),
-      description: interpolatedDescription,
-      tags: interpolatedTags,
-      // Brand banned-word matches at generation time. Empty array = no
-      // matches = no badge. Stored so the page warns even after restart
-      // / reload without recomputing client-side.
-      brand_warnings: bannedFlagged,
+      title_options: titles.length ? titles : (title ? [title] : []),
+      description,
+      tags,
       savedAt: new Date().toISOString(),
       version: writeVersion,
     }
@@ -405,11 +376,11 @@ Requirements:
     const expectedTitleCount = templateOutput?.title || title_mode !== 'paraphrase' ? 1 : title_count
     const expectedTagCount = templateOutput?.tags.length ? Math.min(tag_count, templateOutput.tags.length) : tag_count
     const missing: string[] = []
-    if (!interpolatedDescription.trim()) missing.push('description')
-    for (let index = interpolatedTitles.length; index < expectedTitleCount; index++) {
+    if (!description.trim()) missing.push('description')
+    for (let index = titles.length; index < expectedTitleCount; index++) {
       missing.push(`title option ${index + 1}`)
     }
-    for (let index = interpolatedTags.length; index < expectedTagCount; index++) {
+    for (let index = tags.length; index < expectedTagCount; index++) {
       missing.push(`tag ${index + 1}`)
     }
     const expected = 1 + expectedTitleCount + expectedTagCount

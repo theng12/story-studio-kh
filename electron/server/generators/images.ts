@@ -355,7 +355,7 @@ export async function generateImages(job: Job): Promise<void> {
   // (services/art-style-resolver.ts) can carry a rendered preview image; we
   // feed it as an img2img style reference so renders match the picked look.
   // Resolved once here; attached per-scene as the fifth reference source
-  // below. Empty for text-only styles / the brand fallback.
+  // below. Empty for text-only styles.
   const artStyle = await resolveProjectArtStyle(project_slug).catch(() => null)
   const artStyleRefPaths = (artStyle?.referenceImagePaths || []).filter(p => existsSync(p))
 

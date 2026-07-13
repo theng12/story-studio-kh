@@ -345,21 +345,6 @@ export async function getEffectiveFormatFor(
   if (legacyAlignment && base.sceneAlignment !== legacyAlignment) {
     base = { ...base, sceneAlignment: legacyAlignment }
   }
-  // Apply the brand's format_overrides BEFORE the project's, so project
-  // overrides win on conflict. The brand layer is where channel-wide
-  // format tweaks live (narrator-style preference, broad keywords);
-  // project-level overrides remain the per-project escape hatch.
-  if (project.brand_id) {
-    try {
-      const brandLoader = await import('./brand-loader.js')
-      const brand = await brandLoader.loadBrand(project.brand_id)
-      if (brand?.format_overrides) {
-        base = mergeFormatOverrides(base, brand.format_overrides)
-      }
-    } catch (e: any) {
-      console.warn(`[format-loader] failed applying brand '${project.brand_id}' overrides: ${e.message}`)
-    }
-  }
   base = mergeFormatOverrides(base, project.format_overrides)
   // Niche layer — the CONTENT layer (v1.0.280+ polarity). The format is a
   // presentation shell carrying neutral fallback content; the niche provides
@@ -665,8 +650,8 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   // The spread preserves every other imagePrompts field — including the
   // v1.0.224 `thumbnail` art-direction block — so per-format thumbnail
   // guidance survives niche application. Only `defaultStyleTag` (scene style)
-  // is rewritten here; project/brand `format_overrides` deep-merge the
-  // `thumbnail` object key-by-key separately.
+  // is rewritten here; project `format_overrides` deep-merge the `thumbnail`
+  // object key-by-key separately.
   const imagePrompts = {
     ...format.imagePrompts,
     defaultStyleTag: stylePieces.join('\n\n'),

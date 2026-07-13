@@ -602,8 +602,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
 
   // v1.0.518 — unified Project Art Style. Style-tag precedence:
   //   1. Explicit per-run override (req.style_tag typed/picked in the page).
-  //   2. The project's active art style (a saved preset, or the brand
-  //      imagePrompts block folded in) — auto-applied to every prompt, and
+  //   2. The project's active art style (a saved preset) — auto-applied to
+  //      every prompt, and
   //      it REPLACES the format+niche merged tag rather than stacking with it.
   //   3. The effective format+niche merged `defaultStyleTag` (legacy).
   // An explicit override is treated as a full replace: it also skips the
@@ -641,10 +641,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     thumbnailCreativeMode: req.thumb_creative_mode || 'guided',
   })
 
-  // v1.0.518 — negatives come from the unified art style (a preset's future
-  // negatives slot, or the brand imagePrompts fallback). Replaces the old
-  // standalone brand keyword/sheet/negatives block, whose keywords + sheet
-  // now flow through the style tag above.
+  // Negatives come from the active project art style when provided.
   let prompt = basePrompt
   const negatives = artStyle?.negatives || []
   if (negatives.length) {

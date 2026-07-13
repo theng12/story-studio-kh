@@ -324,7 +324,7 @@ export interface ChunkedNarrationParams {
   totalChapters: number
   wordsPerChapter: number
   format: Format
-  /** Pre-built system prompt (already includes brand persona, format role, standards). */
+  /** Pre-built system prompt (already includes format role and standards). */
   systemPrompt: string
   /** Directory where per-chapter docx files live and the sidecar is written. */
   scriptDir: string
@@ -654,8 +654,8 @@ async function buildOutline(
   }
 
   // Outline is a one-shot non-streaming JSON array call. Use the same
-  // system prompt the caller built so format role + brand persona are in
-  // effect. The model returns 100 chapters × ~80 words ≈ 11k tokens —
+  // system prompt the caller built so the format role is in effect. The model
+  // returns 100 chapters × ~80 words ≈ 11k tokens —
   // safely below the 16k streaming cap and the ~32k extended cap.
   const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
   const arr = await callForJsonArray(

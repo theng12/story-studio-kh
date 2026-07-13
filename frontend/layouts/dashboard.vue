@@ -530,7 +530,7 @@ const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChai
 const hidesScenePages = computed(() => isBroll.value || isImagePool.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // v1.0.146+ — also re-fetch the effective format when the project's
-// format_id / brand_id / niche_id changes, even while staying on the
+// format_id / niche_id changes, even while staying on the
 // same slug. Without this, switching the project to a different format
 // in Settings → Format (or Ideas → Format Overrides) updates the
 // merged format on disk but the sidebar stays stuck on whatever the
@@ -539,7 +539,7 @@ watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // loadProject() after saving, so project.value.format_id is reactive
 // here; watching it covers every format-mutating UI path.
 watch(
-  () => [project.value?.format_id, project.value?.brand_id, project.value?.niche_id] as const,
+  () => [project.value?.format_id, project.value?.niche_id] as const,
   () => { void loadVisualSource() },
 )
 

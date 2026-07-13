@@ -149,20 +149,11 @@ export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
 
-  // Load the project's effective brand once for the lexicon substitution
-  // applied to parsed sections further down. Best-effort — a brand load
-  // failure must never break audio generation.
-  let brand: import('../models/types.js').Brand | null = null
-  try {
-    const { getEffectiveBrand } = await import('../services/brand-loader.js')
-    brand = await getEffectiveBrand(project_slug)
-  } catch { /* brand layer must never break audio generation */ }
-
   // No silent defaults (v1.0.210+): a voice MUST be explicitly chosen.
   // The Audio tab requires a pick before Generate, and pipeline runs carry
   // the voice from each step's saved preset (the pipeline pre-flight also
   // rejects a voiceless audio preset). If we still arrive here without a
-  // voice, fail loudly rather than letting a brand/provider default quietly
+  // voice, fail loudly rather than letting a provider default quietly
   // substitute a voice the user never chose — that masked-default behaviour
   // is exactly what produced "wrong voice" renders before.
   if (!req.voice || !String(req.voice).trim()) {
@@ -180,7 +171,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // a field, programmatic enqueues, retried jobs whose params predate
   // the format-aware roll-out) so the format-tuned defaults still land
   // instead of falling through to the TTS client's generic hardcoded
-  // values. Precedence: req body → brand → format → client default.
+  // values. Precedence: req body → format → client default.
   try {
     const fmt = await getEffectiveFormat(project_slug)
     const fmtAudio = fmt?.script.audioDefaults
@@ -373,42 +364,6 @@ export async function generateAudio(job: Job): Promise<void> {
         `Normalized ${totalFixed} TTS-unfriendly mark(s) (em dashes, smart quotes, …) for natural delivery.`,
       )
     }
-  }
-
-  // Apply the brand's pronunciation lexicon (pre-TTS substitution) to
-  // every section's text BEFORE chunking + character routing. One log
-  // line summarises every term that fired — the user can verify which
-  // proper nouns were respelled without scanning the audio output. No
-  // brand or empty lexicon = no-op.
-  if (brand?.pronunciation_lexicon?.length) {
-    try {
-      const { applyLexicon, formatSubstitutionsLog } = await import('../lib/pronunciation.js')
-      // Direct ElevenLabs supports SSML phoneme tags; other providers
-      // (Fal-proxied ElevenLabs, GenAIPro) fall back to alt_spelling.
-      // When a provider gains SSML support, flip its branch here.
-      const ssmlSupported = providerId === 'elevenlabs'
-      const totalCounts = new Map<string, { replacement: string; count: number }>()
-      for (const s of allSections) {
-        const result = applyLexicon(s.text, brand.pronunciation_lexicon, { ssmlSupported })
-        if (result.substitutions.length) {
-          s.text = result.text
-          for (const sub of result.substitutions) {
-            const prev = totalCounts.get(sub.term)
-            totalCounts.set(sub.term, {
-              replacement: sub.replacement,
-              count: (prev?.count ?? 0) + sub.count,
-            })
-          }
-        }
-      }
-      if (totalCounts.size) {
-        const records = [...totalCounts.entries()].map(([term, v]) => ({
-          term, replacement: v.replacement, count: v.count,
-        }))
-        const log = formatSubstitutionsLog(records)
-        if (log) job.output_lines.push(log)
-      }
-    } catch { /* brand layer must never break audio generation */ }
   }
 
   // v1.0.383/388 — auto-pacing. When enabled, deterministically insert pause

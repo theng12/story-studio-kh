@@ -112,13 +112,6 @@ export interface ProjectMeta {
   format_overrides?: DeepPartial<Format>
 
   /**
-   * Brand primitive — channel-level identity layer above Format. Selects
-   * a brand profile from ${PROJECTS_ROOT}/.brands/{id}.json. Unset = no
-   * brand, generators fall back to today's literal defaults.
-   */
-  brand_id?: string
-
-  /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
    * answers "what shape of video" (bound-explainer, sleep-story, listicle);
    * Niche answers "what subject domain" (plants, animals, fungi, insects).
@@ -640,8 +633,8 @@ export interface Format {
 //   listicle  × plants    → "10 Weirdest Plants on Earth"
 //   narrative × gemstones → "The Sleeping Caves" (a calm narrative episode)
 //
-// Layered with Format + Brand:
-//   base format → brand.format_overrides → project.format_overrides
+// Layered with Format:
+//   base format → project.format_overrides
 //   base niche  → project.niche_overrides
 // Niche injection happens at well-defined call sites in each generator
 // (ideas vocab, script context, image-prompt style sheet, metadata tags) —
@@ -1034,14 +1027,14 @@ export interface ThumbnailTemplate {
    *  between the dim gradient and the text zones. */
   accentStrokes?: ThumbnailAccentStroke[]
   /** Optional logo / mark overlay. Image URL resolved at compose
-   *  time from a project asset or brand kit. */
+   *  time from a project asset. */
   logoSlot?: ThumbnailLogoSlot
 }
 
 /**
  * One text overlay on a niche thumbnail. Rendered as SVG `<text>` and
  * composited via sharp. `name` drives substitution: 'title' uses the
- * episode title, 'subtitle' / 'brand' / anything else fall back to
+ * episode title; every other name falls back to
  * `defaultText` with `{episode_title}` / `{episode_code}` / `{niche_name}`
  * placeholders supported.
  */
@@ -1113,138 +1106,6 @@ export interface ThumbnailLogoSlot {
   width: number
 }
 
-// ── Brand primitive (channel-level identity layer) ─────────────────────────
-//
-// A Brand sits ABOVE Format in the resolution chain. Format is "what shape
-// of content" (sleep-story, adventure, true-crime). Brand is "whose channel
-// it is" — channel name, narrator persona, default voice, logo, brand-style
-// keywords for image prompts. Multiple projects can share one Brand
-// (different episodes, same channel). Future steps (#5 pronunciation
-// lexicon, #1 analytics persona, #3 comment-reply tone) hang off this.
-//
-// Resolution chain (extends today's Format chain):
-//   base format → brand.format_overrides → project.format_overrides
-//
-// Brand also exposes direct fields the generators read at specific call
-// sites (channel name, voice fallback, banned words). Those bypass the
-// merge — they're consumed where they apply.
-//
-// User-defined brands live at ${PROJECTS_ROOT}/.brands/{id}.json. No
-// built-in brands ship — brands are inherently per-channel.
-
-export interface BrandChannel {
-  /** Channel name. Replaces any literal channel-name reference in
-   *  metadata templates via {channel_name} placeholder. */
-  name?: string
-  youtube_url?: string
-  /** Channel handle, e.g. "@channelname". */
-  handle?: string
-}
-
-export interface BrandColorPalette {
-  primary?: string
-  accent?: string
-  background?: string
-}
-
-export interface BrandVisual {
-  /** Absolute path to the channel logo on disk. Defaults the
-   *  video-assembly logo when the project hasn't overridden. */
-  logo_path?: string
-  color_palette?: BrandColorPalette
-  /** e.g. "Inter" — feeds video-assembly text styling. */
-  font_family?: string
-}
-
-export interface BrandVoiceSettings {
-  stability?: number
-  similarity?: number
-  speed?: number
-}
-
-export interface BrandNarration {
-  /** 1-3 sentences. Prepended to the LLM system prompt for ideas /
-   *  scripts / metadata when present. */
-  persona?: string
-  /** Default ElevenLabs (or other TTS provider) voice id. Used when
-   *  the project hasn't picked a preset for the episode. */
-  default_voice_id?: string
-  default_voice_settings?: BrandVoiceSettings
-}
-
-export interface BrandImagePrompts {
-  /** Tokens prepended to every image prompt, e.g. ["cinematic", "moody"]. */
-  style_keywords?: string[]
-  /** Long-form style reference appended as a "Style reference:" block. */
-  style_sheet?: string
-  negative_prompts?: string[]
-}
-
-export interface BrandMetadata {
-  /** Boilerplate ending appended to YouTube descriptions. */
-  description_outro_template?: string
-  /** Format string for music/asset credits, e.g.
-   *  "Music: {track_name} by {artist} — {license}". */
-  attribution_template?: string
-  /** Post-generation flag list. Matches surface as warnings (don't block). */
-  banned_words?: string[]
-}
-
-/**
- * One entry in a brand's pronunciation lexicon. Applied as a pre-TTS
- * substitution pass on the narration text so a single mispronounced
- * proper noun doesn't force a full re-render.
- *
- * Match semantics (see lib/pronunciation.ts):
- *   - Word-boundary match for ASCII-only terms (so "Sok" inside
- *     "Sokhom" is left alone).
- *   - Substring match for terms containing non-ASCII characters (\b
- *     is ASCII-only and would skip valid Khmer / accented matches).
- *   - Case-insensitive by default. Set `case_sensitive: true` for
- *     terms where casing matters (rare).
- *
- * Replacement priority on TTS time: SSML (if provider supports + ssml
- * field is set) → alt_spelling → ipa-as-alt-spelling. Today only
- * alt_spelling is wired; ssml + ipa are stored for forward-compat.
- */
-export interface BrandPronunciation {
-  /** The word as it appears in the script (e.g. "Sokhom"). Required. */
-  term: string
-  /** TTS-friendly respelling (e.g. "Soh-Khohm"). Primary substitution. */
-  alt_spelling?: string
-  /** IPA notation (e.g. "/sɔːkˈhɔːm/"). Stored, not yet applied. */
-  ipa?: string
-  /** Full SSML override (e.g. <phoneme alphabet="ipa" ph="...">…</phoneme>).
-   *  Stored, not yet applied — wiring deferred until SSML support lands
-   *  in our TTS provider clients. */
-  ssml?: string
-  /** Default false. Match case-insensitively unless this is true. */
-  case_sensitive?: boolean
-}
-
-export interface Brand {
-  /** Stable slug, unique within ${PROJECTS_ROOT}/.brands/. */
-  id: string
-  /** Display name. */
-  name: string
-  schemaVersion: 1
-
-  channel?: BrandChannel
-  visual?: BrandVisual
-  narration?: BrandNarration
-  imagePrompts?: BrandImagePrompts
-  metadata?: BrandMetadata
-
-  /** Pre-TTS substitution table. See BrandPronunciation. */
-  pronunciation_lexicon?: BrandPronunciation[]
-
-  /** Optional: this brand's preferred Format for new projects. */
-  format_default_id?: string
-
-  /** Format overrides applied between base format and project.format_overrides. */
-  format_overrides?: DeepPartial<Format>
-}
-
 // v1.0.166 — Pattern primitive removed with the Pattern system. Title shaping
 // now happens at idea-time via the Ideas page's title_template field.
 
@@ -1295,8 +1156,8 @@ export interface Character {
    *                (1 character per episode, never reused). Cheap to
    *                create + discard via the inline "+ Quick character"
    *                shortcut on the script page.
-   *   'project'  — available to every episode in the project. The "brand
-   *                character" / channel mascot use case. Auto-included
+   *   'project'  — available to every episode in the project. The channel
+   *                mascot use case. Auto-included
    *                in every episode's picker.
    *   'library'  — sourced from the global library; copied into the
    *                project on import. After copy, source becomes
@@ -1421,7 +1282,6 @@ export interface UpdateProjectRequest {
   youtube_channel_url?: string
   format_id?: string
   format_overrides?: DeepPartial<Format>
-  brand_id?: string
   content_mode?: 'format' | 'freeform'
 }
 
@@ -1623,7 +1483,7 @@ export interface VoicePreset {
  * these in a "Custom" optgroup beside the built-in style presets.
  *
  * Stored on ProjectConfig (per-project) — not a global library — because
- * style choice is tightly coupled to a channel's brand identity. A future
+ * style choice is tightly coupled to a project's visual identity. A future
  * audit might add a project → library promotion flow, but YAGNI today.
  */
 export interface StylePreset {
@@ -1718,8 +1578,8 @@ export interface ProjectConfig {
    * that is auto-applied to every generated image prompt for this project.
    * When set, it fully replaces the format+niche style tag; the style's
    * preview image is also fed into img2img generation as a reference. Unset
-   * = fall back to brand imagePrompts, then the format+niche merged tag
-   * (legacy behaviour). Resolved via services/art-style-resolver.ts.
+   * = fall back to the format+niche merged tag. Resolved via
+   * services/art-style-resolver.ts.
    */
   active_style_preset_id?: string
   audio_models: Record<string, AudioModelConfig>

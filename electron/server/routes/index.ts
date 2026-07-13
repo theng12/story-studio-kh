@@ -29,7 +29,6 @@ import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
 import { router as characterMigrationRouter } from './character-migration.js'
-import { router as brandsRouter } from './brands.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
 import { router as recencyRouter } from './recency.js'
@@ -85,7 +84,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', charactersRouter)
   app.use('/api', characterLibraryRouter)
   app.use('/api', characterMigrationRouter)
-  app.use('/api', brandsRouter)
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)
   app.use('/api', recencyRouter)

@@ -3,8 +3,8 @@
  *
  * Two pure functions:
  *   - buildReplyDraftPrompt(...) builds the user-message string the
- *     LLM sees. Brand persona, channel name, video title, and the
- *     incoming comment all flow in here.
+ *     LLM sees. Project name, video title, and the incoming comment
+ *     all flow in here.
  *   - parseReplyDrafts(...) takes the LLM's raw response and returns
  *     a clean string[] (one entry per candidate reply, in order).
  *
@@ -17,8 +17,6 @@
  * English content where naive script-detection would split a word.
  */
 
-import type { Brand } from '../models/types.js'
-
 export interface BuildReplyDraftOptions {
   /** Plain-text comment we're replying to (textOriginal). */
   commentText: string
@@ -28,28 +26,19 @@ export interface BuildReplyDraftOptions {
   videoTitle?: string
   /** How many candidate replies to ask for. Defaults to 3. */
   count?: number
-  /** Brand object — supplies persona + channel name. Optional. */
-  brand?: Brand | null
-  /** Project name fallback when no brand or no brand.channel.name. */
+  /** Project name used as channel context. */
   projectName?: string
 }
 
 export function buildReplyDraftPrompt(opts: BuildReplyDraftOptions): string {
   const count = Math.max(1, Math.min(opts.count ?? 3, 5))
-  const channelName = opts.brand?.channel?.name?.trim()
-    || opts.projectName?.trim()
-    || 'this channel'
-  const persona = opts.brand?.narration?.persona?.trim()
-
-  const personaBlock = persona
-    ? `\nChannel persona (use this voice when replying):\n${persona}\n`
-    : ''
+  const channelName = opts.projectName?.trim() || 'this channel'
   const titleBlock = opts.videoTitle
     ? `\nThe comment is on the video: "${opts.videoTitle}"\n`
     : ''
 
   return `You are the channel owner of "${channelName}". Draft ${count} short, friendly reply options to a viewer's comment on one of your videos.
-${personaBlock}${titleBlock}
+${titleBlock}
 Viewer comment by ${opts.commentAuthor || 'a viewer'}:
 """
 ${opts.commentText}

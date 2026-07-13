@@ -2530,23 +2530,8 @@
       </div>
 
       <div class="form-group">
-        <label>Brand <span class="text-muted" style="font-weight:normal">(channel-level identity — narrator persona, default voice, brand style keywords)</span></label>
-        <div class="brand-picker">
-          <select v-model="brandSelection" class="input" :disabled="brandsLoading">
-            <option value="">— None (use literal defaults) —</option>
-            <option v-for="b in availableBrands" :key="b.id" :value="b.id">{{ b.name }}</option>
-          </select>
-          <NuxtLink v-if="brandSelection" :to="`/brands/${brandSelection}`" class="btn btn-secondary btn-sm">
-            Edit brand
-          </NuxtLink>
-          <NuxtLink to="/brands" class="btn btn-secondary btn-sm">Manage all brands…</NuxtLink>
-        </div>
-        <span v-if="brandSaveMessage" class="text-muted" style="font-size:11px">{{ brandSaveMessage }}</span>
-      </div>
-
-      <div class="form-group">
         <label>Art Style <span class="text-muted" style="font-weight:normal">(auto-applied to every image prompt for this project; the style's preview image also feeds img2img renders. Overridable per run on the Image Prompts page.)</span></label>
-        <div class="brand-picker">
+        <div class="art-style-picker">
           <select v-model="artStyleSelection" class="input">
             <option value="">— None (use format / niche default) —</option>
             <optgroup v-if="savedStylePresets.length" label="Saved styles">
@@ -3293,7 +3278,7 @@ async function saveFormatSettings() {
 //
 // Niche is orthogonal to Format — empty string means "no niche, use format
 // defaults only". Saved via the dedicated /projects/:slug/niche endpoint
-// (mirrors the brand association setter) so the existing /projects/:slug
+// so the existing /projects/:slug
 // PATCH path doesn't need to learn about a new field shape.
 
 // v1.0.96+ — Niche tab also absorbs the standalone /niches sidebar page
@@ -5173,47 +5158,6 @@ const projectForm = reactive<{
   mark_as_ai_generated: boolean | undefined
 }>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', category_id: undefined, mark_as_ai_generated: undefined })
 
-// ── Brand picker ───────────────────────────────────────────────────────────
-// Brand sits above Format in the resolution chain (channel-level identity).
-// Selection is saved immediately via PUT /api/projects/:slug/brand so the
-// dropdown behaves like an inline setting, not a form submission.
-const { brands: availableBrands, loadAll: loadAllBrands, setProjectBrand } = useBrands()
-const brandsLoading = ref(false)
-const brandSelection = ref<string>('')
-const brandSaveMessage = ref<string>('')
-let brandSelectionInitialized = false
-
-async function refreshBrandPicker() {
-  brandsLoading.value = true
-  try { await loadAllBrands() } finally { brandsLoading.value = false }
-}
-
-watch(project, async (p) => {
-  if (!p) return
-  await refreshBrandPicker()
-  // Only set the initial value once — subsequent project re-fetches must
-  // not stomp the user's in-progress selection.
-  if (!brandSelectionInitialized) {
-    brandSelection.value = (p as any).brand_id || ''
-    brandSelectionInitialized = true
-  }
-}, { immediate: true })
-
-watch(brandSelection, async (next, prev) => {
-  if (!brandSelectionInitialized) return
-  if (next === prev) return
-  brandSaveMessage.value = 'Saving…'
-  try {
-    await setProjectBrand(slug.value, next || null)
-    brandSaveMessage.value = next ? 'Brand assigned' : 'Brand cleared'
-    setTimeout(() => { brandSaveMessage.value = '' }, 2500)
-  } catch (e: any) {
-    brandSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save brand selection'
-    // Roll back the visible value so the dropdown matches what's persisted.
-    brandSelection.value = prev || ''
-  }
-})
-
 // ── Per-project Art Style (v1.0.518) ──────────────────────────────────────
 // The project's active art style is persisted as config.active_style_preset_id
 // (an id in config.style_presets). The generator auto-applies it to every
@@ -6065,14 +6009,14 @@ async function deleteProject() {
 .cm-opt.active { border-color: var(--accent); background: rgba(108, 143, 255, 0.06); }
 .cm-opt input { margin-top: 3px; }
 
-/* ── Brand picker (Project tab) ────────────────────────────────────────── */
-.brand-picker {
+/* ── Art style picker (Project tab) ────────────────────────────────────── */
+.art-style-picker {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
-.brand-picker .input { flex: 1; min-width: 200px; }
+.art-style-picker .input { flex: 1; min-width: 200px; }
 
 /* ── Format tab ──────────────────────────────────────────────────────── */
 .format-tab-header {

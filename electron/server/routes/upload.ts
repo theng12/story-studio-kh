@@ -258,12 +258,10 @@ router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
     if (!model) return res.status(400).json({ detail: 'model is required' })
 
     const { buildReplyDraftPrompt, parseReplyDrafts } = await import('../lib/reply-drafter.js')
-    const { getEffectiveBrand } = await import('../services/brand-loader.js')
     const project = await pm.getProject(slug)
-    const brand = await getEffectiveBrand(slug)
 
     const prompt = buildReplyDraftPrompt({
-      commentText, commentAuthor, videoTitle, count, brand, projectName: project?.name,
+      commentText, commentAuthor, videoTitle, count, projectName: project?.name,
     })
 
     const apiKeys = {
@@ -272,8 +270,6 @@ router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
       kie_api_key: (config as any).kie_api_key,
     }
     const { callAi } = await import('../lib/ai-client.js')
-    // Pass an empty system so callAi's brand-persona auto-injection kicks
-    // in when applicable. The reply-draft prompt is the user message.
     const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, { slug })
     const drafts = parseReplyDrafts(raw, count)
     res.json({ comment_id: commentId, drafts })

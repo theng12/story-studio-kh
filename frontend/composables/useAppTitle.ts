@@ -11,7 +11,7 @@ import { toValue } from 'vue'
  * Pass a string, ref, or getter:
  *   useAppTitle('Audio Generator')                  // → "Audio Generator — Story Studio KH"
  *   useAppTitle()                                   // → "Story Studio KH"
- *   useAppTitle(computed(() => brand.value?.name))  // reactive — refreshes as the ref changes
+ *   useAppTitle(computed(() => project.value?.name))  // reactive — refreshes as the ref changes
  *
  * Empty / nullish page titles fall back to just the app name (no trailing dash).
  */

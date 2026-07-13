@@ -1953,7 +1953,7 @@
         </div>
       </div>
       <p class="text-muted mt-1" style="font-size: 12px">
-        Top-level comments on a single video, newest first. AI-drafted replies use the brand's narrator persona + the same language the viewer wrote in.
+        Top-level comments on a single video, newest first. AI-drafted replies use the project name and the same language the viewer wrote in.
         Posting a reply costs 50 YouTube quota units.
       </p>
 
@@ -2823,7 +2823,7 @@ const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; 
   { id: 'reconcile', label: 'Match unlinked', phase: 6, disabled: false, hint: 'Finds channel videos Story Studio doesn\u2019t know about yet and proposes which local episode each one is. Distinct from Sync from YouTube, which only checks already-linked rows for drift.' },
   { id: 'orphans', label: 'Unlinked Uploads', phase: 7, disabled: false, hint: 'Channel videos that don\u2019t match any local episode. Adopt them one at a time or in bulk (continuation codes or full-system renumber).' },
   { id: 'analytics', label: 'Analytics', phase: 7, disabled: false, hint: 'Per-episode YouTube performance \u2014 views, watch time, retention, CTR. Feeds the "what worked" inspiration into the Ideas + Metadata generators.' },
-  { id: 'comments', label: 'Comments', phase: 7, disabled: false, hint: 'Read viewer comments on uploaded videos and post replies. AI drafts use the brand persona + the same language the viewer wrote in.' },
+  { id: 'comments', label: 'Comments', phase: 7, disabled: false, hint: 'Read viewer comments on uploaded videos and post replies. AI drafts use the project name and the same language the viewer wrote in.' },
 ]
 const activeTab = ref<TabId>('accounts')
 

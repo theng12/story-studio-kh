@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.572 — 2026-07-14
+
+**The unused shared Brand profile system has been removed completely.**
+
+- Removed the Brands button, pages, project association control, API routes, schemas, storage service, and unused empty data directory.
+- Removed hidden Brand-level prompt, persona, format, art-style, voice, pronunciation, metadata, logo, and comment-reply overrides so projects now follow their visible settings only.
+- Preserved independent project features including title branding, branded intro visuals, art styles, Video Assembly logos, and presentation controls.
+- Preserved top-performer analytics under a neutral reusable helper instead of tying it to the retired system.
+- Added regression coverage that prevents Brand routing, project associations, and generator hooks from being restored accidentally.
+
 ## v1.0.571 — 2026-07-14
 
 **Saved voices now belong to the providers that can actually use them.**

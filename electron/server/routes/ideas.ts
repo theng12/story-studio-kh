@@ -472,7 +472,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // the existing format + pattern guidance so the LLM picks up the
     // channel vibe from titles that already worked.
     const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
-    const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
+    const { formatTopPerformersBlock } = await import('../lib/top-performers.js')
     const topPerformers = await getTopPerformersForSlug(slug, 5)
     const topBlock = formatTopPerformersBlock(topPerformers)
     const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, titleTemplate, topBlock)
@@ -606,8 +606,8 @@ Rules:
   // pull from format.script.* so the listicle / educational / true-
   // crime / etc formats get their own ranges.
   //
-  // Per-project overrides (brand format_overrides + project format_
-  // overrides) can push `defaultChapterCount` / `defaultLengthMinutes`
+  // Per-project format overrides can push `defaultChapterCount` /
+  // `defaultLengthMinutes`
   // outside the format's declared range — e.g. BrainWise running 100
   // chapters in a 2-hour video against listicle's [3,20] / [10,90]
   // defaults. When that happens we widen the prompt's stated range to

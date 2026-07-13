@@ -1216,7 +1216,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       let topBlock = ''
       try {
         const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
-        const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
+        const { formatTopPerformersBlock } = await import('../lib/top-performers.js')
         const top = await getTopPerformersForSlug(slug, 5)
         topBlock = formatTopPerformersBlock(top)
       } catch { /* analytics is best-effort */ }
@@ -1362,36 +1362,11 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
       : (metadata_title ? [String(metadata_title)] : [])
 
-    // Brand-aware post-processing on the user-edited fields, mirroring the
-    // batch generator's behaviour: interpolate {channel_name}, then scan
-    // for banned-word matches and persist them on the saved metadata so
-    // the page can render a warning chip after Save without re-scanning
-    // client-side.
-    let resolvedTitle = metadata_title || ''
-    let resolvedDescription = description || ''
-    let resolvedTitleOptions = cleanTitleOptions
-    let resolvedTags = Array.isArray(tags) ? tags : []
-    let bandWarnings: string[] = []
-    try {
-      const { getEffectiveBrand } = await import('../services/brand-loader.js')
-      const { interpolateBrandPlaceholders, findBannedWords } = await import('../lib/brand-prompt.js')
-      const project = await pm.getProject(slug)
-      const brand = await getEffectiveBrand(slug)
-      const interp = (s: string) => interpolateBrandPlaceholders(s, brand, project)
-      resolvedTitle = interp(resolvedTitle)
-      resolvedDescription = interp(resolvedDescription)
-      resolvedTitleOptions = resolvedTitleOptions.map(interp)
-      resolvedTags = resolvedTags.map((t: any) => interp(typeof t === 'string' ? t : String(t ?? '')))
-      const haystack = [resolvedTitleOptions.join('\n'), resolvedDescription, resolvedTags.join(' ')].join('\n')
-      bandWarnings = findBannedWords(haystack, brand)
-    } catch { /* brand layer must never break the save */ }
-
     const meta = {
-      title: resolvedTitle,
-      title_options: resolvedTitleOptions,
-      description: resolvedDescription,
-      tags: resolvedTags,
-      brand_warnings: bandWarnings,
+      title: metadata_title || '',
+      title_options: cleanTitleOptions,
+      description: description || '',
+      tags: Array.isArray(tags) ? tags : [],
       savedAt: new Date().toISOString(),
       version: writeVersion,
     }
@@ -1483,9 +1458,6 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
             : (data.title ? [data.title] : []),
           description: data.description || '',
           tags: Array.isArray(data.tags) ? data.tags : [],
-          // Brand banned-word matches at last save. Absent on older
-          // metadata files saved before the brand layer landed.
-          brand_warnings: Array.isArray(data.brand_warnings) ? data.brand_warnings : [],
           savedAt: data.savedAt || null,
         })
       } catch {}

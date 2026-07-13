@@ -35,7 +35,7 @@ router.get('/niches', async (_req, res) => {
     const niches = await nl.listNiches()
     // For each niche, count how many projects reference it — used by the
     // niche browser to show "in use by N projects" badges and to gate
-    // delete confirmation. Mirrors brands.ts's refCount pattern.
+    // delete confirmation.
     const projects = await pm.listProjects()
     const refCount: Record<string, number> = {}
     for (const summary of projects) {

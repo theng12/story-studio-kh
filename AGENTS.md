@@ -50,3 +50,8 @@ Every generation flow must prove its output is complete before a job, pipeline s
 
 - Research is an opt-in enrichment step. It may appear in supported format flows and expose its own pending filter, but it must never count as a missing Production Board asset, block episode completion, or run by default in the one-click Pipeline.
 - The Co-writer feature is retired. Do not restore its page, navigation entry, API routes, local-storage stores, or completion dependencies. Idea development belongs in Ideas, Research, and Script Generator workflows.
+
+## Retired Brand System
+
+- The shared Brand profile system is retired. Do not restore `/brands`, `brand_id`, Brand API routes, Brand storage, or Brand-level prompt, voice, logo, pronunciation, art-style, metadata, or format overrides.
+- Independent project controls remain valid, including title prefix/suffix branding, branded intro visuals, project art styles, and Video Assembly logo and presentation controls.
