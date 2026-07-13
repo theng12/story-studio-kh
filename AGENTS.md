@@ -28,6 +28,11 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - New provider/model discovery will eventually come from `videostudio-mac`. That integration is deferred until Video Studio exposes a stable provider inventory and dispatch API; do not half-wire or duplicate new provider catalogs in Story Studio meanwhile.
 - Every video request must use the exact scene image for its stable scene number. Missing images are blocking errors, never permission to reuse a different scene image.
 
+## Model Inventory Ownership
+
+- The Settings Models tab may edit built-in pricing and operational limits only. Do not restore the retired Add Custom Model form, project-level `models` catalog, `is_custom` entries, or unified catalog write path.
+- Model/provider inventory belongs to the studio applications and Studio Hub. Future Video Studio integration must discover and dispatch its live catalog there rather than duplicating provider setup inside Story Studio.
+
 ## Verified Completion Contract
 
 Every generation flow must prove its output is complete before a job, pipeline step, Production Board cell, or one-click run may report success.

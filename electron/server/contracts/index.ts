@@ -340,16 +340,6 @@ export interface SafeProjectConfigResponse {
   active_style_preset_id?: string
   audio_models: Record<string, any>
   video_models?: Record<string, any>
-  /** Unified catalog — mirror of the three typed dicts plus any custom entries. */
-  models?: Array<{
-    id: string
-    provider: string
-    type: 'image' | 'audio' | 'video' | 'text'
-    label: string
-    capabilities?: string[]
-    is_custom?: boolean
-    params: Record<string, any>
-  }>
   image_pricing_last_updated: string
   audio_pricing_last_updated: string
   video_pricing_last_updated?: string

@@ -14,8 +14,7 @@ import {
 import {
   DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS, DEFAULT_VIDEO_MODELS,
 } from '../models/defaults.js'
-import { toUnified, fromUnified } from '../models/unified.js'
-import { sanitizeUnifiedVideoModels, sanitizeVideoCatalog } from '../models/video-catalog.js'
+import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type {
   CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
@@ -825,8 +824,8 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
  * Per-entry shallow merge of a built-in default catalog with a project's
  * on-disk override. For each model id:
  *   - If only the default has it → carry the default through (new model).
- *   - If only the project has it → carry the project entry through
- *     (user-added custom model — id not in defaults).
+ *   - If only the project has it → drop it. Model inventory is application-
+ *     managed now; arbitrary project-level custom models are retired.
  *   - If both have it → merge `{ ...default, ...project }` so user-edited
  *     fields win on conflict, but default-only fields (e.g. `tiers` /
  *     `default_tier` added in a later release) flow through to the
@@ -849,9 +848,10 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
 const PROVIDER_INFRA_FIELDS = new Set([
   'api_model', 'api_model_i2i', 'endpoint', 'poll', 'type',
   'refs_field', 'refs_upload', 'aspect_field', 'provider', 'provider_params', 'supports_reference_images',
+  'is_custom',
 ])
 
-function mergeCatalog<T extends Record<string, any>>(
+export function mergeCatalog<T extends Record<string, any>>(
   defaults: Record<string, T>,
   saved: Record<string, T> | null | undefined,
 ): Record<string, T> {
@@ -872,18 +872,6 @@ function mergeCatalog<T extends Record<string, any>>(
       else if (projectEntry && !(k in def)) delete merged[k]
     }
     out[id] = merged as T
-  }
-  // Carry user-added custom entries that aren't in defaults. Entries in `saved`
-  // that are NOT in defaults and are NOT user customs are orphaned former-
-  // defaults (e.g. a model removed from DEFAULT_*_MODELS) — drop them so a
-  // removed default actually disappears from existing projects instead of being
-  // carried forever from the seeded copy. In-memory only (the merge is never
-  // written to disk), so non-destructive. `is_custom` is set by the Add Custom
-  // Model form; seeded defaults never carry it.
-  if (saved) {
-    for (const [id, m] of Object.entries(saved)) {
-      if (!(id in out) && (m as any)?.is_custom) out[id] = m
-    }
   }
   return out
 }
@@ -916,14 +904,9 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]
   }
 
-  // Project the unified model catalog from the merged legacy dicts. Any
-  // user-added custom models on disk (raw.models entries whose id doesn't
-  // live in the legacy dicts) are appended. Delivery 4 exposes this array
-  // to the Settings UI and adds a writer for custom entries.
-  raw.models = toUnified(
-    { image_models: raw.image_models, audio_models: raw.audio_models, video_models: raw.video_models },
-    { customs: sanitizeUnifiedVideoModels(Array.isArray(raw.models) ? raw.models : []) },
-  )
+  // The retired Add Custom Model feature stored a duplicate unified catalog.
+  // Never expose it to callers, even while an older config.json still carries it.
+  delete raw.models
 
   // Merge secrets in for callers that need the keys (generators, providers).
   // This is an in-memory merge only — config.json on disk never carries keys.
@@ -1048,9 +1031,6 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       : { ...DEFAULT_VIDEO_MODELS },
     video_pricing_last_updated: (config as any).video_pricing_last_updated || '',
     audio_pricing_last_updated: config.audio_pricing_last_updated || '',
-    // Unified catalog — mirrors the legacy dicts above plus any custom
-    // entries on disk. Delivery 4 migrates the Settings UI onto this.
-    models: config.models ?? [],
     // Multi-account listing (Delivery 2). Masked keys only; raw apiKey
     // values never leave the server.
     accounts: accountsByProvider,
@@ -1131,6 +1111,9 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
+    // Retired custom-model storage. Any normal settings save permanently
+    // prunes it from this project's config without requiring a bulk migration.
+    delete data.models
     if (req.image_models) {
       data.image_models = req.image_models
       data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
@@ -1151,25 +1134,6 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     if ((req as any).video_models) {
       data.video_models = sanitizeVideoCatalog((req as any).video_models)
       data.video_pricing_last_updated = new Date().toISOString().split('T')[0]
-    }
-    // If the caller sent the unified `models` array, split it back into the
-    // legacy dicts so generators (which still key off image_models / audio_models
-    // / video_models) stay in lockstep with the canonical list. The legacy
-    // fields above take precedence if the caller sent both — we only project
-    // from `models` for types the caller didn't explicitly overwrite.
-    if (Array.isArray((req as any).models)) {
-      const unified = sanitizeUnifiedVideoModels((req as any).models)
-      const split = fromUnified(unified)
-      if (!req.image_models && Object.keys(split.image_models).length) {
-        data.image_models = split.image_models
-      }
-      if (!req.audio_models && Object.keys(split.audio_models).length) {
-        data.audio_models = split.audio_models
-      }
-      if (!(req as any).video_models && Object.keys(split.video_models).length) {
-        data.video_models = sanitizeVideoCatalog(split.video_models)
-      }
-      data.models = unified
     }
     await writeJsonAtomic(configPath, data)
   })

@@ -65,24 +65,13 @@
       </div>
       <table class="edit-table mt-1">
         <thead>
-          <tr><th>Model</th><th>Credits/Image</th><th></th></tr>
+          <tr><th>Model</th><th>Credits/Image</th></tr>
         </thead>
         <tbody>
           <tr v-for="(model, key) in editImageModels" :key="key">
-            <td>
-              {{ model.label }}
-              <span v-if="model.is_custom" class="custom-badge" title="Added via the Add Custom Model form">Custom</span>
-            </td>
+            <td>{{ model.label }}</td>
             <td>
               <input v-model.number="model.credits_per_image" type="number" step="0.5" min="0" class="input input-sm" />
-            </td>
-            <td>
-              <button
-                v-if="model.is_custom"
-                class="btn-icon"
-                :title="`Remove custom model ${key}`"
-                @click="removeCustomModel('image', String(key))"
-              >&#10005;</button>
             </td>
           </tr>
         </tbody>
@@ -106,15 +95,11 @@
             <th title="Max characters per TTS API call. The script is split at sentence boundaries within this cap, then re-stitched. Cloud providers (ElevenLabs ≈ 4800, GenAIPro/fal as their proxies allow) have generous caps; local MLX engines need smaller chunks (VoxCPM2 ≈ 600, Chatterbox ≈ 1000). Leave blank to use the chunker default (~4800).">
               Max chunk chars
             </th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(model, key) in editAudioModels" :key="key">
-            <td>
-              {{ model.label }}
-              <span v-if="model.is_custom" class="custom-badge" title="Added via the Add Custom Model form">Custom</span>
-            </td>
+            <td>{{ model.label }}</td>
             <td>
               <input v-model.number="model.cost_per_1k_chars" type="number" step="0.01" min="0" class="input input-sm" />
             </td>
@@ -134,14 +119,6 @@
                 placeholder="auto"
                 title="Maximum characters per TTS API call. Leave blank to use the chunker default. Suggested: 4800 for ElevenLabs / GenAIPro / fal; 500-600 for VoxCPM2; 1000 for Chatterbox; ≥3000 for Kokoro."
               />
-            </td>
-            <td>
-              <button
-                v-if="model.is_custom"
-                class="btn-icon"
-                :title="`Remove custom model ${key}`"
-                @click="removeCustomModel('audio', String(key))"
-              >&#10005;</button>
             </td>
           </tr>
         </tbody>
@@ -164,27 +141,16 @@
       </p>
       <table class="edit-table mt-1">
         <thead>
-          <tr><th>Model</th><th>Credits/Video</th><th>Modes</th><th></th></tr>
+          <tr><th>Model</th><th>Credits/Video</th><th>Modes</th></tr>
         </thead>
         <tbody>
           <tr v-for="(model, key) in editVideoModels" :key="key">
-            <td>
-              {{ model.label }}
-              <span v-if="model.is_custom" class="custom-badge" title="Added via the Add Custom Model form">Custom</span>
-            </td>
+            <td>{{ model.label }}</td>
             <td>
               <input v-model.number="model.credits_per_video" type="number" step="1" min="0" class="input input-sm" />
             </td>
             <td class="text-muted" style="font-size: 11px;">
               Image → Video
-            </td>
-            <td>
-              <button
-                v-if="model.is_custom"
-                class="btn-icon"
-                :title="`Remove custom model ${key}`"
-                @click="removeCustomModel('video', String(key))"
-              >&#10005;</button>
             </td>
           </tr>
         </tbody>
@@ -192,13 +158,6 @@
       <div class="flex gap-2 mt-2" style="align-items: center;">
         <button class="btn btn-primary" @click="saveVideoPricing">Save Video Pricing</button>
         <SaveIndicator v-bind="savedHintProps('video_pricing')" />
-      </div>
-
-      <div class="mt-3">
-        <AddCustomModelForm
-          :existing="(config as any)?.models || []"
-          @add="addCustomModel"
-        />
       </div>
     </div>
 
@@ -6087,51 +6046,6 @@ async function saveVideoPricing() {
   }
 }
 
-// ── Custom model CRUD (Delivery 4) ───────────────────────────────────────
-// The canonical write path: compose the updated unified models[] array and
-// PUT /settings/config — the backend's updateConfig splits it via fromUnified()
-// so the legacy image_models/audio_models/video_models dicts (which generators
-// still read) stay in lockstep.
-interface UnifiedModel {
-  id: string
-  provider: string
-  type: 'image' | 'audio' | 'video' | 'text'
-  label: string
-  is_custom?: boolean
-  params: Record<string, any>
-}
-
-async function writeUnifiedModels(next: UnifiedModel[], msg: string) {
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { models: next })
-    await refreshConfig(slug.value)
-    success(msg)
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save custom model changes')
-  }
-}
-
-async function addCustomModel(model: UnifiedModel) {
-  const existing = ((config.value as any)?.models || []) as UnifiedModel[]
-  // Id collisions were warned about in the form but not blocked — when the
-  // user saves anyway we override the earlier entry rather than duplicating.
-  const filtered = existing.filter(m => !(m.id === model.id && m.type === model.type))
-  await writeUnifiedModels([...filtered, model], `Added custom ${model.type} model "${model.label}"`)
-}
-
-async function removeCustomModel(type: UnifiedModel['type'], id: string) {
-  const ok = await ask({
-    title: `Remove custom model "${id}"?`,
-    message: 'This only removes the entry from this project — other projects keep their own copies.',
-    confirmLabel: 'Remove model',
-    danger: true,
-  })
-  if (!ok) return
-  const existing = ((config.value as any)?.models || []) as UnifiedModel[]
-  const next = existing.filter(m => !(m.id === id && m.type === type && m.is_custom))
-  await writeUnifiedModels(next, `Removed custom ${type} model`)
-}
-
 async function saveVoices() {
   const valid = editVoices.value.filter(v => v.name && v.voice_id)
   try {
@@ -7083,20 +6997,6 @@ async function deleteProject() {
   border-left: 3px solid #ef4444;
   font-size: 12px;
   color: #ef4444;
-}
-
-.custom-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 6px;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  border-radius: 999px;
-  background: rgba(124, 93, 250, 0.18);
-  color: #b4a2ff;
-  vertical-align: middle;
 }
 
 .badge-warning {

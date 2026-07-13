@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.569 — 2026-07-14
+
+**Model setup is now owned by the studio apps instead of duplicated inside Story Studio.**
+
+- Removed the Add Custom Model form, custom badges, deletion controls, and project-level custom catalog API path from Settings.
+- Removed the unused unified catalog conversion and provider-discovery scaffolding that existed only for custom models.
+- Existing stale custom entries are hidden immediately and safely pruned the next time project settings are saved.
+- Built-in pricing and operational controls remain editable, while provider infrastructure continues to heal from the supported app catalog.
+- Documented Studio Hub and the upcoming Video Studio integration as the sole future owners of live model inventory and dispatch.
+- Added regression coverage to prevent retired custom entries from returning without losing supported built-in pricing edits.
+
 ## v1.0.568 — 2026-07-14
 
 **Video generation is now a safer image-to-video-only workflow.**

@@ -29,20 +29,6 @@ export interface ProviderMeta {
    * `fal-video` share secrets with their audio/image counterparts).
    */
   providerId?: string
-  /**
-   * FUTURE (Delivery 2 scaffolding only — no implementation yet).
-   * Aggregator providers can implement this to claim model ids that look
-   * like another provider's (e.g. `anthropic/claude-...`). Returns the
-   * aggregator-assigned routing target id, or `undefined` to decline the
-   * model.
-   */
-  resolveModelProvider?: (modelId: string) => string | undefined
-  /**
-   * FUTURE (Delivery 2 scaffolding only — no implementation yet).
-   * Providers with dynamic catalogs can implement this to return their
-   * live model list. The registry will call it lazily.
-   */
-  fetchModelCatalog?: (apiKey: string) => Promise<import('../models/types.js').UnifiedModel[]>
 }
 
 // ── Image Provider ───────────────────────────────────────────────────────

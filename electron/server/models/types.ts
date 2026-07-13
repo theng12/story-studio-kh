@@ -1572,34 +1572,6 @@ export interface ImageModelConfig {
    * Nano Banana family uses `image_size`. Absent = `aspect_ratio`.
    */
   aspect_field?: string
-  /**
-   * Set on user-added entries via the Settings → Models tab. Survives the
-   * legacy-dict round-trip so the UI can show a "Custom" badge and allow
-   * deletion of only user entries, not built-in ones.
-   */
-  is_custom?: boolean
-}
-
-// ── Unified model catalog ───────────────────────────────────────────────────
-// A provider-scoped view of every model the project can use, collapsing the
-// three typed dicts (image/audio/video) into one list. For Delivery 1 this is
-// a read projection computed from the legacy dicts; the legacy dicts remain
-// the on-disk source of truth so existing generators keep working unchanged.
-
-export type ModelType = 'image' | 'audio' | 'video' | 'text'
-
-export interface UnifiedModel {
-  id: string
-  /** Canonical provider id (e.g. 'kie', 'fal', 'elevenlabs', 'openai'). */
-  provider: string
-  type: ModelType
-  label: string
-  /** Free-form tags, e.g. ['image-to-video']. */
-  capabilities?: string[]
-  /** True when added by the user via Settings UI (Delivery 4). */
-  is_custom?: boolean
-  /** Type-specific fields: credits_per_image, cost_per_1k_chars, modes, provider_params, etc. */
-  params: Record<string, any>
 }
 
 export interface AudioModelConfig {
@@ -1626,8 +1598,6 @@ export interface AudioModelConfig {
    * instead of relying on mlx-audio's internal arbitrary-cut splitter.
    */
   tts_soft_max_chars?: number
-  /** Set on user-added entries. See `ImageModelConfig.is_custom` for rationale. */
-  is_custom?: boolean
 }
 
 export interface VideoModelConfig {
@@ -1638,8 +1608,6 @@ export interface VideoModelConfig {
   modes: Array<'frames'>
   /** Max duration in seconds, if known */
   max_duration?: number
-  /** Set on user-added entries. See `ImageModelConfig.is_custom` for rationale. */
-  is_custom?: boolean
 }
 
 export interface VoicePreset {
@@ -1770,12 +1738,6 @@ export interface ProjectConfig {
   /** Per-chapter subtitle transcription concurrency: 1–16, or 'auto' (match
    *  the live Voice Studio pool / 3 for cloud). Default 'auto'. */
   subtitle_concurrency?: number | 'auto'
-  /**
-   * Unified model catalog — projection over image_models/audio_models/video_models.
-   * Delivery 1: computed in-memory per read; absent on disk. Delivery 4 starts
-   * writing user-added custom entries here.
-   */
-  models?: UnifiedModel[]
   confirmation_preferences?: ConfirmationPreferences
 
   /**
@@ -1956,8 +1918,6 @@ export interface SafeProjectConfig {
   video_concurrency?: number
   image_concurrency?: number
   subtitle_concurrency?: number | 'auto'
-  /** Unified model catalog (same content as `ProjectConfig.models`). */
-  models?: UnifiedModel[]
   confirmation_preferences?: ConfirmationPreferences
   broll_pool_id?: string
   broll_lookback?: number

@@ -4,7 +4,6 @@
  */
 
 import type { ImageProvider, AudioProvider, TextProvider, VideoProvider, ProviderMeta } from './types.js'
-import type { UnifiedModel } from '../models/types.js'
 import { resolveApiKey, AccountsError } from '../services/secrets-accounts.js'
 
 class ProviderRegistry {
@@ -181,35 +180,4 @@ export async function resolveApiKeyForProviderId(
       .catch(() => { /* noop */ })
   }
   return resolved.apiKey
-}
-
-/**
- * Find the registered provider that serves a unified model entry. Delivery 4
- * will drive generation off this. Returns the first registered provider
- * whose id matches the unified model's `provider` field. Aggregators with a
- * `resolveModelProvider` hook get asked first (so an aggregator can claim a
- * model even when its underlying provider is also registered).
- */
-export function findProviderForModel(
-  model: UnifiedModel,
-): ImageProvider | AudioProvider | TextProvider | VideoProvider | undefined {
-  const direct =
-    registry.getImageProvider(model.provider) ??
-    registry.getAudioProvider(model.provider) ??
-    registry.getTextProvider(model.provider) ??
-    registry.getVideoProvider(model.provider)
-  if (direct) return direct
-
-  // Aggregators: ask each provider's future-proofing hook if it claims this model.
-  for (const sub of [
-    registry.listImageProviders(),
-    registry.listAudioProviders(),
-    registry.listTextProviders(),
-    registry.listVideoProviders(),
-  ]) {
-    for (const p of sub) {
-      if (p.meta.resolveModelProvider?.(model.id)) return p
-    }
-  }
-  return undefined
 }

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_VIDEO_MODELS } from '../models/defaults.js'
-import { sanitizeUnifiedVideoModels, sanitizeVideoCatalog } from '../models/video-catalog.js'
+import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 
 describe('image-to-video catalog policy', () => {
   test('ships only image-to-video defaults without retired models', () => {
@@ -22,15 +22,5 @@ describe('image-to-video catalog policy', () => {
     })
     assert.deepEqual(Object.keys(clean), ['mixed'])
     assert.deepEqual(clean.mixed.modes, ['frames'])
-  })
-
-  test('applies the same policy to unified custom models', () => {
-    const clean = sanitizeUnifiedVideoModels([
-      { id: 'image', type: 'image', provider: 'kie', label: 'Image', params: {} },
-      { id: 't2v', type: 'video', provider: 'kie-video', label: 'T2V', params: { modes: ['text'] } },
-      { id: 'i2v', type: 'video', provider: 'kie-video', label: 'I2V', params: { modes: ['text', 'frames'] } },
-    ])
-    assert.deepEqual(clean.map(model => model.id), ['image', 'i2v'])
-    assert.deepEqual(clean[1].params.modes, ['frames'])
   })
 })
