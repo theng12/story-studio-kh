@@ -32,3 +32,16 @@ test('video frame graph sanitizes filter-injection colors', () => {
   assert.match(graph, /color=c=#101820/)
   assert.match(graph, /force_original_aspect_ratio=decrease/)
 })
+
+test('video frame graph can use a looping media input as the board', () => {
+  const graph = buildVideoFrameFilter({
+    inputLabel: '[in]', backgroundInputLabel: '[2:v]', outputLabel: '[out]', prefix: 'media',
+    width: 1920, height: 1080, fps: 30,
+    config: {
+      enabled: true, inset_pct: 4, border_width: 12, corner_radius: 28,
+      border_color: '#FFFFFF', background_color: '#101820', background_path: '/tmp/paper.jpg', fit: 'cover',
+    },
+  }).join(';')
+  assert.match(graph, /\[2:v\]setpts=PTS-STARTPTS,scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080/)
+  assert.doesNotMatch(graph, /color=c=#101820:s=1920x1080/)
+})

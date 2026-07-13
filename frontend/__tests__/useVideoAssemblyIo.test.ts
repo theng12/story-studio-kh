@@ -115,18 +115,14 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
 
     // Scene shape + filtering
     assert.equal(capturedBody.scenes.length, 3, 'no scenes excluded in this test')
-    // v1.0.57+: each scene also carries scene_number (for backend
-    // partition/recycling) and chapter_slug (undefined when no
-    // assignment override is set; backend then defaults to positional
-    // even-split). Test fixture updated v1.0.69 — matches the live
-    // payload shape produced by buildPayload().
+    // Scene Plan timing is authoritative; the removed chapter-assignment
+    // system must not leak its legacy chapter_slug field into new payloads.
     assert.deepEqual(capturedBody.scenes[0], {
       image_path: '/i/1.png',
       duration: 10,
       title: 'First',
       show_title: false, // chapterTitles.enabled is false
       scene_number: 1,
-      chapter_slug: undefined,
     })
     assert.equal(capturedBody.scenes[2].title, 'Scene 3',
       'empty scene.title falls back to `Scene N`')

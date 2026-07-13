@@ -145,7 +145,8 @@ function kenBurns(p: VideoSceneAnimation, w: number, h: number, ssW: number, ssH
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z='${zoomStart}+on*${zoomInc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z='${zoomStart}+on*${zoomInc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -159,7 +160,8 @@ function simpleZoom(
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z='${startZoom}+on*${inc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z='${startZoom}+on*${inc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -172,7 +174,8 @@ function dollyIn(w: number, h: number, ssW: number, ssH: number, fps: number, fr
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z='${startZ}+on*${inc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.6)':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z='${startZ}+on*${inc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.6)':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -205,7 +208,8 @@ function directionalPan(
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z=1.08:x='${xExpr}':y='${yExpr}':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z=1.08:x='${xExpr}':y='${yExpr}':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -217,7 +221,8 @@ function breathe(p: VideoSceneAnimation, w: number, h: number, ssW: number, ssH:
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z='${baseZoom}+${amplitude}*sin(on*2*PI/${frames})':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z='${baseZoom}+${amplitude}*sin(on*2*PI/${frames})':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -232,7 +237,8 @@ function kenBurnsReverse(p: VideoSceneAnimation, w: number, h: number, ssW: numb
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z='${zStart}+on*${zoomInc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z='${zStart}+on*${zoomInc.toFixed(10)}':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }
@@ -253,7 +259,8 @@ function diagonalPan(
   return [
     `scale=${ssW}:${ssH}:force_original_aspect_ratio=decrease`,
     `pad=${ssW}:${ssH}:(ow-iw)/2:(oh-ih)/2:color=black`,
-    `zoompan=z=1.08:x='${xExpr}':y='${yExpr}':d=${frames}:s=${w}x${h}:fps=${fps}`,
+    `zoompan=z=1.08:x='${xExpr}':y='${yExpr}':d=${frames}:s=${ssW}x${ssH}:fps=${fps}`,
+    `scale=${w}:${h}:flags=lanczos`,
     'setsar=1',
   ]
 }

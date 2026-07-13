@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.564 — 2026-07-14
+
+**Video Assembly effects are now stable, accurately previewed, and built around the current Scene Plan timeline.**
+
+- Stabilized Ken Burns, pan, drift, zoom, and breathing motion by calculating movement on a supersampled canvas before one high-quality final downscale.
+- Corrected vignette strength so darkness begins at the corners and expands inward while preserving the center of the picture.
+- Cinematic letterbox now draws bars over the original frame instead of scaling, squeezing, or cropping the video.
+- Presentation Frame can use a solid board, uploaded image, or looping video behind the framed scene, with fit, inset, border, and corner controls reflected in the live preview.
+- Overlay Layers now appear in the Effects preview with their actual order, opacity, fit, position, and active time range; the single green-screen control now clearly explains its purpose.
+- Title and outro text cards now render for real and can optionally use an image or looping video background.
+- Removed the obsolete chapter-audio scene alignment setting, assignment sidecar, routes, preset migration field, UI, and render branch. Scene Plan timing is now the sole timeline authority for continuity videos.
+- Added regression contracts for stabilized camera filters, corner vignette behavior, non-destructive letterbox bars, media-backed frames, and the legacy-alignment removal.
+
 ## v1.0.563 — 2026-07-14
 
 **Research is now explicitly optional, and the redundant Co-writer feature has been removed.**

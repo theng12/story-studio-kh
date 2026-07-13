@@ -21,8 +21,7 @@
  *               animation_pool, animation_randomize, title_image
  *   effects   → logo, color_grading, vignette, film_grain, letterbox,
  *               chroma_key, overlays, chapter_titles, title_card,
- *               outro_card, compilation_layout, exclude_intro_from_effects,
- *               align_visuals_to_chapters
+ *               outro_card, compilation_layout, exclude_intro_from_effects
  *   intro     → intro
  *   outro     → outro
  *   subtitles → subtitles
@@ -46,7 +45,7 @@ const TIMELINE_KEYS = [
 const EFFECTS_KEYS = [
   'logo', 'color_grading', 'vignette', 'film_grain', 'letterbox',
   'chroma_key', 'overlays', 'chapter_titles', 'title_card', 'outro_card',
-  'compilation_layout', 'exclude_intro_from_effects', 'align_visuals_to_chapters',
+  'compilation_layout', 'exclude_intro_from_effects',
   'video_layout', 'background_plate', 'foreground_defaults',
 ]
 const INTRO_KEYS = ['intro']

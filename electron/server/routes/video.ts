@@ -355,83 +355,6 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
   }
 })
 
-// GET / PUT the scene_chapter_assignments.json sidecar — per-scene
-// chapter overrides for the per-scene clip-swap UI (v1.0.57+). The
-// PUT validates that every chapter_slug exists in audio_chapters.json
-// to catch typos at save time rather than render time.
-router.get('/projects/:slug/video-editor/scene-chapter-assignments', async (req, res) => {
-  const { slug } = req.params
-  const episodeId = String(req.query.episode_id || '').trim()
-  if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
-  try {
-    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
-    if (!episodeDir) return res.json({ assignments: [], episode_dir: null, exists: false })
-    const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
-    if (!existsSync(sidecarPath)) {
-      return res.json({ assignments: [], episode_dir: episodeDir, exists: false })
-    }
-    const raw = await fs.readFile(sidecarPath, 'utf-8')
-    const parsed = JSON.parse(raw) as {
-      assignments?: Array<{ scene_number: number; chapter_slug: string }>
-    }
-    res.json({
-      assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
-      episode_dir: episodeDir,
-      exists: true,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not read scene_chapter_assignments.json'))
-  }
-})
-
-router.put('/projects/:slug/video-editor/scene-chapter-assignments', async (req, res) => {
-  const { slug } = req.params
-  const episodeId = String(req.body?.episode_id || '').trim()
-  if (!episodeId) return res.status(400).json({ detail: 'episode_id required in body' })
-  try {
-    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
-    if (!episodeDir) return res.status(404).json({ detail: `Episode directory not found for ${episodeId}` })
-
-    // Validate slug references against audio_chapters.json so a typo
-    // can't survive into render time.
-    const audioChaptersPath = path.join(episodeDir, 'audio_chapters.json')
-    const knownSlugs = new Set<string>()
-    if (existsSync(audioChaptersPath)) {
-      try {
-        const raw = await fs.readFile(audioChaptersPath, 'utf-8')
-        const parsed = JSON.parse(raw) as { sections?: Array<{ slug: string }> }
-        for (const s of parsed.sections || []) {
-          if (typeof s?.slug === 'string') knownSlugs.add(s.slug)
-        }
-      } catch { /* tolerate */ }
-    }
-
-    const incoming = Array.isArray(req.body?.assignments) ? req.body.assignments : []
-    const cleaned: Array<{ scene_number: number; chapter_slug: string }> = []
-    const unknownSlugs = new Set<string>()
-    for (const a of incoming) {
-      if (typeof a?.scene_number !== 'number' || !Number.isFinite(a.scene_number)) continue
-      if (typeof a?.chapter_slug !== 'string' || !a.chapter_slug) continue
-      cleaned.push({
-        scene_number: Math.round(a.scene_number),
-        chapter_slug: a.chapter_slug,
-      })
-      if (knownSlugs.size > 0 && !knownSlugs.has(a.chapter_slug)) unknownSlugs.add(a.chapter_slug)
-    }
-
-    const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
-    await fs.writeFile(sidecarPath, JSON.stringify({ assignments: cleaned }, null, 2))
-    res.json({
-      ok: true,
-      written: cleaned.length,
-      sidecar_path: sidecarPath,
-      unknown_slugs: Array.from(unknownSlugs),
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not write scene_chapter_assignments.json'))
-  }
-})
-
 router.post('/projects/:slug/video-editor/ambient/open-folder', async (req, res) => {
   const { slug } = req.params
   try {
@@ -526,6 +449,51 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Audio preview failed'))
+  }
+})
+
+// Stream user-picked image/video media into the live effects preview. Range
+// support is required for looping MP4/MOV elements in Chromium.
+router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
+  const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const rawPath = String(req.query.path || '')
+  if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+  let filePath = rawPath
+  try {
+    filePath = resolveAssetPath(rawPath, project.output_root)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
+  if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
+  const mimeTypes: Record<string, string> = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+    '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
+  }
+  const mime = mimeTypes[path.extname(filePath).toLowerCase()]
+  if (!mime) return res.status(403).json({ detail: 'Unsupported preview media type' })
+  try {
+    const stat = await fs.stat(filePath)
+    const range = req.headers.range
+    res.set('Content-Type', mime)
+    res.set('Accept-Ranges', 'bytes')
+    res.set('Cache-Control', 'private, max-age=300')
+    const { createReadStream } = await import('fs')
+    if (range) {
+      const [startRaw, endRaw] = range.replace(/bytes=/, '').split('-')
+      const start = Math.max(0, Number(startRaw) || 0)
+      const end = Math.min(stat.size - 1, endRaw ? Number(endRaw) : stat.size - 1)
+      res.status(206)
+      res.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+      res.set('Content-Length', String(end - start + 1))
+      createReadStream(filePath, { start, end }).pipe(res)
+    } else {
+      res.set('Content-Length', String(stat.size))
+      createReadStream(filePath).pipe(res)
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Media preview failed'))
   }
 })
 

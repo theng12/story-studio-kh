@@ -97,16 +97,6 @@ export interface VideoAssemblyIoState {
    *  the legacy `chromaKey` slot is upgraded into a single layer on
    *  the backend if `overlays` is empty. */
   overlays?: any
-  /** Workstream B (v1.0.54+): per-scene audio-to-visual alignment.
-   *  Boolean ref. When true, payload sets `align_visuals_to_chapters`
-   *  and the backend reads chapter durations from
-   *  `${episode}/audio_chapters.json` (emitted by Audio Merge). */
-  alignVisualsToChapters?: any
-  /** Per-scene clip swap (v1.0.57+). Map of scene_number → chapter_slug.
-   *  Stamped onto each VideoScene in the payload below; backend uses
-   *  explicit slugs to partition instead of even-split. Empty/missing
-   *  → backend falls back to positional even-split. */
-  sceneAssignmentSaved?: Ref<Record<number, string>>
   /** Compilation video layout (v1.0.63+ / Path C). Reactive bag holding
    *  layout mode + background plate path + foreground defaults. When
    *  `videoLayout.value === 'compilation'`, the payload includes the
@@ -264,12 +254,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       || s.scannedAssets.value?.audio_sections?.[0]?.path
       || ''
 
-    // v1.0.57+: stamp per-scene chapter_slug from the saved
-    // assignments map so backend honours explicit overrides without
-    // re-reading the sidecar. Falls back to undefined when no
-    // assignment exists for the scene_number — backend then defaults
-    // to positional even-split for that scene.
-    const assignmentMap = s.sceneAssignmentSaved?.value || {}
     // v1.0.521 — plan-sourced pools don't stamp the uniform seconds-per-scene
     // onto every scene: the backend's timestamp-plan bridge is the single
     // source of truth for plan durations, and a stamped uniform value used to
@@ -289,7 +273,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
           title: sc.title || `Scene ${sc.number}`,
           show_title: s.chapterTitles.enabled,
           scene_number: sc.number,
-          chapter_slug: assignmentMap[sc.number] || undefined,
         }
       }),
       narration_path: narrationPath,
@@ -404,7 +387,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.frame?.enabled)       payload.frame         = { ...s.frame }
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value
-    if (s.alignVisualsToChapters?.value) payload.align_visuals_to_chapters = true
 
     // Compilation mode payload (v1.0.63+). Only emits the new fields
     // when the user explicitly opted into compilation layout — the

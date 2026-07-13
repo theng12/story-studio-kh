@@ -2225,17 +2225,10 @@ export interface VideoScene {
   duration?: number
   title?: string
   show_title: boolean
-  /** Per-scene chapter assignment for chapter-aligned video assembly
-   *  (Workstream B + per-scene swap, v1.0.57+). When set on every
-   *  scene, the backend groups scenes by `chapter_slug` instead of
-   *  positional even-splitting them across chapters. Frontend reads
-   *  this from `${episode}/scene_chapter_assignments.json` and stamps
-   *  it on each scene before sending the assembly payload.
-   *  Optional — old projects without it fall back to even-split. */
-  chapter_slug?: string
-  /** Echoed-through scene number (1-based) so the backend can quote
-   *  it in alignment plan logs without re-deriving from index. */
+  /** Echoed-through scene number (1-based) for diagnostics. */
   scene_number?: number
+  /** Optional section hint used only by sentence-timed classic formats. */
+  chapter_slug?: string
   /** v1.0.521 — scene_plan.json scene id this image renders (set by the
    *  frontend for Scene Plan pool entries). Lets the backend's timestamp-plan
    *  bridge match by ID instead of absolute-path equality, which broke across
@@ -2245,11 +2238,23 @@ export interface VideoScene {
 }
 
 export interface VideoTitleCard {
+  enabled?: boolean
   text: string
   subtitle?: string
   duration: number
   style: 'gold' | 'white' | 'neon' | 'minimal'
   background: string  // color hex or 'blur'
+  /** Optional still or looping video rendered behind the card text. */
+  background_media_path?: string
+}
+
+export interface VideoOutroCard {
+  enabled?: boolean
+  text: string
+  duration: number
+  style: 'gold' | 'white' | 'neon' | 'minimal'
+  /** Optional still or looping video rendered behind the card text. */
+  background_media_path?: string
 }
 
 export interface VideoChapterTitles {
@@ -2712,6 +2717,8 @@ export interface VideoFrameConfig {
   corner_radius: number
   border_color: string
   background_color: string
+  /** Optional still or looping video used instead of the solid board color. */
+  background_path?: string
   fit?: 'cover' | 'contain'
 }
 
@@ -2837,7 +2844,7 @@ export interface GenerateVideoRequest {
   codec?: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
   title_card?: VideoTitleCard
-  outro_card?: { text: string; duration: number; style: string }
+  outro_card?: VideoOutroCard
   chapter_titles: VideoChapterTitles
   scene_animation?: VideoSceneAnimation
   post_audio?: VideoPostAudio       // what happens after narration ends, default fade-to-black
@@ -2863,14 +2870,6 @@ export interface GenerateVideoRequest {
   background_plate?: BackgroundPlate
   /** Foreground sizing + positioning defaults for compilation mode. */
   foreground_defaults?: ForegroundDefaults
-  /** When true, scene clips are partitioned across chapters and each
-   *  chapter's assigned scenes cycle within its own audio duration —
-   *  i.e. chapter N's narration plays with chapter N's scene images.
-   *  Off by default (sleep-story safe; chapter alignment is the new
-   *  content-type feature, not the old loose-cycling default).
-   *  Requires `chapter_durations` to be populated; falls back to
-   *  legacy uniform cycling if missing. */
-  align_visuals_to_chapters?: boolean
   /** Per-chapter audio durations in playback order. Frontend reads
    *  these from `${episode}/audio_chapters.json` (written by the
    *  Audio Merge step) and forwards on the request so the backend

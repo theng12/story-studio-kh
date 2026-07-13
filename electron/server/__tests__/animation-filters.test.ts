@@ -14,7 +14,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeFrame } from '../lib/animation-filters.js'
+import { buildAnimationFilter, normalizeFrame } from '../lib/animation-filters.js'
 
 describe('normalizeFrame()', () => {
   test('emits exactly the five FFmpeg filter tokens in the expected order', () => {
@@ -55,5 +55,21 @@ describe('normalizeFrame()', () => {
     const tokens = normalizeFrame(1920, 1080, 30)
     assert.equal(tokens[tokens.length - 1], 'format=yuv420p',
       'format must be the final token so per-scene filter insertions can splice before it')
+  })
+})
+
+describe('zoompan supersampling', () => {
+  test('keeps camera motion at 2x resolution until one final Lanczos downscale', () => {
+    const tokens = buildAnimationFilter({
+      type: 'ken-burns', w: 1920, h: 1080, fps: 30, duration: 8,
+      params: {
+        type: 'ken-burns', zoom_start: 100, zoom_end: 108,
+        parallax_direction: 'right', parallax_speed: 2,
+        breathe_amplitude: 2, breathe_base_zoom: 103,
+      },
+    })
+    assert.match(tokens.join(','), /zoompan=.*:s=3840x2160:fps=30/)
+    assert.ok(tokens.includes('scale=1920:1080:flags=lanczos'))
+    assert.doesNotMatch(tokens.join(','), /zoompan=.*:s=1920x1080/)
   })
 })

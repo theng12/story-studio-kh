@@ -1002,13 +1002,37 @@
         <!-- LEFT: Sticky Effect Preview -->
         <div class="effects-preview-sticky" v-if="previewSceneImage">
           <div class="effect-preview-frame" :style="frameCanvasStyle">
-            <img :src="getImagePreviewUrl(previewSceneImage)" alt="Preview" class="effect-preview-img" :style="{ ...effectPreviewImgStyle, ...frameMediaStyle }" />
-            <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
-            <div v-if="filmGrain.enabled" class="effect-grain-overlay" :style="{ opacity: filmGrain.strength / 80 }" />
-            <template v-if="letterbox.enabled">
-              <div class="letterbox-bar letterbox-top" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
-              <div class="letterbox-bar letterbox-bottom" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
-            </template>
+            <video
+              v-if="frame.enabled && frame.background_path && isVideoMedia(frame.background_path)"
+              :src="getMediaPreviewUrl(frame.background_path)"
+              class="frame-background-preview"
+              autoplay muted loop playsinline
+            />
+            <div class="effect-media-surface" :style="frameMediaStyle">
+              <img :src="getImagePreviewUrl(previewSceneImage)" alt="Preview" class="effect-preview-img" :style="effectPreviewImgStyle" />
+              <template v-for="layer in previewEffectLayers" :key="layer.id">
+                <video
+                  v-if="isVideoMedia(layer.source_path) && isPreviewLayerVisible(layer)"
+                  :src="getMediaPreviewUrl(layer.source_path)"
+                  class="effect-overlay-media"
+                  :style="previewOverlayStyle(layer)"
+                  autoplay muted loop playsinline
+                />
+                <img
+                  v-else-if="isPreviewLayerVisible(layer)"
+                  :src="getMediaPreviewUrl(layer.source_path)"
+                  alt="Overlay preview"
+                  class="effect-overlay-media"
+                  :style="previewOverlayStyle(layer)"
+                />
+              </template>
+              <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
+              <div v-if="filmGrain.enabled" class="effect-grain-overlay" :style="{ opacity: filmGrain.strength / 80 }" />
+              <template v-if="letterbox.enabled">
+                <div class="letterbox-bar letterbox-top" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
+                <div class="letterbox-bar letterbox-bottom" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
+              </template>
+            </div>
             <!-- Unified overlay preview: logo composites onto the same
                  canvas used for effects, so the user sees the full stack. -->
             <img
@@ -1021,7 +1045,13 @@
               @load="logoLoadError = false"
             />
           </div>
-          <p class="text-muted preview-watermark">Live CSS preview — not FFmpeg render</p>
+          <div v-if="previewEffectLayers.length && estimatedDurationSec > 0" class="preview-time-control">
+            <label>Preview overlays at {{ formatDuration(previewTimeSec) }}</label>
+            <input v-model.number="previewTimeSec" type="range" min="0" :max="estimatedDurationSec" step="0.5" />
+          </div>
+          <p class="text-muted preview-watermark">
+            Live composition preview. Green-screen removal is finalized by FFmpeg; placement, opacity, stacking, and timing are shown here.
+          </p>
           <!-- Pain-point #14 fix: make the silent logo-load failure visible. -->
           <!-- Previously logoLoadError was set but never rendered, so users -->
           <!-- only discovered the broken path on export. -->
@@ -1088,7 +1118,7 @@
               <button
                 type="button"
                 class="btn btn-sm btn-secondary"
-                @click="(refreshBackgroundLibrary(), showBackgroundPicker = true)"
+                @click="openBackgroundPicker('compilation')"
               >+ Pick</button>
               <button
                 type="button"
@@ -1158,7 +1188,12 @@
         >
           <div class="modal-content" style="max-width: 600px;">
             <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-              <h3 style="margin: 0; flex: 1;">Pick a background plate</h3>
+              <h3 style="margin: 0; flex: 1;">
+                {{ backgroundPickerTarget === 'frame' ? 'Pick a presentation-frame background'
+                  : backgroundPickerTarget === 'title-card' ? 'Pick a title-card background'
+                    : backgroundPickerTarget === 'outro-card' ? 'Pick an outro-card background'
+                      : 'Pick a compilation background plate' }}
+              </h3>
               <button type="button" class="btn btn-sm btn-secondary" @click="showBackgroundPicker = false">✕ Close</button>
             </div>
             <div v-if="bgLibraryLoading" class="text-muted text-sm">Scanning backgrounds/ folder…</div>
@@ -1182,7 +1217,7 @@
                 type="button"
                 class="btn btn-secondary"
                 style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
-                @click="pickBackgroundPlate(f)"
+                @click="pickBackgroundFile(f)"
               >
                 <span style="font-size: 18px;">{{ f.kind === 'video' ? '🌌' : '🖼️' }}</span>
                 <span style="flex: 1;">
@@ -1392,7 +1427,7 @@
         </div>
       </div>
 
-      <!-- Letterbox -->
+      <!-- Presentation frame -->
       <div class="settings-section mt-2 frame-settings">
         <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
@@ -1434,6 +1469,16 @@
               </select>
             </div>
           </div>
+          <div class="form-group mt-2">
+            <label>Board background media <span class="text-muted">(optional)</span></label>
+            <p class="field-hint">Use a still texture or looping video behind the framed scene. Leave empty to use the board color.</p>
+            <div class="flex gap-2 items-center flex-wrap">
+              <span class="text-sm flex-1">{{ frame.background_path ? frame.background_path.split('/').pop() : 'Solid color only' }}</span>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick image / video</button>
+              <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open folder</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1468,13 +1513,13 @@
         </div>
       </div>
 
-      <!-- Chroma Key -->
+      <!-- Simple single-source green-screen overlay -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="chromaKey.enabled" />
           </label>
-          <h4>Chroma Key (Green Screen)</h4>
+          <h4>Single Green-Screen Overlay</h4>
         </div>
         <div v-if="chromaKey.enabled" class="mt-2">
           <div class="form-group">
@@ -1507,7 +1552,7 @@
             </div>
           </div>
           <p class="text-muted text-sm mt-1">
-            The green-screen source will be composited on top of your scene images after removing the keyed color.
+            Removes the selected background color and places one clip or image over the scenes. This is the simple one-layer option; use Overlay Layers below for multiple effects, timing, opacity, or stacking. Leave it off when you do not use green-screen media.
           </p>
         </div>
       </div>
@@ -1814,115 +1859,6 @@
         </p>
       </div>
 
-      <!-- Per-scene alignment to chapter audio (Workstream B / v1.0.54+) -->
-      <div class="settings-section mt-2">
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="alignVisualsToChapters" />
-          <strong>Align scenes to {{ sectionLabel.singular }} audio</strong>
-          <span class="text-muted text-xs"> (typically off for evenly-paced narrative; on for listicle / structured-section formats)</span>
-        </label>
-        <p class="text-muted text-xs hint-line">
-          When ON, scenes generated for {{ sectionLabel.singular }} N play during {{ sectionLabel.singular }} N's narration —
-          durations cycle within each {{ sectionLabel.singular }}'s audio rather than across the whole episode.
-          The backend reads <code>audio_chapters.json</code> from the episode folder
-          (Audio Merge writes it). Re-run Audio Merge first if you don't see the file.
-          Leave OFF for sleep stories where the loose, randomised cycling is intentional.
-        </p>
-        <!-- Per-scene clip swap UI (v1.0.57+). Only meaningful when
-             alignment is ON; render the button conditionally so the
-             section stays compact for sleep-story projects. -->
-        <div v-if="alignVisualsToChapters" class="flex gap-2 mt-1" style="flex-wrap: wrap;">
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="!episodeId"
-            :title="`Open the per-scene assignments editor — manually move scenes between ${sectionLabel.singular} buckets`"
-            @click="openSceneAssignmentsEditor"
-          >🎯 Customize scene assignments</button>
-          <span v-if="sceneAssignmentsCount > 0" class="text-muted text-xs" style="align-self: center;">
-            {{ sceneAssignmentsCount }} scene{{ sceneAssignmentsCount === 1 ? '' : 's' }} have explicit assignments
-          </span>
-          <span v-else class="text-muted text-xs" style="align-self: center;">
-            Using default even-split across {{ sectionLabel.plural }}
-          </span>
-        </div>
-      </div>
-
-      <!-- Scene Assignments modal (v1.0.57+) — opens via the button
-           above. Lists every scene with a chapter dropdown so the
-           user can manually reassign which scene plays during which
-           chapter. Saving writes scene_chapter_assignments.json. -->
-      <div
-        v-if="showSceneAssignmentsModal"
-        class="modal-overlay"
-        @click.self="showSceneAssignmentsModal = false"
-      >
-        <div class="modal-content" style="max-width: 640px;">
-          <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-            <h3 style="margin: 0; flex: 1;">Per-scene {{ sectionLabel.singular }} assignments</h3>
-            <button type="button" class="btn btn-sm btn-secondary" @click="showSceneAssignmentsModal = false">✕ Close</button>
-          </div>
-          <div v-if="assignmentsLoading" class="text-muted text-sm">Loading assignments…</div>
-          <div v-else-if="assignmentsError" class="text-danger text-sm">{{ assignmentsError }}</div>
-          <div v-else-if="!sceneAssignmentChapters.length" class="text-muted text-sm">
-            No <code>audio_chapters.json</code> sidecar found — re-run <strong>Audio Merge</strong>
-            for this episode first so the backend knows the {{ sectionLabel.singular }} list.
-          </div>
-          <div v-else>
-            <p class="text-muted text-xs">
-              {{ sceneAssignmentChapters.length }} {{ sectionLabel.singular }}(s) loaded from <code>audio_chapters.json</code>.
-              Pick a {{ sectionLabel.singular }} for each scene; leave a row blank to fall back to positional even-split for
-              that scene. Click <strong>Save</strong> to write
-              <code>scene_chapter_assignments.json</code> to the episode folder.
-            </p>
-            <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
-              <button type="button" class="btn btn-sm btn-secondary" @click="autoFillEvenSplit"
-                :title="`Pre-fill every scene with the ${sectionLabel.singular} it would land in under default even-split. Useful as a starting point.`">
-                Auto-fill (even split)
-              </button>
-              <button type="button" class="btn btn-sm btn-secondary" @click="clearAllAssignments"
-                title="Clear every scene's assignment so the backend reverts to even-split">
-                Clear all
-              </button>
-            </div>
-            <div class="mt-2" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
-              <div
-                v-for="(scene, idx) in scenes"
-                :key="`scn-${scene.number ?? idx}`"
-                class="flex gap-2 items-center"
-                style="padding: 6px; border: 1px solid var(--border); border-radius: 4px;"
-              >
-                <span class="text-muted" style="font-family: monospace; min-width: 70px;">
-                  Scene {{ String(scene.number ?? idx + 1).padStart(2, '0') }}
-                </span>
-                <span style="flex: 1; word-break: break-all; font-size: 12px;">
-                  {{ scene.title || scene.filename || '' }}
-                </span>
-                <select
-                  v-model="sceneAssignmentDraft[scene.number ?? idx + 1]"
-                  class="select select-sm"
-                  style="min-width: 180px;"
-                >
-                  <option value="">— even-split default —</option>
-                  <option v-for="ch in sceneAssignmentChapters" :key="ch.slug" :value="ch.slug">
-                    {{ ch.slug }}{{ ch.duration_s ? ` (${ch.duration_s.toFixed(1)}s)` : '' }}
-                  </option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div class="flex gap-2 mt-2" style="justify-content: flex-end;">
-            <button type="button" class="btn btn-sm btn-secondary" @click="showSceneAssignmentsModal = false">Cancel</button>
-            <button
-              type="button"
-              class="btn btn-sm btn-primary"
-              :disabled="assignmentsSaving || !sceneAssignmentChapters.length"
-              @click="saveSceneAssignments"
-            >{{ assignmentsSaving ? 'Saving…' : 'Save' }}</button>
-          </div>
-        </div>
-      </div>
-
       <!-- Text Overlays (collapsed by default) -->
       <h4 class="mt-3 text-overlays-heading">Text Overlays <span class="text-muted text-xs font-normal">(optional)</span></h4>
 
@@ -1970,6 +1906,14 @@
                 <option value="dark_blur">Dark Blur</option>
                 <option value="gradient">Gradient</option>
               </select>
+            </div>
+          </div>
+          <div class="form-group mt-1">
+            <label>Background image / looping video <span class="text-muted">(optional)</span></label>
+            <div class="flex gap-2 items-center flex-wrap">
+              <span class="text-sm flex-1">{{ titleCard.background_media_path ? titleCard.background_media_path.split('/').pop() : 'Use selected color style' }}</span>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick media</button>
+              <button v-if="titleCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="titleCard.background_media_path = ''">Clear</button>
             </div>
           </div>
         </div>
@@ -2091,6 +2035,14 @@
           <div class="form-group mt-1">
             <label>Duration ({{ outroCard.duration }}s)</label>
             <SliderWithNumber v-model="outroCard.duration" :min="2" :max="8" :step="1" suffix="s" :disabled="!outroCard.enabled" />
+          </div>
+          <div class="form-group mt-1">
+            <label>Background image / looping video <span class="text-muted">(optional)</span></label>
+            <div class="flex gap-2 items-center flex-wrap">
+              <span class="text-sm flex-1">{{ outroCard.background_media_path ? outroCard.background_media_path.split('/').pop() : 'Use solid background' }}</span>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick media</button>
+              <button v-if="outroCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="outroCard.background_media_path = ''">Clear</button>
+            </div>
           </div>
         </div>
       </div>
@@ -3194,6 +3146,7 @@ type OverlayLayer = {
   opacity?: number
   scale?: 'cover' | 'contain' | 'native'
   position?: { x: string; y: string }
+  position_anchor?: 'center' | 'top-third' | 'bottom-third' | 'lower-right' | 'lower-left'
   loop?: boolean
   // Per-overlay time-range (v1.0.58+). null/missing = always visible
   // (full-episode duration, the default behaviour). When set, backend
@@ -3239,6 +3192,7 @@ const bgLibrary = ref<Array<{ filename: string; path: string; ext: string; kind:
 const bgLibraryDir = ref('')
 const bgLibraryExists = ref(false)
 const showBackgroundPicker = ref(false)
+const backgroundPickerTarget = ref<'compilation' | 'frame' | 'title-card' | 'outro-card'>('compilation')
 
 async function refreshBackgroundLibrary() {
   bgLibraryLoading.value = true
@@ -3268,9 +3222,19 @@ async function openBackgroundsFolder() {
   }
 }
 
-function pickBackgroundPlate(file: { path: string; filename: string }) {
+async function openBackgroundPicker(target: typeof backgroundPickerTarget.value) {
+  backgroundPickerTarget.value = target
+  await refreshBackgroundLibrary()
+  showBackgroundPicker.value = true
+}
+
+function pickBackgroundFile(file: { path: string; filename: string }) {
   void (async () => {
-    compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(file.path)
+    const portable = await collapseToPortablePath(file.path)
+    if (backgroundPickerTarget.value === 'frame') frame.background_path = portable
+    else if (backgroundPickerTarget.value === 'title-card') titleCard.background_media_path = portable
+    else if (backgroundPickerTarget.value === 'outro-card') outroCard.background_media_path = portable
+    else compilationLayout.backgroundPlate.source_path = portable
     showBackgroundPicker.value = false
   })()
 }
@@ -3465,161 +3429,11 @@ const frame = reactive({
   corner_radius: 28,
   border_color: '#FFFFFF',
   background_color: '#101820',
+  background_path: '',
   fit: 'cover' as 'cover' | 'contain',
 })
 
 const excludeIntroFromEffects = ref(true)
-
-// Workstream B (v1.0.54+): per-scene audio-to-visual alignment.
-// When ON, scenes generated for chapter N play during chapter N's
-// narration — durations cycle within each chapter's audio rather
-// than across the whole episode. Default OFF (sleep-story-safe).
-// Backend reads `${episode}/audio_chapters.json` (emitted by Audio
-// Merge) when this flag is on; the frontend doesn't need to fetch
-// or send the durations explicitly.
-const alignVisualsToChapters = ref(false)
-
-// ── Per-scene clip swap (v1.0.57+) ───────────────────────────────────
-// Modal-based editor for `scene_chapter_assignments.json`. The editor
-// loads two sidecars on open:
-//   - audio_chapters.json   → list of chapter slugs (the dropdown options)
-//   - scene_chapter_assignments.json → existing per-scene assignments
-// Save writes assignments back to disk; render-time backend reads it
-// and stamps each scene's `chapter_slug` so buildConcatList partitions
-// by explicit slug instead of positional even-split.
-const showSceneAssignmentsModal = ref(false)
-const assignmentsLoading = ref(false)
-const assignmentsSaving = ref(false)
-const assignmentsError = ref('')
-type ChapterEntry = { slug: string; duration_s: number; source_file?: string }
-const sceneAssignmentChapters = ref<ChapterEntry[]>([])
-// Map scene_number → chapter_slug. Empty string = no override (default
-// to backend's positional even-split for that scene).
-const sceneAssignmentDraft = reactive<Record<number, string>>({})
-// Persisted committed-to-disk version, kept in parallel so the
-// "Customize scene assignments" button can show a count before the
-// modal is opened.
-const sceneAssignmentSaved = ref<Record<number, string>>({})
-
-const sceneAssignmentsCount = computed(
-  () => Object.values(sceneAssignmentSaved.value).filter(v => !!v).length,
-)
-
-async function loadSceneAssignments() {
-  if (!episodeId.value) return
-  assignmentsError.value = ''
-  try {
-    const [chaptersR, assignmentsR] = await Promise.all([
-      $fetch<{ sections: ChapterEntry[]; exists: boolean }>(
-        `/api/projects/${slug.value}/video-editor/audio-chapters?episode_id=${encodeURIComponent(episodeId.value)}`,
-      ),
-      $fetch<{ assignments: Array<{ scene_number: number; chapter_slug: string }>; exists: boolean }>(
-        `/api/projects/${slug.value}/video-editor/scene-chapter-assignments?episode_id=${encodeURIComponent(episodeId.value)}`,
-      ),
-    ])
-    sceneAssignmentChapters.value = chaptersR.sections || []
-    const fromDisk: Record<number, string> = {}
-    for (const a of assignmentsR.assignments || []) {
-      if (typeof a.scene_number === 'number' && a.chapter_slug) {
-        fromDisk[a.scene_number] = a.chapter_slug
-      }
-    }
-    sceneAssignmentSaved.value = fromDisk
-    // Fresh draft mirrors the saved state. If the modal is reopened
-    // without saving, the user starts from the persisted state, not
-    // wherever they last edited.
-    Object.keys(sceneAssignmentDraft).forEach(k => { delete sceneAssignmentDraft[Number(k)] })
-    for (const [k, v] of Object.entries(fromDisk)) sceneAssignmentDraft[Number(k)] = v
-  } catch (e: any) {
-    assignmentsError.value = e?.data?.detail || e?.message || 'Could not load assignments'
-  }
-}
-
-async function openSceneAssignmentsEditor() {
-  showSceneAssignmentsModal.value = true
-  assignmentsLoading.value = true
-  try {
-    await loadSceneAssignments()
-  } finally {
-    assignmentsLoading.value = false
-  }
-}
-
-function autoFillEvenSplit() {
-  // Replicate the backend's positional even-split locally so the user
-  // sees what the default would assign for each scene. Then they can
-  // tweak the rows that need to move.
-  const chapters = sceneAssignmentChapters.value
-  if (!chapters.length || !scenes.value.length) return
-  const S = scenes.value.length
-  const C = chapters.length
-  const baseSpc = Math.floor(S / C)
-  const extra = S - baseSpc * C
-  let cursor = 0
-  for (let ci = 0; ci < C; ci++) {
-    const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
-    for (let i = 0; i < chapterScenes; i++) {
-      const scene = scenes.value[cursor + i]
-      if (!scene) continue
-      const sn = scene.number ?? (cursor + i + 1)
-      sceneAssignmentDraft[sn] = chapters[ci]!.slug
-    }
-    cursor += chapterScenes
-  }
-}
-
-function clearAllAssignments() {
-  Object.keys(sceneAssignmentDraft).forEach(k => { delete sceneAssignmentDraft[Number(k)] })
-}
-
-async function saveSceneAssignments() {
-  if (!episodeId.value) return
-  assignmentsSaving.value = true
-  try {
-    const assignments = Object.entries(sceneAssignmentDraft)
-      .filter(([_, slug]) => !!slug)
-      .map(([sn, slug]) => ({ scene_number: Number(sn), chapter_slug: slug }))
-    const r = await $fetch<{
-      ok: boolean
-      written: number
-      unknown_slugs?: string[]
-    }>(`/api/projects/${slug.value}/video-editor/scene-chapter-assignments`, {
-      method: 'PUT',
-      body: { episode_id: episodeId.value, assignments },
-    })
-    if (r.unknown_slugs?.length) {
-      assignmentsError.value = `Saved, but these chapter slugs aren't in audio_chapters.json: ${r.unknown_slugs.join(', ')}. Re-run Audio Merge if you renamed chapters.`
-    } else {
-      assignmentsError.value = ''
-    }
-    // Refresh saved snapshot so the button-line count updates.
-    const fromDisk: Record<number, string> = {}
-    for (const a of assignments) fromDisk[a.scene_number] = a.chapter_slug
-    sceneAssignmentSaved.value = fromDisk
-    success(`Saved ${r.written} scene assignment(s)`)
-    if (!r.unknown_slugs?.length) showSceneAssignmentsModal.value = false
-  } catch (e: any) {
-    assignmentsError.value = e?.data?.detail || e?.message || 'Save failed'
-  } finally {
-    assignmentsSaving.value = false
-  }
-}
-
-// Refresh saved-count whenever the episode changes so the "N scenes
-// have explicit assignments" hint stays accurate without opening the
-// modal.
-watch(episodeId, async (id) => {
-  if (id && alignVisualsToChapters.value) {
-    try { await loadSceneAssignments() } catch { /* tolerate */ }
-  } else {
-    sceneAssignmentSaved.value = {}
-  }
-})
-watch(alignVisualsToChapters, async (on) => {
-  if (on && episodeId.value) {
-    try { await loadSceneAssignments() } catch { /* tolerate */ }
-  }
-})
 
 // --------------- Step 5: Subtitles ---------------
 const subtitles = reactive({
@@ -3712,6 +3526,7 @@ const titleCard = reactive({
   duration: 5,
   style: 'gold' as string,
   background: 'black',
+  background_media_path: '',
 })
 const chapterTitles = reactive({
   enabled: false,
@@ -3728,6 +3543,7 @@ const outroCard = reactive({
   text: 'Thanks for watching',
   duration: 4,
   style: 'white',
+  background_media_path: '',
 })
 
 // --------------- Step 6: Export ---------------
@@ -3866,7 +3682,6 @@ const effectsPresets = usePresets({
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
-    align_visuals_to_chapters: alignVisualsToChapters.value,
     compilation_layout: {
       layout: compilationLayout.layout,
       background_plate: { ...compilationLayout.backgroundPlate },
@@ -3896,9 +3711,6 @@ const effectsPresets = usePresets({
     }
     if (typeof data.exclude_intro_from_effects === 'boolean') {
       excludeIntroFromEffects.value = data.exclude_intro_from_effects
-    }
-    if (typeof data.align_visuals_to_chapters === 'boolean') {
-      alignVisualsToChapters.value = data.align_visuals_to_chapters
     }
     if (data.compilation_layout) {
       const cl = data.compilation_layout
@@ -4006,7 +3818,6 @@ function snapshotEffectsData() {
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
-    align_visuals_to_chapters: alignVisualsToChapters.value,
     // v1.0.68+: compilation_layout was being saved to the slot preset
     // but NOT to the bundle's fallback snapshot. Result: pipeline
     // batch runs that resolved a bundle preset would lose the
@@ -4042,9 +3853,6 @@ function applyEffectsData(data: any) {
   }
   if (typeof data.exclude_intro_from_effects === 'boolean') {
     excludeIntroFromEffects.value = data.exclude_intro_from_effects
-  }
-  if (typeof data.align_visuals_to_chapters === 'boolean') {
-    alignVisualsToChapters.value = data.align_visuals_to_chapters
   }
   // Restore compilation_layout when the bundle carried one (v1.0.68+).
   if (data.compilation_layout) {
@@ -4167,6 +3975,9 @@ const BUNDLE_PATH_FIELDS: Array<{ key: string }> = [
   { key: 'title_image.image_path' },
   { key: 'logo.image_path' },
   { key: 'chroma_key.source_path' },
+  { key: 'frame.background_path' },
+  { key: 'title_card.background_media_path' },
+  { key: 'outro_card.background_media_path' },
   { key: 'compilation_layout.background_plate.source_path' },
 ]
 
@@ -4190,6 +4001,9 @@ function currentBundleSnapshotForValidation() {
     title_image: { image_path: titleImage.image_path },
     logo: { image_path: logo.image_path },
     chroma_key: { source_path: chromaKey.source_path },
+    frame: { background_path: frame.background_path },
+    title_card: { background_media_path: titleCard.background_media_path },
+    outro_card: { background_media_path: outroCard.background_media_path },
     compilation_layout: { background_plate: { source_path: compilationLayout.backgroundPlate.source_path } },
   }
 }
@@ -4234,6 +4048,9 @@ function bundlePathFieldLabel(key: string): string {
     case 'title_image.image_path':                              return 'Title image'
     case 'logo.image_path':                                     return 'Logo'
     case 'chroma_key.source_path':                              return 'Chroma key source'
+    case 'frame.background_path':                               return 'Presentation frame background'
+    case 'title_card.background_media_path':                    return 'Title card background'
+    case 'outro_card.background_media_path':                    return 'Outro card background'
     case 'compilation_layout.background_plate.source_path':     return 'Background plate'
     default:                                                     return key
   }
@@ -4250,8 +4067,11 @@ function shortenBundlePath(p: string): string {
  *  into the matching form slot. Re-validates so the banner updates
  *  without waiting for another preset apply. */
 async function repickBundlePath(row: { key: string; index: number | null }) {
+  const isMixedMedia = row.key === 'frame.background_path'
+    || row.key.endsWith('background_media_path')
+    || row.key === 'compilation_layout.background_plate.source_path'
   const isImage = row.key.endsWith('image_path') || row.key === 'logo.image_path' || row.key === 'title_image.image_path'
-  const accept = isImage ? ['image/*'] : ['video/*']
+  const accept = isMixedMedia ? ['image/*', 'video/*'] : isImage ? ['image/*'] : ['video/*']
   let newPath = ''
   try {
     const r = await post<{ files: Array<{ path: string }> }>(`/system/pick-files`, {
@@ -4272,6 +4092,9 @@ async function repickBundlePath(row: { key: string; index: number | null }) {
     case 'title_image.image_path':   titleImage.image_path = portablePath; break
     case 'logo.image_path':          logo.image_path = portablePath; break
     case 'chroma_key.source_path':   chromaKey.source_path = portablePath; break
+    case 'frame.background_path': frame.background_path = portablePath; break
+    case 'title_card.background_media_path': titleCard.background_media_path = portablePath; break
+    case 'outro_card.background_media_path': outroCard.background_media_path = portablePath; break
     case 'compilation_layout.background_plate.source_path':
       compilationLayout.backgroundPlate.source_path = portablePath
       break
@@ -4741,6 +4564,7 @@ const effectPreviewImgStyle = computed(() => {
     if (Math.abs(warmDeg) > 0.5) filters.push(`hue-rotate(${warmDeg.toFixed(1)}deg)`)
   }
   const style: Record<string, string> = {}
+  style.objectFit = frame.enabled && frame.fit === 'contain' ? 'contain' : 'cover'
   if (filters.length) style.filter = filters.join(' ')
 
   // Scene animation CSS
@@ -4759,10 +4583,13 @@ const effectPreviewImgStyle = computed(() => {
 })
 
 const vignetteOverlayStyle = computed(() => {
-  const s = vignette.strength
-  const spread = Math.round(s * 120)
-  const blur = Math.round(s * 80)
-  return { boxShadow: `inset 0 0 ${blur}px ${spread}px rgba(0,0,0,${(s * 0.8).toFixed(2)})` }
+  const s = Math.max(0, Math.min(1, Number(vignette.strength) || 0))
+  const clearUntil = Math.round(68 - s * 28)
+  const mid = Math.round(86 - s * 16)
+  const alpha = (0.22 + s * 0.68).toFixed(2)
+  return {
+    background: `radial-gradient(ellipse at center, transparent 0%, transparent ${clearUntil}%, rgba(0,0,0,0.08) ${mid}%, rgba(0,0,0,${alpha}) 100%)`,
+  }
 })
 
 const letterboxBarHeight = computed(() => {
@@ -4774,9 +4601,16 @@ const letterboxBarHeight = computed(() => {
   return `${barPct.toFixed(1)}%`
 })
 
-const frameCanvasStyle = computed<CSSProperties>(() => frame.enabled
-  ? { background: frame.background_color }
-  : {})
+const frameCanvasStyle = computed<CSSProperties>(() => {
+  if (!frame.enabled) return {}
+  const base: CSSProperties = { background: frame.background_color }
+  if (frame.background_path && !isVideoMedia(frame.background_path)) {
+    base.backgroundImage = `url("${getMediaPreviewUrl(frame.background_path)}")`
+    base.backgroundSize = 'cover'
+    base.backgroundPosition = 'center'
+  }
+  return base
+})
 const frameMediaStyle = computed<CSSProperties>(() => {
   if (!frame.enabled) return {}
   const inset = Math.max(0, Math.min(20, Number(frame.inset_pct) || 0))
@@ -4788,9 +4622,73 @@ const frameMediaStyle = computed<CSSProperties>(() => {
     border: `${Math.max(0, Number(frame.border_width) || 0) / 4}px solid ${frame.border_color}`,
     borderRadius: `${Math.max(0, Number(frame.corner_radius) || 0) / 4}px`,
     boxSizing: 'border-box',
-    objectFit: frame.fit,
+    overflow: 'hidden',
   }
 })
+
+const previewTimeSec = ref(0)
+const previewEffectLayers = computed<OverlayLayer[]>(() => {
+  if (overlays.enabled) return overlays.layers.filter(layer => layer.enabled && !!layer.source_path)
+  if (chromaKey.enabled && chromaKey.source_path) {
+    return [{
+      id: 'single-green-screen', enabled: true, source_path: chromaKey.source_path,
+      chroma_key: { color: chromaKey.color, similarity: chromaKey.similarity, blend: chromaKey.blend },
+      opacity: 1, scale: 'cover', loop: true,
+    }]
+  }
+  return []
+})
+
+function isVideoMedia(filePath: string): boolean {
+  return /\.(mp4|mov|m4v|webm|mkv)(?:$|\?)/i.test(filePath || '')
+}
+
+function isPreviewLayerVisible(layer: OverlayLayer): boolean {
+  const range = layer.time_range
+  if (!range) return true
+  return previewTimeSec.value >= (range.start_s || 0)
+    && (range.end_s == null || previewTimeSec.value <= range.end_s)
+}
+
+function previewOverlayStyle(layer: OverlayLayer): CSSProperties {
+  const mode = layer.scale || 'cover'
+  const style: CSSProperties = {
+    opacity: Math.max(0, Math.min(1, Number(layer.opacity ?? 1))),
+    objectFit: mode === 'native' ? 'contain' : mode,
+  }
+  if (mode === 'native') {
+    style.width = 'auto'
+    style.height = 'auto'
+    style.maxWidth = '100%'
+    style.maxHeight = '100%'
+  }
+  const anchor = layer.position_anchor
+  if (anchor === 'center') {
+    style.transform = 'translate(-50%, -50%)'
+    style.left = '50%'
+    style.top = '50%'
+  } else if (anchor === 'top-third') {
+    style.transform = 'translate(-50%, -50%)'
+    style.left = '50%'
+    style.top = '33%'
+  } else if (anchor === 'bottom-third') {
+    style.transform = 'translate(-50%, -50%)'
+    style.left = '50%'
+    style.top = '67%'
+  } else if (anchor === 'lower-right') {
+    style.right = '4%'
+    style.bottom = '4%'
+  } else if (anchor === 'lower-left') {
+    style.left = '4%'
+    style.bottom = '4%'
+  } else {
+    const x = Number.parseFloat(layer.position?.x || '0')
+    const y = Number.parseFloat(layer.position?.y || '0')
+    style.left = `${Number.isFinite(x) ? x / 4 : 0}px`
+    style.top = `${Number.isFinite(y) ? y / 4 : 0}px`
+  }
+  return style
+}
 
 // Logo preview
 const logoLoadError = ref(false)
@@ -4973,6 +4871,10 @@ function getImagePreviewUrl(filePath: string): string {
   return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}`
 }
 
+function getMediaPreviewUrl(filePath: string): string {
+  return `/api/projects/${slug.value}/video-editor/preview-media?path=${encodeURIComponent(filePath)}`
+}
+
 function pickTitleImage(filePath: string) {
   void (async () => {
     titleImage.image_path = await collapseToPortablePath(filePath)
@@ -5006,6 +4908,9 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
   if (titleImage.image_path) titleImage.image_path = await collapseToPortablePath(titleImage.image_path)
   if (logo.image_path) logo.image_path = await collapseToPortablePath(logo.image_path)
   if (chromaKey.source_path) chromaKey.source_path = await collapseToPortablePath(chromaKey.source_path)
+  if (frame.background_path) frame.background_path = await collapseToPortablePath(frame.background_path)
+  if (titleCard.background_media_path) titleCard.background_media_path = await collapseToPortablePath(titleCard.background_media_path)
+  if (outroCard.background_media_path) outroCard.background_media_path = await collapseToPortablePath(outroCard.background_media_path)
   if (subtitles.srt_path) subtitles.srt_path = await collapseToPortablePath(subtitles.srt_path)
   if (compilationLayout.backgroundPlate.source_path) {
     compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(compilationLayout.backgroundPlate.source_path)
@@ -5027,8 +4932,6 @@ const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateV
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   colorGrading, vignette, filmGrain, letterbox, frame, chromaKey,
   overlays,
-  alignVisualsToChapters,
-  sceneAssignmentSaved,
   compilationLayout: {
     layout: computed({
       get: () => compilationLayout.layout,
@@ -5824,12 +5727,17 @@ onUnmounted(() => {
 
 /* ===== Effect Preview Panel ===== */
 .effect-preview-frame { width: 100%; aspect-ratio: 16/9; border-radius: var(--radius-md); border: 1px solid var(--border); overflow: hidden; position: relative; background: #111; }
-.effect-preview-img { width: 100%; height: 100%; object-fit: cover; will-change: transform, filter; transform-origin: center center; }
+.frame-background-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.effect-media-surface { position: absolute; inset: 0; width: 100%; height: 100%; }
+.effect-preview-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; will-change: transform, filter; transform-origin: center center; }
+.effect-overlay-media { position: absolute; inset: auto; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .effect-vignette-overlay { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
 .effect-grain-overlay { position: absolute; inset: 0; pointer-events: none; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E"); background-size: 100px 100px; mix-blend-mode: overlay; }
 .letterbox-bar { position: absolute; left: 0; right: 0; pointer-events: none; }
 .letterbox-top { top: 0; }
 .letterbox-bottom { bottom: 0; }
+.preview-time-control { display: grid; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+.preview-time-control input { width: 100%; }
 
 /* Scene animation preview keyframes */
 @keyframes kenBurnsPreview { 0% { transform: scale(1); } 100% { transform: scale(1.08); } }

@@ -90,7 +90,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.outro, undefined, 'disabled outro should be dropped')
   })
 
-  test('flattens effects slot — chroma_key, overlays, chapter_titles, align_visuals_to_chapters', () => {
+  test('flattens effects slot — chroma_key, overlays, chapter_titles, and frame', () => {
     const out = flattenVideoAssemblyBundle(
       bundle({
         effects: {
@@ -105,7 +105,6 @@ describe('flattenVideoAssemblyBundle', () => {
           },
           chapter_titles: { enabled: true, animation: 'fade', animation_duration: 0.6 },
           frame: { enabled: true, inset_pct: 4, border_width: 12, corner_radius: 28, border_color: '#fff', background_color: '#111' },
-          align_visuals_to_chapters: true,
           exclude_intro_from_effects: true,
         },
       }),
@@ -118,7 +117,6 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(((out.overlays as any).layers as any[])[0].id, 'a')
     assert.equal((out.chapter_titles as any).animation, 'fade')
     assert.equal((out.frame as any).corner_radius, 28)
-    assert.equal(out.align_visuals_to_chapters, true)
     assert.equal(out.exclude_intro_from_effects, true)
   })
 
@@ -252,7 +250,6 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.foreground_defaults, undefined)
     assert.equal(out.overlays, undefined)
     assert.equal(out.chroma_key, undefined)
-    assert.equal(out.align_visuals_to_chapters, undefined)
     // But the legacy fields it did ship should be present
     assert.deepEqual(out.scene_recycling, { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] })
     assert.equal(out.resolution, '1280x720')

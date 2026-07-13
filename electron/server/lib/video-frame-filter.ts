@@ -2,6 +2,8 @@ import type { VideoFrameConfig } from '../models/types.js'
 
 export interface VideoFrameFilterOptions {
   inputLabel: string
+  /** Optional FFmpeg input label for a still or looping video board. */
+  backgroundInputLabel?: string
   outputLabel: string
   prefix: string
   width: number
@@ -24,7 +26,7 @@ function safeColor(value: unknown, fallback: string): string {
  * matte + border and masks the media corners. Pixel controls are authored at
  * 1080p and scale with output height so a preset looks consistent at 720p/4K. */
 export function buildVideoFrameFilter(options: VideoFrameFilterOptions): string[] {
-  const { inputLabel, outputLabel, prefix, width, height, fps, config } = options
+  const { inputLabel, backgroundInputLabel, outputLabel, prefix, width, height, fps, config } = options
   const insetPct = clamp(config.inset_pct, 0, 25, 4)
   const scale = height / 1080
   const borderPx = Math.round(clamp(config.border_width, 0, 160, 12) * scale)
@@ -56,9 +58,13 @@ export function buildVideoFrameFilter(options: VideoFrameFilterOptions): string[
     ? `,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X,${radius})*lt(Y,${radius}),if(lte(pow(X-${radius},2)+pow(Y-${radius},2),${radius * radius}),255,0),if(gte(X,W-${radius})*lt(Y,${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-${radius},2),${radius * radius}),255,0),if(lt(X,${radius})*gte(Y,H-${radius}),if(lte(pow(X-${radius},2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),if(gte(X,W-${radius})*gte(Y,H-${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),255))))'`
     : ',format=rgba'
 
+  const backgroundChain = backgroundInputLabel
+    ? `${backgroundInputLabel}setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[${bg}]`
+    : `color=c=${background}:s=${width}x${height}:r=${Math.max(1, Math.round(fps))}[${bg}]`
+
   return [
     `${inputLabel}scale=${innerW}:${innerH}:force_original_aspect_ratio=${fit}${fitTail}${rounded}[${media}]`,
-    `color=c=${background}:s=${width}x${height}:r=${Math.max(1, Math.round(fps))}[${bg}]`,
+    backgroundChain,
     `[${bg}]drawbox=x=${outerX}:y=${outerY}:w=${outerW}:h=${outerH}:color=${border}:t=fill[${borderLayer}]`,
     `[${borderLayer}][${media}]overlay=${innerX}:${innerY}:shortest=1,format=yuv420p${outputLabel}`,
   ]

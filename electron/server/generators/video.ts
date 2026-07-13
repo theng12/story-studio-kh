@@ -40,7 +40,7 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
-  VideoTitleImageConfig, VideoSceneRecycling, VideoMusicConfig,
+  VideoTitleImageConfig, VideoTitleCard, VideoOutroCard, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
@@ -313,6 +313,29 @@ function buildGateEnable(start: number, end: number): string {
   return ''
 }
 
+/** FFmpeg's vignette grows stronger as its lens angle approaches PI/2. */
+export function computeVignetteAngle(strengthValue: unknown): number {
+  const strength = Math.max(0, Math.min(Number(strengthValue) || 0, 1))
+  return 0.45 + strength * (1.25 - 0.45)
+}
+
+/** Draw cinematic bars over the frame without scaling or cropping it. */
+export function buildLetterboxFilter(
+  inputLabel: string,
+  outputLabel: string,
+  width: number,
+  height: number,
+  ratioName: string,
+  color: string,
+): string | null {
+  const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.00:1': 2.0, '1.85:1': 1.85 }
+  const pictureHeight = Math.floor((width / (ratioMap[ratioName] || 2.35)) / 2) * 2
+  const barHeight = Math.max(0, Math.floor(((height - pictureHeight) / 2) / 2) * 2)
+  if (barHeight <= 0) return null
+  return `${inputLabel}drawbox=x=0:y=0:w=iw:h=${barHeight}:color=${color}:t=fill,` +
+    `drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=${color}:t=fill${outputLabel}`
+}
+
 // ── Portable-path expansion ────────────────────────────────────────────────
 // Walks the fields of a GenerateVideoRequest that carry user-supplied file
 // paths and expands portable forms (`${PROJECT}/foo`, `${TERRANASH}/bar`) to
@@ -348,6 +371,15 @@ function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string,
   }
   if (req.chroma_key?.source_path) {
     req.chroma_key.source_path = tryResolve(req.chroma_key.source_path, 'chroma_key.source_path') || ''
+  }
+  if (req.frame?.background_path) {
+    req.frame.background_path = tryResolve(req.frame.background_path, 'frame.background_path') || ''
+  }
+  if (req.title_card?.background_media_path) {
+    req.title_card.background_media_path = tryResolve(req.title_card.background_media_path, 'title_card.background_media_path') || ''
+  }
+  if (req.outro_card?.background_media_path) {
+    req.outro_card.background_media_path = tryResolve(req.outro_card.background_media_path, 'outro_card.background_media_path') || ''
   }
   if (req.background_noise?.custom_file) {
     req.background_noise.custom_file = tryResolve(req.background_noise.custom_file, 'background_noise.custom_file') || ''
@@ -862,76 +894,6 @@ export async function generateVideo(job: Job): Promise<void> {
 
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
-
-  // Workstream B — chapter alignment auto-load. When the flag is on
-  // but the request didn't carry `chapter_durations`, try the audio
-  // merge sidecar that lives in the episode directory. Frontend can
-  // either send durations directly or rely on this fallback so the
-  // payload stays small. If the sidecar is missing, the alignment
-  // branch in `buildConcatList` silently falls back to legacy cycling
-  // (logged once below for diagnostics).
-  if (req.align_visuals_to_chapters && (!Array.isArray(req.chapter_durations) || req.chapter_durations.length === 0)) {
-    try {
-      const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
-      const raw = await fs.readFile(sidecarPath, 'utf-8')
-      const parsed = JSON.parse(raw) as { sections?: Array<{ slug: string; duration_s: number }> }
-      if (Array.isArray(parsed.sections) && parsed.sections.length > 0) {
-        req.chapter_durations = parsed.sections
-          .filter(s => s && typeof s.slug === 'string' && Number.isFinite(s.duration_s) && s.duration_s > 0)
-          .map(s => ({ slug: s.slug, duration_s: s.duration_s }))
-        job.output_lines.push(`Chapter alignment: loaded ${req.chapter_durations.length} chapter duration(s) from audio_chapters.json`)
-      }
-    } catch {
-      job.output_lines.push(`Chapter alignment: ON but no audio_chapters.json sidecar — falling back to uniform cycling. Re-run Audio Merge to emit it.`)
-    }
-  }
-
-  // Per-scene swap (v1.0.57+) — auto-load explicit assignments when
-  // alignment is on AND any scene lacks a chapter_slug. Frontend
-  // typically stamps the slug onto each VideoScene before sending,
-  // but old cached payloads or scripted re-runs may not. Reading the
-  // sidecar here makes the override behaviour reliable regardless of
-  // what the caller knew at submit time. If no sidecar exists, scenes
-  // stay un-stamped and the alignment branch positional-splits (the
-  // Workstream B v1.0.54 behaviour).
-  if (req.align_visuals_to_chapters && Array.isArray(req.scenes) && req.scenes.length > 0) {
-    const anyMissing = req.scenes.some(s => typeof s.chapter_slug !== 'string' || !s.chapter_slug)
-    if (anyMissing) {
-      try {
-        const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
-        const raw = await fs.readFile(sidecarPath, 'utf-8')
-        const parsed = JSON.parse(raw) as {
-          assignments?: Array<{ scene_number: number; chapter_slug: string }>
-        }
-        if (Array.isArray(parsed.assignments) && parsed.assignments.length > 0) {
-          const bySceneNumber = new Map<number, string>()
-          for (const a of parsed.assignments) {
-            if (typeof a?.scene_number === 'number' && typeof a?.chapter_slug === 'string' && a.chapter_slug) {
-              bySceneNumber.set(a.scene_number, a.chapter_slug)
-            }
-          }
-          let applied = 0
-          for (let i = 0; i < req.scenes.length; i++) {
-            const sc = req.scenes[i]!
-            // Treat scene_number as 1-based when missing — falls back
-            // to positional index. Lines up with how the rest of the
-            // app numbers Scene01, Scene02, …
-            const sn = typeof sc.scene_number === 'number' ? sc.scene_number : (i + 1)
-            const slug = bySceneNumber.get(sn)
-            if (slug && !sc.chapter_slug) {
-              sc.chapter_slug = slug
-              applied++
-            }
-          }
-          if (applied > 0) {
-            job.output_lines.push(`Per-scene chapter assignments: applied ${applied} override(s) from scene_chapter_assignments.json`)
-          }
-        }
-      } catch {
-        // Sidecar absent — fine. Positional even-split kicks in.
-      }
-    }
-  }
 
   // Validate scenes
   if (!req.scenes || req.scenes.length === 0) {
@@ -1459,6 +1421,10 @@ export async function generateVideo(job: Job): Promise<void> {
         req.title_image.enabled = false
         job.output_lines.push('Title card skipped: the branded opening already owns the full reserved opening window.')
       }
+      if (req.title_card?.enabled) {
+        req.title_card.enabled = false
+        job.output_lines.push('Text title card skipped: the branded opening already owns the full reserved opening window.')
+      }
       job.output_lines.push(`Opening sync: intro clip will be trimmed/padded to exactly ${planOpeningReservedSec.toFixed(1)}s, matching Scene Plan.`)
     }
 
@@ -1497,6 +1463,14 @@ export async function generateVideo(job: Job): Promise<void> {
         // common way to hit 'missing'. 'placeholder' means the file is
         // waiting for iCloud to download it — the message explains how.
         job.output_lines.push(`${avail.message} — title step skipped`)
+      }
+    }
+    if (req.title_card?.enabled && req.title_card.text?.trim()) {
+      if (!canDrawtext) {
+        job.output_lines.push('Text title card skipped: this FFmpeg build has no drawtext filter.')
+      } else {
+        if (titleClipPath) job.output_lines.push('Text title card replaces the separate title image clip for this render.')
+        titleClipPath = await prepareTextCardClip(req.title_card, 'title', resW, resH, quality, tempDir, job)
       }
     }
 
@@ -1568,6 +1542,15 @@ export async function generateVideo(job: Job): Promise<void> {
         idx++
       }
     }
+    if (req.outro_card?.enabled && req.outro_card.text?.trim()) {
+      if (!canDrawtext) {
+        job.output_lines.push('Text outro card skipped: this FFmpeg build has no drawtext filter.')
+      } else {
+        const cardPath = await prepareTextCardClip(req.outro_card, 'outro', resW, resH, quality, tempDir, job)
+        const duration = (await getAudioDuration(cardPath)) || req.outro_card.duration || 4
+        timelineClipsByAnchor.after_outro.push({ path: cardPath, duration })
+      }
+    }
     // Bucket totals drive head-of-video (preSceneDuration) vs tail
     // (totalRenderDuration) math below. Sum once here, reuse below.
     const beforeIntroDur = timelineClipsByAnchor.before_intro.reduce((s, c) => s + c.duration, 0)
@@ -1615,7 +1598,7 @@ export async function generateVideo(job: Job): Promise<void> {
     }
     preSceneDuration += afterIntroDur
     if (titleClipPath) {
-      preSceneDuration += req.title_image?.duration ?? 5
+      preSceneDuration += (await getAudioDuration(titleClipPath)) || 5
     }
 
     // Measure outro length so the final encode's `-t` flag covers it.
@@ -1734,17 +1717,6 @@ export async function generateVideo(job: Job): Promise<void> {
       } : undefined,
       outroClipPath,
       timelineClipsByAnchor,
-      // Chapter alignment (Workstream B). Frontend sends durations from
-      // `${episode}/audio_chapters.json`; backend partitions scenes
-      // across them when the flag is on. Off → legacy cycling.
-      req.align_visuals_to_chapters && Array.isArray(req.chapter_durations) && req.chapter_durations.length > 0
-        ? { enabled: true, chapterDurations: req.chapter_durations }
-        : undefined,
-      // Per-scene chapter overrides (v1.0.57+). Pulled directly off
-      // each VideoScene so a half-edited assignments file (some scenes
-      // unassigned) still produces a valid render — the alignment
-      // branch falls back to positional placement for unmapped clips.
-      req.scenes.map(s => s.chapter_slug),
       planStrict,
     )
 
@@ -2357,6 +2329,63 @@ async function prepareSceneClips(
 
 // ── Prepare Title Clip ────────────────────────────────────────────────────
 
+async function prepareTextCardClip(
+  card: VideoTitleCard | VideoOutroCard,
+  kind: 'title' | 'outro',
+  w: number,
+  h: number,
+  quality: { crf: number; preset: string; fps: number },
+  tempDir: string,
+  job: Job,
+): Promise<string> {
+  const clipPath = path.join(tempDir, `${kind}_text_card.mp4`)
+  const duration = Math.max(1, Number(card.duration) || (kind === 'title' ? 5 : 4))
+  const mediaPath = String(card.background_media_path || '')
+  const hasMedia = mediaPath && checkAssetAvailability(mediaPath, `${kind}_card.background_media_path`).status === 'available'
+  const args: string[] = ['-y']
+  const filters: string[] = []
+
+  if (hasMedia) {
+    args.push(...(await buildLoopingMediaInputArgs(mediaPath)))
+    filters.push(...normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps=')))
+  } else {
+    const backgroundName = 'background' in card ? String(card.background || 'black') : 'black'
+    const color = backgroundName === 'gradient' ? '#111827'
+      : backgroundName === 'dark_blur' ? '#101014'
+        : backgroundName === 'black' ? 'black' : backgroundName
+    args.push('-f', 'lavfi', '-i', `color=c=${color}:s=${w}x${h}:r=${quality.fps}:d=${duration}`)
+    filters.push('setsar=1')
+    if (mediaPath) job.output_lines.push(`Text ${kind} card background is unavailable; using ${color}.`)
+  }
+
+  const textColor = getStyleColor(card.style || 'white')
+  const mainSize = Math.max(32, Math.round(h * (kind === 'title' ? 0.075 : 0.06)))
+  const mainY = kind === 'title' && 'subtitle' in card && card.subtitle ? '(h-text_h)/2-40' : '(h-text_h)/2'
+  filters.push(
+    `drawtext=text='${escapeDrawtext(card.text || '')}':fontsize=${mainSize}:fontcolor=${textColor}:` +
+    `borderw=2:bordercolor=black@0.65:x=(w-text_w)/2:y=${mainY}`,
+  )
+  if (kind === 'title' && 'subtitle' in card && card.subtitle?.trim()) {
+    filters.push(
+      `drawtext=text='${escapeDrawtext(card.subtitle)}':fontsize=${Math.max(22, Math.round(mainSize * 0.48))}:` +
+      `fontcolor=white:borderw=1:bordercolor=black@0.65:x=(w-text_w)/2:y=(h/2)+45`,
+    )
+  }
+  filters.push('format=yuv420p')
+  args.push(
+    '-vf', filters.join(','), '-t', duration.toString(),
+    '-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast',
+    '-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
+    '-color_range', 'tv', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-an', clipPath,
+  )
+  job.output_lines.push(
+    `Preparing ${kind} text card (${duration}s${hasMedia ? ` · ${path.basename(mediaPath)}` : ''})`,
+  )
+  await runFfmpeg(args)
+  return clipPath
+}
+
 async function prepareTitleClip(
   titleImage: VideoTitleImageConfig,
   w: number, h: number,
@@ -2489,14 +2518,12 @@ export type ScenePlayClip = { path: string; duration: number }
  * ordering/duration/reuse contract is directly testable. Three modes:
  *
  *   1. PLAN-STRICT (scene-plan episodes): one entry per clip, plan order,
- *      exact per-scene durations. NO cycling, NO shuffle, NO chapter-align —
+ *      exact per-scene durations. NO cycling and NO shuffle —
  *      the scene body mirrors scene_plan.json 1:1. If the plan total differs
  *      from the narration window by >2s a diagnostic line is emitted (a
  *      longer narration is covered by the post-audio fade/hold tail, never by
  *      repeating scenes).
- *   2. Chapter-aligned (Workstream B): partition scenes across chapter
- *      durations; each bucket cycles within its own chapter window.
- *   3. Legacy uniform cycling: the whole bag repeats until the narration
+ *   2. Legacy uniform cycling: the whole bag repeats until the narration
  *      window is filled; optional shuffle per cycle.
  *
  * `random` is injectable so shuffle behavior is deterministic under test.
@@ -2504,7 +2531,6 @@ export type ScenePlayClip = { path: string; duration: number }
 export function buildScenePlayOrder(opts: {
   availableClips: string[]
   availableDurations: number[]
-  availableSlugs: Array<string | undefined>
   /** Uniform fallback seconds (recycling.seconds_per_scene). */
   sceneDuration: number
   /** Seconds of narration the scene body must cover (post-intro). */
@@ -2513,16 +2539,12 @@ export function buildScenePlayOrder(opts: {
   durationPerCycle: number
   shuffle: boolean
   planStrict: boolean
-  chapterAlignment?: {
-    enabled: boolean
-    chapterDurations: Array<{ slug: string; duration_s: number }>
-  }
   random?: () => number
-}): { scenePlayOrder: ScenePlayClip[]; logLines: string[]; chapterAlignActive: boolean } {
+}): { scenePlayOrder: ScenePlayClip[]; logLines: string[] } {
   const {
-    availableClips, availableDurations, availableSlugs,
+    availableClips, availableDurations,
     sceneDuration, sceneFillDuration, durationPerCycle,
-    shuffle, planStrict, chapterAlignment,
+    shuffle, planStrict,
   } = opts
   const random = opts.random ?? Math.random
   const scenePlayOrder: ScenePlayClip[] = []
@@ -2542,119 +2564,25 @@ export function buildScenePlayOrder(opts: {
           : 'the video keeps every planned scene; any excess past the target is clipped at the end.'),
       )
     }
-    return { scenePlayOrder, logLines, chapterAlignActive: false }
+    return { scenePlayOrder, logLines }
   }
 
-  const chapterAlignActive = !!(chapterAlignment?.enabled
-    && chapterAlignment.chapterDurations.length > 0
-    && availableClips.length > 0)
-
-  if (chapterAlignActive) {
-    const chapters = chapterAlignment!.chapterDurations
-    const C = chapters.length
-    const S = availableClips.length
-
-    // Two ways to partition. Explicit-slug mode beats positional when
-    // ANY scene carries a chapter_slug — assumes the user opened the
-    // per-scene swap UI and edited assignments. Positional even-split
-    // is the legacy Workstream B behaviour and the safe fallback when
-    // no slugs are set.
-    const hasExplicitSlugs = availableSlugs.some(s => typeof s === 'string' && s.length > 0)
-    type ChapterBucket = { ch: typeof chapters[number]; clips: ScenePlayClip[] }
-    const buckets: ChapterBucket[] = chapters.map(ch => ({ ch, clips: [] }))
-    const bucketIdxBySlug = new Map<string, number>()
-    chapters.forEach((ch, i) => bucketIdxBySlug.set(ch.slug, i))
-
-    if (hasExplicitSlugs) {
-      // Explicit assignments. For each clip, look up its slug; if it
-      // resolves to a known chapter, drop into that bucket. Clips
-      // without a slug (or with an unknown one) fall back to positional
-      // assignment in their natural index — they get bucketed by the
-      // same baseSpc / extra split we use in even-split mode below.
-      const baseSpc = Math.floor(S / C)
-      const extra = S - baseSpc * C
-      const positionalBucket = (clipIdx: number): number => {
-        // Reverse the cumulative-sum table so we can map clip index
-        // directly to bucket without iterating chapters per clip.
-        let acc = 0
-        for (let ci = 0; ci < C; ci++) {
-          const sz = baseSpc + (ci < extra ? 1 : 0)
-          if (clipIdx < acc + sz) return ci
-          acc += sz
-        }
-        return C - 1
-      }
-      for (let i = 0; i < availableClips.length; i++) {
-        const slug = availableSlugs[i]
-        let bIdx = -1
-        if (slug && bucketIdxBySlug.has(slug)) bIdx = bucketIdxBySlug.get(slug)!
-        if (bIdx < 0) bIdx = positionalBucket(i)
-        buckets[bIdx]!.clips.push({ path: availableClips[i]!, duration: availableDurations[i] || sceneDuration })
-      }
-      logLines.push(
-        `Chapter alignment: ON · explicit per-scene assignments (any unmapped scene falls to positional default)`,
-      )
-    } else {
-      // Positional even-split (legacy Workstream B behaviour).
-      const baseSpc = Math.floor(S / C)
-      const extra = S - baseSpc * C
-      let cursor = 0
-      for (let ci = 0; ci < C; ci++) {
-        const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
-        const sliceClips = availableClips.slice(cursor, cursor + chapterScenes)
-        buckets[ci]!.clips.push(...sliceClips.map((clip, i) => ({
-          path: clip,
-          duration: availableDurations[cursor + i] || sceneDuration,
-        })))
-        cursor += chapterScenes
+  const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
+  for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
+    let cycleClips = [...availableClips]
+    if (shuffle) {
+      for (let i = cycleClips.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
       }
     }
-
-    // Cycle each bucket within its chapter's audio duration. Empty
-    // buckets borrow the previous bucket's last clip so the chapter
-    // doesn't render as a silent gap (covers S < C and odd skews).
-    let lastNonEmpty: ScenePlayClip | null = null
-    const chapterPlanLog: string[] = []
-    for (let ci = 0; ci < C; ci++) {
-      const b = buckets[ci]!
-      if (b.clips.length === 0) {
-        const fallback = lastNonEmpty
-          ?? buckets.find(o => o.clips.length > 0)?.clips[0]
-          ?? { path: availableClips[0]!, duration: availableDurations[0] || sceneDuration }
-        b.clips.push(fallback)
-      }
-      lastNonEmpty = b.clips[b.clips.length - 1]!
-      let chapterVisualSec = 0
-      let clipsNeeded = 0
-      while (chapterVisualSec < b.ch.duration_s || clipsNeeded === 0) {
-        const pick = b.clips[clipsNeeded % b.clips.length]!
-        scenePlayOrder.push(pick)
-        chapterVisualSec += pick.duration
-        clipsNeeded++
-      }
-      chapterPlanLog.push(`${b.ch.slug}: ${b.clips.length} scene(s) × ${clipsNeeded} cycle(s) = ${b.ch.duration_s.toFixed(1)}s`)
-    }
-    logLines.push(
-      `Chapter alignment: ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
-    )
-  } else {
-    const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
-    for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
-      let cycleClips = [...availableClips]
-      if (shuffle) {
-        for (let i = cycleClips.length - 1; i > 0; i--) {
-          const j = Math.floor(random() * (i + 1));
-          [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
-        }
-      }
-      for (const clip of cycleClips) {
-        const originalIdx = availableClips.indexOf(clip)
-        scenePlayOrder.push({ path: clip, duration: availableDurations[originalIdx] || sceneDuration })
-      }
+    for (const clip of cycleClips) {
+      const originalIdx = availableClips.indexOf(clip)
+      scenePlayOrder.push({ path: clip, duration: availableDurations[originalIdx] || sceneDuration })
     }
   }
 
-  return { scenePlayOrder, logLines, chapterAlignActive }
+  return { scenePlayOrder, logLines }
 }
 
 // ── Prepare Intro Clip (re-encode to match resolution) ────────────────────
@@ -2967,22 +2895,6 @@ async function buildConcatList(
    *  order at its named position. Buckets that are empty are no-ops, so
    *  callers that don't use timeline clips can pass `undefined`. */
   timelineClipsByAnchor?: Record<TimelineAnchor, Array<{ path: string; duration: number }>>,
-  /** When provided AND `enabled`, scenes are partitioned across the
-   *  supplied chapter durations (in order) instead of uniform-cycling
-   *  the entire bag. Each chapter's assigned scenes cycle within its
-   *  own audio duration so chapter N's narration plays with chapter N's
-   *  scene images. Falls back to legacy cycling when missing/disabled. */
-  chapterAlignment?: {
-    enabled: boolean
-    chapterDurations: Array<{ slug: string; duration_s: number }>
-  },
-  /** Optional per-clip chapter slug — same length & order as
-   *  `sceneClips`. When ANY entry is non-empty, the alignment branch
-   *  groups by explicit slug (per-scene swap, v1.0.57+) instead of
-   *  positional even-split. Entries that are empty/undefined fall
-   *  back to positional placement so a half-edited assignment file
-   *  still produces a valid render. */
-  sceneChapterSlugs?: Array<string | undefined>,
   /** v1.0.521 — plan-strict mode (scene-plan episode with every scene
    *  matched to a plan id): plan-exact order + durations, no cycling /
    *  shuffle / chapter-align / fit-trim; xfades are window-anchored (the
@@ -3044,12 +2956,6 @@ async function buildConcatList(
   const availableDurations = (sceneClipDurations || sceneClips.map(() => sceneDuration))
     .filter((_, idx) => !excludedSet.has(idx + 1))
     .map(d => (Number.isFinite(d) && d > 0 ? Math.max(0.5, d) : sceneDuration))
-  // Parallel slug array, kept in sync with the same exclusion filter so
-  // index `i` of availableClips matches `availableSlugs[i]` even after
-  // some scenes are dropped.
-  const availableSlugs: Array<string | undefined> = (sceneChapterSlugs || [])
-    .filter((_, idx) => !excludedSet.has(idx + 1))
-
   if (availableClips.length === 0) {
     throw new Error('No scene clips available after applying exclusions')
   }
@@ -3067,31 +2973,20 @@ async function buildConcatList(
 
   // Build the sequential list of scene clip paths.
   //
-  // Two modes:
-  //  A) Chapter-aligned (Workstream B): partition scenes across chapter
-  //     durations in order. Each chapter's assigned slice cycles within
-  //     its own audio duration so chapter N narration plays with
-  //     chapter N visuals. Shuffle is intentionally ignored here —
-  //     ordering must follow chapter order to preserve the alignment.
-  //  B) Legacy uniform cycling: every scene gets the same duration and
-  //     the whole bag cycles to fill `sceneFillDuration`.
+  // Scene Plan runs 1:1; classic pools retain uniform cycling.
   // v1.0.521 — the ordering/duration/reuse decision lives in the exported
   // pure planner (buildScenePlayOrder) so tests can pin the contract:
-  // plan-strict = plan-exact 1:1, chapter-align = per-chapter cycling,
-  // legacy = uniform bag cycling.
+  // plan-strict = plan-exact 1:1; classic = uniform bag cycling.
   const planned = buildScenePlayOrder({
     availableClips,
     availableDurations,
-    availableSlugs,
     sceneDuration,
     sceneFillDuration,
     durationPerCycle,
     shuffle: !!recycling.shuffle,
     planStrict: !!planStrict,
-    chapterAlignment,
   })
   const scenePlayOrder = planned.scenePlayOrder
-  const chapterAlignActive = planned.chapterAlignActive
   for (const line of planned.logLines) job.output_lines.push(line)
 
   // Decide whether to pre-xfade the scenes into a single fused MP4.
@@ -3327,14 +3222,9 @@ async function buildConcatList(
     ? Math.max(0, (totalClips - 1 - xfadeHardCuts)) * Math.min(transitionOpts.durationSec, Math.max(0.1, Math.min(...scenePlayOrder.map(c => c.duration)) - 0.1))
     : 0
   const sceneEndTime = accumulatedDuration + totalScenePlayDuration - xfadeSavings
-  // `cyclesNeeded` only makes sense in legacy uniform-cycling mode. The
-  // chapter-aligned path doesn't have a single global cycle count, so
-  // we report a derived round-trip number for diagnostics either way.
   const reportedCycles = planStrict
     ? 'plan-strict (single pass, no recycling)'
-    : chapterAlignActive
-      ? `${chapterAlignment!.chapterDurations.length}-chapter aligned`
-      : `${Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))} cycle(s)`
+    : `${Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))} cycle(s)`
   job.output_lines.push(`Scene clips: ${reportedCycles}, ${totalClips} clips (${sceneEndTime.toFixed(0)}s)`)
 
   // Bucket 3 of 4 — after_scenes: between the last scene cycle and the
@@ -3819,6 +3709,20 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     overlayInputIdxs.push(nextInputIdx++)
   }
 
+  // Optional presentation-frame board. Stills and videos both loop until the
+  // final `-t`; the frame filter crops them to the output canvas behind the
+  // bordered scene surface.
+  let frameBackgroundInputIdx = -1
+  if (frame?.enabled && frame.background_path) {
+    const avail = checkAssetAvailability(frame.background_path, 'frame.background_path')
+    if (avail.status === 'available') {
+      args.push(...(await buildLoopingMediaInputArgs(frame.background_path)))
+      frameBackgroundInputIdx = nextInputIdx++
+    } else {
+      job.output_lines.push(`${avail.message} — using the solid frame board color`)
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   //  VIDEO FILTER CHAIN (video-only — audio is pre-mixed)
   // ═══════════════════════════════════════════════════════════════════════
@@ -3951,22 +3855,11 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
   // 4. Vignette
   //
-  // FFmpeg's `vignette=a=<rad>` expresses the *lens angle*, not strength.
-  // Large angles (approaching PI/2) produce a *wider* lens that darkens
-  // the whole frame including the center — the exact symptom the user
-  // reported ("not getting darker on the side but it just applies to
-  // the whole image"). Small angles produce a narrow lens that only
-  // darkens the corners.
-  //
-  // So we invert the mapping and clamp to a useful range:
-  //   strength 0.05 → angle ~ 80° (barely visible vignette)
-  //   strength 1.0  → angle ~ 30° (strong corner darkening, center preserved)
+  // FFmpeg's angle grows stronger as it approaches PI/2. Keep the calibrated
+  // range below that extreme so darkness starts at the corners and expands
+  // inward without dimming the center like a global exposure adjustment.
   if (vignette?.enabled) {
-    const strength = Math.max(0, Math.min(vignette.strength ?? 0.7, 1))
-    // Map 0..1 onto angle PI/2.25 (weak, ~80°) down to PI/6 (strong, ~30°).
-    const minAngle = Math.PI / 6        // strongest — narrowest lens
-    const maxAngle = Math.PI / 2.25     // weakest  — widest lens
-    const angle = maxAngle - (strength * (maxAngle - minAngle))
+    const angle = computeVignetteAngle(vignette.strength ?? 0.7)
     const vg = vn()
     filterParts.push(`${vLabel}vignette=angle=${angle.toFixed(4)}:mode=forward:eval=init${gateEnable}${vg}`)
     vLabel = vg
@@ -3980,29 +3873,13 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     vLabel = fg
   }
 
-  // 6. Letterbox — NOT gated. scale+pad changes the frame dimensions and
-  //    can't be time-gated without producing different-sized frames in
-  //    the same output, which breaks encoders. Letterbox applies to the
-  //    entire video (intro + title + scenes) by design.
-  //
-  //    Both `newH` and `padY` are rounded to even values. yuv420p chroma
-  //    subsampling requires even dimensions; on FFmpeg 8.1 an odd scale
-  //    height (e.g. 817 for 2.35:1) produces a graph that initialises
-  //    fine but emits zero packets through libx264/libx265, which the
-  //    muxer reports as "Nothing was written into output file". Forcing
-  //    even values keeps the encoder happy at the cost of ≤1 px of
-  //    visible image.
+  // 6. Letterbox — global, but drawn over the existing frame. It does not
+  // squeeze, crop, or otherwise change the source picture geometry.
   if (letterbox?.enabled) {
-    const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.00:1': 2.0, '1.85:1': 1.85 }
-    const targetRatio = ratioMap[letterbox.ratio] || 2.35
-    const barColor = letterbox.color || 'black'
-    const rawNewH = Math.round(w / targetRatio)
-    const newH = rawNewH - (rawNewH % 2)  // floor to even
-    if (newH < h) {
-      const rawPadY = Math.round((h - newH) / 2)
-      const padY = rawPadY - (rawPadY % 2)  // floor to even
-      const lb = vn()
-      filterParts.push(`${vLabel}scale=${w}:${newH},pad=${w}:${h}:0:${padY}:color=${barColor}${lb}`)
+    const lb = vn()
+    const filter = buildLetterboxFilter(vLabel, lb, w, h, letterbox.ratio, letterbox.color || 'black')
+    if (filter) {
+      filterParts.push(filter)
       vLabel = lb
     }
   }
@@ -4014,6 +3891,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     const framed = vn()
     filterParts.push(...buildVideoFrameFilter({
       inputLabel: vLabel,
+      backgroundInputLabel: frameBackgroundInputIdx >= 0 ? `[${frameBackgroundInputIdx}:v]` : undefined,
       outputLabel: framed,
       prefix: `mainframe${vIdx}`,
       width: w,

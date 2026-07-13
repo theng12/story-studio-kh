@@ -975,9 +975,6 @@ export function flattenVideoAssemblyBundle(
   if (typeof effects.exclude_intro_from_effects === 'boolean') {
     out.exclude_intro_from_effects = effects.exclude_intro_from_effects
   }
-  if (effects.align_visuals_to_chapters === true) {
-    out.align_visuals_to_chapters = true
-  }
   if (effects.title_card?.enabled) out.title_card = effects.title_card
   if (effects.outro_card?.enabled) out.outro_card = effects.outro_card
 

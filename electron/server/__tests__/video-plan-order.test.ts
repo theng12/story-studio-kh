@@ -5,7 +5,7 @@
  *
  *   - PLAN-STRICT: plan order, exact per-scene durations, EXACTLY one entry
  *     per scene — even when the narration is 3× the plan total (no reuse).
- *   - Plan-strict ignores shuffle and chapter alignment.
+ *   - Plan-strict ignores shuffle.
  *   - Classic pools keep the legacy cycling behavior (regression guard).
  *
  * Pure imports only — no temp dirs, no env mutation (same pattern as
@@ -25,7 +25,6 @@ function base(overrides: Record<string, any> = {}) {
   return {
     availableClips: CLIPS,
     availableDurations: DURS,
-    availableSlugs: [] as Array<string | undefined>,
     sceneDuration: 10,
     sceneFillDuration: PLAN_TOTAL,
     durationPerCycle: PLAN_TOTAL,
@@ -51,18 +50,6 @@ describe('buildScenePlayOrder — plan-strict (scene-plan episodes)', () => {
       random: () => 0,   // would visibly reorder if shuffle were honored
     }))
     assert.deepEqual(scenePlayOrder.map(c => c.path), CLIPS, 'order untouched despite shuffle=true')
-  })
-
-  test('chapter alignment is ignored in plan-strict mode', () => {
-    const { scenePlayOrder, chapterAlignActive } = buildScenePlayOrder(base({
-      chapterAlignment: {
-        enabled: true,
-        chapterDurations: [{ slug: 'ch1', duration_s: 30 }, { slug: 'ch2', duration_s: 40 }],
-      },
-    }))
-    assert.equal(chapterAlignActive, false, 'plan-strict wins over chapter alignment')
-    assert.equal(scenePlayOrder.length, CLIPS.length)
-    assert.deepEqual(scenePlayOrder.map(c => c.duration), DURS)
   })
 
   test('warns (log line) when plan total and narration window diverge by >2s', () => {
@@ -97,16 +84,4 @@ describe('buildScenePlayOrder — legacy cycling (classic pools, regression)', (
     assert.notDeepEqual(scenePlayOrder.map(c => c.path), CLIPS, 'shuffle honored in legacy mode')
   })
 
-  test('chapter alignment cycles per chapter bucket when NOT plan-strict', () => {
-    const { scenePlayOrder, chapterAlignActive } = buildScenePlayOrder(base({
-      planStrict: false,
-      chapterAlignment: {
-        enabled: true,
-        chapterDurations: [{ slug: 'ch1', duration_s: 20 }, { slug: 'ch2', duration_s: 20 }],
-      },
-    }))
-    assert.equal(chapterAlignActive, true)
-    // Each 2-scene bucket cycles within its 20s chapter → more entries than scenes.
-    assert.ok(scenePlayOrder.length > CLIPS.length, 'buckets cycle to fill their chapters')
-  })
 })
