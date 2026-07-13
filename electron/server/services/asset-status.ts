@@ -20,7 +20,6 @@ import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
 import {
   resolveEpisodePaths,
-  resolveEpisodePathsByCode,
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
   resolveScenePlanPath,
@@ -39,6 +38,7 @@ import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
+import { inspectSubtitleCompletion } from './subtitle-completion.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -695,8 +695,9 @@ export interface EpisodeStatus {
   thumbnails: boolean
   audio: boolean
   merged_audio: boolean
-  // v1.0.352 — subtitle track present: at least one .srt/.vtt in the
-  // subtitles_dir. The Subtitles page filters its "pending" list by this.
+  // Subtitle completion is chapter-aware: every audio_chapters.json section
+  // needs a transcript, unless an intentional whole-episode track exists.
+  // The Subtitles page filters its "pending" list by this.
   // Previously the page borrowed `audio` as a proxy, so episodes that HAD
   // audio (i.e. were ready FOR subtitles) were wrongly hidden from pending.
   // Optional like research/scene_plan — NOT folded into all_done.
@@ -934,13 +935,20 @@ export async function computeEpisodeStatus(
     status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
     status.metadata = metadataFiles.some(f => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))
 
-    // v1.0.352 — subtitles done = at least one .srt/.vtt in the subtitles
-    // folder (per-chapter {code}_{slug}.srt, {code}_whisper.srt, a stitched
-    // SRT, or an imported track all count). Scanned separately so a transient
-    // subtitles-folder read error doesn't poison the four-folder _unreliable
-    // check above — it just leaves subtitles:false to recompute next pass.
-    const subtitleR = await safeReaddirRich(paths.subtitles_dir)
-    status.subtitles = subtitleR.files.some(f => f.endsWith('.srt') || f.endsWith('.vtt'))
+    // One chapter SRT is not episode completion. Compare against the audio
+    // assembly manifest so partial transcription remains in Pending. Resolve
+    // by code to survive title/folder renames.
+    try {
+      const subtitlePaths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+      const completion = await inspectSubtitleCompletion(
+        subtitlePaths.episode_dir,
+        subtitlePaths.subtitles_dir,
+        code,
+      )
+      status.subtitles = completion.complete
+    } catch {
+      status.subtitles = false
+    }
 
     // Research sidecar now lives in the "{code} - 11 Research" folder
     // (resolveResearchPaths auto-migrates any legacy loose copy). episode_dir

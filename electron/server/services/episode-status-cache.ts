@@ -29,15 +29,15 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { computeEpisodeStatus, type EpisodeStatus } from './asset-status.js'
-import { resolveEpisodePaths } from './utils.js'
+import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
-// v7 (v1.0.550) — scene_plan requires a visual prompt for every timeline row;
-// discard cached true values produced from empty or partial prompt plans.
-export const SCHEMA_VERSION = 7 as const
+// v8 — subtitles require complete expected-section coverage; discard cached
+// true values produced by the old "any SRT exists" rule.
+export const SCHEMA_VERSION = 8 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence
@@ -112,32 +112,17 @@ function cacheKey(slug: string, code: string): string {
 
 /**
  * Resolve the list of folders whose mtimes determine episode status.
- * Cheap: one project.json read inside resolveEpisodePaths.
- *
- * Title comes from the ideas list — needed because folder_template usually
- * contains "{title}", so the wrong title means we'd watch a non-existent
- * path and never see real changes. If `ideas` isn't passed, load it once
- * here (same fallback as computeEpisodeStatus). Single-episode callers
- * pay one extra ideas.json read; batch callers (the route) pass ideas to
- * avoid even that.
+ * Resolve by code plus the audio manifest so title changes cannot leave the
+ * cache watching a non-existent folder.
  */
 async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited<ReturnType<typeof im.getIdeas>>): Promise<string[]> {
-  let title = ''
-  let resolvedIdeas = ideas
-  if (!resolvedIdeas) {
-    try {
-      resolvedIdeas = await im.getIdeas(slug, 'accepted')
-    } catch {
-      return []
-    }
-  }
-  const CODE = code.toUpperCase()
-  const idea = resolvedIdeas.find(i => (i.episode_code || '').toUpperCase() === CODE)
-  title = idea?.title || ''
-
-  let paths: Awaited<ReturnType<typeof resolveEpisodePaths>>
+  // `ideas` is retained in the signature for caller compatibility. The
+  // by-code resolver performs its own canonical lookup and can also locate a
+  // renamed sibling by the audio manifest.
+  void ideas
+  let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>
   try {
-    paths = await resolveEpisodePaths(slug, code, title)
+    paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
   } catch {
     return []
   }
@@ -164,6 +149,8 @@ async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited
     paths.bg_dir,             // images
     paths.thumb_dir,          // thumbnails
     paths.audio_dir,          // audio
+    path.join(paths.episode_dir, 'audio_chapters.json'), // expected subtitle sections
+    paths.subtitles_dir,      // per-section/full-track subtitle completion
     paths.merged_audio_dir,   // merged_audio
     paths.video_dir,          // video + video_assembly
     paths.video_assets_dir,   // motion_review image-to-video clips

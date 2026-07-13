@@ -319,6 +319,14 @@ interface SubtitleStatus {
   has_chapter_audio: boolean
   has_openai_key: boolean
   existing_srts: ExistingSrt[]
+  completion?: {
+    complete: boolean
+    mode: 'per-section' | 'full-track' | 'none'
+    expected_sections: string[]
+    completed_sections: string[]
+    missing_sections: string[]
+    full_track_filename?: string
+  }
   subtitles_dir: string
   current_merge_gap_s: number | null
 }
@@ -413,6 +421,13 @@ async function viewSrt(filename: string): Promise<void> {
 const codeUpper = computed(() => episodeId.value.toUpperCase())
 const srtNames = computed(() => new Set((status.value?.existing_srts || []).map(s => s.filename.toLowerCase())))
 function chapterHasSrt(secSlug: string): boolean {
+  if (status.value?.completion?.mode === 'full-track') return true
+  if (status.value?.completion) {
+    const normalized = secSlug.toLowerCase().replace(/[^a-z0-9]/g, '')
+    return status.value.completion.completed_sections.some(
+      section => section.toLowerCase().replace(/[^a-z0-9]/g, '') === normalized,
+    )
+  }
   return srtNames.value.has(`${codeUpper.value}_${secSlug}.srt`.toLowerCase())
 }
 const coverage = computed(() => {

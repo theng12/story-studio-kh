@@ -169,6 +169,36 @@ describe('episode-status-cache', () => {
       'stale recompute counter incremented')
   })
 
+  test('STALE: adding a missing chapter subtitle refreshes completion', async () => {
+    const { epDir } = await makeProject()
+    const subtitlesDir = path.join(epDir, `${CODE} - 09 Subtitles Output`)
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    await fs.writeFile(path.join(epDir, 'audio_chapters.json'), JSON.stringify({
+      sections: [{ slug: 'Introduction' }, { slug: 'Chapter_01' }],
+    }))
+    await fs.writeFile(
+      path.join(subtitlesDir, `${CODE}_Introduction.srt`),
+      '1\n00:00:00,000 --> 00:00:02,000\nintro\n',
+    )
+
+    const cache = cacheMod.episodeStatusCache
+    const pending = await cache.get(SLUG, CODE)
+    assert.equal(pending.subtitles, false)
+    const stored = cache._dumpProject(SLUG)[0]!
+    assert.ok(Object.keys(stored.watchedMtimes).includes(subtitlesDir))
+
+    await fs.writeFile(
+      path.join(subtitlesDir, `${CODE}_Chapter_01.srt`),
+      '1\n00:00:00,000 --> 00:00:02,000\nchapter\n',
+    )
+    const storedMtime = stored.watchedMtimes[subtitlesDir]!
+    const bumped = new Date(storedMtime + 2_000)
+    await fs.utimes(subtitlesDir, bumped, bumped)
+
+    const complete = await cache.get(SLUG, CODE)
+    assert.equal(complete.subtitles, true)
+  })
+
   test('invalidate(): explicit drop forces miss next time', async () => {
     await makeProject()
     const cache = cacheMod.episodeStatusCache

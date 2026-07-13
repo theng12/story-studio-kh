@@ -18,6 +18,7 @@ import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs } from '../lib
 import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle, parseSrt } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
+import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
@@ -843,6 +844,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       // v1.0.396 — the user-pinned subtitle to burn (null = AUTO: prefer the
       // full stitched/whisper transcript, skip per-chapter partials).
       selected_subtitle: await readSelectedSubtitle(subtitlesDir),
+      completion: await inspectSubtitleCompletion(assets.episode_dir, subtitlesDir, episodeId),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle status'))

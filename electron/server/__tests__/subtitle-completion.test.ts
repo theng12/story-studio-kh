@@ -1,0 +1,88 @@
+import { afterEach, describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'fs/promises'
+import os from 'os'
+import path from 'path'
+import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+
+const CODE = 'EP0033'
+const SRT = '1\n00:00:00,000 --> 00:00:02,000\nhello\n'
+const roots: string[] = []
+
+async function fixture(sections = ['Introduction', 'Chapter_01', 'Chapter_02']) {
+  const episodeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-completion-'))
+  roots.push(episodeDir)
+  const subtitlesDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
+  await fs.mkdir(subtitlesDir)
+  await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
+    sections: sections.map(slug => ({ slug })),
+  }))
+  return { episodeDir, subtitlesDir }
+}
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true })))
+})
+
+describe('subtitle completion', () => {
+  test('reports the exact missing audio sections', async () => {
+    const dirs = await fixture()
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Introduction.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter_02.srt`), SRT)
+    const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
+    assert.equal(result.complete, false)
+    assert.deepEqual(result.completed_sections, ['Introduction', 'Chapter_02'])
+    assert.deepEqual(result.missing_sections, ['Chapter_01'])
+  })
+
+  test('requires every section and tolerates filename punctuation drift', async () => {
+    const dirs = await fixture()
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Introduction.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter1.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter-02_whisper.srt`), SRT)
+    const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
+    assert.equal(result.complete, true)
+    assert.equal(result.mode, 'per-section')
+  })
+
+  test('does not let a partial stitched track hide missing chapters', async () => {
+    const dirs = await fixture()
+    const stitched = `${CODE}_stitched.srt`
+    await fs.writeFile(path.join(dirs.subtitlesDir, stitched), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${stitched}.json`), JSON.stringify({
+      sections: [
+        { slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1 },
+        { slug: 'Chapter_01', source_srt: `${CODE}_Chapter_01.srt`, cues_added: 1 },
+        { slug: 'Chapter_02', cues_added: 0 },
+      ],
+    }))
+    const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
+    assert.equal(result.complete, false)
+    assert.deepEqual(result.completed_sections, ['Introduction', 'Chapter_01'])
+    assert.deepEqual(result.missing_sections, ['Chapter_02'])
+  })
+
+  test('accepts a verified complete stitched track', async () => {
+    const dirs = await fixture()
+    const stitched = `${CODE}_stitched.srt`
+    await fs.writeFile(path.join(dirs.subtitlesDir, stitched), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${stitched}.json`), JSON.stringify({
+      sections: ['Introduction', 'Chapter_01', 'Chapter_02'].map(slug => ({
+        slug, source_srt: `${CODE}_${slug}.srt`, cues_added: 1,
+      })),
+    }))
+    const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
+    assert.equal(result.complete, true)
+    assert.equal(result.full_track_filename, stitched)
+  })
+
+  test('accepts intentional whole-episode imported and Whisper tracks', async () => {
+    for (const filename of [`${CODE}_imported.srt`, `${CODE}_whisper.vtt`]) {
+      const dirs = await fixture()
+      await fs.writeFile(path.join(dirs.subtitlesDir, filename), SRT)
+      const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
+      assert.equal(result.complete, true, filename)
+      assert.equal(result.mode, 'full-track')
+    }
+  })
+})

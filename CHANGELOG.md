@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.560 — 2026-07-13
+
+**Pending Subtitles now means every expected narration section is actually covered.**
+
+- Replaced the old “any subtitle file exists” shortcut with chapter-aware completion against `audio_chapters.json`.
+- Partial stitched tracks no longer hide missing chapters; their verified metadata identifies exactly which sections are covered and which remain pending.
+- Valid whole-episode Whisper, imported, chapter-marker, and verified stitched tracks remain supported.
+- The Subtitles status display and episode selector now share the same completion result, preventing the visible chapter count and Pending list from disagreeing.
+- Subtitle folders and the audio-section manifest are now watched by the episode cache, and the cache schema is refreshed so existing incorrect Done results self-heal after updating.
+- Renamed or retitled episode folders resolve by episode code and their audio manifest, keeping subtitle detection attached to the real project folder.
+
 ## v1.0.559 — 2026-07-13
 
 **Scene prompts must now be real, unique, and backed by complete narration before images or final video can render.**
