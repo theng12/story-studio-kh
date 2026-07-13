@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.567 — 2026-07-14
+
+**Ideas Generator now restores the model you actually used instead of defaulting to GPT-4o.**
+
+- Removed GPT-4o from the Ideas form defaults and delayed the model picker until preference hydration is complete.
+- Added app-wide last-used model memory so a choice follows you across projects on the same Mac.
+- Added self-healing migration from genuine Ideas history; polluted legacy GPT-4o defaults are ignored.
+- Unavailable remembered models still fall back through the live model inventory, and the healed choice is saved automatically.
+- Added regression coverage for explicit choices, real history, imports, polluted defaults, and valid legacy choices.
+
 ## v1.0.566 — 2026-07-14
 
 **Timeline presets no longer carry a title image from one episode into another.**

@@ -16,6 +16,11 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - `title_image.image_path` is episode-specific. Timeline presets and all-steps bundle fallbacks must never save or restore it.
 - Reusable title-image settings such as enabled state, duration, transition type, and transition duration may remain in presets.
 
+## Generator Model Defaults
+
+- Generator model pickers must restore the user's last explicit choice before they mount. Do not hardcode a paid model such as GPT-4o as the form default.
+- If the remembered model is no longer available, let the live model inventory choose a usable fallback and persist that healed choice.
+
 ## Verified Completion Contract
 
 Every generation flow must prove its output is complete before a job, pipeline step, Production Board cell, or one-click run may report success.

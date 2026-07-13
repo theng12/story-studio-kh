@@ -399,7 +399,15 @@
         <fieldset class="form-section">
           <legend class="form-section-title">Generation settings</legend>
           <div class="grid-2">
-            <ModelSelector v-model="form.model" :project-slug="slug" />
+            <ModelSelector
+              v-if="modelPreferenceReady"
+              v-model="form.model"
+              :project-slug="slug"
+            />
+            <div v-else class="form-group">
+              <label>AI Model</label>
+              <div class="input text-muted" aria-live="polite">Restoring your last used model…</div>
+            </div>
 
             <!-- Pinned per-idea item/chapter count. Most useful for listicle
                  / explainer formats where the title encodes the count
@@ -1289,6 +1297,8 @@
 </template>
 
 <script setup lang="ts">
+import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Ideas')
 const route = useRoute()
@@ -1343,7 +1353,7 @@ const page = ref(1)
 
 // ── Source filter + bulk-mark-done state ──────────────────────────────────
 // Source filter mirrors the backend's `batch_id === 'imported'` provenance
-// flag. Generated = anything organic (gpt-4o batches, paste-ideas, manual
+// flag. Generated = anything organic (LLM batches, paste-ideas, manual
 // adds). Imported = folder + YouTube imports — these are typically what
 // the user wants to bulk-flag as already-done. selectedDoneIds tracks
 // accepted episodes the user has multi-checked for the bulk-mark action.
@@ -1413,7 +1423,9 @@ const form = reactive({
   mood: 'calming',
   keywords: [] as string[],
   count: 5,
-  model: 'gpt-4o',
+  // Resolved from last-used memory/history before ModelSelector mounts.
+  // Empty is intentional: a paid model must never be a hidden default.
+  model: '',
   creative_mode: 'guided' as 'strict' | 'guided' | 'open',
   creative_direction: '',
   // v1.0.165+ — optional title template. Empty = LLM titles freely.
@@ -1559,10 +1571,39 @@ const LAST_TITLE_TEMPLATE_KEY = 'idea_generator_last_title_template'
 // the title-template key), so each project keeps its own recent picks.
 const LAST_THEME_KEY = 'idea_generator_last_theme'
 const LAST_ITEMS_KEY = 'idea_generator_last_items_per_listicle'
-// v1.0.524 — remember the last-picked LLM per project so the Ideas generator
-// defaults to it instead of always resetting to the hardcoded gpt-4o. Persisted
-// alongside the other *_last_* keys in settings/config.
+// Legacy per-project model memory remains for compatibility. Current builds
+// use app-wide last-used memory first, then heal from real generation history.
 const LAST_MODEL_KEY = 'idea_generator_last_model'
+const LAST_MODEL_STORAGE_KEY = 'story-studio.ideas.last_model.v1'
+const modelPreferenceReady = ref(false)
+let legacyProjectModel = ''
+
+function readRememberedIdeaModel(): string {
+  try { return window.localStorage.getItem(LAST_MODEL_STORAGE_KEY) || '' }
+  catch { return '' }
+}
+
+function writeRememberedIdeaModel(model: string): void {
+  if (!model) return
+  try { window.localStorage.setItem(LAST_MODEL_STORAGE_KEY, model) }
+  catch { /* private mode / storage failure is non-fatal */ }
+}
+
+function finishModelPreferenceHydration(): void {
+  if (modelPreferenceReady.value) return
+  const resolved = resolveInitialIdeaModel({
+    rememberedModel: readRememberedIdeaModel(),
+    ideas: allIdeas.value,
+    legacyProjectModel,
+  })
+  if (resolved) {
+    form.model = resolved
+    writeRememberedIdeaModel(resolved)
+  }
+  // Mounting the picker only now prevents its first-usable fallback from
+  // winning the race against project settings and real generation history.
+  modelPreferenceReady.value = true
+}
 // v1.0.92+ — remember the most recent niche override per project. Resets
 // to project.niche_id on next load when the user hasn't picked one yet.
 const LAST_NICHE_KEY = 'idea_generator_last_niche_override'
@@ -1631,6 +1672,7 @@ async function retryHydration(): Promise<void> {
     // Re-run downstream loads after a successful retry. Stays in sync
     // with the orchestrated mount block below.
     await Promise.all([loadFormatNames(), loadIdeas(), ideasPresets.load()])
+    finishModelPreferenceHydration()
   }
 }
 
@@ -1704,9 +1746,9 @@ async function loadPatternPreferences(): Promise<boolean> {
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_TITLE_TEMPLATE_KEY] === 'string') form.title_template = cfg[LAST_TITLE_TEMPLATE_KEY]
-    // v1.0.524 — default to the last-picked model (ModelSelector keeps it when
-    // it's still available; if the key/model is gone it auto-picks a usable one).
-    if (typeof cfg?.[LAST_MODEL_KEY] === 'string' && cfg[LAST_MODEL_KEY]) form.model = cfg[LAST_MODEL_KEY]
+    // Legacy per-project memory is considered only after app-wide memory and
+    // real Ideas history. Old builds polluted this key with hardcoded GPT-4o.
+    legacyProjectModel = typeof cfg?.[LAST_MODEL_KEY] === 'string' ? cfg[LAST_MODEL_KEY] : ''
     if (typeof cfg?.[LAST_THEME_KEY] === 'string') form.theme = cfg[LAST_THEME_KEY]
     if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
       form.items_per_listicle = cfg[LAST_ITEMS_KEY]
@@ -1744,9 +1786,8 @@ async function saveIdeaPreferences() {
   if (!patternHydrated) return
   try {
     const { put } = useApi()
-    await put(`/projects/${slug.value}/settings/config`, {
+    const preferences: Record<string, unknown> = {
       [LAST_TITLE_TEMPLATE_KEY]: form.title_template,
-      [LAST_MODEL_KEY]: form.model,
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
       [LAST_NICHE_KEY]: form.niche_id,
@@ -1754,12 +1795,21 @@ async function saveIdeaPreferences() {
       // metadata page picks it up on next load without an explicit save.
       [TITLE_PREFIX_KEY]: titleConfig.prefix,
       [TITLE_SUFFIX_KEY]: titleConfig.suffix,
-    })
+    }
+    // Never write an unresolved/empty model during initial hydration.
+    if (modelPreferenceReady.value && form.model) {
+      preferences[LAST_MODEL_KEY] = form.model
+    }
+    await put(`/projects/${slug.value}/settings/config`, preferences)
   } catch { /* non-fatal — selection still works in-session */ }
 }
 
 watch(() => form.title_template, saveIdeaPreferences)
-watch(() => form.model, saveIdeaPreferences)
+watch(() => form.model, (model, previous) => {
+  if (!modelPreferenceReady.value || !model || model === previous) return
+  writeRememberedIdeaModel(model)
+  void saveIdeaPreferences()
+})
 watch(() => form.theme, saveIdeaPreferences)
 watch(() => form.items_per_listicle, saveIdeaPreferences)
 watch(() => form.niche_id, saveIdeaPreferences)
@@ -1785,6 +1835,7 @@ onMounted(async () => {
     loadIdeas(),
     ideasPresets.load(),  // dropdown only; no auto-apply
   ])
+  finishModelPreferenceHydration()
 })
 
 // ── Generic fallback pools ────────────────────────────────────
