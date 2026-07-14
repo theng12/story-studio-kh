@@ -35,6 +35,14 @@ describe('Settings workspace navigation', () => {
     assert.match(settingsSource, /aria-label="Model pricing categories"/)
   })
 
+  test('Video Studio owns its live model catalog instead of project settings', () => {
+    assert.match(settingsSource, /Video Studio owns provider setup, availability, pricing, and model retirement/)
+    assert.match(settingsSource, /refresh_video_models=1/)
+    assert.match(settingsSource, /Refresh live catalog/)
+    assert.doesNotMatch(settingsSource, /Save Video Pricing/)
+    assert.doesNotMatch(settingsSource, /video_models: editVideoModels/)
+  })
+
   test('Performance exposes compact profiles without hiding individual controls', () => {
     for (const profile of ['Gentle', 'Balanced', 'Fleet']) {
       assert.match(settingsSource, new RegExp(`label: '${profile}'`))

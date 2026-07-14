@@ -27,6 +27,7 @@ import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, VideoModelConfig, ScenePlan } from '../models/types.js'
+import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
 
 /**
  * Canonical "11 Video Assets" directory for an episode — the named folder
@@ -84,7 +85,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
   const videoModels: Record<string, VideoModelConfig> = (config as any).video_models || {}
-  const modelConfig = videoModels[model]
+  const modelConfig = videoModels[model] || await resolveVideoStudioModel(model)
   if (!modelConfig) throw new Error(`Unknown video model: ${model}. Add one in Settings → Models.`)
   if (!modelConfig.modes?.includes('frames')) {
     throw new Error(`"${modelConfig.label || model}" is not an image-to-video model (no 'frames' mode). Pick an i2v model.`)
@@ -94,10 +95,12 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const provider = registry.getVideoProvider(providerId)
   if (!provider) throw new Error(`No video provider registered for: ${providerId}`)
 
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, provider.meta, {
-    model,
-    jobId: job.job_id,
-  })
+  const apiKey = provider.meta.requiresApiKey === false
+    ? 'studio-managed'
+    : await resolveApiKeyForProvider(job.project_slug, provider.meta, {
+        model,
+        jobId: job.job_id,
+      })
   if (!apiKey) throw new Error(`No API key configured for ${provider.meta.name}. Add one in Settings → API Keys.`)
 
   const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'

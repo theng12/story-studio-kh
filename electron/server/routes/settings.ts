@@ -15,6 +15,13 @@ export const router = Router()
 router.get('/projects/:slug/settings/config', async (req, res) => {
   const config = await pm.getSafeConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const { getVideoStudioCatalog } = await import('../lib/videostudio-client.js')
+    const live = await getVideoStudioCatalog(req.query.refresh_video_models === '1')
+    if (Object.keys(live.models).length) {
+      return res.json({ ...config, video_models: live.models, video_models_source: live.source })
+    }
+  } catch { /* retain the compatibility catalog when Video Studio is offline */ }
   res.json(config)
 })
 

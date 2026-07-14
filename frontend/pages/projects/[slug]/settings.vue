@@ -167,35 +167,33 @@
 
       <section v-if="modelPricingView === 'video'" class="settings-subpanel">
       <div class="card-header">
-        <h3>Video Model Pricing</h3>
-        <span class="text-muted" style="font-size:12px" v-if="(config as any)?.video_pricing_last_updated">
-          Updated: {{ (config as any).video_pricing_last_updated }}
-        </span>
+        <h3>Video Studio catalog</h3>
+        <span class="text-muted" style="font-size:12px">Live via {{ videoModelSourceLabel }}</span>
       </div>
       <p class="text-muted mt-1 mb-2" style="font-size: 12px; line-height: 1.5;">
-        Image-to-video only. Each clip starts from a generated scene image. A future Video Studio
-        connection will own live provider discovery; it is intentionally not connected yet, so this
-        compatibility list stays small and stable.
+        Image-to-video only. Video Studio owns provider setup, availability, pricing, and model retirement;
+        Story Studio reads the live catalog through Studio Hub and falls back to the local Video Studio connection.
       </p>
       <table class="edit-table mt-1">
         <thead>
-          <tr><th>Model</th><th>Credits/Video</th><th>Modes</th></tr>
+          <tr><th>Model</th><th>Lane</th><th>Max clip</th><th>Provider price</th></tr>
         </thead>
         <tbody>
           <tr v-for="(model, key) in editVideoModels" :key="key">
             <td>{{ model.label }}</td>
-            <td>
-              <input v-model.number="model.credits_per_video" type="number" step="1" min="0" class="input input-sm" />
-            </td>
-            <td class="text-muted" style="font-size: 11px;">
-              Image → Video
-            </td>
+            <td>{{ model.provider_params?.is_cloud ? 'Cloud' : 'Local' }}</td>
+            <td>{{ model.max_duration ? `${model.max_duration}s` : 'Provider default' }}</td>
+            <td>{{ formatVideoStudioPrice(model) }}</td>
+          </tr>
+          <tr v-if="!Object.keys(editVideoModels).length">
+            <td colspan="4" class="text-muted">No ready image-to-video models are currently available.</td>
           </tr>
         </tbody>
       </table>
       <div class="flex gap-2 mt-2" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveVideoPricing">Save Video Pricing</button>
-        <SaveIndicator v-bind="savedHintProps('video_pricing')" />
+        <button class="btn btn-secondary" :disabled="refreshingVideoModels" @click="refreshVideoCatalog">
+          {{ refreshingVideoModels ? 'Refreshing…' : 'Refresh live catalog' }}
+        </button>
       </div>
       </section>
     </div>
@@ -5057,6 +5055,11 @@ const confirmPrefs = reactive<Record<string, boolean>>({})
 const editImageModels = ref<Record<string, any>>({})
 const editAudioModels = ref<Record<string, any>>({})
 const editVideoModels = ref<Record<string, any>>({})
+const videoModelSource = ref<'hub' | 'direct' | 'compatibility'>('compatibility')
+const refreshingVideoModels = ref(false)
+const videoModelSourceLabel = computed(() => videoModelSource.value === 'hub'
+  ? 'Studio Hub'
+  : videoModelSource.value === 'direct' ? 'Video Studio direct fallback' : 'saved compatibility data')
 const editVoices = ref<SavedVoice[]>([])
 const voiceProviderFilter = ref<'all' | VoiceProviderId>('all')
 const voiceSort = ref<'provider' | 'name-asc' | 'name-desc'>('provider')
@@ -5221,6 +5224,7 @@ watch(config, (c) => {
     editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
     editAudioModels.value = JSON.parse(JSON.stringify(c.audio_models || {}))
     editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
+    videoModelSource.value = (c as any).video_models_source || 'compatibility'
     editVoices.value = normalizeSavedVoices(c.voice_presets || [])
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
@@ -5695,14 +5699,24 @@ async function saveAudioPricing() {
   }
 }
 
-async function saveVideoPricing() {
+function formatVideoStudioPrice(model: any): string {
+  const price = model?.provider_params?.price
+  if (!price || !Number.isFinite(Number(price.usd))) return model?.provider_params?.is_cloud ? 'See provider' : 'Local compute'
+  const unit = String(price.unit || 'generation').replace(/^per_/, '').replaceAll('_', ' ')
+  return `$${Number(price.usd).toFixed(2)} / ${unit}`
+}
+
+async function refreshVideoCatalog() {
+  refreshingVideoModels.value = true
   try {
-    await put(`/projects/${slug.value}/settings/config`, { video_models: editVideoModels.value })
-    await refreshConfig(slug.value)
-    stampSaved('video_pricing')
-    success('Video pricing saved!')
+    const live = await get<any>(`/projects/${slug.value}/settings/config?refresh_video_models=1`)
+    editVideoModels.value = JSON.parse(JSON.stringify(live.video_models || {}))
+    videoModelSource.value = live.video_models_source || 'compatibility'
+    success(`Video catalog refreshed via ${videoModelSourceLabel.value}.`)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save')
+    showError(e.data?.detail || 'Failed to refresh the Video Studio catalog')
+  } finally {
+    refreshingVideoModels.value = false
   }
 }
 

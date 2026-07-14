@@ -148,7 +148,8 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   // Look up the selected model → required API key
   const modelId: string = req.body.model || 'kie-veo3-fast'
   const videoModels: Record<string, any> = (config as any).video_models || {}
-  const modelConfig = videoModels[modelId]
+  const { resolveVideoStudioModel } = await import('../lib/videostudio-client.js')
+  const modelConfig = videoModels[modelId] || await resolveVideoStudioModel(modelId)
   if (!modelConfig) return res.status(400).json({ detail: `Unknown video model: ${modelId}` })
   if (!Array.isArray(modelConfig.modes) || !modelConfig.modes.includes('frames')) {
     return res.status(400).json({ detail: `Video model ${modelId} is not image-to-video capable.` })
@@ -157,10 +158,11 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     return res.status(400).json({ detail: 'Text-to-video has been retired. Choose an image-to-video model and generate the scene image first.' })
   }
 
-  const apiKeyField = modelConfig.provider === 'kie' || modelConfig.provider === 'kie-video' ? 'kie_api_key'
+  const apiKeyField = modelConfig.provider === 'videostudio' ? 'studio-managed'
+    : modelConfig.provider === 'kie' || modelConfig.provider === 'kie-video' ? 'kie_api_key'
     : modelConfig.provider === 'fal' || modelConfig.provider === 'fal-video' ? 'fal_api_key'
     : null
-  if (!apiKeyField || !(config as any)[apiKeyField]) {
+  if (!apiKeyField || (apiKeyField !== 'studio-managed' && !(config as any)[apiKeyField])) {
     return res.status(400).json({ detail: `No API key configured for ${modelConfig.provider}. Add one in Settings → API Keys.` })
   }
 

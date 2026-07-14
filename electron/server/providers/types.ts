@@ -29,6 +29,8 @@ export interface ProviderMeta {
    * `fal-video` share secrets with their audio/image counterparts).
    */
   providerId?: string
+  /** Local Studio wrappers own their credentials and do not need an app key. */
+  requiresApiKey?: boolean
 }
 
 // ── Image Provider ───────────────────────────────────────────────────────

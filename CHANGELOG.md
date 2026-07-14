@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.588 — 2026-07-14
+
+**Video generation and final assembly now use the Studio fleet.**
+
+- Connected Story Studio to Video Studio's live image-to-video catalog through Studio Hub, with authenticated direct fallback when the Hub is unreachable.
+- Kept provider credentials, paid-use controls, model availability, pricing, and retirement inside Video Studio instead of duplicating them into project settings.
+- Replaced editable project video models with a read-only, refreshable live catalog showing cloud/local lane, clip limit, and provider price.
+- Routed the current six-step continuity Video Assembly through Render Studio when the selected features have lossless worker equivalents; unsupported advanced layers stay local and name the reason in the Job log.
+- Added exact source-image transfer, hardware-worker preference, intro reservation, scene motion, subtitles, presentation framing, post-audio tails, and checksum-verified result return to the worker recipe.
+- Strengthened remote completion so a returned render must contain video and audio streams, cover the expected duration, and land under the canonical final filename before the job reports Done.
+- Added regression coverage for image-to-video-only model discovery and safe Render Studio eligibility/fallback behavior.
+
 ## v1.0.587 — 2026-07-14
 
 **Presets are now one clear local list with no device or cloud scope.**

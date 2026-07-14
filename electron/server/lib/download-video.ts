@@ -14,13 +14,17 @@ import { createWriteStream } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
+import { studioFetch } from './studio-auth.js'
 
 export async function downloadVideo(
   url: string,
   destPath: string,
   onProgress?: (bytesReceived: number, totalBytes?: number) => void,
 ): Promise<void> {
-  const resp = await fetch(url, { signal: AbortSignal.timeout(300_000) })
+  // Studio artifacts may require the shared fleet credential. Cloud CDN URLs
+  // tolerate the extra header, so one authenticated fetch path is safe for
+  // both Hub/Studio results and existing fal/kie downloads.
+  const resp = await studioFetch(url, { signal: AbortSignal.timeout(300_000) })
   if (!resp.ok || !resp.body) throw new Error(`Video download failed: ${resp.status}`)
   await fs.mkdir(path.dirname(destPath), { recursive: true })
   const cl = resp.headers.get('content-length')

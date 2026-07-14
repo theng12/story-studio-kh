@@ -4,6 +4,9 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import { buildAnimationFilter, isZoompanAnimation } from '../lib/animation-filters.js'
+import { buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
+import { getTransition } from '../models/transitions.js'
 import {
   getHubBackend,
   hubApiBase,
@@ -16,7 +19,7 @@ import {
   hubUploadRenderAsset,
   hubWorkerReachableUrl,
 } from '../lib/studiohub-client.js'
-import type { Job, ScenePlan, VideoFrameConfig } from '../models/types.js'
+import type { GenerateVideoRequest, Job, ScenePlan, VideoFrameConfig, VideoPostAudio, VideoSceneAnimation } from '../models/types.js'
 import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { getRenderWorkersEnabled } from '../services/app-settings.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
@@ -32,9 +35,15 @@ interface Params {
   ambient?: { path?: string; volume?: number; fade?: number }
   subtitles?: { enabled?: boolean; position?: 'bottom' | 'center' | 'top'; font_size?: number; color?: string; outline?: number }
   export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
-  transition?: { type?: 'none' | 'crossfade' | 'fadeblack' | 'dissolve'; duration?: number }
+  transition?: { type?: string; duration?: number }
   frame?: VideoFrameConfig
   auto_approve?: boolean
+  intro?: { enabled?: boolean; video_path?: string; duration?: number }
+  scene_animation?: VideoSceneAnimation
+  post_audio?: VideoPostAudio
+  merged_audio_path?: string
+  title_image?: { enabled?: boolean; image_path?: string }
+  title_card?: { enabled?: boolean }
 }
 
 interface RecipeAsset {
@@ -67,11 +76,85 @@ function hexToAssColor(hex: string): string {
   return `&H00${value.slice(4, 6)}${value.slice(2, 4)}${value.slice(0, 2)}`.toUpperCase()
 }
 
-async function validateMainCopy(filePath: string): Promise<void> {
+export function remoteVideoAssemblyFallbackReasons(req: GenerateVideoRequest): string[] {
+  const reasons: string[] = []
+  if (req.scene_pool_mode && req.scene_pool_mode !== 'scene_plan') reasons.push('scene source is not the continuity Scene Plan')
+  if (req.format !== 'mp4') reasons.push(`${req.format.toUpperCase()} export`)
+  if (req.transition && req.transition !== 'none' && !getTransition(req.transition)?.xfade) {
+    reasons.push(`unsupported transition "${req.transition}"`)
+  }
+  if ((req.title_image?.enabled || req.title_card?.enabled) && !req.intro?.enabled) reasons.push('title card/image')
+  if (req.outro?.enabled || req.outro_card?.enabled) reasons.push('outro')
+  if (req.timeline_clips?.some(clip => clip.enabled)) reasons.push('custom timeline clips')
+  if (req.logo?.enabled) reasons.push('logo overlay')
+  if (req.music?.enabled || req.background_noise?.enabled) reasons.push('music/background audio mix')
+  if (req.color_grading?.enabled || req.vignette?.enabled || req.film_grain?.enabled || req.letterbox?.enabled) reasons.push('visual effects')
+  if (req.chroma_key?.enabled || req.overlays?.enabled) reasons.push('overlay layers')
+  if (req.video_layout === 'compilation') reasons.push('presentation/compilation layout')
+  if (req.frame?.enabled && req.frame.background_path) reasons.push('presentation-frame media background')
+  const subtitleStyle = req.subtitles?.style
+  if (req.subtitles?.enabled && (
+    (subtitleStyle?.animation && subtitleStyle.animation !== 'none')
+    || subtitleStyle?.position_x_pct != null
+    || subtitleStyle?.position_y_pct != null
+  )) reasons.push('animated/precisely positioned subtitles')
+  return reasons
+}
+
+/** Run the current six-step Video Assembly on Render Studio when every chosen
+ * feature has a lossless worker equivalent. Unsupported features stay local
+ * and are named in the job log instead of being silently omitted. */
+export async function tryRunRemoteVideoAssembly(job: Job): Promise<boolean> {
+  if (!await getRenderWorkersEnabled()) {
+    job.output_lines.push('Render Studio: disabled in Settings; using this Mac.')
+    return false
+  }
+  const req = job.params as GenerateVideoRequest
+  const reasons = remoteVideoAssemblyFallbackReasons(req)
+  if (reasons.length) {
+    job.output_lines.push(`Render Studio fallback: using this Mac because the worker recipe does not yet support ${reasons.join(', ')}.`)
+    return false
+  }
+  const style = req.subtitles?.style
+  const adapted: Params = {
+    episode_id: req.episode_id,
+    export_settings: {
+      resolution: req.resolution,
+      fps: req.fps,
+      crf: QUALITY_TO_CRF[req.quality] || 23,
+    },
+    transition: { type: req.transition || 'none', duration: req.transition_duration || 0 },
+    frame: req.frame,
+    intro: req.intro,
+    scene_animation: req.scene_animation,
+    post_audio: req.post_audio,
+    merged_audio_path: req.merged_audio_path,
+    title_image: req.title_image,
+    title_card: req.title_card,
+    subtitles: req.subtitles?.enabled ? {
+      enabled: true,
+      position: style?.position,
+      font_size: style?.font_size_px,
+      color: style?.color_hex,
+      outline: style?.outline_px,
+    } : { enabled: false },
+  }
+  const original = job.params
+  try {
+    job.params = adapted
+    return await tryRunRemoteTimestampAssemble(job)
+  } finally {
+    job.params = original
+  }
+}
+
+const QUALITY_TO_CRF: Record<string, number> = { compact: 32, fast: 28, medium: 23, high: 18 }
+
+async function validateMainCopy(filePath: string, expectedDuration: number): Promise<void> {
   const ffprobe = await getFFprobePath()
   await new Promise<void>((resolve, reject) => {
     const process = spawn(ffprobe, [
-      '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height',
+      '-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height:format=duration',
       '-of', 'json', filePath,
     ])
     let stdout = ''
@@ -83,7 +166,19 @@ async function validateMainCopy(filePath: string): Promise<void> {
       if (code !== 0) return reject(new Error(`Returned video failed ffprobe: ${stderr.slice(-400)}`))
       try {
         const parsed = JSON.parse(stdout)
-        if (!parsed.streams?.length) return reject(new Error('Returned video has no video stream'))
+        const streams = Array.isArray(parsed.streams) ? parsed.streams : []
+        if (!streams.some((stream: any) => stream.codec_type === 'video')) {
+          return reject(new Error('Returned video has no video stream'))
+        }
+        if (!streams.some((stream: any) => stream.codec_type === 'audio')) {
+          return reject(new Error('Returned video has no audio stream'))
+        }
+        const duration = Number(parsed.format?.duration)
+        if (!Number.isFinite(duration) || duration < Math.max(0.5, expectedDuration - 1)) {
+          return reject(new Error(
+            `Returned video is incomplete (${Number.isFinite(duration) ? duration.toFixed(1) : 'unknown'}s; expected ${expectedDuration.toFixed(1)}s).`,
+          ))
+        }
         resolve()
       } catch (error) { reject(error) }
     })
@@ -99,17 +194,19 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
   const episodeId = params.episode_id
   if (!episodeId) return false
   if (!await getRenderWorkersEnabled()) return false
-  if (params.transition?.type && params.transition.type !== 'none') {
-    job.output_lines.push('Remote render skipped: transitions currently use the local assembler.')
+  const backend = await getHubBackend()
+  if (backend.mode !== 'hub' || !backend.hubUrl) {
+    job.output_lines.push('Render Studio: Studio Hub is not the active backend; using this Mac.')
     return false
   }
-
-  const backend = await getHubBackend()
-  if (backend.mode !== 'hub' || !backend.hubUrl) return false
   try {
     const studios = await hubStudios(backend.hubUrl, backend.hubToken)
-    if (!studios.some(studio => studio.modality === 'render' && studio.status === 'up')) return false
-  } catch {
+    if (!studios.some(studio => studio.modality === 'render' && studio.status === 'up')) {
+      job.output_lines.push('Render Studio: no online render worker is available; using this Mac.')
+      return false
+    }
+  } catch (error: any) {
+    job.output_lines.push(`Render Studio: Studio Hub worker check failed (${error?.message || error}); using this Mac.`)
     return false
   }
 
@@ -146,36 +243,63 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
     if (!existsSync(imageFor(scene.id))) throw new Error(`Missing image for scene ${scene.scene_index}.`)
   }
 
-  let audioPath = ''
-  let audioSize = 0
-  for (const name of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
-    if (!/\.(mp3|wav|m4a)$/i.test(name) || name.startsWith('.tmp_')) continue
-    const candidate = path.join(paths.merged_audio_dir, name)
-    const stat = await fs.stat(candidate).catch(() => null)
-    if (stat && stat.size > audioSize) { audioPath = candidate; audioSize = stat.size }
+  let audioPath = params.merged_audio_path && existsSync(params.merged_audio_path)
+    ? params.merged_audio_path
+    : ''
+  let audioSize = audioPath ? (await fs.stat(audioPath)).size : 0
+  if (!audioPath) {
+    for (const name of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+      if (!/\.(mp3|wav|m4a)$/i.test(name) || name.startsWith('.tmp_')) continue
+      const candidate = path.join(paths.merged_audio_dir, name)
+      const stat = await fs.stat(candidate).catch(() => null)
+      if (stat && stat.size > audioSize) { audioPath = candidate; audioSize = stat.size }
+    }
   }
   if (!audioPath) throw new Error('No merged audio file found.')
   const audioDuration = await getAudioDuration(audioPath)
   if (!audioDuration) throw new Error('Could not read merged audio duration.')
+  const openingReserved = Math.max(0, Number(plan.opening_reserved_sec) || 0)
+  if ((params.title_image?.enabled || params.title_card?.enabled) && openingReserved <= 0) {
+    job.output_lines.push('Render Studio fallback: this episode uses a standalone title image; using this Mac for exact title timing.')
+    return false
+  }
   const coverage = inspectScenePlanCoverage({
     scenes: plan.scenes,
     total_duration_sec: audioDuration,
-  }, { headCovered: false })
+  }, { headCovered: openingReserved > 0 })
   if (coverage.blockingUncoveredSec > COVERAGE_FAIL_SEC) {
     throw new Error(`Narration has ${coverage.blockingUncoveredSec.toFixed(1)}s without a planned scene. Repair Scene Plan coverage first.`)
   }
 
   const durations = plan.scenes.map((scene, index) => {
-    const start = index === 0 ? 0 : scene.start_sec
+    const start = scene.start_sec
     const end = index === plan.scenes.length - 1 ? audioDuration : plan.scenes[index + 1]!.start_sec
     return Math.max(0.5, end - start)
   })
-  const totalDuration = durations.reduce((sum, value) => sum + value, 0)
+  const transition = params.transition?.type && params.transition.type !== 'none'
+    ? getTransition(params.transition.type)
+    : null
+  const transitionDuration = transition?.xfade && durations.length > 1
+    ? Math.min(
+        Math.max(0.1, Number(params.transition?.duration) || 1.5),
+        Math.max(0.1, Math.min(...durations) - 0.1),
+      )
+    : 0
+  const postAudio = params.post_audio
+  const postRoll = postAudio?.behavior === 'fade-to-black'
+    ? Math.max(0, postAudio.fade_duration || 5)
+    : postAudio?.behavior === 'black-screen' || postAudio?.behavior === 'hold-last-scene'
+      ? Math.max(0, postAudio.tail_seconds ?? 4)
+      : 0
+  const totalDuration = audioDuration + postRoll
   const [width, height, bitrate] = RESOLUTIONS[params.export_settings?.resolution || '1080p'] || RESOLUTIONS['1080p']!
   const fps = Math.round(clamp(params.export_settings?.fps, 1, 60, 30))
   const baseFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`
 
   const stitchedSrt = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+  if (params.subtitles?.enabled && !existsSync(stitchedSrt)) {
+    throw new Error('Subtitles are enabled, but the stitched SRT is missing. Repair Subtitles and retry.')
+  }
   const subtitlesOn = existsSync(stitchedSrt) && params.subtitles?.enabled !== false
   const musicPath = params.music?.path && existsSync(params.music.path) ? params.music.path : ''
   const ambientPath = params.ambient?.path && existsSync(params.ambient.path) ? params.ambient.path : ''
@@ -211,18 +335,107 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
       sceneIds.push(await addAsset(clip || imageFor(plan.scenes[index]!.id), `scene-${index}`))
     }
 
+    let introId = ''
+    if (openingReserved > 0) {
+      if (!params.intro?.enabled || !params.intro.video_path || !existsSync(params.intro.video_path)) {
+        throw new Error(`Scene Plan reserves a ${openingReserved.toFixed(1)}s branded opening, but no intro video is enabled.`)
+      }
+      introId = await addAsset(params.intro.video_path, 'intro')
+    }
+
     const steps: Array<{ tool: 'ffmpeg'; args: string[] }> = []
+    if (introId) {
+      steps.push({ tool: 'ffmpeg', args: [
+        '-y', '-stream_loop', '-1', '-i', `{{asset:${introId}}}`, '-an',
+        '-vf', baseFilter, '-t', openingReserved.toFixed(3),
+        '-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps),
+        '{{work:intro.mp4}}',
+      ] })
+    }
     for (let index = 0; index < plan.scenes.length; index++) {
-      const duration = durations[index]!.toFixed(3)
+      const duration = (durations[index]! + transitionDuration).toFixed(3)
       const input = `{{asset:${sceneIds[index]}}}`
       const output = `{{work:scene-${index}.mp4}}`
+      const animation = params.scene_animation || {
+        type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right',
+        parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
+      }
+      const animationType = animation.type || 'none'
+      const stillFilter = buildAnimationFilter({
+        type: animationType, params: animation, w: width, h: height, fps,
+        duration: Number(duration),
+      }).concat([`fps=${fps}`, 'format=yuv420p']).join(',')
       const args = sceneIsClip[index]
         ? ['-y', '-i', input, '-an', '-vf', `${baseFilter},tpad=stop_mode=clone:stop_duration=${duration}`, '-t', duration]
-        : ['-y', '-loop', '1', '-t', duration, '-i', input, '-vf', baseFilter]
+        : isZoompanAnimation(animationType)
+          ? ['-y', '-i', input, '-vf', stillFilter, '-t', duration]
+          : ['-y', '-loop', '1', '-t', duration, '-i', input, '-vf', stillFilter]
       args.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps), output)
       steps.push({ tool: 'ffmpeg', args })
     }
-    const concat = plan.scenes.map((_, index) => `file '{{work:scene-${index}.mp4}}'`).join('\n') + '\n'
+    let sceneTimelineFiles = plan.scenes.map((_, index) => `{{work:scene-${index}.mp4}}`)
+    if (transitionDuration > 0 && transition?.xfade) {
+      const chunkSize = 24
+      const xfaded: string[] = []
+      for (let start = 0; start < plan.scenes.length; start += chunkSize) {
+        const count = Math.min(chunkSize, plan.scenes.length - start)
+        const output = `{{work:xfade-${xfaded.length}.mp4}}`
+        const windowDurations = durations.slice(start, start + count)
+        const windowSum = windowDurations.reduce((sum, value) => sum + value, 0)
+        const args = ['-y']
+        for (let offset = 0; offset < count; offset++) {
+          args.push('-i', `{{work:scene-${start + offset}.mp4}}`)
+        }
+        if (count === 1) {
+          args.push('-t', windowSum.toFixed(3), '-an')
+        } else {
+          const filter = buildVariableXfadeFilterComplex({
+            inputDurations: windowDurations.map(value => value + transitionDuration),
+            transitionDuration,
+            xfadeKeywords: Array(count - 1).fill(transition.xfade),
+          })
+          args.push('-filter_complex', filter, '-map', '[vout]', '-t', windowSum.toFixed(3), '-an')
+        }
+        args.push(
+          '-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p',
+          '-r', String(fps), output,
+        )
+        steps.push({ tool: 'ffmpeg', args })
+        xfaded.push(output)
+      }
+      sceneTimelineFiles = xfaded
+      job.output_lines.push(
+        `Render Studio: ${transition.label} crossfades in ${xfaded.length} safe chunk(s)` +
+        (xfaded.length > 1 ? ` (${xfaded.length - 1} chunk-boundary hard cut(s)).` : '.'),
+      )
+    }
+    if (postRoll > 0) {
+      const tailOutput = '{{work:post-tail.mp4}}'
+      if (postAudio?.behavior === 'black-screen') {
+        steps.push({ tool: 'ffmpeg', args: [
+          '-y', '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}:d=${postRoll.toFixed(3)}`,
+          '-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', tailOutput,
+        ] })
+      } else {
+        const lastInput = `{{asset:${sceneIds[sceneIds.length - 1]}}}`
+        const fade = postAudio?.behavior === 'fade-to-black'
+          ? `,fade=t=out:st=0:d=${postRoll.toFixed(3)}` : ''
+        const lastInputArgs = sceneIsClip[sceneIsClip.length - 1]
+          ? ['-stream_loop', '-1', '-i', lastInput]
+          : ['-loop', '1', '-t', postRoll.toFixed(3), '-i', lastInput]
+        steps.push({ tool: 'ffmpeg', args: [
+          '-y', ...lastInputArgs,
+          '-vf', `${baseFilter}${fade}`, '-c:v', '{{video_encoder}}', '-b:v', bitrate,
+          '-pix_fmt', 'yuv420p', '-r', String(fps), '-t', postRoll.toFixed(3), tailOutput,
+        ] })
+      }
+    }
+    const concatRows = [
+      ...(introId ? ["file '{{work:intro.mp4}}'"] : []),
+      ...sceneTimelineFiles.map(file => `file '${file}'`),
+      ...(postRoll > 0 ? ["file '{{work:post-tail.mp4}}'"] : []),
+    ]
+    const concat = concatRows.join('\n') + '\n'
 
     const finalArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', '{{work:scenes.txt}}', '-i', `{{asset:${narrationId}}}`]
     const extraAudioInputs: string[] = []
@@ -230,7 +443,7 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
     const mixLabels = ['[a_narr]']
     let audioIndex = 2
     const hasBeds = !!(musicId || ambientId)
-    if (hasBeds) audioFilters.push('[1:a]aresample=async=1[a_narr]')
+    audioFilters.push(`[1:a]aresample=async=1,apad=whole_dur=${totalDuration.toFixed(3)}[a_narr]`)
     if (musicId) {
       extraAudioInputs.push('-i', `{{asset:${musicId}}}`)
       const volume = clamp(params.music?.volume, 0, 2, 0.15)
@@ -246,6 +459,7 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
       mixLabels.push('[a_ambient]')
     }
     if (hasBeds) audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:normalize=0:duration=first[aout]`)
+    else audioFilters.push('[a_narr]anull[aout]')
     finalArgs.push(...extraAudioInputs)
 
     let subtitleFilter = ''
@@ -266,18 +480,14 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
         inputLabel: '[framepre]', outputLabel: '[vout]', prefix: 'remoteframe',
         width, height, fps, config: params.frame!,
       }))
-      if (hasBeds) filters.push(...audioFilters)
-      finalArgs.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', hasBeds ? '[aout]' : '1:a')
+      filters.push(...audioFilters)
+      finalArgs.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
       finalArgs.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps))
     } else if (subtitleFilter) {
-      if (hasBeds) {
-        finalArgs.push('-filter_complex', [`[0:v]${subtitleFilter}[vout]`, ...audioFilters].join(';'), '-map', '[vout]', '-map', '[aout]')
-      } else {
-        finalArgs.push('-vf', subtitleFilter)
-      }
+      finalArgs.push('-filter_complex', [`[0:v]${subtitleFilter}[vout]`, ...audioFilters].join(';'), '-map', '[vout]', '-map', '[aout]')
       finalArgs.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps))
     } else {
-      if (hasBeds) finalArgs.push('-filter_complex', audioFilters.join(';'), '-map', '0:v', '-map', '[aout]')
+      finalArgs.push('-filter_complex', audioFilters.join(';'), '-map', '0:v', '-map', '[aout]')
       finalArgs.push('-c:v', 'copy')
     }
     finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', '{{output}}')
@@ -311,7 +521,7 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
     const outPath = path.join(finalDir, `${episodeId.toUpperCase()}_final_video.mp4`)
     const proxyUrl = `${hubApiBase(backend.hubUrl)}/jobs/${submittedJob.batch_id}/items/0/artifact`
     await hubDownloadRenderResult(proxyUrl, backend.hubToken, outPath, result.sha256)
-    await validateMainCopy(outPath)
+    await validateMainCopy(outPath, totalDuration)
     const ack = await fetch(`${hubApiBase(backend.hubUrl)}/jobs/${submittedJob.batch_id}/items/0/ack`, {
       method: 'POST', headers: hubHeaders(backend.hubToken), signal: AbortSignal.timeout(30_000),
     })

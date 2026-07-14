@@ -30,6 +30,7 @@ import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
 import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -160,7 +161,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
 
   const modelId = req.model || 'kie-veo3-fast'
   const videoModels: Record<string, VideoModelConfig> = (config as any).video_models || {}
-  const modelConfig = videoModels[modelId]
+  const modelConfig = videoModels[modelId] || await resolveVideoStudioModel(modelId)
   if (!modelConfig) throw new Error(`Unknown video model: ${modelId}. Add one in Settings → Models.`)
 
   const providerId = modelConfig.provider || 'kie-video'
@@ -170,10 +171,12 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // the non-null type — TS doesn't flow narrowing into nested async fns.
   const provider = providerMaybe!
 
-  const apiKey = await resolveApiKeyForProvider(project_slug, provider.meta, {
-    model: modelId,
-    jobId: job.job_id,
-  })
+  const apiKey = provider.meta.requiresApiKey === false
+    ? 'studio-managed'
+    : await resolveApiKeyForProvider(project_slug, provider.meta, {
+        model: modelId,
+        jobId: job.job_id,
+      })
   if (!apiKey) throw new Error(`No API key configured for ${provider.meta.name}. Add one in Settings → API Keys.`)
 
   // Preflight: video clips are the most expensive thing this app submits
