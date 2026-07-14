@@ -266,6 +266,7 @@ function enqueueContinuityRender(
       scene_ids: Array.isArray(body.scene_ids)
         ? body.scene_ids.filter((s: any) => typeof s === 'string')
         : undefined,
+      missing_only: body.missing_only === true,
       independent: body.independent === true,
       concurrency: body.concurrency === 'auto'
         ? 'auto'
@@ -367,6 +368,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
         height,
         independent: true,
         scene_ids: missing.map((s) => s.id),
+        missing_only: true,
       })
       return res.json({
         ok: true,

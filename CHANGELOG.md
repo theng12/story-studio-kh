@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.595 — 2026-07-15
+
+**Automatic scene-image retries now repair only the images that are still missing.**
+
+- Fixed Generate All Missing carrying its original scene list into every automatic retry and resubmitting already completed images to Studio Hub.
+- Re-checks the unified and legacy scene-image folders before each retry, then builds a new Hub batch containing only scene IDs that remain absent.
+- Reports the actual repair batch size on each attempt instead of restarting progress at the original full scene count.
+- Keeps manual Regenerate Selected behavior unchanged, so an intentional re-render can still replace existing chosen images.
+- Added regression coverage for partial missing-only recovery, explicit selected regeneration, and ordinary resume behavior.
+
 ## v1.0.594 — 2026-07-15
 
 **Scene Review and Pipeline now share one scene-image render queue.**

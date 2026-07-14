@@ -39,6 +39,7 @@ import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -61,6 +62,10 @@ interface ContinuityRenderParams {
    *  mode and renders exactly these ids (existing images included), distributing
    *  them across the whole Mac pool instead of N serial single-scene jobs. */
   scene_ids?: string[]
+  /** Keep an explicit scene selection as the repair scope, but re-check disk
+   *  before every attempt and render only IDs that are still missing. Used by
+   *  Generate All Missing and its automatic local retries. */
+  missing_only?: boolean
   /** v1.0.241 — INDEPENDENT / PARALLEL mode. Render each scene against the
    *  static references only (character sheet + style + anchor characters) and
    *  DROP the previous-render reference, so scenes no longer depend on one
@@ -391,7 +396,15 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     if (one) singleIndex = one.scene_index
     else throw new Error(`single_scene_id ${params.single_scene_id} not found in scene_plan.json`)
   }
-  const mode = singleIndex > 0 ? `single scene ${singleIndex}` : force ? 'force re-render' : fromIndex > 0 ? `from scene ${fromIndex}` : 'resume (skip existing)'
+  const mode = params.missing_only === true
+    ? 'missing-only repair (skip recovered)'
+    : singleIndex > 0
+      ? `single scene ${singleIndex}`
+      : force
+        ? 'force re-render'
+        : fromIndex > 0
+          ? `from scene ${fromIndex}`
+          : 'resume (skip existing)'
 
   let rendered = 0
   let skipped = 0
@@ -490,18 +503,16 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     const endpoint = (sharedRefPaths.length && (providerParams as any).supports_reference_images === true)
       ? 'image-to-image' : 'text-to-image'
 
-    // Which scenes to render: explicit selection → exactly those; single → that
-    // one; force → all; from → index≥; resume → missing.
-    const toRender = scenes.filter(scene => {
-      if (!scene.visual_prompt?.trim()) return false
-      if (sceneIdSet) return sceneIdSet.has(scene.id)   // selection re-renders the chosen scenes
-      return singleIndex > 0
-        ? scene.scene_index === singleIndex
-        : force
-          ? true
-          : fromIndex > 0
-            ? scene.scene_index >= fromIndex
-            : !hasRenderedImage(scene.id)
+    // Explicit manual selections overwrite their chosen images. Missing-only
+    // selections are durable repair scopes: retries re-check disk and submit
+    // only IDs that still lack a verified image.
+    const toRender = selectIndependentRenderScenes(scenes, {
+      sceneIds: params.scene_ids,
+      missingOnly: params.missing_only,
+      singleIndex,
+      force,
+      fromIndex,
+      hasRenderedImage,
     })
     skipped = scenes.length - toRender.length
 
