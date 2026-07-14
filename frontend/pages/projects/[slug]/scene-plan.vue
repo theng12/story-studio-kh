@@ -1904,6 +1904,8 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-secondary);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
 }
 .scene-row-problem { border-left: 3px solid #e0a23a; }
 .scene-row-flash { animation: scene-flash 1.4s ease; }

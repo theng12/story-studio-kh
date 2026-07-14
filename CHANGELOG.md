@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.578 — 2026-07-14
+
+**The app stays responsive while large episodes and background jobs are active.**
+
+- Removed the dashboard-wide quarter-second balance countdown repaint that repeatedly touched every open page.
+- Reduced expensive provider-balance polling from every 5 seconds to every 30 seconds, kept manual refresh immediate, and prevented overlapping balance requests.
+- Stopped broadcasting identical full running-job payloads while providers are idle; live logs and progress still update whenever their visible state changes.
+- Added off-screen rendering containment to long Scene Plan and Scene Review lists, substantially reducing layout and paint work on episodes with hundreds of scenes.
+- Added regression coverage for polling cadence, overlap protection, job-update fingerprints, and long-list rendering guards.
+
 ## v1.0.577 — 2026-07-14
 
 **Scene Review image previews are reliably clickable again.**

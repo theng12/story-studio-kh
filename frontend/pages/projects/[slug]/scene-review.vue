@@ -1992,6 +1992,8 @@ watch(episodeId, () => { void loadReview() })
   border-radius: 6px;
   background: var(--bg-secondary);
   align-items: start;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 .review-scene-row.is-approved { border-left: 3px solid #5bb37c; }
 .review-scene-row.is-missing { opacity: 0.75; }

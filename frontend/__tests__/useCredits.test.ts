@@ -10,6 +10,7 @@
  *   3. A fetch error doesn't null out previous values — the sidebar keeps
  *      showing the last-known balance instead of flashing to '...' on a
  *      single network blip.
+ *   4. Slow balance reads are shared instead of overlapping.
  *
  * `$fetch` is a Nuxt global stubbed before the module loads.
  */
@@ -28,7 +29,7 @@ let fetchCalls: string[] = []
   return await fetchHandler(url)
 }
 
-const { useCredits } = await import('../composables/useCredits.js')
+const { DEFAULT_CREDIT_POLL_MS, useCredits } = await import('../composables/useCredits.js')
 
 function sleep(ms: number) { return new Promise<void>((r) => setTimeout(r, ms)) }
 
@@ -97,6 +98,10 @@ describe('useCredits.fetchHealth()', () => {
 })
 
 describe('useCredits.startPolling()', () => {
+  test('uses a calm 30-second default cadence', () => {
+    assert.equal(DEFAULT_CREDIT_POLL_MS, 30_000)
+  })
+
   test('fires an immediate fetch, then on the interval; stopPolling clears it', async () => {
     let count = 0
     fetchHandler = (url) => {
@@ -119,5 +124,28 @@ describe('useCredits.startPolling()', () => {
     stopPolling()
     await sleep(150)
     assert.equal(count, before, 'stopPolling must clear the interval — no more fetches')
+  })
+
+  test('shares an in-flight balance read instead of starting overlapping requests', async () => {
+    let healthCalls = 0
+    let release!: () => void
+    const healthReady = new Promise<void>((resolve) => { release = resolve })
+    fetchHandler = async (url) => {
+      if (url.endsWith('/health')) {
+        healthCalls++
+        await healthReady
+        return happyHealth()
+      }
+      if (url === '/api/usage') return { total_cost: 0 }
+      throw new Error(`unexpected ${url}`)
+    }
+
+    const { fetchHealth } = useCredits()
+    const first = fetchHealth('active')
+    const second = fetchHealth('active')
+    await sleep(20)
+    assert.equal(healthCalls, 1)
+    release()
+    await Promise.all([first, second])
   })
 })

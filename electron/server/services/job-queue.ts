@@ -16,6 +16,7 @@ import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
+import { jobStreamSignature } from './job-stream-signature.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -120,8 +121,14 @@ export function _trackedChildCountForTesting(): number {
 // of magnitude beyond anything realistic.
 export const jobEvents = new EventEmitter()
 jobEvents.setMaxListeners(50)
+const lastLiveStreamSignatures = new Map<string, string>()
 
 function emitUpdate(job: Job): void {
+  if (job.status === 'running') {
+    lastLiveStreamSignatures.set(job.job_id, jobStreamSignature(job))
+  } else {
+    lastLiveStreamSignatures.delete(job.job_id)
+  }
   // Isolate listeners from each other — one bad handler shouldn't break the
   // queue's state machine. EventEmitter.emit is synchronous, so any throw
   // would propagate into the generator; swallow defensively.
@@ -135,20 +142,24 @@ function emitUpdate(job: Job): void {
   }
 }
 
-// Stream running jobs' output_lines to SSE subscribers on a ~700 ms tick.
+// Stream running jobs' output_lines to SSE subscribers on a modest cadence.
 // Without this, emitUpdate only fires on status transitions (queued→running
 // and running→done/error/cancelled) plus the occasional account-attribution
 // event, so the frontend sees `output_lines` frozen between those sparse
 // triggers — visible as "live log goes dark during a 10-minute FFmpeg run"
 // until the job completes and one terminal update ships the entire array.
 //
-// Deliberately naive: re-emit every running job every tick. With typically
-// 1–2 concurrent running jobs, bandwidth is ~1–3 SSE frames/sec — trivial.
-// `.unref()` so the tick doesn't hold the process alive at shutdown.
-const LIVE_OUTPUT_FLUSH_MS = 700
+// Only changed fingerprints are emitted. Previously every running job sent its
+// complete output_lines array every 700 ms even while waiting on a provider;
+// those identical frames forced every page to reprocess global job state.
+// `.unref()` keeps the timer from holding the process alive at shutdown.
+const LIVE_OUTPUT_FLUSH_MS = 1_500
 setInterval(() => {
   for (const job of jobs.values()) {
-    if (job.status === 'running') emitUpdate(job)
+    if (job.status !== 'running') continue
+    const signature = jobStreamSignature(job)
+    if (lastLiveStreamSignatures.get(job.job_id) === signature) continue
+    emitUpdate(job)
   }
 }, LIVE_OUTPUT_FLUSH_MS).unref()
 

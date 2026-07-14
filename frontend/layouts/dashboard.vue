@@ -261,7 +261,7 @@
           >↻</button>
           <span class="countdown-label">
             <template v-if="isRefreshing">refreshing…</template>
-            <template v-else>refresh in {{ Math.max(1, Math.ceil(nextRefreshInMs / 1000)) }}s</template>
+            <template v-else>auto · {{ Math.round(pollIntervalMs / 1000) }}s</template>
           </span>
           <button
             v-if="anyCreditRow"
@@ -552,7 +552,7 @@ useBatchCompletionSignals(() => jobs.value as any)
 const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
 const {
   kieCredits, falBalance, elevenLabsBalance, genaiproBalance, fishCredit, deepseekBalance, openaiUsage, apiKeys,
-  isRefreshing, nextRefreshInMs, pollIntervalMs,
+  isRefreshing, pollIntervalMs,
   startPolling: startCreditPolling, stopPolling: stopCreditPolling, refreshNow,
 } = useCredits()
 

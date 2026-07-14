@@ -8,6 +8,8 @@
 import { ref, readonly } from 'vue'
 import { useApi } from './useApi.js'
 
+export const DEFAULT_CREDIT_POLL_MS = 30_000
+
 export type ElevenLabsBalance = {
   tier: string
   character_count: number
@@ -26,15 +28,10 @@ const deepseekBalance = ref<DeepseekBalance | null>(null)
 const openaiUsage = ref<number>(0)
 const apiKeys = ref<Record<string, boolean>>({})
 const isRefreshing = ref<boolean>(false)
-// Wall-clock time at which the next poll will fire. Updated whenever we
-// (re)schedule the interval OR after a manual refresh — gives the UI a
-// single source of truth for the countdown that can't drift.
-const nextRefreshAt = ref<number>(0)
-const nextRefreshInMs = ref<number>(0)
-const pollIntervalMs = ref<number>(5000)
+const pollIntervalMs = ref<number>(DEFAULT_CREDIT_POLL_MS)
 let creditInterval: ReturnType<typeof setInterval> | null = null
-let countdownInterval: ReturnType<typeof setInterval> | null = null
 let currentSlug: string | null = null
+const fetchesInFlight = new Map<string, Promise<void>>()
 
 export function useCredits() {
   const { get } = useApi()
@@ -47,56 +44,53 @@ export function useCredits() {
     // silently — the next valid tick will take over once the route
     // settles.
     if (!slug || slug === 'undefined') return
-    isRefreshing.value = true
-    try {
-      const [healthData, usageData] = await Promise.all([
-        get<{ credits: { kie: any; fal: any; elevenlabs: ElevenLabsBalance | null; genaipro: number | null; fishaudio: number | null; deepseek: DeepseekBalance | null }; api_keys: Record<string, boolean> }>(`/projects/${slug}/health`),
-        get<{ total_cost: number }>('/usage'),
-      ])
-      kieCredits.value = healthData.credits.kie
-      falBalance.value = healthData.credits.fal
-      elevenLabsBalance.value = healthData.credits.elevenlabs
-      genaiproBalance.value = healthData.credits.genaipro ?? null
-      fishCredit.value = healthData.credits.fishaudio ?? null
-      deepseekBalance.value = healthData.credits.deepseek ?? null
-      apiKeys.value = healthData.api_keys
-      openaiUsage.value = usageData.total_cost
-    } catch {
-      // Silently fail
-    } finally {
-      isRefreshing.value = false
-    }
+    const existing = fetchesInFlight.get(slug)
+    if (existing) return existing
+
+    const request = (async () => {
+      isRefreshing.value = true
+      try {
+        const [healthData, usageData] = await Promise.all([
+          get<{ credits: { kie: any; fal: any; elevenlabs: ElevenLabsBalance | null; genaipro: number | null; fishaudio: number | null; deepseek: DeepseekBalance | null }; api_keys: Record<string, boolean> }>(`/projects/${slug}/health`),
+          get<{ total_cost: number }>('/usage'),
+        ])
+        // A slow response from the previous project must not overwrite the
+        // balances after navigation. Direct one-off calls (no active poll)
+        // still apply normally.
+        if (currentSlug !== null && currentSlug !== slug) return
+        kieCredits.value = healthData.credits.kie
+        falBalance.value = healthData.credits.fal
+        elevenLabsBalance.value = healthData.credits.elevenlabs
+        genaiproBalance.value = healthData.credits.genaipro ?? null
+        fishCredit.value = healthData.credits.fishaudio ?? null
+        deepseekBalance.value = healthData.credits.deepseek ?? null
+        apiKeys.value = healthData.api_keys
+        openaiUsage.value = usageData.total_cost
+      } catch {
+        // Keep the last known balances on a transient provider failure.
+      } finally {
+        fetchesInFlight.delete(slug)
+        isRefreshing.value = fetchesInFlight.size > 0
+      }
+    })()
+    fetchesInFlight.set(slug, request)
+    return request
   }
 
-  function scheduleNextTick() {
-    nextRefreshAt.value = Date.now() + pollIntervalMs.value
-  }
-
-  function startPolling(slug: string, intervalMs = 5000) {
+  function startPolling(slug: string, intervalMs = DEFAULT_CREDIT_POLL_MS) {
     stopPolling()
     currentSlug = slug
     pollIntervalMs.value = intervalMs
-    fetchHealth(slug)
-    scheduleNextTick()
+    void fetchHealth(slug)
     creditInterval = setInterval(() => {
-      fetchHealth(slug)
-      scheduleNextTick()
+      void fetchHealth(slug)
     }, intervalMs)
-    // Separate faster ticker drives the countdown display (250ms cadence
-    // is smooth enough for a 5s countdown without being wasteful).
-    countdownInterval = setInterval(() => {
-      nextRefreshInMs.value = Math.max(0, nextRefreshAt.value - Date.now())
-    }, 250)
   }
 
   function stopPolling() {
     if (creditInterval) {
       clearInterval(creditInterval)
       creditInterval = null
-    }
-    if (countdownInterval) {
-      clearInterval(countdownInterval)
-      countdownInterval = null
     }
     currentSlug = null
   }
@@ -111,11 +105,9 @@ export function useCredits() {
       clearInterval(creditInterval)
       const slug = currentSlug
       creditInterval = setInterval(() => {
-        fetchHealth(slug)
-        scheduleNextTick()
+        void fetchHealth(slug)
       }, pollIntervalMs.value)
     }
-    scheduleNextTick()
   }
 
   return {
@@ -128,7 +120,6 @@ export function useCredits() {
     openaiUsage: readonly(openaiUsage),
     apiKeys: readonly(apiKeys),
     isRefreshing: readonly(isRefreshing),
-    nextRefreshInMs: readonly(nextRefreshInMs),
     pollIntervalMs: readonly(pollIntervalMs),
     fetchHealth,
     startPolling,
