@@ -102,13 +102,6 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ character_sheet: true }), 'character_sheet'), true)
   })
 
-  test('timestamp_assemble shares the final-video flag with video_assembly', () => {
-    // The timestamp/continuity final render lands as the same final-video
-    // file every format's reconciler keys video_assembly off of — so a
-    // completed timestamp render must read as done and not re-queue.
-    assert.equal(isStepAlreadyDone(fullStatus({ video_assembly: true }), 'timestamp_assemble'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ video_assembly: false }), 'timestamp_assemble'), false)
-  })
 })
 
 // ── Integration: run-batch response shape ────────────────────────────────
@@ -408,7 +401,6 @@ describe('every pipeline step maps to a real job-queue lane', () => {
     assert.equal(jobTypeForStep('scene_review'), 'continuity_render')
     assert.equal(jobTypeForStep('scene_plan'), 'scene_plan_run')
     assert.equal(jobTypeForStep('subtitles'), 'subtitles_transcribe')
-    assert.equal(jobTypeForStep('timestamp_assemble'), 'timestamp_video_assemble')
   })
 
   test('retired scene prompt/image/video steps are not accepted', () => {
@@ -418,8 +410,8 @@ describe('every pipeline step maps to a real job-queue lane', () => {
   })
 })
 
-test('timestamp assembly does not require optional Motion Review', async () => {
+test('unified assembly requires reviewed scenes but not optional Motion Review', async () => {
   const { prerequisitesForStep } = await import('../routes/pipeline.js')
-  assert.deepEqual(prerequisitesForStep('timestamp_assemble'), ['scene_review', 'audio_merge'])
-  assert.ok(!prerequisitesForStep('timestamp_assemble').includes('motion_review'))
+  assert.deepEqual(prerequisitesForStep('video_assembly'), ['scene_review', 'audio_merge'])
+  assert.ok(!prerequisitesForStep('video_assembly').includes('motion_review'))
 })

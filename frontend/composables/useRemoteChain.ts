@@ -16,17 +16,17 @@ export type CockpitStep =
   | 'script-only' | 'metadata' | 'image_prompts' | 'thumb_images'
   | 'research'
   | 'audio' | 'audio_merge' | 'subtitles' | 'character_sheet'
-  | 'scene_plan' | 'scene_review' | 'motion_review' | 'timestamp_assemble' | 'video_assembly'
+  | 'scene_plan' | 'scene_review' | 'motion_review' | 'video_assembly'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
-  'timestamp-driven': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
-  'continuity-chain': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
-  'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
+  'timestamp-driven': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  'continuity-chain': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball
 // the rendered scenes before assembling.
-const FINAL_STEPS = new Set<CockpitStep>(['timestamp_assemble', 'video_assembly'])
+const FINAL_STEPS = new Set<CockpitStep>(['video_assembly'])
 
 export const STEP_LABELS: Record<CockpitStep, string> = {
   'research': 'Research',
@@ -41,7 +41,6 @@ export const STEP_LABELS: Record<CockpitStep, string> = {
   'scene_plan': 'Scene plan',
   'scene_review': 'Scene render',
   'motion_review': 'Motion clips',
-  'timestamp_assemble': 'Final video',
   'video_assembly': 'Final video',
 }
 

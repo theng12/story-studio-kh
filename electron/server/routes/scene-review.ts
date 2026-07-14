@@ -881,63 +881,6 @@ router.get('/projects/:slug/scene-review/:episodeId/clip/:sceneId', async (req, 
   }
 })
 
-// ── POST /scene-review/:ep/assemble ──────────────────────────────────
-// v1.0.145+ — Queue the final timestamp-driven video assembly. The
-// generator enforces the greenlight (rejects when not all_approved),
-// so the route is permissive — POST always queues + the job either
-// runs or errors out with a clear message. Surfaces the
-// `not_yet_approved` state in the pre-flight response so the UI
-// doesn't need to round-trip the user through a doomed job.
-router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res) => {
-  const { slug, episodeId } = req.params
-
-  // Pre-flight: refuse here when the plan isn't ready, instead of
-  // queuing a job that's going to fail in the executor.
-  try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    if (!existsSync(planPath)) {
-      return res.status(400).json({ detail: 'No scene_plan.json yet — run Scene Plan first.' })
-    }
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    const notApproved = plan.scenes.filter(s => !s.approved)
-    if (notApproved.length > 0) {
-      return res.status(400).json({
-        detail: `Greenlight blocked — ${notApproved.length}/${plan.scenes.length} scene(s) not approved.`,
-        code: 'NOT_GREENLIT',
-      })
-    }
-  } catch (e: any) {
-    return res.status(500).json(humanizeBackendError(e, 'Greenlight check failed'))
-  }
-
-  if (jq.isDuplicate(slug, episodeId, 'timestamp_video_assemble' as JobType)) {
-    return res.status(409).json({ detail: `Timestamp video assembly already queued for ${episodeId}` })
-  }
-
-  const body = req.body || {}
-  // v1.0.265 — optional A/V controls. Passed through verbatim; the generator
-  // validates + clamps each (and ignores absent ones, preserving prior output).
-  const obj = (v: any) => (v && typeof v === 'object' ? v : undefined)
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'timestamp_video_assemble' as JobType,
-    episode_id: episodeId,
-    title: `Assemble timestamp video — ${episodeId}`,
-    params: {
-      episode_id: episodeId,
-      title: typeof body.title === 'string' ? body.title : '',
-      music: obj(body.music),
-      ambient: obj(body.ambient),
-      subtitles: obj(body.subtitles),
-      export_settings: obj(body.export_settings),
-      transition: obj(body.transition),
-      frame: obj(body.frame),
-    },
-  })
-  res.status(201).json(job)
-})
-
 // ── GET /scene-review/:ep/audio ───────────────────────────────────────
 // Stream the merged audio so the page's <audio> element can synced-play
 // the scene timeline. Same whitelisted path resolution as the image

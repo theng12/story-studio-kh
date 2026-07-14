@@ -23,11 +23,6 @@
       <h1 class="page-title">Video Assembly</h1>
     </div>
 
-    <!-- v1.0.115+ — tabbed pipeline switcher (same component on
-         /video-assembly). Lets the user flip between scene-based and
-         B-Roll pipelines regardless of project format. -->
-    <VideoPipelineTabs />
-
     <TopActionBar
       :project-slug="slug"
       :presets="brollPresets"

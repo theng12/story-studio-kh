@@ -518,10 +518,8 @@ const { config, refreshConfig } = useProject()
 // ── Active pipeline (format-aware) ──────────────────────────────────────
 // The Pipeline reads the project's effective visual source and renders only
 // the steps that belong to the active continuity workflow. Timestamp-driven
-// projects add Research up front and
-//     Scene Plan / Scene Review / Timestamp Assemble at the end — all of
-//     which run from their own pages (Scene Review is a human approval
-//     gate by design), so they appear as "Open page →" nodes too.
+// projects add Research up front, then Scene Plan / Scene Review / unified
+// Video Assembly at the end.
 // External (non-batchable) nodes are display-only: they document the real
 // chain order but are never enqueued by Run Batch.
 // v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
@@ -571,7 +569,7 @@ type StepId =
   | 'metadata' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
-  | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'character_sheet' | 'timestamp_assemble'
+  | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'character_sheet'
 interface StepMeta {
   id: StepId
   label: string
@@ -589,9 +587,7 @@ interface StepMeta {
 
 // v1.0.167 — External chain nodes. These are real steps in the broll /
 // timestamp-driven chains that the batch runner does NOT enqueue: either
-// they're pool-level (B-Roll fetch/assemble live on the B-Roll page) or a
-// human approval gate (Scene Review) or simply not wired into run-batch's
-// VALID_STEPS yet (Research, Scene Plan, Timestamp Assemble). We render
+// they're pool-level (B-Roll fetch/assemble live on the B-Roll page). We render
 // them inline so the chain reads end-to-end, each with an "Open page →"
 // link to the page that actually runs it. They carry no checkbox, no
 // preset, and never count toward the batch.
@@ -607,7 +603,7 @@ interface ExternalNode {
 // A chain entry is either a batchable step or an external (open-the-page) node.
 type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
 
-// v1.0.363 — Character Sheet, Scene Plan, Scene Review and Timestamp Assemble
+// Character Sheet, Scene Plan, Scene Review, and Video Assembly
 // were promoted from read-only external nodes to real batchable steps. B-Roll
 // remains external because fetch/assemble lives on its pool-driven page.
 const EXTERNAL_NODES: Record<string, ExternalNode> = {
@@ -646,10 +642,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_presets',  presetActive: 'scene_review_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
-  // Timestamp/continuity final render. Runs with built-in export defaults — no
-  // server-side preset (its settings live in a per-Mac remembered form).
-  { id: 'timestamp_assemble', label: 'Final Video (timestamp)', icon: '🎬', link: '/timestamp-assemble', presetList: 'timestamp_assemble_presets', presetActive: 'timestamp_assemble_last_preset' },
-  { id: 'video_assembly',    label: 'Video Assembly',    icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
+  { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
 ]
 const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
 
@@ -669,18 +662,15 @@ function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 //
 type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
 
-// v1.0.363 — Scene Plan, Scene Review (render) and the final Timestamp
-// Assemble are now real chain steps. One "Run all the way" click plans the
-// scenes, renders every image across the server pool, then assembles the
-// final video (the assembler auto-approves scenes — uncheck Final Video to
-// stop after the render and review the images by hand). Subtitles slots in
-// right after Audio Merge.
+// Scene Plan, Scene Review, and the unified final renderer are real chain
+// steps. Motion remains optional and approved Scene Plan timing is applied by
+// Video Assembly automatically.
 const CHAIN_TIMESTAMP: ChainSpec = [
   'research',
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
-  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
 // planning. Character Sheet is config-only: the batch writes continuity.json
@@ -691,7 +681,7 @@ const CHAIN_CONTINUITY: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
 // audio-paced scene planning as continuity; Character Sheet stays available
@@ -703,7 +693,7 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble',
+  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
 ]
 
 const activeChainSpec = computed<ChainSpec>(() => {
@@ -766,7 +756,6 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   // Provider spend is surfaced on the tile and preflight, but the step is part
   // of the requested one-click chain once a Motion Review preset is saved.
   motion_review: true,
-  timestamp_assemble: true,
   // video_assembly defaults ON so "Run all pending" finishes episodes end
   // -to-end in one click. The chain mechanism guarantees it waits for its
   // inputs (audio_merge + images) — if an episode is missing either, that
@@ -927,7 +916,7 @@ const presetSaving = reactive<Record<StepId, boolean>>({
   audio: false, audio_merge: false, video_assembly: false,
   // v1.0.363 — audio-paced format steps.
   subtitles: false, character_sheet: false, scene_plan: false,
-  scene_review: false, motion_review: false, timestamp_assemble: false,
+  scene_review: false, motion_review: false,
 })
 
 async function onPresetChange(stepId: StepMeta['id'], presetId: string) {
@@ -1217,7 +1206,6 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     case 'scene_review':       return !!s.scene_review
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet
-    case 'timestamp_assemble': return !!s.video_assembly
     case 'video_assembly':     return !!s.video_assembly
   }
   return false
@@ -1334,7 +1322,6 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'scene_review':      return 'scene_review' in ov
     case 'motion_review':     return 'motion_review' in ov
     case 'character_sheet':   return 'character_sheet' in ov
-    case 'timestamp_assemble': return 'video_assembly' in ov
     case 'video_assembly':    return 'video_assembly' in ov
   }
   return false

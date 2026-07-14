@@ -35,9 +35,10 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveSceneImagesDir } from './scene-image.js'
+import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { tryRunRemoteVideoAssembly } from './remote-timestamp-assemble.js'
+import { tryRunRemoteVideoAssembly } from './remote-video-assembly.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -57,7 +58,6 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
   '4k':    { w: 3840, h: 2160 },
 }
 
-const SCENE_PLAN_FILENAME = 'scene_plan.json'
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
 
 async function selfHealFinalPromotion(
@@ -415,7 +415,7 @@ function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string,
 
 // ── Scanned Assets Interface ───────────────────────────────────────────────
 
-interface ScannedAssets {
+export interface ScannedAssets {
   scenes: Array<{
     filename: string
     path: string
@@ -428,6 +428,12 @@ interface ScannedAssets {
     /** v1.0.435 — scene_plan renders are surfaced regardless of approval; this
      *  carries the flag so the UI can still distinguish reviewed vs not. */
     approved?: boolean
+    /** Exact still remains mandatory even when an approved motion clip is used. */
+    still_path?: string
+    media_type?: 'still' | 'motion'
+    start_sec?: number
+    end_sec?: number
+    duration_sec?: number
   }>
   scene_sources?: { classic: number; scene_plan: number }
   /** Planned-image coverage is separate from the returned pool: the pool only
@@ -436,6 +442,34 @@ interface ScannedAssets {
     total: number
     ready: number
     missing: Array<{ id: string; scene_index: number }>
+    unapproved: Array<{ id: string; scene_index: number }>
+    stale: Array<{ id: string; scene_index: number }>
+  }
+  scene_plan_timing?: {
+    built_at?: string
+    opening_mode: 'branded-opening' | 'from-start'
+    opening_reserved_sec: number
+    plan_duration_sec: number
+    audio_duration_sec: number
+    approved: number
+    stills_ready: number
+    motion_ready: number
+    uncovered_sec: number
+    gap_count: number
+    overlap_sec: number
+    overlap_count: number
+    complete: boolean
+    scenes: Array<{
+      id: string
+      scene_index: number
+      start_sec: number
+      end_sec: number
+      duration_sec: number
+      approved: boolean
+      image_ready: boolean
+      stale: boolean
+      media_type: 'still' | 'motion'
+    }>
   }
   thumbnails: Array<{ filename: string; path: string; number: number }>
   audio_sections: Array<{ filename: string; path: string; label: string; duration?: number }>
@@ -481,7 +515,6 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   // Media-aware (Level B): heavy subfolders may live under an external media
   // root when the project opts in; for non-split projects these resolve to the
   // same iCloud episodeDir as before (non-creating, null when missing).
-  const imagesDir = await findEpisodeSubfolderDir(slug, code, 'images', episodeDir, names.images)
   const thumbsDir = await findEpisodeSubfolderDir(slug, code, 'thumbnails', episodeDir, names.thumbnails)
   const audioDir = await findEpisodeSubfolderDir(slug, code, 'audio', episodeDir, names.audio)
   const mergedAudioDir = await findEpisodeSubfolderDir(slug, code, 'merged_audio', episodeDir, names.merged_audio)
@@ -491,6 +524,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     scenes: [],
     scene_sources: { classic: 0, scene_plan: 0 },
     scene_plan_coverage: undefined,
+    scene_plan_timing: undefined,
     thumbnails: [],
     audio_sections: [],
     merged_audio: [],
@@ -502,39 +536,10 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     skip_chapters: false,
   }
 
-  // Scan scene images. Video extensions are included too (v1.0.414): the
-  // B-Roll pivot materializes pool clips as scene_NNNN.mp4 in this folder so
-  // the Scenes editor treats them as scenes (overlays/logo/effects/subtitles/
-  // transitions/export all apply). prepareSceneClips branches on the file's
-  // extension to prepare a still vs a looped/trimmed video clip.
-  if (imagesDir) {
-    const files = await safeReaddir(imagesDir)
-    for (const file of files) {
-      if (!/\.(png|jpg|jpeg|webp|mp4|mov|webm|mkv|m4v)$/i.test(file)) continue
-      const num = extractSceneNumber(file)
-      if (num !== null) {
-        result.scenes.push({
-          filename: file,
-          path: path.join(imagesDir, file),
-          number: num,
-          source: 'classic',
-        })
-      }
-    }
-    result.scenes.sort((a, b) => a.number - b.number)
-    result.scene_sources!.classic = result.scenes.length
-  }
-
-  // Timestamp-driven / continuity projects render reviewed images into
+  // Continuity projects render reviewed images into
   // <episode>/scene_images/<scene-id>.png and track timing in scene_plan.json,
-  // not the classic numbered scene-image folder. Merge every plan scene that has
-  // a RENDERED image on disk into the editor's scene pool — regardless of the
-  // `approved` flag — even when classic images also exist. v1.0.435: dropped the
-  // approval gate so these behave like classic images (which were never approval-
-  // gated): if it's rendered, it shows. This lets a project that switched formats
-  // mid-way (continuity → scene-prompts) still use its continuity renders without
-  // manually approving hundreds of scenes. The frontend's Scene Plan / Classic /
-  // Combined toggle picks which set actually renders; source files are untouched.
+  // not the retired numbered scene-image pool. Only stable Scene Plan IDs are
+  // eligible for unified Video Assembly.
   const planPath = await resolveScenePlanPath(slug, code, episodeDir)
   // v1.0.457 — continuity renders now live in the unified named "NN Scene Images"
   // folder (legacy flat scene_images/ kept as a read fallback). Only the plan is
@@ -543,15 +548,17 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     ? await resolveSceneImagesDir(slug, code, episodeDir).catch(() => path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER))
     : ''
   const legacySceneDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+  let scannedPlan: ScenePlan | null = null
   if (existsSync(planPath)) {
     try {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      scannedPlan = plan
       const planScenes = Array.isArray(plan.scenes) ? plan.scenes : []
       const missingPlannedScenes: Array<{ id: string; scene_index: number }> = []
-      let nextNumber = result.scenes.length
-        ? Math.max(...result.scenes.map(s => s.number)) + 1
-        : 1
-      let plannedCount = 0
+      const unapprovedPlannedScenes: Array<{ id: string; scene_index: number }> = []
+      const stalePlannedScenes: Array<{ id: string; scene_index: number }> = []
+      const clipsDir = await resolveVideoAssetsDir(slug, code, episodeDir)
+      let usableCount = 0
       for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
         // stored absolute image_path (which can be stale across Macs/users —
@@ -568,25 +575,47 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
           continue
         }
+        const stale = typeof scene.rendered_prompt === 'string'
+          && scene.rendered_prompt !== scene.visual_prompt
+        if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
+        if (!scene.approved) unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
+        const canonicalClip = path.join(clipsDir, `${scene.id}.mp4`)
+        const storedClip = scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
+        const clipPath = existsSync(canonicalClip) ? canonicalClip : storedClip
+        const clipPromptCurrent = typeof scene.rendered_motion_prompt !== 'string'
+          || scene.rendered_motion_prompt === (scene.motion_prompt || '')
+        const clipImageCurrent = typeof scene.image_version !== 'string'
+          || scene.clip_source_image_version === scene.image_version
+        const useMotion = scene.motion_choice === 'clip'
+          && !!clipPath
+          && clipPromptCurrent
+          && clipImageCurrent
         result.scenes.push({
-          filename: path.basename(plannedPath),
-          path: plannedPath,
-          number: nextNumber++,
+          filename: path.basename(useMotion ? clipPath : plannedPath),
+          path: useMotion ? clipPath : plannedPath,
+          still_path: plannedPath,
+          media_type: useMotion ? 'motion' : 'still',
+          number: scene.scene_index,
           source: 'scene_plan',
           planned_scene_index: scene.scene_index,
           plan_scene_id: scene.id,
           approved: !!scene.approved,
+          start_sec: scene.start_sec,
+          end_sec: scene.end_sec,
+          duration_sec: Math.max(0, scene.end_sec - scene.start_sec),
         })
-        plannedCount++
+        if (scene.approved && !stale) usableCount++
       }
-      result.scene_sources!.scene_plan = plannedCount
+      result.scene_sources!.scene_plan = result.scenes.filter(scene => scene.source === 'scene_plan').length
       result.scene_plan_coverage = {
         total: planScenes.length,
-        ready: planScenes.length - missingPlannedScenes.length,
+        ready: usableCount,
         missing: missingPlannedScenes,
+        unapproved: unapprovedPlannedScenes,
+        stale: stalePlannedScenes,
       }
-    } catch {
-      // Invalid or mid-write plan: leave the classic scan result unchanged.
+    } catch (error: any) {
+      throw new Error(`Scene Plan could not be read safely: ${error?.message || error}`)
     }
   }
 
@@ -706,6 +735,58 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     result.skip_chapters = true
   }
 
+  if (scannedPlan) {
+    const audioDuration = Number(result.merged_audio[0]?.duration || result.narration_full?.duration || scannedPlan.total_duration_sec || 0)
+    const openingReserved = scannedPlan.opening_mode === 'branded-opening'
+      ? Math.max(0, Number(scannedPlan.opening_reserved_sec) || 0) : 0
+    const integrity = inspectScenePlanCoverage({
+      scenes: scannedPlan.scenes,
+      total_duration_sec: audioDuration,
+      opening_mode: scannedPlan.opening_mode,
+    }, { headCovered: openingReserved > 0 })
+    let overlapSec = 0
+    let overlapCount = 0
+    for (let index = 1; index < scannedPlan.scenes.length; index++) {
+      const overlap = Number(scannedPlan.scenes[index - 1]!.end_sec) - Number(scannedPlan.scenes[index]!.start_sec)
+      if (overlap > 0.05) { overlapSec += overlap; overlapCount++ }
+    }
+    const planRows = result.scenes.filter(scene => scene.source === 'scene_plan')
+    const byId = new Map(planRows.map(scene => [scene.plan_scene_id, scene]))
+    result.scene_plan_timing = {
+      built_at: scannedPlan.timeline_built_at,
+      opening_mode: scannedPlan.opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start',
+      opening_reserved_sec: openingReserved,
+      plan_duration_sec: Number(scannedPlan.total_duration_sec) || 0,
+      audio_duration_sec: audioDuration,
+      approved: scannedPlan.scenes.filter(scene => scene.approved).length,
+      stills_ready: scannedPlan.scenes.filter(scene => !!byId.get(scene.id)?.still_path).length,
+      motion_ready: planRows.filter(scene => scene.media_type === 'motion').length,
+      uncovered_sec: integrity.blockingUncoveredSec,
+      gap_count: integrity.coverage?.internalGaps.length || 0,
+      overlap_sec: overlapSec,
+      overlap_count: overlapCount,
+      complete: !!result.scene_plan_coverage
+        && result.scene_plan_coverage.ready === result.scene_plan_coverage.total
+        && integrity.complete
+        && overlapCount === 0,
+      scenes: scannedPlan.scenes.map(scene => {
+        const scanned = byId.get(scene.id)
+        const stale = typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
+        return {
+          id: scene.id,
+          scene_index: scene.scene_index,
+          start_sec: scene.start_sec,
+          end_sec: scene.end_sec,
+          duration_sec: Math.max(0, scene.end_sec - scene.start_sec),
+          approved: !!scene.approved,
+          image_ready: !!scanned?.still_path,
+          stale,
+          media_type: scanned?.media_type || 'still',
+        }
+      }),
+    }
+  }
+
   // Scan already-rendered videos in the episode's video folder so the UI can
   // tell the user this episode has been assembled before (and show an mtime).
   if (videoDir) {
@@ -769,6 +850,72 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   return result
 }
 
+/**
+ * Build the only supported assembly input set from authoritative episode data.
+ * The browser and Pipeline may supply reusable editing settings, but neither is
+ * allowed to choose a partial or reordered set of Scene Plan assets.
+ */
+export async function prepareUnifiedVideoAssemblyInputs(
+  slug: string,
+  episodeId: string,
+  req: GenerateVideoRequest,
+): Promise<ScannedAssets> {
+  const assets = await scanEpisodeAssets(slug, episodeId)
+  const timing = assets.scene_plan_timing
+  const coverage = assets.scene_plan_coverage
+  if (!timing || !coverage || coverage.total === 0) {
+    throw new Error('No Scene Plan timeline was found. Build the timeline, generate visual prompts, and review every scene first.')
+  }
+  const problems: string[] = []
+  if (coverage.missing.length) {
+    problems.push(`${coverage.missing.length} missing image(s): ${coverage.missing.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+  }
+  if (coverage.unapproved.length) {
+    problems.push(`${coverage.unapproved.length} unapproved scene(s): ${coverage.unapproved.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+  }
+  if (coverage.stale.length) {
+    problems.push(`${coverage.stale.length} stale image(s): ${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+  }
+  if (timing.uncovered_sec > COVERAGE_FAIL_SEC) {
+    problems.push(`${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
+  }
+  if (timing.overlap_count > 0) {
+    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s`)
+  }
+  if (problems.length) {
+    throw new Error(
+      `Video Assembly is blocked: ${problems.join('; ')}. ` +
+      'Open Scene Plan or Scene Review, repair only the listed items, then retry.',
+    )
+  }
+
+  const planned = assets.scenes
+    .filter(scene => scene.source === 'scene_plan')
+    .sort((a, b) => (a.planned_scene_index || a.number) - (b.planned_scene_index || b.number))
+  if (planned.length !== coverage.total) {
+    throw new Error(`Video Assembly is blocked: expected ${coverage.total} Scene Plan assets but resolved ${planned.length}. Repair Scene Review and retry.`)
+  }
+  const merged = assets.merged_audio[0]
+  if (!merged?.path || !existsSync(merged.path)) {
+    throw new Error('Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+  }
+
+  req.scenes = planned.map(scene => ({
+    image_path: scene.path,
+    duration: scene.duration_sec,
+    plan_scene_id: scene.plan_scene_id,
+    scene_number: scene.planned_scene_index || scene.number,
+    title: `Scene ${scene.planned_scene_index || scene.number}`,
+    show_title: false,
+    __scene_plan_duration: true,
+  }))
+  req.scene_pool_mode = 'scene_plan'
+  req.merged_audio_path = merged.path
+  req.narration_path = merged.path
+  req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
+  return assets
+}
+
 // ── Generate Video (multi-pass pipeline) ──────────────────────────────────
 
 export async function generateVideo(job: Job): Promise<void> {
@@ -801,6 +948,11 @@ export async function generateVideo(job: Job): Promise<void> {
   const outputRoot = await pm.getProjectOutputRoot(project_slug)
   if (!outputRoot) throw new Error('Project directory not found')
 
+  // Re-resolve the authoritative Scene Plan immediately before work starts.
+  // This self-heals stale browser payloads and makes Pipeline/manual/Hub jobs
+  // share one exact input contract.
+  const authoritativeAssets = await prepareUnifiedVideoAssemblyInputs(project_slug, code, req)
+
   // Per-episode free-disk-space precheck. The run-batch route does this
   // up front for the whole batch; this is a defence-in-depth gate for
   // single-episode runs (and for batches that started with enough space
@@ -809,7 +961,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // 1.2× margin here (vs 1.5× at the batch gate) — temp files for one
   // episode are bounded by the final output size plus per-clip prep.
   {
-    const dur = (req.duration?.mode === 'custom'
+    const dur = authoritativeAssets.scene_plan_timing?.audio_duration_sec || (req.duration?.mode === 'custom'
       ? (req.duration.max_duration || req.duration.min_duration || 0)
       : 0) || undefined
     const estBytes = estimateBytesForStep('video_assembly', {
@@ -901,68 +1053,20 @@ export async function generateVideo(job: Job): Promise<void> {
     }
   }
 
-  // Timestamp-plan bridge for the rich scene editor. When the Scenes editor is
-  // opened on a timestamp-driven project, scanEpisodeAssets() exposes approved
-  // <episode>/scene_images/<scene-id>.png files. Stamp their exact planned
-  // durations onto the request so the rich renderer preserves the Scene Plan
-  // timeline instead of falling back to a uniform seconds-per-scene cycle.
-  //
-  // v1.0.521 — match by SCENE ID, not absolute-path equality. Plan renders are
-  // always named `<scene_id>.<ext>`, and the id survives to the backend as the
-  // image's basename even when the stored absolute path is stale (made on
-  // another Mac, folder renamed — the v1.0.456 bug class). The frontend also
-  // sends an explicit `plan_scene_id` per scene; the basename is the fallback
-  // for old presets. When EVERY request scene matches a plan id (and the pool
-  // isn't explicitly classic/combined), the render enters PLAN-STRICT mode:
-  // plan-exact order + durations, no recycling/shuffle/chapter-align — the fix
-  // for "scenes rush by and get reused" on scene-plan episodes.
-  let planStrict = false
-  // v1.0.522 — kept for the audio-coverage gate below (runs after the
-  // narration duration is probed; needs the plan's timeline, not req.scenes).
-  let planCoverageScenes: Array<{ id: string; start_sec: number; end_sec: number }> | null = null
-  let planOpeningReservedSec = 0
-  try {
-    const planPath = await resolveScenePlanPath(project_slug, code, episodeDir)
-    if (existsSync(planPath)) {
-      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      planOpeningReservedSec = plan.opening_mode === 'branded-opening'
-        ? Math.max(0, Number(plan.opening_reserved_sec) || 0) : 0
-      planCoverageScenes = (plan.scenes || []).map(s => ({ id: s.id, start_sec: s.start_sec, end_sec: s.end_sec }))
-      const planById = new Map<string, ScenePlan['scenes'][number]>()
-      for (const scene of plan.scenes || []) {
-        if (scene?.id) planById.set(scene.id, scene)
-      }
-      let stamped = 0
-      for (const scene of req.scenes) {
-        const id = (scene.plan_scene_id || '').trim() || path.parse(scene.image_path || '').name
-        const planned = id ? planById.get(id) : undefined
-        if (!planned) continue
-        const plannedDuration = planned.end_sec - planned.start_sec
-        if (Number.isFinite(plannedDuration) && plannedDuration > 0) {
-          scene.duration = plannedDuration
-          ;(scene as any).__timestamp_plan_duration = true
-          if (!scene.title) scene.title = `Scene ${planned.scene_index}`
-          if (!scene.scene_number) scene.scene_number = planned.scene_index
-          stamped++
-        }
-      }
-      const poolMode = (req.scene_pool_mode || 'auto')
-      planStrict = stamped > 0
-        && stamped === req.scenes.length
-        && poolMode !== 'classic'
-        && poolMode !== 'combined'
-      if (planStrict) {
-        job.output_lines.push(
-          `Scene Plan strict mode: ${stamped} scene(s), plan-exact order + timing; ` +
-          `recycling/shuffle/chapter-align disabled`,
-        )
-      } else if (stamped > 0) {
-        job.output_lines.push(`Timestamp plan bridge: using exact durations for ${stamped} scene(s) from ${SCENE_PLAN_FILENAME}`)
-      }
-    }
-  } catch (e: any) {
-    job.output_lines.push(`Timestamp plan bridge skipped (${e?.message || 'could not read scene_plan.json'})`)
-  }
+  // Unified Video Assembly has one authoritative timing source. The preflight
+  // above already replaced every browser/Pipeline scene with the approved plan
+  // row, so no secondary bridge or legacy pool mode may reinterpret it here.
+  const planStrict = true
+  const planCoverageScenes = authoritativeAssets.scene_plan_timing!.scenes.map(scene => ({
+    id: scene.id,
+    start_sec: scene.start_sec,
+    end_sec: scene.end_sec,
+  }))
+  const planOpeningReservedSec = authoritativeAssets.scene_plan_timing!.opening_reserved_sec
+  job.output_lines.push(
+    `Scene Plan timing: ${req.scenes.length} scene(s), exact order + duration; ` +
+    'recycling, shuffle, and chapter alignment are disabled.',
+  )
 
   // Validate narration — merged audio takes priority, then chapters, then single narration
   const useMergedAudio = !!req.merged_audio_path && existsSync(req.merged_audio_path)
@@ -977,7 +1081,7 @@ export async function generateVideo(job: Job): Promise<void> {
       throw new Error(`No valid narration chapter files found. Checked: ${narrationChapters[0]}`)
     }
     job.output_lines.push(`Found ${validChapters.length}/${narrationChapters.length} narration chapters`)
-  } else if (!existsSync(req.narration_path)) {
+  } else if (!req.narration_path || !existsSync(req.narration_path)) {
     throw new Error(`Narration audio not found: ${req.narration_path}`)
   }
 
@@ -1007,7 +1111,7 @@ export async function generateVideo(job: Job): Promise<void> {
     totalChapterDur += (narrationChapters.filter(f => existsSync(f)).length - 1) * audioGapEst
     narrationDuration = totalChapterDur > 0 ? totalChapterDur : undefined
   } else {
-    narrationDuration = await getAudioDuration(req.narration_path)
+    narrationDuration = await getAudioDuration(req.narration_path!)
   }
   if (!narrationDuration) {
     throw new Error('Could not determine narration audio duration')
@@ -1322,10 +1426,10 @@ export async function generateVideo(job: Job): Promise<void> {
         }
         // probe failed → fall through to the uniform cascade below
       }
-      const hasTimestampPlanDuration = !!(scene as any).__timestamp_plan_duration
+      const hasScenePlanDuration = !!(scene as any).__scene_plan_duration
       const sceneOverride = sentenceDurations?.[i]
       const explicitSceneDuration = scene?.duration
-      const durationCandidate = hasTimestampPlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
+      const durationCandidate = hasScenePlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
         ? explicitSceneDuration
         : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
         ? sceneOverride
@@ -1383,9 +1487,8 @@ export async function generateVideo(job: Job): Promise<void> {
     // v1.0.521 — plan-strict xfade tail. In plan mode with a crossfade
     // transition, each clip renders (window + T) long so dissolves can anchor
     // at plan boundaries without eating scene time. T is clamped against the
-    // SHORTEST plan window (same rule the timestamp assembler uses at
-    // timestamp-video-assemble.ts:262) — the old clamp against
-    // seconds_per_scene is meaningless when durations come from the plan.
+    // SHORTEST plan window (the unified Scene Plan timing rule at
+    // the plan's shortest window; seconds_per_scene never controls the plan.
     let planTransitionTail = 0
     // (>= 2 scenes AFTER exclusions: a single-clip body never xfades, and the
     // non-xfade concat path uses the clip verbatim — a baked tail there would
@@ -2144,14 +2247,14 @@ async function prepareSceneClips(
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
-    // Pick per-scene duration: an exact timestamp-plan duration wins first;
+    // Pick per-scene duration: an exact Scene Plan duration wins first;
     // then sentence-aligned override; then an explicit scene.duration from the
     // caller; then the uniform recycling default. Floor at 0.5s so tiny windows
     // don't produce sub-frame clips.
-    const hasTimestampPlanDuration = !!(scene as any).__timestamp_plan_duration
+    const hasScenePlanDuration = !!(scene as any).__scene_plan_duration
     const sceneOverride = perSceneDurations?.[i]
     const explicitSceneDuration = scene?.duration
-    const durationCandidate = hasTimestampPlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
+    const durationCandidate = hasScenePlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
       ? explicitSceneDuration
       : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
       ? sceneOverride

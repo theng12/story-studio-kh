@@ -312,7 +312,6 @@ const STEP_FIELD: Record<string, string> = {
   'scene-review': 'scene_review',
   'motion-review': 'motion_review',
   'video-assembly': 'video_assembly',
-  'timestamp-assemble': 'video_assembly',
 }
 
 interface BoardCol extends FlowStep { field: string }

@@ -72,7 +72,6 @@ describe('flowForVisualSource — per-format step sets', () => {
     }
     assert.ok(!k.includes('scene-prompts'))
     assert.ok(!k.includes('character-sheet'), 'timestamp-driven has no character sheet')
-    assert.ok(!k.includes('timestamp-assemble'), 'uses full video-assembly as the default final step')
     assert.equal(flow.find(s => s.key === 'motion-review')?.optional, true,
       'Motion Review must remain visible but non-blocking')
   })
@@ -82,7 +81,6 @@ describe('flowForVisualSource — per-format step sets', () => {
     for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `continuity-chain should include ${s}`)
     }
-    assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
     assert.ok(!k.includes('scene-prompts'))
   })
 
@@ -92,7 +90,6 @@ describe('flowForVisualSource — per-format step sets', () => {
     for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'motion-review', 'video-assembly']) {
       assert.ok(k.includes(s), `narrated-scenes should include ${s}`)
     }
-    assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
     assert.equal(flow.find(s => s.key === 'research')?.optional, true,
       'Research must remain visible but non-blocking')
   })
@@ -125,10 +122,7 @@ describe('flowForVisualSource — per-format step sets', () => {
     for (const vs of sources) {
       const k = keys(vs)
       assert.equal(k[0], 'ideas', `${vs} should start at Ideas`)
-      assert.ok(
-        ['video-assembly', 'timestamp-assemble'].includes(k[k.length - 1]),
-        `${vs} should end on an assembly step`,
-      )
+      assert.equal(k[k.length - 1], 'video-assembly', `${vs} should end on unified Video Assembly`)
     }
   })
 

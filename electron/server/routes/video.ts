@@ -8,7 +8,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { enqueue, isDuplicate, setSubtitleTranscribeConcurrency } from '../services/job-queue.js'
-import { checkFfmpeg, scanEpisodeAssets } from '../generators/video.js'
+import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
@@ -1259,40 +1259,20 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
 router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   const { slug } = req.params
 
-  const { episode_id, scenes, narration_path, scene_recycling, duration } = req.body
+  const { episode_id, scene_recycling, duration } = req.body
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
-  if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
-    return res.status(400).json({ detail: 'At least one scene is required' })
-  }
-  if (!narration_path) return res.status(400).json({ detail: 'narration_path is required' })
-
-  // A plan-strict render must not silently omit timeline rows. The UI exposes
-  // the missing IDs and sends this override only after explicit acknowledgement.
-  const poolMode = req.body.scene_pool_mode || 'auto'
-  if (poolMode === 'auto' || poolMode === 'scene_plan') {
-    try {
-      const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
-      const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
-      if (existsSync(planPath)) {
-        const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-        await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
-        assertScenePromptsRenderable(plan.scenes)
-      }
-    } catch (e: any) {
-      return res.status(409).json({
-        detail: e?.message || 'Scene Plan integrity check failed. Repair the plan before assembly.',
-      })
-    }
-    if (req.body.allow_incomplete_scene_plan !== true) {
-      const assets = await scanEpisodeAssets(slug, episode_id)
-      const coverage = assets.scene_plan_coverage
-      if (coverage && coverage.total > 0 && coverage.missing.length > 0) {
-        return res.status(409).json({
-          detail: `${coverage.missing.length} of ${coverage.total} planned scenes have no image. Return to Scene Review to generate or import them, or acknowledge the incomplete render in Video Assembly.`,
-          scene_plan_coverage: coverage,
-        })
-      }
-    }
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
+    await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+    const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
+    if (!existsSync(planPath)) throw new Error('No Scene Plan timeline was found.')
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    assertScenePromptsRenderable(plan.scenes)
+    await prepareUnifiedVideoAssemblyInputs(slug, episode_id, req.body)
+  } catch (e: any) {
+    return res.status(409).json({
+      detail: e?.message || 'Video Assembly preflight failed. Repair Scene Plan or Scene Review, then retry.',
+    })
   }
 
   // Provide defaults for new required fields if missing
@@ -1311,7 +1291,7 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
     project_slug: slug,
     type: 'video_assembly',
     episode_id,
-    title: `Video Assembly (${scenes.length} scenes)`,
+    title: `Video Assembly (${req.body.scenes.length} scenes)`,
     params: req.body,
   })
   res.status(201).json(job)

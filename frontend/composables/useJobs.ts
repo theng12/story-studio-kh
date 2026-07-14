@@ -63,7 +63,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   continuity_render: 'Continuity render',
   prompt_director: 'Prompt director',
   composition_generate: 'Composition',
-  timestamp_video_assemble: 'Timestamp assembly',
 }
 
 function jobLabel(job: Job): string {

@@ -37,7 +37,6 @@ interface Params {
   export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
   transition?: { type?: string; duration?: number }
   frame?: VideoFrameConfig
-  auto_approve?: boolean
   intro?: { enabled?: boolean; video_path?: string; duration?: number }
   scene_animation?: VideoSceneAnimation
   post_audio?: VideoPostAudio
@@ -79,11 +78,12 @@ function hexToAssColor(hex: string): string {
 export function remoteVideoAssemblyFallbackReasons(req: GenerateVideoRequest): string[] {
   const reasons: string[] = []
   if (req.scene_pool_mode && req.scene_pool_mode !== 'scene_plan') reasons.push('scene source is not the continuity Scene Plan')
-  if (req.format !== 'mp4') reasons.push(`${req.format.toUpperCase()} export`)
+  const format = req.format || 'mp4'
+  if (format !== 'mp4') reasons.push(`${format.toUpperCase()} export`)
   if (req.transition && req.transition !== 'none' && !getTransition(req.transition)?.xfade) {
     reasons.push(`unsupported transition "${req.transition}"`)
   }
-  if ((req.title_image?.enabled || req.title_card?.enabled) && !req.intro?.enabled) reasons.push('title card/image')
+  if (req.title_image?.enabled || req.title_card?.enabled) reasons.push('title card/image')
   if (req.outro?.enabled || req.outro_card?.enabled) reasons.push('outro')
   if (req.timeline_clips?.some(clip => clip.enabled)) reasons.push('custom timeline clips')
   if (req.logo?.enabled) reasons.push('logo overlay')
@@ -139,13 +139,7 @@ export async function tryRunRemoteVideoAssembly(job: Job): Promise<boolean> {
       outline: style?.outline_px,
     } : { enabled: false },
   }
-  const original = job.params
-  try {
-    job.params = adapted
-    return await tryRunRemoteTimestampAssemble(job)
-  } finally {
-    job.params = original
-  }
+  return runRemoteVideoAssembly(job, adapted)
 }
 
 const QUALITY_TO_CRF: Record<string, number> = { compact: 32, fast: 28, medium: 23, high: 18 }
@@ -186,11 +180,10 @@ async function validateMainCopy(filePath: string, expectedDuration: number): Pro
 }
 
 /**
- * Offload the timestamp assembler when a healthy render worker is available.
+ * Offload unified Video Assembly when a healthy render worker is available.
  * Returns false before any transfer starts when local assembly should be used.
  */
-export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> {
-  const params = job.params as Params
+async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean> {
   const episodeId = params.episode_id
   if (!episodeId) return false
   if (!await getRenderWorkersEnabled()) return false
@@ -215,13 +208,6 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
   if (!existsSync(planPath)) throw new Error('scene_plan.json missing - run Scene Plan first.')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   if (!plan.scenes.length) throw new Error('scene_plan.json has no scenes')
-  if (params.auto_approve === true) {
-    let changed = false
-    for (const scene of plan.scenes) {
-      if (!scene.approved) { scene.approved = true; changed = true }
-    }
-    if (changed) await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
-  }
   const unapproved = plan.scenes.filter(scene => !scene.approved)
   if (unapproved.length) throw new Error(`${unapproved.length} scene(s) still need approval before rendering.`)
 
@@ -495,8 +481,9 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
 
     job.output_lines.push(`Render Studio: queued ${plan.scenes.length} scenes (${width}x${height} @ ${fps}fps).`)
     const submittedJob = await hubSubmitJob(backend.hubUrl, backend.hubToken, {
-      modality: 'render', model: 'episode-assembly-v1', label: `storystudio:${episodeId}`,
+      modality: 'render', model: 'episode-assembly-v1', label: `story-video-assembly:${episodeId}`,
       items: [{ prompt: episodeId, params: {
+        workflow: 'video_assembly',
         recipe: { version: 1, assets, files: [{ name: 'scenes.txt', content: concat }], steps },
       } }],
     })

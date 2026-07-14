@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { remoteVideoAssemblyFallbackReasons } from '../generators/remote-timestamp-assemble.js'
+import { remoteVideoAssemblyFallbackReasons } from '../generators/remote-video-assembly.js'
 import type { GenerateVideoRequest } from '../models/types.js'
 
 function request(overrides: Partial<GenerateVideoRequest> = {}): GenerateVideoRequest {
@@ -33,6 +33,17 @@ test('advanced layers trigger a named local fallback instead of being dropped', 
     title_image: { enabled: true, image_path: '/tmp/title.png' },
   } as any))
   assert.deepEqual(reasons, ['title card/image', 'logo overlay', 'overlay layers'])
+})
+
+test('title media stays local even when an intro is also enabled', () => {
+  assert.deepEqual(remoteVideoAssemblyFallbackReasons(request({
+    intro: { enabled: true, video_path: '/tmp/intro.mp4' },
+    title_image: { enabled: true, image_path: '/tmp/title.png', duration: 5 },
+  } as any)), ['title card/image'])
+})
+
+test('older presets without an explicit format still use worker-safe MP4', () => {
+  assert.deepEqual(remoteVideoAssemblyFallbackReasons(request({ format: undefined } as any)), [])
 })
 
 test('the default crossfade is worker-compatible for continuity renders', () => {

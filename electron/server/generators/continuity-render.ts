@@ -16,7 +16,7 @@
  *
  * Writes <episode_dir>/scene_images/<scene_id>.png + the scene's image_path
  * back into scene_plan.json (resetting approval), exactly like the per-scene
- * generator — so Scene Review + Timestamp Assemble pick the images up unchanged.
+ * generator — so Scene Review + unified Video Assembly pick the images up unchanged.
  */
 
 import fs from 'fs/promises'

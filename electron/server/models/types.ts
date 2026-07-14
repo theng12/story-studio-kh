@@ -585,7 +585,7 @@ export interface Format {
    *     scene can reference the previous scene's render for visual
    *     continuity. User-set pacing guardrails (min/max seconds) drive a
    *     "feels live" cut density. Same sidebar gating as 'timestamp-driven'
-   *     (Scene Plan / Scene Review / Timestamp Assemble) PLUS a Character
+   *     (Scene Plan / Scene Review / unified Video Assembly) PLUS a Character
    *     Sheet page. Research is available too (optional — handy when the
    *     niche is factual).
    */
@@ -1819,7 +1819,7 @@ export const JOB_TYPES = [
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
   'broll_autotag', 'broll_fetch', 'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_images_batch', 'scene_clip_generate',
-  'scene_clips_batch', 'timestamp_video_assemble', 'continuity_render',
+  'scene_clips_batch', 'continuity_render',
   'prompt_director', 'composition_generate', 'expression_markup',
   'image_pool_generate',
 ] as const
@@ -2039,23 +2039,18 @@ export interface GenerateAudioRequest {
 
 export interface VideoScene {
   image_path: string
-  /** Per-scene seconds. v1.0.521 — optional: plan-sourced scenes omit it (the
-   *  backend's timestamp-plan bridge stamps the exact planned window); the
-   *  duration cascade in video.ts already guards non-numeric values and falls
-   *  back to scene_recycling.seconds_per_scene. */
+  /** Exact Scene Plan window hydrated by unified assembly preflight. */
   duration?: number
   title?: string
   show_title: boolean
   /** Echoed-through scene number (1-based) for diagnostics. */
   scene_number?: number
-  /** Optional section hint used only by sentence-timed classic formats. */
+  /** Optional section hint retained for title/diagnostic metadata. */
   chapter_slug?: string
-  /** v1.0.521 — scene_plan.json scene id this image renders (set by the
-   *  frontend for Scene Plan pool entries). Lets the backend's timestamp-plan
-   *  bridge match by ID instead of absolute-path equality, which broke across
-   *  machines / renamed folders. Optional — when absent the backend derives it
-   *  from the image filename (`<scene_id>.png`). */
+  /** Stable scene_plan.json id for this exact still or approved motion clip. */
   plan_scene_id?: string
+  /** Internal proof that duration was hydrated from the authoritative plan. */
+  __scene_plan_duration?: boolean
 }
 
 export interface VideoTitleCard {
@@ -2617,7 +2612,9 @@ export interface VideoPostAudio {
 
 export interface GenerateVideoRequest {
   episode_id: string
+  /** Replaced from the approved Scene Plan immediately before rendering. */
   scenes: VideoScene[]
+  /** Replaced from merged episode audio immediately before rendering. */
   narration_path: string
   logo?: VideoLogoConfig
   intro?: VideoIntroConfig
@@ -2630,16 +2627,8 @@ export interface GenerateVideoRequest {
   timeline_clips?: VideoTimelineClip[]
   title_image?: VideoTitleImageConfig
   scene_recycling: VideoSceneRecycling
-  /** v1.0.521 — which pool the frontend's scene list came from. When the
-   *  effective pool is 'scene_plan' and every scene matches a plan id, the
-   *  backend enters plan-strict mode: plan-exact order + durations, no
-   *  recycling/shuffle/chapter-align, no scene reuse. 'classic'/'combined'
-   *  explicitly opt OUT of plan-strict even if filenames happen to match.
-   *  Optional — old presets without it rely on the all-scenes-matched check. */
-  scene_pool_mode?: 'auto' | 'scene_plan' | 'classic' | 'combined'
-  /** Explicit user acknowledgement that a plan-strict render may omit scenes
-   * whose images are still missing. The route rejects otherwise. */
-  allow_incomplete_scene_plan?: boolean
+  /** Unified assembly always hydrates this to `scene_plan` before rendering. */
+  scene_pool_mode?: 'scene_plan'
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

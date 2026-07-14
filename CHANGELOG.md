@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.590 — 2026-07-14
+
+**Video Assembly is now one Scene Plan-driven workflow on this Mac or Render Studio.**
+
+- Removed the retired Timestamp Assembly page, renderer, route, job type, Pipeline step, preset surface, navigation tabs, and stale build artifacts.
+- Made the approved Scene Plan the only authority for scene identity, order, image or motion choice, exact duration, opening reservation, and merged audio.
+- Added a visible timing panel with plan/audio totals, still and motion counts, uncovered or overlapping time, a proportional timeline, and expandable exact scene rows.
+- Blocks enqueue and execution when any required scene is missing, unapproved, stale, uncovered, overlapping, or detached from merged audio, while naming the exact repair needed.
+- Browser and preset payloads can no longer reorder, exclude, shuffle, recycle, or substitute scenes; the server rehydrates current authoritative inputs before every render.
+- Routed the same unified `video_assembly` job through Studio Hub to Render Studio when the chosen editing controls have lossless worker support, with checksum and media verification before completion.
+- Updated Render Studio to advertise the unified Video Assembly and Scene Plan timing capabilities and reject retired workflow payloads.
+- Added regression coverage for unified prerequisites, strict Scene Plan asset selection, worker eligibility, stale-input healing, and retired-flow removal.
+
 ## v1.0.589 — 2026-07-14
 
 **Manual step completion now updates immediately and proves the saved state.**

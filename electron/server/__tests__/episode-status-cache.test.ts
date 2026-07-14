@@ -364,7 +364,7 @@ describe('episode-status-cache', () => {
   // `image_path` field. Images produced OUTSIDE the app (e.g. a browser
   // extension) land on disk with the right name but leave image_path empty;
   // the episode must still read as done. Mirrors the Scene Review page +
-  // timestamp assembler, which already detect by file existence.
+  // unified assembler, which already detects by file existence.
   test('scene_review: external images (empty image_path) count when <scene_id>.png exists on disk', async () => {
     const { epDir } = await makeProject()
     const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)

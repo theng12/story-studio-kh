@@ -5,10 +5,8 @@
  * wizard and the backend's `/api/projects/:slug/generate/video-assembly`
  * endpoint. That contract covers a lot:
  *
- *   - Scenes filtered by the excluded-scenes set + mapped to {image_path,
- *     duration, title, show_title}.
- *   - Narration path resolution: merged audio > full narration > first
- *     chapter, with the falls-through reflected in `merged_audio_path`.
+ *   - Scene media, timing, and narration are never trusted from the browser;
+ *     the backend hydrates them from Scene Plan + merged audio.
  *   - Optional sections (logo, intro, outro, title image, color grading, vignette,
  *     chroma key, film grain, letterbox, subtitles, title/outro card) only
  *     appear in the payload when their `.enabled` flag is true.
@@ -113,23 +111,10 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(capturedUrl, '/projects/proj-x/generate/video-assembly',
       'POST must hit the video-assembly generate endpoint')
 
-    // Scene shape + filtering
-    assert.equal(capturedBody.scenes.length, 3, 'no scenes excluded in this test')
-    // Scene Plan timing is authoritative; the removed chapter-assignment
-    // system must not leak its legacy chapter_slug field into new payloads.
-    assert.deepEqual(capturedBody.scenes[0], {
-      image_path: '/i/1.png',
-      duration: 10,
-      title: 'First',
-      show_title: false, // chapterTitles.enabled is false
-      scene_number: 1,
-    })
-    assert.equal(capturedBody.scenes[2].title, 'Scene 3',
-      'empty scene.title falls back to `Scene N`')
-
-    // Narration path resolution: merged_audio wins
-    assert.equal(capturedBody.narration_path, '/m/merged.mp3')
-    assert.equal(capturedBody.merged_audio_path, '/m/merged.mp3')
+    assert.equal(capturedBody.scenes, undefined)
+    assert.equal(capturedBody.narration_path, undefined)
+    assert.equal(capturedBody.merged_audio_path, undefined)
+    assert.equal(capturedBody.scene_pool_mode, 'scene_plan')
 
     // v1.0.354+: target-duration padding was removed. Video length follows
     // narration, with post-audio as the only intentional tail extension.
@@ -172,7 +157,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.deepEqual(state.jobOutput.value, [], 'jobOutput cleared on run start')
   })
 
-  test('excluded scenes are dropped from the payload', async () => {
+  test('legacy recycling controls cannot alter the authoritative plan', async () => {
     const { generateVideo } = useVideoAssemblyIo(state as any)
     state.sceneRecycling.excluded_scenes = [2] // drop the middle one
     let body: any
@@ -180,35 +165,9 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
       post: async (_u, b) => { body = b },
       videoAssemblyGenerating: videoGenerating,
     })
-    assert.equal(body.scenes.length, 2)
-    assert.deepEqual(body.scenes.map((s: any) => s.image_path), ['/i/1.png', '/i/3.png'])
-    // Excluded set still echoed in scene_recycling for the backend
-    assert.deepEqual(body.scene_recycling.excluded_scenes, [2])
-  })
-
-  test('narration falls through to narration_full when no merged audio exists', async () => {
-    const { generateVideo } = useVideoAssemblyIo(state as any)
-    state.scannedAssets.value.merged_audio = []
-    let body: any
-    await generateVideo({
-      post: async (_u, b) => { body = b },
-      videoAssemblyGenerating: videoGenerating,
-    })
-    assert.equal(body.narration_path, '/m/full.mp3',
-      'narration_full used when merged_audio is empty')
-    assert.equal(body.merged_audio_path, undefined)
-  })
-
-  test('narration falls through to first audio section when neither merged nor full exist', async () => {
-    const { generateVideo } = useVideoAssemblyIo(state as any)
-    state.scannedAssets.value.merged_audio = []
-    state.scannedAssets.value.narration_full = null
-    let body: any
-    await generateVideo({
-      post: async (_u, b) => { body = b },
-      videoAssemblyGenerating: videoGenerating,
-    })
-    assert.equal(body.narration_path, '/m/section-1.mp3')
+    assert.equal(body.scenes, undefined)
+    assert.deepEqual(body.scene_recycling.excluded_scenes, [])
+    assert.equal(body.scene_recycling.shuffle, false)
   })
 
   test('enabled optional sections appear in the payload with rescaled values', async () => {
@@ -334,7 +293,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
       'videoGenerating must roll back to false on submit failure — otherwise the sidebar pulse sticks')
   })
 
-  test('chapter titles show_title flag threads through to each scene', async () => {
+  test('chapter-title styling travels without a browser-authored scene list', async () => {
     const { generateVideo } = useVideoAssemblyIo(state as any)
     state.chapterTitles.enabled = true
     let body: any
@@ -342,9 +301,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
       post: async (_u, b) => { body = b },
       videoAssemblyGenerating: videoGenerating,
     })
-    for (const scene of body.scenes) {
-      assert.equal(scene.show_title, true,
-        'every scene inherits chapterTitles.enabled on its show_title flag')
-    }
+    assert.equal(body.scenes, undefined)
+    assert.equal(body.chapter_titles.enabled, true)
   })
 })

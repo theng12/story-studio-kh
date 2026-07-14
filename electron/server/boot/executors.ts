@@ -37,7 +37,6 @@ import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneImagesBatchJob } from '../generators/scene-images-batch.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
-import { runTimestampVideoAssemble } from '../generators/timestamp-video-assemble.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
@@ -148,8 +147,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('prompt_director', runPromptDirectorJob)
   // v1.0.260 — generate the composition LAYOUT template image from a prompt.
   registerExecutor('composition_generate', generateCompositionTemplateJob)
-  // v1.0.145+ — Final ffmpeg assembler for the timestamp-driven pipeline.
-  registerExecutor('timestamp_video_assemble', guardMedia(runTimestampVideoAssemble))
   // v1.0.386 — Fish S2 expression "Tag all" — background LLM markup over every
   // section (survives leaving the Audio Generator page).
   registerExecutor('expression_markup', runExpressionMarkupJob)

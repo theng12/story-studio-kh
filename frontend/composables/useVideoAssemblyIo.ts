@@ -53,8 +53,6 @@ export interface VideoAssemblyIoState {
   } | null>
   scannedAssets: Ref<any>
   scanning: Ref<boolean>
-  scenePoolMode?: Ref<'auto' | 'scene_plan' | 'classic' | 'combined'>
-  allowIncompleteScenePlan?: Ref<boolean>
   scenes: Ref<Array<{
     image_path: string
     filename: string
@@ -171,34 +169,12 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     }
   }
 
-  /** Effective pool mode after 'auto' resolution — shared by the pool
-   *  selector AND the generate payload so the backend knows whether the
-   *  scene list is plan-sourced (v1.0.521 plan-strict timing). */
-  function effectiveScenePoolMode(): 'scene_plan' | 'classic' | 'combined' {
-    const all = Array.isArray(s.scannedAssets.value?.scenes)
-      ? s.scannedAssets.value.scenes
-      : []
-    const planned = all.filter((img: any) => img.source === 'scene_plan')
-    const requested = s.scenePoolMode?.value || 'auto'
-    return requested === 'auto'
-      ? (Number(s.scannedAssets.value?.scene_plan_coverage?.total || 0) > 0 || planned.length ? 'scene_plan' : 'classic')
-      : requested as 'scene_plan' | 'classic' | 'combined'
-  }
-
   function applyScenePoolMode() {
     const all = Array.isArray(s.scannedAssets.value?.scenes)
       ? s.scannedAssets.value.scenes
       : []
     const planned = all.filter((img: any) => img.source === 'scene_plan')
-    const classic = all.filter((img: any) => img.source !== 'scene_plan')
-    const mode = effectiveScenePoolMode()
-    const selected = mode === 'scene_plan'
-      ? planned
-      : mode === 'classic'
-        ? classic
-        : all
-
-    s.scenes.value = selected.map((img: any, i: number) => ({
+    s.scenes.value = planned.map((img: any, i: number) => ({
       image_path: img.path || '',
       filename: img.filename || `scene_${i + 1}.png`,
       number: img.number || i + 1,
@@ -240,43 +216,13 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     post: (path: string, body: any) => Promise<any>
     videoAssemblyGenerating: Ref<boolean>
   }): Promise<boolean> {
-    const enabledScenes = s.scenes.value.filter(
-      sc => !s.sceneRecycling.excluded_scenes.includes(sc.number),
-    )
-
-    // Narration always comes from the merged-audio file produced upstream
-    // by Audio Assembly. We fall back to a raw chapter only if someone runs
-    // the video step before merging — the backend validates this and errors
-    // clearly.
-    const mergedPath = s.scannedAssets.value?.merged_audio?.[0]?.path
-    const narrationPath = mergedPath
-      || s.scannedAssets.value?.narration_full?.path
-      || s.scannedAssets.value?.audio_sections?.[0]?.path
-      || ''
-
-    // v1.0.521 — plan-sourced pools don't stamp the uniform seconds-per-scene
-    // onto every scene: the backend's timestamp-plan bridge is the single
-    // source of truth for plan durations, and a stamped uniform value used to
-    // masquerade as an explicit per-scene duration. The effective pool mode is
-    // sent so the backend can enter plan-strict timing (no recycling/reuse).
-    const poolMode = effectiveScenePoolMode()
+    // Scene media, order, exact durations, and merged audio are intentionally
+    // absent from this browser payload. The backend re-scans the authoritative
+    // Scene Plan immediately before enqueue and again before execution, so a
+    // stale tab or preset can never submit an alternate timeline.
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
-      scene_pool_mode: poolMode,
-      allow_incomplete_scene_plan: s.allowIncompleteScenePlan?.value === true,
-      scenes: enabledScenes.map(sc => {
-        const planSceneId = (sc as any).plan_scene_id
-        return {
-          image_path: sc.image_path,
-          duration: poolMode === 'scene_plan' ? undefined : s.sceneRecycling.seconds_per_scene,
-          ...(planSceneId ? { plan_scene_id: planSceneId } : {}),
-          title: sc.title || `Scene ${sc.number}`,
-          show_title: s.chapterTitles.enabled,
-          scene_number: sc.number,
-        }
-      }),
-      narration_path: narrationPath,
-      merged_audio_path: mergedPath,
+      scene_pool_mode: 'scene_plan',
       transition: s.transition.type,
       transition_duration: s.transition.type === 'none' ? 0 : s.transition.duration,
       transition_pool: s.transition.pool,
@@ -293,9 +239,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       post_audio: { ...s.postAudio },
       scene_recycling: {
         seconds_per_scene: s.sceneRecycling.seconds_per_scene,
-        shuffle: s.sceneRecycling.shuffle,
-        excluded_scenes: s.sceneRecycling.excluded_scenes,
-        broll_natural_duration: s.sceneRecycling.broll_natural_duration,
+        shuffle: false,
+        excluded_scenes: [],
       },
       // v1.0.354 — Target Duration removed. Length follows the narration;
       // the post-audio tail (post_audio) is the only intentional extension.
@@ -454,5 +399,5 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // output panel within milliseconds of clicking Generate.
   }
 
-  return { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo, effectiveScenePoolMode }
+  return { checkFfmpeg, scanAssets, generateVideo }
 }

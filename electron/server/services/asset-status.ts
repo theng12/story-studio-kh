@@ -946,8 +946,7 @@ export async function computeEpisodeStatus(
         // Scene Review done = plan exists AND every scene has a generated image
         // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
         // named or legacy scene-images folder), which is exactly how the Scene
-        // Review page (routes/scene-review.ts) and the timestamp assembler
-        // (generators/timestamp-video-assemble.ts) already resolve scene images.
+        // Review page and unified Video Assembly already resolve scene images.
         // Previously this keyed off the plan's `image_path` field, which is only
         // written by the IN-APP renderer — so images produced externally (e.g. a
         // browser extension) and dropped into the folder with the correct

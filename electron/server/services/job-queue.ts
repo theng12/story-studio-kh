@@ -273,9 +273,6 @@ const queues: Record<JobType, QueueState> = {
   scene_clips_batch: { pending: [], running: false, executor: null },
   // v1.0.410+: generate stills into an Image Pool (grow the pool).
   image_pool_generate: { pending: [], running: false, executor: null },
-  // v1.0.145+: Final ffmpeg render for the timestamp-driven pipeline.
-  // Gated on every scene in scene_plan.json being approved.
-  timestamp_video_assemble: { pending: [], running: false, executor: null },
   // v1.0.194+: continuity-chain sequential renderer. Renders every scene in
   // scene_plan.json in order, each img2img-anchored to the previous render +
   // the character sheet/characters. One long serial job (resumable).

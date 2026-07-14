@@ -5,11 +5,6 @@
       <h1 class="page-title">Video Assembly</h1>
     </div>
 
-    <!-- v1.0.115+ — tabbed pipeline switcher. Replaces the v1.0.114
-         wrong-pipeline banner. Both pipelines are accessible from either
-         tab, regardless of project format — the user picks. -->
-    <VideoPipelineTabs />
-
     <TopActionBar
       :project-slug="slug"
       :presets="videoBundlePresets"
@@ -152,90 +147,6 @@
         </p>
       </div>
 
-      <!-- v1.0.412 — Image Pool source: load pool images as this episode's
-           scenes, then use the full editor below. -->
-      <div v-if="isImagePoolFormat" class="imgpool-source mt-3">
-        <h4>🖼 Image Pool source</h4>
-        <p class="text-muted text-sm mt-1">
-          Load random images from a pool as this episode's scenes (sized to the narration,
-          no-repeat across recent episodes). Then continue below to apply motion / overlays /
-          logo / effects / subtitles and render.
-        </p>
-        <template v-if="imagePools.length">
-          <div class="imgpool-row mt-2">
-            <select v-model="imgPoolId" class="select imgpool-select">
-              <option value="" disabled>Pick an image pool…</option>
-              <option v-for="p in imagePools" :key="p.id" :value="p.id">
-                {{ p.name }}{{ p.online ? '' : ' (offline)' }}
-              </option>
-            </select>
-            <label class="imgpool-inline" title="Drives how many images are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
-              Seconds / image
-              <input type="number" min="1" max="60" step="1" class="input imgpool-num" v-model.number="imgPoolSeconds" />
-            </label>
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="imgPoolLoading || !imgPoolId || !episodeId || (selectedImagePool && !selectedImagePool.online)"
-              @click="loadImagesAsScenes"
-            >
-              {{ imgPoolLoading ? 'Loading…' : '📥 Load images as scenes' }}
-            </button>
-          </div>
-          <p class="text-muted text-xs mt-1">
-            Need more images? <NuxtLink :to="`/projects/${slug}/image-pool`" class="ffmpeg-inline-link">Generate into the pool →</NuxtLink>
-          </p>
-        </template>
-        <p v-else class="text-muted text-sm mt-2">
-          No image pools yet — create one in the
-          <NuxtLink to="/broll-library" class="ffmpeg-inline-link">B-Roll Library</NuxtLink>
-          (＋ Register pool → 🖼 Still images).
-        </p>
-      </div>
-
-      <!-- v1.0.414 — B-Roll source: load pool video clips as this episode's
-           scenes, then use the full editor below. Twin of the Image Pool panel. -->
-      <div v-if="isBrollFormat" class="imgpool-source mt-3">
-        <h4>🎬 B-Roll source</h4>
-        <p class="text-muted text-sm mt-1">
-          Load random clips from a B-Roll pool as this episode's scenes (sized to the narration,
-          no-repeat across recent episodes). Use each clip's full length for fewer cuts, or choose
-          fixed pacing. Then continue below to apply overlays / logo / effects / subtitles and render.
-        </p>
-        <template v-if="videoPools.length">
-          <div class="imgpool-row mt-2">
-            <select v-model="brollPoolId" class="select imgpool-select">
-              <option value="" disabled>Pick a B-Roll pool…</option>
-              <option v-for="p in videoPools" :key="p.id" :value="p.id">
-                {{ p.name }}{{ p.online ? '' : ' (offline)' }}
-              </option>
-            </select>
-            <label class="imgpool-inline" title="Select only enough clips, using their native durations, to cover the narration.">
-              <input type="checkbox" v-model="brollUseNaturalDuration" />
-              Use full clip length
-            </label>
-            <label v-if="!brollUseNaturalDuration" class="imgpool-inline" title="Drives how many clips are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
-              Seconds / clip
-              <input type="number" min="1" max="60" step="1" class="input imgpool-num" v-model.number="brollSeconds" />
-            </label>
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="brollLoading || !brollPoolId || !episodeId || (selectedBrollPool && !selectedBrollPool.online)"
-              @click="loadClipsAsScenes"
-            >
-              {{ brollLoading ? 'Loading…' : '📥 Load clips as scenes' }}
-            </button>
-          </div>
-        </template>
-        <p v-else class="text-muted text-sm mt-2">
-          No B-Roll (video) pools yet — create one in the
-          <NuxtLink to="/broll-library" class="ffmpeg-inline-link">B-Roll Library</NuxtLink>
-          (＋ Register pool → 🎬 Video clips).
-        </p>
-      </div>
-
-      <!-- Scripted B-Roll (beta) — narration → per-beat targeted stock clips -->
-      <ScriptedBrollSection :slug="slug" :episode-code="episodeId" />
-
       <div v-if="scanning" class="scanning-status mt-2">
         <span class="gen-label">Scanning assets...</span>
         <div class="progress-bar"><div class="progress-fill" /></div>
@@ -247,48 +158,14 @@
         <!-- Scene assets -->
         <div class="asset-section mt-1">
           <div class="asset-section-header">
-            <label>Scene Assets ({{ scannedAssets.scenes?.length || 0 }})</label>
-            <button
-              type="button"
-              class="btn btn-sm btn-secondary"
-              :disabled="importingSceneAssets || !episodeId"
-              @click="importAdditionalSceneAssets"
-            >
-              {{ importingSceneAssets ? 'Importing…' : '＋ Add images/videos' }}
-            </button>
+            <label>Approved Scene Plan Assets ({{ sceneSourceCounts.scene_plan }})</label>
           </div>
           <p class="text-muted text-xs hint-line">
-            Adds copies to this episode's reusable scene pool. Images and video clips use the normal shuffle and recycling settings.
+            Exact Scene Plan order and timestamps are always used. Approved motion clips replace only their matching still scene.
           </p>
-          <div v-if="hasMixedSceneSources" class="scene-source-control mt-1">
-            <button
-              type="button"
-              :class="{ active: effectiveScenePoolMode === 'scene_plan' }"
-              @click="scenePoolMode = 'scene_plan'"
-            >
-              Scene Plan ({{ sceneSourceCounts.scene_plan }})
-            </button>
-            <button
-              type="button"
-              :class="{ active: effectiveScenePoolMode === 'classic' }"
-              @click="scenePoolMode = 'classic'"
-            >
-              Classic ({{ sceneSourceCounts.classic }})
-            </button>
-            <button
-              type="button"
-              :class="{ active: effectiveScenePoolMode === 'combined' }"
-              @click="scenePoolMode = 'combined'"
-            >
-              Combined ({{ sceneSourceCounts.classic + sceneSourceCounts.scene_plan }})
-            </button>
-          </div>
-          <p v-if="hasMixedSceneSources" class="text-muted text-xs hint-line">
-            Scene Plan preserves reviewed timing. Combined adds the classic generated scenes to the same pool.
-          </p>
-          <div class="thumb-grid mt-1" v-if="scannedAssets.scenes?.length">
+          <div class="thumb-grid mt-1" v-if="sceneSourceCounts.scene_plan">
             <div
-              v-for="(img, i) in scannedAssets.scenes"
+              v-for="(img, i) in scannedAssets.scenes.filter((row: any) => row.source === 'scene_plan')"
               :key="i"
               class="scene-thumb-small"
               :title="img.filename"
@@ -296,16 +173,16 @@
               {{ img.number || Number(i) + 1 }}
             </div>
           </div>
-          <p v-else class="text-muted text-md">No scene assets found</p>
+          <p v-else class="text-muted text-md">No approved Scene Plan assets found</p>
         </div>
 
         <div v-if="hasIncompletePlannedScenes" class="scene-coverage-warning mt-2">
           <div class="scene-coverage-title">
-            <strong>{{ plannedSceneCoverage.ready }}/{{ plannedSceneCoverage.total }} planned scene images ready</strong>
-            <span>{{ plannedSceneCoverage.missing.length }} missing</span>
+            <strong>{{ plannedSceneCoverage.ready }}/{{ plannedSceneCoverage.total }} scenes ready</strong>
+            <span>{{ plannedSceneCoverage.total - plannedSceneCoverage.ready }} need attention</span>
           </div>
           <p>
-            Video Assembly found the Scene Plan, but these timeline scenes do not have an image yet:
+            Video Assembly found incomplete Scene Plan assets or approvals:
             <code>{{ missingPlannedSceneSummary }}</code>
           </p>
           <div class="scene-coverage-actions">
@@ -317,13 +194,6 @@
               {{ scanning ? 'Checking…' : 'Check again' }}
             </button>
           </div>
-          <label v-if="requiresMissingSceneAcknowledgement" class="scene-coverage-ack">
-            <input v-model="missingScenesAcknowledged" type="checkbox" />
-            I understand these scenes will be omitted and the planned timing may be incomplete. Continue anyway.
-          </label>
-          <p v-else class="text-muted text-xs">
-            The selected Classic/Combined pool does not use strict Scene Plan coverage.
-          </p>
         </div>
 
         <!-- Thumbnails -->
@@ -373,14 +243,10 @@
 
         <!-- Validation Messages -->
         <div v-if="!step1Valid" class="validation-msg mt-2">
-          <span v-if="!scannedAssets.scenes?.length">
-            {{ isBrollFormat
-              ? '* Load at least 1 B-Roll clip as a scene using the B-Roll source above'
-              : '* At least 1 scene image is required' }}
-          </span>
+          <span v-if="!scannedAssets.scenes?.length">* At least 1 approved Scene Plan image is required</span>
           <span v-if="!hasMergedAudio">* Merged audio file is required (run Audio Assembly first)</span>
-          <span v-if="requiresMissingSceneAcknowledgement && !missingScenesAcknowledged">
-            * Review the missing planned scenes above, then generate them or acknowledge the incomplete render
+          <span v-if="!unifiedTimingReady">
+            * Scene Plan timing, images, and approvals must all be complete before rendering
           </span>
         </div>
       </div>
@@ -703,87 +569,11 @@
         </div>
       </div>
 
-      <!-- Scene Pacing — v1.0.354: transcript-timed/continuity formats hold each
-           scene for its own planned span, so the sleep-story recycling controls
-           don't apply. Show a short note instead. -->
-      <div v-if="isSentenceTimed" class="settings-section mt-2">
-        <h4>Scene Pacing</h4>
+      <div class="settings-section mt-2">
         <p class="text-muted text-sm hint-line">
-          This project is <strong>transcript-timed</strong> — each scene stays on screen for exactly its
-          planned span (from the script timing), so there's nothing to recycle. Shape the look with
-          <em>Scene Transitions</em> and <em>Scene Animation</em> below.
+          Scene Plan timestamps are the single timing source. Transitions and animation are applied inside those exact windows.
         </p>
-      </div>
-
-      <!-- v1.0.521 — Scene Plan pool: plan-exact timing, recycling disabled. -->
-      <div v-else-if="isPlanStrict" class="settings-section mt-2">
-        <h4>Scene Pacing</h4>
-        <p class="text-muted text-sm hint-line">
-          <strong>Scene Plan timing</strong> — every scene plays for exactly its planned window from
-          <em>scene_plan.json</em>, in plan order, with no repeats. Recycling and shuffle don't apply.
-          Transitions crossfade <em>on</em> the plan boundaries (they never shorten a scene), and
-          if the narration runs past the last scene the post-audio tail (fade/hold) covers the rest.
-          To use recycled pacing instead, switch the scene pool above to <em>Classic</em> or <em>Combined</em>.
-        </p>
-      </div>
-
-      <!-- Scene Recycling (recycled formats only) -->
-      <div v-else class="settings-section mt-2">
-        <h4>Scene Recycling</h4>
-        <p class="text-muted text-sm hint-line">
-          Scenes cycle through in order, repeating until the audio finishes. Video length is fixed by the narration —
-          recycling only affects <em>pacing</em>: fewer seconds per scene = faster cuts, more seconds = slower pacing.
-          Excluded scenes are skipped entirely.
-        </p>
-
-        <div class="grid-2 mt-2">
-          <div class="form-group">
-            <label>Seconds Per Scene</label>
-            <input v-model.number="sceneRecycling.seconds_per_scene" type="number" min="1" max="60" class="input input-sm input-w-80" />
-            <p class="text-muted text-xs hint-line">
-              Sleep-story default 20–40s. Shorter is more energetic; longer keeps the viewer settled.
-            </p>
-          </div>
-          <div class="form-group">
-            <label class="checkbox-label mt-1">
-              <input type="checkbox" v-model="sceneRecycling.shuffle" />
-              Shuffle scene order on each cycle
-            </label>
-            <p class="text-muted text-xs hint-line-tight">
-              Off = scenes play in numerical order. On = random order per cycle, reduces repetition feeling.
-            </p>
-          </div>
-        </div>
-
-        <div class="form-group mt-2">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="sceneRecycling.broll_natural_duration" />
-            Play B-roll clips at their full natural length
-          </label>
-          <p class="text-muted text-xs hint-line-tight">
-            Off = every scene (stills <em>and</em> video clips) uses the “Seconds Per Scene” length above.
-            On = B-roll <strong>video</strong> clips play for their own natural duration instead; still images are unaffected.
-          </p>
-        </div>
-
-        <!-- Scene Exclude Cards -->
-        <div v-if="scenes.length" class="mt-2">
-          <label class="sub-section-label">
-            Scene Selection <span class="text-muted font-normal">(click to exclude)</span>
-          </label>
-          <div class="scene-exclude-grid mt-1">
-            <div v-for="scene in scenes" :key="scene.number"
-              :class="['scene-exclude-card', { excluded: sceneRecycling.excluded_scenes.includes(scene.number) }]"
-              @click="toggleSceneExclude(scene.number)"
-              :title="sceneRecycling.excluded_scenes.includes(scene.number) ? 'Excluded - click to include' : 'Included - click to exclude'"
-            >
-              {{ scene.number }}
-            </div>
-          </div>
-          <p class="text-muted text-xs hint-line">
-            {{ scenes.length - sceneRecycling.excluded_scenes.length }} of {{ scenes.length }} scenes active
-          </p>
-        </div>
+        <SceneTimingPanel :timing="scannedAssets?.scene_plan_timing" />
       </div>
 
       <!-- Transition Settings -->
@@ -2539,8 +2329,6 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
-import { poolMediaOf } from '~/composables/useBrollPools'
-import { buildSceneAssetImportItems } from '~/utils/video-assembly-assets'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 
 definePageMeta({ layout: 'dashboard' })
@@ -2580,78 +2368,13 @@ const sectionLabel = useSectionLabel(vaFormatId)
 // scene already holds for its own planned span, so seconds-per-scene /
 // shuffle / per-scene exclusion don't apply. Transitions + animations stay.
 const isSentenceTimed = ref(false)
-// v1.0.412 — image-pool format: Step 1 surfaces an "Image Pool source" panel
-// to load pool images as this episode's scenes (the unify-on-Scenes pivot).
-const isImagePoolFormat = ref(false)
-// v1.0.414 — broll format: Step 1 surfaces a "B-Roll source" panel to load
-// pool video clips as this episode's scenes (the unify-on-Scenes pivot).
-const isBrollFormat = ref(false)
 async function loadSceneTimingMode() {
   try {
-    const fmt = await get<{ imagePrompts?: any; visualSource?: string }>(`/projects/${slug.value}/effective-format`)
+    const fmt = await get<{ imagePrompts?: any }>(`/projects/${slug.value}/effective-format`)
     isSentenceTimed.value = fmt?.imagePrompts?.alignment === 'sentence'
-    isImagePoolFormat.value = fmt?.visualSource === 'image-pool'
-    isBrollFormat.value = fmt?.visualSource === 'broll'
   } catch {
-    // Best-effort — default to the recycling UI on any lookup failure.
+    // Best-effort display hint only; Scene Plan remains authoritative.
     isSentenceTimed.value = false
-    isImagePoolFormat.value = false
-    isBrollFormat.value = false
-  }
-}
-
-// ── Image Pool source (Step 1) — load pool images as this episode's scenes ──
-const broll = useBrollPools()
-const imgPoolId = ref('')
-const imgPoolSeconds = ref<number>(8)
-const imgPoolLoading = ref(false)
-const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
-const selectedImagePool = computed(() => imagePools.value.find((p: any) => p.id === imgPoolId.value) || null)
-watch(selectedImagePool, (p) => { if (p?.slideshow?.seconds_per_image) imgPoolSeconds.value = p.slideshow.seconds_per_image })
-
-async function loadImagesAsScenes() {
-  if (!imgPoolId.value || !episodeId.value) return
-  imgPoolLoading.value = true
-  try {
-    const r = await post<{ count: number }>(`/projects/${slug.value}/image-pool/materialize`, {
-      episode_id: episodeId.value,
-      pool_id: imgPoolId.value,
-      seconds_per_image: imgPoolSeconds.value,
-    })
-    success(`Loaded ${r.count} image(s) as scenes — they'll appear below.`)
-    await scanAssets()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to load images from pool')
-  } finally {
-    imgPoolLoading.value = false
-  }
-}
-
-// ── B-Roll source (Step 1) — load pool video clips as this episode's scenes ──
-const brollPoolId = ref('')
-const brollSeconds = ref<number>(8)
-const brollUseNaturalDuration = ref(true)
-const brollLoading = ref(false)
-const videoPools = computed(() => (broll.pools.value || []).filter(p => poolMediaOf(p) === 'video'))
-const selectedBrollPool = computed(() => videoPools.value.find((p: any) => p.id === brollPoolId.value) || null)
-
-async function loadClipsAsScenes() {
-  if (!brollPoolId.value || !episodeId.value) return
-  brollLoading.value = true
-  try {
-    const r = await post<{ count: number }>(`/projects/${slug.value}/broll/materialize`, {
-      episode_id: episodeId.value,
-      pool_id: brollPoolId.value,
-      seconds_per_clip: brollSeconds.value,
-      use_natural_duration: brollUseNaturalDuration.value,
-    })
-    sceneRecycling.broll_natural_duration = brollUseNaturalDuration.value
-    success(`Loaded ${r.count} clip(s) as scenes — they'll appear below.`)
-    await scanAssets()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to load clips from pool')
-  } finally {
-    brollLoading.value = false
   }
 }
 // Shared job-queue state. The dashboard layout already starts the SSE
@@ -2674,47 +2397,33 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
-const importingSceneAssets = ref(false)
-const scenePoolMode = ref<'auto' | 'scene_plan' | 'classic' | 'combined'>('auto')
-const missingScenesAcknowledged = ref(false)
 const sceneSourceCounts = computed(() => ({
   classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
   scene_plan: Number(scannedAssets.value?.scene_sources?.scene_plan || 0),
 }))
-const hasMixedSceneSources = computed(() =>
-  sceneSourceCounts.value.classic > 0 && sceneSourceCounts.value.scene_plan > 0,
-)
-const effectiveScenePoolMode = computed(() =>
-  scenePoolMode.value === 'auto'
-    ? (Number(scannedAssets.value?.scene_plan_coverage?.total || 0) > 0 || sceneSourceCounts.value.scene_plan > 0 ? 'scene_plan' : 'classic')
-    : scenePoolMode.value,
-)
 const plannedSceneCoverage = computed(() => scannedAssets.value?.scene_plan_coverage || {
   total: 0,
   ready: 0,
   missing: [],
+  unapproved: [],
+  stale: [],
 })
 const hasIncompletePlannedScenes = computed(() =>
-  plannedSceneCoverage.value.total > 0 && plannedSceneCoverage.value.missing.length > 0,
-)
-const requiresMissingSceneAcknowledgement = computed(() =>
-  hasIncompletePlannedScenes.value && effectiveScenePoolMode.value === 'scene_plan',
+  plannedSceneCoverage.value.total > 0 && plannedSceneCoverage.value.ready !== plannedSceneCoverage.value.total,
 )
 const missingPlannedSceneSummary = computed(() => {
-  const rows = plannedSceneCoverage.value.missing as Array<{ id: string; scene_index: number }>
-  const shown = rows.slice(0, 12).map(row => `#${row.scene_index} ${row.id}`)
-  return shown.join(', ') + (rows.length > shown.length ? `, +${rows.length - shown.length} more` : '')
+  const coverage = plannedSceneCoverage.value
+  const rows = [
+    ...(coverage.missing || []).map((row: any) => ({ ...row, reason: 'missing image' })),
+    ...(coverage.unapproved || []).map((row: any) => ({ ...row, reason: 'not approved' })),
+    ...(coverage.stale || []).map((row: any) => ({ ...row, reason: 'stale image' })),
+  ]
+  const unique = [...new Map(rows.map((row: any) => [`${row.id}:${row.reason}`, row])).values()]
+  const shown = unique.slice(0, 12).map((row: any) => `#${row.scene_index} ${row.reason}`)
+  return shown.join(', ') + (unique.length > shown.length ? `, +${unique.length - shown.length} more` : '')
 })
-watch(
-  [episodeId, () => JSON.stringify(plannedSceneCoverage.value.missing)],
-  () => { missingScenesAcknowledged.value = false },
-)
-// v1.0.521 — plan-strict: the scene pool is the Scene Plan renders, so the
-// backend uses plan-exact order + timing (no recycling/shuffle/reuse). The
-// recycling panel is replaced with an explanatory note in this mode.
-const isPlanStrict = computed(() =>
-  effectiveScenePoolMode.value === 'scene_plan' && sceneSourceCounts.value.scene_plan > 0,
-)
+const unifiedTimingReady = computed(() => scannedAssets.value?.scene_plan_timing?.complete === true)
+const isPlanStrict = computed(() => !!scannedAssets.value?.scene_plan_timing)
 
 // --------------- Step 2: Branding ---------------
 const logo = reactive({
@@ -4449,7 +4158,7 @@ const step1Valid = computed(() => {
     && scannedAssets.value.scenes?.length > 0
     && (scannedAssets.value.merged_audio?.length > 0
         || scannedAssets.value.audio_sections?.length > 0)
-    && (!requiresMissingSceneAcknowledgement.value || missingScenesAcknowledged.value)
+    && unifiedTimingReady.value
 })
 
 const canProceed = computed(() => {
@@ -4844,15 +4553,6 @@ function formatRelativeTime(mtimeMs: number): string {
   return `${Math.round(diffSec / 86400)}d ago`
 }
 
-function toggleSceneExclude(sceneNumber: number) {
-  const idx = sceneRecycling.excluded_scenes.indexOf(sceneNumber)
-  if (idx >= 0) {
-    sceneRecycling.excluded_scenes.splice(idx, 1)
-  } else {
-    sceneRecycling.excluded_scenes.push(sceneNumber)
-  }
-}
-
 function applyColorPreset(preset: string) {
   // Special case: 'custom' means "stop tracking a named preset; the
   // sliders ARE the look now". Don't wipe the slider values — that's
@@ -4937,9 +4637,8 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // logic with no rendering concerns — they now live in `useVideoAssemblyIo`.
 // The composable mutates the reactive state we pass in, so the template below
 // still binds to the same refs.
-const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
-  slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenePoolMode, scenes,
-  allowIncompleteScenePlan: missingScenesAcknowledged,
+const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
+  slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   colorGrading, vignette, filmGrain, letterbox, frame, chromaKey,
@@ -4958,50 +4657,6 @@ const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateV
   // call-time so the composable doesn't duplicate those imports.
   subtitles, generating, jobOutput, activeJobId,
 })
-watch(scenePoolMode, () => { applyScenePoolMode() })
-
-async function importAdditionalSceneAssets() {
-  if (importingSceneAssets.value || !episodeId.value) return
-  importingSceneAssets.value = true
-  try {
-    const picked = await post<{ paths: string[] }>('/system/pick-files', {
-      title: 'Add scene images and video clips',
-      buttonLabel: 'Add to scene pool',
-      filters: [
-        { name: 'Images and videos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'webm', 'mkv', 'm4v'] },
-      ],
-    })
-    const paths = picked.paths || []
-    if (!paths.length) return
-
-    const items = buildSceneAssetImportItems(scannedAssets.value?.scenes, paths)
-    if (!items.length) {
-      showError('No supported image or video files were selected.')
-      return
-    }
-
-    const result = await post<any>(`/projects/${slug.value}/episodes/${episodeId.value}/import-assets`, {
-      mode: 'copy',
-      items,
-    })
-    const imported = Number(result?.summary?.copied || 0) + Number(result?.summary?.moved || 0)
-    const skipped = paths.length - items.length
-    success(
-      `Added ${imported} scene asset${imported === 1 ? '' : 's'}`
-      + (skipped > 0 ? ` (${skipped} unsupported or duplicate file${skipped === 1 ? '' : 's'} skipped)` : ''),
-    )
-    // Imported files land in the classic scene folder. If this episode also
-    // has Scene Plan renders, switch to Combined so the new files are used
-    // immediately instead of remaining hidden behind the auto-selected
-    // Scene Plan-only pool.
-    scenePoolMode.value = 'combined'
-    await scanAssets()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to import scene assets')
-  } finally {
-    importingSceneAssets.value = false
-  }
-}
 
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
@@ -5084,7 +4739,6 @@ function handleWizardShortcut(e: KeyboardEvent) {
 // wouldn't, because `activeJobId` was still pointing at the old job).
 watch(episodeId, (newEp, oldEp) => {
   if (newEp === oldEp) return
-  scenePoolMode.value = 'auto'
   generating.value = false
   activeJobId.value = null
   jobOutput.value = []
@@ -5210,20 +4864,6 @@ onMounted(async () => {
   loadTransitionsCatalog()
   loadAnimationsCatalog()
   loadSceneTimingMode()
-  // v1.0.412 — load image pools for the Step-1 "Image Pool source" panel + seed
-  // the dropdown from the project's saved subscription (or the only pool).
-  broll.loadPools().then(() => {
-    const savedImagePool = (vaConfig?.value as any)?.image_pool_id
-    if (savedImagePool && imagePools.value.some((p: any) => p.id === savedImagePool)) imgPoolId.value = savedImagePool
-    else if (imagePools.value.length === 1) imgPoolId.value = imagePools.value[0].id
-
-    // Legacy pools have no `media` field and therefore count as video pools.
-    // Prefer the project's saved B-Roll subscription, otherwise select the
-    // only available video pool so a one-pool setup is ready immediately.
-    const savedBrollPool = (vaConfig?.value as any)?.broll_pool_id
-    if (savedBrollPool && videoPools.value.some(p => p.id === savedBrollPool)) brollPoolId.value = savedBrollPool
-    else if (videoPools.value.length === 1) brollPoolId.value = videoPools.value[0].id
-  }).catch(() => {})
   // Format-aware seeding runs FIRST so saved presets (loaded right
   // after) can still override these defaults. Without this, listicle
   // projects opened the page with sleep-story 10 s/scene + 1.5 s

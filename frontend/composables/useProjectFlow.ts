@@ -91,7 +91,6 @@ const STEP = {
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review' },
   motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', optional: true },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
-  timestampAssemble: { key: 'timestamp-assemble', label: 'Timestamp Assemble', icon: '🎞', path: '/timestamp-assemble' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [

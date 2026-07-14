@@ -463,19 +463,18 @@ async function loadVisualSource(): Promise<void> {
 }
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
 // v1.0.187+ — continuity-chain extends the timestamp (audio-paced) pipeline:
-// it shares Scene Plan / Scene Review / Timestamp Assemble and hides the
+// it shares Scene Plan / Scene Review / unified Video Assembly and hides the
 // scene-prompts/generator pages, but adds a Character Sheet step and has NO
 // Research phase.
 const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced pipeline.
-// Shares Scene Plan / Scene Review / Timestamp Assemble, but NO Research and
+// Shares Scene Plan / Scene Review / unified Video Assembly, but NO Research and
 // NO Character Sheet (see usesScenePlan; Research + Character Sheet nav stay
 // gated on their own flags below, which narrated-scenes deliberately fails).
 const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
 /** True when the active pipeline plans scenes against the actual audio
  *  timeline (timestamp-driven, continuity-chain, OR narrated-scenes) — these
- *  share the Scene Plan / Scene Review pages and route assembly to
- *  /timestamp-assemble. */
+ *  share the Scene Plan / Scene Review pages and unified Video Assembly. */
 const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // v1.0.146+ — also re-fetch the effective format when the project's

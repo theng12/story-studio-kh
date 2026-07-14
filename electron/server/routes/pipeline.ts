@@ -57,8 +57,8 @@ export const router = Router()
 //                        timeline; transcript/continuity formats)
 //   - scene_review     → enqueues `continuity_render` (renders every planned
 //                        scene image, parallel across the server pool)
-//   - timestamp_assemble → enqueues `timestamp_video_assemble` (final render;
-//                        auto-approves scenes — see the generator)
+//   - video_assembly   → enqueues the unified full editor renderer. Scene Plan
+//                        timing is applied automatically and remains strict.
 //   - character_sheet  → NOT a job. Config-only: applies the saved
 //                        `continuity_page` preset to continuity.json inline at
 //                        submit time (before scene_plan runs). Handled in the
@@ -81,13 +81,12 @@ type BatchStep =
   | 'scene_review'
   | 'motion_review'
   | 'character_sheet'
-  | 'timestamp_assemble'
   | 'video_assembly'
 // v1.0.373+: Pipeline only exposes split scene/thumbnail image steps. The
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'timestamp_assemble', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -103,7 +102,6 @@ export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   scene_plan: 'scene_plan_run',
   scene_review: 'continuity_render',
   motion_review: 'scene_clips_batch',
-  timestamp_assemble: 'timestamp_video_assemble',
 }
 
 /**
@@ -116,10 +114,6 @@ export function jobTypeForStep(step: BatchStep): JobType {
 }
 
 // Steps that run with the generator's own defaults — no saved preset required.
-// `timestamp_assemble`'s settings live in a per-Mac remembered form (not a
-// server-side preset the batch could read), and its inputs (scene images +
-// merged audio) are already on disk by the time it runs, so the generator's
-// export defaults are the right fallback for an unattended run.
 const NO_PRESET_STEPS = new Set<BatchStep>()
 
 // Per-step preset-storage keys. Matches the configKey used by each
@@ -164,10 +158,6 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // Character Sheet's whole-page preset (anchor characters, refs, style bible).
   // Not a job — the run-batch loop writes it to continuity.json inline.
   character_sheet:     { list: 'continuity_page_presets',  activeKeys: ['continuity_page_last_preset_continuity-page', 'continuity_page_last_preset'] },
-  // timestamp_assemble runs preset-free (see NO_PRESET_STEPS). This entry only
-  // satisfies the Record<BatchStep, …> type; findActivePreset is never called
-  // for it.
-  timestamp_assemble:  { list: 'timestamp_assemble_presets', activeKeys: ['timestamp_assemble_last_preset'] },
   video_assembly:      { list: 'video_bundle_presets',     activeKeys: ['video_bundle_last_preset'] },
 }
 
@@ -205,12 +195,9 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   scene_plan: ['subtitles'],
   scene_review: ['scene_plan'],
   motion_review: ['scene_review'],
-  // Motion Review is optional. Final assembly can use reviewed clips where
-  // available and approved stills everywhere else.
-  timestamp_assemble: ['scene_review', 'audio_merge'],
-  // The assembly generator performs the authoritative Scene Plan/B-Roll
-  // coverage guard. Requiring retired Scene Images here blocked valid plans.
-  video_assembly: ['audio_merge'],
+  // Motion Review is optional. Unified assembly uses approved clips where
+  // available and exact approved stills everywhere else.
+  video_assembly: ['scene_review', 'audio_merge'],
 }
 
 export function prerequisitesForStep(step: BatchStep): BatchStep[] {
@@ -378,9 +365,6 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     case 'scene_review':      return status.scene_review
     case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet
-    // The timestamp/continuity final render lands as the same final-video file
-    // every format's reconciler keys `video_assembly` off of.
-    case 'timestamp_assemble': return status.video_assembly
     case 'video_assembly':    return status.video_assembly
   }
 }
@@ -782,34 +766,6 @@ export function resolveStepParams(
       model: data.model,
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
       auto_approve_clip: true,
-    }
-  }
-  if (step === 'timestamp_assemble') {
-    const form = data.form || data
-    return {
-      episode_id: episodeId,
-      title: title || '',
-      auto_approve: true,
-      export_settings: { resolution: form.resolution, fps: form.fps, crf: form.crf },
-      subtitles: {
-        enabled: form.sub_enabled !== false,
-        position: form.sub_position,
-        font_size: form.sub_font_size,
-        color: form.sub_color,
-        outline: form.sub_outline,
-      },
-      music: form.music_path ? { path: form.music_path, volume: form.music_volume, fade: form.music_fade } : undefined,
-      ambient: form.ambient_path ? { path: form.ambient_path, volume: form.ambient_volume, fade: form.ambient_fade } : undefined,
-      transition: { type: form.transition_type || 'none', duration: form.transition_duration },
-      frame: form.frame_enabled ? {
-        enabled: true,
-        inset_pct: form.frame_inset_pct,
-        border_width: form.frame_border_width,
-        corner_radius: form.frame_corner_radius,
-        border_color: form.frame_border_color,
-        background_color: form.frame_background_color,
-        fit: form.frame_fit || 'cover',
-      } : undefined,
     }
   }
   return { episode_id: episodeId }
