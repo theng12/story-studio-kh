@@ -9,9 +9,23 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { snippetFromMeta, __sanitize } from '../lib/upload-metadata.js'
+import { snippetFromMeta, validateUploadThumbnailFilename, __sanitize } from '../lib/upload-metadata.js'
 
 const { stripControl, capLength, stripUrlsFromTitle, cleanTags } = __sanitize
+
+describe('validateUploadThumbnailFilename', () => {
+  test('accepts supported bare image filenames', () => {
+    assert.equal(validateUploadThumbnailFilename('EP0035_Thumb04_v2.png'), 'EP0035_Thumb04_v2.png')
+    assert.equal(validateUploadThumbnailFilename(' cover.JPEG '), 'cover.JPEG')
+  })
+
+  test('rejects traversal, paths, and unsupported files', () => {
+    assert.throws(() => validateUploadThumbnailFilename('../cover.png'), /bare PNG\/JPG/)
+    assert.throws(() => validateUploadThumbnailFilename('/tmp/cover.png'), /bare PNG\/JPG/)
+    assert.throws(() => validateUploadThumbnailFilename('cover.webp'), /bare PNG\/JPG/)
+    assert.throws(() => validateUploadThumbnailFilename(''), /bare PNG\/JPG/)
+  })
+})
 
 describe('stripControl', () => {
   test('removes ASCII control chars but keeps \\n and \\t', () => {

@@ -56,6 +56,24 @@ export interface UploadPlan {
   updated_at: string
 }
 
+/**
+ * Normalize a user selection into stable production order. Checkbox Sets
+ * preserve click order, which must never decide which episode receives the
+ * earliest publishing slot. Empty values and duplicates are removed here so
+ * preview and apply share one authoritative mapping rule.
+ */
+export function orderEpisodeCodes(codes: unknown[]): string[] {
+  const unique = new Set<string>()
+  for (const value of codes) {
+    if (typeof value !== 'string') continue
+    const code = value.trim()
+    if (code) unique.add(code)
+  }
+  return Array.from(unique).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+}
+
 export async function listPlans(slug: string): Promise<UploadPlan[]> {
   const config = (await pm.getConfig(slug)) as any
   const plans = config?.upload_plans

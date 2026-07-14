@@ -19,7 +19,7 @@ import * as store from '../services/upload-store.js'
 import { startOAuthFlow, getFlowStatus } from '../lib/youtube-oauth.js'
 import { computeEpisodeStatus, hasFinalVideoFast, getFinalVideoBytes } from '../services/asset-status.js'
 import { readSidecar, readSidecarRaw } from '../services/upload-sidecar.js'
-import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
+import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
 import * as uq from '../services/upload-queue.js'
 import * as reconciler from '../services/upload-reconciler.js'
@@ -1088,17 +1088,16 @@ router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res
     const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
     if (!idea) return res.status(404).json({ detail: `Episode ${code} not found` })
 
-    const meta = await resolveUploadMetadata({
+    const metadataInput = {
       slug,
       episode_code: code,
       fallback_title: idea.title,
       platform,
-    })
-
-    // Whether the resolved thumbnail came from a pin vs. auto-pick — the
-    // modal surfaces this so the user knows where the file came from.
-    const { readSelectedThumbnail } = await import('../services/upload-overrides.js')
-    const pinned = await readSelectedThumbnail(slug, code, idea.title || '', platform)
+    } as const
+    const [meta, thumbnailOptions] = await Promise.all([
+      resolveUploadMetadata(metadataInput),
+      listUploadThumbnails(metadataInput),
+    ])
 
     // Sidecar state — drives "this would be a metadata PATCH not a
     // fresh upload" copy in the modal so the user understands when
@@ -1115,8 +1114,9 @@ router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res
       description: meta.description,
       tags: meta.tags,
       thumbnail_filename: thumbnailFilename,
-      thumbnail_pinned: !!(pinned && pinned === thumbnailFilename),
+      thumbnail_pinned: !!thumbnailOptions.find(option => option.filename === thumbnailFilename)?.is_pinned,
       thumbnail_path: meta.thumbnailPath,
+      thumbnail_options: thumbnailOptions,
       already_uploaded: !!sidecar?.video_id,
       video_id: sidecar?.video_id || '',
       privacy_status: sidecar?.privacy_status || 'private',
@@ -1178,6 +1178,30 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
     // Per-upload playlist override (A5). Sentinel `_none_` means skip the
     // project default; empty/null/missing means "use project default (if any)".
     const playlist_id = typeof req.body?.playlist_id === 'string' ? req.body.playlist_id : null
+    const thumbnail_filename = typeof req.body?.thumbnail_filename === 'string'
+      ? req.body.thumbnail_filename.trim()
+      : ''
+
+    if (thumbnail_filename) {
+      const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === episode_id)
+      if (!idea) return res.status(404).json({ detail: `Episode ${episode_id} not found` })
+      // Resolve once before enqueueing. This validates the filename against
+      // the episode's own thumbnail directory and gives immediate feedback
+      // instead of letting a queued upload fail later.
+      try {
+        await resolveUploadMetadata({
+          slug,
+          episode_code: episode_id,
+          fallback_title: idea.title,
+          platform,
+          thumbnail_filename,
+        })
+      } catch (error: any) {
+        return res.status(400).json({
+          detail: error?.message || `Thumbnail "${thumbnail_filename}" is not available for ${episode_id}`,
+        })
+      }
+    }
 
     // Surface quota issues BEFORE the job enters the queue — nicer than
     // having the user watch it start, then instantly fail. The executor
@@ -1200,7 +1224,15 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
       type: 'youtube_upload' as JobType,
       episode_id,
       title: `YouTube upload — ${episode_id}`,
-      params: { episode_id, account_id, scheduled_for, privacy_status, playlist_id, preserve_status },
+      params: {
+        episode_id,
+        account_id,
+        scheduled_for,
+        privacy_status,
+        playlist_id,
+        preserve_status,
+        thumbnail_filename: thumbnail_filename || undefined,
+      },
     })
     res.status(201).json(job)
   } catch (e: any) {
@@ -1664,10 +1696,11 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
     const slug = req.params.slug
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
-    const count = Math.max(1, Math.min(500, Number(req.body?.count) || 10))
-    const targetCodes: string[] = Array.isArray(req.body?.episode_codes)
-      ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
-      : []
+    const requestedCount = Math.max(1, Math.min(500, Number(req.body?.count) || 10))
+    const targetCodes = plans.orderEpisodeCodes(
+      Array.isArray(req.body?.episode_codes) ? req.body.episode_codes : [],
+    )
+    const count = targetCodes.length || requestedCount
 
     let latestFutureClaimMs = 0
     let publicSkipCodes: string[] = []
@@ -1706,8 +1739,14 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
     const slots = plans.computeSlots(plan.schedule, count, { minStartDate })
     const now = Date.now()
     const past_slots = slots.filter(s => new Date(s).getTime() < now - 60_000)
+    const assignments = targetCodes.map((episode_code, index) => ({
+      episode_code,
+      publishAt: slots[index] || '',
+    }))
     res.json({
       slots,
+      ordered_episode_codes: targetCodes,
+      assignments,
       past_slots,
       has_past_slots: past_slots.length > 0,
       latest_existing_claim: latestFutureClaimMs ? new Date(latestFutureClaimMs).toISOString() : null,
@@ -1740,15 +1779,10 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       })
     }
 
-    const episode_codes: string[] = Array.isArray(req.body?.episode_codes)
-      ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
-      : []
+    const episode_codes = plans.orderEpisodeCodes(
+      Array.isArray(req.body?.episode_codes) ? req.body.episode_codes : [],
+    )
     if (!episode_codes.length) return res.status(400).json({ detail: 'episode_codes (ordered) required' })
-    // v1.0.500 — consecutive slots always map onto EPISODE order, regardless of
-    // the order the caller sent (the UI's Selection scope used to arrive in
-    // click order, handing an earlier slot to a later episode). Numeric-aware
-    // so EP2 sorts before EP10.
-    episode_codes.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
 
     // Find the latest FUTURE scheduled time across all other accepted
     // episodes so computeSlots can resume the walk past the existing

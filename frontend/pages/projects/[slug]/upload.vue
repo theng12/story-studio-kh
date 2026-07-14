@@ -1,15 +1,22 @@
 <template>
-  <div>
-    <div class="upload-header">
-      <h1>▶ YouTube Upload</h1>
-      <div class="upload-header-right">
+  <div class="upload-center">
+    <section class="upload-command-hero">
+      <div class="upload-hero-main">
+        <div class="upload-hero-copy">
+          <span class="upload-hero-kicker">YouTube publishing desk</span>
+          <h1>From finished episode to scheduled release</h1>
+          <p>
+            Review every upload, organize the queue, and hand publishing to YouTube with a schedule you can verify before it goes live.
+          </p>
+        </div>
+        <div class="upload-header-right">
         <div
           v-if="quota"
           class="quota-chip"
           :class="{ warn: quotaPct >= 80 && quotaPct < 95, danger: quotaPct >= 95, stale: quota.stale }"
           :title="quotaTooltip"
         >
-          <span class="chip-icon">📊</span>
+          <span class="chip-icon">◔</span>
           <span class="chip-text">
             {{ quota.used.toLocaleString() }} / {{ quota.ceiling.toLocaleString() }}<span class="chip-divider"> · </span><template v-if="quotaResetSeconds > 0">resets in {{ formatTimecode(quotaResetSeconds) }}</template><template v-else>resetting…</template><template v-if="quota.stale"> · stale</template>
           </span>
@@ -21,16 +28,33 @@
           @click="refreshAll"
         >
           <LoadingSpinner v-if="loading" size="sm" />
-          {{ loading ? 'Loading…' : '↻ Refresh accounts' }}
+          {{ loading ? 'Refreshing…' : 'Refresh connections' }}
         </button>
       </div>
-    </div>
-
-    <p class="text-muted mt-1 mb-2" style="font-size: 13px; max-width: 860px;">
-      Connect a YouTube channel, queue episodes, apply a recurring schedule, and let YouTube handle the actual publish
-      moment via its own <code>publishAt</code>. Each project is bound to exactly one channel — reconnecting swaps the
-      binding without leaving stale tokens behind. TikTok + Facebook have their own pages in the sidebar (coming in v2).
-    </p>
+      </div>
+      <div class="upload-hero-stats" aria-label="Publishing status">
+        <div class="upload-hero-stat">
+          <span>Channel</span>
+          <strong>{{ youtubeAccounts.length ? youtubeAccounts[0]?.remote_title || 'Connected' : 'Not connected' }}</strong>
+          <small>{{ youtubeAccounts.length ? 'Ready for YouTube' : 'Connect in Accounts' }}</small>
+        </div>
+        <div class="upload-hero-stat upload-hero-stat--ready">
+          <span>Ready now</span>
+          <strong>{{ queueCounts.ready }}</strong>
+          <small>finished episodes</small>
+        </div>
+        <div class="upload-hero-stat">
+          <span>Published library</span>
+          <strong>{{ queueCounts.uploaded_local + queueCounts.uploaded_freed }}</strong>
+          <small>linked uploads</small>
+        </div>
+        <div class="upload-hero-stat">
+          <span>Schedule plans</span>
+          <strong>{{ plans.length }}</strong>
+          <small>saved locally</small>
+        </div>
+      </div>
+    </section>
 
     <!-- Tab strip -->
     <div class="upload-tabs">
@@ -43,7 +67,11 @@
         :title="tab.hint"
         @click="!tab.disabled && (activeTab = tab.id)"
       >
-        {{ tab.label }}
+        <span class="upload-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+        <span class="upload-tab-copy">
+          <strong>{{ tab.label }}</strong>
+          <small>{{ tab.short }}</small>
+        </span>
         <span v-if="tab.disabled" class="tab-soon">Phase {{ tab.phase }}</span>
       </button>
     </div>
@@ -225,6 +253,19 @@
 
     <!-- ── Queue tab ─────────────────────────────────────────────────── -->
     <div v-else-if="activeTab === 'queue'" class="card mt-2">
+      <div class="queue-command-strip">
+        <div class="queue-command-copy">
+          <span>Publishing queue</span>
+          <strong>{{ queueCounts.ready }} episode{{ queueCounts.ready === 1 ? '' : 's' }} ready for review</strong>
+          <small>Choose a thumbnail and verify metadata before each upload, or apply a checked schedule in bulk.</small>
+        </div>
+        <div class="queue-command-metrics">
+          <div><strong>{{ queueCounts.ready }}</strong><span>Ready</span></div>
+          <div><strong>{{ queueCounts.uploaded_local + queueCounts.uploaded_freed }}</strong><span>Uploaded</span></div>
+          <div><strong>{{ queueCounts.imports }}</strong><span>Imports</span></div>
+          <div><strong>{{ selectedQueueIds.size }}</strong><span>Selected</span></div>
+        </div>
+      </div>
       <!-- Default-playlist banner — surfaces the project default that's set
            in the Playlists tab. New uploads auto-add to it (per-row dropdown
            "Default" option resolves to this value at upload time). The user
@@ -2276,6 +2317,9 @@
           <strong>{{ uploadPreview.data?.already_uploaded ? '↻ Update metadata preview' : '☁️ Upload preview' }}</strong>
           <button class="upload-plan-modal-close" type="button" title="Close" @click="closeUploadPreview">✕</button>
         </div>
+        <div v-if="uploadPreview.loading" class="upload-preview-loading">
+          <LoadingSpinner size="sm" /> Gathering thumbnails and upload details…
+        </div>
         <div class="upload-plan-modal-body" v-if="uploadPreview.data">
           <p class="text-muted" style="font-size: 12px; margin: 0;">
             <template v-if="uploadPreview.data.already_uploaded">
@@ -2291,41 +2335,60 @@
             </template>
           </p>
 
-          <!-- Thumbnail preview — clickable to expand inline. The big
-               preview helps catch "wrong thumb" mistakes that the small
-               tile in the queue row can't surface. -->
-          <div class="upload-preview-thumb-block" style="margin-top: 12px;">
-            <h4 style="margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-              Thumbnail
-              <span v-if="uploadPreview.data.thumbnail_pinned" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px;">
-                · 📌 Pinned
-              </span>
-              <span v-else-if="uploadPreview.data.thumbnail_filename" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px;">
-                · auto-picked (highest version)
-              </span>
-            </h4>
-            <div v-if="uploadPreview.data.thumbnail_filename" class="upload-preview-thumb-row">
-              <img
-                :src="uploadPreviewThumbUrl"
-                :alt="uploadPreview.data.thumbnail_filename"
-                class="upload-preview-thumb-img"
-                @click="uploadPreview.thumbExpanded = !uploadPreview.thumbExpanded"
-                :class="{ 'is-expanded': uploadPreview.thumbExpanded }"
-              />
-              <div class="upload-preview-thumb-meta">
-                <code style="font-size: 11px;">{{ uploadPreview.data.thumbnail_filename }}</code>
-                <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
-                  Click image to {{ uploadPreview.thumbExpanded ? 'shrink' : 'enlarge' }}.
-                  To use a different thumbnail, open the
-                  <NuxtLink :to="`/projects/${slug}/images`">Images page</NuxtLink>
-                  → click any thumbnail → 📌 Pin for upload.
-                </p>
+          <section class="upload-preview-thumb-block">
+            <div class="upload-preview-section-head">
+              <div>
+                <span class="upload-preview-kicker">Thumbnail</span>
+                <h3>Choose what viewers see first</h3>
               </div>
+              <span v-if="uploadPreview.data.thumbnail_options.length" class="upload-preview-count">
+                {{ uploadPreview.data.thumbnail_options.length }} option{{ uploadPreview.data.thumbnail_options.length === 1 ? '' : 's' }}
+              </span>
             </div>
+            <template v-if="uploadPreview.data.thumbnail_options.length">
+              <button
+                type="button"
+                class="upload-preview-featured"
+                :title="uploadPreview.thumbExpanded ? 'Shrink preview' : 'Enlarge preview'"
+                @click="uploadPreview.thumbExpanded = !uploadPreview.thumbExpanded"
+              >
+                <img
+                  :src="uploadPreviewThumbUrl"
+                  :alt="uploadPreview.selectedThumbnailFilename"
+                  class="upload-preview-thumb-img"
+                  :class="{ 'is-expanded': uploadPreview.thumbExpanded }"
+                />
+                <span class="upload-preview-featured-caption">
+                  <strong>{{ uploadPreview.selectedThumbnailFilename }}</strong>
+                  <span>Selected for this {{ uploadPreview.data.already_uploaded ? 'update' : 'upload' }} · click to {{ uploadPreview.thumbExpanded ? 'shrink' : 'inspect' }}</span>
+                </span>
+              </button>
+              <div class="upload-preview-thumb-picker" role="radiogroup" aria-label="Choose thumbnail">
+                <button
+                  v-for="option in uploadPreview.data.thumbnail_options"
+                  :key="option.filename"
+                  type="button"
+                  class="upload-preview-thumb-option"
+                  :class="{ 'is-selected': uploadPreview.selectedThumbnailFilename === option.filename }"
+                  role="radio"
+                  :aria-checked="uploadPreview.selectedThumbnailFilename === option.filename"
+                  :title="`Use ${option.filename}`"
+                  @click="selectUploadPreviewThumbnail(option.filename)"
+                >
+                  <img :src="uploadPreviewThumbnailUrl(option.path)" :alt="option.filename" />
+                  <span class="upload-preview-option-name">{{ option.filename }}</span>
+                  <span v-if="option.is_pinned" class="upload-preview-pin">Pinned default</span>
+                  <span v-if="uploadPreview.selectedThumbnailFilename === option.filename" class="upload-preview-check">✓</span>
+                </button>
+              </div>
+              <p class="upload-preview-choice-note">
+                This choice applies to this upload only. Your saved default thumbnail is not changed.
+              </p>
+            </template>
             <p v-else class="text-danger" style="font-size: 12px; margin: 4px 0 0;">
               ⚠ No thumbnail file found in the episode's thumbnails folder. YouTube will use whatever it auto-generates from the video — usually a low-quality middle frame.
             </p>
-          </div>
+          </section>
 
           <!-- Title -->
           <div class="form-group" style="margin-top: 12px;">
@@ -2617,6 +2680,11 @@
               <strong>{{ scopePicker.previewing.count }}</strong> episode{{ scopePicker.previewing.count === 1 ? '' : 's' }}
               <span class="text-muted">· scope: {{ scopePicker.previewing.label }}</span>
             </div>
+            <div v-if="scopePicker.previewLatestClaim" class="scope-preview-anchor">
+              <span aria-hidden="true">↳</span>
+              Continuing after the latest scheduled upload:
+              <strong>{{ formatScheduled(scopePicker.previewLatestClaim) }}</strong>
+            </div>
             <div v-if="scopePicker.previewError" class="scope-preview-error">
               ⚠ {{ scopePicker.previewError }}
             </div>
@@ -2814,16 +2882,16 @@ const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 
 type TabId = 'accounts' | 'queue' | 'missing' | 'plans' | 'playlists' | 'reconcile' | 'orphans' | 'analytics' | 'comments'
-const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; hint?: string }> = [
-  { id: 'accounts', label: 'Accounts', phase: 1, disabled: false, hint: 'Connect the YouTube channel for this project (single account).' },
-  { id: 'queue', label: 'Upload Queue', phase: 2, disabled: false, hint: 'Per-episode queue with per-row upload. Re-running on an uploaded item updates metadata only.' },
-  { id: 'missing', label: 'Missing Video', phase: 2, disabled: false, hint: 'Episodes whose final video isn’t on disk yet. Render via Video Assembly, drop a file via Import + Scan, or mark as already uploaded if the video lives only on YouTube (legacy episodes).' },
-  { id: 'plans', label: 'Plans', phase: 3, disabled: false, hint: 'Saved schedule plans — pick weekdays + time, preview slots, apply to the queue.' },
-  { id: 'playlists', label: 'Playlists', phase: 3, disabled: false, hint: 'Manage the YouTube playlists on your channel. Create new ones and pick a default that new uploads auto-add to.' },
-  { id: 'reconcile', label: 'Match unlinked', phase: 6, disabled: false, hint: 'Finds channel videos Story Studio doesn\u2019t know about yet and proposes which local episode each one is. Distinct from Sync from YouTube, which only checks already-linked rows for drift.' },
-  { id: 'orphans', label: 'Unlinked Uploads', phase: 7, disabled: false, hint: 'Channel videos that don\u2019t match any local episode. Adopt them one at a time or in bulk (continuation codes or full-system renumber).' },
-  { id: 'analytics', label: 'Analytics', phase: 7, disabled: false, hint: 'Per-episode YouTube performance \u2014 views, watch time, retention, CTR. Feeds the "what worked" inspiration into the Ideas + Metadata generators.' },
-  { id: 'comments', label: 'Comments', phase: 7, disabled: false, hint: 'Read viewer comments on uploaded videos and post replies. AI drafts use the project name and the same language the viewer wrote in.' },
+const tabs: Array<{ id: TabId; label: string; short: string; icon: string; phase: number; disabled: boolean; hint?: string }> = [
+  { id: 'accounts', label: 'Accounts', short: 'Channel access', icon: '◎', phase: 1, disabled: false, hint: 'Connect the YouTube channel for this project (single account).' },
+  { id: 'queue', label: 'Upload Queue', short: 'Review and publish', icon: '↑', phase: 2, disabled: false, hint: 'Per-episode queue with per-row upload. Re-running on an uploaded item updates metadata only.' },
+  { id: 'missing', label: 'Missing Video', short: 'Needs a final render', icon: '!', phase: 2, disabled: false, hint: 'Episodes whose final video isn’t on disk yet. Render via Video Assembly or import a finished file.' },
+  { id: 'plans', label: 'Plans', short: 'Publishing cadence', icon: '▦', phase: 3, disabled: false, hint: 'Saved schedule plans — pick weekdays + time, preview slots, apply to the queue.' },
+  { id: 'playlists', label: 'Playlists', short: 'Channel collections', icon: '≡', phase: 3, disabled: false, hint: 'Manage the YouTube playlists on your channel and choose a default.' },
+  { id: 'reconcile', label: 'Match unlinked', short: 'Prevent duplicates', icon: '↔', phase: 6, disabled: false, hint: 'Match existing channel videos to local episodes before uploading duplicates.' },
+  { id: 'orphans', label: 'Unlinked Uploads', short: 'Adopt channel videos', icon: '◇', phase: 7, disabled: false, hint: 'Channel videos that don’t match any local episode.' },
+  { id: 'analytics', label: 'Analytics', short: 'Performance signals', icon: '↗', phase: 7, disabled: false, hint: 'Per-episode views, watch time, retention, and CTR.' },
+  { id: 'comments', label: 'Comments', short: 'Audience replies', icon: '◌', phase: 7, disabled: false, hint: 'Read viewer comments and post replies.' },
 ]
 const activeTab = ref<TabId>('accounts')
 
@@ -5039,6 +5107,7 @@ interface UploadPreviewData {
   thumbnail_filename: string
   thumbnail_pinned: boolean
   thumbnail_path: string
+  thumbnail_options: Array<{ filename: string; path: string; is_pinned: boolean }>
   already_uploaded: boolean
   video_id: string
   privacy_status: string
@@ -5053,6 +5122,7 @@ const uploadPreview = reactive<{
   item: any | null
   thumbExpanded: boolean
   descExpanded: boolean
+  selectedThumbnailFilename: string
   error: string
 }>({
   open: false,
@@ -5062,13 +5132,26 @@ const uploadPreview = reactive<{
   item: null,
   thumbExpanded: false,
   descExpanded: false,
+  selectedThumbnailFilename: '',
   error: '',
 })
 
 const uploadPreviewThumbUrl = computed(() => {
-  if (!uploadPreview.data?.thumbnail_path) return ''
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(uploadPreview.data.thumbnail_path)}`
+  const selected = uploadPreview.data?.thumbnail_options?.find(
+    option => option.filename === uploadPreview.selectedThumbnailFilename,
+  )
+  const selectedPath = selected?.path || uploadPreview.data?.thumbnail_path
+  return selectedPath ? uploadPreviewThumbnailUrl(selectedPath) : ''
 })
+
+function uploadPreviewThumbnailUrl(filePath: string): string {
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}`
+}
+
+function selectUploadPreviewThumbnail(filename: string): void {
+  uploadPreview.selectedThumbnailFilename = filename
+  uploadPreview.thumbExpanded = false
+}
 
 async function openUploadPreview(item: any) {
   uploadPreview.item = item
@@ -5076,6 +5159,7 @@ async function openUploadPreview(item: any) {
   uploadPreview.error = ''
   uploadPreview.thumbExpanded = false
   uploadPreview.descExpanded = false
+  uploadPreview.selectedThumbnailFilename = ''
   uploadPreview.data = null
   uploadPreview.open = true
   try {
@@ -5088,6 +5172,9 @@ async function openUploadPreview(item: any) {
     uploadPreview.data = await apiGet<UploadPreviewData>(
       `/projects/${slug.value}/upload/queue/${encodeURIComponent(item.episode_code)}/preview?platform=youtube`,
     )
+    uploadPreview.selectedThumbnailFilename = uploadPreview.data.thumbnail_filename
+      || uploadPreview.data.thumbnail_options?.[0]?.filename
+      || ''
   } catch (e: any) {
     uploadPreview.error = e?.data?.detail || e?.message || 'Failed to load preview'
   } finally {
@@ -5100,6 +5187,7 @@ function closeUploadPreview() {
   uploadPreview.open = false
   uploadPreview.data = null
   uploadPreview.item = null
+  uploadPreview.selectedThumbnailFilename = ''
 }
 
 async function confirmUploadPreview() {
@@ -5110,7 +5198,11 @@ async function confirmUploadPreview() {
   rowBusy[item.id] = isUpdateOnly ? 'metadata' : 'upload'
   try {
     if (isUpdateOnly) {
-      await triggerMetadataUpdate({ episode_id: item.episode_code, platform: 'youtube' })
+      await triggerMetadataUpdate({
+        episode_id: item.episode_code,
+        platform: 'youtube',
+        thumbnail_filename: uploadPreview.selectedThumbnailFilename || undefined,
+      })
       success(`Metadata update queued for ${item.episode_code} — privacy + schedule will stay as they are on YouTube.`)
     } else {
       await triggerUpload({
@@ -5118,12 +5210,14 @@ async function confirmUploadPreview() {
         platform: 'youtube',
         privacy_status: 'private',
         playlist_id: playlistOverrides[item.episode_code] ?? null,
+        thumbnail_filename: uploadPreview.selectedThumbnailFilename || undefined,
       })
       success(`Upload job queued for ${item.episode_code}. Watch progress in the Jobs tab.`)
     }
     uploadPreview.open = false
     uploadPreview.data = null
     uploadPreview.item = null
+    uploadPreview.selectedThumbnailFilename = ''
     setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
   } catch (e: any) {
     uploadPreview.error = e?.data?.detail || e?.message || 'Failed to queue upload'
@@ -5278,6 +5372,7 @@ const scopePicker = reactive<{
    *  surfaces the count up-front so the user knows N rows won't
    *  actually be touched before clicking Confirm. */
   previewPublicSkipCount: number
+  previewLatestClaim: string | null
   previewError: string
 }>({
   open: false,
@@ -5291,6 +5386,7 @@ const scopePicker = reactive<{
   previewRows: [],
   previewPastSlots: 0,
   previewPublicSkipCount: 0,
+  previewLatestClaim: null,
   previewError: '',
 })
 const scopeBusyPlanId = ref('')
@@ -5447,6 +5543,7 @@ function resetScopePreview() {
   scopePicker.previewRows = []
   scopePicker.previewPastSlots = 0
   scopePicker.previewPublicSkipCount = 0
+  scopePicker.previewLatestClaim = null
   scopePicker.previewError = ''
 }
 
@@ -5476,6 +5573,7 @@ async function pickScope(opt: ScopeOption) {
   scopePicker.previewRows = []
   scopePicker.previewPastSlots = 0
   scopePicker.previewPublicSkipCount = 0
+  scopePicker.previewLatestClaim = null
   try {
     // Pass `opt.episodeCodes` so the preview slots match the
     // continue-after-existing logic Apply uses. Without this, the
@@ -5501,9 +5599,12 @@ async function pickScope(opt: ScopeOption) {
     const now = Date.now()
     const rows: ScopePreviewRow[] = []
     let past = 0
-    for (let i = 0; i < opt.episodeCodes.length; i++) {
-      const code = opt.episodeCodes[i]
-      const iso = slots[i]
+    const authoritativeAssignments = r.assignments.length
+      ? r.assignments
+      : opt.episodeCodes.map((episode_code, index) => ({ episode_code, publishAt: slots[index] || '' }))
+    for (const assignment of authoritativeAssignments) {
+      const code = assignment.episode_code
+      const iso = assignment.publishAt
       if (!iso) {
         rows.push({ episode_code: code, slot_iso: '', slot_label: '— no slot —', is_past: false })
         continue
@@ -5522,6 +5623,7 @@ async function pickScope(opt: ScopeOption) {
     }
     scopePicker.previewRows = rows
     scopePicker.previewPastSlots = past
+    scopePicker.previewLatestClaim = r.latest_existing_claim
     // v1.0.46 — bring through the count of target codes whose YouTube
     // video is already public. Apply will skip these per the Layer 2
     // guard; the warn line in the modal reads from this value.
@@ -6649,6 +6751,102 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.upload-center {
+  --upload-ink: #f4f1e8;
+  --upload-gold: #f2c86f;
+  --upload-green: #4cc99a;
+  padding-bottom: 40px;
+}
+.upload-command-hero {
+  position: relative;
+  overflow: hidden;
+  margin-top: 16px;
+  padding: 24px;
+  border: 1px solid rgba(242, 200, 111, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(76, 201, 154, 0.2), transparent 34%),
+    linear-gradient(135deg, #202a27 0%, #18231f 52%, #151b1a 100%);
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.22);
+}
+.upload-command-hero::after {
+  content: '';
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -95px;
+  bottom: -180px;
+  border: 1px solid rgba(242, 200, 111, 0.22);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.upload-hero-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.upload-hero-copy { max-width: 700px; }
+.upload-hero-kicker {
+  color: var(--upload-gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.upload-hero-copy h1 {
+  margin: 6px 0 8px;
+  max-width: 680px;
+  color: var(--upload-ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(25px, 3vw, 40px);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+}
+.upload-hero-copy p {
+  margin: 0;
+  max-width: 650px;
+  color: rgba(244, 241, 232, 0.68);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.upload-hero-stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+.upload-hero-stat {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.upload-hero-stat span,
+.upload-hero-stat small {
+  display: block;
+  overflow: hidden;
+  color: rgba(244, 241, 232, 0.55);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-hero-stat span { text-transform: uppercase; letter-spacing: 0.08em; }
+.upload-hero-stat strong {
+  display: block;
+  overflow: hidden;
+  margin: 3px 0 1px;
+  color: var(--upload-ink);
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-hero-stat--ready strong { color: #7ce5b9; }
 .upload-header {
   display: flex; align-items: center; justify-content: space-between;
   padding-top: 16px;
@@ -6707,24 +6905,54 @@ onBeforeUnmount(() => {
 }
 
 .upload-tabs {
-  display: flex; gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-top: 12px;
+  display: grid;
+  grid-auto-columns: minmax(150px, 1fr);
+  grid-auto-flow: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  scrollbar-width: thin;
 }
 .upload-tab {
-  position: relative;
-  padding: 8px 14px;
-  border: none; background: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
   color: var(--text-secondary);
-  font-size: 13px; font-weight: 500;
+  text-align: left;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.upload-tab:hover:not(:disabled) { color: var(--text-primary); }
-.upload-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.upload-tab:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+.upload-tab.active {
+  border-color: rgba(242, 200, 111, 0.3);
+  background: linear-gradient(135deg, rgba(242, 200, 111, 0.16), rgba(242, 200, 111, 0.06));
+  color: var(--accent);
+}
 .upload-tab:disabled { cursor: not-allowed; opacity: 0.55; }
+.upload-tab-icon {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.upload-tab.active .upload-tab-icon { background: var(--accent); color: #17140f; }
+.upload-tab-copy { display: flex; min-width: 0; flex-direction: column; }
+.upload-tab-copy strong { overflow: hidden; font-size: 11px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.upload-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .tab-soon {
   margin-left: 6px;
   padding: 1px 6px;
@@ -6733,6 +6961,34 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   color: var(--text-muted);
 }
+.queue-command-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: -4px -4px 14px;
+  padding: 16px;
+  border: 1px solid rgba(76, 201, 154, 0.18);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(76, 201, 154, 0.075), rgba(242, 200, 111, 0.045));
+}
+.queue-command-copy { display: flex; max-width: 620px; flex-direction: column; }
+.queue-command-copy > span { color: #62d6a7; font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.queue-command-copy strong { margin: 3px 0; font-size: 16px; }
+.queue-command-copy small { color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.queue-command-metrics { display: grid; grid-template-columns: repeat(4, minmax(56px, 1fr)); gap: 6px; }
+.queue-command-metrics div {
+  min-width: 58px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.13);
+  text-align: center;
+}
+.queue-command-metrics strong,
+.queue-command-metrics span { display: block; }
+.queue-command-metrics strong { color: var(--text-primary); font-size: 15px; }
+.queue-command-metrics span { color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
 
 .platform-block {
   padding: 16px 0;
@@ -8426,41 +8682,132 @@ td.col-actions > a.btn {
   max-height: calc(100vh - 180px);
   overflow-y: auto;
 }
-.upload-preview-thumb-row {
+.upload-preview-loading {
   display: flex;
-  gap: 12px;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.upload-preview-thumb-block {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(242, 200, 111, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(242, 200, 111, 0.055), rgba(76, 201, 154, 0.025));
+}
+.upload-preview-section-head {
+  display: flex;
   align-items: flex-start;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.upload-preview-kicker {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.upload-preview-section-head h3 { margin: 2px 0 0; font-size: 15px; }
+.upload-preview-count {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.upload-preview-featured {
+  display: grid;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0c0f0e;
+  color: inherit;
+  text-align: left;
+  cursor: zoom-in;
 }
 .upload-preview-thumb-img {
-  width: 320px;
-  max-width: 100%;
+  width: min(100%, 520px);
   aspect-ratio: 16 / 9;
   height: auto;
   object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  cursor: zoom-in;
-  transition: width 0.2s;
-  flex-shrink: 0;
+  transition: width 0.2s ease;
 }
 .upload-preview-thumb-img.is-expanded {
-  /* Expanded mode takes the FULL row width (no longer side-by-side).
-     The .is-expanded class also flips the parent into a column via
-     :has() so the meta column drops below the image instead of
-     getting squeezed to the right. Falls back gracefully in browsers
-     without :has() — the image just wraps to the next line. */
   width: 100%;
-  max-width: 760px;
-  cursor: zoom-out;
 }
-.upload-preview-thumb-row:has(.upload-preview-thumb-img.is-expanded) {
-  flex-direction: column;
-}
-.upload-preview-thumb-meta {
-  flex: 1;
+.upload-preview-featured-caption {
+  display: flex;
   min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--border);
 }
+.upload-preview-featured-caption strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-preview-featured-caption span { color: var(--text-muted); font-size: 10px; }
+.upload-preview-thumb-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.upload-preview-thumb-option {
+  position: relative;
+  min-width: 0;
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.upload-preview-thumb-option:hover { transform: translateY(-1px); border-color: rgba(242, 200, 111, 0.5); }
+.upload-preview-thumb-option.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(242, 200, 111, 0.14);
+}
+.upload-preview-thumb-option img { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 5px; object-fit: cover; }
+.upload-preview-option-name {
+  display: block;
+  overflow: hidden;
+  padding: 6px 2px 1px;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-preview-pin { display: block; padding: 0 2px 2px; color: var(--text-muted); font-size: 8px; }
+.upload-preview-check {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #17140f;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.upload-preview-choice-note { margin: 8px 0 0; color: var(--text-muted); font-size: 10px; }
 .upload-preview-desc {
   margin: 0;
   padding: 8px 10px;
@@ -8497,5 +8844,27 @@ td.col-actions > a.btn {
   background: var(--bg-tertiary);
   border-radius: 999px;
   color: var(--text-muted);
+}
+.scope-preview-anchor {
+  margin: 7px 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(76, 201, 154, 0.25);
+  border-radius: 7px;
+  background: rgba(76, 201, 154, 0.07);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.scope-preview-anchor span { margin-right: 4px; color: #4cc99a; }
+@media (max-width: 900px) {
+  .upload-command-hero { padding: 18px; }
+  .upload-hero-main { flex-direction: column; }
+  .upload-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .upload-tabs { grid-auto-columns: minmax(138px, 44vw); }
+  .queue-command-strip { align-items: stretch; flex-direction: column; }
+}
+@media (max-width: 560px) {
+  .upload-hero-stats { grid-template-columns: 1fr; }
+  .upload-preview-featured-caption { align-items: flex-start; flex-direction: column; }
+  .upload-preview-thumb-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

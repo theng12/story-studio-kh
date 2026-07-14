@@ -9,7 +9,23 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeSlots } from '../services/upload-plans.js'
+import { computeSlots, orderEpisodeCodes } from '../services/upload-plans.js'
+
+describe('orderEpisodeCodes — deterministic schedule assignment', () => {
+  test('sorts naturally regardless of checkbox click order', () => {
+    assert.deepEqual(
+      orderEpisodeCodes(['EP0012', 'EP0003', 'EP0010', 'EP0002']),
+      ['EP0002', 'EP0003', 'EP0010', 'EP0012'],
+    )
+  })
+
+  test('trims, removes blanks, and de-duplicates before assigning slots', () => {
+    assert.deepEqual(
+      orderEpisodeCodes([' EP0003 ', '', 'EP0002', 'EP0003', null, 42]),
+      ['EP0002', 'EP0003'],
+    )
+  })
+})
 
 describe('computeSlots — weekday calendar', () => {
   test('Mon/Wed/Fri at 18:00 UTC, 6 items', () => {

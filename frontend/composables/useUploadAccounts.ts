@@ -389,6 +389,8 @@ export function useUploadAccounts(slug: string) {
     preserve_status?: boolean
     /** Per-upload playlist override. `_none_` = skip even if default is set. Empty/null = use project default. */
     playlist_id?: string | null
+    /** Exact episode thumbnail selected in the pre-upload review. */
+    thumbnail_filename?: string
   }) {
     // When preserve_status is set, deliberately skip privacy_status in the
     // request body so the backend's body parsing branch sees the absence
@@ -401,6 +403,7 @@ export function useUploadAccounts(slug: string) {
       account_id: opts.account_id,
       scheduled_for: opts.scheduled_for ?? null,
       playlist_id: opts.playlist_id ?? null,
+      thumbnail_filename: opts.thumbnail_filename || undefined,
     }
     if (opts.preserve_status) {
       body.preserve_status = true
@@ -422,12 +425,14 @@ export function useUploadAccounts(slug: string) {
     episode_id: string
     platform?: UploadPlatform
     account_id?: string
+    thumbnail_filename?: string
   }) {
     return post<{ job_id: string }>(`/projects/${slug}/upload/upload`, {
       platform: opts.platform || 'youtube',
       episode_id: opts.episode_id,
       account_id: opts.account_id,
       preserve_status: true,
+      thumbnail_filename: opts.thumbnail_filename || undefined,
     })
   }
 
@@ -500,6 +505,8 @@ export function useUploadAccounts(slug: string) {
     episode_codes?: string[],
   ): Promise<{
     slots: string[]
+    ordered_episode_codes: string[]
+    assignments: Array<{ episode_code: string; publishAt: string }>
     /** ISO of the latest existing scheduled time the walk was advanced past, or null if none. */
     latest_existing_claim: string | null
     public_skip_codes: string[]
@@ -509,12 +516,16 @@ export function useUploadAccounts(slug: string) {
     if (episode_codes && episode_codes.length) body.episode_codes = episode_codes
     const r = await post<{
       slots: string[]
+      ordered_episode_codes?: string[]
+      assignments?: Array<{ episode_code: string; publishAt: string }>
       latest_existing_claim?: string | null
       public_skip_codes?: string[]
       public_skip_count?: number
     }>(`/projects/${slug}/upload/plans/${id}/preview`, body)
     return {
       slots: r.slots || [],
+      ordered_episode_codes: r.ordered_episode_codes || [],
+      assignments: r.assignments || [],
       latest_existing_claim: r.latest_existing_claim || null,
       public_skip_codes: r.public_skip_codes || [],
       public_skip_count: r.public_skip_count || 0,

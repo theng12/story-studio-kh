@@ -54,6 +54,8 @@ interface YouTubeUploadParams {
    * even if a default is configured".
    */
   playlist_id?: string | null
+  /** Exact episode thumbnail selected in Upload preview. */
+  thumbnail_filename?: string
   // NOTE: the previous `force_fresh` escape hatch was removed in the
   // production-readiness audit. Re-running an upload on an episode that
   // already has a sidecar always does a metadata-only PATCH; video
@@ -157,8 +159,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     episode_code: episodeId,
     fallback_title: idea.title,
     platform: 'youtube',
+    thumbnail_filename: params.thumbnail_filename,
   })
-  job.output_lines.push(`Metadata — title: "${meta.title}", tags: ${meta.tags.length}, thumbnail: ${meta.thumbnailPath ? 'yes' : 'no'}`)
+  job.output_lines.push(
+    `Metadata — title: "${meta.title}", tags: ${meta.tags.length}, thumbnail: ${meta.thumbnailPath ? path.basename(meta.thumbnailPath) : 'none'}`,
+  )
 
   // Update-only data-quality guard: if the user clicked "Update metadata"
   // but no metadata.json exists on disk, resolveUploadMetadata silently

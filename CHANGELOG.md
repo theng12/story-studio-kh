@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.592 — 2026-07-15
+
+**YouTube publishing now has a thumbnail-first review and predictable scheduling.**
+
+- Rebuilt the Upload Center around a modern publishing desk with channel, ready-episode, uploaded-library, plan, and queue status at a glance.
+- Added a full thumbnail picker inside Upload preview, including a large inspection view, every available episode thumbnail, pinned-default labels, and an unmistakable selected state.
+- Carries the exact chosen thumbnail into fresh uploads and metadata-only updates without changing the episode's saved default.
+- Validates thumbnail filenames and episode ownership before queueing, then re-verifies the exact file during execution instead of silently falling back to a different image.
+- Normalizes multi-episode schedule selections into natural episode order regardless of checkbox click order or request order.
+- Makes schedule preview and apply share the same authoritative episode-to-slot assignments and clearly shows when scheduling continues after the latest existing upload.
+- Added regression coverage for deterministic schedule ordering, duplicate selection healing, and thumbnail path/traversal rejection.
+
 ## v1.0.591 — 2026-07-14
 
 **Free local pipeline work now repairs transient failures automatically without risking paid API spend.**

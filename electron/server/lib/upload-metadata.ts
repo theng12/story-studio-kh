@@ -35,6 +35,57 @@ export interface ResolveUploadMetadataInput {
   fallback_title?: string
   /** Platform id, for future per-platform override routing. */
   platform?: 'youtube' | 'tiktok' | 'facebook'
+  /** Exact episode thumbnail chosen for this operation. Never accepts a path. */
+  thumbnail_filename?: string
+}
+
+export interface UploadThumbnailOption {
+  filename: string
+  path: string
+  is_pinned: boolean
+}
+
+export function validateUploadThumbnailFilename(filename: string): string {
+  const requested = filename.trim()
+  if (!requested || path.basename(requested) !== requested || !/\.(png|jpe?g)$/i.test(requested)) {
+    throw new Error('thumbnail_filename must be a bare PNG/JPG filename')
+  }
+  return requested
+}
+
+/**
+ * Return every usable thumbnail for an episode in the same order as the
+ * automatic picker. Paths are resolved server-side so callers never have to
+ * construct or trust an arbitrary filesystem location from the browser.
+ */
+export async function listUploadThumbnails(input: ResolveUploadMetadataInput): Promise<UploadThumbnailOption[]> {
+  const platform = input.platform || 'youtube'
+  const paths = await resolveEpisodePathsByCodeWithSidecar(
+    input.slug, input.episode_code, `${platform}_upload.json`,
+  ).catch(() => resolveEpisodePaths(input.slug, input.episode_code, input.fallback_title || ''))
+  if (!existsSync(paths.thumb_dir)) return []
+
+  const filenames = (await fsp.readdir(paths.thumb_dir))
+    .filter(filename => /\.(png|jpe?g)$/i.test(filename))
+    .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
+
+  let pinned = ''
+  const overridesPath = path.join(paths.episode_dir, 'upload_metadata_overrides.json')
+  if (existsSync(overridesPath)) {
+    try {
+      const data = JSON.parse(await fsp.readFile(overridesPath, 'utf-8'))
+      const platformBlock = typeof data[platform] === 'object' ? data[platform] : null
+      if (platformBlock && typeof platformBlock.selected_thumbnail === 'string') {
+        pinned = platformBlock.selected_thumbnail
+      }
+    } catch { /* an invalid optional override must not hide valid thumbnails */ }
+  }
+
+  return filenames.map(filename => ({
+    filename,
+    path: path.join(paths.thumb_dir, filename),
+    is_pinned: filename === pinned,
+  }))
 }
 
 export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): Promise<EpisodeMetadataForUpload> {
@@ -121,38 +172,25 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   // never touched the picker for, so installs upgrade silently.
   let thumbnailPath = ''
   try {
-    if (existsSync(paths.thumb_dir)) {
-      const thumbs = await fsp.readdir(paths.thumb_dir)
-      const validImages = thumbs.filter(f => /\.(png|jpe?g)$/i.test(f))
-
-      // 1. Honour the pin if it points at a still-existing file.
-      let pinned = ''
-      if (existsSync(overridesPath)) {
-        try {
-          const raw = await fsp.readFile(overridesPath, 'utf-8')
-          const data = JSON.parse(raw)
-          const platformBlock = input.platform && typeof data[input.platform] === 'object' ? data[input.platform] : null
-          if (platformBlock && typeof platformBlock.selected_thumbnail === 'string') {
-            pinned = platformBlock.selected_thumbnail
-          }
-        } catch { /* fall through to auto-pick */ }
+    const options = await listUploadThumbnails(input)
+    const requested = (input.thumbnail_filename || '').trim()
+    if (requested) {
+      // The API accepts a filename, never a path. This blocks traversal and
+      // ensures an upload can only use media owned by this episode.
+      const safeFilename = validateUploadThumbnailFilename(requested)
+      const exact = options.find(option => option.filename === safeFilename)
+      if (!exact) {
+        throw new Error(`Thumbnail "${requested}" is no longer available for ${input.episode_code}. Reopen Upload preview and choose another image.`)
       }
-      if (pinned && validImages.includes(pinned)) {
-        thumbnailPath = path.join(paths.thumb_dir, pinned)
-      } else {
-        // 2. Fall back to auto-pick. Sort descending so '_v3' wins over
-        // '_v2'/'_v1'; lexicographic tie-break covers `Thumb01_v1` vs
-        // `Thumb02_v1` (later variant wins — preserves pre-v1.0.41
-        // behaviour).
-        const candidates = validImages
-          .slice()
-          .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
-        if (candidates.length) {
-          thumbnailPath = path.join(paths.thumb_dir, candidates[0])
-        }
-      }
+      thumbnailPath = exact.path
+    } else {
+      thumbnailPath = (options.find(option => option.is_pinned) || options[0])?.path || ''
     }
-  } catch { /* swallow */ }
+  } catch (error) {
+    // Explicit choices are a completion contract: never silently replace the
+    // user's selection. Legacy automatic resolution remains best-effort.
+    if (input.thumbnail_filename) throw error
+  }
 
   return {
     title: title.trim(),
