@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.574 — 2026-07-14
+
+**Every built-in art style now shows a genuine, permanent generated preview.**
+
+- Replaced all nine illustrative SVG placeholders with full-resolution generated WebP examples and added the previously missing Whiteboard Doodle Explainer preview.
+- Standardized the previews around one lantern-lit traveler scene so users can compare rendering styles rather than unrelated subjects.
+- Added Studio Catalog Realism as an eleventh built-in look, based on clean product-documentation photography with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scenes.
+- Kept all previews bundled and offline-ready while optimizing the complete eleven-image gallery to approximately 2.6 MB.
+- Added regression coverage that prevents built-in styles from shipping without a real raster preview, with duplicate IDs, missing files, or empty placeholder assets.
+
 ## v1.0.573 — 2026-07-14
 
 **Settings now has one modern, consistent control-room design across every tab.**

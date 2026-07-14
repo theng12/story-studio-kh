@@ -9,9 +9,9 @@
 // SAME look + the SAME gallery appear wherever the style is set. Custom looks
 // are still savable through the existing Continuity page preset.
 //
-// `preview_image`, when set, is a bundled thumbnail shown instantly (no
-// generation). Until a style is baked, <StylePicker> falls back to the
-// on-demand /style-preview render so the card is never blank.
+// Every shipped style owns a real generated preview so the gallery accurately
+// demonstrates the selected look without spending credits or relying on a
+// network connection.
 
 export interface BuiltInStyle {
   id: string
@@ -26,9 +26,8 @@ export interface BuiltInStyle {
     /** Things to avoid, where the provider supports a negative prompt. */
     negative_prompt: string
   }
-  /** Optional bundled preview path (served by the backend). When absent the
-   *  picker renders an on-demand preview instead. */
-  preview_image?: string
+  /** Bundled generated preview path, served with the frontend. */
+  preview_image: string
 }
 
 export const BUILT_IN_STYLES: BuiltInStyle[] = [
@@ -43,7 +42,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition',
     },
-    preview_image: '/builtin-style-previews/ms-paint-fantasy.svg',
+    preview_image: '/builtin-style-previews/ms-paint-fantasy.webp',
   },
   {
     id: 'builtin-pixel-art-story',
@@ -56,7 +55,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, painterly brushwork, smooth gradients, ultra detailed rendering, 3D render, soft airbrush shading, realistic skin texture, centered static composition',
     },
-    preview_image: '/builtin-style-previews/pixel-art-story.svg',
+    preview_image: '/builtin-style-previews/pixel-art-story.webp',
   },
   {
     // v1.0.364 — user-requested from a Shackleton / Antarctic-expedition study reference.
@@ -70,7 +69,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'vivid saturated colours, neon, photorealism, 3D render, glossy CGI, clean flat vector, bright cheerful palette, hard digital edges, anime, lens flare',
     },
-    preview_image: '/builtin-style-previews/sepia-ink-wash.svg',
+    preview_image: '/builtin-style-previews/sepia-ink-wash.webp',
   },
   {
     id: 'builtin-watercolor-storybook',
@@ -83,7 +82,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, harsh contrast, neon colours, hard vector edges, gritty texture, horror, heavy black outlines',
     },
-    preview_image: '/builtin-style-previews/watercolor-storybook.svg',
+    preview_image: '/builtin-style-previews/watercolor-storybook.webp',
   },
   {
     id: 'builtin-prehistoric-stick-cartoon',
@@ -96,7 +95,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter',
     },
-    preview_image: '/builtin-style-previews/prehistoric-stick-cartoon.svg',
+    preview_image: '/builtin-style-previews/prehistoric-stick-cartoon.webp',
   },
   {
     id: 'builtin-cinematic-photoreal',
@@ -109,7 +108,20 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'cartoon, illustration, flat colours, hard outlines, lowres, oversaturated, plastic CGI look, harsh on-camera flash, text, watermark',
     },
-    preview_image: '/builtin-style-previews/cinematic-photoreal.svg',
+    preview_image: '/builtin-style-previews/cinematic-photoreal.webp',
+  },
+  {
+    id: 'builtin-studio-catalog-realism',
+    name: 'Studio Catalog Realism',
+    builtin: true,
+    blurb: 'Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scenes.',
+    data: {
+      style_bible:
+        'clean studio catalog photography, carefully staged physical miniature diorama aesthetic, neutral charcoal textured sweep, soft large-source overhead lighting, natural soft-edged shadows, accurate restrained color, crisp tactile materials, centered product-documentation composition, high depth of field, minimal styling, subtle commercial polish, honest documentary clarity, full subject visible with generous breathing room',
+      negative_prompt:
+        'logos, packaging, labels, barcodes, typography, watermark, dramatic cinematic lighting, fantasy digital painting, clutter, glossy CGI, floating objects, extreme shallow depth of field, harsh reflections, oversaturated colors',
+    },
+    preview_image: '/builtin-style-previews/studio-catalog-realism.webp',
   },
   {
     id: 'builtin-flat-vector-explainer',
@@ -122,7 +134,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, painterly brushwork, texture, gradients, film grain, busy clutter, realistic shading, sketchy lines',
     },
-    preview_image: '/builtin-style-previews/flat-vector-explainer.svg',
+    preview_image: '/builtin-style-previews/flat-vector-explainer.webp',
   },
   {
     id: 'builtin-whiteboard-doodle-explainer',
@@ -135,7 +147,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, painterly brushwork, cinematic lighting, realistic shading, gradients, film grain, busy cluttered background, detailed environment, soft airbrush, colour photograph, realistic anatomy',
     },
-    // No bundled SVG preview — the picker renders an on-demand preview instead.
+    preview_image: '/builtin-style-previews/whiteboard-doodle-explainer.webp',
   },
   {
     id: 'builtin-oil-painting-classical',
@@ -148,7 +160,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'flat vector, pixel art, cartoon, neon colours, 3D CGI render, hard digital edges, lowres, modern clip-art, text, watermark',
     },
-    preview_image: '/builtin-style-previews/oil-painting-classical.svg',
+    preview_image: '/builtin-style-previews/oil-painting-classical.webp',
   },
   {
     id: 'builtin-anime-cel',
@@ -161,6 +173,6 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, western cartoon, muddy colours, sketchy unfinished lines, heavy film grain, realistic skin pores, text, watermark',
     },
-    preview_image: '/builtin-style-previews/anime-cel.svg',
+    preview_image: '/builtin-style-previews/anime-cel.webp',
   },
 ]
