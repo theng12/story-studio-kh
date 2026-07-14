@@ -6,7 +6,7 @@ import { BUILT_IN_STYLES } from '../composables/useBuiltInStyles'
 
 describe('built-in style gallery', () => {
   it('ships a unique generated raster preview for every style', () => {
-    assert.equal(BUILT_IN_STYLES.length, 11)
+    assert.equal(BUILT_IN_STYLES.length, 12)
     assert.equal(new Set(BUILT_IN_STYLES.map(style => style.id)).size, BUILT_IN_STYLES.length)
 
     for (const style of BUILT_IN_STYLES) {

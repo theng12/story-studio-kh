@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.575 — 2026-07-14
+
+**A cleaner stick-figure storytelling look joins the built-in style gallery.**
+
+- Added Minimal Stick-Figure Explainer, a polished editorial look with expressive round-faced characters, smooth black linework, generous white space, and restrained flat color accents.
+- Bundled a permanent generated preview based on the supplied visual references, using the same traveler-and-lantern comparison scene as every other built-in style.
+- Kept the style distinct from Whiteboard Doodle Explainer by avoiding marker texture, loose sketching, and crowded symbolic annotations.
+- Extended the gallery regression guard to require twelve unique, non-empty offline raster previews.
+
 ## v1.0.574 — 2026-07-14
 
 **Every built-in art style now shows a genuine, permanent generated preview.**

@@ -150,6 +150,19 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/whiteboard-doodle-explainer.webp',
   },
   {
+    id: 'builtin-minimal-stick-figure-explainer',
+    name: 'Minimal Stick-Figure Explainer',
+    builtin: true,
+    blurb: 'Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.',
+    data: {
+      style_bible:
+        'polished minimalist 2D stick-figure editorial explainer, smooth thick black outlines with consistent line weight, round white faces with simple highly expressive eyes eyebrows and mouths, clean line bodies and limbs, icon-like props and visual metaphors, pure white background, generous negative space, one instantly readable idea per frame, simple diagram-like staging, sparse environmental cues, mostly black-and-white artwork with restrained flat muted color accents, red for urgency or emphasis, warm yellow for discovery or success, subdued blue and green for context, subtle light-gray grounding shadows only, crisp professional YouTube explainer illustration, clear at thumbnail size, no texture and no realistic lighting',
+      negative_prompt:
+        'photorealism, 3D render, painterly brushwork, whiteboard marker texture, rough sketching, scratchy lines, realistic anatomy, cinematic lighting, gradients, detailed scenery, cluttered background, dense colors, complex perspective, illegible text, random letters, watermark',
+    },
+    preview_image: '/builtin-style-previews/minimal-stick-figure-explainer.webp',
+  },
+  {
     id: 'builtin-oil-painting-classical',
     name: 'Oil Painting Classical',
     builtin: true,
