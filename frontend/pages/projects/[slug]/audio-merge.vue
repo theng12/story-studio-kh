@@ -56,27 +56,15 @@
       </template>
     </div>
 
-    <!-- v1.0.93+ cross-device + apply-time path-check banner.
-         Surfaces two related conditions:
-           - "preset is from another Mac" — yellow heads-up
-           - "one or more linked files don't exist on this Mac" — red
-             actionable list with Pick-replacement buttons that open the
-             same Browse handlers the form already has.
+    <!-- Apply-time path-check banner. Missing linked files are shown in a
+         red actionable list with the form's existing Browse handlers.
          Cleared automatically when every invalid path has been replaced
          (or when the user picks a different preset). -->
     <div
-      v-if="presetCrossDeviceWarning || presetInvalidPaths.length > 0"
+      v-if="presetInvalidPaths.length > 0"
       class="card mt-2 preset-path-check"
       :class="{ 'is-critical': presetInvalidPaths.length > 0 }"
     >
-      <div v-if="presetCrossDeviceWarning" class="path-check-banner-cross-device">
-        <span aria-hidden="true">⚠</span>
-        <span>
-          This preset was saved on
-          <strong>{{ mergePresets.activePresetMachineLabel.value || 'another Mac' }}</strong>.
-          File paths inside it may point at assets that don't exist on this device.
-        </span>
-      </div>
       <div v-if="presetInvalidPaths.length > 0" class="path-check-invalid-block">
         <div class="path-check-title">
           <span aria-hidden="true">📂</span>
@@ -1197,7 +1185,7 @@ function onPresetSaved() {
   void runPresetPathCheck()
 }
 
-// ── v1.0.93+ Cross-device + path-check wiring ────────────────────────────
+// ── Local preset path-check wiring ───────────────────────────────────────
 //
 // Every path field we want to validate at apply-time. Kept declarative so
 // the validator can walk it; changing the merge form's path fields means
@@ -1210,7 +1198,6 @@ const AUDIO_MERGE_PATH_FIELDS: Array<{ key: string }> = [
 ]
 
 const presetInvalidPaths = ref<Array<{ key: string; index: number | null; value: string; reason: string }>>([])
-const presetCrossDeviceWarning = computed(() => mergePresets.activePresetIsCrossDevice.value)
 
 const { validate: validatePresetPaths } = usePresetPathValidation()
 
@@ -1729,13 +1716,8 @@ onUnmounted(() => {
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
 .slider { width: 100%; }
 
-/* v1.0.93+ Apply-time path-check banner.
-   Two visual states:
-     - cross-device only (preset from another Mac, paths happen to be valid)
-       → yellow heads-up, no invalid list
-     - one+ invalid paths → red border + actionable list of Pick-replacement
-       rows. Critical state takes priority visually because the user can't
-       render the project without fixing it. */
+/* Apply-time path check: invalid references are blocking and each row offers
+   a direct replacement action. */
 .preset-path-check {
   padding: 12px 14px;
   display: flex;
@@ -1747,18 +1729,6 @@ onUnmounted(() => {
 .preset-path-check.is-critical {
   background: rgba(226, 92, 92, 0.06);
   border-left-color: var(--error, #e25c5c);
-}
-.path-check-banner-cross-device {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-.path-check-banner-cross-device > span:first-child {
-  color: rgba(240, 198, 116, 0.95);
-  font-weight: 600;
 }
 .path-check-invalid-block {
   display: flex;

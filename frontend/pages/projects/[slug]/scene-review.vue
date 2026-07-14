@@ -766,7 +766,7 @@ const promptOnly = computed(() => isContinuity.value && form.value.render_mode =
 // v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
 // parallel pool size and AUTO-APPLIES the last-used preset on load (default
 // autoApplyOnLoad), so the chosen model is restored instead of re-picked each
-// visit. Device-aware, same PresetPicker pattern as the Scene Plan page.
+// visit. Uses the same local PresetPicker pattern as the Scene Plan page.
 const srPresets = usePresets<{
   model: string
   aspect_ratio: string

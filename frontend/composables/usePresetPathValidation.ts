@@ -1,8 +1,8 @@
 /**
  * usePresetPathValidation — apply-time check for path fields inside a preset.
  *
- * v1.0.93+ — when a preset is applied (whether from this device or another),
- * we round-trip every path-bearing field through `/api/system/validate-path`
+ * When a local preset is applied, we round-trip every path-bearing field
+ * through `/api/system/validate-path`
  * to find out which ones don't exist on the current Mac. The page surfaces
  * the result as a banner with "Pick replacement" buttons wired to the
  * page's existing file pickers.

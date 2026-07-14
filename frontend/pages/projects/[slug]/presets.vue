@@ -11,7 +11,7 @@
     <p class="text-muted mt-1 mb-2" style="font-size: 13px; max-width: 860px;">
       All presets saved for <strong>{{ projectName || 'this project' }}</strong>, grouped by where they're used.
       Heavy editing lives on each feature page — this view is for cross-cutting management (rename, delete, export).
-      Presets are project-scoped: they don't follow you to other projects.
+      Presets are local to this project and appear in one list, with no device or cloud scope to manage.
     </p>
 
     <div v-if="error" class="text-danger mt-2" style="font-size: 13px;">{{ error }}</div>
@@ -91,6 +91,13 @@ const { success, error: showError } = useToast()
 const projectName = computed(() => project.value?.name || '')
 
 interface PresetRecord { id: string; name: string; data?: any; type?: string }
+
+function normalizePreset(value: PresetRecord): PresetRecord {
+  const normalized = { ...value } as PresetRecord & { machine_label?: unknown }
+  delete normalized.machine_label
+  return normalized
+}
+
 interface PresetGroup {
   key: string
   label: string
@@ -229,7 +236,7 @@ async function loadAll() {
     const config = await get<any>(`/projects/${slug.value}/settings/config`)
     for (const g of groups.value) {
       const list: PresetRecord[] = Array.isArray(config[`${g.configKey}_presets`])
-        ? config[`${g.configKey}_presets`]
+        ? config[`${g.configKey}_presets`].map(normalizePreset)
         : []
       if (g.typeFilter) {
         // Only keep presets whose type matches — same filter usePresets applies.
@@ -256,7 +263,9 @@ async function persist(groupKey: string, nextList: PresetRecord[]) {
   try {
     const config = await get<any>(`/projects/${slug.value}/settings/config`)
     const storedKey = `${g.configKey}_presets`
-    const stored: PresetRecord[] = Array.isArray(config[storedKey]) ? config[storedKey] : []
+    const stored: PresetRecord[] = Array.isArray(config[storedKey])
+      ? config[storedKey].map(normalizePreset)
+      : []
     let merged: PresetRecord[]
     if (g.typeFilter) {
       // Drop any stored item whose id appears in `items` (we're replacing
@@ -282,7 +291,9 @@ async function persist(groupKey: string, nextList: PresetRecord[]) {
     } else {
       merged = nextList
     }
-    await put(`/projects/${slug.value}/settings/config`, { [storedKey]: merged })
+    await put(`/projects/${slug.value}/settings/config`, {
+      [storedKey]: merged.map(normalizePreset),
+    })
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to persist preset changes')
     throw e

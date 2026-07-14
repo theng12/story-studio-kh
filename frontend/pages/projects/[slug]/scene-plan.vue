@@ -1717,8 +1717,8 @@ function removeScene(i: number): void {
 
 // v1.0.242 — savable presets for the plan settings (model, research toggle,
 // opening visuals, output budget, style, motion, and custom instructions). Mirrors the
-// device-aware PresetPicker pattern used on the Ideas / Scripts pages. Stored
-// under config.scene_plan_presets; episode_id/title are stripped automatically.
+// same local PresetPicker pattern used on Ideas / Scripts. Stored under
+// config.scene_plan_presets; episode_id/title are stripped automatically.
 const planPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'scene_plan',

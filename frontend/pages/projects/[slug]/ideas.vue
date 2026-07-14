@@ -179,25 +179,18 @@
           </div>
       </ContextStrip>
 
-      <!-- v1.0.93+ Idea-generator preset.
+      <!-- Idea-generator preset.
            Captures the entire form (genre/theme/mood/keywords/count/model,
            pattern, niche override, title prefix/suffix) so a user with
            multiple channel framings ("Morning Prayer", "Evening Prayer",
            "Daily Devotional") can switch between them in one click. Same
-           PresetPicker pattern used elsewhere — device-aware filtering +
-           cross-device banner come along for free. -->
+           PresetPicker pattern used elsewhere. -->
       <PresetPicker
         label="Ideas preset"
         hint="Saves the niche, prefix/suffix, pattern, mood/theme/audience, and the rest of this form. Pick one and click Apply to load; Save as… to capture the current form."
         :presets="ideasPresets.presets.value"
         :active-id="ideasPresets.activeId.value"
-        :current-machine-label="ideasPresets.machineLabel.value"
-        :show-all-devices="ideasPresets.showAllDevices.value"
-        :cross-device-count="ideasPresets.crossDeviceCount.value"
-        :active-preset-is-cross-device="ideasPresets.activePresetIsCrossDevice.value"
-        :active-preset-machine-label="ideasPresets.activePresetMachineLabel.value"
         @update:active-id="ideasPresets.setActive"
-        @update:show-all-devices="(v: boolean) => ideasPresets.showAllDevices.value = v"
         @apply="onIdeasPresetApplied"
         @overwrite="ideasPresets.overwrite(); success('Preset saved')"
         @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"

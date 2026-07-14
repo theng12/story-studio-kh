@@ -1204,9 +1204,9 @@ export interface Character {
  * Schema v2 is intentionally small — just enough structure for another
  * machine to recognise the folder and line up episode codes with folder
  * names. Presets, production standards, YouTube templates, voice presets,
- * and "required named roots" are NOT carried across machines anymore:
- * setting those up is a one-time per-machine step. This keeps the manifest
- * ≤1 KB and removes the "which machine's presets win?" coordination problem.
+ * and "required named roots" are NOT manifest/cloud data. Presets have one
+ * local app-owned list; machine paths and secrets are configured locally.
+ * This keeps the manifest ≤1 KB and avoids conflicting configuration copies.
  *
  * Back-compat: `readManifest` still accepts v1 manifests (with preset bag)
  * and discards the extra payload silently on read. On next write the file

@@ -81,12 +81,35 @@ describe('usePresets.load()', () => {
     assert.equal(presets.activeId.value, '')
   })
 
+  test('merges legacy device-scoped presets into one local list and retires origin labels', async () => {
+    configStore['legacy-devices'] = {
+      script_presets: [
+        { id: 'mac-a', name: 'Calm narration', data: { value: 1 }, machine_label: 'studio-a' },
+        { id: 'mac-b', name: 'Fast narration', data: { value: 2 }, machine_label: 'studio-b' },
+      ],
+      script_last_preset: 'mac-a',
+    }
+
+    const { presets, form } = makeController('legacy-devices')
+    await presets.load()
+
+    assert.deepEqual(presets.presets.value.map(p => p.id), ['mac-a', 'mac-b'])
+    assert.equal(form.value, 1, 'the remembered preset still applies after migration')
+    assert.ok(presets.presets.value.every(p => !('machine_label' in p)))
+
+    form.value = 3
+    await presets.saveAs('New local preset')
+    const stored = configStore['legacy-devices'].script_presets
+    assert.equal(stored.length, 3)
+    assert.ok(stored.every((p: Record<string, unknown>) => !('machine_label' in p)))
+  })
+
   test('skips apply when activeId points to a preset that no longer exists', async () => {
-    configStore['proj'] = {
+    configStore['stale-pointer'] = {
       script_presets: [{ id: 'p1', name: 'Fast', data: { value: 1 } }],
       script_last_preset: 'missing-id',
     }
-    const { presets, applied } = makeController('proj')
+    const { presets, applied } = makeController('stale-pointer')
     await presets.load()
     assert.equal(presets.activeId.value, 'missing-id')
     assert.equal(applied.length, 0, 'apply() not called when active preset is missing')

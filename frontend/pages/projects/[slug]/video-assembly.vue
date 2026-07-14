@@ -35,25 +35,13 @@
       </template>
     </TopActionBar>
 
-    <!-- v1.0.93+ Cross-device + apply-time path-check banner for the bundle.
-         Surfaces files referenced by the bundle that don't exist on this
-         Mac so the user can reselect before hitting Generate. Cross-device
-         heads-up shows separately because some bundles are valid across
-         machines (no path fields) and the device chip is still useful
-         context. -->
+    <!-- Applying a preset validates every saved file reference before the
+         user can generate. Missing paths remain a clear, actionable blocker. -->
     <div
-      v-if="bundleCrossDeviceWarning || bundleInvalidPaths.length > 0"
+      v-if="bundleInvalidPaths.length > 0"
       class="card mt-2 preset-path-check"
       :class="{ 'is-critical': bundleInvalidPaths.length > 0 }"
     >
-      <div v-if="bundleCrossDeviceWarning" class="path-check-banner-cross-device">
-        <span aria-hidden="true">⚠</span>
-        <span>
-          This bundle was saved on
-          <strong>{{ videoBundlePresets.activePresetMachineLabel.value || 'another Mac' }}</strong>.
-          File paths inside it may point at assets that don't exist on this device.
-        </span>
-      </div>
       <div v-if="bundleInvalidPaths.length > 0" class="path-check-invalid-block">
         <div class="path-check-title">
           <span aria-hidden="true">📂</span>
@@ -4007,7 +3995,6 @@ const BUNDLE_PATH_FIELDS: Array<{ key: string }> = [
 ]
 
 const bundleInvalidPaths = ref<Array<{ key: string; index: number | null; value: string; reason: string }>>([])
-const bundleCrossDeviceWarning = computed(() => videoBundlePresets.activePresetIsCrossDevice.value)
 
 const { validate: validateBundlePaths } = usePresetPathValidation()
 
@@ -5830,18 +5817,6 @@ onUnmounted(() => {
 .preset-path-check.is-critical {
   background: rgba(226, 92, 92, 0.06);
   border-left-color: var(--error, #e25c5c);
-}
-.path-check-banner-cross-device {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-.path-check-banner-cross-device > span:first-child {
-  color: rgba(240, 198, 116, 0.95);
-  font-weight: 600;
 }
 .path-check-invalid-block { display: flex; flex-direction: column; gap: 6px; }
 .path-check-title {

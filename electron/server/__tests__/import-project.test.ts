@@ -105,9 +105,9 @@ describe('importProjectFromFolder — manifest handling', () => {
     assert.equal((meta as any).required_named_roots, undefined)
     assert.equal((meta as any).youtube_channel_url, undefined)
 
-    // config.json is empty — presets stay per-machine.
+    // config.json starts empty — local presets are created after import.
     const cfg = JSON.parse(await fs.readFile(path.join(projectDir, 'config.json'), 'utf-8'))
-    assert.deepEqual(cfg, {}, 'config.json must start empty (per-machine preset model)')
+    assert.deepEqual(cfg, {}, 'config.json must start empty for a newly imported project')
   })
 
   test('no manifest → inferProjectMetadata runs from folder layout', async () => {

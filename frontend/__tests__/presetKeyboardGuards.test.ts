@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
@@ -13,6 +13,8 @@ const settings = source('../pages/projects/[slug]/settings.vue')
 const scripts = source('../pages/projects/[slug]/scripts.vue')
 const stylePreview = source('../components/StylePreviewCard.vue')
 const imagePrompts = source('../pages/projects/[slug]/image-prompts.vue')
+const usePresets = source('../composables/usePresets.ts')
+const systemRoutes = source('../../electron/server/routes/system.ts')
 
 describe('preset modal keyboard guards', () => {
   test('Return confirms on key release and cannot leak into the opener', () => {
@@ -26,5 +28,19 @@ describe('preset modal keyboard guards', () => {
     assert.match(topActionBar, /if \(!name \|\| savingPreset\.value\) return/)
     assert.match(topActionBar, /newPresetName\.value = ''[\s\S]*showSaveAs\.value = false/)
     assert.match(topActionBar, /:disabled="!newPresetName\.trim\(\) \|\| savingPreset"/)
+  })
+
+  test('preset storage exposes one local list without device or cloud scope controls', () => {
+    for (const component of [presetPicker, topActionBar, usePresets]) {
+      assert.doesNotMatch(component, /showAllDevices|crossDeviceCount|activePresetIsCrossDevice/)
+      assert.doesNotMatch(component, /All devices|This device/)
+    }
+
+    assert.doesNotMatch(systemRoutes, /system\/machine-label/)
+    assert.equal(
+      existsSync(fileURLToPath(new URL('../composables/useMachineLabel.ts', import.meta.url))),
+      false,
+      'the retired machine-label composable must not return',
+    )
   })
 })

@@ -18,15 +18,16 @@
  *
  *   2. `slug` is free → IMPORT. Create a fresh userData entry populated
  *      with the structural metadata (prefix, digits, subfolder_names, etc.).
- *      `config.json` starts empty (presets stay per-machine); `secrets.json`
- *      starts empty (API keys stay per-machine).
+ *      `config.json` starts empty (local presets are created after import);
+ *      `secrets.json` starts empty (API keys stay local to this app).
  *
  *   3. `slug` is taken but by a *different* `project_id` → COLLISION. The
  *      UI prompts for an alternative slug via `options.adopt_as_slug`.
  *
- * What used to travel in v1 (presets, production_standards, required_named_roots,
- * youtube_channel_url) intentionally does NOT: per-machine re-setup is the
- * design. See the PortableManifest doc in `models/types.ts`.
+ * What used to travel in v1 (presets, production_standards,
+ * required_named_roots, youtube_channel_url) intentionally does NOT. Presets
+ * now have one local app-owned list and are not a manifest/cloud concern.
+ * See the PortableManifest doc in `models/types.ts`.
  */
 
 import { existsSync } from 'fs'

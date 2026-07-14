@@ -1,21 +1,5 @@
 <template>
   <div class="card mt-2">
-    <!-- v1.0.93+ cross-device banner.
-         Appears above the picker controls when the currently-active preset
-         was saved on a different Mac. Calls out the device name so the
-         user knows where the file paths originated, and points at the
-         path-check banner below (rendered by the page, not this component)
-         for the actionable reselection step. Yellow so it reads as
-         "heads up, you might need to do something" rather than red
-         "this is broken". -->
-    <div v-if="activePresetIsCrossDevice" class="cross-device-banner">
-      <span class="banner-icon" aria-hidden="true">⚠</span>
-      <span class="banner-text">
-        Saved on <strong>{{ activePresetMachineLabel || 'another device' }}</strong>
-        — file paths may not exist on this Mac. See the path-check below.
-      </span>
-    </div>
-
     <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
       <h3 style="margin-right: 8px;">{{ label || 'Preset' }}</h3>
       <select :value="activeId" class="select select-sm" style="max-width: 280px;" @change="onSelect(($event.target as HTMLSelectElement).value)">
@@ -45,25 +29,6 @@
         @click="openRename"
       >Rename</button>
 
-      <!-- v1.0.93+ device-filter toggle.
-           Only renders when there's actually something to toggle to (at
-           least one cross-device preset exists for this section's type).
-           Hiding it on small projects keeps the toolbar uncluttered for
-           single-device users. -->
-      <button
-        v-if="showDeviceToggle"
-        type="button"
-        class="btn btn-sm btn-secondary device-toggle"
-        :class="{ 'is-all': showAllDevices }"
-        :title="showAllDevices
-          ? 'Showing presets from every Mac you\'ve used. Click to hide other devices.'
-          : `Showing only presets saved on this Mac (${currentMachineLabel || 'this device'}). ${crossDeviceCount} preset${crossDeviceCount === 1 ? '' : 's'} from other devices are hidden.`"
-        @click="$emit('update:showAllDevices', !showAllDevices)"
-      >
-        <template v-if="showAllDevices">🌐 All devices · {{ presets.length }}</template>
-        <template v-else>📍 This device · {{ presets.length }}<span v-if="crossDeviceCount > 0" class="cross-device-stash"> (+{{ crossDeviceCount }})</span></template>
-      </button>
-
       <button
         class="btn btn-sm btn-danger"
         :disabled="!activeId || activePresetIsBuiltIn"
@@ -82,11 +47,7 @@
     >
       <h3 id="preset-save-as-title">Save preset as…</h3>
       <p class="text-muted mt-1 mb-2" style="font-size:12px">
-        Snapshots the current settings on this tab so you can reuse them later. Required for Pipeline.
-        <span v-if="currentMachineLabel">
-          Saved as <strong>{{ currentMachineLabel }}</strong>'s preset — visible on this Mac by default,
-          and to other Macs via the "🌐 All devices" toggle.
-        </span>
+        Saves these settings as a local preset for this project so you can reuse them here and in Pipeline.
       </p>
       <input
         v-model="newName"
@@ -112,8 +73,7 @@
     >
       <h3 id="preset-rename-title">Rename preset</h3>
       <p class="text-muted mt-1 mb-2" style="font-size:12px">
-        Only the label changes — the preset's settings stay exactly the same. Other Macs
-        viewing this preset will see the new name next time they load.
+        Only the label changes. The preset's settings stay exactly the same everywhere it is used.
       </p>
       <input
         v-model="renameName"
@@ -137,9 +97,6 @@ export interface Preset {
   name: string
   data: any
   builtin?: boolean
-  /** v1.0.93+ device tag (hostname). Missing on legacy presets — those
-   *  pass through the filter, and the picker labels them `(legacy)`. */
-  machine_label?: string
 }
 
 const props = defineProps<{
@@ -147,29 +104,12 @@ const props = defineProps<{
   activeId: string
   label?: string
   hint?: string
-  /** v1.0.93+ — hostname of the current Mac (from useMachineLabel). When
-   *  present, the picker filters presets to this device by default and
-   *  shows the toggle. Empty string disables the device filter entirely
-   *  (legacy callers that don't opt in see the original behaviour). */
-  currentMachineLabel?: string
-  /** v-model: whether the user has flipped to "show all devices". */
-  showAllDevices?: boolean
-  /** Count of cross-device presets currently hidden (rendered as "+N"
-   *  next to the "This device" toggle label). */
-  crossDeviceCount?: number
-  /** Whether the active preset comes from a different Mac. Drives the
-   *  yellow banner above the picker. */
-  activePresetIsCrossDevice?: boolean
-  /** Hostname stamped on the active preset (e.g. "Macbook-Pro"). Shown
-   *  in the cross-device banner so the user knows where it came from. */
-  activePresetMachineLabel?: string
   /** Built-in presets are app-shipped defaults and can't be mutated. */
   activePresetIsBuiltIn?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:activeId', id: string): void
-  (e: 'update:showAllDevices', value: boolean): void
   (e: 'apply'): void
   (e: 'overwrite'): void
   (e: 'save-as', name: string): void
@@ -193,35 +133,11 @@ const activePresetName = computed(() => {
 })
 const currentName = computed(() => activePresetName.value)
 
-// Only render the device toggle when there's actually something to toggle.
-// Calling out a feature that does nothing (zero cross-device presets) is
-// noise; surfacing it the moment a second device touches the project is
-// when it earns its place in the toolbar.
-const showDeviceToggle = computed(() => {
-  if (!props.currentMachineLabel) return false
-  return (props.crossDeviceCount ?? 0) > 0
-})
-
-/** Render an option label. Appends `· ⌂ <machine>` when the user is in
- *  "all devices" mode so they can tell each preset apart. Adds `(legacy)`
- *  on presets without a machine_label so they're flagged as "could be
- *  from any device — re-save to claim them". */
+/** Render the single local preset list with useful built-in/last-used tags. */
 function formatOption(p: Preset): string {
-  const base = p.name
+  return p.name
     + (p.builtin ? ' · built-in' : '')
     + (p.id === props.activeId ? ' (last used)' : '')
-  if (props.showAllDevices) {
-    if (p.builtin) return base
-    if (!p.machine_label) return `${base} · (legacy)`
-    return `${base} · ⌂ ${p.machine_label}`
-  }
-  // In "this device" mode, only legacy entries need the chip — they're
-  // showing here only because the filter passes undefined machine_label
-  // through. Stamping them isn't automatic, so we surface the (legacy)
-  // marker so the user knows the entry isn't strictly "this device".
-  if (p.builtin) return base
-  if (!p.machine_label && props.currentMachineLabel) return `${base} · (legacy)`
-  return base
 }
 
 function onSelect(id: string) { emit('update:activeId', id) }
@@ -291,46 +207,4 @@ async function confirmDelete() {
   white-space: nowrap;
 }
 
-/* v1.0.93+ device-filter toggle. Stays visually grouped with the action
-   buttons (same size + radius), but gets an active-state colour shift when
-   the user flips to "all devices" so the surface change is unmissable. */
-.device-toggle {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.device-toggle.is-all {
-  background: rgba(108, 143, 255, 0.16);
-  border-color: rgba(108, 143, 255, 0.35);
-  color: var(--accent, #6c8fff);
-}
-.cross-device-stash {
-  margin-left: 4px;
-  color: var(--text-muted);
-  font-weight: normal;
-}
-
-/* v1.0.93+ cross-device banner. Yellow because it's a heads-up, not a
-   blocker — the apply still happens; the user just needs to know paths
-   may need reselecting. The matching apply-time path-check banner lives
-   on the page (audio-merge.vue / video-assembly.vue) so it can render the
-   "Pick replacement" buttons wired to the page's existing file pickers. */
-.cross-device-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  background: rgba(240, 198, 116, 0.08);
-  border: 1px solid rgba(240, 198, 116, 0.30);
-  border-radius: var(--radius-sm, 4px);
-}
-.cross-device-banner .banner-icon {
-  color: rgba(240, 198, 116, 0.9);
-  font-weight: 600;
-  font-size: 13px;
-  flex-shrink: 0;
-}
 </style>

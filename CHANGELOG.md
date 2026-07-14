@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.587 — 2026-07-14
+
+**Presets are now one clear local list with no device or cloud scope.**
+
+- Removed the confusing **This device / All devices** preset switch, machine-origin labels, cross-device warnings, and the retired machine-label API.
+- Preserved every existing preset from both old device scopes and merged them into the same local project list instead of hiding or deleting any.
+- Automatically strips obsolete machine-origin metadata when presets are loaded and when the preset store is next saved.
+- Kept Audio and Video Assembly file-integrity checks, so missing intro, music, frame, logo, or overlay files still block safely with direct replacement actions.
+- Updated the Presets workspace and import contracts to describe the local-only model consistently.
+- Added regression coverage preventing device/cloud preset scopes from returning.
+
 ## v1.0.586 — 2026-07-14
 
 **Notifications is now a compact control center with clearer setup and safer saving.**

@@ -22,7 +22,6 @@
 // additive inside .vue files.
 import { ref, computed, nextTick } from 'vue'
 import { useApi } from './useApi.js'
-import { useMachineLabel } from './useMachineLabel.js'
 // The Preset shape is defined on PresetPicker.vue, but we re-declare it
 // here so this module is type-resolvable outside Nuxt's `~/` alias (needed
 // by the test runner).
@@ -30,13 +29,6 @@ import { useMachineLabel } from './useMachineLabel.js'
 // `type` is optional — older presets (saved before tagging existed) leave
 // it undefined and are treated as 'all'. New presets are tagged by
 // `usePresets({ presetType })` so the picker can filter per-section.
-//
-// `machine_label` (v1.0.93+) records the hostname of the device the preset
-// was saved on so the picker can filter by "this device" by default.
-// Legacy presets (saved before v1.0.93) leave it undefined and pass through
-// the filter unconditionally — they appear in both "this device" and
-// "all devices" views until the user re-saves them, at which point they
-// pick up the current device's label.
 //
 // Future types (art-style, prompt-style, etc.) slot in via this union
 // without schema changes; they share the `configKey` storage pattern.
@@ -51,10 +43,6 @@ export interface Preset {
   type?: PresetType
   /** Shipped with the app, not persisted in project config. */
   builtin?: boolean
-  /** Hostname of the device this preset was saved on. Stamped automatically
-   *  on save in v1.0.93+. Missing on legacy presets — those pass through
-   *  the device filter so nothing disappears for existing users. */
-  machine_label?: string
 }
 
 export interface UsePresetsOptions<T> {
@@ -123,6 +111,17 @@ function stripKeysDeep(value: any, keys: string[]): any {
   return out
 }
 
+/**
+ * Device-scoped presets were retired in favour of one clear local preset
+ * list. Keep every legacy preset, but strip its obsolete origin tag so old
+ * entries from another Mac are never hidden or presented as a second scope.
+ */
+function normalizePreset(value: Preset): Preset {
+  const normalized = { ...value } as Preset & { machine_label?: unknown }
+  delete normalized.machine_label
+  return normalized
+}
+
 export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const { get, put } = useApi()
   const builtInPresets = opts.builtInPresets ?? []
@@ -133,14 +132,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const activeId = ref('')
   const excludeKeys = opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS
 
-  // v1.0.93+ — per-device preset filtering. `showAllDevices` defaults
-  // false so the picker only surfaces presets saved on THIS Mac. Toggle
-  // exposed so the page-level UI can render a "📍 This device" / "🌐 All
-  // devices" switch. `machineLabel` is module-cached across all usePresets
-  // instances (one HTTP call per session).
-  const { machineLabel } = useMachineLabel()
-  const showAllDevices = ref(false)
-
   const presetsKey = `${opts.configKey}_presets`
   // Active preset tracking is per-type so each section can remember its
   // own choice independently.
@@ -148,10 +139,9 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     ? `${opts.configKey}_last_preset_${opts.presetType}`
     : `${opts.configKey}_last_preset`
 
-  // `presetsByType` — filtered by presetType only. Used for cross-device
-  // counters (so "🌐 All devices · M" shows the count across machines for
-  // THIS section's preset type, not the entire raw pool).
-  const presetsByType = computed(() => {
+  // One local list, optionally sliced by feature type. Untyped legacy
+  // presets remain visible so this migration never loses user data.
+  const presets = computed(() => {
     const merged = [...builtInPresets, ...allPresets.value]
     if (!opts.presetType) return merged
     return merged.filter(p => {
@@ -160,49 +150,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       const t = p.type || 'all'
       return t === opts.presetType || t === 'all'
     })
-  })
-
-  const presets = computed(() => {
-    // Always filter by presetType first (existing behaviour preserved).
-    const typed = presetsByType.value
-    // Until the machine-label fetch lands, show everything — falling
-    // through to "no presets visible" during the first ~50ms would be a
-    // worse experience than showing one extra second of cross-device
-    // entries. The label is cached for the rest of the session.
-    if (showAllDevices.value || !machineLabel.value) return typed
-    return typed.filter(p =>
-      // Legacy passthrough: undefined machine_label means "saved before
-      // v1.0.93" — show it everywhere so the user can re-save and stamp
-      // it with the current device.
-      !p.machine_label || p.machine_label === machineLabel.value,
-    )
-  })
-
-  /** Count of presets saved on OTHER devices that match this section's
-   *  presetType. Used by the picker's "🌐 All devices" toggle label. */
-  const crossDeviceCount = computed(() => {
-    if (!machineLabel.value) return 0
-    return presetsByType.value.filter(p =>
-      p.machine_label && p.machine_label !== machineLabel.value,
-    ).length
-  })
-
-  /** True when the currently-active preset was saved on a different device.
-   *  Drives the yellow "saved on <other-mac> — paths may not exist" banner
-   *  on the picker so the user can't miss it. */
-  const activePresetIsCrossDevice = computed(() => {
-    if (!activeId.value || !machineLabel.value) return false
-    const p = allPresets.value.find(x => x.id === activeId.value)
-    return !!(p?.machine_label && p.machine_label !== machineLabel.value)
-  })
-
-  /** Machine label of the active preset, or '' when no preset is active /
-   *  the preset is legacy (no label). Surfaces the device name in the
-   *  cross-device banner so the user knows which Mac the paths came from. */
-  const activePresetMachineLabel = computed(() => {
-    if (!activeId.value) return ''
-    const p = presetsByType.value.find(x => x.id === activeId.value)
-    return p?.machine_label || ''
   })
 
   /** Built-ins are app-shipped defaults: they can be applied, but not
@@ -227,7 +174,9 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   async function load() {
     try {
       const config = await get<any>(`/projects/${opts.slug}/settings/config`)
-      allPresets.value = Array.isArray(config[presetsKey]) ? config[presetsKey] : []
+      allPresets.value = Array.isArray(config[presetsKey])
+        ? config[presetsKey].map(normalizePreset)
+        : []
       activeId.value = typeof config[activeKey] === 'string' ? config[activeKey] : ''
       // Auto-apply the active preset so the form reflects the saved state
       // when the user re-enters the tab. Without this, the preset dropdown
@@ -245,6 +194,9 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function persist() {
+    // A mutation is also the safe migration point for legacy records: clean
+    // the full list before writing, including entries owned by other types.
+    allPresets.value = allPresets.value.map(normalizePreset)
     await put(`/projects/${opts.slug}/settings/config`, {
       [presetsKey]: allPresets.value,
       [activeKey]: activeId.value,
@@ -252,7 +204,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   function applyActive() {
-    const p = presetsByType.value.find(x => x.id === activeId.value)
+    const p = presets.value.find(x => x.id === activeId.value)
     if (!p) return null
     cleanApply(p.data)
     return p
@@ -265,13 +217,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       name,
       data: cleanSnapshot(),
       ...(opts.presetType ? { type: opts.presetType } : {}),
-      // v1.0.93+ — stamp the current device on every fresh save. Empty
-      // string means the label fetch hasn't landed yet (rare; only the
-      // first ~50ms of the session) — in that case we omit the field
-      // entirely so the preset is treated as legacy and stays visible
-      // across devices until it's re-saved. Better than stamping a
-      // wrong / partial label.
-      ...(machineLabel.value ? { machine_label: machineLabel.value } : {}),
     }
     // Assign by replacement (not push-mutate) so native <select> elements
     // observing `presets` re-render their options list BEFORE the new
@@ -294,12 +239,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     // If overwriting an untyped legacy preset from a typed instance, also
     // tag it so it stops appearing in other sections.
     if (opts.presetType && !p.type) p.type = opts.presetType
-    // v1.0.93+ — overwriting also restamps the device label so a preset
-    // brought over from another machine + edited on this one becomes
-    // "owned" by this machine. The user explicitly chose to save the
-    // current state, so it's correct to attribute it to the current
-    // device. Legacy presets gain a machine_label this way too.
-    if (machineLabel.value) p.machine_label = machineLabel.value
     await persist()
     return p
   }
@@ -322,8 +261,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
    *
    * The id is immutable — only the `name` metadata changes. Same persist
    * path as every other mutation (PUT /settings/config with the full
-   * presets array), so cross-machine syncing and the active-id pointer
-   * stay correct without further plumbing.
+   * presets array), so the active-id pointer stays correct without further
+   * plumbing.
    *
    * Originally requested when users found themselves rotating between the
    * generator page (where the preset is in use) and the Presets management
@@ -350,14 +289,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     presets, activeId,
     load, persist,
     applyActive, saveAs, overwrite, remove, rename, setActive,
-    // v1.0.93+ device-awareness surface. Pages pass these straight through
-    // to PresetPicker (or render their own toggle); the composable owns
-    // the filtering logic so every usePresets instance behaves identically.
-    showAllDevices,
-    machineLabel,
-    crossDeviceCount,
-    activePresetIsCrossDevice,
-    activePresetMachineLabel,
     activePresetIsBuiltIn,
   }
 }

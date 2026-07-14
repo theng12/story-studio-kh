@@ -84,24 +84,6 @@
           title="Remove the active preset from this project."
           @click="onDelete"
         >Delete</button>
-        <!-- Cross-device toggle: only visible when there's actually
-             at least one cross-device preset to toggle to. -->
-        <button
-          v-if="showDeviceToggleItem"
-          type="button"
-          class="btn btn-sm btn-ghost preset-device-toggle"
-          :title="presets?.showAllDevices?.value
-            ? 'Hide presets saved on other Macs.'
-            : `Reveal presets saved on other Macs. File paths inside cross-device presets may not exist on this Mac — the page will flag any broken paths after you apply.`"
-          @click="toggleDeviceVisibility"
-        >
-          <template v-if="presets?.showAllDevices?.value">
-            📍 This device only
-          </template>
-          <template v-else>
-            🌐 All devices (+{{ presets?.crossDeviceCount?.value ?? 0 }})
-          </template>
-        </button>
       </div>
     </div>
 
@@ -223,21 +205,13 @@ const props = withDefaults(defineProps<{
   projectSlug: string
   // Preset hooks (optional — some pages might not have presets)
   presets?: {
-    presets: { value: Array<{ id: string; name: string; data: any; machine_label?: string }> }
+    presets: { value: Array<{ id: string; name: string; data: any }> }
     activeId: { value: string }
     setActive: (id: string) => Promise<void>
     applyActive: () => any
     overwrite: () => Promise<any>
     saveAs: (name: string) => Promise<any>
     remove: () => Promise<any>
-    // v1.0.93+ device awareness (optional — older pages that haven't
-    // adopted device-aware usePresets pass nothing here and the toolbar
-    // skips the device-toggle menu item).
-    showAllDevices?: { value: boolean }
-    machineLabel?: { value: string }
-    crossDeviceCount?: { value: number }
-    activePresetIsCrossDevice?: { value: boolean }
-    activePresetMachineLabel?: { value: string }
   }
   // Episode selector
   episodeId?: string
@@ -340,44 +314,14 @@ const generateStatusSentence = computed(() => {
   return 'Idle — ready when you are.'
 })
 
-// v1.0.93+ — device-aware label rendering. In "all devices" mode every
-// option gets a `· ⌂ <machine>` suffix so the user can tell which Mac
-// each preset is from. Legacy presets (no machine_label) are tagged
-// `· (legacy)` so it's clear they predate the device-tagging system.
-function formatPresetOption(p: { name: string; machine_label?: string }): string {
-  if (!props.presets?.showAllDevices) return p.name
-  if (props.presets.showAllDevices.value) {
-    return p.machine_label ? `${p.name} · ⌂ ${p.machine_label}` : `${p.name} · (legacy)`
-  }
-  // In "this device" mode, the legacy chip is still useful — those
-  // entries show through the filter because they have no machine_label,
-  // and the user should be able to tell them apart from properly-tagged
-  // ones (they could be from any device).
-  if (!p.machine_label && props.presets.machineLabel?.value) {
-    return `${p.name} · (legacy)`
-  }
+function formatPresetOption(p: { name: string }): string {
   return p.name
 }
-
-// Whether the device-toggle entry should appear in the overflow menu.
-// Only show it when the composable opted in to device awareness AND there's
-// actually something to toggle (≥1 cross-device preset). Otherwise the
-// entry is dead weight in the menu.
-const showDeviceToggleItem = computed(() => {
-  if (!props.presets?.showAllDevices) return false
-  return (props.presets.crossDeviceCount?.value ?? 0) > 0
-})
 
 // v1.0.119 — Preset actions inlined as buttons (no more kebab menu).
 // `hasActivePreset` gates Apply / Save / Delete; Save as… is always
 // enabled since it captures the current form regardless of selection.
 const hasActivePreset = computed(() => !!props.presets?.activeId.value)
-
-function toggleDeviceVisibility() {
-  if (props.presets?.showAllDevices) {
-    props.presets.showAllDevices.value = !props.presets.showAllDevices.value
-  }
-}
 
 function onPresetSelect(id: string) {
   props.presets?.setActive(id)
@@ -477,8 +421,8 @@ function episodeStatusClass(ep: any, key: string) {
   max-width: 240px;
 }
 
-/* v1.0.119 — inline preset actions (Apply / Save / Save as… / Delete +
-   optional device toggle). flex-wrap so the row gracefully collapses
+/* v1.0.119 — inline preset actions (Apply / Save / Save as… / Delete).
+   flex-wrap so the row gracefully collapses
    under the dropdown on a tight viewport instead of pushing Generate
    off-screen on the right. gap matches the surrounding region's gap
    so the whole bar reads as one rhythm. */
@@ -491,11 +435,6 @@ function episodeStatusClass(ep: any, key: string) {
 .preset-actions .btn {
   white-space: nowrap;
 }
-.preset-device-toggle {
-  margin-left: 4px;
-  font-size: 11px;
-}
-
 .episode-region {
   flex: 1 1 280px;
   min-width: 0;
