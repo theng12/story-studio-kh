@@ -372,6 +372,25 @@
       </div>
 
       <template v-else-if="plan">
+        <div
+          v-if="coverageNeedsRepair"
+          class="validation-msg validation-msg-strong text-sm mt-2 coverage-warning"
+        >
+          <div>
+            ⚠ <strong>{{ coverageGapLabel }} of narration has no planned scene.</strong>
+            Video Assembly will stop rather than create black or frozen footage.
+            <span v-if="coverageInternalGapCount">
+              Found {{ coverageInternalGapCount }} gap{{ coverageInternalGapCount === 1 ? '' : 's' }} between scenes.
+            </span>
+          </div>
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="repairingCoverage || !!dirty"
+            @click="repairCoverage"
+          >
+            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage now' }}
+          </button>
+        </div>
         <!-- v1.0.260 — Visual Recipe bar: rewrite every scene into the explainer
              composition (guide-at-side + framed subject), or revert. -->
         <div v-if="recipeEnabled" class="recipe-bar mt-2">
@@ -632,6 +651,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
+const { revalidate: revalidateEpisodes } = useEpisodes(slug)
 // v1.0.364 — project config (image_models) for the StylePicker preview models.
 const { config: projectConfig } = useProject()
 
@@ -737,6 +757,20 @@ interface ScenePlanStatus {
   audio_merged: boolean
   audio_merge_gap_s: number | null
   research_available: boolean
+  coverage_integrity: {
+    authoritative: boolean
+    complete: boolean
+    headCovered: boolean
+    blockingUncoveredSec: number
+    coverage: {
+      headGapSec: number
+      internalGaps: Array<{ afterSceneId: string; afterIndex: number; gapSec: number }>
+      internalGapTotalSec: number
+      tailGapSec: number
+      uncoveredTotalSec: number
+    } | null
+    reason?: 'missing-duration' | 'invalid-timing' | 'coverage-gap'
+  } | null
 }
 interface ScenePlanEntry {
   id: string
@@ -800,6 +834,16 @@ const missingSubtitleSections = computed(() => {
 })
 const subtitleTimelineComplete = computed(() =>
   !!status.value?.stitched_srt && missingSubtitleSections.value.length === 0,
+)
+const coverageNeedsRepair = computed(() =>
+  status.value?.coverage_integrity?.authoritative === true
+  && status.value.coverage_integrity.complete === false,
+)
+const coverageGapLabel = computed(() =>
+  `${(status.value?.coverage_integrity?.blockingUncoveredSec || 0).toFixed(1)}s`,
+)
+const coverageInternalGapCount = computed(() =>
+  status.value?.coverage_integrity?.coverage?.internalGaps?.length || 0,
 )
 const missingSubtitleRanges = computed(() =>
   (status.value?.stitched_srt?.meta?.sections || [])
@@ -1525,6 +1569,7 @@ async function repairLongScenes(): Promise<void> {
       {},
     )
     await loadStatus()
+    await revalidateEpisodes()
     success(`Repaired ${result.repairedCount} long scene${result.repairedCount === 1 ? '' : 's'} and restored ${result.addedCount} cue-aligned scene${result.addedCount === 1 ? '' : 's'}. Generate prompts only for the new scenes.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to repair long scenes')
@@ -1553,6 +1598,7 @@ async function repairCoverage(): Promise<void> {
       success(`Plan already covers the full audio (${r.audio_duration_sec.toFixed(1)}s) — nothing to repair.`)
     }
     await loadStatus()
+    await revalidateEpisodes()
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to repair coverage')
   } finally {
@@ -1717,6 +1763,16 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   border: 1px solid var(--border);
   border-radius: 9px;
   background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+}
+.coverage-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.coverage-warning .btn { flex: 0 0 auto; }
+@media (max-width: 720px) {
+  .coverage-warning { align-items: stretch; flex-direction: column; }
 }
 .advanced-panel summary {
   color: var(--text-secondary);

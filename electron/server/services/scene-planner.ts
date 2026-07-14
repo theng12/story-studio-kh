@@ -499,6 +499,16 @@ export interface PlanCoverage {
   uncoveredTotalSec: number
 }
 
+export interface ScenePlanCoverageIntegrity {
+  /** False for legacy plans that do not carry enough timing metadata to audit. */
+  authoritative: boolean
+  complete: boolean
+  headCovered: boolean
+  blockingUncoveredSec: number
+  coverage: PlanCoverage | null
+  reason?: 'missing-duration' | 'invalid-timing' | 'coverage-gap'
+}
+
 /**
  * Measure how much of the narration audio the plan's scenes do NOT cover:
  * before the first scene (head), between consecutive scenes (internal), and
@@ -528,6 +538,67 @@ export function computePlanCoverage(
     internalGapTotalSec,
     tailGapSec,
     uncoveredTotalSec: headGapSec + internalGapTotalSec + tailGapSec,
+  }
+}
+
+/**
+ * Completion-level coverage check shared by Scene Plan status and its UI.
+ * A branded opening deliberately owns the time before scene 1, so that head
+ * interval is not a missing scene. Older plans did not persist opening_mode;
+ * a >2s initial gap is treated as their legacy reserved opening rather than
+ * making every previously valid branded-opening episode pending forever.
+ */
+export function inspectScenePlanCoverage(
+  plan: {
+    scenes: Array<Pick<ScenePlanEntry, 'id' | 'start_sec' | 'end_sec'>>
+    total_duration_sec?: number
+    opening_mode?: 'branded-opening' | 'from-start'
+  },
+  options: { headCovered?: boolean } = {},
+): ScenePlanCoverageIntegrity {
+  const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
+  const totalDurationSec = Number(plan?.total_duration_sec)
+  if (!Number.isFinite(totalDurationSec) || totalDurationSec <= 0) {
+    return {
+      authoritative: false,
+      complete: true,
+      headCovered: false,
+      blockingUncoveredSec: 0,
+      coverage: null,
+      reason: 'missing-duration',
+    }
+  }
+  if (!scenes.length || scenes.some(scene =>
+    !Number.isFinite(Number(scene?.start_sec))
+    || !Number.isFinite(Number(scene?.end_sec))
+    || Number(scene.end_sec) <= Number(scene.start_sec),
+  )) {
+    return {
+      authoritative: true,
+      complete: false,
+      headCovered: false,
+      blockingUncoveredSec: totalDurationSec,
+      coverage: null,
+      reason: 'invalid-timing',
+    }
+  }
+
+  const coverage = computePlanCoverage(scenes, totalDurationSec)
+  const headCovered = typeof options.headCovered === 'boolean'
+    ? options.headCovered
+    : plan.opening_mode === 'branded-opening'
+      || (plan.opening_mode == null && coverage.headGapSec > COVERAGE_FAIL_SEC)
+  const blockingUncoveredSec = coverage.internalGapTotalSec
+    + coverage.tailGapSec
+    + (headCovered ? 0 : coverage.headGapSec)
+  const complete = blockingUncoveredSec <= COVERAGE_FAIL_SEC
+  return {
+    authoritative: true,
+    complete,
+    headCovered,
+    blockingUncoveredSec,
+    coverage,
+    reason: complete ? undefined : 'coverage-gap',
   }
 }
 

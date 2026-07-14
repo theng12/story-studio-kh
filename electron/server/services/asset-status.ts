@@ -41,6 +41,7 @@ import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
 import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
+import { inspectScenePlanCoverage } from './scene-planner.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -926,7 +927,11 @@ export async function computeEpisodeStatus(
         // timestamp rows with 0 prompts).
         const promptIntegrity = inspectScenePromptIntegrity(scenes)
         const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code)
-        status.scene_plan = scenes.length > 0 && promptIntegrity.complete && subtitleIntegrity.complete
+        const coverageIntegrity = inspectScenePlanCoverage(plan)
+        status.scene_plan = scenes.length > 0
+          && promptIntegrity.complete
+          && subtitleIntegrity.complete
+          && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
         // Scene Review done = plan exists AND every scene has a generated image
         // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
         // named or legacy scene-images folder), which is exactly how the Scene

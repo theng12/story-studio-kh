@@ -446,4 +446,24 @@ describe('episode-status-cache', () => {
     assert.equal(status.scene_plan, false, 'one missing visual prompt keeps Scene Plan pending')
     assert.equal(status.scene_review, false, 'Scene Review cannot precede a complete Scene Plan')
   })
+
+  test('scene_plan: render-blocking timeline gaps remain pending', async () => {
+    const { epDir } = await makeProject()
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      total_duration_sec: 60,
+      opening_mode: 'branded-opening',
+      scenes: [
+        { id: 's1', start_sec: 15, end_sec: 30, visual_prompt: 'first unique visual' },
+        { id: 's2', start_sec: 35, end_sec: 60, visual_prompt: 'second unique visual' },
+      ],
+    }))
+    await writeVerifiedSubtitleTimeline(epDir)
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.scene_plan, false, '5s internal gap must surface in Pending only')
+    assert.equal(status.scene_review, false, 'Scene Review cannot be complete while coverage is unsafe')
+  })
 })

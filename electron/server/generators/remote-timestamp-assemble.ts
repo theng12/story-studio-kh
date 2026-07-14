@@ -19,7 +19,7 @@ import {
 import type { Job, ScenePlan, VideoFrameConfig } from '../models/types.js'
 import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { getRenderWorkersEnabled } from '../services/app-settings.js'
-import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
+import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { ensureExternalFinalVideoDir, externalRootIsReachable } from '../services/external-video-store.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
@@ -157,9 +157,12 @@ export async function tryRunRemoteTimestampAssemble(job: Job): Promise<boolean> 
   if (!audioPath) throw new Error('No merged audio file found.')
   const audioDuration = await getAudioDuration(audioPath)
   if (!audioDuration) throw new Error('Could not read merged audio duration.')
-  const coverage = computePlanCoverage(plan.scenes, audioDuration)
-  if (coverage.uncoveredTotalSec > COVERAGE_FAIL_SEC) {
-    throw new Error(`Narration has ${coverage.uncoveredTotalSec.toFixed(1)}s without a planned scene. Repair Scene Plan coverage first.`)
+  const coverage = inspectScenePlanCoverage({
+    scenes: plan.scenes,
+    total_duration_sec: audioDuration,
+  }, { headCovered: false })
+  if (coverage.blockingUncoveredSec > COVERAGE_FAIL_SEC) {
+    throw new Error(`Narration has ${coverage.blockingUncoveredSec.toFixed(1)}s without a planned scene. Repair Scene Plan coverage first.`)
   }
 
   const durations = plan.scenes.map((scene, index) => {

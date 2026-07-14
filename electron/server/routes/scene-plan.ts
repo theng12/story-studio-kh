@@ -21,6 +21,7 @@ import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/sub
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
+  inspectScenePlanCoverage,
   repairOverlongScenesDeterministically,
   repairPlanCoverage,
   reconcilePlanToSubtitles,
@@ -32,6 +33,11 @@ import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
+
+async function invalidateScenePlanStatus(slug: string, episodeId: string): Promise<void> {
+  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+  episodeStatusCache.invalidate(slug, episodeId)
+}
 
 // ── POST /scene-plan/:ep/stitch-subtitles ─────────────────────────────
 // Synchronous (no job queue) — the stitch is just file I/O + math,
@@ -298,6 +304,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
     if (scene.visual_prompt_raw) scene.visual_prompt_raw = visualPrompt
     scene.approved = false  // image is now stale vs the edited prompt
     await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId, visual_prompt: visualPrompt })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save prompt'))
@@ -341,6 +348,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     plan.scenes = repaired
     plan.total_duration_sec = audioDur
     await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     const coverageAfter = computePlanCoverage(plan.scenes, audioDur)
     res.json({
       ok: true,
@@ -416,6 +424,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
     plan.generated_at = new Date().toISOString()
     plan.planning_stage = 'timeline'
     await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     res.json({
       ok: true,
       repairedCount: repaired.repairedCount,
@@ -470,6 +479,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (re
     plan.scenes = r.scenes
     plan.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
     await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     const after = computePlanCoverage(plan.scenes, plan.total_duration_sec)
     res.json({
       ok: true,
@@ -511,6 +521,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (re
 
     scene.motion_prompt = motionPrompt
     await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId, motion_prompt: motionPrompt })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save motion prompt'))
@@ -665,6 +676,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       } : null,
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,
+      coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,
       audio_merged: existsSync(audioChaptersPath),
       audio_merge_gap_s: audioMergeGap,
       research_available: existsSync(researchPath),
@@ -691,6 +703,7 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     await fs.mkdir(path.dirname(sidecarPath), { recursive: true })
     await fs.writeFile(sidecarPath, JSON.stringify(body, null, 2), 'utf-8')
+    await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, sidecar_path: sidecarPath })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save scene plan'))
@@ -708,6 +721,7 @@ router.delete('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     } catch (e: any) {
       if (e?.code !== 'ENOENT') throw e
     }
+    await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to delete scene plan'))

@@ -27,7 +27,7 @@ import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
-import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
+import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { buildAnimationFilter, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
@@ -1337,14 +1337,18 @@ export async function generateVideo(job: Job): Promise<void> {
     // clips, or the sleep-story intro-skip hold). A ≤2s remainder is absorbed
     // into the last scene's window so the body meets the narration end.
     if (planStrict && planCoverageScenes?.length && typeof narrationDuration === 'number' && narrationDuration > 0) {
-      const cov = computePlanCoverage(planCoverageScenes, narrationDuration)
       const headCovered = !!(
         req.intro?.enabled
         || req.title_image?.enabled
         || (req as any).skip_intro_scenes
         || (req.timeline_clips || []).some(c => c.enabled && (c.anchor === 'before_intro' || c.anchor === 'after_intro'))
       )
-      const gatedUncovered = cov.internalGapTotalSec + cov.tailGapSec + (headCovered ? 0 : cov.headGapSec)
+      const coverageIntegrity = inspectScenePlanCoverage({
+        scenes: planCoverageScenes,
+        total_duration_sec: narrationDuration,
+      }, { headCovered })
+      const cov = coverageIntegrity.coverage!
+      const gatedUncovered = coverageIntegrity.blockingUncoveredSec
       if (gatedUncovered > COVERAGE_FAIL_SEC) {
         throw new Error(
           `Narration has ${gatedUncovered.toFixed(1)}s with NO planned scene ` +

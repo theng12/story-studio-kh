@@ -26,7 +26,7 @@ import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { appendCappedTail, stillDecoderArgs, sniffStillFormat, getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
+import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
@@ -322,10 +322,14 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   // holds to the audio end), so the video length equals the audio length.
   const audioDurationSec = (await getAudioDuration(audioPath)) || 0
   if (audioDurationSec <= 0) throw new Error(`Could not read the audio duration of ${path.basename(audioPath)}.`)
-  const coverage = computePlanCoverage(plan.scenes, audioDurationSec)
-  if (coverage.uncoveredTotalSec > COVERAGE_FAIL_SEC) {
+  const coverageIntegrity = inspectScenePlanCoverage({
+    scenes: plan.scenes,
+    total_duration_sec: audioDurationSec,
+  }, { headCovered: false })
+  const coverage = coverageIntegrity.coverage!
+  if (coverageIntegrity.blockingUncoveredSec > COVERAGE_FAIL_SEC) {
     throw new Error(
-      `Narration has ${coverage.uncoveredTotalSec.toFixed(1)}s with NO planned scene ` +
+      `Narration has ${coverageIntegrity.blockingUncoveredSec.toFixed(1)}s with NO planned scene ` +
       `(before scene 1: ${coverage.headGapSec.toFixed(1)}s · ${coverage.internalGaps.length} gap(s) between scenes: ` +
       `${coverage.internalGapTotalSec.toFixed(1)}s · after the last scene: ${coverage.tailGapSec.toFixed(1)}s; ` +
       `audio ${audioDurationSec.toFixed(1)}s). Rendering would drop narration or show black. ` +
@@ -339,9 +343,9 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     const endBoundary = i === plan.scenes.length - 1 ? audioDurationSec : plan.scenes[i + 1]!.start_sec
     effDurById.set(plan.scenes[i]!.id, Math.max(MIN_SCENE_DURATION_SEC, endBoundary - startBoundary))
   }
-  if (coverage.uncoveredTotalSec > 0) {
+  if (coverageIntegrity.blockingUncoveredSec > 0) {
     job.output_lines.push(
-      `Coverage: absorbed ${coverage.uncoveredTotalSec.toFixed(2)}s of micro-gaps by holding scenes to the next scene's start (video length = audio length).`,
+      `Coverage: absorbed ${coverageIntegrity.blockingUncoveredSec.toFixed(2)}s of micro-gaps by holding scenes to the next scene's start (video length = audio length).`,
     )
   }
 

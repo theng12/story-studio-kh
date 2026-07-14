@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 
 import {
   computePlanCoverage,
+  inspectScenePlanCoverage,
   repairPlanCoverage,
   COVERAGE_FAIL_SEC,
   COVERAGE_NOISE_SEC,
@@ -131,5 +132,47 @@ describe('render-gate threshold (COVERAGE_FAIL_SEC)', () => {
     assert.ok(!(atLimit.uncoveredTotalSec > COVERAGE_FAIL_SEC), '2.0s total is absorbed, not fatal')
     const overLimit = computePlanCoverage([scene('a', 0, 97.9)], 100)
     assert.ok(overLimit.uncoveredTotalSec > COVERAGE_FAIL_SEC, '2.1s total trips the gate')
+  })
+})
+
+describe('inspectScenePlanCoverage', () => {
+  test('marks internal gaps pending while exempting a branded opening', () => {
+    const result = inspectScenePlanCoverage({
+      total_duration_sec: 100,
+      opening_mode: 'branded-opening',
+      scenes: [scene('a', 15, 40), scene('b', 41.5, 70), scene('c', 72, 100)],
+    } as any)
+    assert.equal(result.authoritative, true)
+    assert.equal(result.headCovered, true)
+    assert.equal(result.complete, false)
+    assert.equal(result.blockingUncoveredSec, 3.5)
+    assert.equal(result.coverage?.internalGaps.length, 2)
+  })
+
+  test('a contiguous branded-opening plan is complete', () => {
+    const result = inspectScenePlanCoverage({
+      total_duration_sec: 100,
+      opening_mode: 'branded-opening',
+      scenes: [scene('a', 15, 55), scene('b', 55, 100)],
+    } as any)
+    assert.equal(result.complete, true)
+    assert.equal(result.blockingUncoveredSec, 0)
+  })
+
+  test('from-start plans count a missing head interval', () => {
+    const result = inspectScenePlanCoverage({
+      total_duration_sec: 100,
+      opening_mode: 'from-start',
+      scenes: [scene('a', 5, 100)],
+    } as any)
+    assert.equal(result.headCovered, false)
+    assert.equal(result.complete, false)
+    assert.equal(result.blockingUncoveredSec, 5)
+  })
+
+  test('legacy plans without duration remain backward-compatible', () => {
+    const result = inspectScenePlanCoverage({ scenes: [scene('a', 0, 10)] } as any)
+    assert.equal(result.authoritative, false)
+    assert.equal(result.complete, true)
   })
 })

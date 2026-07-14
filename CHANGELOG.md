@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.581 — 2026-07-14
+
+**Scene Plan now catches unsafe timeline gaps before Video Assembly does.**
+
+- Added render-safe timeline coverage to Scene Plan completion, so fully prompted episodes with uncovered narration return to **Pending only** instead of appearing complete.
+- Kept intentional branded-opening time valid while detecting internal and trailing gaps that would create black or frozen footage.
+- Added a prominent Scene Plan warning with the uncovered duration, gap count, and a one-click **Repair coverage now** action.
+- Unified pending detection and all local/remote assembly guards around one coverage evaluator so their completion rules cannot drift apart again.
+- Invalidated episode completion after every direct Scene Plan edit, and refreshed the pending list immediately after coverage or long-scene repair.
+- Added regression coverage for branded openings, internal gaps, from-start openings, legacy plans, pending-list detection, and repair-list refresh.
+
 ## v1.0.580 — 2026-07-14
 
 **Image previews recover instead of silently becoming blank.**
