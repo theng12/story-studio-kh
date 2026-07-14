@@ -28,6 +28,7 @@ import { getApiKey } from './app-secrets-store.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { resetChatstudioDispatcher } from '../lib/chatstudio-client.js'
 import { CHATSTUDIO_MODEL_PREFIX } from '../providers/text/chatstudio.js'
+import { isLocalTextModel } from './job-retry-policy.js'
 import type {
   ResearchOutput,
   ScenePlan,
@@ -1149,9 +1150,8 @@ export async function generatePromptsForScenes(
     neighbor_context_forward?: number
     apiKeys: { anthropic_api_key: string; openai_api_key: string; kie_api_key: string }
     slug?: string
-    /** Retries per scene on a thrown error OR an empty result. Default 2
-     *  (→ up to 3 attempts). Each attempt re-enters the pool, so a retry
-     *  picks a different endpoint after the first one failed over. */
+    /** Local-only retries per scene on a thrown error OR an empty result.
+     * Default 2 (→ up to 3 attempts). Cloud/API models always make one call. */
     max_retries?: number
     /** Cooperative cancel — polled between chunks so a user-cancelled job
      *  stops promptly instead of churning through every remaining scene. */
@@ -1163,7 +1163,10 @@ export async function generatePromptsForScenes(
   if (!targetIndices.length) return 0
   const back = Math.max(0, Math.min(10, ctx.neighbor_context_back ?? 2))
   const forward = Math.max(0, Math.min(10, ctx.neighbor_context_forward ?? 1))
-  const maxRetries = Math.max(0, ctx.max_retries ?? 2)
+  // A retry creates a second generation request. That is safe for our local
+  // Chat Studio fleet, but cloud/API models must remain one-shot so a timeout
+  // cannot silently spend again.
+  const maxRetries = isLocalTextModel(ctx.model) ? Math.max(0, ctx.max_retries ?? 2) : 0
 
   // Derive concurrency from the Chat Studio pool size when the model is local.
   // Cloud models stay sequential (no pool to spread across; cloud rate-limits
@@ -1244,10 +1247,7 @@ export async function generatePromptsForScenes(
             `Scene #${i + 1}: prompt attempt ${attempt + 1}/${maxRetries + 1} failed `
             + `(${lastErr?.message || 'unknown'}) — retrying…`,
           )
-          // Short backoff so a momentarily-down endpoint has time to wake.
-          // v1.0.497 — rate-limited free cloud tiers need MUCH longer than the
-          // 1.2s connection-blip backoff; hammering them every second just
-          // extends the limit window and fails every remaining scene.
+          // Short backoff so a momentarily-down local endpoint has time to wake.
           const rateLimited = /rate.?limit|\b429\b/i.test(String(lastErr?.message || ''))
           const backoffMs = rateLimited ? Math.min(45_000, 15_000 * (attempt + 1)) : 1200 * (attempt + 1)
           if (rateLimited) {
@@ -1476,7 +1476,7 @@ export async function generateMotionPromptsForScenes(
   },
 ): Promise<number> {
   if (!targetIndices.length) return 0
-  const maxRetries = Math.max(0, ctx.max_retries ?? 2)
+  const maxRetries = isLocalTextModel(ctx.model) ? Math.max(0, ctx.max_retries ?? 2) : 0
 
   // Same pool-derived concurrency as the visual-prompt pass.
   let concurrency = 1
@@ -1813,7 +1813,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
     // transient LLM failure (timeout, malformed JSON) used to collapse the
     // whole window into one giant filler scene.
     let winScenes: ScenePlanEntry[] = []
-    const MAX_ATTEMPTS = 2
+    const MAX_ATTEMPTS = isLocalTextModel(opts.model) ? 2 : 1
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && winScenes.length === 0; attempt++) {
       try {
         const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })

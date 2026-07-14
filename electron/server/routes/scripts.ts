@@ -179,7 +179,12 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     type: 'expand_chapters',
     episode_id,
     title: title || '',
-    params: req.body,
+    params: {
+      ...req.body,
+      // The approved outline snapshot is authoritative. Carry its model onto
+      // the queue job so retry eligibility can be proven without scheduler I/O.
+      ...(sidecar?.generation_params?.model ? { model: sidecar.generation_params.model } : {}),
+    },
   })
   res.status(201).json(job)
 })

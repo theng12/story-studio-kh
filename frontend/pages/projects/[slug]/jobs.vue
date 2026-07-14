@@ -274,7 +274,7 @@
                  combined button caused duplicate provider tasks when
                  users clicked it repeatedly to "make it work". -->
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type)"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type) && !job.auto_retry?.eligible"
               class="btn btn-xs btn-primary"
               @click="repairJobOnly(job)"
               title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
@@ -307,6 +307,14 @@
         <div class="job-meta">
           <span v-if="job.params?.model" class="meta-tag">
             <span class="meta-label">Model:</span> {{ job.params.model }}
+          </span>
+          <span
+            v-if="job.auto_retry?.eligible"
+            class="meta-tag auto-retry-tag"
+            :class="autoRetryClass(job)"
+            :title="job.auto_retry.reason"
+          >
+            {{ autoRetryLabel(job) }}
           </span>
           <span class="meta-tag">
             <span class="meta-label">Duration:</span> {{ formatJobDuration(job) }}
@@ -440,7 +448,7 @@
             <div class="job-actions">
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type)"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type) && !job.auto_retry?.eligible"
                 class="btn btn-xs btn-primary"
                 @click="repairJobOnly(job)"
                 title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
@@ -454,7 +462,7 @@
                 v-if="job.status === 'error' || job.status === 'cancelled'"
                 class="btn btn-xs btn-secondary"
                 @click="retryJob(job)"
-                title="CHARGES MAY APPLY — Re-submits a fresh generation. Use when Repair couldn't recover everything OR when the original submit truly failed."
+                :title="retryTooltip(job)"
               >
                 Retry
               </button>
@@ -465,6 +473,14 @@
           <div class="job-meta">
             <span v-if="job.params?.model" class="meta-tag">
               <span class="meta-label">Model:</span> {{ job.params.model }}
+            </span>
+            <span
+              v-if="job.auto_retry?.eligible"
+              class="meta-tag auto-retry-tag"
+              :class="autoRetryClass(job)"
+              :title="job.auto_retry.reason"
+            >
+              {{ autoRetryLabel(job) }}
             </span>
             <span class="meta-tag">
               <span class="meta-label">Duration:</span> {{ formatJobDuration(job) }}
@@ -1165,7 +1181,10 @@ function jobCanBeRepaired(jobType: string): boolean {
 // v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
 // type. image_prompts now does a smart gap-fill; image/audio/video have a free
 // Repair to click first; everything else re-runs whole.
-function retryTooltip(job: Pick<RJob, 'type' | 'params'>): string {
+function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string {
+  if (job.auto_retry?.eligible) {
+    return 'FREE LOCAL RETRY — The automatic attempts are exhausted or this run was stopped. Starts another bounded local retry cycle and keeps verified files already on disk. No paid API request is made.'
+  }
   const jobType = job.type
   if (jobType === 'image_prompts') {
     const mode = (job.params as any)?.mode
@@ -1181,6 +1200,25 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params'>): string {
     return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
   }
   return 'CHARGES MAY APPLY — Deletes this failed job and re-submits it. Re-runs the whole step (this job type has no partial/repair path).'
+}
+
+function autoRetryLabel(job: Pick<RJob, 'status' | 'auto_retry'>): string {
+  const retry = job.auto_retry
+  if (!retry?.eligible) return ''
+  const attempt = Math.max(1, retry.attempt || 1)
+  if (job.status === 'done' && attempt > 1) return `Recovered locally · attempt ${attempt}/${retry.max_attempts}`
+  if (job.status === 'error' || retry.exhausted) return `Local retries exhausted · ${attempt}/${retry.max_attempts}`
+  if (retry.next_retry_at) {
+    const seconds = Math.max(0, Math.ceil((new Date(retry.next_retry_at).getTime() - now.value) / 1000))
+    return `Local auto-retry · attempt ${attempt}/${retry.max_attempts} · next in ${seconds}s`
+  }
+  return `Local auto-retry · attempt ${attempt}/${retry.max_attempts}`
+}
+
+function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {
+  if (job.status === 'done') return 'is-recovered'
+  if (job.status === 'error' || job.auto_retry?.exhausted) return 'is-exhausted'
+  return 'is-active'
 }
 
 /**
@@ -1284,6 +1322,8 @@ async function retryJob(job: RJob) {
     'script-only':       { url: `/projects/${slug.value}/generate/script-only`,       params: job.params },
     'introduction-only': { url: `/projects/${slug.value}/generate/introduction-only`, params: job.params },
     'chapter-only':      { url: `/projects/${slug.value}/generate/chapter-only`,      params: job.params },
+    outline_only:        { url: `/projects/${slug.value}/generate/outline-only`,       params: job.params },
+    expand_chapters:     { url: `/projects/${slug.value}/generate/expand-chapters`,    params: job.params },
     // v1.0.308 — image_prompts Retry is now SMART: it routes to the dedicated
     // /generate/image-prompts route with fill_gaps=true, so the generator
     // regenerates ONLY missing prompt entries for the job's mode and merges
@@ -1696,6 +1736,25 @@ async function clearFinished() {
 }
 .meta-tag { font-size: 11px; color: var(--text-muted); }
 .meta-label { color: var(--text-muted); opacity: 0.7; }
+.auto-retry-tag {
+  padding: 2px 8px;
+  border: 1px solid rgba(240, 198, 116, 0.28);
+  border-radius: 999px;
+  background: rgba(240, 198, 116, 0.08);
+  color: var(--accent);
+  font-weight: 650;
+}
+.auto-retry-tag.is-active { border-color: rgba(240, 198, 116, 0.42); }
+.auto-retry-tag.is-recovered {
+  border-color: rgba(63, 185, 80, 0.34);
+  background: rgba(63, 185, 80, 0.1);
+  color: var(--success, #3fb950);
+}
+.auto-retry-tag.is-exhausted {
+  border-color: rgba(248, 81, 73, 0.38);
+  background: rgba(248, 81, 73, 0.09);
+  color: var(--danger, #f85149);
+}
 
 /* Account attribution row — which provider accounts this job actually used.
    Sits between the meta row and the live output so it's visible on every

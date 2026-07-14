@@ -1848,6 +1848,16 @@ export interface Job {
   finished_at: string | null
   error: string | null
   output_lines: string[]
+  /** Queue-owned retry state. Only jobs proven to use local/free compute are
+   * eligible; cloud/API jobs remain one-shot and require manual Retry. */
+  auto_retry?: {
+    eligible: boolean
+    reason: string
+    attempt: number
+    max_attempts: number
+    next_retry_at?: string
+    exhausted?: boolean
+  }
   /** Structured executor outcome. `complete: false` is a queue-enforced
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>

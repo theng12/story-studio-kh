@@ -29,6 +29,7 @@ import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.j
 import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 
 // Preset shape we expect in job.params (from the Image Prompts page's
 // usePresets snapshot { form: {...} }, unwrapped by routes/pipeline.ts).
@@ -738,12 +739,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       let completed = 0
       const collected: any[] = []
       const failed: Array<{ from: number; to: number }> = []
-      // v1.0.304 — retry a failed batch a few times before giving up. A
-      // transient endpoint blip (a Mac that slept mid-run, a Wi-Fi hiccup)
-      // used to lose the batch's scenes permanently. With the provider's
-      // pre-flight probe + the pool's failover, a retry routes to a healthy
-      // endpoint, so most "failures" recover on the next attempt.
-      const MAX_BATCH_ATTEMPTS = 3
+      // Local Chat Studio packs can safely retry across another Mac. Cloud
+      // packs are one-shot because another completion may be billable.
+      const MAX_BATCH_ATTEMPTS = isLocalTextModel(model) ? 3 : 1
       const RETRY_BACKOFF_MS = 800
 
       async function sceneWorker(workerId: number): Promise<void> {
@@ -955,11 +953,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
 
   // v1.0.304 — honest completion. The chunked path used to print "Done." even
   // when most batches failed (e.g. 30/100 scenes saved, job shown green). Now,
-  // if any batch failed every retry, we surface it as an ERROR with the exact
+  // If any batch failed its allowed attempts, surface an ERROR with the exact
   // counts — the partial scenes are already saved above (preserved, not lost),
   // so the user can re-run to fill only the gaps once the endpoint is back.
   if (failedSceneBatches.length > 0) {
-    job.output_lines.push(`Failed scene ranges after 3 attempts: ${failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')}`)
+    job.output_lines.push(`Failed scene ranges after ${isLocalTextModel(model) ? 3 : 1} attempt(s): ${failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')}`)
   }
   if (mode === 'scenes') {
     requireJobCompletion(job, {

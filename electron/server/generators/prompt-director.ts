@@ -27,6 +27,7 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan, ScenePlanEntry, VisualRecipe } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 
 interface PromptDirectorParams {
   episode_id: string
@@ -185,7 +186,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     })
 
     let parsed: ReturnType<typeof parseDirectorJson> | null = null
-    const MAX_ATTEMPTS = 2
+    const MAX_ATTEMPTS = isLocalTextModel(model) ? 2 : 1
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && !parsed; attempt++) {
       try {
         const raw = await callAi(model, system, buildUser(batch), apiKeys, false, {

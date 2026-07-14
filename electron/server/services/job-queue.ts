@@ -17,6 +17,7 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
+import { resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -557,21 +558,85 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       return
     }
 
-    // Mark running
+    // Mark running and publish the retry contract before the executor starts.
+    // The classifier is deny-by-default: an absent/unknown provider is never
+    // assumed free, so a future API-backed generator cannot silently resubmit.
+    const retryPolicy = resolveJobAutoRetryPolicy(job)
+    job.auto_retry = {
+      eligible: retryPolicy.eligible,
+      reason: retryPolicy.reason,
+      attempt: 1,
+      max_attempts: retryPolicy.max_attempts,
+    }
     job.status = 'running'
-    job.started_at = new Date().toISOString()
+    job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
 
     try {
       if (!q.executor) throw new Error(`No executor registered for job type: ${type}`)
-      // Run the executor inside a per-job AsyncLocalStorage context so any
-      // child processes spawned deep in the call tree register against this
-      // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
-      // assembly would keep running until it finished or hit an error.
-      await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
-      assertJobDidNotDeclareIncomplete(job)
+      let completed = false
+      let finalError: unknown = null
+      for (let attempt = 1; attempt <= retryPolicy.max_attempts; attempt++) {
+        job.auto_retry = {
+          eligible: retryPolicy.eligible,
+          reason: retryPolicy.reason,
+          attempt,
+          max_attempts: retryPolicy.max_attempts,
+        }
+        job.error = null
+        if (attempt > 1) {
+          // Files on disk are the durable partial result. Clear stale transient
+          // completion/progress so this attempt must perform its own audit.
+          job.result = undefined
+          job.progress = 0
+          job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${retryPolicy.max_attempts} — checking disk and repairing only missing work.`)
+          await persistJob(job)
+          emitUpdate(job)
+        }
+
+        try {
+          if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
+          // Run the executor inside a per-job AsyncLocalStorage context so any
+          // child processes spawned deep in the call tree register against this
+          // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
+          // assembly would keep running until it finished or hit an error.
+          await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+          assertJobDidNotDeclareIncomplete(job)
+          completed = true
+          break
+        } catch (error) {
+          finalError = error
+          if (cancelled.has(job.job_id)) throw error
+          if (!retryPolicy.eligible || attempt >= retryPolicy.max_attempts) break
+
+          const delayMs = retryPolicy.delays_ms[attempt - 1] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
+          const message = error instanceof Error ? error.message : String(error)
+          job.auto_retry.next_retry_at = new Date(Date.now() + delayMs).toISOString()
+          job.output_lines.push(
+            `↻ Local attempt ${attempt}/${retryPolicy.max_attempts} was incomplete: ${message}`,
+            `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; no paid API request will be made.`,
+          )
+          await persistJob(job)
+          emitUpdate(job)
+          await waitForLocalRetry(job.job_id, delayMs)
+        }
+      }
+
+      if (!completed) {
+        if (job.auto_retry?.eligible) {
+          job.auto_retry.exhausted = true
+          job.output_lines.push(`✗ Local auto-retry exhausted after ${retryPolicy.max_attempts} attempts. Verified partial files remain on disk; manual Retry starts another free recovery cycle.`)
+        } else {
+          job.output_lines.push(`ℹ Automatic retry not used: ${retryPolicy.reason}`)
+        }
+        throw finalError instanceof Error ? finalError : new Error(String(finalError || 'Job failed'))
+      }
+      if (job.auto_retry) {
+        delete job.auto_retry.next_retry_at
+        job.auto_retry.exhausted = false
+      }
       if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
         // (cancelJob may have already set status from another call context)
@@ -634,6 +699,16 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     emitUpdate(job)
   } finally {
     releaseSlot(type)
+  }
+}
+
+/** Cancellable backoff between local attempts. Keep the queue slot reserved so
+ * a struggling Mac is not flooded with more work while it recovers. */
+async function waitForLocalRetry(jobId: string, delayMs: number): Promise<void> {
+  const deadline = Date.now() + delayMs
+  while (Date.now() < deadline) {
+    if (cancelled.has(jobId)) throw new Error('Cancelled by user')
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))))
   }
 }
 

@@ -19,6 +19,7 @@ import { filterGenerated, type SimilarityCandidate } from '../services/idea-simi
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -499,7 +500,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
 
     // If filtering cost us too many, reprompt once for the shortfall with
     // the rejected titles added to the avoid list.
-    if (kept.length < wantedCount) {
+    if (kept.length < wantedCount && isLocalTextModel(body.model)) {
       const shortfall = wantedCount - kept.length
       const rejectedTitles = firstPass.rejected
         .map(r => r.candidate.title)

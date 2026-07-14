@@ -43,6 +43,7 @@
 import fs from 'fs/promises'
 import { existsSync, statSync } from 'fs'
 import path from 'path'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, sanitizeJsonControlChars } from './ai-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
@@ -1313,7 +1314,8 @@ async function callForJsonArray(
   retries = 2,
 ): Promise<any[]> {
   let lastErr = ''
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  const effectiveRetries = isLocalTextModel(model) ? retries : 0
+  for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
     if (ctx.signal?.aborted) throw new Error('Cancelled by user')
     const raw = await callAiWithRetry(model, system, user, apiKeys, false, ctx)
     let text = raw.trim()
@@ -1335,5 +1337,5 @@ async function callForJsonArray(
       lastErr = e?.message || String(e)
     }
   }
-  throw new Error(`Outline JSON parse failed after ${retries + 1} attempts: ${lastErr}`)
+  throw new Error(`Outline JSON parse failed after ${effectiveRetries + 1} attempt(s): ${lastErr}`)
 }

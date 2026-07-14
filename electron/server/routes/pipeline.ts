@@ -1180,10 +1180,10 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
           // An approved outline plus partial chapter files is recoverable.
           // Resume only missing work; rebuilding the outline could discard
           // reviewed creative decisions and spend unnecessary credits.
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] repair chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] repair chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
         } else {
           chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
         }
         continue
       }

@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.591 — 2026-07-14
+
+**Free local pipeline work now repairs transient failures automatically without risking paid API spend.**
+
+- Added two bounded automatic retries for proven-local Voice Studio subtitles and TTS, Image Studio generation, Chat Studio text work, deterministic timeline work, local assembly, and local B-Roll processing.
+- Preserves every verified partial output between attempts, so subtitle retries fill only missing chapter SRTs and generation retries skip completed items.
+- Keeps cloud, paid, free-tier API, cloud-proxied Chat Studio, YouTube, and unknown future providers manual-only through a deny-by-default policy.
+- Removed hidden cloud completion and paid Kie TTS resubmission loops; safe polling, provider-history recovery, and finished-file downloads remain resilient without creating another generation task.
+- Added live Job Queue feedback for retry countdowns, attempt numbers, recovered work, and exhausted local retries.
+- Prevents Pipeline chaining until a recovered job passes the same verified-completion audit as its original attempt.
+- Added regression coverage for partial local subtitle recovery, cloud subtitle one-shot behavior, local provider classification, and uncertain paid submission responses.
+
 ## v1.0.590 — 2026-07-14
 
 **Video Assembly is now one Scene Plan-driven workflow on this Mac or Render Studio.**

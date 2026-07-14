@@ -21,6 +21,7 @@ import { registry, resolveApiKeyForProvider, providerIdForMeta } from '../provid
 import { SUPPORTED_MODELS, LEGACY_MODEL_ALIASES } from '../models/types.js'
 import { trackFromText } from '../services/usage-tracker.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 
 export interface CallAiContext {
   /** Project slug — enables account-aware key resolution. */
@@ -148,10 +149,10 @@ export function sanitizeJsonControlChars(s: string): string {
 }
 
 /**
- * callAi with up to 3 attempts on transient connection errors (Tailscale
- * blips, Chat Studio briefly restarting, etc.).  Non-connection errors
- * (bad API key, content policy, malformed prompt) are re-thrown immediately
- * on the first attempt — no point retrying those.
+ * callAi with bounded retries for LOCAL Chat Studio inference only. Cloud and
+ * cloud-proxied models are one-shot because another completion may consume
+ * quota or create a duplicate billable request. Non-connection errors are
+ * always re-thrown immediately.
  */
 export async function callAiWithRetry(
   model: string,
@@ -162,15 +163,16 @@ export async function callAiWithRetry(
   ctx: CallAiContext = {},
   maxAttempts = 3,
 ): Promise<string> {
+  const effectiveMaxAttempts = isLocalTextModel(model) ? Math.max(1, maxAttempts) : 1
   let lastErr: unknown
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
     if (ctx.signal?.aborted) throw new Error('Aborted')
     try {
       return await callAi(model, system, userMsg, apiKeys, stream, ctx)
     } catch (e: any) {
       if (!CONNECTION_ERROR_RE.test(e?.message ?? '')) throw e
       lastErr = e
-      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, attempt * 1000))
+      if (attempt < effectiveMaxAttempts) await new Promise(r => setTimeout(r, attempt * 1000))
     }
   }
   throw lastErr

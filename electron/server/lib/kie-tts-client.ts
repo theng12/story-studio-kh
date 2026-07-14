@@ -16,11 +16,9 @@ import { redactSecrets } from './redact-secrets.js'
 const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
 const POLL_INTERVAL = 2000
 const MAX_WAIT = 5 * 60 * 1000
-// Resilience: transient network errors ("fetch failed" — dropped connection /
-// reset / TLS blip under concurrent load) and 429/5xx are retried with backoff
-// rather than failing the chunk. Without this, one blip on any of a chunk's many
-// poll requests kills the whole chunk (the batch-audio 1-2-fail-per-episode bug).
-const MAX_SUBMIT_ATTEMPTS = 4
+// Polling an existing task can retry safely. Creating a paid task cannot: a
+// dropped response may still mean the provider accepted and charged the first
+// request, so an automatic resubmit risks duplicate work and cost.
 const MAX_CONSECUTIVE_POLL_FAILURES = 6
 
 /** Exponential backoff (capped), honoring Retry-After when present. */
@@ -98,42 +96,32 @@ async function submitTask(text: string, apiKey: string, opts: KieTtsOptions): Pr
   if (!opts.voiceId) throw new Error('A voice is required for kie.ai ElevenLabs TTS.')
   const body = JSON.stringify({ model: kieModel, input: buildKieTtsInput(kieModel, text, opts) })
 
-  let lastErr: Error | null = null
-  for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
-    if (opts.isCancelled?.()) throw new Error('Cancelled by user')
-    let resp: Response
-    try {
-      resp = await fetch(`${KIE_BASE_URL}/jobs/createTask`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body,
-        signal: opts.signal ?? AbortSignal.timeout(30_000),
-      })
-    } catch (e: any) {
-      // Network-layer failure ("fetch failed") — no response, so the task almost
-      // certainly wasn't created. Safe to retry.
-      lastErr = new Error(`kie.ai createTask network error: ${e?.message || e}`)
-      if (attempt < MAX_SUBMIT_ATTEMPTS) { await sleepCancellable(backoffMs(attempt), opts.isCancelled); continue }
-      break
-    }
-    if (isRetriableStatus(resp.status)) {
-      lastErr = new Error(`kie.ai createTask ${resp.status}`)
-      if (attempt < MAX_SUBMIT_ATTEMPTS) { await sleepCancellable(backoffMs(attempt, resp), opts.isCancelled); continue }
-      break
-    }
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => '')
-      throw new Error(`kie.ai createTask ${resp.status}: ${redactSecrets(t, apiKey).slice(0, 200)}`) // 4xx — not retriable
-    }
-    const data = (await resp.json()) as any
-    if (data?.code && data.code !== 200 && data.code !== '200') {
-      throw new Error(`kie.ai createTask error: ${redactSecrets(data.msg || JSON.stringify(data), apiKey).slice(0, 200)}`)
-    }
-    const taskId = data?.data?.taskId || data?.taskId || data?.data?.task_id
-    if (!taskId) throw new Error(`kie.ai: no taskId in response: ${redactSecrets(JSON.stringify(data), apiKey).slice(0, 200)}`)
-    return String(taskId)
+  if (opts.isCancelled?.()) throw new Error('Cancelled by user')
+  let resp: Response
+  try {
+    resp = await fetch(`${KIE_BASE_URL}/jobs/createTask`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body,
+      signal: opts.signal ?? AbortSignal.timeout(30_000),
+    })
+  } catch (e: any) {
+    throw new Error(`kie.ai createTask network error: ${e?.message || e}. Automatic resubmission is disabled for paid API work; use Retry after checking provider history.`)
   }
-  throw lastErr || new Error('kie.ai createTask failed')
+  if (isRetriableStatus(resp.status)) {
+    throw new Error(`kie.ai createTask ${resp.status}. Automatic resubmission is disabled for paid API work; use Retry when ready.`)
+  }
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '')
+    throw new Error(`kie.ai createTask ${resp.status}: ${redactSecrets(t, apiKey).slice(0, 200)}`)
+  }
+  const data = (await resp.json()) as any
+  if (data?.code && data.code !== 200 && data.code !== '200') {
+    throw new Error(`kie.ai createTask error: ${redactSecrets(data.msg || JSON.stringify(data), apiKey).slice(0, 200)}`)
+  }
+  const taskId = data?.data?.taskId || data?.taskId || data?.data?.task_id
+  if (!taskId) throw new Error(`kie.ai: no taskId in response: ${redactSecrets(JSON.stringify(data), apiKey).slice(0, 200)}`)
+  return String(taskId)
 }
 
 function extractAudioUrl(taskData: any): string | null {

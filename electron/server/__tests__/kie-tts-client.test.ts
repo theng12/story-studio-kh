@@ -5,7 +5,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { kieTtsModelFor, isKieTtsModel, buildKieTtsInput } from '../lib/kie-tts-client.js'
+import { kieTtsModelFor, isKieTtsModel, buildKieTtsInput, generateTtsToUrl } from '../lib/kie-tts-client.js'
 
 describe('kieTtsModelFor', () => {
   test('maps catalog keys to kie model strings', () => {
@@ -45,5 +45,26 @@ describe('buildKieTtsInput', () => {
   test('omits undefined numeric settings (no NaN leakage)', () => {
     const input = buildKieTtsInput('elevenlabs/text-to-speech-multilingual-v2', 'x', { voiceId: 'V' })
     assert.deepEqual(Object.keys(input).sort(), ['text', 'voice'])
+  })
+})
+
+describe('paid submission safety', () => {
+  test('does not resubmit when the paid createTask response is uncertain', async (t) => {
+    const originalFetch = globalThis.fetch
+    let submissions = 0
+    globalThis.fetch = (async () => {
+      submissions++
+      throw new Error('socket closed after upload')
+    }) as typeof fetch
+    t.after(() => { globalThis.fetch = originalFetch })
+
+    await assert.rejects(
+      generateTtsToUrl('hello', 'paid-key', {
+        model: 'kie-eleven-turbo-v2.5',
+        voiceId: 'VOICE1',
+      }),
+      /Automatic resubmission is disabled/,
+    )
+    assert.equal(submissions, 1)
   })
 })

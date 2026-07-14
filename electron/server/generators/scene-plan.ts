@@ -33,6 +33,7 @@ import {
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
@@ -536,7 +537,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
           const saved = new Set<string>()
           let lastError = ''
-          for (let attempt = 1; attempt <= 3 && saved.size < pack.scene_ids.length; attempt++) {
+          const maxPackAttempts = isLocalTextModel(model) ? 3 : 1
+          for (let attempt = 1; attempt <= maxPackAttempts && saved.size < pack.scene_ids.length; attempt++) {
             const missing = pack.scene_ids.filter(id => !saved.has(id))
             const correction = attempt > 1
               ? `\n\nYour previous response was incomplete. Return JSON for ONLY these missing scene IDs: ${JSON.stringify(missing)}. Do not repeat completed IDs.`
@@ -571,7 +573,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           if (saved.size < pack.scene_ids.length) {
             const missing = pack.scene_ids.filter(id => !saved.has(id))
             throw new Error(
-              `${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length} prompts after 3 attempts (${lastError}). Missing: ${missing.join(', ')}`,
+              `${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length} prompts after ${maxPackAttempts} attempt(s) (${lastError}). Missing: ${missing.join(', ')}`,
             )
           }
           completed += saved.size

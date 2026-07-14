@@ -34,6 +34,7 @@ import {
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Character } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { isLocalTextModel } from '../services/job-retry-policy.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -1388,7 +1389,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     // requested batch without throwing. Retry the still-missing slots once in
     // the same job instead of reporting a misleading successful completion.
     let completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id)
-    if (!chaptersFilter?.length && completion.missing.length > 0) {
+    if (!chaptersFilter?.length && completion.missing.length > 0 && isLocalTextModel(params.model)) {
       job.output_lines.push(
         `Self-healing incomplete expansion: retrying missing chapters ${completion.missing.join(', ')} once…`,
       )
