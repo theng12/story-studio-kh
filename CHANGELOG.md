@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.593 — 2026-07-15
+
+**Scene and Motion Review are clearer, calmer, and much easier to navigate.**
+
+- Rebuilt both review headers with visible workflow context, stronger hierarchy, and a modern review-focused visual treatment.
+- Reorganized Scene Review into separate readiness, render-settings, and review-action zones instead of one overflowing mixed toolbar.
+- Refined scene rows, thumbnails, action alignment, progress feedback, empty states, and responsive behavior across desktop and compact windows.
+- Modernized Motion Review with clearer optional-step guidance, external-clip instructions, readiness progress, model controls, and balanced image-to-video cards.
+- Fixed Scene Review's existing back-to-top control watching the wrong dashboard container, then added the same labeled floating control to Motion Review.
+- The back-to-top control now appears after a useful scroll distance, stays clear of row actions, and returns smoothly to the workspace header.
+
 ## v1.0.592 — 2026-07-15
 
 **YouTube publishing now has a thumbnail-first review and predictable scheduling.**

@@ -1,41 +1,72 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Motion Review <span class="optional-badge">Optional</span></h1>
-    </div>
-
-    <TopActionBar
-      :project-slug="slug"
-      v-model:episode-id="episodeId"
-      filter-field="scene_review"
-      :presets="motionPresets"
-      generate-label="Generate missing clips"
-      loading-label="Queuing clips..."
-      :generate-loading="queuing || clipJobsActive"
-      :generate-disabled="!canGenerate"
-      :generate-status="generateStatus"
-      @generate="generateMissing"
-    />
-
-    <div class="motion-intro mt-2">
-      <div>
-        <strong>Optional pass 2: image to video</strong>
-        <p>Skip this page when a video should use still images. Scene timing stays locked; choosing a clip only replaces the still inside the same timestamp window.</p>
+  <div class="motion-workspace">
+    <div class="motion-hero">
+      <div class="motion-hero-copy">
+        <Breadcrumb />
+        <span class="motion-eyebrow">Optional motion pass</span>
+        <h1>Motion Review <span class="optional-badge">Optional</span></h1>
+        <p>Turn approved stills into motion clips where they add value. Every untouched scene remains a valid still image.</p>
       </div>
-      <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
+      <div class="motion-hero-route" aria-label="Review workflow">
+        <span class="is-complete">1</span><b>Plan</b><i />
+        <span class="is-complete">2</span><b>Images</b><i />
+        <span class="is-current">3</span><b>Motion</b>
+      </div>
     </div>
 
-    <div class="external-motion-note mt-2">
-      <strong>Using an external Chrome extension?</strong>
-      Generate the image-to-video result there, then use <b>Upload external MP4</b> on the matching scene below. Story Studio saves it with the correct scene ID for you. Click <b>Use clip</b> after reviewing it; otherwise assembly keeps the still. Long clips are trimmed to the planned scene window, short clips hold their final frame, and clip audio is discarded in favor of narration.
+    <div class="motion-command-bar">
+      <TopActionBar
+        :project-slug="slug"
+        v-model:episode-id="episodeId"
+        filter-field="scene_review"
+        :presets="motionPresets"
+        generate-label="Generate missing clips"
+        loading-label="Queuing clips..."
+        :generate-loading="queuing || clipJobsActive"
+        :generate-disabled="!canGenerate"
+        :generate-status="generateStatus"
+        @generate="generateMissing"
+      />
     </div>
 
-    <section v-if="stats" class="card mt-3" :class="{ 'motion-ready': stats.all_motion_reviewed }">
-      <div class="motion-summary">
+    <div class="motion-guide-grid mt-2">
+      <div class="motion-intro">
+        <span class="guide-icon">01</span>
         <div>
-          <h3>{{ stats.motion_reviewed }} / {{ stats.total_scenes }} motion decisions</h3>
-          <p class="text-muted text-sm">{{ stats.with_clip }} clips available. Every scene can use an approved clip or intentionally remain a still.</p>
+          <strong>Stills remain the safe default</strong>
+          <p>Skip motion freely. Choosing a clip only replaces its still inside the same locked timestamp window.</p>
+        </div>
+        <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
+      </div>
+
+      <div class="external-motion-note">
+        <span class="guide-icon">02</span>
+        <div>
+          <strong>Bringing clips from another tool?</strong>
+          <p>Use <b>Upload external MP4</b> on the matching scene. Long clips are trimmed, short clips hold their final frame, and narration audio stays in control.</p>
+        </div>
+      </div>
+    </div>
+
+    <section v-if="stats" class="card mt-3 motion-control-deck" :class="{ 'motion-ready': stats.all_motion_reviewed }">
+      <div class="motion-summary">
+        <div class="motion-summary-copy">
+          <span class="motion-summary-kicker">Episode readiness</span>
+          <h3>{{ stats.motion_reviewed }} of {{ stats.total_scenes }} motion decisions</h3>
+          <p>{{ stats.with_clip }} clips available · {{ stats.total_scenes - stats.motion_reviewed }} decisions remaining</p>
+        </div>
+        <div class="motion-summary-score" :class="{ ready: stats.all_motion_reviewed }">
+          <strong>{{ stats.total_scenes ? Math.round((stats.motion_reviewed / stats.total_scenes) * 100) : 0 }}%</strong>
+          <span>decided</span>
+        </div>
+      </div>
+      <div class="motion-progress" aria-hidden="true">
+        <span :style="{ width: `${stats.total_scenes ? (stats.motion_reviewed / stats.total_scenes) * 100 : 0}%` }" />
+      </div>
+      <div class="motion-tool-row">
+        <div class="motion-tool-heading">
+          <strong>Motion controls</strong>
+          <span>Pick a model, then generate or make one decision for every scene.</span>
         </div>
         <div class="motion-tools">
           <label class="model-field">
@@ -108,6 +139,19 @@
         </div>
       </li>
     </ul>
+
+    <Transition name="motion-float">
+      <button
+        v-if="showBackToTop"
+        class="back-to-top"
+        title="Back to top"
+        aria-label="Scroll to top of page"
+        @click="scrollToTop"
+      >
+        <span aria-hidden="true">↑</span>
+        Back to top
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -301,47 +345,156 @@ async function setAll(choice: 'clip' | 'still') {
 const approveAllClips = () => setAll('clip')
 const keepAllStills = () => setAll('still')
 
+const showBackToTop = ref(false)
+const SCROLL_THRESHOLD = 560
+function getScrollContainer(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  return document.querySelector('.main-content') as HTMLElement | null
+}
+function onScroll(): void {
+  const el = getScrollContainer()
+  if (el) showBackToTop.value = el.scrollTop > SCROLL_THRESHOLD
+}
+function scrollToTop(): void {
+  getScrollContainer()?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   refreshTimer = setInterval(() => { if (clipJobsActive.value) void loadReview() }, 3000)
+  const el = getScrollContainer()
+  if (el) {
+    el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+  }
 })
-onBeforeUnmount(() => { if (refreshTimer) clearInterval(refreshTimer) })
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  getScrollContainer()?.removeEventListener('scroll', onScroll)
+})
 watch(episodeId, () => { void loadReview() })
 </script>
 
 <style scoped>
-.motion-intro, .motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
-.motion-intro { justify-content: space-between; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary)); }
-.motion-intro p { margin: 4px 0 0; color: var(--text-muted); }
-.optional-badge { display: inline-block; vertical-align: middle; margin-left: 8px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 999px; color: var(--accent); font: 700 10px/1.2 var(--font-sans, sans-serif); letter-spacing: .06em; text-transform: uppercase; }
-.external-motion-note { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-tertiary); color: var(--text-muted); font-size: 13px; line-height: 1.55; }
-.external-motion-note strong { color: var(--text-primary); }
-.motion-summary { justify-content: space-between; align-items: flex-end; }
-.motion-summary h3, .motion-summary p { margin: 0; }
-.motion-tools { flex-wrap: wrap; justify-content: flex-end; }
-.model-field { min-width: 260px; }
-.model-field > span, .media-label { display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.motion-ready { border-color: #5bb37c; }
+.motion-workspace {
+  --motion-gold: #f0c66a;
+  --motion-blue: #73a8df;
+  --motion-green: #53c786;
+  --motion-ink: #101710;
+  padding-bottom: 72px;
+}
+.motion-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin: 14px 0 18px;
+  padding: 26px 30px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--motion-blue) 28%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 86% 16%, rgba(115,168,223,.2), transparent 30%),
+    linear-gradient(135deg, #17231e 0%, #16211e 45%, #1b2330 100%);
+  box-shadow: 0 18px 48px rgba(0,0,0,.18);
+}
+.motion-hero::after { content: ''; position: absolute; right: -115px; bottom: -175px; width: 250px; height: 250px; border: 1px solid rgba(115,168,223,.2); border-radius: 50%; }
+.motion-hero-copy { position: relative; z-index: 1; max-width: 760px; }
+.motion-hero :deep(.breadcrumb) { margin-bottom: 13px; opacity: .7; }
+.motion-eyebrow { display: block; margin-bottom: 5px; color: var(--motion-blue); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.motion-hero h1 { margin: 0; color: #f5f8ff; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.035em; }
+.motion-hero p { margin: 8px 0 0; max-width: 700px; color: rgba(244,247,250,.7); font-size: 14px; line-height: 1.55; }
+.optional-badge { display: inline-block; vertical-align: middle; margin-left: 8px; padding: 4px 9px; border: 1px solid rgba(115,168,223,.5); border-radius: 999px; color: var(--motion-blue); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.motion-hero-route { position: relative; z-index: 1; display: grid; grid-template-columns: 28px auto 22px 28px auto 22px 28px auto; align-items: center; gap: 7px; flex: 0 0 auto; }
+.motion-hero-route span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; color: rgba(255,255,255,.55); font-size: 11px; font-weight: 800; }
+.motion-hero-route span.is-complete { border-color: var(--motion-green); background: var(--motion-green); color: var(--motion-ink); }
+.motion-hero-route span.is-current { border-color: var(--motion-blue); color: var(--motion-blue); box-shadow: 0 0 0 4px rgba(115,168,223,.1); }
+.motion-hero-route b { color: rgba(255,255,255,.58); font-size: 11px; font-weight: 600; }
+.motion-hero-route i { height: 1px; background: rgba(255,255,255,.14); }
+
+.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin-bottom: 0; padding: 16px; border-radius: 14px; background: color-mix(in srgb, var(--bg-secondary) 92%, var(--motion-blue) 8%); box-shadow: 0 10px 30px rgba(0,0,0,.1); }
+.motion-command-bar :deep(.region-spacer) { display: none; }
+.motion-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
+.motion-command-bar :deep(.btn-primary-cta) { min-width: 180px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
+
+.motion-guide-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 12px; }
+.motion-intro, .external-motion-note { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 15px 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-secondary); }
+.motion-intro { border-color: color-mix(in srgb, var(--motion-blue) 35%, var(--border)); }
+.motion-intro > div, .external-motion-note > div { flex: 1; min-width: 0; }
+.motion-intro strong, .external-motion-note strong { color: var(--text-primary); font-size: 13px; }
+.motion-intro p, .external-motion-note p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.guide-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--motion-blue) 12%, var(--bg-tertiary)); color: var(--motion-blue); font-size: 9px; font-weight: 800; }
+
+.motion-control-deck { overflow: hidden; padding: 0; border-radius: 16px; }
+.motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
+.motion-summary { justify-content: space-between; padding: 20px 22px 16px; }
+.motion-summary-kicker { color: var(--motion-blue); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.motion-summary-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
+.motion-summary-copy p { margin: 0; color: var(--text-muted); font-size: 12px; }
+.motion-summary-score { display: grid; min-width: 82px; min-height: 58px; place-content: center; border: 1px solid color-mix(in srgb, var(--motion-blue) 42%, var(--border)); border-radius: 13px; background: color-mix(in srgb, var(--motion-blue) 9%, transparent); text-align: center; }
+.motion-summary-score strong { color: var(--motion-blue); font-size: 19px; line-height: 1; }
+.motion-summary-score span { margin-top: 4px; color: var(--text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.motion-summary-score.ready { border-color: color-mix(in srgb, var(--motion-green) 55%, var(--border)); background: color-mix(in srgb, var(--motion-green) 10%, transparent); }
+.motion-summary-score.ready strong { color: var(--motion-green); }
+.motion-progress { height: 4px; margin: 0 22px 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
+.motion-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--motion-blue), var(--motion-green)); transition: width .35s ease; }
+.motion-tool-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 17px 22px; border-top: 1px solid var(--border); }
+.motion-tool-heading { display: flex; min-width: 190px; flex-direction: column; gap: 3px; }
+.motion-tool-heading strong { font-size: 13px; }
+.motion-tool-heading span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.motion-tools { justify-content: flex-end; flex-wrap: wrap; }
+.model-field { min-width: 280px; }
+.model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.motion-ready { border-color: color-mix(in srgb, var(--motion-green) 65%, var(--border)); }
+
 .motion-grid { display: grid; gap: 14px; padding: 0; list-style: none; }
-.motion-card { padding: 14px; border: 1px solid var(--border); border-left: 4px solid #d49b45; border-radius: 12px; background: var(--bg-secondary); }
-.motion-card.choice-clip, .motion-card.choice-legacy { border-left-color: #5bb37c; }
-.motion-card.choice-still { border-left-color: #6d93c8; }
+.motion-card { display: grid; grid-template-columns: minmax(380px, .9fr) minmax(320px, 1.1fr); gap: 18px; padding: 15px; border: 1px solid var(--border); border-left: 4px solid var(--motion-gold); border-radius: 14px; background: var(--bg-secondary); box-shadow: 0 6px 22px rgba(0,0,0,.07); transition: border-color .18s ease, transform .18s ease; content-visibility: auto; contain-intrinsic-size: auto 320px; }
+.motion-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--motion-blue) 30%, var(--border)); }
+.motion-card.choice-clip, .motion-card.choice-legacy { border-left-color: var(--motion-green); }
+.motion-card.choice-still { border-left-color: var(--motion-blue); }
 .media-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.media-box img, .media-box video, .missing-media { width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #111; object-fit: contain; }
-.missing-media { display: grid; place-items: center; color: var(--text-muted); }
-.motion-copy { padding: 12px 2px 8px; }
+.media-box img, .media-box video, .missing-media { width: 100%; aspect-ratio: 16 / 9; border-radius: 9px; background: #0b0d0c; object-fit: contain; }
+.missing-media { display: grid; place-items: center; border: 1px dashed var(--border); color: var(--text-muted); font-size: 12px; }
+.motion-copy { min-width: 0; padding: 4px 2px; }
 .scene-line { flex-wrap: wrap; }
+.scene-line strong { font-size: 15px; }
 .scene-line > span { color: var(--text-muted); font-size: 12px; }
-.choice-badge { margin-left: auto; padding: 3px 8px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-primary) !important; }
-.transcript { margin: 8px 0; line-height: 1.5; }
-.motion-prompt { margin: 6px 0; color: var(--text-muted); }
-.stale-note { color: #d47b45; font-weight: 600; }
-.motion-actions { justify-content: flex-end; flex-wrap: wrap; }
-.empty-state { padding: 32px; text-align: center; color: var(--text-muted); }
-@media (max-width: 760px) {
-  .motion-intro, .motion-summary { align-items: stretch; flex-direction: column; }
-  .motion-tools { justify-content: stretch; }
-  .model-field { min-width: 100%; }
+.choice-badge { margin-left: auto; padding: 4px 9px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-primary) !important; font-weight: 650; }
+.transcript { margin: 10px 0; color: var(--text-secondary); line-height: 1.55; }
+.motion-prompt { margin: 7px 0; color: var(--text-muted); line-height: 1.5; }
+.stale-note { color: #d99558; font-weight: 650; }
+.motion-actions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.motion-actions .btn { min-height: 33px; border-radius: 8px; }
+.empty-state { padding: 42px; border-radius: 15px; text-align: center; color: var(--text-muted); }
+
+.back-to-top { position: fixed; right: 28px; bottom: 28px; z-index: 120; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px 0 11px; border: 1px solid rgba(115,168,223,.5); border-radius: 999px; background: #20282d; color: #f5f8ff; font-size: 12px; font-weight: 750; cursor: pointer; box-shadow: 0 12px 34px rgba(0,0,0,.38); transition: transform .18s ease, border-color .18s ease, background .18s ease; }
+.back-to-top span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: var(--motion-blue); color: #101722; font-size: 15px; }
+.back-to-top:hover { transform: translateY(-3px); border-color: var(--motion-blue); background: #29333a; }
+.motion-float-enter-active, .motion-float-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.motion-float-enter-from, .motion-float-leave-to { opacity: 0; transform: translateY(10px); }
+
+@media (max-width: 1220px) {
+  .motion-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
+  .motion-command-bar :deep(.generate-region) { justify-content: flex-start; }
+  .motion-card { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .motion-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
+  .motion-hero-route { display: none; }
+  .motion-guide-grid { grid-template-columns: 1fr; }
+  .motion-tool-row { align-items: stretch; flex-direction: column; }
+  .motion-tools { justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .motion-hero { border-radius: 14px; }
+  .motion-command-bar :deep(.top-action-bar) { padding: 12px; }
+  .motion-intro, .external-motion-note, .motion-summary { align-items: flex-start; flex-direction: column; }
+  .motion-summary-score, .model-field { width: 100%; min-width: 0; }
+  .motion-tools { align-items: stretch; flex-direction: column; }
   .media-pair { grid-template-columns: 1fr; }
+  .motion-actions { justify-content: stretch; }
+  .motion-actions .btn { flex: 1 1 100%; }
+  .back-to-top { right: 16px; bottom: 16px; }
 }
 </style>

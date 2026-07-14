@@ -15,31 +15,40 @@
   the browser using a stale cached PNG.
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Scene Review</h1>
+  <div class="review-workspace">
+    <div class="review-hero">
+      <div class="review-hero-copy">
+        <Breadcrumb />
+        <span class="review-eyebrow">Image quality gate</span>
+        <h1>Scene Review</h1>
+        <p>Review every planned image against its narration, repair gaps, and approve the final visual sequence before assembly.</p>
+      </div>
+      <div class="review-hero-route" aria-label="Review workflow">
+        <span class="is-complete">1</span>
+        <b>Plan</b>
+        <i />
+        <span class="is-current">2</span>
+        <b>Images</b>
+        <i />
+        <span>3</span>
+        <b>Motion</b>
+      </div>
     </div>
 
-    <TopActionBar
-      :project-slug="slug"
-      v-model:episode-id="episodeId"
-      filter-field="scene_review"
-      :presets="srPresets"
-      generate-label="Generate all missing"
-      loading-label="Queuing…"
-      :generate-loading="bulkQueuing || reviewJobActive || isRendering"
-      :generate-disabled="!canBulkGenerate"
-      :generate-status="bulkStatus"
-      @generate="generateAllMissing"
-    />
-
-    <p class="text-muted mt-1 mb-2">
-      Per-scene preview against the transcript + merged audio. Approve
-      each scene before final assembly is allowed. Greenlight unlocks
-      Video Assembly once every scene has both an image AND your
-      approval.
-    </p>
+    <div class="review-command-bar">
+      <TopActionBar
+        :project-slug="slug"
+        v-model:episode-id="episodeId"
+        filter-field="scene_review"
+        :presets="srPresets"
+        generate-label="Generate all missing"
+        loading-label="Queuing…"
+        :generate-loading="bulkQueuing || reviewJobActive || isRendering"
+        :generate-disabled="!canBulkGenerate"
+        :generate-status="bulkStatus"
+        @generate="generateAllMissing"
+      />
+    </div>
 
     <div v-if="subtitleIntegrity && !subtitleIntegrity.complete" class="sr-blocking-warning mt-2">
       <strong>Scene rendering paused: subtitle narration is incomplete.</strong>
@@ -56,18 +65,30 @@
     </div>
 
     <!-- Greenlight panel -->
-    <section v-if="stats" class="card mt-3" :class="{ 'is-greenlit': stats.all_approved }">
-      <div class="flex justify-between items-center sr-greenlight-head">
-        <div>
-          <h3 v-if="stats.all_approved">✅ Greenlit — ready for Video Assembly</h3>
-          <h3 v-else>{{ stats.approved }} / {{ stats.total_scenes }} approved
-            <span class="text-muted text-sm">
-              ({{ stats.with_image }} with images,
-              {{ stats.total_scenes - stats.with_image }} missing)
-            </span>
-          </h3>
+    <section v-if="stats" class="card mt-3 sr-control-deck" :class="{ 'is-greenlit': stats.all_approved }">
+      <div class="sr-greenlight-head">
+        <div class="sr-status-copy">
+          <span class="sr-status-kicker">Episode readiness</span>
+          <h3 v-if="stats.all_approved">Greenlit for Video Assembly</h3>
+          <h3 v-else>{{ stats.approved }} of {{ stats.total_scenes }} scenes approved</h3>
+          <p>{{ stats.with_image }} images ready · {{ stats.total_scenes - stats.with_image }} missing · {{ staleCount }} stale</p>
         </div>
-        <div class="flex gap-2 sr-toolbar">
+        <div class="sr-status-orb" :class="{ ready: stats.all_approved }">
+          <strong>{{ stats.total_scenes ? Math.round((stats.approved / stats.total_scenes) * 100) : 0 }}%</strong>
+          <span>approved</span>
+        </div>
+      </div>
+
+      <div class="sr-progress-track" aria-hidden="true">
+        <span :style="{ width: `${stats.total_scenes ? (stats.approved / stats.total_scenes) * 100 : 0}%` }" />
+      </div>
+
+      <div class="sr-control-section">
+        <div class="sr-section-heading">
+          <div><span>01</span><strong>Render settings</strong></div>
+          <small>Controls used for missing images and re-renders</small>
+        </div>
+        <div class="sr-settings-grid">
           <!-- v1.0.240 — aspect-ratio control. Scenes default to 16:9 (the video
                frame), but the box is now selectable + the thumbnails below
                re-shape live so you can see the ratio you're rendering at. -->
@@ -128,7 +149,7 @@
           <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). Was
                auto-picked silently; now you choose it. -->
           <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
-            <span class="sr-llm-label">✏️ Rewrite&nbsp;LLM</span>
+            <span class="sr-llm-label">Rewrite LLM</span>
             <select v-model="textModel" class="select sr-llm-select">
               <option value="" disabled>Pick an LLM…</option>
               <option
@@ -139,6 +160,15 @@
               >{{ m.label || m.id }}{{ (!m.available || m.disabled_reason) ? ' (unavailable)' : '' }}</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <div class="sr-control-section sr-action-section">
+        <div class="sr-section-heading">
+          <div><span>02</span><strong>Review actions</strong></div>
+          <small>Approve, select, or re-render without changing scene timing</small>
+        </div>
+        <div class="sr-actions-grid">
           <button
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
@@ -610,15 +640,18 @@
          grid gets very tall on long episodes (50+ scenes); this saves the
          scroll-grind back up. The promised button in v1.0.286 only ever landed
          on the Scene Plan page — this adds it to Scene Review too. -->
-    <button
-      v-if="showBackToTop"
-      class="back-to-top"
-      title="Back to top"
-      aria-label="Scroll to top of page"
-      @click="scrollToTop"
-    >
-      ↑
-    </button>
+    <Transition name="review-float">
+      <button
+        v-if="showBackToTop"
+        class="back-to-top"
+        title="Back to top"
+        aria-label="Scroll to top of page"
+        @click="scrollToTop"
+      >
+        <span aria-hidden="true">↑</span>
+        Back to top
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -1624,13 +1657,13 @@ async function approveAll(approved: boolean): Promise<void> {
   }
 }
 
-// v1.0.358 — back-to-top floating button. The dashboard layout scrolls
-// .page-content (not window), so we track scrollTop there. Mirrors Scene Plan.
+// The dashboard owns the scroll container, so the page must watch it rather
+// than window. Keeping this local avoids page-wide scroll listeners.
 const showBackToTop = ref(false)
-const SCROLL_THRESHOLD = 800
+const SCROLL_THRESHOLD = 560
 function getScrollContainer(): HTMLElement | null {
   if (typeof document === 'undefined') return null
-  return document.querySelector('.page-content') as HTMLElement | null
+  return document.querySelector('.main-content') as HTMLElement | null
 }
 function onScroll(): void {
   const el = getScrollContainer()
@@ -1648,7 +1681,10 @@ onMounted(() => {
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
   const el = getScrollContainer()
-  if (el) el.addEventListener('scroll', onScroll, { passive: true })
+  if (el) {
+    el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+  }
 })
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('keydown', onPreviewKey)
@@ -1659,50 +1695,178 @@ watch(episodeId, () => { void loadReview() })
 </script>
 
 <style scoped>
-/* v1.0.358 — back-to-top floating button (matches Scene Plan). Sits above the
-   dashboard's bottom chrome; only rendered once scrolled past the threshold. */
+.review-workspace {
+  --review-gold: #f0c66a;
+  --review-green: #53c786;
+  --review-ink: #101710;
+  padding-bottom: 72px;
+}
+.review-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin: 14px 0 18px;
+  padding: 26px 30px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--review-gold) 30%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 88% 15%, rgba(240, 198, 106, .18), transparent 30%),
+    linear-gradient(135deg, #17241c 0%, #132019 52%, #1e241b 100%);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+}
+.review-hero::after {
+  content: '';
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  right: -110px;
+  bottom: -170px;
+  border: 1px solid rgba(240, 198, 106, .22);
+  border-radius: 50%;
+}
+.review-hero-copy { position: relative; z-index: 1; max-width: 760px; }
+.review-hero :deep(.breadcrumb) { margin-bottom: 13px; opacity: .7; }
+.review-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--review-gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.review-hero h1 { margin: 0; color: #fff8e9; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.035em; }
+.review-hero p { margin: 8px 0 0; max-width: 700px; color: rgba(244, 247, 242, .7); font-size: 14px; line-height: 1.55; }
+.review-hero-route {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 28px auto 22px 28px auto 22px 28px auto;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+.review-hero-route span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 50%;
+  color: rgba(255,255,255,.55);
+  font-size: 11px;
+  font-weight: 800;
+}
+.review-hero-route span.is-complete { border-color: var(--review-green); background: var(--review-green); color: var(--review-ink); }
+.review-hero-route span.is-current { border-color: var(--review-gold); color: var(--review-gold); box-shadow: 0 0 0 4px rgba(240,198,106,.1); }
+.review-hero-route b { color: rgba(255,255,255,.58); font-size: 11px; font-weight: 600; }
+.review-hero-route i { height: 1px; background: rgba(255,255,255,.14); }
+
+.review-command-bar :deep(.top-action-bar) {
+  display: grid;
+  grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 0;
+  padding: 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--review-gold) 8%);
+  box-shadow: 0 10px 30px rgba(0,0,0,.1);
+}
+.review-command-bar :deep(.region-spacer) { display: none; }
+.review-command-bar :deep(.preset-region),
+.review-command-bar :deep(.episode-region),
+.review-command-bar :deep(.generate-region) { align-self: stretch; }
+.review-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
+.review-command-bar :deep(.btn-primary-cta) { min-width: 172px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
+
 .back-to-top {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 1px solid var(--border, #444);
-  background: var(--bg-secondary, #1c1c1f);
-  color: var(--text-primary, #eee);
-  font-size: 18px;
-  font-weight: 600;
+  right: 28px;
+  bottom: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px 0 11px;
+  border: 1px solid rgba(240, 198, 106, .45);
+  border-radius: 999px;
+  background: #20281f;
+  color: #fff8e9;
+  font-size: 12px;
+  font-weight: 750;
   cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  z-index: 100;
-  transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .38);
+  z-index: 120;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
+.back-to-top span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: var(--review-gold); color: var(--review-ink); font-size: 15px; }
 .back-to-top:hover {
-  background: var(--accent, #6c8fff);
-  color: #0f1117;
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  border-color: var(--review-gold);
+  background: #293329;
 }
+.review-float-enter-active, .review-float-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.review-float-enter-from, .review-float-leave-to { opacity: 0; transform: translateY(10px); }
 
-/* Constrain the image-model picker so it sits inline with the toolbar
-   buttons instead of stretching to full width. */
-.sr-model-pick { min-width: 220px; max-width: 340px; flex: 0 1 300px; }
+.sr-control-deck { overflow: hidden; padding: 0; border-radius: 16px; }
+.sr-greenlight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px 16px;
+}
+.sr-status-kicker { color: var(--review-gold); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.sr-status-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
+.sr-status-copy p { margin: 0; color: var(--text-muted); font-size: 12px; }
+.sr-status-orb {
+  display: grid;
+  min-width: 82px;
+  min-height: 58px;
+  place-content: center;
+  border: 1px solid color-mix(in srgb, var(--review-gold) 35%, var(--border));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--review-gold) 8%, transparent);
+  text-align: center;
+}
+.sr-status-orb strong { color: var(--review-gold); font-size: 19px; line-height: 1; }
+.sr-status-orb span { margin-top: 4px; color: var(--text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.sr-status-orb.ready { border-color: color-mix(in srgb, var(--review-green) 55%, var(--border)); background: color-mix(in srgb, var(--review-green) 10%, transparent); }
+.sr-status-orb.ready strong { color: var(--review-green); }
+.sr-progress-track { height: 4px; margin: 0 22px 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
+.sr-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--review-gold), var(--review-green)); transition: width .35s ease; }
+.sr-control-section { padding: 17px 22px; border-top: 1px solid var(--border); }
+.sr-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+.sr-section-heading > div { display: flex; align-items: center; gap: 9px; }
+.sr-section-heading span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--review-gold) 13%, var(--bg-tertiary)); color: var(--review-gold); font-size: 9px; font-weight: 800; }
+.sr-section-heading strong { font-size: 13px; }
+.sr-section-heading small { color: var(--text-muted); font-size: 11px; }
+.sr-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.sr-actions-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.sr-actions-grid .btn { min-height: 34px; border-radius: 8px; }
 
-/* Inline aspect-ratio picker — sits left of the model picker in the toolbar. */
-.sr-ratio-pick { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.sr-model-pick { min-width: 0; grid-column: span 2; }
+
+.sr-ratio-pick, .sr-llm-pick { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
+.sr-llm-pick { grid-column: span 2; }
 .sr-ratio-label {
-  font-size: 11px; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .07em;
 }
-.sr-ratio-select { width: auto; min-width: 150px; }
-.sr-conc-select { min-width: 64px; }
-.sr-size-select { min-width: 170px; }
-/* v1.0.262 — let the greenlight toolbar wrap instead of overflowing the panel
-   when many controls are present (Aspect + Parallel + Mode + Size + model +
-   action buttons). The header wraps the controls block below the heading, and
-   the controls block wraps its own items, on narrow widths. */
-.sr-greenlight-head { flex-wrap: wrap; gap: 12px; }
-.sr-toolbar { flex-wrap: wrap; align-items: center; row-gap: 8px; justify-content: flex-end; }
+.sr-ratio-select, .sr-conc-select, .sr-size-select, .sr-llm-select { width: 100%; min-width: 0; }
+.sr-llm-label { color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {
@@ -2066,4 +2230,49 @@ watch(episodeId, () => { void loadReview() })
 }
 
 .text-accent { color: var(--accent); }
+
+/* Refined scene ledger: clearer grouping without increasing row height. */
+.review-workspace > .card:last-of-type { border-radius: 16px; }
+.review-audio { height: 42px; border-radius: 10px; }
+.review-scene-list { gap: 9px; }
+.review-scene-row {
+  grid-template-columns: 176px minmax(0, 1fr) 132px;
+  gap: 15px;
+  padding: 11px;
+  border-radius: 11px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.06);
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.review-scene-row:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--review-gold) 30%, var(--border)); }
+.review-thumb-cell, .review-thumb, .review-thumb-empty { width: 176px; }
+.review-thumb, .review-thumb-empty { border-radius: 8px; }
+.review-row-head strong { display: inline-grid; min-width: 27px; min-height: 24px; place-items: center; border-radius: 7px; background: var(--bg-tertiary); }
+.review-transcript { margin: 7px 0; color: var(--text-secondary); }
+.review-actions-cell { gap: 6px; min-width: 132px; }
+.review-actions-cell .btn { justify-content: flex-start; min-height: 31px; border-radius: 7px; }
+
+@media (max-width: 1220px) {
+  .review-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
+  .review-command-bar :deep(.generate-region) { justify-content: flex-start; }
+  .sr-settings-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+}
+@media (max-width: 900px) {
+  .review-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
+  .review-hero-route { display: none; }
+  .review-scene-row { grid-template-columns: 150px minmax(0, 1fr); }
+  .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 150px; }
+  .review-actions-cell { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+  .review-actions-cell .btn { justify-content: center; }
+}
+@media (max-width: 640px) {
+  .review-hero { border-radius: 14px; }
+  .review-command-bar :deep(.top-action-bar) { padding: 12px; }
+  .sr-greenlight-head, .sr-section-heading { align-items: flex-start; flex-direction: column; }
+  .sr-status-orb { width: 100%; min-height: 48px; }
+  .sr-settings-grid { grid-template-columns: 1fr; }
+  .sr-model-pick, .sr-llm-pick { grid-column: auto; }
+  .review-scene-row { grid-template-columns: 1fr; }
+  .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 100%; }
+  .back-to-top { right: 16px; bottom: 16px; }
+}
 </style>
