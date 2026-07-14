@@ -9,13 +9,11 @@
  * body before assembly).
  *
  * Design choices:
- *   - One short paragraph per project, even when there are many. Long
- *     digests are skimmed, not read; trimmed lines beat exhaustive ones.
- *   - "Going live today" is highlighted at the top of each project's
- *     section because it's the most actionable info.
- *   - "Chill until X" framing for the next-scheduled gap is the
- *     gratifying part. Nudges only kick in when the queue is genuinely
- *     thin (≤ 2 future-scheduled).
+ *   - One compact section per active project. Long briefs are skimmed,
+ *     so direct operational labels beat conversational filler.
+ *   - Publishing today is shown first because it is the most time-sensitive.
+ *   - Low schedule coverage is called out without decorative emoji or
+ *     pressure-heavy language.
  */
 
 import type { DigestData, ProjectDigest } from './digest-builder.js'
@@ -48,38 +46,36 @@ function renderProjectSection(p: ProjectDigest): string {
     || p.total_uploaded > 0
   if (!hasAnyActivity) return ''
 
-  const lines: string[] = [`📺 ${p.name}`]
+  const lines: string[] = [p.name]
 
   // Today's launches — most actionable, lead with it.
   if (p.going_live_today.length > 0) {
     const items = p.going_live_today
       .map(e => `${e.episode_code} at ${formatTimeOfDay(e.scheduled_for)}`)
       .join(', ')
-    lines.push(`  · 🚀 Going live today: ${items}`)
+    lines.push(`  Publishing today: ${items}`)
   }
 
-  // Forward-looking queue summary. "Chill until …" is the gratifying
-  // framing — tells you when you can take a breath.
+  // Forward-looking schedule summary includes both the next release and
+  // coverage horizon without repeating the same date on another line.
   if (p.total_scheduled_future > 0) {
-    const parts: string[] = [`${p.total_scheduled_future} scheduled`]
+    const parts: string[] = [`${p.total_scheduled_future} future upload(s)`]
     if (p.next_scheduled) parts.push(`next ${formatDateOnly(p.next_scheduled.scheduled_for)}`)
-    if (p.last_scheduled && p.last_scheduled.episode_code !== p.next_scheduled?.episode_code) {
-      parts.push(`last ${formatDateOnly(p.last_scheduled.scheduled_for)}`)
-    }
-    lines.push(`  · 📅 ${parts.join(' · ')}`)
     if (p.last_scheduled) {
-      lines.push(`  · 🏖 Queue runs through ${formatDateOnly(p.last_scheduled.scheduled_for)} — chill until then`)
+      parts.push(`coverage through ${formatDateOnly(p.last_scheduled.scheduled_for)}`)
     }
+    lines.push(`  Schedule: ${parts.join(' · ')}`)
   }
 
   // Backlog cue — only worth surfacing when there's work to do.
   if (p.total_not_uploaded > 0) {
-    lines.push(`  · 📦 ${p.total_not_uploaded} accepted episode(s) not yet uploaded`)
+    lines.push(`  Awaiting upload: ${p.total_not_uploaded} accepted episode(s)`)
   }
 
-  // Nudge: queue thin / empty — useful prod prompt.
+  // A factual coverage warning is useful without turning the brief into a
+  // productivity nudge. Zero is intentionally included.
   if (p.total_scheduled_future <= 2) {
-    lines.push(`  · ⚠️ Queue is thin (${p.total_scheduled_future} scheduled) — time to make more videos`)
+    lines.push(`  Schedule low: ${p.total_scheduled_future} future upload(s) remain`)
   }
 
   return lines.join('\n')
@@ -92,18 +88,18 @@ export function formatDigestMessage(data: DigestData): NotificationPayload {
     if (s) sections.push(s)
   }
 
-  // Top-line summary across all projects. When everything is dormant,
-  // we still emit a polite "all quiet" message rather than nothing.
+  // Top-line summary across all projects. When everything is dormant, the
+  // message stays neutral and does not manufacture an action item.
   const totalsLine = sections.length === 0
-    ? `Nothing scheduled across your projects. Time to plan the next batch.`
-    : `📊 Across all projects: ${data.totals.going_live_today} going live today · ${data.totals.scheduled_future} scheduled · ${data.totals.not_uploaded} not uploaded`
+    ? 'Nothing is scheduled across your projects.'
+    : `Across all projects: ${data.totals.going_live_today} publishing today · ${data.totals.scheduled_future} scheduled · ${data.totals.not_uploaded} awaiting upload`
 
   const body = sections.length > 0
     ? `${sections.join('\n\n')}\n\n${totalsLine}`
     : totalsLine
 
   return {
-    title: `Daily digest — ${data.local_today_label}`,
+    title: `Daily production brief — ${data.local_today_label}`,
     body,
   }
 }

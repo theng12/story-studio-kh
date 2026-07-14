@@ -43,8 +43,7 @@ export interface ProjectDigest {
   total_uploaded: number
   /** Earliest future scheduled episode — the next thing going live. */
   next_scheduled?: DigestEpisode
-  /** Latest future scheduled episode — the end of the queue.
-   *  Useful for "you can chill until X" framing. */
+  /** Latest future scheduled episode — the current schedule coverage horizon. */
   last_scheduled?: DigestEpisode
 }
 

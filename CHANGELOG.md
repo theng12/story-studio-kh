@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.586 — 2026-07-14
+
+**Notifications is now a compact control center with clearer setup and safer saving.**
+
+- Added an at-a-glance readiness summary for Desktop alerts, Telegram, and the daily production brief.
+- Replaced the long Telegram walkthrough with a three-step setup that masks the bot token, detects the user's chat, and verifies delivery with a test message.
+- Reworked notification events into clear selectable cards for failures, completed pipeline runs, and long standalone jobs, with the long-job threshold beside its explanation.
+- Added an explicit save and revert bar so rapid changes cannot race overlapping requests or restore older notification values.
+- Modernized the daily production brief controls with destination readiness, local delivery time, quiet-day handling, last-delivered status, preview, and send-now actions.
+- Rewrote daily brief messages to emphasize publishing, schedule coverage, and upload backlog without chatty filler or excessive emoji.
+- Added responsive layouts and regression coverage for the modern notification workflow and production-brief wording.
+
 ## v1.0.585 — 2026-07-14
 
 **Performance and Storage are now compact control centers instead of long technical forms.**

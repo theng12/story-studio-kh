@@ -55,4 +55,16 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /Legacy video assembly presets/)
     assert.doesNotMatch(settingsSource, /legacy-video-assembly-presets/)
   })
+
+  test('Notifications stages changes and guides setup through modern channel controls', () => {
+    assert.match(settingsSource, /Notification center/)
+    assert.match(settingsSource, /notification-status-grid/)
+    assert.match(settingsSource, /Set up Telegram/)
+    assert.match(settingsSource, /:type="showTelegramToken \? 'text' : 'password'"/)
+    assert.match(settingsSource, /Daily production brief/)
+    assert.match(settingsSource, /notificationsDirty/)
+    assert.match(settingsSource, /Save notifications/)
+    assert.doesNotMatch(settingsSource, /@change="saveNotifSettings"/)
+    assert.doesNotMatch(settingsSource, /Saved automatically/)
+  })
 })

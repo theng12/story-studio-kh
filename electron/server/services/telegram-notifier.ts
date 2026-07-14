@@ -101,7 +101,7 @@ export async function sendTelegramTestMessage(
   botToken: string,
   chatId: string,
 ): Promise<TelegramSendResult> {
-  const text = `<b>Story Studio KH</b>\nNotifications connected. ${new Date().toLocaleString()}`
+  const text = `<b>Story Studio KH</b>\nTelegram alerts are connected. Test sent ${new Date().toLocaleString()}.`
   return sendTelegramMessage(botToken, chatId, text, { parseMode: 'HTML' })
 }
 
