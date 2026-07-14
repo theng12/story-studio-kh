@@ -34,6 +34,8 @@ export interface ExpectedChunk {
   fullPath: string        // absolute path where it should live
   text: string            // exact input sent to TTS (used for history match)
   sectionLabel: string
+  sectionWordCount: number
+  sectionCharacterCount: number
   chunkIndex: number      // 0-based index within the section
   totalChunks: number     // how many chunks this section splits into
 }
@@ -63,6 +65,15 @@ export interface ReconcileResult {
   still_missing: number
   outcomes: ReconcileOutcome[]
   logs: string[]
+}
+
+/** Counts the normalized text that will actually be submitted to TTS. */
+export function narrationTextStats(text: string): { wordCount: number; characterCount: number } {
+  const normalized = text.trim()
+  return {
+    wordCount: normalized ? normalized.split(/\s+/u).length : 0,
+    characterCount: normalized.length,
+  }
 }
 
 /**
@@ -123,6 +134,7 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     // so chunk boundaries — and thus the predicted filenames + per-chunk text
     // used for recovery matching — match what the generator actually produced.
     const sectionText = normalizeForTts(section.text).text
+    const sectionStats = narrationTextStats(sectionText)
     const chunks = chunkText(sectionText, ttsChunkCap)
 
     // v1.0.310 — imported / hand-placed whole-chapter override. If the
@@ -145,6 +157,8 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
           fullPath: path.join(audioDir, base),
           text: sectionText,
           sectionLabel: section.label,
+          sectionWordCount: sectionStats.wordCount,
+          sectionCharacterCount: sectionStats.characterCount,
           chunkIndex: 0,
           totalChunks: 1,
         })
@@ -161,6 +175,8 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
         fullPath: path.join(audioDir, filename),
         text: chunks[i],
         sectionLabel: section.label,
+        sectionWordCount: sectionStats.wordCount,
+        sectionCharacterCount: sectionStats.characterCount,
         chunkIndex: i,
         totalChunks: chunks.length,
       })

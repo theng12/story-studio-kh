@@ -61,7 +61,13 @@
             :title="!allowDuplicates && runtimeStatus(s) === 'generated' ? 'Already generated — enable duplicate override below to regenerate' : ''"
           />
           <span class="cs-name">{{ prettyLabel(s.label) }}</span>
-          <span class="cs-meta">{{ s.present_chunks }}/{{ s.total_chunks }} chunks</span>
+          <span
+            class="cs-meta"
+            title="Narration characters include spaces and reflect the text prepared for TTS."
+          >
+            {{ formatCount(s.word_count) }} words · {{ formatCount(s.character_count) }} chars ·
+            {{ s.present_chunks }}/{{ s.total_chunks }} chunks
+          </span>
           <span class="cs-pill" :class="`pill-${runtimeStatus(s)}`">
             {{ statusText(runtimeStatus(s)) }}
           </span>
@@ -100,6 +106,8 @@ interface SectionRow {
   slug: string
   total_chunks: number
   present_chunks: number
+  word_count: number
+  character_count: number
   status: 'not_generated' | 'partial' | 'generated'
   // Per-chapter refactor: true when the chapter source docx (or intro
   // docx) is newer than every existing audio chunk for this section.
@@ -240,6 +248,10 @@ function prettyLabel(label: string): string {
   return (label || '').trim()
 }
 
+function formatCount(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString() : '0'
+}
+
 const effectiveSelected = computed(() => {
   const want = sections.value.filter(s => selectedSet.value.has(s.slug))
   if (allowDuplicatesLocal.value) return want.map(s => s.slug)
@@ -369,6 +381,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .cs-pill {

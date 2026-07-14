@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.584 — 2026-07-14
+
+**Audio Generator now shows the narration size of every section before generation.**
+
+- Added per-section word and character counts beside the existing audio chunk status for Introductions and Chapters.
+- Counts use the normalized narration text prepared for TTS, with characters including spaces for a useful provider-cost signal.
+- Multi-chunk chapters retain one chapter-level total instead of multiplying the count by the number of chunks.
+- Added regression coverage for trimmed, multiline, and empty narration text.
+
 ## v1.0.583 — 2026-07-14
 
 **Settings now shows only the three active continuity-era video formats.**

@@ -461,6 +461,8 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       slug: string
       total_chunks: number
       present_chunks: number
+      word_count: number
+      character_count: number
     }>()
     for (const ec of status.expected) {
       // Derive slug from the filename — section.slug maps 1:1 to the prefix
@@ -469,7 +471,14 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       // naming, so re-deriving here keeps us in lockstep.
       const base = ec.filename.replace(/\.mp3$/, '')
       const slug = base.replace(/_part\d+$/, '').replace(new RegExp(`^${req.params.code}_`, 'i'), '')
-      const entry = bySlug.get(slug) || { label: ec.sectionLabel, slug, total_chunks: 0, present_chunks: 0 }
+      const entry = bySlug.get(slug) || {
+        label: ec.sectionLabel,
+        slug,
+        total_chunks: 0,
+        present_chunks: 0,
+        word_count: ec.sectionWordCount,
+        character_count: ec.sectionCharacterCount,
+      }
       entry.total_chunks += 1
       if (status.present.includes(ec.filename)) entry.present_chunks += 1
       bySlug.set(slug, entry)
