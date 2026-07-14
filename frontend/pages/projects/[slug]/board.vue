@@ -251,7 +251,15 @@ const slug = computed(() => route.params.slug as string)
 const { get, patch } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 
-const { episodes, isLoading: loading, isRevalidating, refresh, revalidate } = useEpisodes(slug)
+const {
+  episodes,
+  isLoading: loading,
+  isRevalidating,
+  refresh,
+  revalidate,
+  revalidateAfterMutation,
+  updateEpisode,
+} = useEpisodes(slug)
 const { jobs } = useJobs()
 
 // Cell-click mode. 'open' (default) = navigate to the step page; 'mark' =
@@ -389,6 +397,7 @@ function cellClass(ep: any, col: BoardCol): Record<string, boolean> {
   }
 }
 function cellMark(ep: any, col: BoardCol): string {
+  if (cellBusy(ep, col)) return '…'
   return ep.status?.[col.field] === true ? '✓' : '○'
 }
 function cellTitle(ep: any, col: BoardCol): string {
@@ -454,16 +463,44 @@ async function markCell(ep: any, col: BoardCol) {
   else next[field] = true
 
   busyCell.value = `${ep.episode_code}:${field}`
+  let savedOnServer = false
   try {
-    await patch(`/projects/${slug.value}/episodes/${ep.episode_code}/status-overrides`, {
+    const result = await patch<{
+      ok: boolean
+      episode_code: string
+      status_overrides: Record<string, boolean> | null
+    }>(`/projects/${slug.value}/episodes/${ep.episode_code}/status-overrides`, {
       overrides: Object.keys(next).length ? next : null,
     })
-    await revalidate() // backend invalidated just this episode's status cache
+    const saved = result.status_overrides || {}
+    const savedManual = typeof saved[field] === 'boolean'
+    if ((!manual && saved[field] !== true) || (manual && savedManual)) {
+      throw new Error(`${col.label} was not confirmed by the saved episode status.`)
+    }
+    savedOnServer = true
+    updateEpisode(ep.episode_code, currentEp => ({
+      ...currentEp,
+      status_overrides: Object.keys(saved).length ? saved : null,
+      status: {
+        ...currentEp.status,
+        [field]: manual ? currentEp.status[field] : true,
+      },
+    }))
+    const list = await revalidateAfterMutation()
+    const confirmed = list.find(row => row.episode_code === ep.episode_code)
+    const confirmedOverrides = confirmed?.status_overrides || {}
+    if (!confirmed
+      || (!manual && (confirmedOverrides as Record<string, boolean>)[field] !== true)
+      || (manual && typeof (confirmedOverrides as Record<string, boolean>)[field] === 'boolean')) {
+      throw new Error(`${col.label} was saved but the refreshed episode status did not confirm it.`)
+    }
     success(manual
       ? `${col.label} → auto-detect for ${ep.episode_code}`
-      : `${col.label} marked done for ${ep.episode_code}`)
+      : `${col.label} marked done for ${ep.episode_code} — board refreshed`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || `Could not update ${col.label} for ${ep.episode_code}`)
+    showError(savedOnServer
+      ? `${col.label} was saved for ${ep.episode_code}, but the refreshed board status could not be confirmed. Click Refresh to verify it.`
+      : (e?.data?.detail || e?.message || `Could not update ${col.label} for ${ep.episode_code}`))
   } finally {
     busyCell.value = ''
   }

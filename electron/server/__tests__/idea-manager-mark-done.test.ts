@@ -110,6 +110,27 @@ describe('idea-manager mark-done + overrides', () => {
       'only valid (key, boolean) pairs survive sanitization')
   })
 
+  test('setEpisodeStatusOverrides: accepts every current optional workflow step', async () => {
+    const updated = await im.setEpisodeStatusOverrides(SLUG, 'EP0001', {
+      research: true,
+      subtitles: true,
+      character_sheet: true,
+      broll_picked: true,
+      scene_plan: true,
+      scene_review: true,
+      motion_review: true,
+    })
+    assert.deepEqual(updated?.status_overrides, {
+      research: true,
+      subtitles: true,
+      character_sheet: true,
+      broll_picked: true,
+      scene_plan: true,
+      scene_review: true,
+      motion_review: true,
+    })
+  })
+
   test('setEpisodeStatusOverrides: null clears the field', async () => {
     await im.setEpisodeStatusOverrides(SLUG, 'EP0001', { audio: true })
     const cleared = await im.setEpisodeStatusOverrides(SLUG, 'EP0001', null)

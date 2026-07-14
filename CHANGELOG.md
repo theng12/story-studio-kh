@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.589 — 2026-07-14
+
+**Manual step completion now updates immediately and proves the saved state.**
+
+- Added visible Updating feedback while a step chip or Production Board cell is being marked done.
+- Updates the shared episode status immediately, then performs a mutation-safe refresh so the step count, pending list, selector, and Production Board stay in sync.
+- Prevents an older in-flight episode request from overwriting a newly saved manual completion.
+- Keeps the selected episode visible in Pending only long enough to show the completed chip and refreshed count.
+- Validates the backend response and refreshed episode before showing success instead of treating a completed request as proof that the override persisted.
+- Added manual completion support for current optional steps including Research, Subtitles, Character Sheet, Scene Plan, Scene Review, Motion Review, and B-Roll selection.
+- Added regression coverage for stale-request races and the complete current override allowlist.
+
 ## v1.0.588 — 2026-07-14
 
 **Video generation and final assembly now use the Studio fleet.**

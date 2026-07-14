@@ -155,4 +155,40 @@ describe('useEpisodes', () => {
     assert.equal(m2.captured.episodes.value[0].episode_code, 'EP002')
     m2.app.unmount()
   })
+
+  test('mutation refresh bypasses an older request and stale response cannot undo feedback', async () => {
+    fetchHandler = () => [fakeRow('EP001', false)]
+    const m = mountWithComposable('alpha')
+    await nextTick(); await new Promise(r => setTimeout(r, 0)); await nextTick()
+
+    let resolveStale!: (rows: any[]) => void
+    let resolveFresh!: (rows: any[]) => void
+    const stale = new Promise<any[]>(resolve => { resolveStale = resolve })
+    const fresh = new Promise<any[]>(resolve => { resolveFresh = resolve })
+    let call = 0
+    fetchHandler = () => call++ === 0 ? stale : fresh
+
+    const staleRequest = m.captured.revalidate()
+    m.captured.updateEpisode('EP001', ep => ({
+      ...ep,
+      status_overrides: { script: true },
+      status: { ...ep.status, script: true },
+    }))
+    const mutationRequest = m.captured.revalidateAfterMutation()
+
+    resolveStale([fakeRow('EP001', false)])
+    await staleRequest
+    assert.equal(m.captured.episodes.value[0].status.script, true,
+      'older response cannot erase immediate mutation feedback')
+
+    const confirmed = fakeRow('EP001', true)
+    confirmed.status_overrides = { script: true }
+    resolveFresh([confirmed])
+    await mutationRequest
+    assert.equal(fetchCalls.length >= 2, true, 'mutation starts a distinct request')
+    assert.match(fetchCalls.at(-1) || '', /mutation=/)
+    assert.equal(m.captured.episodes.value[0].status.script, true)
+    assert.deepEqual(m.captured.episodes.value[0].status_overrides, { script: true })
+    m.app.unmount()
+  })
 })

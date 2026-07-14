@@ -277,8 +277,10 @@ export async function setEpisodeStatusOverrides(
   // Sanitize the input — only known EpisodeStatus keys survive. Keeps the
   // on-disk shape clean even if a future field is removed from the type.
   const VALID_KEYS = new Set([
-    'script', 'introduction', 'scene_prompts', 'thumb_prompts', 'metadata',
-    'images', 'thumbnails', 'audio', 'merged_audio', 'video', 'video_assembly',
+    'research', 'script', 'introduction', 'scene_prompts', 'thumb_prompts',
+    'metadata', 'images', 'thumbnails', 'audio', 'merged_audio', 'subtitles',
+    'character_sheet', 'broll_picked', 'scene_plan', 'scene_review',
+    'motion_review', 'video', 'video_assembly',
   ])
   return mutateStore(slug, (store) => {
     const idea = store.ideas.find(i => (i.episode_code || '').toUpperCase() === CODE)

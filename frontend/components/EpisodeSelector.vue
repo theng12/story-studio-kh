@@ -103,7 +103,10 @@
           </button>
         </div>
         <div class="step-chips-hint">
-          <template v-if="selectedEp.marked_done === true">
+          <template v-if="togglingStep">
+            Updating {{ togglingStepLabel }}… the step count and pending list will refresh together.
+          </template>
+          <template v-else-if="selectedEp.marked_done === true">
             This episode is marked done — every step is forced ✓. Undo from the Ideas page.
           </template>
           <template v-else>
@@ -133,7 +136,15 @@ const emit = defineEmits<{
 // concurrent fetches. Manual refresh + job-completion auto-refresh both
 // flow through the composable.
 const slugRef = computed(() => props.projectSlug)
-const { episodes, isLoading: loading, isRevalidating, refresh, revalidate, rescan } = useEpisodes(slugRef)
+const {
+  episodes,
+  isLoading: loading,
+  isRevalidating,
+  refresh,
+  revalidateAfterMutation,
+  rescan,
+  updateEpisode,
+} = useEpisodes(slugRef)
 const showAll = ref(false)
 
 // v1.0.341 — preselect from ?episode_id= in the URL. The Production Board
@@ -194,6 +205,8 @@ const STEP_CHIPS: StepChip[] = [
 
 const stepsExpanded = ref(false)
 const togglingStep = ref('')
+const togglingStepLabel = computed(() =>
+  STEP_CHIPS.find(chip => chip.field === togglingStep.value)?.label || 'step')
 
 function overrideFor(field: string): boolean | undefined {
   const o = selectedEp.value?.status_overrides
@@ -227,6 +240,7 @@ function chipClass(field: string): Record<string, boolean> {
   }
 }
 function chipMark(field: string): string {
+  if (togglingStep.value === field) return '…'
   return selectedEp.value?.status?.[field] === true ? '✓' : '○'
 }
 function chipTitle(chip: StepChip): string {
@@ -263,18 +277,51 @@ async function onChipClick(chip: StepChip) {
   else next[field] = true
 
   togglingStep.value = field
+  let savedOnServer = false
   try {
-    await patch(`/projects/${props.projectSlug}/episodes/${ep.episode_code}/status-overrides`, {
+    const result = await patch<{
+      ok: boolean
+      episode_code: string
+      status_overrides: Record<string, boolean> | null
+    }>(`/projects/${props.projectSlug}/episodes/${ep.episode_code}/status-overrides`, {
       overrides: Object.keys(next).length ? next : null,
     })
-    // Backend surgically invalidated this episode's status cache — a plain
-    // revalidate picks it up without forcing a full-project recompute.
-    await revalidate()
+
+    const saved = result.status_overrides || {}
+    const savedManual = typeof saved[field] === 'boolean'
+    if ((!manual && saved[field] !== true) || (manual && savedManual)) {
+      throw new Error(`${chip.label} was not confirmed by the saved episode status.`)
+    }
+    savedOnServer = true
+
+    // Give immediate feedback in every mounted selector/board while the
+    // authoritative status is recomputed. Keep the selected completed row
+    // visible in Pending-only long enough for the user to see the result.
+    updateEpisode(ep.episode_code, currentEp => ({
+      ...currentEp,
+      status_overrides: Object.keys(saved).length ? saved : null,
+      status: {
+        ...currentEp.status,
+        [field]: manual ? currentEp.status[field] : true,
+      },
+    }))
+
+    const list = await revalidateAfterMutation()
+    const confirmed = list.find(row => row.episode_code === ep.episode_code)
+    const confirmedOverrides = confirmed?.status_overrides || {}
+    if (!confirmed
+      || (!manual && (confirmedOverrides as Record<string, boolean>)[field] !== true)
+      || (manual && typeof (confirmedOverrides as Record<string, boolean>)[field] === 'boolean')) {
+      throw new Error(`${chip.label} was saved but the refreshed episode status did not confirm it.`)
+    }
+    emit('episode-selected', confirmed)
     success(manual
       ? `${chip.label} returned to auto-detect for ${ep.episode_code}`
-      : `${chip.label} marked done for ${ep.episode_code}`)
+      : `${chip.label} marked done for ${ep.episode_code} — status refreshed`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || `Could not update ${chip.label} for ${ep.episode_code}`)
+    showError(savedOnServer
+      ? `${chip.label} was saved for ${ep.episode_code}, but the refreshed status could not be confirmed. Click Refresh to verify it.`
+      : (e?.data?.detail || e?.message || `Could not update ${chip.label} for ${ep.episode_code}`))
   } finally {
     togglingStep.value = ''
   }
@@ -314,7 +361,7 @@ const filteredEpisodes = computed(() => {
   let list = episodes.value
   if (!showAll.value && props.filterField) {
     const field = props.filterField
-    list = list.filter(ep => !ep.status[field])
+    list = list.filter(ep => !ep.status[field] || ep.episode_code === props.modelValue)
   }
   // v1.0.92+ — apply search after the pending/all filter so the count
   // badge "N of M shown" reflects what the user is actually scanning,

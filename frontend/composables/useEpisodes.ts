@@ -91,6 +91,8 @@ interface SharedSlot {
   refCount: number
   /** In-flight fetch promise (shared by concurrent callers). */
   inflight: Promise<EpisodeRow[]> | null
+  /** Monotonic request id so an older response cannot overwrite a mutation refresh. */
+  requestSeq: number
 }
 
 const TTL_MS = 5 * 60 * 1000  // 5 minutes — past this, treat as cold
@@ -108,6 +110,7 @@ function getOrCreateSlot(slug: string): SharedSlot {
       fetchedAt: ref(0),
       refCount: 0,
       inflight: null,
+      requestSeq: 0,
     }
     slots.set(slug, slot)
   }
@@ -163,32 +166,42 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     return getOrCreateSlot(slugRef.value)
   }
 
-  async function fetchOnce(force: boolean | 'rescan'): Promise<EpisodeRow[]> {
+  async function fetchOnce(force: boolean | 'rescan' | 'mutation'): Promise<EpisodeRow[]> {
     const slot = currentSlot()
     if (slot.inflight && !force) return slot.inflight
 
     const path = force === 'rescan'
       ? `/projects/${slugRef.value}/episodes?rescan=1`
+      : force === 'mutation'
+        ? `/projects/${slugRef.value}/episodes?mutation=${Date.now()}`
       : force
         ? `/projects/${slugRef.value}/episodes?refresh=1`
         : `/projects/${slugRef.value}/episodes`
+    const requestId = ++slot.requestSeq
 
     const promise = (async () => {
       try {
         const list = await get<EpisodeRow[]>(path)
-        slot.data.value = list || []
-        slot.fetchedAt.value = Date.now()
-        slot.error.value = null
-        return slot.data.value
+        // A mutation refresh deliberately bypasses an older in-flight read.
+        // Only the newest request may publish data, otherwise the older response
+        // can make a successfully toggled step look pending again.
+        if (requestId === slot.requestSeq) {
+          slot.data.value = list || []
+          slot.fetchedAt.value = Date.now()
+          slot.error.value = null
+        }
+        return list || []
       } catch (e) {
-        slot.error.value = e
+        if (requestId === slot.requestSeq) slot.error.value = e
         // Don't blank existing data on transient failures — caller can read
         // .error to surface it without losing the previously-loaded list.
         throw e
       } finally {
         if (slot.inflight === promise) slot.inflight = null
-        slot.isLoading.value = false
-        slot.isRevalidating.value = false
+        if (requestId === slot.requestSeq) {
+          slot.isLoading.value = false
+          slot.isRevalidating.value = false
+        }
       }
     })()
     slot.inflight = promise
@@ -231,6 +244,31 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     const slot = currentSlot()
     slot.isRevalidating.value = true
     try { await fetchOnce(false) } catch { /* error stored */ }
+  }
+
+  /**
+   * Re-read after a successful single-episode mutation. This must not join an
+   * older in-flight request that started before the mutation was saved.
+   */
+  async function revalidateAfterMutation(): Promise<EpisodeRow[]> {
+    const slot = currentSlot()
+    slot.isRevalidating.value = true
+    return await fetchOnce('mutation')
+  }
+
+  /** Publish a confirmed mutation immediately to every mounted selector/board. */
+  function updateEpisode(
+    episodeCode: string,
+    updater: (episode: EpisodeRow) => EpisodeRow,
+  ): EpisodeRow | null {
+    const slot = currentSlot()
+    const index = slot.data.value.findIndex(ep => ep.episode_code === episodeCode)
+    if (index < 0) return null
+    const updated = updater(slot.data.value[index])
+    const next = slot.data.value.slice()
+    next[index] = updated
+    slot.data.value = next
+    return updated
   }
 
   /**
@@ -311,7 +349,9 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     }),
     refresh,
     revalidate,
+    revalidateAfterMutation,
     rescan,
     invalidate,
+    updateEpisode,
   }
 }
