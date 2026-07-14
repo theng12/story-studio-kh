@@ -130,7 +130,7 @@ describe('findActivePreset — script-only / introduction-only', () => {
   })
 })
 
-describe('findActivePreset — split prompt and image preset pools', () => {
+describe('findActivePreset — thumbnail-only prompt and image preset pools', () => {
   test('image_prompts resolves from the thumbnail prompt pool', () => {
     const config = {
       thumbnail_prompts_presets: [{ id: 'tp1', name: 'Thumbnail prompt preset' }],
@@ -138,15 +138,6 @@ describe('findActivePreset — split prompt and image preset pools', () => {
     }
     const r = findActivePreset(config, 'image_prompts')
     assert.equal(r.preset?.id, 'tp1')
-  })
-
-  test('scene_prompts resolves from the scene prompt pool', () => {
-    const config = {
-      scene_prompts_presets: [{ id: 'sp1', name: 'Scene prompt preset' }],
-      scene_prompts_last_preset: 'sp1',
-    }
-    const r = findActivePreset(config, 'scene_prompts')
-    assert.equal(r.preset?.id, 'sp1')
   })
 
   test('image_prompts does not fall back to the scene prompt pool', () => {
@@ -193,15 +184,4 @@ describe('findActivePreset — split prompt and image preset pools', () => {
     assert.equal(r.preset?.id, 'tg1')
   })
 
-  test('scene_images resolves from scene_generator presets only', () => {
-    const config = {
-      thumbnail_generator_presets: [{ id: 'tg1', name: 'Thumb render preset' }],
-      scene_generator_presets: [{ id: 'sg1', name: 'Scene render preset' }],
-      image_generator_presets: [{ id: 'ig1', name: 'Legacy render preset' }],
-      scene_generator_last_preset: 'sg1',
-      image_generator_last_preset: 'ig1',
-    }
-    const r = findActivePreset(config, 'scene_images')
-    assert.equal(r.preset?.id, 'sg1')
-  })
 })

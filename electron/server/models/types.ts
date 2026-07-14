@@ -589,7 +589,7 @@ export interface Format {
    *     Sheet page. Research is available too (optional — handy when the
    *     niche is factual).
    */
-  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
 
   /**
    * v1.0.280+ (format-niche refactor, Phase A) — top-level presentation switch

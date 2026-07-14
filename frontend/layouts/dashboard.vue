@@ -83,41 +83,11 @@
         >
           <span class="nav-icon">&#128173;</span> Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
         </NuxtLink>
-        <!-- Scene Prompts hidden for B-Roll-driven formats (prayer /
-             devotional / narration-over-stock). Those formats render
-             video from the B-Roll pool instead of per-scene AI stills,
-             so this generator is irrelevant. -->
-        <NuxtLink
-          v-if="!hidesScenePages"
-          :to="`/projects/${slug}/image-prompts?tab=scenes`"
-          :class="['nav-item', { active: isImagePromptsActive('scenes') }]"
-        >
-          <span class="nav-icon">&#128172;</span> Scene Prompts <span v-if="promptGenerating" class="nav-pulse" />
-        </NuxtLink>
         <NuxtLink
           :to="`/projects/${slug}/images?tab=thumbnails`"
           :class="['nav-item', { active: isImagesActive('thumbnails') }]"
         >
           <span class="nav-icon">&#128444;</span> Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <NuxtLink
-          v-if="!hidesScenePages"
-          :to="`/projects/${slug}/images?tab=scenes`"
-          :class="['nav-item', { active: isImagesActive('scenes') }]"
-        >
-          <span class="nav-icon">&#127912;</span> Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <!-- Video Generator hidden for B-Roll formats — that pipeline
-             generates AI video for scene images, and broll projects don't
-             have scenes. v1.0.115+ moved B-Roll *Video Assembly* into the
-             single Video Assembly entry below (with tabs). -->
-        <NuxtLink
-          v-if="!hidesScenePages"
-          :to="`/projects/${slug}/video`"
-          class="nav-item"
-          active-class="active"
-        >
-          <span class="nav-icon">&#128249;</span> Video Generator <span v-if="videoGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/audio`" class="nav-item" active-class="active">
           <span class="nav-icon">&#127897;</span> Audio Generator <span v-if="audioGenerating" class="nav-pulse" />
@@ -453,12 +423,12 @@ watch(() => route.fullPath, () => { mobileNavOpen.value = false })
 // disambiguate them. These helpers check both: the current route's
 // path must match AND the tab query (defaulting to 'thumbnails' to
 // match the pages' own defaults) must match the requested tab.
-function isImagePromptsActive(tab: 'thumbnails' | 'scenes'): boolean {
+function isImagePromptsActive(tab: 'thumbnails'): boolean {
   if (!route.path.endsWith('/image-prompts')) return false
   const q = String(route.query.tab || 'thumbnails')
   return q === tab
 }
-function isImagesActive(tab: 'thumbnails' | 'scenes'): boolean {
+function isImagesActive(tab: 'thumbnails'): boolean {
   if (!route.path.endsWith('/images')) return false
   const q = String(route.query.tab || 'thumbnails')
   return q === tab
@@ -494,7 +464,7 @@ const { refreshReadiness } = useNotifications()
 // normalizeVisualSource() collapses (visualSource, sceneAlignment) onto the
 // existing VS vocabulary so every isX flag below stays unchanged.
 type VS = VisualSource
-const visualSource = ref<VS>('scene-images')
+const visualSource = ref<VS>('narrated-scenes')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {

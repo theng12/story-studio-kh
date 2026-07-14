@@ -20,6 +20,8 @@
 
 export interface ApiOptions {
   headers?: Record<string, string>
+  /** Bypass the shared read cache for an explicit refresh/verification. */
+  cache?: RequestCache
   /**
    * Optional body for methods that don't take one as a positional arg
    * (currently `del`). DELETE-with-body is unusual but valid HTTP and
@@ -38,6 +40,35 @@ let _bootReadyPromise: Promise<void> | null = null
 const BOOT_READY_TIMEOUT_MS = 15_000
 const BOOT_READY_POLL_MS = 250
 
+// Short-lived shared GET cache. Large pages mount several controls that ask
+// for the exact same project config/model catalog at once (Video Assembly has
+// multiple preset pickers). Coalescing in-flight reads removes duplicate work;
+// the small TTL also makes back/forward navigation instant. Mutations clear
+// the affected entries below, so saved settings never wait for expiry.
+const getInflight = new Map<string, Promise<any>>()
+const getCache = new Map<string, { at: number; value: any }>()
+
+function cacheTtlFor(path: string): number {
+  if (/\/projects\/[^/]+\/settings\/config(?:[?#]|$)/.test(path)) return 10_000
+  if (/\/models\?/.test(path)) return 30_000
+  if (/\/projects\/[^/]+\/effective-format(?:[?#]|$)/.test(path)) return 30_000
+  return 0
+}
+
+function invalidateGetCache(mutatedPath: string): void {
+  const projectMatch = mutatedPath.match(/^\/projects\/([^/?#]+)/)
+  const projectPrefix = projectMatch ? `/projects/${projectMatch[1]}` : ''
+  for (const key of getCache.keys()) {
+    if (key === mutatedPath || (projectPrefix && key.startsWith(projectPrefix))) {
+      getCache.delete(key)
+    }
+  }
+  // API-key and local-backend changes affect model availability globally.
+  if (/secrets|app-settings|settings\/config/.test(mutatedPath)) {
+    for (const key of getCache.keys()) if (key.startsWith('/models?')) getCache.delete(key)
+  }
+}
+
 /**
  * Pre-resolve the boot-ready gate. The frontend test runner calls this
  * in setup.ts so unit tests don't fire an unexpected `/api/health`
@@ -47,6 +78,12 @@ const BOOT_READY_POLL_MS = 250
  */
 export function _markBootReadyForTests(): void {
   _bootReadyPromise = Promise.resolve()
+}
+
+/** Reset shared read state between isolated unit tests. */
+export function _clearApiGetCacheForTests(): void {
+  getInflight.clear()
+  getCache.clear()
 }
 
 function waitForBootReady(): Promise<void> {
@@ -245,16 +282,40 @@ export function useApi() {
     }
   }
 
+  async function cachedGet<T = any>(path: string, options?: ApiOptions): Promise<T> {
+    const bypassCache = options?.cache === 'no-store' || options?.cache === 'reload'
+    const ttl = options?.headers || bypassCache ? 0 : cacheTtlFor(path)
+    if (!ttl) return api<T>(path, options)
+    const hit = getCache.get(path)
+    if (hit && Date.now() - hit.at < ttl) return hit.value as T
+    const pending = getInflight.get(path)
+    if (pending) return pending as Promise<T>
+    const request = api<T>(path, options).then((value) => {
+      getCache.set(path, { at: Date.now(), value })
+      return value
+    }).finally(() => {
+      if (getInflight.get(path) === request) getInflight.delete(path)
+    })
+    getInflight.set(path, request)
+    return request
+  }
+
+  async function mutate<T>(path: string, options: any): Promise<T> {
+    const value = await api<T>(path, options)
+    invalidateGetCache(path)
+    return value
+  }
+
   return {
     get: <T = any>(path: string, options?: ApiOptions) =>
-      api<T>(path, options),
+      cachedGet<T>(path, options),
     post: <T = any>(path: string, body?: any, options?: ApiOptions) =>
-      api<T>(path, { method: 'POST', body, ...options }),
+      mutate<T>(path, { method: 'POST', body, ...options }),
     put: <T = any>(path: string, body?: any, options?: ApiOptions) =>
-      api<T>(path, { method: 'PUT', body, ...options }),
+      mutate<T>(path, { method: 'PUT', body, ...options }),
     patch: <T = any>(path: string, body?: any, options?: ApiOptions) =>
-      api<T>(path, { method: 'PATCH', body, ...options }),
+      mutate<T>(path, { method: 'PATCH', body, ...options }),
     del: <T = any>(path: string, options?: ApiOptions) =>
-      api<T>(path, { method: 'DELETE', ...options }),
+      mutate<T>(path, { method: 'DELETE', ...options }),
   }
 }

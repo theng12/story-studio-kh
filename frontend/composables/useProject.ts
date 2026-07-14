@@ -69,7 +69,7 @@ export function useProject() {
   }
 
   async function refreshConfig(slug: string) {
-    const config = await get<ProjectConfig>(`/projects/${slug}/settings/config`)
+    const config = await get<ProjectConfig>(`/projects/${slug}/settings/config`, { cache: 'no-store' })
     if (currentSlug.value === slug) currentConfig.value = config
   }
 

@@ -1,11 +1,11 @@
 {
   "id": "listicle",
   "name": "Listicle — numbered Top-N",
-  "description": "Presentation shell for multi-topic 'Top N' explainer videos. Defines HOW the video is built: each chapter is an INDEPENDENT topic (no narrative continuity), chapters expand in PARALLEL, and scenes render as minimalist circular badges designed to composite over a background via chroma-key. The niche layered on top defines WHAT the topics are about (voice, subject domain, title shape). Pipeline: idea → enumerated independent-topic script → audio → one badge scene per topic → compilation assembly (looping background + per-topic badge). NOT for cohesive character stories — pick Scenes. NOT for img2img character continuity — pick Continuity. NOT for human-shot footage — pick Stock Footage.",
+  "description": "A numbered Top-N explainer where each topic is self-contained and chapters can expand in parallel. The list structure is preserved, while visuals use the same narration-timed Scene Plan and Scene Review flow as other AI-scene videos. Use it when viewers should be able to enter at any item without following a continuous story.",
   "builtin": true,
   "schemaVersion": 1,
-  "visualSource": "scene-images",
-  "sceneAlignment": "chapter",
+  "visualSource": "narrated-scenes",
+  "sceneAlignment": "sentence",
   "idea": {
     "systemPromptRole": "You are helping generate new episode ideas for a multi-topic listicle / explainer channel. Each episode bundles several short, independent topics around a unifying theme. The niche layered on top (if any) sets the subject domain and voice.",
     "audienceDefault": "general audience",

@@ -127,14 +127,6 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.mode, 'thumbnails')
   })
 
-  test('scene_prompts step always uses scene-only mode', () => {
-    const preset = fakePreset({
-      form: { scenes_per_chapter: 3, total_scenes: 30, thumb_count: 3 },
-    })
-    const params = resolveStepParams('scene_prompts', 'EP0042', 'Title', preset, SENTENCE_SCENES_FORMAT)
-    assert.equal(params.mode, 'scenes')
-  })
-
   test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {
     // Stale preset (saved before the user touched the form): empty form.
     // Pre-fix: backend hardcoded 10 scenes / 5 thumbs / 16:9 / storybook
@@ -255,14 +247,14 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     // Smoke check that every step in a typical batch resolves cleanly
     // and carries episode_id through. Title is only needed by steps
     // that build episode-folder names from the title (script-only,
-    // introduction-only, image_prompts, metadata, video, video_assembly);
+    // introduction-only, image_prompts, metadata, video_assembly);
     // images / audio / audio_merge resolve paths via the existing
     // folder structure and don't need title in their params.
     const STEPS_WITH_TITLE = [
-      'script-only', 'introduction-only', 'image_prompts', 'scene_prompts',
-      'metadata', 'video', 'video_assembly',
+      'script-only', 'introduction-only', 'image_prompts',
+      'metadata', 'video_assembly',
     ] as const
-    const STEPS_WITHOUT_TITLE = ['scene_images', 'thumb_images', 'audio', 'audio_merge'] as const
+    const STEPS_WITHOUT_TITLE = ['thumb_images', 'audio', 'audio_merge'] as const
     const minimalPreset = fakePreset({
       form: { chapters: 10, words_per_chapter: 500 },
       sections: [],

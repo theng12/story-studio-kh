@@ -7,10 +7,6 @@ import { useRoute } from 'vue-router'
  * Every project follows a creation chain, but the chain DIFFERS by the
  * format's `visualSource` (the same value that already gates the sidebar):
  *
- *   scene-images   (narrative, listicle):
- *     Ideas → Script → Metadata → Thumbnail Prompts → Scene Prompts →
- *     Thumbnails → Scenes → Audio → Audio Assembly → Video Assembly
- *
  *   broll          (stock-footage):
  *     Ideas → Script → Metadata → Thumbnail Prompts → Thumbnails →
  *     Audio → Audio Assembly → Video Assembly
@@ -33,7 +29,7 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
+export type VisualSource = 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
@@ -41,12 +37,10 @@ export type SceneAlignment = 'chapter' | 'sentence'
  * v1.0.280 (format↔niche refactor) — normalize the unified `scenes` format
  * onto the pipeline's existing VisualSource vocabulary.
  *
- * The `scenes` format reports `visualSource: 'scene-images'` and decides its
- * pacing via `sceneAlignment`:
- *   - 'chapter'  → classic even-distribution scene-images chain
- *   - 'sentence' → audio-paced transcript flow (Scene Plan / Review / Timestamp
- *                  Assemble), with Research + Character Sheet as OPTIONAL steps
- *                  — i.e. the existing 'narrated-scenes' flow.
+ * `scene-images` is accepted only as a legacy input. Every AI-still format now
+ * uses the audio-paced Scene Plan → Scene Review workflow; old chapter-based
+ * prompt/image pages are retired. This also prevents a slow format fetch from
+ * briefly rendering legacy Production Board columns.
  *
  * Legacy / explicit visualSource values (broll, continuity-chain, and any
  * custom user format still declaring timestamp-driven / narrated-scenes
@@ -66,9 +60,8 @@ export function normalizeVisualSource(
     case 'narrated-scenes': return 'narrated-scenes'
     case 'scene-images':
     default:
-      // Unified scenes format (or unknown) — sentence alignment routes to the
-      // audio-paced flow; chapter (or unset) stays on the classic chain.
-      return sceneAlignment === 'sentence' ? 'narrated-scenes' : 'scene-images'
+      void sceneAlignment
+      return 'narrated-scenes'
   }
 }
 
@@ -81,8 +74,8 @@ export interface FlowStep {
   icon: string
   /** Route path suffix (appended to /projects/:slug). */
   path: string
-  /** For pages that share a path via ?tab= (image-prompts, images). */
-  tab?: 'thumbnails' | 'scenes'
+  /** For pages that share a path via ?tab=. */
+  tab?: 'thumbnails'
   /** Visible in the workflow, but never blocks an episode from being done. */
   optional?: boolean
 }
@@ -94,9 +87,7 @@ const STEP = {
   script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts' },
   metadata:     { key: 'metadata',     label: 'Metadata',       icon: '📋', path: '/metadata' },
   thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', tab: 'thumbnails' },
-  scenePrompts: { key: 'scene-prompts', label: 'Scene Prompts', icon: '💬', path: '/image-prompts', tab: 'scenes' },
   thumbnails:   { key: 'thumbnails',   label: 'Thumbnails',     icon: '🖼', path: '/images', tab: 'thumbnails' },
-  scenes:       { key: 'scenes',       label: 'Scenes',         icon: '🎨', path: '/images', tab: 'scenes' },
   audio:        { key: 'audio',        label: 'Audio',          icon: '🎙', path: '/audio' },
   audioMerge:   { key: 'audio-merge',  label: 'Audio Assembly', icon: '🔊', path: '/audio-merge' },
   subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles' },
@@ -110,11 +101,6 @@ const STEP = {
   imagePool:        { key: 'image-pool',         label: 'Image Slideshow',    icon: '🖼', path: '/image-pool' },
 } satisfies Record<string, FlowStep>
 
-const FLOW_SCENE_IMAGES: FlowStep[] = [
-  STEP.ideas, STEP.script, STEP.metadata,
-  STEP.thumbPrompts, STEP.scenePrompts, STEP.thumbnails, STEP.scenes,
-  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.videoAssembly,
-]
 const FLOW_BROLL: FlowStep[] = [
   STEP.ideas, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
@@ -162,7 +148,7 @@ export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES
-  return FLOW_SCENE_IMAGES
+  return FLOW_NARRATED_SCENES
 }
 
 /** Steps that may block an episode from being considered production-ready. */

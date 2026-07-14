@@ -13,14 +13,13 @@
 import type { VisualSource } from '~/composables/useProjectFlow'
 
 export type CockpitStep =
-  | 'script-only' | 'metadata' | 'image_prompts' | 'scene_prompts' | 'thumb_images' | 'scene_images'
+  | 'script-only' | 'metadata' | 'image_prompts' | 'thumb_images'
   | 'research' | 'broll'
   | 'audio' | 'audio_merge' | 'subtitles' | 'character_sheet'
   | 'scene_plan' | 'scene_review' | 'motion_review' | 'timestamp_assemble' | 'video_assembly'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
   'broll':            ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'broll'],
-  'scene-images':     ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'scene_prompts', 'scene_images', 'audio', 'audio_merge', 'subtitles', 'video_assembly'],
   'timestamp-driven': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
   'continuity-chain': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
   'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
@@ -37,9 +36,7 @@ export const STEP_LABELS: Record<CockpitStep, string> = {
   'script-only': 'Script',
   'metadata': 'Metadata',
   'image_prompts': 'Thumbnail prompts',
-  'scene_prompts': 'Scene prompts',
   'thumb_images': 'Thumbnail',
-  'scene_images': 'Scene images',
   'audio': 'Audio',
   'audio_merge': 'Audio merge',
   'subtitles': 'Subtitles',
@@ -56,7 +53,7 @@ export function stepLabelFor(vs: VisualSource, step: CockpitStep): string {
 }
 
 export function fullRunSteps(vs: VisualSource): CockpitStep[] {
-  return CHAINS[vs] ?? CHAINS['scene-images']
+  return CHAINS[vs] ?? CHAINS['narrated-scenes']
 }
 export function upToReviewSteps(vs: VisualSource): CockpitStep[] {
   return fullRunSteps(vs).filter(s => !FINAL_STEPS.has(s))

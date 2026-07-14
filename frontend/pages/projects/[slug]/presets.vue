@@ -134,28 +134,12 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     editLink: '/image-prompts?tab=thumbnails',
   },
   {
-    key: 'scene_prompts',
-    label: 'Scene Prompts',
-    icon: '🖼',
-    hint: 'Scenes-per-chapter, visual style, and per-scene prompt direction.',
-    configKey: 'scene_prompts',
-    editLink: '/image-prompts?tab=scenes',
-  },
-  {
     key: 'thumbnail_generator',
     label: 'Thumbnail Generator',
     icon: '📸',
     hint: 'Thumbnail model, aspect ratio, quality, and render settings.',
     configKey: 'thumbnail_generator',
     editLink: '/images?tab=thumbnails',
-  },
-  {
-    key: 'scene_generator',
-    label: 'Scene Generator',
-    icon: '🎞',
-    hint: 'Scene-image model, references, quality, and render settings.',
-    configKey: 'scene_generator',
-    editLink: '/images',
   },
   {
     key: 'audio_generator',
@@ -180,14 +164,6 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     hint: 'Section templates, tag strategy.',
     configKey: 'metadata',
     editLink: '/metadata',
-  },
-  {
-    key: 'video_generator',
-    label: 'Video Generator',
-    icon: '🎬',
-    hint: 'Model, duration, motion settings.',
-    configKey: 'video_generator',
-    editLink: '/video',
   },
   {
     key: 'video_bundle',

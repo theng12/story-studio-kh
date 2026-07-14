@@ -40,6 +40,16 @@ type DoneListener = (job: Job) => void
 const doneListeners = new Set<DoneListener>()
 const previousStatuses = new Map<string, Job['status']>()
 
+function recomputeStats() {
+  return {
+    running: jobs.value.filter(j => j.status === 'running').length,
+    queued: jobs.value.filter(j => j.status === 'queued').length,
+    done: jobs.value.filter(j => j.status === 'done').length,
+    error: jobs.value.filter(j => j.status === 'error').length,
+    total: jobs.value.length,
+  }
+}
+
 function announceTransitions(next: Job[]): void {
   for (const job of next) {
     const prev = previousStatuses.get(job.job_id)
@@ -87,7 +97,15 @@ function startSSE(): void {
         jobs.value = next
       } catch { /* malformed payload */ }
     })
-    sseSource.addEventListener('cleared', () => { void refreshFull() })
+    sseSource.addEventListener('cleared', (ev: MessageEvent) => {
+      try {
+        const payload = JSON.parse(ev.data || '{}') as { job_ids?: string[] }
+        const removed = new Set(payload.job_ids || [])
+        if (!removed.size) return
+        jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
+        stats.value = recomputeStats()
+      } catch { void refreshFull() }
+    })
     sseSource.onerror = () => {
       // Fall back to polling — EventSource auto-retries on its own, but
       // keep polling alive so the user always sees progress even if SSE

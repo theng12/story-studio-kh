@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">{{ formTab === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts' }}</h1>
+      <h1 class="page-title">Thumbnail Prompts</h1>
     </div>
     <TopActionBar
       :project-slug="slug"
@@ -41,10 +41,8 @@
     </div>
 
     <p class="text-muted mt-1 mb-2">
-      Scene prompts and thumbnail prompts are separate pools. This is the
-      <strong>{{ formTab === 'thumbnails' ? 'Thumbnail' : 'Scene' }} Prompts</strong> page — Generate here only
-      affects {{ formTab === 'thumbnails' ? 'thumbnails' : 'scenes' }}; switch pools from the sidebar. Keeping them
-      separate means a scene regen never clobbers your saved thumbnails and vice-versa.
+      Create cover-art prompts for YouTube thumbnails. Story-scene prompts now
+      belong to the narration-timed Scene Plan workflow.
     </p>
 
     <div class="card mt-3">
@@ -834,9 +832,7 @@ const capPreviewInfo = computed(() => {
 // sidebar's split "Thumbnail Prompts" / "Scene Prompts" entries land on
 // the right tab AND browser back/forward navigation Just Works. Default
 // is 'thumbnails' when the query is missing or invalid.
-const formTab = ref<'thumbnails' | 'scenes'>(
-  route.query.tab === 'scenes' ? 'scenes' : 'thumbnails',
-)
+const formTab = ref<'thumbnails' | 'scenes'>('thumbnails')
 const promptPageTitle = computed(() => formTab.value === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts')
 useAppTitle(promptPageTitle)
 // v1.0.304 — the "Pending only" episode filter must reflect the ACTIVE pool.
@@ -845,12 +841,7 @@ useAppTitle(promptPageTitle)
 // the Thumbnail tab marked an episode "done" based on SCENE prompts — an episode
 // with thumbnails generated but no scenes still showed as pending here. Bind the
 // filter to the pool that matches the tab.
-const promptFilterField = computed(() => formTab.value === 'thumbnails' ? 'thumb_prompts' : 'scene_prompts')
-// React to query changes (sidebar clicks while on the page, back/forward).
-watch(() => route.query.tab, (v) => {
-  const next = v === 'scenes' ? 'scenes' : 'thumbnails'
-  if (next !== formTab.value) formTab.value = next
-})
+const promptFilterField = computed(() => 'thumb_prompts')
 // Top action-bar label reflects the active pool (the button only generates
 // that pool now — see generate()).
 const generateLabel = computed(() =>
@@ -861,11 +852,9 @@ const generateLabel = computed(() =>
 // follows. Uses replace so the back button doesn't accumulate every
 // tab toggle.
 const _router = useRouter()
-watch(formTab, (v) => {
-  const cur = String(route.query.tab || 'thumbnails')
-  if (cur === v) return
-  _router.replace({ query: { ...route.query, tab: v } })
-})
+if (route.query.tab === 'scenes') {
+  void _router.replace({ query: { ...route.query, tab: 'thumbnails' } })
+}
 
 // User-saved style presets (Gap A from audit pain-point #7).
 // Sourced reactively from the project config so a save flows back into
@@ -1405,9 +1394,7 @@ const scenePresets = usePresets<any>({
 })
 // Bound to TopActionBar. Switching tabs swaps the entire preset
 // surface (list, active id, save / overwrite / delete handlers).
-const promptPresets = computed(() =>
-  formTab.value === 'thumbnails' ? thumbnailPresets : scenePresets,
-)
+const promptPresets = computed(() => thumbnailPresets)
 
 /**
  * v1.0.71+: format-aware seeding of the form's defaults BEFORE the
@@ -1491,7 +1478,6 @@ onMounted(async () => {
   // first.
   await applyFormatDefaultsIfNoPreset()
   void thumbnailPresets.load()
-  void scenePresets.load()
   void loadVisionCaps()
 })
 

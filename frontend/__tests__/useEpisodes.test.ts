@@ -4,8 +4,8 @@
  *
  * Covers:
  *   - First mount fetches; data populates; isLoading toggles.
- *   - Second mount within TTL serves cached immediately and revalidates
- *     in the background (SWR).
+ *   - Second mount within the hot-cache window serves cached immediately
+ *     without repeating the expensive project-wide status request.
  *   - Concurrent calls dedup to one in-flight fetch.
  *   - `refresh()` always hits the backend with `?refresh=1`.
  *   - `invalidate()` clears the freshness flag without blanking data.
@@ -95,7 +95,7 @@ describe('useEpisodes', () => {
     app.unmount()
   })
 
-  test('SWR: second mount serves cached immediately and revalidates', async () => {
+  test('second mount serves hot cache without duplicate revalidation', async () => {
     fetchHandler = () => [fakeRow('EP001')]
     const m1 = mountWithComposable('beta')
     await nextTick(); await nextTick()
@@ -103,8 +103,8 @@ describe('useEpisodes', () => {
     assert.equal(fetchCalls.length, 1, 'first mount fetched')
     m1.app.unmount()
 
-    // Second mount: should NOT show isLoading=true (cache present), but
-    // SHOULD fire a background revalidate.
+    // Second mount should neither show loading nor repeat the expensive
+    // project-wide status scan while the first result is still hot.
     fetchHandler = () => [fakeRow('EP001'), fakeRow('EP002')]  // changed payload
     const m2 = mountWithComposable('beta')
     // Synchronously after mount, before any async resolves: data should
@@ -116,8 +116,8 @@ describe('useEpisodes', () => {
     await new Promise(r => setTimeout(r, 0))
     await nextTick()
 
-    assert.equal(fetchCalls.length, 2, 'background revalidate fired')
-    assert.equal(m2.captured.episodes.value.length, 2, 'revalidated data swapped in')
+    assert.equal(fetchCalls.length, 1, 'hot mount did not repeat the status request')
+    assert.equal(m2.captured.episodes.value.length, 1, 'cached data remains stable')
     m2.app.unmount()
   })
 

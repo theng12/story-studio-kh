@@ -232,13 +232,10 @@
               <option value="missing-script">Missing script ({{ missingCountByStep['script-only'] }})</option>
               <option value="missing-introduction">Missing introduction ({{ missingCountByStep['introduction-only'] }})</option>
               <option value="missing-image-prompts">Missing thumbnail prompts ({{ missingCountByStep['image_prompts'] }})</option>
-              <option v-if="!hidesScenePages" value="missing-scene-prompts">Missing scene prompts ({{ missingCountByStep['scene_prompts'] }})</option>
-              <option v-if="!hidesScenePages" value="missing-images">Missing scene images ({{ missingCountByStep['scene_images'] }})</option>
               <option value="missing-audio">Missing audio ({{ missingCountByStep['audio'] }})</option>
               <option value="missing-audio-merge">Missing merged audio ({{ missingCountByStep['audio_merge'] }})</option>
               <option value="missing-metadata">Missing metadata ({{ missingCountByStep['metadata'] }})</option>
-              <option v-if="!hidesScenePages" value="missing-video">Missing video ({{ missingCountByStep['video'] }})</option>
-              <option v-if="!hidesScenePages" value="missing-video-assembly">Missing video assembly ({{ missingCountByStep['video_assembly'] }})</option>
+              <option value="missing-video-assembly">Missing final video ({{ missingCountByStep['video_assembly'] }})</option>
             </optgroup>
           </select>
           <span
@@ -538,13 +535,13 @@ const { config, refreshConfig } = useProject()
 // normalizeVisualSource() collapses both onto the existing VS vocabulary so
 // every isX flag below stays unchanged.
 type VS = VisualSource
-const visualSource = ref<VS>('scene-images')
+const visualSource = ref<VS>('narrated-scenes')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
     const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
     visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { /* leave as default — scene-images is the safe superset */ }
+  } catch { /* leave on the modern audio-paced default */ }
 }
 const isBroll = computed(() => visualSource.value === 'broll')
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
@@ -560,7 +557,6 @@ const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes'
 // irrelevant for the alternative pipelines — broll pulls visuals from a
 // pool; timestamp-driven / continuity-chain / narrated-scenes place them
 // against the audio timeline.
-const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => {
   void loadVisualSource()
   // v1.0.368 — pull a FRESH config on entry. The shared useProject() config
@@ -582,8 +578,8 @@ watch(slug, () => {
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
   | 'research' | 'broll' | 'script-only' | 'introduction-only'
-  | 'image_prompts' | 'scene_prompts' | 'scene_images' | 'thumb_images' | 'audio' | 'audio_merge'
-  | 'metadata' | 'video' | 'video_assembly'
+  | 'image_prompts' | 'thumb_images' | 'audio' | 'audio_merge'
+  | 'metadata' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
   | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'character_sheet' | 'timestamp_assemble'
@@ -649,12 +645,9 @@ const stepsMeta: StepMeta[] = [
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'image_prompts',     label: 'Thumbnail Prompts', icon: '🖼', link: '/image-prompts?tab=thumbnails', presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset' },
-  { id: 'scene_prompts',     label: 'Scene Prompts',     icon: '🎨', link: '/image-prompts?tab=scenes', presetList: 'scene_prompts_presets', presetActive: 'scene_prompts_last_preset' },
   // Pipeline image generation is fully split: Thumbnail Images and Scene
   // Images are separate steps with separate preset pools.
   { id: 'thumb_images',      label: 'Thumbnails',        icon: '📸', link: '/images',         presetList: 'thumbnail_generator_presets', presetActive: 'thumbnail_generator_last_preset' },
-  { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'scene_generator_presets', presetActive: 'scene_generator_last_preset' },
-  { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
   { id: 'audio_merge',       label: 'Audio Assembly',    icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
   // v1.0.363 — audio-paced format steps. Preset keys mirror each page's
@@ -682,16 +675,11 @@ function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 // Each entry is either a batchable StepId (rendered as a checkbox tile) or
 // an EXTERNAL_NODES key (rendered as a read-only "Open page →" node). The
 // order is the real production chain for that format. Thumbnail Prompts and
-// Thumbnail Images appear in every format; Scene Prompts/Scene Images appear
-// only in classic chapter-distributed scene-image formats.
+// Thumbnail generation remains independent. Story visuals are always created
+// later by Scene Plan → Scene Review.
 //
 type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
 
-const CHAIN_SCENE_IMAGES: ChainSpec = [
-  'script-only', 'introduction-only', 'metadata',
-  'image_prompts', 'thumb_images', 'scene_prompts', 'scene_images', 'video',
-  'audio', 'audio_merge', 'subtitles', 'video_assembly',
-]
 const CHAIN_BROLL: ChainSpec = [
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
@@ -740,7 +728,7 @@ const activeChainSpec = computed<ChainSpec>(() => {
   if (isTimestampDriven.value) return CHAIN_TIMESTAMP
   if (isContinuityChain.value) return CHAIN_CONTINUITY
   if (isNarratedScenes.value) return CHAIN_NARRATED_SCENES
-  return CHAIN_SCENE_IMAGES
+  return CHAIN_NARRATED_SCENES
 })
 
 // The full ordered display list (steps + external nodes) for the template.
@@ -782,14 +770,9 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   // it anymore (Metadata now needs only the Script). Opt in per project when a
   // format genuinely wants a separate intro.
   'introduction-only': false,
-  // Default to the split prompt/image steps. Thumbnail and scene work are
-  // independent; no checked step runs both.
   image_prompts: true,
-  scene_prompts: true,
   thumb_images: true,
-  scene_images: true,
   audio: true, audio_merge: true, metadata: true,
-  video: false,             // opt-in because it's expensive
   // v1.0.363 — audio-paced format steps default ON so one click runs the whole
   // chain end-to-end ("run all the way to final video"). They only count when
   // they're part of the active format's chain (checkedStepsOrdered filters to
@@ -958,10 +941,8 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 const presetSaving = reactive<Record<StepId, boolean>>({
   research: false, broll: false,
   'script-only': false, 'introduction-only': false, metadata: false,
-  image_prompts: false, scene_prompts: false,
-  // v1.0.87+: split image steps.
-  scene_images: false, thumb_images: false,
-  video: false,
+  image_prompts: false,
+  thumb_images: false,
   audio: false, audio_merge: false, video_assembly: false,
   // v1.0.363 — audio-paced format steps.
   subtitles: false, character_sheet: false, scene_plan: false,
@@ -1058,12 +1039,9 @@ type FilterMode =
   | 'missing-script'
   | 'missing-introduction'
   | 'missing-image-prompts'
-  | 'missing-scene-prompts'
-  | 'missing-images'
   | 'missing-audio'
   | 'missing-audio-merge'
   | 'missing-metadata'
-  | 'missing-video'
   | 'missing-video-assembly'
 
 // Map filter modes to the underlying step id. Used by both the filter
@@ -1073,12 +1051,9 @@ const FILTER_MODE_TO_STEP: Partial<Record<FilterMode, StepId>> = {
   'missing-script': 'script-only',
   'missing-introduction': 'introduction-only',
   'missing-image-prompts': 'image_prompts',
-  'missing-scene-prompts': 'scene_prompts',
-  'missing-images': 'scene_images',
   'missing-audio': 'audio',
   'missing-audio-merge': 'audio_merge',
   'missing-metadata': 'metadata',
-  'missing-video': 'video',
   'missing-video-assembly': 'video_assembly',
 }
 
@@ -1109,7 +1084,7 @@ const searchQuery = ref('')
 // stops at audio_merge — correct, since the final render is a separate,
 // page-driven step.)
 const CORE_STEP_IDS = computed<StepId[]>(() =>
-  visibleSteps.value.filter(s => !s.optional && s.id !== 'video').map(s => s.id),
+  visibleSteps.value.filter(s => !s.optional).map(s => s.id),
 )
 
 function missingCoreSteps(ep: Episode): number {
@@ -1189,10 +1164,9 @@ const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingC
 // so users see "(4)" next to e.g. "Missing audio" before selecting it.
 const missingCountByStep = computed<Record<StepId, number>>(() => {
   const ids: StepId[] = [
-    'script-only', 'introduction-only', 'image_prompts', 'scene_prompts',
-    'thumb_images', 'scene_images',
+    'script-only', 'introduction-only', 'image_prompts', 'thumb_images',
     'audio', 'audio_merge', 'metadata',
-    'video', 'video_assembly',
+    'video_assembly',
   ]
   const counts = {} as Record<StepId, number>
   for (const id of ids) counts[id] = 0
@@ -1252,8 +1226,6 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
     case 'image_prompts':      return !!s.thumb_prompts
-    case 'scene_prompts':      return !!s.scene_prompts
-    case 'scene_images':       return !!s.images
     case 'thumb_images':       return !!s.thumbnails
     case 'audio':              return !!s.audio
     case 'audio_merge':        return !!s.merged_audio
@@ -1265,7 +1237,6 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet
     case 'timestamp_assemble': return !!s.video_assembly
-    case 'video':              return !!s.video
     case 'video_assembly':     return !!s.video_assembly
   }
   return false
@@ -1286,7 +1257,7 @@ function selectAllPending() {
   // every episode; when "missing-only", it's already the narrower pool.
   for (const ep of sortedFilteredEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
-      if (step.id === 'video' || step.optional) return false
+      if (step.optional) return false
       return !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
@@ -1299,7 +1270,7 @@ function selectAllPending() {
 function selectAllPendingOnPage() {
   for (const ep of paginatedEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
-      if (step.id === 'video' || step.optional) return false
+      if (step.optional) return false
       return !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
@@ -1372,8 +1343,6 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
     case 'image_prompts':     return 'thumb_prompts' in ov
-    case 'scene_prompts':     return 'scene_prompts' in ov
-    case 'scene_images':      return 'images' in ov
     case 'thumb_images':      return 'thumbnails' in ov
     case 'audio':             return 'audio' in ov
     case 'audio_merge':       return 'merged_audio' in ov
@@ -1385,7 +1354,6 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'motion_review':     return 'motion_review' in ov
     case 'character_sheet':   return 'character_sheet' in ov
     case 'timestamp_assemble': return 'video_assembly' in ov
-    case 'video':             return 'video' in ov
     case 'video_assembly':    return 'video_assembly' in ov
   }
   return false

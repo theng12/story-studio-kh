@@ -72,8 +72,6 @@ type BatchStep =
   | 'script-only'
   | 'introduction-only'
   | 'image_prompts'
-  | 'scene_prompts'
-  | 'scene_images'
   | 'thumb_images'
   | 'audio'
   | 'audio_merge'
@@ -84,13 +82,12 @@ type BatchStep =
   | 'motion_review'
   | 'character_sheet'
   | 'timestamp_assemble'
-  | 'video'
   | 'video_assembly'
 // v1.0.373+: Pipeline only exposes split scene/thumbnail image steps. The
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'timestamp_assemble', 'video_assembly']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -102,7 +99,6 @@ export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'in
 export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   research: 'research_run',
   broll: 'broll_select',
-  scene_prompts: 'image_prompts',              // shared image-prompts generator (mode='scenes')
   subtitles: 'subtitles_transcribe',
   scene_plan: 'scene_plan_run',
   scene_review: 'continuity_render',
@@ -152,16 +148,8 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // typed first wins.
   'script-only':       { list: 'script_presets',           activeKeys: ['script_last_preset_script', 'script_last_preset'] },
   'introduction-only': { list: 'script_presets',           activeKeys: ['script_last_preset_introduction', 'script_last_preset'] },
-  // v1.0.373 — prompt pools are fully split. Pipeline has one step for
-  // Thumbnail Prompts and one for Scene Prompts; neither may resolve through
-  // the other pool or run mode='all'. Legacy unified `image_prompts` presets
-  // are intentionally not used here because they reintroduce the merged path.
+  // Thumbnail prompts remain separate from Scene Plan visual prompts.
   image_prompts:       { list: 'thumbnail_prompts_presets', activeKeys: ['thumbnail_prompts_last_preset'] },
-  scene_prompts:       { list: 'scene_prompts_presets',     activeKeys: ['scene_prompts_last_preset'] },
-  // scene_images + thumb_images each point at their own preset list, matching
-  // the split image-generator UI (Thumbnail Generator and Scene Generator tabs
-  // save independently).
-  scene_images:        { list: 'scene_generator_presets',  activeKeys: ['scene_generator_last_preset'] },
   thumb_images:        { list: 'thumbnail_generator_presets', activeKeys: ['thumbnail_generator_last_preset'] },
   audio:               { list: 'audio_generator_presets',  activeKeys: ['audio_generator_last_preset'] },
   audio_merge:         { list: 'audio_merge_presets',      activeKeys: ['audio_merge_last_preset'] },
@@ -180,7 +168,6 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // satisfies the Record<BatchStep, …> type; findActivePreset is never called
   // for it.
   timestamp_assemble:  { list: 'timestamp_assemble_presets', activeKeys: ['timestamp_assemble_last_preset'] },
-  video:               { list: 'video_generator_presets',  activeKeys: ['video_generator_last_preset'] },
   video_assembly:      { list: 'video_bundle_presets',     activeKeys: ['video_bundle_last_preset'] },
 }
 
@@ -210,10 +197,7 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   'introduction-only': ['script-only'],
   metadata: ['script-only'],
   image_prompts: ['script-only'],
-  scene_prompts: ['script-only'],
   thumb_images: ['image_prompts'],
-  scene_images: ['scene_prompts'],
-  video: ['scene_prompts'],
   audio: ['script-only'],
   audio_merge: ['audio'],
   subtitles: ['audio_merge'],
@@ -224,7 +208,9 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   // Motion Review is optional. Final assembly can use reviewed clips where
   // available and approved stills everywhere else.
   timestamp_assemble: ['scene_review', 'audio_merge'],
-  video_assembly: ['scene_images', 'audio_merge'],
+  // The assembly generator performs the authoritative Scene Plan/B-Roll
+  // coverage guard. Requiring retired Scene Images here blocked valid plans.
+  video_assembly: ['audio_merge'],
 }
 
 export function prerequisitesForStep(step: BatchStep): BatchStep[] {
@@ -382,8 +368,6 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     case 'script-only':       return status.script
     case 'introduction-only': return status.introduction
     case 'image_prompts':     return status.thumb_prompts
-    case 'scene_prompts':     return status.scene_prompts
-    case 'scene_images':      return status.images
     case 'thumb_images':      return status.thumbnails
     case 'audio':             return status.audio
     case 'audio_merge':       return status.merged_audio
@@ -397,7 +381,6 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     // The timestamp/continuity final render lands as the same final-video file
     // every format's reconciler keys `video_assembly` off of.
     case 'timestamp_assemble': return status.video_assembly
-    case 'video':             return status.video
     case 'video_assembly':    return status.video_assembly
   }
 }
@@ -515,7 +498,7 @@ export function resolveStepParams(
         : [],
     }
   }
-  if (step === 'image_prompts' || step === 'scene_prompts') {
+  if (step === 'image_prompts') {
     // image_prompts preset shape: { form: {...} } from image-prompts.vue.
     // v1.0.373: Pipeline prompt steps are hard-split. Thumbnail Prompts
     // always runs mode='thumbnails'; Scene Prompts always runs mode='scenes'.
@@ -571,20 +554,17 @@ export function resolveStepParams(
       ...rest,
       episode_id: episodeId,
       title: title || '',
-      mode: step === 'scene_prompts' ? 'scenes' : 'thumbnails',
+      mode: 'thumbnails',
     }
   }
-  if (step === 'scene_images' || step === 'thumb_images') {
+  if (step === 'thumb_images') {
     const form = data.form || {}
     // Pipeline-step variant determines mode. Split steps force the
     // corresponding mode regardless of what the preset carries.
-    const forcedMode =
-      step === 'scene_images' ? 'scenes' :
-      'thumbs'
     return {
       ...form,
       episode_id: episodeId,
-      mode: forcedMode,
+      mode: 'thumbs',
     }
   }
   if (step === 'audio') {
@@ -714,16 +694,6 @@ export function resolveStepParams(
       title_max_length: fmtMeta?.defaultTitleMaxLength ?? 100,
       title_platform_preset: 'Universal',
       tag_count: fmtMeta?.defaultTagCount ?? 15,
-    }
-  }
-  if (step === 'video') {
-    // Video (Veo) preset shape: { form, promptsForm } (see video.vue usePresets)
-    const form = data.form || {}
-    const { title: _t, episode_id: _e, ...rest } = form
-    return {
-      ...rest,
-      episode_id: episodeId,
-      title: title || '',
     }
   }
   if (step === 'video_assembly') {
@@ -1047,7 +1017,6 @@ function extractEstimateInputs(
   episodeCount: number,
 ): EpisodeEstimateInputs[] {
   const vaPreset = presetByStep['video_assembly']
-  const videoPreset = presetByStep['video']
 
   const exportSlot = extractPresetSlot(vaPreset, 'export')
   const resolution = typeof exportSlot.resolution === 'string' ? exportSlot.resolution : undefined
@@ -1065,11 +1034,6 @@ function extractEstimateInputs(
     else if (Number.isFinite(min) && min > 0) durationSec = min
   }
 
-  const videoData = videoPreset?.data || videoPreset || {}
-  const promptsForm = (videoData as any)?.promptsForm || {}
-  const sceneCount = Number(promptsForm.scene_count)
-  const clipCount = Number.isFinite(sceneCount) && sceneCount > 0 ? sceneCount : undefined
-
   // Audio: no narration char count available pre-generation. Use the default
   // inside estimateBytesForStep (15k chars) — over-estimating audio by a
   // few MB is harmless next to the GB-scale video numbers. The audio
@@ -1080,7 +1044,6 @@ function extractEstimateInputs(
     durationSec,
     resolution,
     quality,
-    clipCount,
   }
   return Array.from({ length: episodeCount }, () => ({ ...perEpisode }))
 }

@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">{{ form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator' }}</h1>
+      <h1 class="page-title">Thumbnail Generator</h1>
     </div>
     <!-- Live download speed for the running image-generation job. Only
          visible while bytes are flowing in from the provider CDN; auto-
@@ -824,7 +824,7 @@ const form = reactive({
   // sidebar's split "Thumbnail Generator" / "Scene Generator" entries
   // land on the right tab. Query value 'scenes' → mode 'scenes'; any
   // other value (including missing) → 'thumbs'.
-  mode: (route.query.tab === 'scenes' ? 'scenes' : 'thumbs') as Mode,
+  mode: 'thumbs' as Mode,
   thumbnail: defaultSubForm(),
   scene: defaultSubForm(),
 })
@@ -996,9 +996,7 @@ const sceneGeneratorPresets = usePresets<any>({
   apply: (data) => { if (data?.form) Object.assign(form.scene, data.form) },
 })
 // Bound to TopActionBar — swaps active preset surface on tab change.
-const imgPresets = computed(() =>
-  form.mode === 'thumbs' ? thumbnailGeneratorPresets : sceneGeneratorPresets,
-)
+const imgPresets = computed(() => thumbnailGeneratorPresets)
 
 /**
  * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
@@ -1033,7 +1031,6 @@ onMounted(async () => {
   // immediately pick a saved preset without requiring a tab-switch first.
   await Promise.all([
     thumbnailGeneratorPresets.load(),
-    sceneGeneratorPresets.load(),
     loadImageStudioCatalog(),
   ])
 })
@@ -1386,12 +1383,9 @@ function selectMode(m: Mode) {
 // 'thumbs'/'scenes'. The legacy unified "all" mode is not loaded by the
 // split generator pages.
 const _router = useRouter()
-watch(() => route.query.tab, (v) => {
-  const next = v === 'scenes' ? 'scenes' : 'thumbs'
-  if (next !== form.mode && (form.mode === 'thumbs' || form.mode === 'scenes')) {
-    selectMode(next)
-  }
-})
+if (route.query.tab === 'scenes') {
+  void _router.replace({ query: { ...route.query, tab: 'thumbnails' } })
+}
 watch(() => form.mode, (m) => {
   if (m !== 'thumbs' && m !== 'scenes') return
   const desired = m === 'scenes' ? 'scenes' : 'thumbnails'

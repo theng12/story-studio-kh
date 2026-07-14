@@ -120,7 +120,7 @@ interface ProjectSummary { slug: string; name?: string }
 const projects = ref<ProjectSummary[]>([])
 const loadingProjects = ref(true)
 const selectedSlug = ref('')
-const visualSource = ref<VisualSource>('scene-images')
+const visualSource = ref<VisualSource>('narrated-scenes')
 const episodeCodes = ref<string[]>([])
 const runMode = ref<'full' | 'review'>('full')
 const force = ref(false)
@@ -198,7 +198,7 @@ async function loadProject(slug: string) {
   try {
     const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug}/effective-format`)
     visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { visualSource.value = 'scene-images' }
+  } catch { visualSource.value = 'narrated-scenes' }
   // Episodes (for the run scope + count).
   try {
     const data = await get<any>(`/projects/${slug}/episodes`)

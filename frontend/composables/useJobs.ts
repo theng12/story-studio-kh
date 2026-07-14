@@ -270,10 +270,19 @@ function startStream(slug: string) {
     }
   })
 
-  source.addEventListener('cleared', () => {
-    // A bulk clear or a single terminal-job delete happened on the server.
-    // Simpler to re-pull the authoritative list than to reconcile in place.
-    refreshFull(slug)
+  source.addEventListener('cleared', (ev: MessageEvent) => {
+    // Reconcile locally instead of downloading and re-rendering the full job
+    // history after every dismissal. The server sends the exact removed ids.
+    try {
+      const payload = JSON.parse(ev.data || '{}') as { job_ids?: string[] }
+      const removed = new Set(payload.job_ids || [])
+      if (!removed.size) return
+      jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
+      for (const id of removed) previousStatuses.delete(id)
+      stats.value = recomputeStats()
+    } catch {
+      void refreshFull(slug)
+    }
   })
 
   source.onerror = () => {

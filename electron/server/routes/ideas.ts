@@ -1050,6 +1050,11 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const root: string = outputRoot
 
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+  const { getEffectiveFormat } = await import('../services/format-loader.js')
+  const effectiveFormat = await getEffectiveFormat(slug)
+  const visualSource = effectiveFormat.visualSource || 'narrated-scenes'
+  const needsScenePlan = visualSource !== 'broll' && visualSource !== 'image-pool'
+  const needsBrollPick = visualSource === 'broll'
 
   // v1.0.337 — ONE tree walk builds a code→dir index shared by every row
   // (vs. the old per-episode recursive findDir that re-walked the whole
@@ -1192,12 +1197,15 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // pipeline.vue saw `undefined` and always reported video_assembly as
         // missing, even after the broader disk detection landed.
         video_assembly: videoAssemblyDone,
-        video_ready: imagesDone && mergedAudioDone && !videoDone,
-        publishable: imagesDone && thumbsDone && mergedAudioDone && videoAssemblyDone,
+        video_ready: (needsScenePlan ? sceneReviewDone : (needsBrollPick ? brollPickedDone : true))
+          && mergedAudioDone && !videoAssemblyDone,
+        publishable: thumbsDone && mergedAudioDone && videoAssemblyDone,
         metadata: metadataDone,
-        all_done: scriptDone && scenePromptsDone && thumbPromptsDone
-          && imagesDone && thumbsDone && audioDone && metadataDone
-          && mergedAudioDone && videoAssemblyDone,
+        all_done: scriptDone && thumbPromptsDone && thumbsDone
+          && audioDone && metadataDone && mergedAudioDone && subtitlesDone
+          && (!needsScenePlan || (scenePlanDone && sceneReviewDone))
+          && (!needsBrollPick || brollPickedDone)
+          && videoAssemblyDone,
       },
       episode_dir: episodeDir,
     }

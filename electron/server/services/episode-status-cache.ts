@@ -39,7 +39,6 @@ import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.
 // evidence; discard cached true values produced by loose file-presence guesses.
 export const SCHEMA_VERSION = 9 as const
 const MAX_ENTRIES = 1000
-
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000
 const CACHE_FILENAME = 'episode-status.json'

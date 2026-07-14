@@ -94,6 +94,7 @@ interface SharedSlot {
 }
 
 const TTL_MS = 5 * 60 * 1000  // 5 minutes — past this, treat as cold
+const REVALIDATE_MIN_MS = 15 * 1000
 const slots = new Map<string, SharedSlot>()
 
 function getOrCreateSlot(slug: string): SharedSlot {
@@ -196,9 +197,12 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
 
   async function load() {
     const slot = currentSlot()
-    const fresh = slot.fetchedAt.value > 0 && Date.now() - slot.fetchedAt.value < TTL_MS
+    const age = slot.fetchedAt.value > 0 ? Date.now() - slot.fetchedAt.value : Infinity
+    const fresh = age < TTL_MS
     if (slot.data.value.length > 0 && fresh) {
-      // SWR — show cached immediately, revalidate in background.
+      // Show cached immediately. Avoid another project-wide status request
+      // when several controls mount within the same navigation burst.
+      if (age < REVALIDATE_MIN_MS) return
       slot.isRevalidating.value = true
       fetchOnce(false).catch(() => { /* error already stored on slot */ })
       return

@@ -24,6 +24,8 @@ import {
   resolveSubfolderNames,
   resolveScenePlanPath,
 } from './utils.js'
+import type { EpisodePaths } from './utils.js'
+import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import * as pm from './project-manager.js'
@@ -227,15 +229,27 @@ export interface ImageStatus {
  * return 1-4 variants per scene depending on provider config, and the
  * user only needs ≥1 to not have a visual gap in their video.
  */
-export async function getImageStatus(slug: string, episodeId: string): Promise<ImageStatus> {
+export async function getImageStatus(
+  slug: string,
+  episodeId: string,
+  mode: 'all' | 'thumbnails' = 'all',
+  knownPaths?: EpisodePaths,
+): Promise<ImageStatus> {
   const code = episodeId.toUpperCase()
 
   // Resolve prompts + dirs. Either file may be missing (e.g. only scene
   // prompts generated so far); the mode reflects what we actually found.
   let scenePromptsPath: string | null = null
   let thumbPromptsPath: string | null = null
-  try { scenePromptsPath = await findScenePromptsFile(slug, episodeId) } catch { /* no scene prompts yet */ }
-  try { thumbPromptsPath = await findThumbPromptsFile(slug, episodeId) } catch { /* no thumb prompts yet */ }
+  if (mode === 'all') {
+    try { scenePromptsPath = await findScenePromptsFile(slug, episodeId) } catch { /* no scene prompts yet */ }
+  }
+  if (knownPaths) {
+    const candidate = resolveReadPath(knownPaths.thumb_prompts_docx)
+    if (existsSync(candidate)) thumbPromptsPath = candidate
+  } else {
+    try { thumbPromptsPath = await findThumbPromptsFile(slug, episodeId) } catch { /* no thumb prompts yet */ }
+  }
 
   if (!scenePromptsPath && !thumbPromptsPath) {
     // No prompt manifest means there is no authoritative expected set. A
@@ -245,7 +259,10 @@ export async function getImageStatus(slug: string, episodeId: string): Promise<I
   }
 
   const promptsPathForDirs = scenePromptsPath || thumbPromptsPath!
-  const { bgDir, thumbDir } = await resolveImageDirs(slug, promptsPathForDirs, episodeId)
+  const dirs = knownPaths
+    ? { bgDir: knownPaths.bg_dir, thumbDir: knownPaths.thumb_dir }
+    : await resolveImageDirs(slug, promptsPathForDirs, episodeId)
+  const { bgDir, thumbDir } = dirs
 
   const result: ImageStatus = { mode: 'all', dir: { bg: bgDir, thumb: thumbDir } }
 
@@ -808,6 +825,7 @@ export async function computeEpisodeStatus(
   if (!outputRoot) return emptyStatus()
 
   const status = emptyStatus()
+  let authoritativePaths: EpisodePaths | undefined
 
   // Hoist ideas.json load to ONCE per call. Previously this function
   // loaded it twice (lines 533 and 664) and the route's per-episode loop
@@ -833,6 +851,7 @@ export async function computeEpisodeStatus(
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     const title = idea?.title || ''
     const paths = await resolveEpisodePaths(slug, code, title)
+    authoritativePaths = paths
 
     // v1.0.78: use the rich `safeReaddirRich` variant so we can tell apart
     // "folder is genuinely empty" from "couldn't read folder" (iCloud
@@ -841,29 +860,21 @@ export async function computeEpisodeStatus(
     // determine the boolean status fields below; an errored read on any
     // of them poisons the result and we surface that via `_unreliable`
     // so the cache can refuse to persist it.
-    const [scriptR, scenePromptR, thumbPromptR, metadataR] = await Promise.all([
+    const [scriptR, thumbPromptR, metadataR] = await Promise.all([
       safeReaddirRich(paths.script_dir),
-      safeReaddirRich(paths.scene_prompts_dir),
       safeReaddirRich(paths.thumb_prompts_dir),
       safeReaddirRich(paths.metadata_dir),
     ])
     const scriptFiles = scriptR.files
-    const scenePromptFiles = scenePromptR.files
     const thumbPromptFiles = thumbPromptR.files
     const metadataFiles = metadataR.files
 
     const scriptState = deriveScriptFolderState(scriptFiles)
     const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
-    const [scenePromptCompletion, thumbPromptCompletion] = await Promise.all([
-      inspectPromptCompletion(paths.scene_prompts_dir, code, 'scene'),
-      inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail'),
-    ])
+    const thumbPromptCompletion = await inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail')
     status.script = scriptCompletion.complete
     status.introduction = scriptState.introduction
       && await hasValidIntroduction(paths.script_dir, scriptFiles)
-    status.scene_prompts = scenePromptCompletion.authoritative
-      ? scenePromptCompletion.complete
-      : scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
     status.thumb_prompts = thumbPromptCompletion.authoritative
       ? thumbPromptCompletion.complete
       : thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
@@ -973,21 +984,20 @@ export async function computeEpisodeStatus(
     // positives are cheap (~10 fs ops to recompute). False negatives
     // (cached `script: false` for an episode whose script lives on disk)
     // are the actual user-visible bug we're closing.
-    if (scriptR.errored || scenePromptR.errored || thumbPromptR.errored || metadataR.errored) {
+    if (scriptR.errored || thumbPromptR.errored || metadataR.errored) {
       status._unreliable = true
     }
 
     // Presence, not completion, decides whether this is the authoritative
     // folder. Otherwise a partial chunked script would fall through to the
     // legacy fuzzy scanner and be incorrectly promoted back to complete.
-    authoritativeHit = scriptFiles.length > 0 || scenePromptFiles.length > 0
+    authoritativeHit = scriptFiles.length > 0
       || thumbPromptFiles.length > 0 || metadataFiles.length > 0
       || status.introduction
 
     if (process.env.SSKH_STATUS_DEBUG === '1') {
       console.log('[status-debug]', code, {
         script_dir: paths.script_dir, scriptFiles,
-        scene_prompts_dir: paths.scene_prompts_dir,
         thumb_prompts_dir: paths.thumb_prompts_dir,
         metadata_dir: paths.metadata_dir,
         derived: { ...status },
@@ -1022,12 +1032,6 @@ export async function computeEpisodeStatus(
               if (completion.complete) status.script = true
               if (state.introduction && await hasValidIntroduction(subPath, files)) status.introduction = true
             }
-            if (cleanSub.includes('scene prompt')) {
-              const completion = await inspectPromptCompletion(subPath, code, 'scene')
-              status.scene_prompts = completion.authoritative
-                ? completion.complete
-                : files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md'))
-            }
             if (cleanSub.includes('thumbnail prompt')) {
               const completion = await inspectPromptCompletion(subPath, code, 'thumbnail')
               status.thumb_prompts = completion.authoritative
@@ -1049,10 +1053,9 @@ export async function computeEpisodeStatus(
   // Authoritative completion checks. Partial generations (e.g. 9 of 10
   // audio chunks present) correctly resolve to false here.
   const { getAudioStatus } = await import('./audio-reconciler.js')
-  const [audioS, imageS, videoS, mergedS] = await Promise.allSettled([
+  const [audioS, imageS, mergedS] = await Promise.allSettled([
     getAudioStatus(slug, code),
-    getImageStatus(slug, code),
-    getVideoStatus(slug, code),
+    getImageStatus(slug, code, 'thumbnails', authoritativePaths),
     getAudioMergeStatus(slug, code),
   ])
 
@@ -1060,19 +1063,10 @@ export async function computeEpisodeStatus(
     && audioS.value.expected.length > 0
     && audioS.value.missing.length === 0
 
-  status.images = imageS.status === 'fulfilled'
-    && !!imageS.value.scenes
-    && imageS.value.scenes.total > 0
-    && imageS.value.scenes.missing.length === 0
-
   status.thumbnails = imageS.status === 'fulfilled'
     && !!imageS.value.thumbnails
     && imageS.value.thumbnails.total > 0
     && imageS.value.thumbnails.missing.length === 0
-
-  status.video = videoS.status === 'fulfilled'
-    && videoS.value.total > 0
-    && videoS.value.missing.length === 0
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
 

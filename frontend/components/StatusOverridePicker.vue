@@ -84,23 +84,24 @@
  */
 
 type TriState = 'detect' | 'true' | 'false'
-type FieldId = 'script' | 'introduction' | 'scene_prompts' | 'thumb_prompts'
-  | 'metadata' | 'images' | 'thumbnails' | 'audio' | 'merged_audio'
-  | 'video' | 'video_assembly'
+type FieldId = 'script' | 'introduction' | 'thumb_prompts'
+  | 'metadata' | 'thumbnails' | 'audio' | 'merged_audio'
+  | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'video_assembly'
 
 interface FieldMeta { id: FieldId; label: string; icon: string; hint: string }
 
 const FIELDS: FieldMeta[] = [
   { id: 'script',         label: 'Script (chapters)', icon: '📝', hint: 'Per-chapter docx files' },
   { id: 'introduction',   label: 'Introduction',      icon: '🎙', hint: 'Intro docx file' },
-  { id: 'scene_prompts',  label: 'Scene Prompts',     icon: '🎨', hint: 'Image-prompt docx for scenes' },
   { id: 'thumb_prompts',  label: 'Thumbnail Prompts', icon: '🖼', hint: 'Image-prompt docx for thumbs' },
   { id: 'metadata',       label: 'Metadata',          icon: '📄', hint: 'Title/description metadata file' },
-  { id: 'images',         label: 'Scene Images',      icon: '📸', hint: 'Generated scene PNGs' },
   { id: 'thumbnails',     label: 'Thumbnail Images',  icon: '🖼', hint: 'Generated thumbnail PNGs' },
   { id: 'audio',          label: 'Audio (TTS)',       icon: '🎙', hint: 'Per-chapter narration mp3s' },
   { id: 'merged_audio',   label: 'Merged Audio',      icon: '🎛', hint: 'Single unified narration mp3' },
-  { id: 'video',          label: 'Video clips',       icon: '🎬', hint: 'Per-scene mp4 clips' },
+  { id: 'subtitles',      label: 'Subtitles',          icon: '🔤', hint: 'Every narration section transcribed' },
+  { id: 'scene_plan',     label: 'Scene Plan',         icon: '📚', hint: 'Timeline and visual prompts complete' },
+  { id: 'scene_review',   label: 'Scene Review',       icon: '✅', hint: 'Every planned scene has an image' },
+  { id: 'motion_review',  label: 'Motion Review',      icon: '🎬', hint: 'Optional clips reviewed or stills chosen' },
   { id: 'video_assembly', label: 'Video Assembly',    icon: '🎞', hint: 'Final assembled video' },
 ]
 
@@ -133,10 +134,11 @@ const saving = ref(false)
 // Initialize with all-detect; populated from props.initial when the dialog
 // opens. Reactive because the user toggles each row's tri-state.
 const state = reactive<Record<FieldId, TriState>>({
-  script: 'detect', introduction: 'detect', scene_prompts: 'detect',
-  thumb_prompts: 'detect', metadata: 'detect', images: 'detect',
+  script: 'detect', introduction: 'detect',
+  thumb_prompts: 'detect', metadata: 'detect',
   thumbnails: 'detect', audio: 'detect', merged_audio: 'detect',
-  video: 'detect', video_assembly: 'detect',
+  subtitles: 'detect', scene_plan: 'detect', scene_review: 'detect',
+  motion_review: 'detect', video_assembly: 'detect',
 })
 
 // Snapshot of the loaded state — used to compute dirtyCount so the user

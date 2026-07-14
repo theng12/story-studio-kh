@@ -294,7 +294,6 @@ const STEP_FIELD: Record<string, string> = {
   script: 'script',
   metadata: 'metadata',
   'thumb-prompts': 'thumb_prompts',
-  'scene-prompts': 'scene_prompts',
   thumbnails: 'thumbnails',
   scenes: 'images',
   audio: 'audio',
@@ -310,7 +309,7 @@ const STEP_FIELD: Record<string, string> = {
 
 interface BoardCol extends FlowStep { field: string }
 
-const visualSource = ref<VisualSource>('scene-images')
+const visualSource = ref<VisualSource>('narrated-scenes')
 async function loadVisualSource() {
   if (!slug.value) return
   try {

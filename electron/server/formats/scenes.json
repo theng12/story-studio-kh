@@ -1,11 +1,11 @@
 {
   "id": "scenes",
-  "name": "Scenes — AI-generated stills",
-  "description": "Unified presentation shell for AI-generated scene-image videos. This format defines HOW the video is built (chapter-based or sentence-timed scene pairing, AI-rendered stills, evenly-distributed or transcript-aligned cuts); the niche layered on top defines WHAT the video is about (voice, vocab, mood, title rules). The `sceneAlignment` field flips between the two pacing modes: `chapter` distributes scenes evenly across chapters (classic narrative pacing, ~10s per scene), `sentence` times scenes to the actual audio transcript (factual/explainer pacing, 3–6s cuts that track spoken beats). Pipeline: idea → chaptered script → audio (one MP3 per chapter) → AI-generated scene images → final assembly. NOT for sequential character-locked img2img rendering — pick Continuity for that. NOT for human-shot B-roll footage — pick Stock Footage.",
+  "name": "Scenes — narration-timed stills",
+  "description": "AI-generated story visuals timed to the finished narration. Every episode uses the same modern flow: script → audio → subtitles → deterministic timeline → full visual prompts → Scene Review → optional image-to-video motion → final assembly. The niche controls subject, voice, mood, and title rules. Character Sheet and Research are optional rather than separate format requirements.",
   "builtin": true,
   "schemaVersion": 1,
-  "visualSource": "scene-images",
-  "sceneAlignment": "chapter",
+  "visualSource": "narrated-scenes",
+  "sceneAlignment": "sentence",
   "idea": {
     "systemPromptRole": "You are helping generate new video ideas for a scenes-format channel. The niche layered on top (if any) tells you the subject domain and voice — produce strong, audience-ready ideas that match it.",
     "audienceDefault": "general audience",

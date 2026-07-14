@@ -782,8 +782,8 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   if (typeof episode_id !== 'string' || !episode_id) {
     return res.status(400).json({ detail: 'episode_id is required' })
   }
-  if (req.body?.mode && req.body.mode !== 'scenes' && req.body.mode !== 'thumbnails') {
-    return res.status(400).json({ detail: 'mode must be "scenes" or "thumbnails"' })
+  if (req.body?.mode && req.body.mode !== 'thumbnails') {
+    return res.status(410).json({ detail: 'Legacy Scene Prompts generation is retired. Generate visual prompts in Scene Plan.' })
   }
 
   // Pre-flight API-key check — same set the inline route used. Surfacing
@@ -830,6 +830,9 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
   const { slug } = req.params
   const { episode_id, title, prompts } = req.body
   try {
+    if (Array.isArray(prompts?.scenes) && prompts.scenes.length > 0) {
+      return res.status(410).json({ detail: 'Legacy Scene Prompts are retired. Save planned visual prompts through Scene Plan.' })
+    }
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
 
     const pathMod = await import('path')
@@ -866,35 +869,6 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
       )
     }
 
-    // Save scene prompts to Scene Prompts folder. resolveSubfolder uses
-    // strict equality on the folder name, so if the existing folder is
-    // "Scene Prompts" but config now resolves to "Scene_Prompts" (or
-    // vice-versa) you'll end up with a sibling new subfolder + the old
-    // one will look stranded — log when we create rather than match.
-    if ((prompts.scenes || []).length > 0) {
-      const expectedSceneDir = pathMod.join(episodeDir, names.scene_prompts)
-      const sceneSubfolderExisted = existsSync(expectedSceneDir)
-      const sceneDir = await resolveSubfolder(episodeDir, names.scene_prompts)
-      if (!sceneSubfolderExisted) {
-        // Look for sibling subfolders that might be the user's prior copy
-        // so the log gives a clear pointer to where the old prompts live.
-        let nearby: string[] = []
-        try {
-          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
-          nearby = entries
-            .filter(e => e.isDirectory() && /scene/i.test(e.name) && e.name !== names.scene_prompts)
-            .map(e => e.name)
-        } catch { /* episode dir might be brand new */ }
-        console.warn(
-          `[image-prompts/save] created NEW scene-prompts folder "${names.scene_prompts}" in ${episodeDir}. ` +
-          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
-        )
-      }
-      let sceneText = `# Scene Prompts\n\n`
-      for (const s of prompts.scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
-      await buildImagePromptsDocx(sceneText, episode_id, title, pathMod.join(sceneDir, `${episode_id}_Scene_Prompts.md`))
-    }
-
     // Save thumbnail prompts to Thumbnail Prompts folder. Same caveat as
     // scenes — log when the subfolder is freshly created.
     if ((prompts.thumbnails || []).length > 0) {
@@ -919,7 +893,7 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
       await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`))
     }
 
-    res.json({ ok: true, path: paths.scene_prompts_docx })
+    res.json({ ok: true, path: paths.thumb_prompts_docx })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to write image prompts'))
   }

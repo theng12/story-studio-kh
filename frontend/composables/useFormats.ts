@@ -106,22 +106,19 @@ export function formatBuildLine(f: {
   sceneAlignment?: string | null
   script?: { chaptersIndependent?: boolean }
 }): string {
-  const vs = f.visualSource || 'scene-images'
+  const vs = f.visualSource || 'narrated-scenes'
   if (vs === 'broll') {
     return 'Continuous narration over your B-Roll library — no AI scene images.'
   }
   if (vs === 'continuity-chain') {
     return 'One locked character rendered scene-by-scene (img2img), timed to the narration.'
   }
-  // scene-images family (incl. legacy timestamp-driven / narrated-scenes).
-  const sentence = vs === 'timestamp-driven' || vs === 'narrated-scenes' || f.sceneAlignment === 'sentence'
-  if (sentence) {
-    return 'AI-generated scenes timed to the narration transcript (sentence-paced cuts).'
-  }
+  // Every AI-scene format now uses the narration-timed planner. Listicle
+  // remains a useful script structure, not a separate legacy visual pipeline.
   if (f.script?.chaptersIndependent) {
-    return 'AI-generated badge scenes — one per independent topic, built in parallel.'
+    return 'Numbered independent topics with narration-timed AI scenes.'
   }
-  return 'AI-generated scenes distributed evenly across the video.'
+  return 'AI-generated scenes timed to the narration transcript.'
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────

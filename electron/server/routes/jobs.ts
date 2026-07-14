@@ -61,9 +61,9 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
     if (job.project_slug !== slug) return
     send('update', job)
   }
-  const onCleared = (clearedSlug: string) => {
-    if (clearedSlug !== slug) return
-    send('cleared', {})
+  const onCleared = (event: jq.JobsClearedEvent) => {
+    if (event.project_slug !== slug) return
+    send('cleared', event)
   }
   jq.jobEvents.on('update', onUpdate)
   jq.jobEvents.on('cleared', onCleared)
@@ -135,9 +135,9 @@ router.get('/jobs/app/stream', async (req, res) => {
     if (job.project_slug !== APP_SLUG) return
     send('update', job)
   }
-  const onCleared = (clearedSlug: string) => {
-    if (clearedSlug !== APP_SLUG) return
-    send('cleared', {})
+  const onCleared = (event: jq.JobsClearedEvent) => {
+    if (event.project_slug !== APP_SLUG) return
+    send('cleared', event)
   }
   jq.jobEvents.on('update', onUpdate)
   jq.jobEvents.on('cleared', onCleared)

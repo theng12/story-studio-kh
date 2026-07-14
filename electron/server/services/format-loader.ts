@@ -308,9 +308,9 @@ export interface EffectiveFormatOpts {
  * project not yet migrated, e.g. one re-imported from an old backup.)
  */
 const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapter' | 'sentence' }> = {
-  'narrative': { id: 'scenes', sceneAlignment: 'chapter' },
-  'narrated-scenes': { id: 'scenes', sceneAlignment: 'chapter' },
-  'sleep-story': { id: 'scenes', sceneAlignment: 'chapter' },
+  'narrative': { id: 'scenes', sceneAlignment: 'sentence' },
+  'narrated-scenes': { id: 'scenes', sceneAlignment: 'sentence' },
+  'sleep-story': { id: 'scenes', sceneAlignment: 'sentence' },
   'narration-synced': { id: 'scenes', sceneAlignment: 'sentence' },
   'timestamp-driven': { id: 'scenes', sceneAlignment: 'sentence' },
   'broll-narration': { id: 'stock-footage' },
@@ -346,6 +346,14 @@ export async function getEffectiveFormatFor(
     base = { ...base, sceneAlignment: legacyAlignment }
   }
   base = mergeFormatOverrides(base, project.format_overrides)
+  // Retire the chapter-distributed Scene Prompts / Scene Images pipeline.
+  // Custom and restored projects may still carry the old value in overrides;
+  // normalize it at the effective-format boundary so every downstream caller
+  // receives the durable audio-timed Scene Plan workflow without rewriting or
+  // deleting any existing assets on disk.
+  if (base.visualSource === 'scene-images') {
+    base = { ...base, visualSource: 'narrated-scenes', sceneAlignment: 'sentence' }
+  }
   // Niche layer — the CONTENT layer (v1.0.280+ polarity). The format is a
   // presentation shell carrying neutral fallback content; the niche provides
   // the actual voice/vocab/persona/rules. Applied LAST so niche content wins

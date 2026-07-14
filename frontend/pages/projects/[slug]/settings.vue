@@ -5353,10 +5353,10 @@ async function revealInFinder() {
 // `confirmation_preferences` map so one Save button covers all rows.
 const confirmGenerators = [
   { key: 'script', label: 'Scripts', description: 'Episode script generation', group: 'generation' },
-  { key: 'scene_prompts', label: 'Scene Prompts', description: 'Scene image prompt generation', group: 'generation' },
   { key: 'thumb_prompts', label: 'Thumbnail Prompts', description: 'Thumbnail image prompt generation', group: 'generation' },
-  { key: 'scene_images', label: 'Scene Images', description: 'Scene image generation via kie.ai', group: 'generation' },
   { key: 'thumb_images', label: 'Thumbnail Images', description: 'Thumbnail image generation via kie.ai', group: 'generation' },
+  { key: 'scene_plan', label: 'Scene Plan', description: 'Narration-timed visual prompt generation', group: 'generation' },
+  { key: 'scene_review', label: 'Scene Review', description: 'Scene image generation from the approved plan', group: 'generation' },
   { key: 'audio', label: 'Audio', description: 'TTS narration via fal.ai', group: 'generation' },
   { key: 'description', label: 'Description', description: 'YouTube description generation', group: 'generation' },
   { key: 'video', label: 'Video', description: 'Video assembly via FFmpeg', group: 'generation' },

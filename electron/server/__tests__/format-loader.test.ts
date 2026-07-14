@@ -70,8 +70,8 @@ describe('format-loader', () => {
     assert.equal(fmt!.id, 'scenes')
     assert.equal(fmt!.builtin, true)
     assert.equal(fmt!.schemaVersion, 1)
-    assert.equal(fmt!.visualSource, 'scene-images')
-    assert.equal(fmt!.sceneAlignment, 'chapter', 'scenes defaults to chapter alignment')
+    assert.equal(fmt!.visualSource, 'narrated-scenes')
+    assert.equal(fmt!.sceneAlignment, 'sentence', 'scenes use narration-timed Scene Plan alignment')
     assert.ok(fmt!.script.systemPromptRole.length > 0, 'system prompt should be non-empty')
     assert.ok(fmt!.script.narratorStyles.length >= 1, 'shell keeps a narrator picker')
     assert.ok(fmt!.script.defaultNarratorStyleId.length > 0)
@@ -225,13 +225,14 @@ describe('format-loader', () => {
   })
 
   // ── LEGACY remap (v1.0.280) ───────────────────────────────────────────────
-  test('getEffectiveFormat: legacy narrative remaps to scenes + chapter', async () => {
+  test('getEffectiveFormat: legacy narrative remaps to narration-timed scenes', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-narrative')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-narrative', { format_id: 'narrative' }))
     const fmt = await loader.getEffectiveFormat('legacy-narrative')
     assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.sceneAlignment, 'chapter', 'narrative preserved even-distribution shape')
+    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.sceneAlignment, 'sentence', 'legacy chapter distribution is retired')
   })
 
   test('getEffectiveFormat: legacy narration-synced remaps to scenes + sentence', async () => {
@@ -254,13 +255,14 @@ describe('format-loader', () => {
     assert.equal(fmt.visualSource, 'broll', 'broll pipeline preserved')
   })
 
-  test('getEffectiveFormat: legacy sleep-story remaps to scenes + chapter', async () => {
+  test('getEffectiveFormat: legacy sleep-story remaps to narration-timed scenes', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-sleepstory')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-sleepstory', { format_id: 'sleep-story' }))
     const fmt = await loader.getEffectiveFormat('legacy-sleepstory')
     assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.sceneAlignment, 'chapter')
+    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.sceneAlignment, 'sentence')
   })
 
   // ── POLARITY FLIP: niche provides content into the shell ───────────────────
@@ -294,8 +296,8 @@ describe('format-loader', () => {
     // Niche tags merge into the broadKeywords pool
     assert.ok(merged.metadata.broadKeywords.includes('demo-tag'))
     // Presentation fields are untouched by the niche
-    assert.equal(merged.visualSource, 'scene-images')
-    assert.equal(merged.sceneAlignment, 'chapter')
+    assert.equal(merged.visualSource, 'narrated-scenes')
+    assert.equal(merged.sceneAlignment, 'sentence')
     assert.deepEqual(merged.script.narratorStyles, shell.script.narratorStyles)
   })
 

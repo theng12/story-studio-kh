@@ -7,10 +7,10 @@
  *   - the flow ribbon ("where am I / what's next")
  *   - the Production Board (its columns are these steps)
  *
- * `normalizeVisualSource()` collapses the unified `scenes` format
- * (visualSource 'scene-images' + sceneAlignment) onto the pipeline's
- * VisualSource vocabulary. A regression here silently mis-shapes all three
- * surfaces, so the per-format step sets are pinned explicitly.
+ * `normalizeVisualSource()` migrates retired `scene-images` and unknown
+ * formats onto the narration-timed Scene Plan workflow. A regression here
+ * silently restores obsolete board columns and routes, so the modern step
+ * sets are pinned explicitly.
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
@@ -24,10 +24,10 @@ import {
 const keys = (vs: VisualSource) => flowForVisualSource(vs).map(s => s.key)
 
 describe('normalizeVisualSource', () => {
-  test('unified scenes format pivots on sceneAlignment', () => {
-    assert.equal(normalizeVisualSource('scene-images', 'chapter'), 'scene-images')
+  test('retired scene-images always migrates to narrated-scenes', () => {
+    assert.equal(normalizeVisualSource('scene-images', 'chapter'), 'narrated-scenes')
     assert.equal(normalizeVisualSource('scene-images', 'sentence'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('scene-images', undefined), 'scene-images')
+    assert.equal(normalizeVisualSource('scene-images', undefined), 'narrated-scenes')
   })
 
   test('explicit visualSource values pass through unchanged', () => {
@@ -37,25 +37,14 @@ describe('normalizeVisualSource', () => {
     assert.equal(normalizeVisualSource('narrated-scenes', 'chapter'), 'narrated-scenes')
   })
 
-  test('unknown / missing visualSource falls back via sceneAlignment', () => {
-    assert.equal(normalizeVisualSource(undefined, undefined), 'scene-images')
+  test('unknown / missing visualSource safely falls back to narrated-scenes', () => {
+    assert.equal(normalizeVisualSource(undefined, undefined), 'narrated-scenes')
     assert.equal(normalizeVisualSource(null, 'sentence'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('something-new', undefined), 'scene-images')
+    assert.equal(normalizeVisualSource('something-new', undefined), 'narrated-scenes')
   })
 })
 
 describe('flowForVisualSource — per-format step sets', () => {
-  test('scene-images: classic chain with per-scene prompts + images, no research/plan', () => {
-    const k = keys('scene-images')
-    for (const s of ['ideas', 'script', 'metadata', 'thumb-prompts', 'scene-prompts',
-      'thumbnails', 'scenes', 'audio', 'audio-merge', 'video-assembly']) {
-      assert.ok(k.includes(s), `scene-images should include ${s}`)
-    }
-    for (const s of ['research', 'scene-plan', 'scene-review', 'character-sheet', 'timestamp-assemble']) {
-      assert.ok(!k.includes(s), `scene-images should NOT include ${s}`)
-    }
-  })
-
   test('broll: no per-scene prompts/images, ends at video-assembly', () => {
     const k = keys('broll')
     assert.ok(!k.includes('scene-prompts'), 'broll has no scene prompts')
@@ -107,7 +96,7 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('every step is a well-formed FlowStep with a unique key', () => {
-    const sources: VisualSource[] = ['scene-images', 'broll', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {
       const steps = flowForVisualSource(vs)
       const seen = new Set<string>()
@@ -121,7 +110,7 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('Ideas is always first; the flow always ends on an assembly step', () => {
-    const sources: VisualSource[] = ['scene-images', 'broll', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {
       const k = keys(vs)
       assert.equal(k[0], 'ideas', `${vs} should start at Ideas`)
@@ -129,6 +118,15 @@ describe('flowForVisualSource — per-format step sets', () => {
         ['video-assembly', 'timestamp-assemble'].includes(k[k.length - 1]),
         `${vs} should end on an assembly step`,
       )
+    }
+  })
+
+  test('no active flow exposes retired scene prompt or scene image stages', () => {
+    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    for (const vs of sources) {
+      const k = keys(vs)
+      assert.ok(!k.includes('scene-prompts'), `${vs} must not expose Scene Prompts`)
+      assert.ok(!k.includes('scenes'), `${vs} must not expose Scene Images`)
     }
   })
 })

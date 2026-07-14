@@ -11,6 +11,7 @@
  */
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { beforeEach } from 'node:test'
 
 // Register once per test process. The registrator is idempotent so repeated
 // imports (one per test file) are safe — subsequent calls are no-ops.
@@ -26,6 +27,6 @@ if (!(globalThis as any).__happyDomRegistered) {
 // $fetch call is mocked anyway. Best-effort: the test suite as a whole
 // gets gated only if the import resolves; if it doesn't, the 15 s gate
 // timeout is the long-stop.
-import('../composables/useApi.js').then((m: any) => {
-  m._markBootReadyForTests?.()
-}).catch(() => { /* silent */ })
+const apiModule: any = await import('../composables/useApi.js')
+apiModule._markBootReadyForTests?.()
+beforeEach(() => apiModule._clearApiGetCacheForTests?.())

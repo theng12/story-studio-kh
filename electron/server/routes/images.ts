@@ -23,14 +23,14 @@ export const router = Router()
 router.get('/projects/:slug/episodes/:code/image-status', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const s = await getImageStatus(req.params.slug, req.params.code)
+    const s = await getImageStatus(req.params.slug, req.params.code, 'thumbnails')
     res.json(s)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Could not compute image status'))
   }
 })
 
-// ── Scene / thumbnail image ingest (for the Bulk Asset browser extension) ──
+// ── Thumbnail image ingest (for the Bulk Asset browser extension) ──
 // Save a browser-generated image for the PROMPTS source with the same name +
 // directory the native Image generator produces, so status/assembly pick it up:
 //   kind 'scene'     → {CODE}_Scene{NN}_v1.png in "05 Scene Images"
@@ -43,7 +43,10 @@ router.post('/projects/:slug/episodes/:code/image-ingest', async (req, res) => {
   const code = req.params.code.toUpperCase()
   try {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const kind = req.body?.kind === 'thumbnail' ? 'thumbnail' : 'scene'
+    if (req.body?.kind && req.body.kind !== 'thumbnail') {
+      return res.status(410).json({ detail: 'Legacy scene ingest is retired. Upload planned scenes through Scene Review.' })
+    }
+    const kind = 'thumbnail' as const
     const n = Number(req.body?.number ?? req.body?.scene_number)
     if (!Number.isFinite(n) || n < 1) return res.status(400).json({ detail: 'number (>= 1) is required.' })
 
@@ -54,13 +57,13 @@ router.post('/projects/:slug/episodes/:code/image-ingest', async (req, res) => {
     const title = typeof req.body?.title === 'string' ? req.body.title : ''
     const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
     const paths = await resolveEpisodePaths(slug, code, title || idea?.title || '')
-    const promptsPath = kind === 'thumbnail' ? paths.thumb_prompts_docx : paths.scene_prompts_docx
+    const promptsPath = paths.thumb_prompts_docx
     const { resolveImageDirs } = await import('../generators/images.js')
     const dirs = await resolveImageDirs(slug, promptsPath || paths.scene_prompts_docx || '', code)
-    const outDir = kind === 'thumbnail' ? dirs.thumbDir : dirs.bgDir
+    const outDir = dirs.thumbDir
 
     await fsp.mkdir(outDir, { recursive: true })
-    const stem = kind === 'thumbnail' ? 'Thumb' : 'Scene'
+    const stem = 'Thumb'
     const filename = `${code}_${stem}${String(n).padStart(2, '0')}_v1.png`
     await fsp.writeFile(path.join(outDir, filename), buf.data)
 
@@ -90,14 +93,11 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   let jobType: JobType
   let title: string
 
-  if (mode === 'scenes') {
-    jobType = 'scene_images'
-    title = 'Scene Images'
-  } else if (mode === 'thumbs') {
+  if (mode === 'thumbs') {
     jobType = 'thumb_images'
     title = 'Thumbnail Images'
   } else {
-    return res.status(400).json({ detail: 'mode must be "scenes" or "thumbs"' })
+    return res.status(410).json({ detail: 'Legacy Scene Images generation is retired. Render planned scenes in Scene Review.' })
   }
 
   // Dedupe per (episode, jobType, scene_number, thumb_number).

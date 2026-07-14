@@ -58,11 +58,9 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ introduction: false }), 'introduction-only'), false)
   })
 
-  test('thumbnail and scene prompt steps are independent', () => {
+  test('image_prompts tracks thumbnail prompts only', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts'), false)
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'scene_prompts'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'scene_prompts'), false)
   })
 
   test('image_prompts is thumbnail-only for every format', () => {
@@ -73,18 +71,15 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts', timestampFormat), false)
   })
 
-  test('scene_images and thumb_images are independent', () => {
-    assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'scene_images'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ images: false, thumbnails: true }), 'scene_images'), false)
+  test('thumb_images tracks thumbnails without legacy scene images', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ images: false, thumbnails: true }), 'thumb_images'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'thumb_images'), false)
   })
 
-  test('audio / audio_merge / metadata / video each track their status field', () => {
+  test('audio / audio_merge / metadata each track their status field', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ audio: true }), 'audio'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ merged_audio: true }), 'audio_merge'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ metadata: true }), 'metadata'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ video: true }), 'video'), true)
   })
 
   test('video_assembly tracks status.video_assembly (final render file present)', () => {
@@ -409,12 +404,17 @@ describe('every pipeline step maps to a real job-queue lane', () => {
     }
   })
 
-  test('the mismatched steps map to their generator job types', () => {
+  test('the mismatched modern steps map to their generator job types', () => {
     assert.equal(jobTypeForStep('scene_review'), 'continuity_render')
     assert.equal(jobTypeForStep('scene_plan'), 'scene_plan_run')
     assert.equal(jobTypeForStep('subtitles'), 'subtitles_transcribe')
     assert.equal(jobTypeForStep('timestamp_assemble'), 'timestamp_video_assemble')
-    assert.equal(jobTypeForStep('scene_prompts'), 'image_prompts')
+  })
+
+  test('retired scene prompt/image/video steps are not accepted', () => {
+    assert.ok(!VALID_STEPS.includes('scene_prompts' as any))
+    assert.ok(!VALID_STEPS.includes('scene_images' as any))
+    assert.ok(!VALID_STEPS.includes('video' as any))
   })
 })
 

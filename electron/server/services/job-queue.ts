@@ -175,8 +175,9 @@ function invalidateCreditCacheSoon(): void {
   }).catch(() => { /* noop — cache invalidation is best-effort */ })
 }
 
-function emitCleared(projectSlug: string): void {
-  try { jobEvents.emit('cleared', projectSlug) } catch { /* noop */ }
+export interface JobsClearedEvent { project_slug: string; job_ids: string[] }
+function emitCleared(projectSlug: string, jobIds: string[]): void {
+  try { jobEvents.emit('cleared', { project_slug: projectSlug, job_ids: jobIds } satisfies JobsClearedEvent) } catch { /* noop */ }
 }
 
 const MAX_PERSISTED = 100
@@ -360,6 +361,16 @@ function jobsPath(projectSlug: string): string {
   // write their jobs.json in the right place.
   const dir = getProjectDir(projectSlug) || path.join(PROJECTS_ROOT, projectSlug)
   return path.join(dir, 'jobs.json')
+}
+
+async function persistProjectSnapshot(projectSlug: string): Promise<void> {
+  const p = jobsPath(projectSlug)
+  await withLock(p, async () => {
+    const remaining = Array.from(jobs.values())
+      .filter(j => j.project_slug === projectSlug)
+      .map(j => safeJob(j))
+    await writeJsonAtomic(p, { jobs: remaining })
+  })
 }
 
 function safeJob(job: Job): Omit<Job, never> {
@@ -898,7 +909,8 @@ export function cancelJob(jobId: string): boolean {
     jobs.delete(jobId)
     // Synthesise a final "gone" event so subscribers can drop the row even
     // though we're deleting it entirely (not transitioning its status).
-    emitCleared(job.project_slug)
+    emitCleared(job.project_slug, [jobId])
+    void persistProjectSnapshot(job.project_slug).catch(() => {})
     return true
   }
 
@@ -908,21 +920,18 @@ export function cancelJob(jobId: string): boolean {
 export async function clearFinished(projectSlug: string): Promise<number> {
   await loadPersistedJobs(projectSlug)
   let count = 0
+  const clearedIds: string[] = []
   for (const [id, job] of jobs.entries()) {
     if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status)) {
       jobs.delete(id)
+      clearedIds.push(id)
       count++
     }
   }
-  // Persist cleaned list atomically — serialise against any in-flight persistJob.
-  const p = jobsPath(projectSlug)
-  await withLock(p, async () => {
-    const remaining = Array.from(jobs.values())
-      .filter(j => j.project_slug === projectSlug)
-      .map(j => safeJob(j))
-    await writeJsonAtomic(p, { jobs: remaining })
-  }).catch(() => {})
-  if (count > 0) emitCleared(projectSlug)
+  if (count > 0) emitCleared(projectSlug, clearedIds)
+  // Persist after notifying subscribers so the UI clears immediately even on
+  // a slow/synced project volume. The route still awaits durability.
+  await persistProjectSnapshot(projectSlug).catch(() => {})
   return count
 }
 

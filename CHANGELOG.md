@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.582 — 2026-07-14
+
+**Large projects load faster and every AI-scene format now follows one Scene Plan workflow.**
+
+- Coalesced duplicate project-config, effective-format, and model-catalog requests across controls, with short safe caches and explicit refresh bypasses after saves.
+- Removed the recursive legacy video and scene-prompt scans from every episode status check while preserving immediate filesystem-based completion correction.
+- Made warm episode lists reuse their recent result instead of repeating a project-wide scan on every mount.
+- Made bulk Job clearing update the visible list immediately from exact cleared IDs, while keeping queue history durable on disk.
+- Retired Scene Prompts, Scene Images, and the old AI Video Generator from active navigation, presets, dashboards, Pipeline steps, status controls, and direct legacy generation endpoints.
+- Migrated classic Scenes, sleep-story, narrative, and Listicle projects to narration-timed Scene Plan → Scene Review visuals without deleting existing project assets.
+- Kept Listicle as a useful numbered, independent-topic script structure; only its obsolete chapter-distributed visual workflow was removed.
+- Corrected final Pipeline assembly prerequisites so modern Scene Plan and B-Roll episodes rely on the authoritative assembly coverage guard instead of legacy Scene Images.
+- Added regression coverage preventing retired visual stages from returning and preserving immediate subtitle and asset completion detection.
+
 ## v1.0.581 — 2026-07-14
 
 **Scene Plan now catches unsafe timeline gaps before Video Assembly does.**

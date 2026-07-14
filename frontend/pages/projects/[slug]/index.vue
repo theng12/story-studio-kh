@@ -376,9 +376,7 @@ const assetItems = computed(() => {
   const total = stats.value.episodes?.total || 1
   return [
     { label: 'Scripts', count: a.scripts || 0, pct: Math.round(((a.scripts || 0) / total) * 100) },
-    { label: 'Scene Prompts', count: a.scene_prompts || 0, pct: Math.round(((a.scene_prompts || 0) / total) * 100) },
     { label: 'Thumbnail Prompts', count: a.thumb_prompts || 0, pct: Math.round(((a.thumb_prompts || 0) / total) * 100) },
-    { label: 'Scene Images', count: a.images || 0, pct: Math.round(((a.images || 0) / total) * 100) },
     { label: 'Thumbnails', count: a.thumbnails || 0, pct: Math.round(((a.thumbnails || 0) / total) * 100) },
     { label: 'Audio', count: a.total_audio_files || 0, pct: Math.round(((a.audio || 0) / total) * 100) },
     { label: 'Descriptions', count: a.descriptions || 0, pct: Math.round(((a.descriptions || 0) / total) * 100) },
