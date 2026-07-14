@@ -27,7 +27,14 @@
         :title="`Preview ${prefix} ${row.number}`"
         @click="$emit('open-preview', imagePath)"
       >
-        <img :src="thumbUrl" :alt="`${prefix} ${row.number}`" class="igr-thumb-img" />
+        <ResilientImage
+          :src="thumbUrl"
+          :alt="`${prefix} ${row.number}`"
+          class="igr-thumb-img"
+          loading="lazy"
+          compact
+          :manual-retry="false"
+        />
       </button>
       <div v-else class="igr-thumb igr-thumb-placeholder" aria-label="No image rendered yet">
         <span class="igr-thumb-placeholder-icon" aria-hidden="true">⊘</span>

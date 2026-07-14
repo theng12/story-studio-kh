@@ -625,7 +625,12 @@
                 @click="pickTitleImage(thumb.path)"
                 :title="thumb.filename"
               >
-                <img :src="getImagePreviewUrl(thumb.path)" :alt="thumb.filename" class="thumb-preview" />
+                <ResilientImage
+                  :src="getImagePreviewUrl(thumb.path)"
+                  :alt="thumb.filename"
+                  class="thumb-preview"
+                  compact
+                />
                 <span v-if="titleImage.image_path === thumb.path" class="thumb-check">✓</span>
                 <span class="thumb-label">{{ thumb.filename.replace(/\.[^.]+$/, '') }}</span>
               </div>
@@ -659,7 +664,11 @@
               </button>
             </div>
             <div class="preview-frame mt-1">
-              <img :src="getImagePreviewUrl(titleImage.image_path)" alt="Title image preview" class="preview-img" />
+              <ResilientImage
+                :src="getImagePreviewUrl(titleImage.image_path)"
+                alt="Title image preview"
+                class="preview-img"
+              />
             </div>
             <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
@@ -1013,7 +1022,12 @@
               autoplay muted loop playsinline
             />
             <div class="effect-media-surface" :style="frameMediaStyle">
-              <img :src="getImagePreviewUrl(previewSceneImage)" alt="Preview" class="effect-preview-img" :style="effectPreviewImgStyle" />
+              <ResilientImage
+                :src="getImagePreviewUrl(previewSceneImage)"
+                alt="Scene preview"
+                class="effect-preview-img"
+                :style="effectPreviewImgStyle"
+              />
               <template v-for="layer in previewEffectLayers" :key="layer.id">
                 <video
                   v-if="isVideoMedia(layer.source_path) && isPreviewLayerVisible(layer)"
@@ -1022,12 +1036,13 @@
                   :style="previewOverlayStyle(layer)"
                   autoplay muted loop playsinline
                 />
-                <img
+                <ResilientImage
                   v-else-if="isPreviewLayerVisible(layer)"
                   :src="getMediaPreviewUrl(layer.source_path)"
                   alt="Overlay preview"
                   class="effect-overlay-media"
                   :style="previewOverlayStyle(layer)"
+                  compact
                 />
               </template>
               <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />

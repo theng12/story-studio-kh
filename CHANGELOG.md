@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.580 — 2026-07-14
+
+**Image previews recover instead of silently becoming blank.**
+
+- Added a shared resilient preview surface with visible loading, automatic cache-busted recovery, and a clear retry action when a file cannot be displayed.
+- Applied it to Video Assembly title thumbnails, title preview, scene/effect preview, image overlays, image-generation rows, and the existing-image galleries.
+- Added automatic recovery and manual retry to the full-screen image lightbox without changing image selection or editing behavior.
+- Changed generated-image responses to revalidate files that may be replaced at the same path instead of trusting an hour-old Chromium cache entry.
+- Added regression coverage for the image-preview response and visually verified all five KH Boundless EP0027 title images in the current renderer.
+
 ## v1.0.579 — 2026-07-14
 
 **Saving a preset with Return now closes the dialog once and stays closed.**

@@ -49,7 +49,8 @@
             <LoadingSpinner size="sm" />
           </div>
           <div v-if="loadError" class="ipl-image-error">
-            ⚠ Couldn't load preview — the file may have moved or been deleted.
+            <span>⚠ Couldn't load preview - the file may have moved or been deleted.</span>
+            <button type="button" class="ipl-retry-btn" @click.stop="retryPreview">↻ Retry preview</button>
           </div>
         </div>
 
@@ -189,22 +190,35 @@ const previewUrl = computed(() => {
   // Same endpoint images.vue + video-assembly already use for in-app
   // image previews. Cache-bust with the path so swaps render the
   // right pixels even when the lightbox stays mounted.
-  return `/api/projects/${props.projectSlug}/video-editor/preview-image?path=${encodeURIComponent(c.path)}`
+  return `/api/projects/${props.projectSlug}/video-editor/preview-image?path=${encodeURIComponent(c.path)}&preview_retry=${previewAttempt.value}`
 })
 
 // ── Loading state ───────────────────────────────────────────────────────
 const imgLoading = ref(false)
 const loadError = ref(false)
+const previewAttempt = ref(0)
 
 watch(currentImage, (cur, prev) => {
   if (cur && cur.path !== prev?.path) {
+    previewAttempt.value = 0
     imgLoading.value = true
     loadError.value = false
   }
 })
 function onImgError() {
+  if (previewAttempt.value === 0) {
+    previewAttempt.value++
+    imgLoading.value = true
+    loadError.value = false
+    return
+  }
   imgLoading.value = false
   loadError.value = true
+}
+function retryPreview() {
+  previewAttempt.value++
+  imgLoading.value = true
+  loadError.value = false
 }
 
 // ── Navigation ──────────────────────────────────────────────────────────
@@ -275,6 +289,7 @@ function onKeydown(e: KeyboardEvent) {
 watch(() => props.visible, (open) => {
   if (open) {
     // Reset loading flag for the first frame; <img>'s @load will clear it.
+    previewAttempt.value = 0
     imgLoading.value = !!currentImage.value
     loadError.value = false
     if (typeof document !== 'undefined') {
@@ -411,6 +426,24 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(90vw, 640px);
+}
+.ipl-retry-btn {
+  flex: 0 0 auto;
+  border: 1px solid rgba(252, 211, 77, 0.55);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.24);
+  color: inherit;
+  padding: 4px 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ipl-retry-btn:hover {
+  background: rgba(252, 211, 77, 0.14);
 }
 
 /* Side arrows — large hit targets that don't overlap the image since

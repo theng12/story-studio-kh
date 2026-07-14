@@ -526,7 +526,14 @@
             :title="`Preview ${scn.filename}`"
             @click="openLightboxAt(scn.path)"
           >
-            <img :src="getImagePreviewUrlImages(scn.path)" :alt="scn.filename" class="edit-image-thumb" />
+            <ResilientImage
+              :src="getImagePreviewUrlImages(scn.path)"
+              :alt="scn.filename"
+              class="edit-image-thumb"
+              loading="lazy"
+              compact
+              :manual-retry="false"
+            />
             <span class="edit-image-label">S{{ scn.scene_number ?? '?' }}</span>
           </button>
         </div>
@@ -573,7 +580,14 @@
               : `Preview ${thumb.filename}`"
             @click="openLightboxAt(thumb.path)"
           >
-            <img :src="getImagePreviewUrlImages(thumb.path)" :alt="thumb.filename" class="edit-image-thumb" />
+            <ResilientImage
+              :src="getImagePreviewUrlImages(thumb.path)"
+              :alt="thumb.filename"
+              class="edit-image-thumb"
+              loading="lazy"
+              compact
+              :manual-retry="false"
+            />
             <span class="edit-image-label">T{{ ti + 1 }}</span>
             <span v-if="thumb.filename === pinnedThumbnailFilename" class="pinned-badge" aria-label="Pinned for upload">📌</span>
           </button>

@@ -530,7 +530,10 @@ router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
   try {
     const data = await fs.readFile(filePath)
     res.set('Content-Type', mime)
-    res.set('Cache-Control', 'public, max-age=3600')
+    // Generated images are frequently replaced at the same path. Revalidate
+    // rather than trusting an hour-old Chromium decode/cache entry, which can
+    // otherwise leave every preview card blank until the app is restarted.
+    res.set('Cache-Control', 'private, no-cache, must-revalidate')
     res.send(data)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Image preview failed'))
