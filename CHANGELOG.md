@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.583 — 2026-07-14
+
+**Settings now shows only the three active continuity-era video formats.**
+
+- Removed the retired Stock Footage and Image Pool format definitions from the built-in catalog.
+- Reduced the selectable format list to narration-timed Scenes, numbered Listicle, and character-locked Continuity.
+- Transparently maps saved Stock Footage, Image Pool, B-Roll, and older scene-format IDs to narration-timed Scenes without deleting existing media.
+- Removed dormant B-Roll and Image Pool branches from the sidebar, Pipeline, remote chain, format cards, and workflow resolver.
+- Added regression coverage that pins the active catalog and prevents retired choices from returning.
+
 ## v1.0.582 — 2026-07-14
 
 **Large projects load faster and every AI-scene format now follows one Scene Plan workflow.**

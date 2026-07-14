@@ -440,25 +440,14 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 // Refreshed per project below; the bell lives in the top bar.
 const { refreshReadiness } = useNotifications()
 
-// v1.0.89+: format-aware sidebar. B-Roll-driven formats (prayer /
-// devotional / narration over stock footage) hide scene/thumbnail-prompt
-// + scene/thumbnail-generator pages and surface a B-Roll Picker entry
-// instead. Fetched lazily — the layout doesn't block on this; if it
-// hasn't resolved yet we show the default set, which is correct for
-// every existing format.
+// Format-aware sidebar. Fetched lazily so navigation does not block while the
+// effective continuity format is resolving.
 // Reuses the `apiGet` declared further down in this script-setup block
 // (line ~423: const { get: apiGet, patch: apiPatch, del: apiDel } = useApi()).
 // Vue script-setup hoists const declarations, so referencing it before
 // its textual position is safe at runtime. A duplicate `const { get: apiGet } = useApi()`
 // here passed tsx-watch but failed Vite's prod build with "Identifier
 // already declared" — removed in v1.0.89.
-// v1.0.141+ — `visualSource` now has three possible values. The
-// timestamp-driven pipeline adds Research / Scene Plan / Scene Review
-// pages and hides the same scene-prompts / scene-generator / video-
-// generator entries that the broll pipeline hides (those don't apply
-// when visuals are placed against the audio timeline rather than
-// pre-planned). isBroll + isTimestampDriven are mutually exclusive
-// flags driven off the same source so templates can branch cleanly.
 // v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
 // and chooses its pacing via `sceneAlignment` ('sentence' → audio-paced flow).
 // normalizeVisualSource() collapses (visualSource, sceneAlignment) onto the
@@ -472,7 +461,6 @@ async function loadVisualSource(): Promise<void> {
     visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
   } catch { /* leave as default */ }
 }
-const isBroll = computed(() => visualSource.value === 'broll')
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
 // v1.0.187+ — continuity-chain extends the timestamp (audio-paced) pipeline:
 // it shares Scene Plan / Scene Review / Timestamp Assemble and hides the
@@ -484,20 +472,11 @@ const isContinuityChain = computed(() => visualSource.value === 'continuity-chai
 // NO Character Sheet (see usesScenePlan; Research + Character Sheet nav stay
 // gated on their own flags below, which narrated-scenes deliberately fails).
 const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
-// v1.0.408 — image-pool: single-narration slideshow of still images. Hides the
-// scene pages (like broll) and surfaces its own Image Slideshow page.
-const isImagePool = computed(() => visualSource.value === 'image-pool')
 /** True when the active pipeline plans scenes against the actual audio
  *  timeline (timestamp-driven, continuity-chain, OR narrated-scenes) — these
  *  share the Scene Plan / Scene Review pages and route assembly to
  *  /timestamp-assemble. */
 const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
-/** True when the active pipeline plans scenes against the actual
- *  audio timeline OR pulls them from a B-Roll pool — i.e. NOT the
- *  classic scene-images pipeline. Used by sidebar entries that the
- *  same way for both alternative pipelines (Scene Prompts / Scene
- *  Generator / Video Generator are all hidden when this is true). */
-const hidesScenePages = computed(() => isBroll.value || isImagePool.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // v1.0.146+ — also re-fetch the effective format when the project's
 // format_id / niche_id changes, even while staying on the

@@ -56,10 +56,9 @@ async function loadPipeline(): Promise<void> {
     // v1.0.280+ — normalize the unified `scenes` format (visualSource
     // 'scene-images' + sceneAlignment) onto the pipeline vocabulary.
     const vs = normalizeVisualSource(fmt?.visualSource, fmt?.sceneAlignment)
-    if (vs === 'broll') { applicableTab.value = 'scenes'; pipelineLabel.value = 'B-Roll (loaded as scenes)' }
-    else if (vs === 'image-pool') { applicableTab.value = 'scenes'; pipelineLabel.value = 'Image Pool (loaded as scenes)' }
-    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'scenes'; pipelineLabel.value = 'full scene editor' }
-    else { applicableTab.value = 'scenes'; pipelineLabel.value = 'chapter-distributed scenes' }
+    void vs
+    applicableTab.value = 'scenes'
+    pipelineLabel.value = 'full scene editor'
   } catch { applicableTab.value = null }
 }
 

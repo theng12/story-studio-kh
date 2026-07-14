@@ -67,7 +67,6 @@ const sectionPlural = computed(() => selected.value?.script.sectionLabel?.plural
 const sceneTiming = computed(() => {
   const f = selected.value
   if (!f) return ''
-  if (f.visualSource === 'broll') return 'continuous'
   const sentence = f.visualSource === 'timestamp-driven' || f.visualSource === 'narrated-scenes' || f.sceneAlignment === 'sentence'
   return sentence ? 'sentence-timed' : 'chapter-even'
 })

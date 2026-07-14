@@ -20,8 +20,23 @@ import {
   requiredFlowSteps,
   type VisualSource,
 } from '../composables/useProjectFlow.js'
+import { canonicalFormatId } from '../composables/useFormats.js'
 
 const keys = (vs: VisualSource) => flowForVisualSource(vs).map(s => s.key)
+
+describe('canonicalFormatId', () => {
+  test('retired format selections heal to the modern scenes shell', () => {
+    for (const id of ['stock-footage', 'image-pool', 'broll', 'scene-images']) {
+      assert.equal(canonicalFormatId(id), 'scenes')
+    }
+  })
+
+  test('active and custom format ids remain unchanged', () => {
+    assert.equal(canonicalFormatId('continuity-chain'), 'continuity-chain')
+    assert.equal(canonicalFormatId('listicle'), 'listicle')
+    assert.equal(canonicalFormatId('my-custom-format'), 'my-custom-format')
+  })
+})
 
 describe('normalizeVisualSource', () => {
   test('retired scene-images always migrates to narrated-scenes', () => {
@@ -30,11 +45,15 @@ describe('normalizeVisualSource', () => {
     assert.equal(normalizeVisualSource('scene-images', undefined), 'narrated-scenes')
   })
 
-  test('explicit visualSource values pass through unchanged', () => {
-    assert.equal(normalizeVisualSource('broll', 'chapter'), 'broll')
+  test('active visualSource values pass through unchanged', () => {
     assert.equal(normalizeVisualSource('continuity-chain', 'sentence'), 'continuity-chain')
     assert.equal(normalizeVisualSource('timestamp-driven', undefined), 'timestamp-driven')
     assert.equal(normalizeVisualSource('narrated-scenes', 'chapter'), 'narrated-scenes')
+  })
+
+  test('retired B-Roll and Image Pool formats migrate to narrated-scenes', () => {
+    assert.equal(normalizeVisualSource('broll', 'chapter'), 'narrated-scenes')
+    assert.equal(normalizeVisualSource('image-pool', 'sentence'), 'narrated-scenes')
   })
 
   test('unknown / missing visualSource safely falls back to narrated-scenes', () => {
@@ -45,14 +64,6 @@ describe('normalizeVisualSource', () => {
 })
 
 describe('flowForVisualSource — per-format step sets', () => {
-  test('broll: no per-scene prompts/images, ends at video-assembly', () => {
-    const k = keys('broll')
-    assert.ok(!k.includes('scene-prompts'), 'broll has no scene prompts')
-    assert.ok(!k.includes('scenes'), 'broll has no scene images')
-    assert.ok(k.includes('thumb-prompts') && k.includes('thumbnails'))
-    assert.ok(k.includes('video-assembly'))
-  })
-
   test('timestamp-driven: research + scene plan/review + video assembly, no scene-prompts', () => {
     const flow = flowForVisualSource('timestamp-driven')
     const k = flow.map(s => s.key)
@@ -96,7 +107,7 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('every step is a well-formed FlowStep with a unique key', () => {
-    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {
       const steps = flowForVisualSource(vs)
       const seen = new Set<string>()
@@ -110,7 +121,7 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('Ideas is always first; the flow always ends on an assembly step', () => {
-    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {
       const k = keys(vs)
       assert.equal(k[0], 'ideas', `${vs} should start at Ideas`)
@@ -122,7 +133,7 @@ describe('flowForVisualSource — per-format step sets', () => {
   })
 
   test('no active flow exposes retired scene prompt or scene image stages', () => {
-    const sources: VisualSource[] = ['broll', 'image-pool', 'timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {
       const k = keys(vs)
       assert.ok(!k.includes('scene-prompts'), `${vs} must not expose Scene Prompts`)

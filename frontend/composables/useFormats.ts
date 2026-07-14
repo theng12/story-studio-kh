@@ -3,7 +3,7 @@
  * the backend (built-in + user-custom merged) and the per-project
  * "effective format" (base + project overrides applied).
  *
- * The format list is small (currently 7 built-in + however many user-custom)
+ * The format list is small (built-ins + however many user-custom)
  * and rarely changes during a session, so we cache it module-level for the
  * whole process. `refresh()` forces a refetch when the user creates / edits
  * a custom format.
@@ -25,7 +25,7 @@ export interface Format {
   builtin: boolean
   schemaVersion: 1
   /** v1.0.280+ — presentation mechanism. Drives the "how it's built" line. */
-  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
+  visualSource?: 'scene-images' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
   /** v1.0.280+ — scene→script pairing for the unified scenes format. */
   sceneAlignment?: 'chapter' | 'sentence'
   idea: {
@@ -107,9 +107,6 @@ export function formatBuildLine(f: {
   script?: { chaptersIndependent?: boolean }
 }): string {
   const vs = f.visualSource || 'narrated-scenes'
-  if (vs === 'broll') {
-    return 'Continuous narration over your B-Roll library — no AI scene images.'
-  }
   if (vs === 'continuity-chain') {
     return 'One locked character rendered scene-by-scene (img2img), timed to the narration.'
   }
@@ -119,6 +116,16 @@ export function formatBuildLine(f: {
     return 'Numbered independent topics with narration-timed AI scenes.'
   }
   return 'AI-generated scenes timed to the narration transcript.'
+}
+
+const RETIRED_FORMAT_IDS = new Set([
+  'narrative', 'narrated-scenes', 'sleep-story', 'narration-synced',
+  'timestamp-driven', 'scene-images', 'broll-narration', 'broll', 'stock-footage', 'image-pool',
+])
+
+/** Normalize saved format ids before a picker mounts. */
+export function canonicalFormatId(id?: string | null): string {
+  return id && !RETIRED_FORMAT_IDS.has(id) ? id : 'scenes'
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────

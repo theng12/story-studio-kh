@@ -3040,6 +3040,7 @@ import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
 // Bare named export (not a useX composable), so import it explicitly —
 // mirrors image-prompts.vue.
 import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
+import { canonicalFormatId } from '~/composables/useFormats'
 import {
   VOICE_PROVIDER_OPTIONS,
   firstVoiceProviderIndex,
@@ -3315,7 +3316,7 @@ const formatDirty = computed(() => {
 function syncFormatFromProject() {
   const m = project.value as any
   if (!m) return
-  formatId.value = m.format_id || 'scenes'
+  formatId.value = canonicalFormatId(m.format_id)
   formatOverrides.value = m.format_overrides || null
   contentMode.value = m.content_mode === 'freeform' ? 'freeform' : 'format'
   formatIdBaseline.value = formatId.value

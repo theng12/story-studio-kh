@@ -3,8 +3,7 @@
  *
  * Coverage:
  *   - Built-in 'scenes' format loads with required fields
- *   - All 4 presentation-shell formats load + validate (scenes / listicle /
- *     continuity-chain / stock-footage)
+ *   - All 3 active presentation-shell formats load + validate
  *   - listFormats() returns at least the built-ins
  *   - mergeFormatOverrides() deep-merges objects, replaces arrays wholesale
  *   - getEffectiveFormat() defaults to 'scenes' when project has no format_id
@@ -85,15 +84,18 @@ describe('format-loader', () => {
   // The deleted formats must NOT resolve from disk anymore (they were merged
   // into 'scenes'). loadFormat returns null; getEffectiveFormat remaps them.
   test('deleted legacy formats no longer exist on disk', async () => {
-    for (const id of ['narrative', 'narrated-scenes', 'narration-synced']) {
+    for (const id of [
+      'narrative', 'narrated-scenes', 'narration-synced',
+      'stock-footage', 'image-pool',
+    ]) {
       assert.equal(await loader.loadFormat(id), null, `${id} should be gone`)
     }
   })
 
-  // Shape parity across all 4 presentation shells. A shell is presentation-
+  // Shape parity across all active presentation shells. A shell is presentation-
   // only: it carries the structural/picker fields the pipeline + UI need, and
   // leaves voice/content fields neutral (the niche fills those).
-  const ALL_BUILTIN_FORMATS = ['scenes', 'listicle', 'continuity-chain', 'stock-footage']
+  const ALL_BUILTIN_FORMATS = ['scenes', 'listicle', 'continuity-chain']
   for (const id of ALL_BUILTIN_FORMATS) {
     test(`built-in shell '${id}' loads with all required presentation fields`, async () => {
       const fmt = await loader.loadFormat(id)
@@ -164,10 +166,12 @@ describe('format-loader', () => {
     }
   })
 
-  test('listFormats() includes the built-in scenes shell', async () => {
+  test('listFormats() exposes only the active built-in shells', async () => {
     const list = await loader.listFormats()
     const ids = list.map(f => f.id)
-    assert.ok(ids.includes('scenes'), `scenes must appear; got ${ids.join(',')}`)
+    assert.deepEqual(ids.sort(), ['continuity-chain', 'listicle', 'scenes'])
+    assert.ok(!ids.includes('stock-footage'))
+    assert.ok(!ids.includes('image-pool'))
   })
 
   test('mergeFormatOverrides: deep-merges objects', async () => {
@@ -244,15 +248,23 @@ describe('format-loader', () => {
     assert.equal(fmt.sceneAlignment, 'sentence', 'narration-synced preserved transcript-timed shape')
   })
 
-  test('getEffectiveFormat: legacy broll-narration remaps to stock-footage (NOT scenes)', async () => {
-    // The critical one — a broll-narration project must keep its B-roll
-    // pipeline (visualSource 'broll'), never silently become AI scene-images.
+  test('getEffectiveFormat: retired B-Roll formats remap to narration-timed scenes', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-broll')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-broll', { format_id: 'broll-narration' }))
     const fmt = await loader.getEffectiveFormat('legacy-broll')
-    assert.equal(fmt.id, 'stock-footage')
-    assert.equal(fmt.visualSource, 'broll', 'broll pipeline preserved')
+    assert.equal(fmt.id, 'scenes')
+    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.sceneAlignment, 'sentence')
+  })
+
+  test('getEffectiveFormat: retired Image Pool remaps to narration-timed scenes', async () => {
+    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-image-pool')
+    await fs.mkdir(projDir, { recursive: true })
+    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-image-pool', { format_id: 'image-pool' }))
+    const fmt = await loader.getEffectiveFormat('legacy-image-pool')
+    assert.equal(fmt.id, 'scenes')
+    assert.equal(fmt.visualSource, 'narrated-scenes')
   })
 
   test('getEffectiveFormat: legacy sleep-story remaps to narration-timed scenes', async () => {

@@ -7,11 +7,6 @@ import { useRoute } from 'vue-router'
  * Every project follows a creation chain, but the chain DIFFERS by the
  * format's `visualSource` (the same value that already gates the sidebar):
  *
- *   broll          (stock-footage):
- *     Ideas → Script → Metadata → Thumbnail Prompts → Thumbnails →
- *     Audio → Audio Assembly → Video Assembly
- *     (no per-scene prompts/images — visuals come from the B-Roll pool)
- *
  *   timestamp-driven (narration-synced):
  *     Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails →
  *     Audio → Audio Assembly → Scene Plan → Scene Review → Video Assembly
@@ -29,7 +24,7 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
+export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
@@ -53,11 +48,11 @@ export function normalizeVisualSource(
   sceneAlignment?: SceneAlignment | string | null,
 ): VisualSource {
   switch (visualSource) {
-    case 'broll': return 'broll'
-    case 'image-pool': return 'image-pool'
     case 'continuity-chain': return 'continuity-chain'
     case 'timestamp-driven': return 'timestamp-driven'
     case 'narrated-scenes': return 'narrated-scenes'
+    case 'broll':
+    case 'image-pool':
     case 'scene-images':
     default:
       void sceneAlignment
@@ -98,14 +93,7 @@ const STEP = {
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
   timestampAssemble: { key: 'timestamp-assemble', label: 'Timestamp Assemble', icon: '🎞', path: '/timestamp-assemble' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
-  imagePool:        { key: 'image-pool',         label: 'Image Slideshow',    icon: '🖼', path: '/image-pool' },
 } satisfies Record<string, FlowStep>
-
-const FLOW_BROLL: FlowStep[] = [
-  STEP.ideas, STEP.script, STEP.metadata,
-  STEP.thumbPrompts, STEP.thumbnails,
-  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.videoAssembly,
-]
 const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
@@ -129,22 +117,7 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 
-// v1.0.408 — image-pool: same single-narration flow as broll, but the final
-// visual step is the Image Slideshow page (pick images + assemble) instead of
-// the clip-oriented Video Assembly.
-// v1.0.411 — image-pool ends at the unified Video Assembly (the Scenes editor):
-// pool images are loaded as scenes on the 🖼 Image Slideshow tab, then assembled
-// there. Ending at videoAssembly gives the standard video_assembly status — so
-// the Production Board shows the final-video column and "Pending only" works.
-const FLOW_IMAGE_POOL: FlowStep[] = [
-  STEP.ideas, STEP.script, STEP.metadata,
-  STEP.thumbPrompts, STEP.thumbnails,
-  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.videoAssembly,
-]
-
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
-  if (vs === 'broll') return FLOW_BROLL
-  if (vs === 'image-pool') return FLOW_IMAGE_POOL
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES

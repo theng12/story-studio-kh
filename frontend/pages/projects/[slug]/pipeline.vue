@@ -516,15 +516,9 @@ const { ask } = useConfirm()
 const { config, refreshConfig } = useProject()
 
 // ── Active pipeline (format-aware) ──────────────────────────────────────
-// v1.0.167 — the Pipeline page is no longer hardwired to the scene-images
-// chain. It reads the project's effective `visualSource` (same call the
-// sidebar uses) and renders ONLY the steps that belong to the active
-// format's real chain:
-//   - scene-images (narrative / listicle): the full classic chain.
-//   - broll (stock-footage): no scene prompts/images/video-clips; image
-//     prompts + images run in THUMBNAIL-ONLY mode; the final render lives
-//     on the B-Roll page (shown as an "Open page →" chain node).
-//   - timestamp-driven (narration-synced): adds Research up front and
+// The Pipeline reads the project's effective visual source and renders only
+// the steps that belong to the active continuity workflow. Timestamp-driven
+// projects add Research up front and
 //     Scene Plan / Scene Review / Timestamp Assemble at the end — all of
 //     which run from their own pages (Scene Review is a human approval
 //     gate by design), so they appear as "Open page →" nodes too.
@@ -543,7 +537,6 @@ async function loadVisualSource(): Promise<void> {
     visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
   } catch { /* leave on the modern audio-paced default */ }
 }
-const isBroll = computed(() => visualSource.value === 'broll')
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
 // v1.0.187+ — continuity-chain shares the audio-paced (timestamp) chain
 // but inserts a Character Sheet node and renders scenes sequentially.
@@ -553,10 +546,6 @@ const isContinuityChain = computed(() => visualSource.value === 'continuity-chai
 // Research node (fiction has nothing to fact-check) and WITHOUT a Character
 // Sheet (no img2img lock).
 const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
-// Scene-only steps (scene prompts, scene images, AI video clips) are
-// irrelevant for the alternative pipelines — broll pulls visuals from a
-// pool; timestamp-driven / continuity-chain / narrated-scenes place them
-// against the audio timeline.
 watch(slug, () => {
   void loadVisualSource()
   // v1.0.368 — pull a FRESH config on entry. The shared useProject() config
@@ -680,12 +669,6 @@ function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 //
 type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
 
-const CHAIN_BROLL: ChainSpec = [
-  'script-only', 'introduction-only', 'metadata',
-  'image_prompts', 'thumb_images',
-  'audio', 'audio_merge', 'subtitles',
-  'broll',
-]
 // v1.0.363 — Scene Plan, Scene Review (render) and the final Timestamp
 // Assemble are now real chain steps. One "Run all the way" click plans the
 // scenes, renders every image across the server pool, then assembles the
@@ -724,7 +707,6 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
 ]
 
 const activeChainSpec = computed<ChainSpec>(() => {
-  if (isBroll.value) return CHAIN_BROLL
   if (isTimestampDriven.value) return CHAIN_TIMESTAMP
   if (isContinuityChain.value) return CHAIN_CONTINUITY
   if (isNarratedScenes.value) return CHAIN_NARRATED_SCENES
@@ -748,7 +730,6 @@ const visibleSteps = computed<StepMeta[]>(() =>
 )
 
 const chainLabel = computed(() => {
-  if (isBroll.value) return 'Voice over Stock Footage (B-Roll)'
   if (isTimestampDriven.value) return 'Scenes — sentence-timed (transcript-driven)'
   if (isContinuityChain.value) return 'Continuity (character-locked, live-paced)'
   if (isNarratedScenes.value) return 'Scenes — sentence-timed (audio-paced)'

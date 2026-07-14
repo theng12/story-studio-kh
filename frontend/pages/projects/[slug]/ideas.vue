@@ -1297,6 +1297,7 @@
 </template>
 
 <script setup lang="ts">
+import { canonicalFormatId } from '~/composables/useFormats'
 import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
 
 definePageMeta({ layout: 'dashboard' })
@@ -1725,7 +1726,7 @@ async function loadPatternPreferences(): Promise<boolean> {
       return false
     }
     if (typeof meta?.format_id === 'string' && meta.format_id) {
-      formatId.value = meta.format_id
+      formatId.value = canonicalFormatId(meta.format_id)
       metaFormatLoaded = true
     }
     if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id

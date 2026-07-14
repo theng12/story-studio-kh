@@ -40,19 +40,39 @@ const require = createRequire(import.meta.url)
  * (e.g. one of the 9 sleep-story-flavoured formats deleted in v1.0.162).
  *
  * History: was 'sleep-story' through v1.0.161. v1.0.162 consolidated the
- * 11 formats down to 4 (narrative / listicle / stock-footage / narration-
- * synced). v1.0.280 (format↔niche refactor) flipped FORMAT to presentation-
+ * 11 formats down to a small set of presentation shells. v1.0.280
+ * (format↔niche refactor) flipped FORMAT to presentation-
  * only and split the content out into niches: 'narrative', 'narrated-scenes',
  * and 'narration-synced' all collapsed into the unified 'scenes' format (the
  * `sceneAlignment` field — 'chapter' vs 'sentence' — replaces the implicit
  * even-distribution vs transcript-timed split). 'scenes' is the new default.
- * Old projects whose format_id was any of the deleted ids (narrative /
- * narrated-scenes / narration-synced / true-crime / sleep-story / …) fall
- * back to 'scenes' on the next config read — they all used the scene-images
- * pipeline anyway, so the production SHAPE is unchanged. The niche layer now
- * carries ALL content/voice tuning on top (mindfulness, prayer, etc.).
+ * Old projects whose format_id was any deleted presentation id fall back to
+ * 'scenes' on the next config read. The niche layer carries all content and
+ * voice tuning on top (mindfulness, prayer, etc.).
  */
 export const DEFAULT_FORMAT_ID = 'scenes'
+
+/**
+ * Formats retired when every visual workflow moved to the narration-timed
+ * Scene Plan → Scene Review pipeline. Keep these aliases readable so projects
+ * imported from an older build heal without losing any files or metadata.
+ */
+export const RETIRED_FORMAT_IDS = new Set([
+  'narrative',
+  'narrated-scenes',
+  'sleep-story',
+  'narration-synced',
+  'timestamp-driven',
+  'scene-images',
+  'broll-narration',
+  'broll',
+  'stock-footage',
+  'image-pool',
+])
+
+export function canonicalFormatId(id?: string | null): string {
+  return id && !RETIRED_FORMAT_IDS.has(id) ? id : DEFAULT_FORMAT_ID
+}
 
 // ── Built-in directory resolution ──────────────────────────────────────────
 //
@@ -205,7 +225,7 @@ export async function listFormats(): Promise<Format[]> {
       if (!name.endsWith('.json')) continue
       try {
         const fmt = await loadFormatFile(path.join(userDir, name))
-        seen.set(fmt.id, fmt)
+        if (!RETIRED_FORMAT_IDS.has(fmt.id)) seen.set(fmt.id, fmt)
       } catch (e: any) {
         console.warn(`[format-loader] skipping malformed user format ${name}: ${e.message}`)
       }
@@ -220,7 +240,7 @@ export async function listFormats(): Promise<Format[]> {
       if (!name.endsWith('.json')) continue
       try {
         const fmt = await loadFormatFile(path.join(BUILTIN_FORMATS_DIR, name))
-        if (!seen.has(fmt.id)) seen.set(fmt.id, fmt)
+        if (!RETIRED_FORMAT_IDS.has(fmt.id) && !seen.has(fmt.id)) seen.set(fmt.id, fmt)
       } catch (e: any) {
         console.warn(`[format-loader] skipping malformed built-in format ${name}: ${e.message}`)
       }
@@ -294,18 +314,9 @@ export interface EffectiveFormatOpts {
 }
 
 /**
- * v1.0.280 — legacy format-id remap. Many older format ids collapsed into the
- * 4 presentation shells. An existing project whose format_id is one of these
- * is transparently mapped to the shell that preserves its original pipeline
- * SHAPE (and, for the scenes family, the scene→script alignment):
- *   - narrative / narrated-scenes / sleep-story → scenes 'chapter' (even dist.)
- *   - narration-synced / timestamp-driven       → scenes 'sentence' (timed)
- *   - broll-narration / broll                   → stock-footage (B-roll, no AI)
- * Without this, e.g. a narration-synced project would silently flip from the
- * timestamp-driven chain to chapter-distributed scenes, and a broll-narration
- * project would silently flip from B-roll to AI scene images — both wrong.
- * (D.2 also rewrites these ids on disk; this remap is the safety net for any
- * project not yet migrated, e.g. one re-imported from an old backup.)
+ * Deleted format ids resolve to the single narration-timed scenes shell. This
+ * is intentionally non-destructive: existing B-Roll, pool images, prompts,
+ * and renders remain on disk, but new work follows Scene Plan and Scene Review.
  */
 const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapter' | 'sentence' }> = {
   'narrative': { id: 'scenes', sceneAlignment: 'sentence' },
@@ -313,8 +324,11 @@ const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapte
   'sleep-story': { id: 'scenes', sceneAlignment: 'sentence' },
   'narration-synced': { id: 'scenes', sceneAlignment: 'sentence' },
   'timestamp-driven': { id: 'scenes', sceneAlignment: 'sentence' },
-  'broll-narration': { id: 'stock-footage' },
-  'broll': { id: 'stock-footage' },
+  'scene-images': { id: 'scenes', sceneAlignment: 'sentence' },
+  'broll-narration': { id: 'scenes', sceneAlignment: 'sentence' },
+  'broll': { id: 'scenes', sceneAlignment: 'sentence' },
+  'stock-footage': { id: 'scenes', sceneAlignment: 'sentence' },
+  'image-pool': { id: 'scenes', sceneAlignment: 'sentence' },
 }
 
 /** Same as getEffectiveFormat() but takes the ProjectMeta directly. */
@@ -351,7 +365,7 @@ export async function getEffectiveFormatFor(
   // normalize it at the effective-format boundary so every downstream caller
   // receives the durable audio-timed Scene Plan workflow without rewriting or
   // deleting any existing assets on disk.
-  if (base.visualSource === 'scene-images') {
+  if (base.visualSource === 'scene-images' || base.visualSource === 'broll' || base.visualSource === 'image-pool') {
     base = { ...base, visualSource: 'narrated-scenes', sceneAlignment: 'sentence' }
   }
   // Niche layer — the CONTENT layer (v1.0.280+ polarity). The format is a

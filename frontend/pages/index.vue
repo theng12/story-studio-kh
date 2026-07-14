@@ -1259,7 +1259,7 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
-import { formatBuildLine } from '~/composables/useFormats'
+import { canonicalFormatId, formatBuildLine } from '~/composables/useFormats'
 import { useNiches } from '~/composables/useNiches'
 
 useAppTitle()
@@ -1399,7 +1399,7 @@ const formatsLoading = ref(false)
 // formats list has loaded, so the chip simply doesn't render yet.
 function formatLabel(id?: string): string {
   if (!formats.value.length) return ''
-  const fid = id || DEFAULT_FORMAT_ID
+  const fid = canonicalFormatId(id || DEFAULT_FORMAT_ID)
   const f = formats.value.find(ff => ff.id === fid)
     || formats.value.find(ff => ff.id === DEFAULT_FORMAT_ID)
   const name = f?.name || ''
@@ -1458,7 +1458,6 @@ function formatIcon(id: string): string {
     'scenes':            '📖',
     'listicle':          '📊',
     'continuity-chain':  '🎭',
-    'stock-footage':     '🎞',
   }
   return map[id] || '☆'
 }

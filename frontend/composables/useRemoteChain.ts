@@ -14,16 +14,14 @@ import type { VisualSource } from '~/composables/useProjectFlow'
 
 export type CockpitStep =
   | 'script-only' | 'metadata' | 'image_prompts' | 'thumb_images'
-  | 'research' | 'broll'
+  | 'research'
   | 'audio' | 'audio_merge' | 'subtitles' | 'character_sheet'
   | 'scene_plan' | 'scene_review' | 'motion_review' | 'timestamp_assemble' | 'video_assembly'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
-  'broll':            ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'broll'],
   'timestamp-driven': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
   'continuity-chain': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
   'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'timestamp_assemble'],
-  'image-pool':       ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles'],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball
@@ -32,7 +30,6 @@ const FINAL_STEPS = new Set<CockpitStep>(['timestamp_assemble', 'video_assembly'
 
 export const STEP_LABELS: Record<CockpitStep, string> = {
   'research': 'Research',
-  'broll': 'B-Roll final video',
   'script-only': 'Script',
   'metadata': 'Metadata',
   'image_prompts': 'Thumbnail prompts',
