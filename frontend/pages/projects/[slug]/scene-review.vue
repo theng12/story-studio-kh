@@ -1423,11 +1423,20 @@ async function generateAllMissing(): Promise<void> {
   const ep = episodeId.value
   bulkQueuingEpisode.value = ep
   try {
-    const r = await post<{ queued: number; skipped: number }>(
+    const r = await post<{ queued: number; skipped: number; reused?: boolean; job_id?: string }>(
       `/projects/${slug.value}/scene-review/${ep}/generate-missing`,
-      { model: form.value.model, aspect_ratio: form.value.aspect_ratio, ...localSizeBody.value },
+      {
+        model: form.value.model,
+        aspect_ratio: form.value.aspect_ratio,
+        independent: true,
+        concurrency: form.value.concurrency,
+        prompt_only: promptOnly.value,
+        ...localSizeBody.value,
+      },
     )
-    success(`Queued ${r.queued} job${r.queued === 1 ? '' : 's'} (${r.skipped} skipped)`)
+    success(r.reused
+      ? `Already rendering in Job ${r.job_id || 'Queue'} — reused it instead of submitting duplicate images.`
+      : `Queued one render for ${r.queued} missing scene${r.queued === 1 ? '' : 's'} (${r.skipped} skipped).`)
     // Re-load every 4s while images are landing.
     await pollUntilAllPresent(ep)
   } catch (e: any) {
@@ -1502,7 +1511,7 @@ const { jobs, isJobActiveFor } = useJobs()
 // v1.0.307 — also reflect scene_image_generate jobs still queued/running for
 // this episode, so the bulk button stays greyed even after a reload (the local
 // `bulkQueuing` ref doesn't survive one). See useJobs.isJobActiveFor.
-const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_image_generate']))
+const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_image_generate', 'scene_images_batch', 'continuity_render']))
 const activeRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null
@@ -1512,7 +1521,7 @@ const activeRenderJob = computed(() => {
   }
   return (jobs.value || []).find((j: any) =>
     j.episode_id === code
-    && ['continuity_render', 'images', 'scene_images', 'thumb_images'].includes(j.type)
+    && ['continuity_render', 'scene_images_batch', 'images', 'scene_images', 'thumb_images'].includes(j.type)
     && (j.status === 'running' || j.status === 'queued'),
   ) || null
 })
@@ -1520,12 +1529,12 @@ const activeContinuityRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null
   const fromReview = activeRenderJobFromReview.value
-  if (fromReview && fromReview.episode_id === code && fromReview.type === 'continuity_render' && (fromReview.status === 'running' || fromReview.status === 'queued')) {
+  if (fromReview && fromReview.episode_id === code && ['continuity_render', 'scene_images_batch'].includes(fromReview.type) && (fromReview.status === 'running' || fromReview.status === 'queued')) {
     return fromReview
   }
   return (jobs.value || []).find((j: any) =>
     j.episode_id === code
-    && j.type === 'continuity_render'
+    && ['continuity_render', 'scene_images_batch'].includes(j.type)
     && (j.status === 'running' || j.status === 'queued'),
   ) || null
 })

@@ -6,7 +6,7 @@
  *   POST /api/projects/:slug/scene-review/:episodeId/generate-image
  *      — queues one scene_image_generate for { scene_id, model }
  *   POST /api/projects/:slug/scene-review/:episodeId/generate-missing
- *      — bulk-queues scene_image_generate for every scene lacking an image
+ *      — queues one canonical continuity render for scenes lacking an image
  *   PUT  /api/projects/:slug/scene-review/:episodeId/approve
  *      — flips approval flag(s) on scene_plan.json; supports per-scene + bulk
  *   GET  /api/projects/:slug/scene-review/:episodeId/image/:sceneId
@@ -30,8 +30,6 @@ import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { registry } from '../providers/registry.js'
-import { getHubBackend } from '../lib/studiohub-client.js'
-import { isImageStudioModelId } from '../lib/imagestudio-client.js'
 import {
   assertScenePromptsRenderable,
   clearLegacyPlannerFallbackReasons,
@@ -187,7 +185,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     try {
       activeJob = (await jq.getJobs(slug)).find((j: any) =>
         j.episode_id === episodeId
-        && j.type === 'continuity_render'
+        && (j.type === 'continuity_render' || j.type === 'scene_images_batch')
         && (j.status === 'running' || j.status === 'queued')
       ) || null
     } catch {
@@ -265,6 +263,9 @@ function enqueueContinuityRender(
       force: body.force === true,
       from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
       single_scene_id: singleSceneId,
+      scene_ids: Array.isArray(body.scene_ids)
+        ? body.scene_ids.filter((s: any) => typeof s === 'string')
+        : undefined,
       independent: body.independent === true,
       concurrency: body.concurrency === 'auto'
         ? 'auto'
@@ -312,8 +313,9 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
 })
 
 // ── POST /scene-review/:ep/generate-missing ───────────────────────────
-// Bulk-queue scene_image_generate jobs for every scene that doesn't
-// already have an image on disk. Skips scenes already in flight.
+// Queue one canonical continuity_render job for every missing scene. The
+// renderer itself batches local Hub work across the fleet and preserves
+// verified partial outputs, so Scene Review and Pipeline share one owner.
 router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
@@ -340,47 +342,58 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
       return true
     })
 
-    // v1.0.535 — in Studio Hub mode with a local Image Studio model, render ALL
-    // missing scenes as ONE batch so the Hub work-steals them across the fleet
-    // (the N-individual-jobs path is a queue singleton → serial, one at a time).
-    const hubMode = (await getHubBackend()).mode === 'hub'
-    if (hubMode && isImageStudioModelId(model) && missing.length) {
-      if (jq.isDuplicate(slug, episodeId, 'scene_images_batch' as JobType, () => true)) {
-        return res.status(409).json({ detail: 'A scene-images batch is already running for this episode.' })
-      }
-      jq.enqueue({
-        project_slug: slug,
-        type: 'scene_images_batch' as JobType,
-        episode_id: episodeId,
-        title: `Scene images (${missing.length})`,
-        params: { episode_id: episodeId, model, aspect_ratio, width, height, scene_ids: missing.map((s) => s.id) },
-      })
-      return res.json({ ok: true, queued: missing.length, skipped, batched: true, queued_scene_ids: missing.map((s) => s.id) })
+    if (missing.length === 0) {
+      return res.json({ ok: true, queued: 0, skipped, queued_scene_ids: [] })
     }
 
-    // Otherwise: one job per scene (unchanged — Direct mode / cloud models).
-    let queued = 0
-    const queuedIds: string[] = []
-    for (const s of missing) {
-      jq.enqueue({
-        project_slug: slug,
-        type: 'scene_image_generate' as JobType,
-        episode_id: episodeId,
-        title: `Scene ${s.scene_index} image`,
-        params: {
-          episode_id: episodeId,
-          title: typeof body.title === 'string' ? body.title : '',
-          scene_id: s.id,
-          model,
-          aspect_ratio,
-          width,
-          height,
-        },
+    const existing = jq.getActiveBulkSceneRenderJob(slug, episodeId)
+    if (existing) {
+      return res.json({
+        ok: true,
+        queued: 0,
+        skipped,
+        reused: true,
+        job_id: existing.job_id,
+        queued_scene_ids: missing.map((s) => s.id),
       })
-      queued++
-      queuedIds.push(s.id)
     }
-    res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
+
+    try {
+      const job = enqueueContinuityRender(slug, episodeId, {
+        ...body,
+        model,
+        aspect_ratio,
+        width,
+        height,
+        independent: true,
+        scene_ids: missing.map((s) => s.id),
+      })
+      return res.json({
+        ok: true,
+        queued: missing.length,
+        skipped,
+        batched: true,
+        job_id: job.job_id,
+        queued_scene_ids: missing.map((s) => s.id),
+      })
+    } catch (e: any) {
+      // Another request won the atomic enqueue race. Reuse that owner instead
+      // of surfacing a false failure or submitting a second Hub workload.
+      if (e instanceof jq.DuplicateJobError) {
+        const winner = jq.getActiveBulkSceneRenderJob(slug, episodeId)
+        if (winner) {
+          return res.json({
+            ok: true,
+            queued: 0,
+            skipped,
+            reused: true,
+            job_id: winner.job_id,
+            queued_scene_ids: missing.map((s) => s.id),
+          })
+        }
+      }
+      throw e
+    }
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to queue scene-image jobs'))
   }
@@ -511,6 +524,10 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   const dedupeParams = singleSceneId
     ? (p: any) => p.single_scene_id === singleSceneId
     : (p: any) => !p.single_scene_id
+  const existingBulk = !singleSceneId ? jq.getActiveBulkSceneRenderJob(slug, episodeId) : null
+  if (existingBulk) {
+    return res.json({ ...existingBulk, reused: true })
+  }
   if (jq.isDuplicate(slug, episodeId, 'continuity_render' as JobType, dedupeParams)) {
     return res.status(409).json({
       detail: singleSceneId
@@ -558,6 +575,10 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     // Lost the atomic dedupe race — surface as a clean 409 (no async error
     // boundary in this app, so an unhandled throw would hang the request).
     if (e instanceof jq.DuplicateJobError) {
+      if (!singleSceneId) {
+        const winner = jq.getActiveBulkSceneRenderJob(slug, episodeId)
+        if (winner) return res.json({ ...winner, reused: true })
+      }
       return res.status(409).json({
         detail: singleSceneId
           ? `That scene is already queued/rendering for ${episodeId}.`

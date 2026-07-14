@@ -1104,6 +1104,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
 
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
+  const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const skipped: Array<{ episode_id: string; reason: string }> = []
   // Per-episode per-step skips — steps that were in `steps` but whose
   // output already exists. Populated only when `force` is falsy.
@@ -1208,6 +1209,28 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
 
     const [first, ...rest] = chain
 
+    // Scene Review and Pipeline share one episode-wide render owner. If the
+    // user already started images from Scene Review, join this Pipeline's
+    // remaining steps to that active job instead of submitting the same scene
+    // set to Studio Hub again.
+    if (first.type === 'continuity_render' && !first.params.single_scene_id) {
+      const joined = await jq.joinActiveBulkSceneRender({
+        project_slug: slug,
+        episode_id: episodeId,
+        pipeline_chain: rest,
+        pipeline_batch_id: batch_id,
+      })
+      if (joined?.conflict) {
+        skipped.push({ episode_id: episodeId, reason: 'An existing scene render already belongs to another Pipeline run' })
+        continue
+      }
+      if (joined) {
+        reused.push({ episode_id: episodeId, job_id: joined.job.job_id, type: joined.job.type })
+        totalEnqueuedStepCount += rest.length
+        continue
+      }
+    }
+
     // Duplicate guard: skip this episode entirely if its first step is
     // already queued/running. The user can see the existing job in the
     // Jobs tab; silently piling another one on is worse UX than a skip.
@@ -1234,11 +1257,13 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   res.status(201).json({
     batch_id,
     enqueued: enqueued.length,
+    reused: reused.length,
     total_jobs_planned: totalEnqueuedStepCount,
     character_sheets_applied: characterSheetsApplied,
     skipped,
     steps_skipped_as_done,
     jobs: enqueued,
+    reused_jobs: reused,
     steps,
     force,
   })

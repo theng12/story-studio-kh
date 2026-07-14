@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.594 — 2026-07-15
+
+**Scene Review and Pipeline now share one scene-image render queue.**
+
+- Unified Scene Review's Generate All Missing action with the Pipeline's canonical continuity renderer instead of creating a separate `scene_images_batch` workload.
+- Preserved Studio Hub fleet batching, adaptive parallel dispatch, verified partial-output recovery, prompt-only mode, render size, and concurrency settings through the shared renderer.
+- Added cross-type queue ownership so an older Scene Review batch already queued or running is reused instead of submitting duplicate scene images to Studio Hub.
+- Lets a Pipeline join an existing manual scene render and continue its remaining steps exactly once after that render completes.
+- Shows the reused Job ID in Scene Review and reports reused renders clearly when a Pipeline starts.
+- Added regression coverage for cross-type deduplication, Pipeline continuation handoff, and protection against replacing another Pipeline's continuation.
+
 ## v1.0.593 — 2026-07-15
 
 **Scene and Motion Review are clearer, calmer, and much easier to navigate.**

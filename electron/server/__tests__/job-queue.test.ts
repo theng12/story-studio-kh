@@ -90,6 +90,79 @@ describe('isDuplicate()', () => {
   })
 })
 
+describe('Scene Review and Pipeline render ownership', () => {
+  test('reuses an active legacy scene batch and preserves Pipeline continuation', async () => {
+    const proj = await pm.createProject({ name: 'JQ Scene Render Join' })
+    let releaseLegacy!: () => void
+    const legacyBlock = new Promise<void>((resolve) => { releaseLegacy = resolve })
+    let metadataRuns = 0
+    jq.registerExecutor('scene_images_batch', async () => await legacyBlock)
+    jq.registerExecutor('metadata', async () => { metadataRuns++ })
+
+    const legacy = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'scene_images_batch',
+      episode_id: 'EP001',
+      title: 'Legacy Scene Review batch',
+      params: { scene_ids: ['ep001-scene-0001'] },
+    })
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    const active = jq.getActiveBulkSceneRenderJob(proj.slug, 'EP001')
+    assert.equal(active?.job_id, legacy.job_id)
+    assert.throws(() => jq.enqueue({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP001',
+      title: 'Pipeline Scene Review',
+      params: { independent: true },
+    }), jq.DuplicateJobError)
+
+    const joined = await jq.joinActiveBulkSceneRender({
+      project_slug: proj.slug,
+      episode_id: 'EP001',
+      pipeline_batch_id: 'batch-scene-owner',
+      pipeline_chain: [{ type: 'metadata', title: 'Continue Pipeline', params: {} }],
+    })
+    assert.equal(joined?.job.job_id, legacy.job_id)
+    assert.equal(joined?.attached, true)
+    assert.equal(joined?.conflict, false)
+
+    releaseLegacy()
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && metadataRuns === 0) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(metadataRuns, 1, 'the adopted render should continue the Pipeline exactly once')
+    const projectJobs = await jq.getJobs(proj.slug)
+    assert.equal(projectJobs.filter(job => job.type === 'scene_images_batch' || job.type === 'continuity_render').length, 1)
+  })
+
+  test('a render owned by another Pipeline cannot have its continuation replaced', async () => {
+    const proj = await pm.createProject({ name: 'JQ Scene Render Conflict' })
+    let release!: () => void
+    const block = new Promise<void>((resolve) => { release = resolve })
+    jq.registerExecutor('continuity_render', async () => await block)
+    jq.enqueue({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP002',
+      title: 'First Pipeline render',
+      params: { pipeline_batch_id: 'batch-one', pipeline_chain: [] },
+    })
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    const joined = await jq.joinActiveBulkSceneRender({
+      project_slug: proj.slug,
+      episode_id: 'EP002',
+      pipeline_batch_id: 'batch-two',
+      pipeline_chain: [{ type: 'metadata', params: {} }],
+    })
+    assert.equal(joined?.conflict, true)
+    release()
+  })
+})
+
 describe('getJobs() / getQueueStats()', () => {
   test('returns all jobs for a project', async () => {
     const proj = await pm.createProject({ name: 'JQList' })

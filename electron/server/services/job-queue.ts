@@ -660,19 +660,35 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           if (nextStep && typeof nextStep.type === 'string') {
             try {
               const batchId = job.params.pipeline_batch_id
-              enqueue({
-                project_slug: job.project_slug,
-                type: nextStep.type as JobType,
+              const nextParams = {
+                ...(nextStep.params || {}),
                 episode_id: job.episode_id,
-                title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
-                params: {
-                  ...(nextStep.params || {}),
+                pipeline_chain: rest,
+                ...(batchId ? { pipeline_batch_id: batchId } : {}),
+              }
+              const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
+                ? await joinActiveBulkSceneRender({
+                    project_slug: job.project_slug,
+                    episode_id: job.episode_id,
+                    pipeline_chain: rest,
+                    pipeline_batch_id: batchId,
+                  })
+                : null
+              if (joined?.conflict) {
+                throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
+              }
+              if (joined) {
+                job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
+              } else {
+                enqueue({
+                  project_slug: job.project_slug,
+                  type: nextStep.type as JobType,
                   episode_id: job.episode_id,
-                  pipeline_chain: rest,
-                  ...(batchId ? { pipeline_batch_id: batchId } : {}),
-                },
-              })
-              job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
+                  title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
+                  params: nextParams,
+                })
+                job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
+              }
             } catch (e: any) {
               const failed = await recordChainHandoffFailure(job, nextStep, rest, e)
               job.output_lines.push(`Chain-next failed: ${e.message} (recorded as failed job ${failed.job_id})`)
@@ -755,6 +771,82 @@ export function isDuplicate(
     }
   }
   return false
+}
+
+/**
+ * Scene Review used two names for the same episode-wide image workload:
+ * `scene_images_batch` from the page and `continuity_render` from Pipeline.
+ * Keep the legacy type readable for jobs already in flight, but treat both as
+ * one queue resource so they can never submit the same scenes twice.
+ */
+function isBulkSceneRender(job: Job): boolean {
+  if (job.type === 'scene_images_batch') return true
+  return job.type === 'continuity_render' && !job.params?.single_scene_id
+}
+
+function findActiveBulkSceneRenderInternal(projectSlug: string, episodeId: string): Job | null {
+  for (const job of jobs.values()) {
+    if (job.project_slug !== projectSlug || job.episode_id !== episodeId) continue
+    if (job.status !== 'queued' && job.status !== 'running') continue
+    if (isBulkSceneRender(job)) return job
+  }
+  return null
+}
+
+/** Return the existing owner of an episode's full scene-image render, if any. */
+export function getActiveBulkSceneRenderJob(projectSlug: string, episodeId: string): Job | null {
+  const job = findActiveBulkSceneRenderInternal(projectSlug, episodeId)
+  return job ? safeJob(job) : null
+}
+
+export interface SceneRenderJoinResult {
+  job: Job
+  attached: boolean
+  conflict: boolean
+}
+
+/**
+ * Join Pipeline continuation work to an already-running full scene render.
+ * This lets a manually-started Scene Review render become the owner of the
+ * Pipeline's remaining steps rather than starting a second Hub batch.
+ */
+export async function joinActiveBulkSceneRender(opts: {
+  project_slug: string
+  episode_id: string
+  pipeline_chain?: unknown[]
+  pipeline_batch_id?: string
+}): Promise<SceneRenderJoinResult | null> {
+  const active = findActiveBulkSceneRenderInternal(opts.project_slug, opts.episode_id)
+  if (!active) return null
+
+  const incomingChain = Array.isArray(opts.pipeline_chain) ? opts.pipeline_chain : []
+  const existingChain = Array.isArray(active.params?.pipeline_chain) ? active.params.pipeline_chain : []
+  const sameChain = JSON.stringify(existingChain) === JSON.stringify(incomingChain)
+  const existingBatchId = typeof active.params?.pipeline_batch_id === 'string'
+    ? active.params.pipeline_batch_id
+    : ''
+  if (existingBatchId && opts.pipeline_batch_id && existingBatchId !== opts.pipeline_batch_id) {
+    return { job: safeJob(active), attached: false, conflict: true }
+  }
+  if (incomingChain.length > 0 && existingChain.length > 0 && !sameChain) {
+    return { job: safeJob(active), attached: false, conflict: true }
+  }
+
+  let attached = false
+  if (incomingChain.length > 0 && existingChain.length === 0) {
+    active.params.pipeline_chain = incomingChain
+    attached = true
+  }
+  if (opts.pipeline_batch_id && !active.params.pipeline_batch_id) {
+    active.params.pipeline_batch_id = opts.pipeline_batch_id
+    attached = true
+  }
+  if (attached) {
+    active.output_lines.push('→ Pipeline joined this existing scene render; no duplicate Studio Hub batch was submitted.')
+    await persistJob(active)
+    emitUpdate(active)
+  }
+  return { job: safeJob(active), attached, conflict: false }
 }
 
 /** True if the given job has been cancelled. Generators should poll this at
@@ -856,6 +948,16 @@ export function enqueue(opts: {
 }): Job {
   if (!queues[opts.type]) {
     throw new Error(`No queue lane registered for job type: ${opts.type}`)
+  }
+  // Cross-type atomic dedupe for the retired Scene Review batch name and the
+  // canonical continuity renderer. Full renders conflict with either full
+  // type; a single-scene repair also waits behind an active full render.
+  const isBulkRequest = opts.type === 'scene_images_batch'
+    || (opts.type === 'continuity_render' && !opts.params?.single_scene_id)
+  const isSingleSceneRequest = opts.type === 'continuity_render' && !!opts.params?.single_scene_id
+  if ((isBulkRequest || isSingleSceneRequest)
+      && findActiveBulkSceneRenderInternal(opts.project_slug, opts.episode_id)) {
+    throw new DuplicateJobError(opts.type, opts.episode_id)
   }
   // Atomic dedupe: the check and the insert happen in the same synchronous
   // tick. Callers MUST NOT gate on isDuplicate() separately — two routes

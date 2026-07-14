@@ -1590,10 +1590,11 @@ async function submit() {
     }
     const r = await post<any>(`/projects/${slug.value}/pipeline/run-batch`, body)
     showConfirm.value = false
-    const { enqueued, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
+    const { enqueued, reused, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
     const skipDoneCount = Array.isArray(steps_skipped_as_done) ? steps_skipped_as_done.length : 0
     const parts: string[] = []
     parts.push(`Queued ${enqueued} chain(s) — ${total_jobs_planned} total jobs`)
+    if (reused > 0) parts.push(`${reused} active scene render(s) reused — no duplicate Hub work`)
     // Character Sheet is applied inline (continuity.json written), not queued —
     // surface it separately so the count isn't silently missing from the toast.
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
