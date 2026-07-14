@@ -11,11 +11,23 @@
   which Scene Plan stitches and Video Assembly burns in.
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Subtitles</h1>
-    </div>
+  <div class="workspace-page">
+    <WorkspaceHero
+      eyebrow="Assembly · Transcript"
+      title="Subtitles"
+      description="Build narration-aligned subtitle tracks from chapter audio, then hand the verified timeline to Scene Plan and Video Assembly."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Subtitle readiness">
+          <span class="workspace-metric" :data-tone="coverage.total && coverage.done === coverage.total ? 'success' : 'warning'">
+            <strong>{{ coverage.done }}/{{ coverage.total }}</strong> chapters
+          </span>
+          <span class="workspace-metric" :data-tone="episodeId ? 'info' : 'warning'">
+            <strong>{{ episodeId || 'No episode' }}</strong> target
+          </span>
+        </div>
+      </template>
+    </WorkspaceHero>
 
     <TopActionBar
       :project-slug="slug"
@@ -33,21 +45,17 @@
       @preset-deleted="success('Preset deleted')"
     />
 
-    <p class="text-muted mt-1 mb-2">
-      Create the subtitle track for an episode. Subtitles are built from the
-      <strong>chapter audio</strong>, so generate audio (and Audio Assembly) first.
-      The per-chapter SRTs produced here are what <strong>Scene Plan</strong> stitches
-      and <strong>Video Assembly</strong> burns in.
-    </p>
-
-    <div v-if="!episodeId" class="card mt-3">
-      <p class="text-muted">Select an episode above to manage its subtitles.</p>
-    </div>
+    <WorkspaceNotice v-if="!episodeId" tone="info" title="Choose an episode">
+      Select an episode above to inspect subtitle coverage and manage its transcription.
+    </WorkspaceNotice>
 
     <template v-else>
       <!-- Status -->
-      <section class="card mt-3">
-        <h3>Status</h3>
+      <WorkspaceSection
+        eyebrow="Readiness"
+        title="Subtitle coverage"
+        description="Every narration section must have a usable subtitle file before the timeline is complete."
+      >
         <div v-if="loading" class="text-muted text-sm mt-1">
           <LoadingSpinner size="sm" /> Checking subtitle status…
         </div>
@@ -78,14 +86,14 @@
             </ul>
           </div>
         </template>
-      </section>
+      </WorkspaceSection>
 
       <!-- Transcribe -->
-      <section class="card mt-3">
-        <h3>Transcribe</h3>
-        <p class="text-muted text-sm mt-1">
-          Transcribes each chapter's narration into per-chapter SRTs. Pick an engine:
-        </p>
+      <WorkspaceSection
+        eyebrow="Create"
+        title="Transcribe chapter audio"
+        description="Choose a local or cloud engine. Completed chapter files are preserved, so retries only need to fill missing sections."
+      >
 
         <!-- Engine chooser — no default; the user picks. -->
         <div class="sub-engine-grid mt-2">
@@ -173,11 +181,14 @@
           </button>
           <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
         </div>
-      </section>
+      </WorkspaceSection>
 
       <!-- Other methods -->
-      <section class="card mt-3">
-        <h3>Other methods</h3>
+      <WorkspaceSection
+        eyebrow="Alternatives"
+        title="Other methods"
+        description="Create simple chapter-level timing or bring an existing subtitle track into this episode."
+      >
         <div class="sub-method">
           <div>
             <strong class="text-sm">From chapters</strong>
@@ -208,7 +219,7 @@
             </div>
           </div>
         </div>
-      </section>
+      </WorkspaceSection>
 
       <!-- Existing files -->
       <section class="card mt-3">

@@ -1,45 +1,49 @@
 <template>
-  <div>
-    <!-- Header -->
-    <div class="jobs-header">
-      <h1>Job Queue</h1>
-      <div class="header-actions">
-        <span class="badge badge-running">{{ stats.running }} running</span>
-        <span class="badge badge-queued">{{ stats.queued }} queued</span>
-        <span class="badge badge-done">{{ stats.done }} done</span>
-        <span v-if="stats.error" class="badge badge-error">{{ stats.error }} errors</span>
-        <NuxtLink
-          :to="`/projects/${slug}/board?repair=1`"
-          class="btn btn-sm btn-secondary"
-          title="After a bulk pipeline run, open Repair (on the Production Board) to one-click recover any provider-completed output that didn't persist locally (no credits consumed)."
-        >
-          🗂 Repair assets
-        </NuxtLink>
-        <button
-          v-if="finishedCount > 0"
-          class="btn btn-sm btn-ghost"
-          @click="clearFinished"
-        >
-          Clear finished ({{ finishedCount }})
-        </button>
-      </div>
-    </div>
+  <div class="workspace-page jobs-workspace">
+    <WorkspaceHero
+      eyebrow="Management · Operations"
+      title="Job Queue"
+      description="Monitor active work, understand failures, recover completed provider output, and keep generation history manageable."
+    >
+      <template #aside>
+        <div class="jobs-hero-aside">
+          <div class="workspace-metrics" aria-label="Job queue summary">
+            <span class="workspace-metric" data-tone="info"><strong>{{ stats.running }}</strong> running</span>
+            <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> queued</span>
+            <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
+            <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> errors</span>
+          </div>
+          <div class="jobs-hero-actions">
+            <NuxtLink
+              :to="`/projects/${slug}/board?repair=1`"
+              class="btn btn-sm btn-secondary"
+              title="After a bulk pipeline run, open Repair (on the Production Board) to one-click recover any provider-completed output that didn't persist locally (no credits consumed)."
+            >
+              Repair assets
+            </NuxtLink>
+            <button
+              v-if="finishedCount > 0"
+              class="btn btn-sm btn-ghost"
+              @click="clearFinished"
+            >
+              Clear finished ({{ finishedCount }})
+            </button>
+          </div>
+        </div>
+      </template>
+    </WorkspaceHero>
 
     <!-- v1.0.190 — paused-queue banner. The queue only pauses when the local
          job engine is unreachable; without this, a parked "Queued" job looks
          broken with no explanation. Offers a one-click Resume + re-probe. -->
-    <div v-if="queuePaused" class="queue-paused-banner">
-      <span class="qpb-icon" aria-hidden="true">⏸</span>
-      <span class="qpb-text">
-        <strong>Job queue is paused — new jobs are waiting.</strong>
-        This happens when the app engine isn't reachable. {{ stats.queued }}
-        job{{ stats.queued === 1 ? '' : 's' }} queued. If you're connected,
-        click Resume to start them.
-      </span>
-      <button class="btn btn-xs btn-primary" :disabled="resumingQueue" @click="resumeQueue">
-        {{ resumingQueue ? 'Resuming…' : 'Resume now' }}
-      </button>
-    </div>
+    <WorkspaceNotice v-if="queuePaused" tone="warning" title="Job queue is paused">
+      The app engine is not reachable and {{ stats.queued }} job{{ stats.queued === 1 ? '' : 's' }} are waiting.
+      <template #actions>
+        <button class="btn btn-sm btn-primary" :disabled="resumingQueue" @click="resumeQueue">
+          {{ resumingQueue ? 'Resuming…' : 'Resume now' }}
+        </button>
+      </template>
+    </WorkspaceNotice>
 
     <!-- Restart-recovery banner: surfaces when one or more jobs got
          marked as "Interrupted by app restart" (job-queue.ts boots running
@@ -1448,8 +1452,18 @@ async function clearFinished() {
 </script>
 
 <style scoped>
-.jobs-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jobs-workspace { padding-bottom: 32px; }
+.jobs-hero-aside {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+.jobs-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 /* Post-bulk summary banner — surfaces once all pipeline batch jobs settle.
    Layout is a vertical card with a header, optional failure breakdown,
@@ -1912,6 +1926,8 @@ async function clearFinished() {
 .btn-icon:hover { color: var(--error); background: rgba(248, 113, 113, 0.1); }
 
 @media (max-width: 760px) {
+  .jobs-hero-aside { justify-items: start; }
+  .jobs-hero-actions { justify-content: flex-start; }
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
   .job-identity { flex-basis: 100%; }
   .job-actions { margin-left: auto; }

@@ -105,5 +105,9 @@ export default defineNuxtConfig({
   // before any element with `font-family: Inter` is styled. Inter WOFF2
   // ships locally at /fonts/inter/ — no CDN round-trip, no bandwidth
   // hit after first build, and the UI renders correctly offline.
-  css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
+  css: [
+    '~/assets/css/fonts.css',
+    '~/assets/css/main.css',
+    '~/assets/css/design-system.css',
+  ],
 })

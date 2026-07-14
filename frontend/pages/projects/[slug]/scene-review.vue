@@ -15,25 +15,25 @@
   the browser using a stale cached PNG.
 -->
 <template>
-  <div class="review-workspace">
-    <div class="review-hero">
-      <div class="review-hero-copy">
-        <Breadcrumb />
-        <span class="review-eyebrow">Image quality gate</span>
-        <h1>Scene Review</h1>
-        <p>Review every planned image against its narration, repair gaps, and approve the final visual sequence before assembly.</p>
-      </div>
-      <div class="review-hero-route" aria-label="Review workflow">
-        <span class="is-complete">1</span>
-        <b>Plan</b>
-        <i />
-        <span class="is-current">2</span>
-        <b>Images</b>
-        <i />
-        <span>3</span>
-        <b>Motion</b>
-      </div>
-    </div>
+  <div class="review-workspace workspace-page">
+    <WorkspaceHero
+      eyebrow="Review · Image quality gate"
+      title="Scene Review"
+      description="Review every planned image against its narration, repair gaps, and approve the final visual sequence before assembly."
+    >
+      <template #aside>
+        <div class="review-hero-route" aria-label="Review workflow">
+          <span class="is-complete">1</span>
+          <b>Plan</b>
+          <i />
+          <span class="is-current">2</span>
+          <b>Images</b>
+          <i />
+          <span>3</span>
+          <b>Motion</b>
+        </div>
+      </template>
+    </WorkspaceHero>
 
     <div class="review-command-bar">
       <TopActionBar
@@ -50,19 +50,33 @@
       />
     </div>
 
-    <div v-if="subtitleIntegrity && !subtitleIntegrity.complete" class="sr-blocking-warning mt-2">
-      <strong>Scene rendering paused: subtitle narration is incomplete.</strong>
+    <WorkspaceNotice
+      v-if="subtitleIntegrity && !subtitleIntegrity.complete"
+      tone="error"
+      title="Scene rendering paused: subtitle narration is incomplete"
+    >
       Missing: {{ subtitleIntegrity.missing_sections.join(', ') }}.
-      <NuxtLink :to="`/projects/${slug}/subtitles`" class="sr-health-link">Complete transcription and stitch again →</NuxtLink>
-    </div>
-    <div v-if="promptIntegrity && !promptIntegrity.complete" class="sr-blocking-warning mt-2">
-      <strong>Scene rendering paused: prompts are not ready.</strong>
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm btn-secondary">Fix subtitles</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+    <WorkspaceNotice
+      v-if="promptIntegrity && !promptIntegrity.complete"
+      tone="error"
+      title="Scene rendering paused: visual prompts are incomplete"
+    >
       {{ promptIntegrity.empty_ids.length }} missing and {{ promptIntegrity.duplicate_ids.length }} duplicated.
-      <NuxtLink :to="`/projects/${slug}/scene-plan`" class="sr-health-link">Run All pending on Scene Plan →</NuxtLink>
-    </div>
-    <div v-if="stats?.legacy_unmapped_images" class="sr-legacy-note mt-2">
-      {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} belong to a previous timeline and are intentionally not counted. They cannot be safely assigned to these stable scene IDs.
-    </div>
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/scene-plan`" class="btn btn-sm btn-secondary">Fix Scene Plan</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+    <WorkspaceNotice
+      v-if="stats?.legacy_unmapped_images"
+      tone="warning"
+      title="Older images are not mapped to this timeline"
+    >
+      {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} cannot be safely assigned to these stable scene IDs and are intentionally not counted.
+    </WorkspaceNotice>
 
     <!-- Greenlight panel -->
     <section v-if="stats" class="card mt-3 sr-control-deck" :class="{ 'is-greenlit': stats.all_approved }">
@@ -1710,45 +1724,6 @@ watch(episodeId, () => { void loadReview() })
   --review-ink: #101710;
   padding-bottom: 72px;
 }
-.review-hero {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 28px;
-  margin: 14px 0 18px;
-  padding: 26px 30px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--review-gold) 30%, var(--border));
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 88% 15%, rgba(240, 198, 106, .18), transparent 30%),
-    linear-gradient(135deg, #17241c 0%, #132019 52%, #1e241b 100%);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
-}
-.review-hero::after {
-  content: '';
-  position: absolute;
-  width: 240px;
-  height: 240px;
-  right: -110px;
-  bottom: -170px;
-  border: 1px solid rgba(240, 198, 106, .22);
-  border-radius: 50%;
-}
-.review-hero-copy { position: relative; z-index: 1; max-width: 760px; }
-.review-hero :deep(.breadcrumb) { margin-bottom: 13px; opacity: .7; }
-.review-eyebrow {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--review-gold);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .15em;
-  text-transform: uppercase;
-}
-.review-hero h1 { margin: 0; color: #fff8e9; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.035em; }
-.review-hero p { margin: 8px 0 0; max-width: 700px; color: rgba(244, 247, 242, .7); font-size: 14px; line-height: 1.55; }
 .review-hero-route {
   position: relative;
   z-index: 1;
@@ -1763,16 +1738,17 @@ watch(episodeId, () => { void loadReview() })
   width: 28px;
   height: 28px;
   place-items: center;
-  border: 1px solid rgba(255,255,255,.2);
+  border: 1px solid var(--border-light);
   border-radius: 50%;
-  color: rgba(255,255,255,.55);
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 800;
 }
 .review-hero-route span.is-complete { border-color: var(--review-green); background: var(--review-green); color: var(--review-ink); }
 .review-hero-route span.is-current { border-color: var(--review-gold); color: var(--review-gold); box-shadow: 0 0 0 4px rgba(240,198,106,.1); }
-.review-hero-route b { color: rgba(255,255,255,.58); font-size: 11px; font-weight: 600; }
-.review-hero-route i { height: 1px; background: rgba(255,255,255,.14); }
+.review-hero-route b { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.review-hero-route i { height: 1px; background: var(--border); }
 
 .review-command-bar :deep(.top-action-bar) {
   display: grid;
@@ -2266,7 +2242,6 @@ watch(episodeId, () => { void loadReview() })
   .sr-settings-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 }
 @media (max-width: 900px) {
-  .review-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
   .review-hero-route { display: none; }
   .review-scene-row { grid-template-columns: 150px minmax(0, 1fr); }
   .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 150px; }
@@ -2274,7 +2249,6 @@ watch(episodeId, () => { void loadReview() })
   .review-actions-cell .btn { justify-content: center; }
 }
 @media (max-width: 640px) {
-  .review-hero { border-radius: 14px; }
   .review-command-bar :deep(.top-action-bar) { padding: 12px; }
   .sr-greenlight-head, .sr-section-heading { align-items: flex-start; flex-direction: column; }
   .sr-status-orb { width: 100%; min-height: 48px; }

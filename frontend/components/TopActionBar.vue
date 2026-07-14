@@ -16,7 +16,7 @@
   <div class="top-action-bar" role="region" aria-label="Primary actions">
     <!-- Preset region -->
     <div v-if="presets" class="region preset-region">
-      <span class="region-label" aria-hidden="true">⚙</span>
+      <span class="region-label">Preset</span>
       <Popover>
         <select
           class="select select-sm preset-select"
@@ -89,7 +89,7 @@
 
     <!-- Episode region -->
     <div v-if="episodeMode === 'single'" class="region episode-region">
-      <span class="region-label" aria-hidden="true">📺</span>
+      <span class="region-label">Episode</span>
       <Popover>
         <div class="episode-selector-wrap">
           <EpisodeSelector
@@ -124,7 +124,7 @@
          space for any extra controls instead of rendering a single
          selector. -->
     <div v-else-if="episodeMode === 'multi'" class="region episode-region">
-      <span class="region-label" aria-hidden="true">📺</span>
+      <span class="region-label">Episodes</span>
       <span class="multi-episode-hint">Episodes selected below</span>
       <slot name="episodes" />
     </div>
@@ -391,26 +391,31 @@ function episodeStatusClass(ep: any, key: string) {
 .top-action-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin: 16px 0;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, var(--accent) 4%);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 9%, transparent);
 }
 
 .region {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
 }
 .region-spacer { flex: 1 1 auto; }
 .region-label {
-  font-size: 14px;
-  color: var(--text-muted);
+  flex-basis: 100%;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
   line-height: 1;
   flex-shrink: 0;
 }
@@ -419,6 +424,7 @@ function episodeStatusClass(ep: any, key: string) {
 .preset-select {
   min-width: 160px;
   max-width: 240px;
+  min-height: var(--control-height-sm);
 }
 
 /* v1.0.119 — inline preset actions (Apply / Save / Save as… / Delete).
@@ -429,10 +435,11 @@ function episodeStatusClass(ep: any, key: string) {
 .preset-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .preset-actions .btn {
+  min-height: var(--control-height-sm);
   white-space: nowrap;
 }
 .episode-region {
@@ -458,16 +465,24 @@ function episodeStatusClass(ep: any, key: string) {
 
 .generate-region {
   flex: 0 0 auto;
+  align-self: flex-end;
+  margin-left: auto;
 }
 
 .btn-primary-cta {
-  padding: 8px 18px;
+  min-height: var(--control-height-md);
+  padding: 9px 20px;
   font-size: 13px;
-  font-weight: 600;
-  border-radius: 6px;
+  font-weight: 700;
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.top-action-bar :deep(.select-sm),
+.top-action-bar :deep(.input-sm) {
+  min-height: var(--control-height-sm);
 }
 
 @media (max-width: 720px) {
@@ -477,5 +492,8 @@ function episodeStatusClass(ep: any, key: string) {
     flex-basis: 100%;
     justify-content: flex-start;
   }
+
+  .generate-region { margin-left: 0; }
+  .btn-primary-cta { width: 100%; justify-content: center; }
 }
 </style>

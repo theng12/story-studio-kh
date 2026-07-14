@@ -1,9 +1,19 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Audio Generator</h1>
-    </div>
+  <div class="workspace-page">
+    <WorkspaceHero
+      eyebrow="Generator · Narration"
+      title="Audio Generator"
+      description="Turn approved scripts into chapter narration using a compatible cloud voice or your local Voice Studio fleet."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Audio generator context">
+          <span class="workspace-metric" data-tone="info"><strong>{{ currentAudioProviderLabel }}</strong> provider</span>
+          <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'">
+            <strong>{{ form.episode_id || 'No episode' }}</strong> target
+          </span>
+        </div>
+      </template>
+    </WorkspaceHero>
     <!-- Live TTS download speed while voice bytes are streaming back from
          ElevenLabs / fal / GenAIPro. Auto-hides between runs. -->
     <AssetDownloadStrip :job-types="['audio']" />
@@ -37,23 +47,24 @@
          which happens after iCloud delivers the script docx without the
          parent folder's mtime bumping (cache stays stale). One click fires
          a full project rescan and re-fetches the episode's status. -->
-    <div v-if="form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
-      <span class="text-muted text-xs">
-        No script detected for <strong>{{ form.episode_id }}</strong> —
-        if it's actually on disk (e.g. just delivered by iCloud), force a re-check:
-      </span>
-      <button
-        type="button"
-        class="btn btn-link btn-xs"
-        :disabled="rescanning"
-        title="Wipe this project's status cache and re-stat every episode folder. Fixes the iCloud case where a synced docx didn't bump the parent folder's mtime."
-        @click="onRescan"
-      >
-        {{ rescanning ? '↻ Rescanning…' : '↻ Rescan from disk' }}
-      </button>
-    </div>
-
-    <p class="text-muted mt-1 mb-2">Generate TTS narration with a cloud provider or your local Voice Studio fleet.</p>
+    <WorkspaceNotice
+      v-if="form.episode_id && statusKnown && !scriptReady"
+      tone="warning"
+      title="Script not detected"
+    >
+      No script was found for {{ form.episode_id }}. If iCloud just delivered it, rescan the episode folders.
+      <template #actions>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="rescanning"
+          title="Wipe this project's status cache and re-stat every episode folder."
+          @click="onRescan"
+        >
+          {{ rescanning ? 'Rescanning…' : 'Rescan from disk' }}
+        </button>
+      </template>
+    </WorkspaceNotice>
 
     <div class="card mt-3">
       <div class="grid-2">

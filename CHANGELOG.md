@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.597 — 2026-07-15
+
+**The first shared Story Studio workspace design system now unifies every workflow family.**
+
+- Added a centralized responsive design layer for page heroes, section hierarchy, notices, context metrics, control sizing, motion preferences, and compact-window behavior.
+- Added reusable Workspace Hero, Workspace Section, and Workspace Notice components so future pages inherit the same visual language instead of recreating it in scoped CSS.
+- Modernized the shared Top Action Bar used by fifteen generation and assembly pages with named regions, consistent sizing, clearer grouping, and a full-width compact action state.
+- Migrated Audio Generator, Scene Review, Subtitles, and Job Queue as the representative Generator, Review, Assembly, and Management workspaces without changing their generation behavior.
+- Replaced several page-specific warnings with one consistent, actionable status pattern and made job context and episode readiness visible in the page header.
+- Added regression coverage that keeps all four workflow families on the shared page shell and protects responsive and reduced-motion support.
+
 ## v1.0.596 — 2026-07-15
 
 **Cancelling fleet generation now requires Studio Hub to acknowledge the stop.**
