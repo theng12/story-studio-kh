@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.585 — 2026-07-14
+
+**Performance and Storage are now compact control centers instead of long technical forms.**
+
+- Added Gentle, Balanced, and Fleet performance profiles while preserving precise controls for text, image, audio, motion, transcription, launch spacing, and TTS timeout.
+- Clarified which performance limits belong to this Mac and which travel with the project, with practical overload guidance beside the controls.
+- Rebuilt Storage around a clear map of the project library, final-video destination, safe space recovery, and optional heavy-media splitting.
+- Moved heavy-media splitting and script recovery cleanup behind clearly labelled advanced sections so normal projects can keep everything together.
+- Removed the obsolete legacy Video Assembly preset migration UI, API, service, and tests; runtime preset compatibility remains available when old data is encountered.
+- Fixed script recovery cleanup to recognize current version-3 checkpoints as well as supported older checkpoints, while continuing to reject unknown or incomplete data.
+- Added responsive overflow protection and regression coverage for the modernized settings surfaces and retired migration boundary.
+
 ## v1.0.584 — 2026-07-14
 
 **Audio Generator now shows the narration size of every section before generation.**

@@ -219,7 +219,9 @@ describe('episode-status-cache', () => {
     const cache = cacheMod.episodeStatusCache
 
     await cache.get(SLUG, CODE)
-    await cache.get(SLUG, 'EP002')  // will compute empty status (no folder)
+    const first = cache._dumpProject(SLUG)[0]
+    assert.ok(first, 'first project entry stored')
+    cache._hydrateProject(SLUG, [{ ...first, episode_code: 'EP002' }])
     assert.equal(cache.getStats().size, 2)
 
     cache.invalidateProject(SLUG)

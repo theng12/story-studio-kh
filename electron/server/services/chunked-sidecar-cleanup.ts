@@ -23,7 +23,7 @@
  *     so the UI can confirm.
  *
  * Strict eligibility check: ALL of:
- *   - sidecar JSON exists and parses with schema_version === 1
+ *   - sidecar JSON exists and parses as a supported recovery schema
  *   - sidecar.chapters_done.length >= sidecar.total_chapters
  *   - {code}_Script_Narration.docx exists in the script_dir
  *
@@ -36,9 +36,9 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
+import { readSidecar } from '../lib/chunked-narration.js'
 
 export interface SidecarEligibility {
   episode_code: string
@@ -119,14 +119,21 @@ async function checkOne(slug: string, code: string, title: string): Promise<Side
   try {
     const stat = await fs.stat(sidecarPath)
     result.sidecar_size_bytes = stat.size
-    const raw = await fs.readFile(sidecarPath, 'utf-8')
-    const parsed = JSON.parse(raw)
-    if (parsed?.schema_version !== 1) {
-      result.reason = 'Sidecar has unknown schema_version — not safe to auto-clean.'
+    // Use the canonical reader so current v3 checkpoints and supported v1/v2
+    // checkpoints share the same safe upgrade and validation behavior.
+    const parsed = await readSidecar(paths.script_dir, code)
+    if (!parsed) {
+      result.reason = 'Sidecar is unreadable or uses an unknown format — not safe to clean up.'
       return result
     }
-    result.total_chapters = parsed.total_chapters
+    result.total_chapters = Number.isInteger(parsed.total_chapters) && parsed.total_chapters > 0
+      ? parsed.total_chapters
+      : 0
     result.chapters_done = Array.isArray(parsed.chapters_done) ? parsed.chapters_done.length : 0
+    if (!result.total_chapters) {
+      result.reason = 'Sidecar has no valid chapter total — not safe to clean up.'
+      return result
+    }
     if (!unifiedPresent) {
       result.reason = 'Unified narration docx not present — sidecar still needed for resume.'
       return result

@@ -707,8 +707,15 @@
          video files that bog down iCloud sync. Once a video is on
          YouTube (sidecar shows video_id), the local copy is
          operationally redundant and can be deleted to reclaim disk. -->
-    <div v-if="activeTab === 'storage'" class="card settings-panel mt-2">
-      <h3>Storage</h3>
+    <div v-if="activeTab === 'storage'" class="card settings-panel storage-panel mt-2">
+      <header class="settings-section-head">
+        <div>
+          <span class="settings-section-kicker">Files &amp; capacity</span>
+          <h3>Storage control center</h3>
+          <p>Keep projects together, place large final videos deliberately, and reclaim space without touching source assets.</p>
+        </div>
+        <span class="settings-section-count">{{ storage ? formatBytes(storage.project_bytes_total) : 'Not scanned' }}</span>
+      </header>
 
       <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
            Surfaces all three storage subsystems with their current state
@@ -717,16 +724,14 @@
            "Cloud sync is paused" dashboard banner: that banner pointed
            at a feature that no longer exists; this card points at the
            feature that DID replace it. -->
-      <div class="cloud-sync-overview">
+      <div class="cloud-sync-overview storage-map">
         <div class="overview-head">
-          <span class="overview-icon" aria-hidden="true">☁️</span>
+          <span class="overview-icon" aria-hidden="true">◫</span>
           <div>
-            <strong>Cloud sync overview</strong>
+            <strong>Your storage map</strong>
             <p class="overview-sub">
-              Story Studio doesn't sync directly with iCloud/Dropbox/etc. —
-              instead, you point it at a folder that your cloud provider
-              already syncs, and the OS handles the rest. Three knobs below
-              control where files land and how to free up space.
+              Two active destinations handle normal work. Advanced split-media
+              storage stays out of the way unless you explicitly enable it.
             </p>
           </div>
         </div>
@@ -735,15 +740,15 @@
           <a class="overview-card" href="#projects-root-section" @click.prevent="scrollTo('projects-root-section')">
             <div class="overview-card-head">
               <span class="overview-card-icon">📁</span>
-              <strong>Projects folder</strong>
+              <strong>Project library</strong>
               <span :class="['overview-badge', projectsRoot?.is_overridden ? 'on' : 'off']">
                 {{ projectsRoot?.is_overridden ? 'CUSTOM' : 'DEFAULT' }}
               </span>
             </div>
             <p class="overview-card-desc">
               {{ projectsRoot?.is_overridden
-                ? 'Pointed at a custom path — typically a cloud-synced folder for cross-machine work.'
-                : 'Lives in app data on this Mac only. Move it to iCloud Drive / Dropbox to work across machines.' }}
+                ? 'All project metadata and co-located assets start from this custom folder.'
+                : 'Uses Story Studio’s standard project folder on this Mac.' }}
             </p>
             <code class="overview-card-path">{{ projectsRoot?.effective_path || '(loading)' }}</code>
           </a>
@@ -751,7 +756,7 @@
           <a class="overview-card" href="#external-video-section" @click.prevent="scrollTo('external-video-section')">
             <div class="overview-card-head">
               <span class="overview-card-icon">🎞</span>
-              <strong>Final-video root</strong>
+              <strong>Final videos</strong>
               <span :class="['overview-badge', externalRootInput ? 'on' : 'off']">
                 {{ externalRootInput ? 'CUSTOM' : 'INSIDE PROJECT' }}
               </span>
@@ -767,21 +772,36 @@
           <a class="overview-card" href="#per-episode-section" @click.prevent="scrollTo('per-episode-section')">
             <div class="overview-card-head">
               <span class="overview-card-icon">🧹</span>
-              <strong>Cleanup uploaded finals</strong>
+              <strong>Space recovery</strong>
               <span class="overview-badge info">
                 {{ storage ? `${storage.episodes.filter(e => e.uploaded_to_youtube && e.bytes_final_video > 0).length} eligible` : 'unscanned' }}
               </span>
             </div>
             <p class="overview-card-desc">
-              Once a final is uploaded to YouTube, the local copy is
-              redundant and can be deleted to reclaim disk. Per-scene
-              Veo / fal clips stay (they cost $$$ to regenerate).
+              Safely remove uploaded final exports. Original audio, images,
+              motion clips, and project files remain untouched.
             </p>
+          </a>
+
+          <a class="overview-card overview-card--advanced" href="#media-root-section" @click.prevent="scrollTo('media-root-section')">
+            <div class="overview-card-head">
+              <span class="overview-card-icon">⌁</span>
+              <strong>Heavy media split</strong>
+              <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">
+                {{ mediaRootSavedValue ? 'ACTIVE' : 'ADVANCED' }}
+              </span>
+            </div>
+            <p class="overview-card-desc">
+              {{ mediaRootSavedValue
+                ? 'This project currently stores heavy media separately. Keep its mapped drive available.'
+                : 'Optional only. Leave off when you want every project and its assets kept together.' }}
+            </p>
+            <code v-if="mediaRootSavedValue" class="overview-card-path">{{ mediaRootSavedValue }}</code>
           </a>
         </div>
 
         <details class="overview-warnings">
-          <summary>⚠ Limitations of cross-machine cloud sync</summary>
+          <summary>Cross-machine and cloud-folder notes</summary>
           <ul>
             <li>
               <strong>API keys are per-machine.</strong> Each Mac encrypts its
@@ -810,17 +830,12 @@
         </details>
       </div>
 
-      <p class="text-muted mt-3 mb-2" style="font-size: 12px;">
-        Below: the three knobs in detail. Click any card above to jump to
-        its section, or scroll.
-      </p>
-
       <!-- ── Projects storage location ──────────────────────────── -->
       <!-- Lets the user point the projects folder at any local path —
            typically inside iCloud Drive / Dropbox / Google Drive so
            the OS handles cross-machine sync. Per-machine setting
            (lives in app-settings.json which doesn't sync). -->
-      <div id="projects-root-section" class="storage-section">
+      <div id="projects-root-section" class="storage-section storage-surface">
         <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Projects storage location</h4>
         <p class="text-muted hint">
           Where this Mac stores your projects. Move it to an iCloud Drive
@@ -885,7 +900,7 @@
       </div>
 
       <!-- ── External final-video root (per-machine) ─────────────── -->
-      <div id="external-video-section" class="storage-section storage-section--bordered">
+      <div id="external-video-section" class="storage-section storage-surface">
         <h4>
           <span class="storage-section-icon" aria-hidden="true">🎬</span>
           External final-video root
@@ -966,12 +981,17 @@
       </div>
 
       <!-- ── External media root (Level B, per-project, opt-in) ──── -->
-      <div id="media-root-section" class="storage-section storage-section--bordered">
-        <h4>
-          <span class="storage-section-icon" aria-hidden="true">💽</span>
-          External media root
-          <span class="optional-tag">(per-project, optional)</span>
-        </h4>
+      <div class="storage-advanced-heading">
+        <span>Optional storage split</span>
+        <p>Leave this off when you want the project and all of its assets to stay together.</p>
+      </div>
+      <details id="media-root-section" class="storage-disclosure" :open="!!mediaRootSavedValue">
+        <summary class="storage-disclosure-summary">
+          <span class="storage-section-icon" aria-hidden="true">⌁</span>
+          <span><strong>Heavy media split</strong><small>Keep off to store every project and its assets together.</small></span>
+          <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">{{ mediaRootSavedValue ? 'ACTIVE' : 'OFF' }}</span>
+        </summary>
+        <div class="storage-disclosure-body">
         <p class="text-muted hint">
           Route this project's <strong>heavy media</strong> — scene images,
           thumbnails, audio, merged audio, final video — to a separate root
@@ -1039,10 +1059,11 @@
             {{ lastMediaMigration.errors.length }} error(s): {{ lastMediaMigration.errors[0]?.reason }}
           </span>
         </div>
-      </div>
+        </div>
+      </details>
 
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
-      <div id="per-episode-section" class="storage-section storage-section--bordered">
+      <div id="per-episode-section" class="storage-section storage-surface">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
             <h4><span class="storage-section-icon" aria-hidden="true">📊</span>Per-episode breakdown</h4>
@@ -1146,6 +1167,11 @@
         <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
       </div>
 
+      <div class="storage-advanced-heading">
+        <span>Advanced maintenance</span>
+        <p>Recovery checkpoints are current safety data. Clean them only after a script is fully assembled.</p>
+      </div>
+
       <!-- ── Chunked-progress sidecars (v1.0.71+) ──────────────────── -->
       <!--
         Per-episode JSON sidecars that lib/chunked-narration.ts writes
@@ -1155,10 +1181,16 @@
         delete (per user direction). This panel surfaces eligible
         sidecars and lets the user clean them up manually.
       -->
-      <div id="chunked-sidecars-section" class="storage-section storage-section--bordered">
+      <details id="chunked-sidecars-section" class="storage-disclosure">
+        <summary class="storage-disclosure-summary">
+          <span class="storage-section-icon" aria-hidden="true">↻</span>
+          <span><strong>Script recovery data</strong><small>Current resume checkpoints, not legacy assets.</small></span>
+          <span class="overview-badge off">ADVANCED</span>
+        </summary>
+        <div class="storage-disclosure-body">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
-            <h4><span class="storage-section-icon" aria-hidden="true">🗑</span>Chunked-progress sidecars</h4>
+            <h4>Chunked-progress sidecars</h4>
             <p class="text-muted hint">
               Per-episode <code>{code}_chunked-progress.json</code> files
               written during long script generations. Track which chapters
@@ -1235,77 +1267,9 @@
           {{ lastSidecarCleanup.deleted.length }} sidecar(s) deleted, freed {{ formatBytes(lastSidecarCleanup.total_bytes_freed) }}.
           <span v-if="lastSidecarCleanup.skipped.length">{{ lastSidecarCleanup.skipped.length }} skipped.</span>
         </div>
-      </div>
-
-      <!-- ── Legacy video_assembly preset migrator (v1.0.71+) ──────── -->
-      <!--
-        Pre-v1.0.64 video_assembly presets stored fields flat at the
-        top of `data`. v1.0.68+ uses the bundle shape with five slot
-        snapshots under `data.fallback.{intro,timeline,effects,subtitles,export}`.
-        The runtime passthrough in pipeline.ts handles legacy shapes
-        for batch runs, but the saved JSON stays in the old shape
-        until explicitly migrated. Most users won't hit this — most
-        new projects start clean. The button is here for projects
-        that pre-date v1.0.64.
-      -->
-      <div id="legacy-preset-section" class="storage-section storage-section--bordered">
-        <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
-          <div>
-            <h4><span class="storage-section-icon" aria-hidden="true">📜</span>Legacy video assembly presets</h4>
-            <p class="text-muted hint">
-              Pre-v1.0.64 video assembly presets were saved with fields flat
-              at the top of <code>data</code>; v1.0.68+ uses a bundle shape
-              with five slot snapshots. The runtime passthrough handles
-              legacy shapes for batch runs, but the saved JSON stays old.
-              This button rewrites them in place.
-            </p>
-            <p class="text-muted voice-helper-line">
-              💡 Safe to run any time. No-op if all your presets are already
-              in the new shape — most new projects never hit this.
-            </p>
-          </div>
-          <div class="flex gap-2">
-            <button class="btn btn-secondary btn-sm" :disabled="legacyPresetScanLoading" @click="scanLegacyPresets">
-              {{ legacyPresetScanLoading ? 'Scanning…' : (legacyPresetScan ? '↻ Rescan' : 'Scan') }}
-            </button>
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="!legacyPresetScan || legacyPresetMigrateRunning || legacyPresetScan.legacy_presets.length === 0"
-              :title="!legacyPresetScan ? 'Run a scan first' : legacyPresetScan.legacy_presets.length === 0 ? 'All presets already in bundle shape' : `Rewrite ${legacyPresetScan.legacy_presets.length} preset(s) into the new bundle shape`"
-              @click="migrateLegacyPresets"
-            >
-              {{ legacyPresetMigrateRunning
-                ? 'Migrating…'
-                : legacyPresetScan && legacyPresetScan.legacy_presets.length > 0
-                  ? `Migrate ${legacyPresetScan.legacy_presets.length} preset(s)`
-                  : 'Migrate' }}
-            </button>
-          </div>
         </div>
+      </details>
 
-        <div v-if="legacyPresetScan" class="storage-summary mt-2">
-          <span><strong>Total presets:</strong> {{ legacyPresetScan.total_presets }}</span>
-          <span class="dot">·</span>
-          <span><strong>Legacy shape:</strong> {{ legacyPresetScan.legacy_presets.length }}</span>
-        </div>
-
-        <div v-if="legacyPresetScan && legacyPresetScan.legacy_presets.length" class="storage-table mt-2">
-          <div class="storage-row storage-head">
-            <span class="col-code">Preset id</span>
-            <span class="col-title">Name</span>
-          </div>
-          <div v-for="row in legacyPresetScan.legacy_presets" :key="row.id" class="storage-row">
-            <span class="col-code"><strong>{{ row.id }}</strong></span>
-            <span class="col-title">{{ row.name }}</span>
-          </div>
-        </div>
-
-        <div v-if="lastLegacyMigrate" class="storage-result mt-2">
-          <strong>Migration:</strong>
-          {{ lastLegacyMigrate.migrated.length }} preset(s) rewritten.
-          <span v-if="lastLegacyMigrate.skipped.length" class="error-text">{{ lastLegacyMigrate.skipped.length }} skipped.</span>
-        </div>
-      </div>
     </div>
 
     <!-- Confirmations -->
@@ -1349,188 +1313,141 @@
     </div>
 
     <!-- Performance -->
-    <div v-if="activeTab === 'performance'" class="card settings-panel mt-2">
-      <!-- Text/LLM generation concurrency — app-level (per machine). Lets you -->
-      <!-- run several episodes' script/metadata/prompt/scene-plan jobs at once -->
-      <!-- instead of one-at-a-time, spread across the LM Studio endpoint pool. -->
-      <h3>Script &amp; Text Generation Concurrency</h3>
-      <p class="text-muted mt-1 mb-2">
-        How many <strong>text</strong> jobs run at the same time across
-        <strong>all</strong> of: script outline, chapter expansion, metadata, scene/thumbnail prompts,
-        and scene planning — combined. This is what lets you generate several
-        <strong>episodes at once</strong> instead of waiting in a queue. Concurrent calls
-        spread across your LM&nbsp;Studio endpoint pool automatically.
-      </p>
-      <div class="form-group" style="max-width: 360px;">
-        <label>Concurrent text jobs ({{ scriptConcurrency }})</label>
-        <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
-        <div class="flex gap-2 mt-1" style="font-size: 11px;">
-          <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">50 (max)</span>
+    <div v-if="activeTab === 'performance'" class="card settings-panel performance-panel mt-2">
+      <header class="settings-section-head">
+        <div>
+          <span class="settings-section-kicker">Throughput control</span>
+          <h3>Generation performance</h3>
+          <p>Choose a reliable starting profile, then tune only the workloads that need more capacity.</p>
         </div>
-        <p class="text-muted mt-1" style="font-size: 12px;">
-          A good value is roughly the number of LM&nbsp;Studio endpoints you run.
-          Per-machine setting. Choose a value your provider or local server pool can sustain.
-        </p>
-      </div>
+        <span class="settings-section-count">{{ performanceProfileLabel }}</span>
+      </header>
 
-      <h3 class="mt-3">Image Generation Concurrency</h3>
-      <p class="text-muted mt-1 mb-2">
-        Number of image generation requests sent in parallel per job. Higher = faster, but providers have rate limits.
-        Default <strong>3</strong>; raise cautiously if your provider allows. Lower if you see rate-limit errors.
-      </p>
-      <div class="form-group" style="max-width: 360px;">
-        <label>Concurrency ({{ imageConcurrency }})</label>
-        <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
-        <div class="flex gap-2 mt-1" style="font-size: 11px;">
-          <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">50 (max)</span>
+      <section class="performance-profile-strip" aria-label="Performance profiles">
+        <div class="performance-profile-copy">
+          <strong>Quick profiles</strong>
+          <span>Updates the controls below. Nothing changes until you save.</span>
         </div>
-      </div>
-
-      <div class="form-group mt-2" style="max-width: 360px;">
-        <label>Launch stagger ({{ imageLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-        <p class="text-muted mt-1" style="font-size: 12px;">
-          Delays each parallel worker's first request by N×stagger so all
-          {{ imageConcurrency }} workers don't hit the provider in the same
-          millisecond. Default <strong>2000 ms</strong>; set to <strong>0</strong> to disable.
-          Values up to <strong>20 seconds</strong> are available for strict APIs.
-          <strong>1000–2000 ms</strong> typically eliminates per-second 429s
-          with no measurable throughput cost (only the first wave is delayed;
-          rolling pool continues at full speed afterward).
-        </p>
-      </div>
-
-      <!-- Audio (TTS) concurrency — default 3 matches ElevenLabs Starter -->
-      <!-- tier's safe limit. fal.ai/GenAIPro handle backpressure via their -->
-      <!-- queue APIs, so feel free to go higher on those providers. -->
-      <h3 class="mt-3">Audio (TTS) Concurrency</h3>
-      <p class="text-muted mt-1 mb-2">
-        Parallel TTS requests per audio job. Default <strong>3</strong> — ElevenLabs tier limits:
-        Free 2 · Starter 3 · Creator 5 · Pro 10 · Scale/Business 15. fal.ai and GenAIPro queue server-side, so higher is safe with a paid account.
-      </p>
-      <div class="form-group" style="max-width: 360px;">
-        <label>Concurrency ({{ audioConcurrency }})</label>
-        <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
-        <div class="flex gap-2 mt-1" style="font-size: 11px;">
-          <span class="text-muted">1 (serial — slow)</span>
-          <span class="text-muted" style="margin-left:auto">50 (max)</span>
+        <div class="performance-profile-actions">
+          <button
+            v-for="profile in performanceProfiles"
+            :key="profile.id"
+            type="button"
+            :class="['performance-profile-button', { active: activePerformanceProfile === profile.id }]"
+            @click="applyPerformanceProfile(profile.id)"
+          >
+            <strong>{{ profile.label }}</strong>
+            <small>{{ profile.summary }}</small>
+          </button>
         </div>
+      </section>
+
+      <div class="performance-grid">
+        <article class="performance-card performance-card--text">
+          <header class="performance-card-head">
+            <span class="performance-card-icon" aria-hidden="true">Aa</span>
+            <div><h4>Scripts &amp; prompts</h4><p>App-wide queue capacity across local and cloud language models.</p></div>
+            <span class="performance-value">{{ scriptConcurrency }} jobs</span>
+          </header>
+          <div class="performance-control">
+            <label>Concurrent text jobs</label>
+            <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
+            <div class="performance-scale"><span>Serial</span><span>50 maximum</span></div>
+          </div>
+          <footer class="performance-card-foot"><span>This Mac</span><span>Studio Hub distributes compatible work</span></footer>
+        </article>
+
+        <article class="performance-card performance-card--image">
+          <header class="performance-card-head">
+            <span class="performance-card-icon" aria-hidden="true">▧</span>
+            <div><h4>Images</h4><p>Parallel scene and thumbnail requests inside each job.</p></div>
+            <span class="performance-value">{{ imageConcurrency }} at once</span>
+          </header>
+          <div class="performance-control">
+            <label>Concurrency</label>
+            <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
+          </div>
+          <div class="performance-control compact">
+            <label>Launch spacing <span>{{ formatLaunchStagger(imageLaunchStaggerMs) }}</span></label>
+            <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
+          </div>
+          <footer class="performance-card-foot"><span>This project</span><span>2 seconds prevents burst-rate spikes</span></footer>
+        </article>
+
+        <article class="performance-card performance-card--audio">
+          <header class="performance-card-head">
+            <span class="performance-card-icon" aria-hidden="true">◖</span>
+            <div><h4>Audio &amp; TTS</h4><p>Parallel narration chunks plus the provider wait limit.</p></div>
+            <span class="performance-value">{{ audioConcurrency }} at once</span>
+          </header>
+          <div class="performance-control">
+            <label>Concurrency</label>
+            <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
+          </div>
+          <div class="performance-control compact">
+            <label>Launch spacing <span>{{ formatLaunchStagger(audioLaunchStaggerMs) }}</span></label>
+            <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
+          </div>
+          <div class="performance-timeout-row">
+            <label for="tts-timeout">TTS timeout</label>
+            <input id="tts-timeout" v-model.number="ttsTimeoutMinutes" type="number" min="1" max="120" step="1" class="input" :placeholder="ttsTimeoutPlaceholder" />
+            <span>minutes</span>
+          </div>
+          <footer class="performance-card-foot"><span>This project</span><span>{{ ttsTimeoutActiveLabel }}</span></footer>
+        </article>
+
+        <article class="performance-card performance-card--video">
+          <header class="performance-card-head">
+            <span class="performance-card-icon" aria-hidden="true">▶</span>
+            <div><h4>Motion clips</h4><p>Image-to-video requests are expensive; raise this deliberately.</p></div>
+            <span class="performance-value">{{ videoConcurrency }} at once</span>
+          </header>
+          <div class="performance-control">
+            <label>Concurrency</label>
+            <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
+          </div>
+          <div class="performance-control compact">
+            <label>Launch spacing <span>{{ formatLaunchStagger(videoLaunchStaggerMs) }}</span></label>
+            <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
+          </div>
+          <footer class="performance-card-foot"><span>This project</span><span>Provider charges still apply per clip</span></footer>
+        </article>
+
+        <article class="performance-card performance-card--subtitle">
+          <header class="performance-card-head">
+            <span class="performance-card-icon" aria-hidden="true">CC</span>
+            <div><h4>Transcription</h4><p>Chapter-level Whisper work across Voice Studio or cloud workers.</p></div>
+            <span class="performance-value">{{ subtitleConcurrency === 'auto' ? 'Auto' : `${subtitleConcurrency} at once` }}</span>
+          </header>
+          <div class="performance-control">
+            <label>Concurrent chapters</label>
+            <select v-model="subtitleConcurrency" class="select">
+              <option value="auto">Auto — match online Macs</option>
+              <option value="1">1 (sequential)</option>
+              <option value="2">2</option><option value="3">3</option><option value="4">4</option>
+              <option value="6">6</option><option value="8">8</option><option value="12">12</option>
+              <option value="16">16</option><option value="24">24</option><option value="32">32</option><option value="50">50</option>
+            </select>
+          </div>
+          <footer class="performance-card-foot"><span>This project</span><span>Auto adapts to the live Voice Studio pool</span></footer>
+        </article>
+
+        <article class="performance-guidance-card">
+          <span class="settings-section-kicker">How to tune</span>
+          <h4>Raise capacity only when the queue is healthy</h4>
+          <p>Keep launch spacing near 2 seconds. Increase concurrency in small steps, then watch Jobs for 429, timeout, or memory errors.</p>
+          <dl>
+            <div><dt>429 errors</dt><dd>Raise spacing or lower concurrency.</dd></div>
+            <div><dt>Idle fleet</dt><dd>Raise the matching workload by 1–3.</dd></div>
+            <div><dt>Single local Mac</dt><dd>Use Balanced or Gentle.</dd></div>
+          </dl>
+        </article>
       </div>
 
-      <div class="form-group mt-2" style="max-width: 360px;">
-        <label>Launch stagger ({{ audioLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-        <p class="text-muted mt-1" style="font-size: 12px;">
-          Delays each TTS worker's first request by N×stagger to avoid bursty
-          rate-limits at the start of a job. Default <strong>2000 ms</strong>;
-          set to <strong>0</strong> to disable. Values up to <strong>20 seconds</strong>
-          are available. ElevenLabs is most sensitive to bursts at the Free/Starter
-          tiers — try <strong>1000–1500 ms</strong> if you see 429s. fal.ai
-          and GenAIPro queue server-side; stagger usually unnecessary there.
-        </p>
-      </div>
-
-      <!-- Video concurrency — clips cost $0.50–$2 each, so raise cautiously. -->
-      <h3 class="mt-3">Video Concurrency</h3>
-      <p class="text-muted mt-1 mb-2">
-        Parallel video clip generations per job. Video clips are expensive (~$0.50–$2 each), so the default is <strong>3</strong>.
-        fal.ai scales 2 → 40 with account credits; Veo via GenAIPro handles backpressure server-side.
-      </p>
-      <div class="form-group" style="max-width: 360px;">
-        <label>Concurrency ({{ videoConcurrency }})</label>
-        <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
-        <div class="flex gap-2 mt-1" style="font-size: 11px;">
-          <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">50 (max)</span>
-        </div>
-      </div>
-
-      <div class="form-group mt-2" style="max-width: 360px;">
-        <label>Launch stagger ({{ videoLaunchStaggerMs }} ms)</label>
-        <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-        <p class="text-muted mt-1" style="font-size: 12px;">
-          Delays each video worker's first submit by N×stagger. Veo / fal /
-          Kie all rate-limit per-second submit attempts. Default <strong>2000 ms</strong>;
-          set to <strong>0</strong> to disable. Values up to <strong>20 seconds</strong>
-          are available. <strong>1500–2500 ms</strong> is a
-          safe starting point if you see 429s during video clip generation.
-        </p>
-      </div>
-
-      <!-- Subtitle (transcription) concurrency — how many chapters transcribe -->
-      <!-- at once. Voice Studio fans them across the Mac pool; cloud Whisper -->
-      <!-- parallelises requests. 1 = sequential (safest for a single local Mac). -->
-      <h3 class="mt-3">Subtitle (Transcription) Concurrency</h3>
-      <p class="text-muted mt-1 mb-2">
-        How many chapters the Subtitles step transcribes at the same time. With a Voice Studio pool this spreads chapters across your Macs;
-        on cloud Whisper it parallelises requests. Default <strong>3</strong>. <strong>Auto</strong> remains available to match your live pool — one
-        transcription per online Mac (and self-heals if a Mac drops mid-run), or 3 for cloud Whisper.
-      </p>
-      <div class="form-group" style="max-width: 360px;">
-        <label>Concurrency</label>
-        <select v-model="subtitleConcurrency" class="select" style="max-width: 220px;">
-          <option value="auto">Auto — match online Macs</option>
-          <option value="1">1 (sequential)</option>
-          <option value="2">×2</option>
-          <option value="3">×3</option>
-          <option value="4">×4</option>
-          <option value="6">×6</option>
-          <option value="8">×8</option>
-          <option value="12">×12</option>
-          <option value="16">×16</option>
-          <option value="24">×24</option>
-          <option value="32">×32</option>
-          <option value="50">×50</option>
-        </select>
-      </div>
-
-      <!-- TTS timeout: clients default to 20 min for GenAIPro, 5 min for -->
-      <!-- fal.ai. A longer timeout avoids orphaning completed tasks whose -->
-      <!-- results never got downloaded (GenAIPro keeps history only 1 day). -->
-      <h3 class="mt-3">TTS Generation Timeout</h3>
-      <p class="text-muted mt-1 mb-2">
-        How long to wait for a single TTS chunk to complete on the provider's
-        side before giving up. Leave blank to use the per-provider default
-        (GenAIPro <strong>20 min</strong>, fal.ai <strong>5 min</strong>,
-        ElevenLabs streams without a job timeout).
-      </p>
-      <div class="form-group" style="max-width: 420px;">
-        <label>
-          Timeout (minutes)
-          <span class="field-hint">Blank = provider default · saved value persists across runs</span>
-        </label>
-        <input
-          v-model.number="ttsTimeoutMinutes"
-          type="number"
-          min="1"
-          max="120"
-          step="1"
-          class="input"
-          :placeholder="ttsTimeoutPlaceholder"
-          aria-label="TTS timeout in minutes"
-        />
-        <!-- "Currently active" chip — surfaces the effective timeout so
-             the user sees what's actually in force, both before and
-             after a save. Empty state shows the provider-default
-             cascade; numeric state shows the override. -->
-        <div class="meta-pill" :class="ttsTimeoutMinutes ? 'ok' : 'muted'" style="margin-top: 6px; font-size: 12px;">
-          {{ ttsTimeoutActiveLabel }}
-        </div>
-        <span class="text-muted" style="font-size: 11px; display: block; margin-top: 6px;">
-          Recommended: <strong>3–5 min</strong> for paragraph/scene-length
-          chunks (ElevenLabs, fal.ai); <strong>10 min</strong> if you
-          generate chapter-length GenAIPro tasks. <strong>1 min is too
-          aggressive</strong> — many legitimate TTS calls take 30 s–2 min,
-          so 1 min would fail healthy jobs. Higher values just keep a
-          worker blocked longer on a genuinely stuck task before it gives up.
-        </span>
-      </div>
-
-      <div class="flex gap-2 mt-2" style="align-items: center;">
-        <button class="btn btn-primary" @click="savePerformance">Save Performance Settings</button>
+      <div class="performance-save-bar">
+        <div><strong>Ready to apply</strong><span>One save updates this project's controls and this Mac's text-job capacity.</span></div>
         <SaveIndicator v-bind="savedHintProps('performance')" />
+        <button class="btn btn-primary" @click="savePerformance">Save performance</button>
       </div>
     </div>
 
@@ -3631,22 +3548,6 @@ const sidecarScanLoading = ref(false)
 const sidecarCleanupRunning = ref(false)
 const lastSidecarCleanup = ref<SidecarCleanupResult | null>(null)
 
-// v1.0.71: legacy video_assembly preset migrator state. Most projects
-// have zero legacy presets — the section quietly stays empty unless
-// the user has older saves from before v1.0.64.
-interface LegacyPresetScan {
-  total_presets: number
-  legacy_presets: Array<{ id: string; name: string }>
-}
-interface LegacyMigrateResult {
-  migrated: Array<{ id: string; name: string }>
-  skipped: Array<{ id: string; reason: string }>
-}
-const legacyPresetScan = ref<LegacyPresetScan | null>(null)
-const legacyPresetScanLoading = ref(false)
-const legacyPresetMigrateRunning = ref(false)
-const lastLegacyMigrate = ref<LegacyMigrateResult | null>(null)
-
 const sortedStorageRows = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
@@ -3921,47 +3822,6 @@ async function cleanupOneSidecar(episode_code: string) {
     alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
   } finally {
     sidecarCleanupRunning.value = false
-  }
-}
-
-// v1.0.71: legacy video_assembly preset migrator handlers. scan
-// returns a list of preset ids in the legacy flat shape; migrate
-// rewrites them in place. No-op when nothing to migrate.
-async function scanLegacyPresets() {
-  legacyPresetScanLoading.value = true
-  try {
-    legacyPresetScan.value = await get<LegacyPresetScan>(
-      `/projects/${slug.value}/storage/legacy-video-assembly-presets`,
-    )
-    lastLegacyMigrate.value = null
-  } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Legacy preset scan failed')
-  } finally {
-    legacyPresetScanLoading.value = false
-  }
-}
-
-async function migrateLegacyPresets() {
-  if (!legacyPresetScan.value || legacyPresetScan.value.legacy_presets.length === 0) return
-  const ok = confirm(
-    `Migrate ${legacyPresetScan.value.legacy_presets.length} legacy video assembly preset(s)?\n\n` +
-    `Each preset's fields will be repackaged into the v1.0.68 bundle shape ` +
-    `(slot snapshots under data.fallback). The runtime behaviour stays identical — ` +
-    `this is purely a save-format normalisation. Safe to run.`,
-  )
-  if (!ok) return
-  legacyPresetMigrateRunning.value = true
-  try {
-    lastLegacyMigrate.value = await post<LegacyMigrateResult>(
-      `/projects/${slug.value}/storage/migrate-video-assembly-presets`,
-      {},
-    )
-    // Rescan so the table updates (migrated rows drop out).
-    await scanLegacyPresets()
-  } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Legacy preset migration failed')
-  } finally {
-    legacyPresetMigrateRunning.value = false
   }
 }
 
@@ -4532,7 +4392,7 @@ const tabZones = [
       ] },
       { title: 'Files', tabs: [
         { id: 'folders', label: 'Folders', icon: '▤', description: 'Control the portable episode folder structure used throughout the production pipeline.' },
-        { id: 'storage', label: 'Storage', icon: '◫', description: 'Inspect project media placement, cloud-sync safety, migrations, and recoverable storage issues.' },
+        { id: 'storage', label: 'Storage', icon: '◫', description: 'See where active project files live, reclaim uploaded finals safely, and manage optional split storage.' },
         { id: 'roots', label: 'Named Roots', icon: '⌁', description: 'Map portable asset tokens to folders on this Mac without hard-coding machine-specific paths.' },
       ] },
       { title: 'Other', tabs: [
@@ -5735,6 +5595,61 @@ const ttsTimeoutActiveLabel = computed(() => {
   if (typeof t === 'number' && t > 0) return `Active: ${t} min override (applies to every TTS provider)`
   return 'Active: provider default — GenAIPro 20 min · fal.ai 5 min · ElevenLabs streams'
 })
+
+type PerformanceProfileId = 'gentle' | 'balanced' | 'fleet'
+interface PerformanceProfile {
+  id: PerformanceProfileId
+  label: string
+  summary: string
+  script: number
+  image: number
+  audio: number
+  video: number
+  subtitle: string
+  stagger: number
+}
+const performanceProfiles: PerformanceProfile[] = [
+  { id: 'gentle', label: 'Gentle', summary: '1 worker · widest spacing', script: 1, image: 1, audio: 1, video: 1, subtitle: '1', stagger: 3_000 },
+  { id: 'balanced', label: 'Balanced', summary: 'Recommended · 3 workers', script: 3, image: 3, audio: 3, video: 3, subtitle: '3', stagger: 2_000 },
+  { id: 'fleet', label: 'Fleet', summary: 'More local capacity', script: 8, image: 6, audio: 6, video: 3, subtitle: 'auto', stagger: 1_200 },
+]
+const activePerformanceProfile = computed<PerformanceProfileId | 'custom'>(() => {
+  const matched = performanceProfiles.find(profile =>
+    scriptConcurrency.value === profile.script
+    && imageConcurrency.value === profile.image
+    && audioConcurrency.value === profile.audio
+    && videoConcurrency.value === profile.video
+    && subtitleConcurrency.value === profile.subtitle
+    && imageLaunchStaggerMs.value === profile.stagger
+    && audioLaunchStaggerMs.value === profile.stagger
+    && videoLaunchStaggerMs.value === profile.stagger,
+  )
+  return matched?.id || 'custom'
+})
+const performanceProfileLabel = computed(() => {
+  const active = performanceProfiles.find(profile => profile.id === activePerformanceProfile.value)
+  return active ? `${active.label} profile` : 'Custom profile'
+})
+
+function applyPerformanceProfile(id: PerformanceProfileId) {
+  const profile = performanceProfiles.find(item => item.id === id)
+  if (!profile) return
+  scriptConcurrency.value = profile.script
+  imageConcurrency.value = profile.image
+  audioConcurrency.value = profile.audio
+  videoConcurrency.value = profile.video
+  subtitleConcurrency.value = profile.subtitle
+  imageLaunchStaggerMs.value = profile.stagger
+  audioLaunchStaggerMs.value = profile.stagger
+  videoLaunchStaggerMs.value = profile.stagger
+}
+
+function formatLaunchStagger(value: number): string {
+  if (value <= 0) return 'Off'
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))} s`
+  return `${value} ms`
+}
+
 watch(config, (c) => {
   if (c && (c as any).image_concurrency) {
     imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
@@ -6668,7 +6583,104 @@ async function deleteProject() {
   padding: 2px 0;
 }
 
+/* ── Performance control center ─────────────────────────────────────── */
+.performance-panel { overflow: hidden; }
+.performance-profile-strip {
+  display: grid;
+  grid-template-columns: minmax(180px, .65fr) minmax(420px, 1.35fr);
+  gap: 16px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--settings-gold));
+  border-radius: 14px;
+  background: linear-gradient(120deg, rgba(227,180,90,.08), rgba(88,198,146,.05));
+}
+.performance-profile-copy { display: flex; flex-direction: column; gap: 3px; }
+.performance-profile-copy strong { font-size: 12px; }
+.performance-profile-copy span { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.performance-profile-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.performance-profile-button {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: .16s ease;
+}
+.performance-profile-button strong { color: var(--text-primary); font-size: 11px; }
+.performance-profile-button small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.performance-profile-button:hover { border-color: rgba(227,180,90,.45); transform: translateY(-1px); }
+.performance-profile-button.active { border-color: rgba(88,198,146,.55); background: rgba(88,198,146,.11); box-shadow: inset 0 0 0 1px rgba(88,198,146,.08); }
+.performance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.performance-card,
+.performance-guidance-card {
+  position: relative;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
+  overflow: hidden;
+}
+.performance-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--performance-accent, var(--settings-green));
+}
+.performance-card--text { --performance-accent: #6fb19b; }
+.performance-card--image { --performance-accent: #d9a84f; }
+.performance-card--audio { --performance-accent: #75a8ce; }
+.performance-card--video { --performance-accent: #ce806f; }
+.performance-card--subtitle { --performance-accent: #8e9ed1; }
+.performance-card-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: start; margin-bottom: 16px; }
+.performance-card-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--performance-accent, var(--settings-green));
+  background: color-mix(in srgb, var(--performance-accent, var(--settings-green)) 12%, transparent);
+  font-size: 11px;
+  font-weight: 800;
+}
+.performance-card-head h4 { margin: 1px 0 3px; font-size: 13px; }
+.performance-card-head p { margin: 0; color: var(--text-muted); font-size: 9.5px; line-height: 1.45; }
+.performance-value { padding: 4px 7px; border-radius: 999px; color: var(--text-secondary); background: var(--bg-primary); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.performance-control { margin-top: 12px; }
+.performance-control label { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.performance-control label span { color: var(--settings-gold); font-variant-numeric: tabular-nums; }
+.performance-control.compact { padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.performance-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--text-muted); font-size: 8.5px; }
+.performance-timeout-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.performance-timeout-row label { color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.performance-timeout-row .input { min-width: 0; padding: 6px 8px; }
+.performance-timeout-row > span { color: var(--text-muted); font-size: 9px; }
+.performance-card-foot { display: flex; justify-content: space-between; gap: 10px; margin: 14px -16px -16px; padding: 9px 16px; color: var(--text-muted); background: color-mix(in srgb, var(--bg-primary) 45%, transparent); font-size: 8.5px; line-height: 1.35; }
+.performance-card-foot span:first-child { color: var(--performance-accent, var(--settings-green)); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.performance-card-foot span:last-child { text-align: right; }
+.performance-guidance-card { background: linear-gradient(145deg, rgba(24,72,55,.19), rgba(227,180,90,.05)); }
+.performance-guidance-card h4 { margin: 5px 0 7px; font-size: 14px; }
+.performance-guidance-card > p { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.performance-guidance-card dl { display: grid; gap: 7px; margin: 14px 0 0; }
+.performance-guidance-card dl div { display: grid; grid-template-columns: 85px 1fr; gap: 8px; padding-top: 7px; border-top: 1px solid var(--border); font-size: 9px; }
+.performance-guidance-card dt { color: var(--text-primary); font-weight: 700; }
+.performance-guidance-card dd { margin: 0; color: var(--text-muted); }
+.performance-save-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(88,198,146,.25); border-radius: 13px; background: rgba(88,198,146,.055); }
+.performance-save-bar > div:first-child { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.performance-save-bar strong { font-size: 11px; }
+.performance-save-bar span { color: var(--text-muted); font-size: 9px; }
+
 /* ── Storage tab ─────────────────────────────────────────────────────── */
+.storage-panel { overflow: hidden; }
 .storage-section h4 {
   margin: 0 0 6px;
   font-size: 14px;
@@ -6679,6 +6691,14 @@ async function deleteProject() {
 }
 .storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
 .storage-section-icon { font-size: 16px; line-height: 1; }
+.storage-surface {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
+  scroll-margin-top: 18px;
+}
 /* Top-bordered subsections inside the Storage card. The first subsection
    (Projects storage location) skips the modifier so the top of the card
    stays flush; everything below gets a clear horizontal divider + breathing
@@ -6712,6 +6732,8 @@ async function deleteProject() {
   border-left: 3px solid #4b82c8;
   border-radius: var(--radius-sm);
 }
+.storage-map { border-left: 1px solid var(--border); border-radius: 14px; background: linear-gradient(145deg, rgba(24,72,55,.16), rgba(227,180,90,.04)); }
+.overview-card--advanced { border-style: dashed; }
 .overview-head {
   display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;
 }
@@ -6786,6 +6808,22 @@ async function deleteProject() {
   background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
   font-size: 10px;
 }
+
+.storage-advanced-heading { display: flex; align-items: baseline; gap: 10px; margin: 24px 2px 8px; }
+.storage-advanced-heading > span { color: var(--settings-gold); font-size: 9px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap; }
+.storage-advanced-heading p { margin: 0; color: var(--text-muted); font-size: 9.5px; }
+.storage-disclosure { margin-top: 8px; border: 1px dashed var(--border); border-radius: 13px; background: color-mix(in srgb, var(--bg-primary) 42%, transparent); scroll-margin-top: 18px; }
+.storage-disclosure[open] { border-style: solid; background: color-mix(in srgb, var(--bg-tertiary) 56%, transparent); }
+.storage-disclosure-summary { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 18px; gap: 10px; align-items: center; padding: 13px 15px; cursor: pointer; list-style: none; }
+.storage-disclosure-summary::-webkit-details-marker { display: none; }
+.storage-disclosure-summary > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.storage-disclosure-summary strong { font-size: 11px; }
+.storage-disclosure-summary small { color: var(--text-muted); font-size: 9px; }
+.storage-disclosure-summary::after { content: '+'; grid-column: 4; grid-row: 1; justify-self: end; color: var(--text-muted); font-size: 13px; }
+.storage-disclosure[open] > .storage-disclosure-summary::after { content: '−'; }
+.storage-disclosure-body { padding: 0 15px 15px; border-top: 1px solid var(--border); }
+.storage-disclosure-body > :first-child { margin-top: 13px; }
+.storage-disclosure .storage-row { grid-template-columns: 90px minmax(220px, 1fr) 100px 110px; min-width: 620px; }
 
 /* ── Projects storage location ─────────────────────────────────────── */
 .projects-root-row {
@@ -6877,7 +6915,7 @@ async function deleteProject() {
   display: flex; flex-direction: column; gap: 2px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-tertiary); padding: 4px;
-  max-height: 60vh; overflow-y: auto;
+  max-height: 60vh; overflow: auto;
 }
 .storage-row {
   display: grid;
@@ -6885,6 +6923,7 @@ async function deleteProject() {
   gap: 8px; align-items: center;
   padding: 6px 8px; font-size: 12px;
   background: var(--bg-secondary); border-radius: var(--radius-sm);
+  min-width: 900px;
 }
 .storage-row.storage-head {
   background: transparent; padding: 6px 8px 4px;
@@ -6915,6 +6954,22 @@ async function deleteProject() {
   border-radius: var(--radius-sm); font-size: 12px;
 }
 .storage-result .error-text { color: var(--error, #e25c5c); margin-left: 4px; }
+
+@media (max-width: 980px) {
+  .performance-profile-strip { grid-template-columns: 1fr; }
+  .performance-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .performance-profile-actions { grid-template-columns: 1fr; }
+  .performance-card-head { grid-template-columns: 34px minmax(0, 1fr); }
+  .performance-value { grid-column: 2; justify-self: start; }
+  .performance-save-bar { align-items: stretch; flex-direction: column; }
+  .performance-save-bar .btn { width: 100%; }
+  .storage-advanced-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .storage-disclosure-summary { grid-template-columns: 28px minmax(0, 1fr) 18px; }
+  .storage-disclosure-summary .overview-badge { grid-column: 2; justify-self: start; margin-left: 0; }
+  .storage-disclosure-summary::after { grid-column: 3; }
+}
 
 .folder-config-list {
   display: flex;

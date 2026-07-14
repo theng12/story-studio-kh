@@ -34,4 +34,25 @@ describe('Settings workspace navigation', () => {
 
     assert.match(settingsSource, /aria-label="Model pricing categories"/)
   })
+
+  test('Performance exposes compact profiles without hiding individual controls', () => {
+    for (const profile of ['Gentle', 'Balanced', 'Fleet']) {
+      assert.match(settingsSource, new RegExp(`label: '${profile}'`))
+    }
+
+    for (const section of ['Scripts & prompts', 'Images', 'Audio & TTS', 'Motion clips', 'Transcription']) {
+      assert.match(settingsSource, new RegExp(section.replace('&', '&amp;')))
+    }
+    assert.match(settingsSource, /Save performance/)
+  })
+
+  test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {
+    assert.match(settingsSource, /Storage control center/)
+    assert.match(settingsSource, /Your storage map/)
+    assert.match(settingsSource, /Optional storage split/)
+    assert.match(settingsSource, /Advanced maintenance/)
+    assert.match(settingsSource, /Current resume checkpoints, not legacy assets/)
+    assert.doesNotMatch(settingsSource, /Legacy video assembly presets/)
+    assert.doesNotMatch(settingsSource, /legacy-video-assembly-presets/)
+  })
 })

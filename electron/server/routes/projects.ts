@@ -581,50 +581,6 @@ router.post('/projects/:slug/storage/cleanup-chunked-sidecars', async (req, res)
   }
 })
 
-// ── Legacy video_assembly preset migrator (v1.0.71+) ───────────────────────
-//
-// Pre-v1.0.64 presets stored video_assembly fields flat at the top of
-// `data`. The flatten function in routes/pipeline.ts handles legacy
-// shapes at runtime via a passthrough, but the saved JSON stays in the
-// old shape forever. These two endpoints expose:
-//   GET  /storage/legacy-video-assembly-presets   → list of legacy presets
-//   POST /storage/migrate-video-assembly-presets  → rewrite all to bundle shape
-// Once migrated, the runtime passthrough becomes inert for that
-// project. A future release can remove the passthrough entirely once
-// no projects in the wild still carry legacy presets.
-
-router.get('/projects/:slug/storage/legacy-video-assembly-presets', async (req, res) => {
-  try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const config = await pm.getConfig(req.params.slug)
-    if (!config) return res.status(400).json({ detail: 'Project config missing' })
-    const { scanForLegacyVideoAssemblyPresets } = await import('../services/legacy-preset-migrator.js')
-    res.json(scanForLegacyVideoAssemblyPresets(config))
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to scan legacy presets'))
-  }
-})
-
-router.post('/projects/:slug/storage/migrate-video-assembly-presets', async (req, res) => {
-  try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const config = await pm.getConfig(req.params.slug)
-    if (!config) return res.status(400).json({ detail: 'Project config missing' })
-    const { migrateAllLegacyVideoAssemblyPresets } = await import('../services/legacy-preset-migrator.js')
-    const { config: nextConfig, result } = migrateAllLegacyVideoAssemblyPresets(config)
-    if (result.migrated.length > 0) {
-      // updateConfig is a partial-update path — passing only
-      // video_bundle_presets keeps every other field untouched.
-      await pm.updateConfig(req.params.slug, {
-        video_bundle_presets: nextConfig.video_bundle_presets,
-      } as any)
-    }
-    res.json(result)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Preset migration failed'))
-  }
-})
-
 // External final-video root — get/set the per-machine app setting.
 // Lives at /api/app-settings/external-final-video-root rather than
 // nested under a project because it's machine-global, not project-
