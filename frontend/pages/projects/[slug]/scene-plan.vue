@@ -21,13 +21,25 @@
       v-model:episode-id="episodeId"
       filter-field="scene_plan"
       :presets="planPresets"
-      :generate-label="plan?.scenes?.length ? '1. Rebuild timeline' : '1. Build timeline'"
-      loading-label="Building timeline…"
+      :generate-label="headerPrimaryLabel"
+      :loading-label="headerPrimaryLoadingLabel"
       :generate-loading="planning || planJobActive"
-      :generate-disabled="!canPlan"
-      :generate-status="(planning || planJobActive) ? `Building the timeline for ${episodeId}…` : (canPlan ? '' : planDisabledReason)"
-      @generate="planScenes"
-    />
+      :generate-disabled="headerPrimaryDisabled"
+      :generate-status="headerPrimaryStatus"
+      @generate="runHeaderPrimaryAction"
+    >
+      <template #actions>
+        <button
+          v-if="plan?.scenes?.length"
+          class="btn btn-secondary"
+          :disabled="!canPlan || planning || planJobActive"
+          :title="`${timelineBuiltLabel}. Rebuilding clears the current visual and motion prompts and asks for confirmation first.`"
+          @click="planScenes"
+        >
+          1. Rebuild timeline
+        </button>
+      </template>
+    </TopActionBar>
 
     <p class="text-muted mt-1 mb-2">
       Build the timing first, then generate full visual prompts in durable
@@ -1078,6 +1090,51 @@ const timelineBuiltLabel = computed(() => {
   const suffix = estimated ? ' (estimated)' : ''
   return `Last built ${built.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}${suffix}`
 })
+
+type HeaderPrimaryStage = 'timeline' | 'visual' | 'motion' | 'ready'
+const headerPrimaryStage = computed<HeaderPrimaryStage>(() => {
+  if (!plan.value?.scenes?.length) return 'timeline'
+  if (visualPendingCount.value > 0) return 'visual'
+  if (form.value.generate_motion_prompts && motionPendingCount.value > 0) return 'motion'
+  return 'ready'
+})
+const headerPrimaryLabel = computed(() => {
+  if (headerPrimaryStage.value === 'timeline') return '1. Build timeline'
+  if (headerPrimaryStage.value === 'visual') {
+    return `2. Generate ${visualPendingCount.value} visual prompt${visualPendingCount.value === 1 ? '' : 's'}`
+  }
+  if (headerPrimaryStage.value === 'motion') {
+    return `3. Generate ${motionPendingCount.value} motion prompt${motionPendingCount.value === 1 ? '' : 's'}`
+  }
+  return '✓ Scene plan ready'
+})
+const headerPrimaryLoadingLabel = computed(() => {
+  if (headerPrimaryStage.value === 'timeline') return 'Building timeline…'
+  if (headerPrimaryStage.value === 'motion') return 'Generating motion prompts…'
+  return 'Generating visual prompts…'
+})
+const headerPrimaryDisabled = computed(() => {
+  if (headerPrimaryStage.value === 'ready') return true
+  if (headerPrimaryStage.value === 'timeline') return !canPlan.value
+  return !subtitleTimelineComplete.value || !form.value.model || !plan.value
+})
+const headerPrimaryStatus = computed(() => {
+  if (planning.value || planJobActive.value) return `Scene Plan is working on ${episodeId.value}…`
+  if (headerPrimaryStage.value === 'timeline') return canPlan.value ? '' : planDisabledReason.value
+  if (!subtitleTimelineComplete.value) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
+  if (!form.value.model) return 'Choose the visual and motion prompt model first'
+  if (headerPrimaryStage.value === 'visual') return `${visualPendingCount.value} scene prompts still need to be generated`
+  if (headerPrimaryStage.value === 'motion') return `${motionPendingCount.value} optional motion prompts still need to be generated`
+  return form.value.generate_motion_prompts
+    ? 'All visual and motion prompts are ready'
+    : 'All visual prompts are ready; optional motion prompts are switched off'
+})
+
+async function runHeaderPrimaryAction(): Promise<void> {
+  if (headerPrimaryStage.value === 'timeline') await planScenes()
+  else if (headerPrimaryStage.value === 'visual') await runPromptStage('visual')
+  else if (headerPrimaryStage.value === 'motion') await runPromptStage('motion')
+}
 
 async function loadStatus(): Promise<void> {
   if (!episodeId.value) {

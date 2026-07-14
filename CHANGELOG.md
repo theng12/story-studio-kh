@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.576 — 2026-07-14
+
+**Scene Plan’s top action now follows the actual three-stage workflow.**
+
+- Replaced the hardcoded timeline-only header action with a stage-aware action that builds the timeline, generates every missing visual prompt, and then generates optional motion prompts when enabled.
+- Kept timeline rebuilding visible as a separate confirmation-protected secondary action after a timeline exists, preventing the destructive rebuild from masquerading as the recommended next step.
+- Added prompt counts directly to the header action, such as “Generate 4 visual prompts,” so incomplete plans expose the exact repair needed without requiring a long scroll.
+- Shows a disabled “Scene plan ready” state when all required prompts are complete; projects with motion disabled remain complete without an unnecessary Step 3 action.
+
 ## v1.0.575 — 2026-07-14
 
 **A cleaner stick-figure storytelling look joins the built-in style gallery.**
