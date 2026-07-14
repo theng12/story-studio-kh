@@ -19,6 +19,8 @@ import {
   hubSubmitJob,
   hubSubmitChatPacks,
   hubPollChatPacks,
+  hubCancelBatch,
+  hubPollBatch,
 } from '../lib/studiohub-client.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 
@@ -84,6 +86,45 @@ describe('hubSubmitJob fallback contract', () => {
     } catch (e) { err = e }
     assert.ok(err, 'expected a throw')
     assert.equal(isConnectionError(err), true, `isConnectionError must match: ${err?.message}`)
+  })
+})
+
+describe('Hub cancellation acknowledgement', () => {
+  test('generation cancellation reaches the exact Hub batch', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: Array<{ url: string; method?: string }> = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), method: init?.method })
+      return new Response(JSON.stringify({ ok: true, running_signalled: 1 }), { status: 200 })
+    }) as typeof fetch
+    try {
+      await hubCancelBatch('http://hub:47873/', ' token ', 'batch 123')
+      assert.deepEqual(calls, [{
+        url: 'http://hub:47873/api/hub/jobs/batch%20123', method: 'DELETE',
+      }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('poll cancellation does not silently discard a refused Hub cancel', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return new Response('worker unavailable', { status: 503 })
+    }) as typeof fetch
+    try {
+      await assert.rejects(
+        () => hubPollBatch('http://hub:47873', undefined, 'batch-1', {
+          isCancelled: () => true,
+        }),
+        /Cancelled by user locally.*did not acknowledge cancellation/i,
+      )
+      assert.equal(calls, 3)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

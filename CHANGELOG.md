@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.596 — 2026-07-15
+
+**Cancelling fleet generation now requires Studio Hub to acknowledge the stop.**
+
+- Replaced fire-and-forget Hub cancellation with a bounded, three-attempt acknowledgement request for generation and durable Chat batches.
+- Keeps the local job classified as cancelled while surfacing a clear warning if Studio Hub cannot confirm the cancellation, rather than silently leaving remote work running.
+- Encodes the exact Hub batch ID and preserves fleet authentication on every cancellation request.
+- Pairs with Studio Hub 1.37.0, which immediately forwards cancellation to running Studio worker job IDs and exposes safe image-queue cleanup controls.
+- Added regression coverage for acknowledged cancellation, exact batch routing, and refused Hub cancellation.
+
 ## v1.0.595 — 2026-07-15
 
 **Automatic scene-image retries now repair only the images that are still missing.**

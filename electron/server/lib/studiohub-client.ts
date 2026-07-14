@@ -291,6 +291,39 @@ async function sleepCancellable(ms: number, isCancelled?: () => boolean): Promis
   }
 }
 
+async function hubCancelPath(
+  hubUrl: string,
+  token: string | undefined,
+  path: string,
+): Promise<void> {
+  let lastFailure = 'no response'
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(`${hubApiBase(hubUrl)}${path}`, {
+        method: 'DELETE',
+        headers: hubHeaders(token),
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (response.ok || response.status === 404) return
+      const detail = await response.text().catch(() => '')
+      lastFailure = `HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`
+    } catch (error: any) {
+      lastFailure = error?.message || String(error)
+    }
+    if (attempt < 3) await sleepCancellable(attempt * 250)
+  }
+  throw new Error(`Studio Hub did not acknowledge cancellation after 3 attempts (${lastFailure})`)
+}
+
+/** Cancel a generation batch and require an acknowledgement from Studio Hub. */
+export async function hubCancelBatch(
+  hubUrl: string,
+  token: string | undefined,
+  batchId: string,
+): Promise<void> {
+  await hubCancelPath(hubUrl, token, `/jobs/${encodeURIComponent(batchId)}`)
+}
+
 /**
  * Submit a batch to the Hub. Returns `{ batch_id }`. A connection error phrasing
  * ("Connection error") lets the caller's isConnectionError() drive fallback to
@@ -339,9 +372,11 @@ export async function hubPollBatch(
   let polls = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
-      await fetch(`${hubApiBase(hubUrl)}/jobs/${batchId}`, {
-        method: 'DELETE', headers: hubHeaders(token),
-      }).catch(() => {})
+      try {
+        await hubCancelBatch(hubUrl, token, batchId)
+      } catch (error: any) {
+        throw new Error(`Cancelled by user locally, but ${error?.message || error}`)
+      }
       throw new Error('Cancelled by user')
     }
     let resp: Response
@@ -457,9 +492,11 @@ export async function hubPollChatPacks(
   const deadline = Date.now() + (opts.timeoutMs ?? 60 * 60_000)
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
-      await fetch(`${hubApiBase(hubUrl)}/chat/jobs/${batchId}`, {
-        method: 'DELETE', headers: hubHeaders(token),
-      }).catch(() => {})
+      try {
+        await hubCancelPath(hubUrl, token, `/chat/jobs/${encodeURIComponent(batchId)}`)
+      } catch (error: any) {
+        throw new Error(`Cancelled by user locally, but ${error?.message || error}`)
+      }
       throw new Error('Cancelled by user')
     }
     let resp: Response
