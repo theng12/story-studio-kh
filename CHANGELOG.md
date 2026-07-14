@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.577 — 2026-07-14
+
+**Scene Review image previews are reliably clickable again.**
+
+- Made the complete scene thumbnail area open its full-size preview instead of limiting the action to the image pixels beneath status badges.
+- Kept previews available while a scene carries a rendering overlay, without changing clip-preview or image-generation controls.
+- Moved the full-size preview above the dashboard scroll layer so it cannot be clipped or hidden by newer app panels.
+- Added keyboard access, dialog semantics, and regression coverage for the complete preview interaction.
+
 ## v1.0.576 — 2026-07-14
 
 **Scene Plan’s top action now follows the actual three-stage workflow.**

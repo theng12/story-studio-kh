@@ -384,7 +384,16 @@
             'sr-row-problem': problemIds.has(scene.id),
           }]"
         >
-          <div class="review-thumb-cell">
+          <div
+            class="review-thumb-cell"
+            :class="{ 'is-previewable': !!scene.image_filename }"
+            :role="scene.image_filename ? 'button' : undefined"
+            :tabindex="scene.image_filename ? 0 : undefined"
+            :aria-label="scene.image_filename ? `Preview scene ${scene.scene_index} image full size` : undefined"
+            @click="scene.image_filename && openPreview(scene)"
+            @keydown.enter.prevent="scene.image_filename && openPreview(scene)"
+            @keydown.space.prevent="scene.image_filename && openPreview(scene)"
+          >
             <template v-if="scene.image_filename">
               <img
                 :src="imageUrl(scene)"
@@ -393,7 +402,6 @@
                 class="review-thumb"
                 :style="{ aspectRatio: thumbAspect }"
                 title="Click to preview full size"
-                @click="openPreview(scene)"
               />
               <!-- Re-render overlay (force / from-here / per-scene regen). -->
               <div v-if="isSceneGenerating(scene)" class="review-thumb-overlay">
@@ -509,11 +517,15 @@
 
     <!-- v1.0.241 — click-to-preview lightbox. Full-size view of a generated
          scene image, with prev/next nav across scenes that have images. -->
-    <div
-      v-if="previewScene"
-      class="sr-lightbox"
-      @click.self="closePreview"
-    >
+    <Teleport to="body">
+      <div
+        v-if="previewScene"
+        class="sr-lightbox"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`Scene ${previewScene.scene_index} image preview`"
+        @click.self="closePreview"
+      >
       <button class="sr-lb-close" @click="closePreview" title="Close (Esc)">✕</button>
       <button
         v-if="previewNeighbours.prev"
@@ -591,7 +603,8 @@
         @click.stop="stepPreview(1)"
         title="Next scene with an image (→)"
       >›</button>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- v1.0.358 — back-to-top floating button (mirrors Scene Plan). The scene
          grid gets very tall on long episodes (50+ scenes); this saves the
@@ -1693,7 +1706,7 @@ watch(episodeId, () => { void loadReview() })
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {
-  position: fixed; inset: 0; z-index: 1000;
+  position: fixed; inset: 0; z-index: 10000;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.82);
   padding: 32px 56px;
@@ -1823,6 +1836,11 @@ watch(episodeId, () => { void loadReview() })
 
 /* ── Live render / generating state (v1.0.231) ─────────────────────── */
 .review-thumb-cell { position: relative; }
+.review-thumb-cell.is-previewable { cursor: pointer; border-radius: var(--radius-sm, 6px); }
+.review-thumb-cell.is-previewable:focus-visible {
+  outline: 2px solid var(--accent, #f0b429);
+  outline-offset: 3px;
+}
 @keyframes sr-spin { to { transform: rotate(360deg); } }
 .review-spinner {
   display: inline-block;
@@ -1848,6 +1866,7 @@ watch(episodeId, () => { void loadReview() })
   background: rgba(0, 0, 0, 0.55);
   border-radius: var(--radius-sm, 6px);
   color: #fff;
+  pointer-events: none;
 }
 .review-thumb-overlay small { font-size: 11px; }
 .review-render-banner {
