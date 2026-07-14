@@ -166,7 +166,7 @@
           class="input"
           placeholder="e.g. Bound cartoon, Soft watercolor, Cinematic noir"
           autofocus
-          @keydown.enter="confirmSavePreset"
+          @keyup.enter.stop.prevent="confirmSavePreset"
           @keydown.escape="closeSavePresetModal"
         />
         <div class="spc-preset-modal-actions">

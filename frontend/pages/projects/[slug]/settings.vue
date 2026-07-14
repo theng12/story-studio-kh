@@ -652,7 +652,7 @@
             v-model="newPresetName"
             class="input"
             placeholder="e.g. Sleep Stories v2, Horror Narration"
-            @keydown.enter="savePreset"
+            @keyup.enter.stop.prevent="savePreset"
             @keydown.escape="showSavePreset = false"
           />
           <div class="flex gap-2 mt-2" style="justify-content:flex-end">

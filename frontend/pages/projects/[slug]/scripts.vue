@@ -855,7 +855,7 @@
           v-model="newStyleName"
           class="input"
           placeholder="e.g. Cozy Grandma, Dark Noir"
-          @keydown.enter="confirmSaveCustomStyle"
+          @keyup.enter.stop.prevent="confirmSaveCustomStyle"
           @keydown.escape="showSaveStyle = false"
         />
         <div class="flex gap-2 mt-2 justify-end">

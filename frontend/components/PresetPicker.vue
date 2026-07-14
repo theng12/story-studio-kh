@@ -93,7 +93,7 @@
         ref="newNameInput"
         class="input"
         placeholder="e.g. Default, Sleep Stories, Shorts"
-        @keydown.enter="confirmSaveAs"
+        @keyup.enter.stop.prevent="confirmSaveAs"
       />
       <div class="flex gap-2 mt-2" style="justify-content:flex-end">
         <button class="btn btn-secondary" @click="showSaveAs = false">Cancel</button>
@@ -120,7 +120,7 @@
         ref="renameInput"
         class="input"
         placeholder="New name"
-        @keydown.enter="confirmRename"
+        @keyup.enter.stop.prevent="confirmRename"
         @keydown.escape="showRename = false"
       />
       <div class="flex gap-2 mt-2" style="justify-content:flex-end">
@@ -236,6 +236,7 @@ function confirmSaveAs() {
   const name = newName.value.trim()
   if (!name) return
   emit('save-as', name)
+  newName.value = ''
   showSaveAs.value = false
 }
 
@@ -256,6 +257,7 @@ function confirmRename() {
   const name = renameName.value.trim()
   if (!name || name === currentName.value) return
   emit('rename', name)
+  renameName.value = ''
   showRename.value = false
 }
 

@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.579 — 2026-07-14
+
+**Saving a preset with Return now closes the dialog once and stays closed.**
+
+- Preset name dialogs now confirm on key release and fully consume Return, preventing the same key press from reopening the dialog underneath.
+- The shared async preset toolbar blocks repeated submissions, shows a saving state, and clears the saved name before closing.
+- Applied the same safe Return handling to style, script-style, image-prompt, and project-settings preset dialogs.
+- Added regression coverage for keyboard event containment and duplicate-save protection.
+
 ## v1.0.578 — 2026-07-14
 
 **The app stays responsive while large episodes and background jobs are active.**

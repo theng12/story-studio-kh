@@ -267,7 +267,7 @@
                 class="input input-sm flex-1"
                 placeholder="e.g. Watercolour Sunset"
                 :disabled="savingStylePreset"
-                @keydown.enter.prevent="saveStylePreset"
+                @keyup.enter.stop.prevent="saveStylePreset"
                 @keydown.escape="cancelSaveStylePreset"
                 ref="savePresetInputEl"
               />

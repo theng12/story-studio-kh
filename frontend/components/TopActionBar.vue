@@ -192,11 +192,14 @@
         ref="newPresetNameInput"
         class="input"
         placeholder="e.g. Default, Sleep Stories, Shorts"
-        @keydown.enter="confirmSaveAs"
+        :disabled="savingPreset"
+        @keyup.enter.stop.prevent="confirmSaveAs"
       />
       <div class="flex gap-2 mt-2" style="justify-content:flex-end">
-        <button class="btn btn-secondary" @click="showSaveAs = false">Cancel</button>
-        <button class="btn btn-primary" :disabled="!newPresetName.trim()" @click="confirmSaveAs">Save</button>
+        <button type="button" class="btn btn-secondary" :disabled="savingPreset" @click="showSaveAs = false">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="!newPresetName.trim() || savingPreset" @click="confirmSaveAs">
+          {{ savingPreset ? 'Saving…' : 'Save' }}
+        </button>
       </div>
     </Modal>
   </div>
@@ -276,6 +279,7 @@ const episodeMode = computed<'single' | 'multi' | 'none'>(() => {
 const showSaveAs = ref(false)
 const newPresetName = ref('')
 const newPresetNameInput = ref<HTMLInputElement | null>(null)
+const savingPreset = ref(false)
 
 // Active episode (captured from EpisodeSelector's emit) — used by the
 // hover popover to show per-section status icons.
@@ -405,6 +409,7 @@ async function onDelete() {
 }
 
 function openSaveAs() {
+  if (savingPreset.value) return
   newPresetName.value = ''
   showSaveAs.value = true
   nextTick(() => newPresetNameInput.value?.focus())
@@ -412,10 +417,16 @@ function openSaveAs() {
 
 async function confirmSaveAs() {
   const name = newPresetName.value.trim()
-  if (!name) return
-  await props.presets?.saveAs(name)
-  showSaveAs.value = false
-  emit('preset-saved')
+  if (!name || savingPreset.value) return
+  savingPreset.value = true
+  try {
+    await props.presets?.saveAs(name)
+    newPresetName.value = ''
+    showSaveAs.value = false
+    emit('preset-saved')
+  } finally {
+    savingPreset.value = false
+  }
 }
 
 // ── Episode status helpers ──────────────────────────────────────────────
