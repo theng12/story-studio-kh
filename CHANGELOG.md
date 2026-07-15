@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.612 — 2026-07-15
+
+**Added a pending Kie.ai model pricing record.**
+
+- Recorded GPT Image 2 text-to-image and image-to-image pricing for 1K, 2K, and 4K generations.
+- Kept the record separate from the live model catalog until the remaining provider pricing is collected.
+
 ## v1.0.611 — 2026-07-15
 
 **TTS model pricing defaults now match the configured provider rates.**
