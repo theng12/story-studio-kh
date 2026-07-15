@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.609 — 2026-07-15
+
+**Pipeline now treats introductions as optional and keeps episode navigation within easy reach.**
+
+- Marked Introduction as an explicit optional stage, so Required stages and core missing-work checks no longer select or require it.
+- Preserved the safety dependency that permits Introduction only when Script is selected.
+- Fixed Pipeline episode pages at 10 rows and removed the cramped internal list scrollbar.
+- Moved First, Previous, page status, Next, and Last controls into the top-right filter toolbar.
+- Added regression coverage for optional Introduction behavior and the fixed top-pagination layout.
+
 ## v1.0.608 — 2026-07-15
 
 **Research is now a compact, evidence-first workspace instead of a long settings form.**

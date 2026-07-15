@@ -45,7 +45,7 @@
           <button
             type="button"
             class="btn btn-sm btn-secondary"
-            title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off."
+            title="Select every required stage in the current production chain. Optional Research, Introduction, and paid Motion Clips stay off."
             @click="selectRequiredSteps"
           >Required stages</button>
           <button
@@ -211,7 +211,7 @@
         </div>
       </template>
 
-      <!-- Sort + filter + page-size toolbar. Scales the list to 100+ episodes
+      <!-- Sort + filter + pagination toolbar. Scales the list to 100+ episodes
            without overwhelming the viewport. Sort + filter are derivations
            on `episodes.value` (no network calls); pagination is a pure
            slice. Selection checkboxes live in a Set keyed by episode_code,
@@ -277,18 +277,15 @@
           >{{ filteredHitCount }} match</span>
         </div>
 
-        <div class="toolbar-group">
-          <label class="toolbar-label">Per page</label>
-          <select v-model.number="pageSize" class="select input-sm">
-            <option :value="10">10</option>
-            <option :value="20">20</option>
-            <option :value="50">50</option>
-            <option :value="100">100</option>
-          </select>
-        </div>
-
-        <div class="toolbar-count">
-          {{ visibleRangeText }}
+        <div class="toolbar-pagination" aria-label="Episode pages">
+          <span class="toolbar-count">{{ visibleRangeText }}</span>
+          <button class="btn btn-sm btn-secondary pagination-edge" :disabled="currentPage <= 1" @click="goToPage(1)" title="First page" aria-label="First page">«</button>
+          <button class="btn btn-sm btn-secondary" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">Prev</button>
+          <span class="page-indicator">
+            Page <strong>{{ currentPage }}</strong> of {{ totalPages }}
+          </span>
+          <button class="btn btn-sm btn-secondary" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">Next</button>
+          <button class="btn btn-sm btn-secondary pagination-edge" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)" title="Last page" aria-label="Last page">»</button>
         </div>
       </div>
 
@@ -455,21 +452,6 @@
         @close="overrideEpisode = null"
         @saved="onOverridesSaved"
       />
-
-      <!-- Pagination controls — shown whenever the filtered set exceeds
-           the page-size threshold. Prev/Next bracket a compact page
-           indicator; selected episodes persist across pages because
-           `selectedEpisodes` is keyed by episode_code, independent of
-           which slice is currently visible. -->
-      <div v-if="totalPages > 1" class="pagination mt-2">
-        <button class="btn btn-sm btn-secondary" :disabled="currentPage <= 1" @click="goToPage(1)" title="First page">« First</button>
-        <button class="btn btn-sm btn-secondary" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">← Prev</button>
-        <span class="page-indicator">
-          Page <strong>{{ currentPage }}</strong> of {{ totalPages }}
-        </span>
-        <button class="btn btn-sm btn-secondary" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">Next →</button>
-        <button class="btn btn-sm btn-secondary" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)" title="Last page">Last »</button>
-      </div>
 
       <div v-if="episodes.length" class="selection-summary mt-2 text-muted text-sm">
         <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · queued jobs = {{ selectedEpisodes.size * checkedStepCount }}
@@ -658,7 +640,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'research',          label: 'Research (optional)', icon: '🔍', link: '/research',      presetList: 'research_presets',        presetActive: 'research_last_preset_research', optional: true },
   { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
-  { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
+  { id: 'introduction-only', label: 'Introduction (optional)', icon: '🎙', link: '/scripts', presetList: 'script_presets', presetActive: 'script_last_preset_introduction', optional: true },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'image_prompts',     label: 'Thumbnail Prompts', icon: '🖼', link: '/image-prompts?tab=thumbnails', presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset' },
   // Pipeline image generation is fully split: Thumbnail Images and Scene
@@ -1063,7 +1045,7 @@ const FILTER_MODE_TO_STEP: Partial<Record<FilterMode, StepId>> = {
 
 const sortKey = ref<SortKey>('code-asc')
 const filterMode = ref<FilterMode>('all')
-const pageSize = ref<10 | 20 | 50 | 100>(10)
+const EPISODES_PER_PAGE = 10
 const currentPage = ref(1)
 // Free-text search across episode_code + title. Mirrors the Ideas page's
 // search box. Pure derivation; no network call. Empty string = no filter.
@@ -1155,11 +1137,11 @@ const sortedFilteredEpisodes = computed<Episode[]>(() => {
   return sorted
 })
 
-const totalPages = computed(() => Math.max(1, Math.ceil(sortedFilteredEpisodes.value.length / pageSize.value)))
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedFilteredEpisodes.value.length / EPISODES_PER_PAGE)))
 
 const paginatedEpisodes = computed<Episode[]>(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return sortedFilteredEpisodes.value.slice(start, start + pageSize.value)
+  const start = (currentPage.value - 1) * EPISODES_PER_PAGE
+  return sortedFilteredEpisodes.value.slice(start, start + EPISODES_PER_PAGE)
 })
 
 const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingCoreSteps(ep) > 0).length)
@@ -1189,8 +1171,8 @@ const filteredHitCount = computed(() => sortedFilteredEpisodes.value.length)
 const visibleRangeText = computed(() => {
   const total = sortedFilteredEpisodes.value.length
   if (total === 0) return '0 of 0'
-  const start = (currentPage.value - 1) * pageSize.value + 1
-  const end = Math.min(total, currentPage.value * pageSize.value)
+  const start = (currentPage.value - 1) * EPISODES_PER_PAGE + 1
+  const end = Math.min(total, currentPage.value * EPISODES_PER_PAGE)
   return `Showing ${start}–${end} of ${total}`
 })
 
@@ -1199,9 +1181,9 @@ function goToPage(n: number) {
   currentPage.value = clamped
 }
 
-// Reset to page 1 whenever filter, sort, or page-size changes — otherwise
+// Reset to page 1 whenever filter, sort, or search changes — otherwise
 // the user can land on an empty page after the list shrinks.
-watch([filterMode, sortKey, pageSize, searchQuery], () => { currentPage.value = 1 })
+watch([filterMode, sortKey, searchQuery], () => { currentPage.value = 1 })
 
 // Clamp if the filtered list shrinks below the current page (e.g. episode
 // finished and was filtered out of the missing-only view).
@@ -1763,8 +1745,7 @@ async function submit() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 52vh;
-  overflow-y: auto;
+  overflow: visible;
   padding: 2px;
 }
 .episode-row {
@@ -1912,17 +1893,20 @@ async function submit() {
 }
 
 /* ── Pagination ───────────────────────────────────────────────────── */
-.pagination {
+.toolbar-pagination {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 2px;
+  margin-left: auto;
   flex-wrap: wrap;
 }
+.toolbar-pagination .btn { min-width: 48px; }
+.toolbar-pagination .pagination-edge { min-width: 32px; padding-inline: 8px; }
 .page-indicator {
   font-size: 12px;
   color: var(--text-secondary);
-  margin: 0 6px;
+  margin: 0 2px;
+  white-space: nowrap;
 }
 
 /* ── Problems card ────────────────────────────────────────────────────── */
