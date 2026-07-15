@@ -10,52 +10,58 @@
   render the per-scene approval grid.
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Scene Plan</h1>
+  <div class="workspace-page scene-plan-workspace">
+    <WorkspaceHero
+      eyebrow="Narration-timed workflow"
+      title="Scene Plan"
+      description="Build narration timing without an LLM, then create detailed visual prompts in durable packs and add motion only when the episode needs it."
+    >
+      <template #aside>
+        <div class="workspace-metrics">
+          <span class="workspace-metric"><strong>{{ plan?.scenes?.length || 0 }}</strong> scenes</span>
+          <span class="workspace-metric" :data-tone="visualPendingCount ? 'warning' : 'success'">
+            <strong>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }}</strong> visual prompts
+          </span>
+          <span class="workspace-metric" :data-tone="form.generate_motion_prompts ? 'info' : undefined">
+            <strong>{{ form.generate_motion_prompts ? motionDoneCount : 'Off' }}</strong> motion
+          </span>
+        </div>
+      </template>
+    </WorkspaceHero>
+
+    <div class="workspace-command-surface">
+      <TopActionBar
+        :project-slug="slug"
+        v-model:episode-id="episodeId"
+        filter-field="scene_plan"
+        :presets="planPresets"
+        :generate-label="headerPrimaryLabel"
+        :loading-label="headerPrimaryLoadingLabel"
+        :generate-loading="planning || planJobActive"
+        :generate-disabled="headerPrimaryDisabled"
+        :generate-status="headerPrimaryStatus"
+        @generate="runHeaderPrimaryAction"
+      >
+        <template #actions>
+          <button
+            v-if="plan?.scenes?.length"
+            class="btn btn-secondary"
+            :disabled="!canPlan || planning || planJobActive"
+            :title="`${timelineBuiltLabel}. Rebuilding clears the current visual and motion prompts and asks for confirmation first.`"
+            @click="planScenes"
+          >
+            1. Rebuild timeline
+          </button>
+        </template>
+      </TopActionBar>
     </div>
 
-    <TopActionBar
-      :project-slug="slug"
-      v-model:episode-id="episodeId"
-      filter-field="scene_plan"
-      :presets="planPresets"
-      :generate-label="headerPrimaryLabel"
-      :loading-label="headerPrimaryLoadingLabel"
-      :generate-loading="planning || planJobActive"
-      :generate-disabled="headerPrimaryDisabled"
-      :generate-status="headerPrimaryStatus"
-      @generate="runHeaderPrimaryAction"
-    >
-      <template #actions>
-        <button
-          v-if="plan?.scenes?.length"
-          class="btn btn-secondary"
-          :disabled="!canPlan || planning || planJobActive"
-          :title="`${timelineBuiltLabel}. Rebuilding clears the current visual and motion prompts and asks for confirmation first.`"
-          @click="planScenes"
-        >
-          1. Rebuild timeline
-        </button>
-      </template>
-    </TopActionBar>
-
-    <p class="text-muted mt-1 mb-2">
-      Build the timing first, then generate full visual prompts in durable
-      adaptive packs. Motion is a separate optional pass, so still-image videos
-      can skip it completely.
-    </p>
-
     <!-- Step 1: Subtitles (created + stitched in the Subtitles workspace) -->
-    <section class="card mt-3">
-      <h3>1. Subtitles</h3>
-      <p class="text-muted text-sm mt-1">
-        The planner reads one global-timeline SRT. Create per-chapter
-        subtitles and stitch them into that timeline in the
-        <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles workspace</NuxtLink>
-        — this page just consumes the result.
-      </p>
+    <WorkspaceSection
+      eyebrow="Prerequisite"
+      title="1. Subtitles"
+      description="Scene timing consumes the verified global subtitle timeline created in the Subtitles workspace."
+    >
       <div v-if="!status?.audio_merged" class="validation-msg text-sm mt-2">
         ⚠ Audio Assembly hasn't run for this episode yet. It's needed before
         subtitles + stitching (provides per-section durations + the gap).
@@ -99,14 +105,14 @@
           then re-run the plan so it picks up the new audio.
         </div>
       </div>
-    </section>
+    </WorkspaceSection>
 
     <!-- Step 2: Plan options -->
-    <section class="card mt-3">
-      <h3>2. Scene workflow settings</h3>
-      <p class="text-muted text-sm mt-1">
-        Timeline uses no LLM. The selected model generates full-detail visual prompts and, when enabled, optional motion prompts.
-      </p>
+    <WorkspaceSection
+      eyebrow="Configuration"
+      title="2. Scene workflow settings"
+      description="Choose the visual prompt model, opening behavior, batching, and optional motion pass. Timeline construction itself uses no LLM."
+    >
       <div class="mt-2">
         <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
       </div>
@@ -266,10 +272,13 @@
 
       <!-- v1.0.357 — the Plan preset moved to the page-level preset row at the
            top (TopActionBar), matching every other generator tab. -->
-    </section>
+    </WorkspaceSection>
 
-    <section class="card mt-3 stage-card">
-      <h3>3-stage scene workflow</h3>
+    <WorkspaceSection
+      eyebrow="Execution"
+      title="3-stage scene workflow"
+      description="Run each stage independently. Completed prompts are saved immediately by stable scene ID, so retries only repair unfinished work."
+    >
       <div class="stage-grid mt-2">
         <div class="stage-step">
           <strong>1. Timeline</strong>
@@ -306,10 +315,10 @@
       <p v-if="plan?.visual_prompt_batch_id || plan?.motion_prompt_batch_id" class="text-muted text-xs mt-2">
         Last Hub task: <code>{{ plan.motion_prompt_batch_id || plan.visual_prompt_batch_id }}</code>
       </p>
-    </section>
+    </WorkspaceSection>
 
     <!-- Step 3: Plan + edit -->
-    <section v-if="status?.scene_plan || planning" class="card mt-3">
+    <section v-if="status?.scene_plan || planning" class="card workspace-section">
       <!-- v1.0.250 — the plan predates the current stitched SRT (you changed
            audio / re-stitched after this plan was generated). Re-run so it
            matches the new timeline. -->
@@ -1758,6 +1767,13 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+.scene-plan-workspace :deep(.workspace-command-surface .top-action-bar) {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .advanced-panel {
   padding: 10px 12px;
   border: 1px solid var(--border);

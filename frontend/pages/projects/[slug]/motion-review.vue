@@ -1,20 +1,20 @@
 <template>
-  <div class="motion-workspace">
-    <div class="motion-hero">
-      <div class="motion-hero-copy">
-        <Breadcrumb />
-        <span class="motion-eyebrow">Optional motion pass</span>
-        <h1>Motion Review <span class="optional-badge">Optional</span></h1>
-        <p>Turn approved stills into motion clips where they add value. Every untouched scene remains a valid still image.</p>
-      </div>
-      <div class="motion-hero-route" aria-label="Review workflow">
-        <span class="is-complete">1</span><b>Plan</b><i />
-        <span class="is-complete">2</span><b>Images</b><i />
-        <span class="is-current">3</span><b>Motion</b>
-      </div>
-    </div>
+  <div class="motion-workspace workspace-page">
+    <WorkspaceHero
+      eyebrow="Optional review pass"
+      title="Motion Review"
+      description="Turn approved stills into motion clips only where movement adds value. Untouched scenes remain valid still images through final assembly."
+    >
+      <template #aside>
+        <div class="motion-hero-route" aria-label="Review workflow">
+          <span class="is-complete">1</span><b>Plan</b><i />
+          <span class="is-complete">2</span><b>Images</b><i />
+          <span class="is-current">3</span><b>Motion</b>
+        </div>
+      </template>
+    </WorkspaceHero>
 
-    <div class="motion-command-bar">
+    <div class="motion-command-bar workspace-command-surface">
       <TopActionBar
         :project-slug="slug"
         v-model:episode-id="episodeId"
@@ -29,26 +29,27 @@
       />
     </div>
 
-    <div class="motion-guide-grid mt-2">
-      <div class="motion-intro">
-        <span class="guide-icon">01</span>
-        <div>
-          <strong>Stills remain the safe default</strong>
-          <p>Skip motion freely. Choosing a clip only replaces its still inside the same locked timestamp window.</p>
-        </div>
-        <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
-      </div>
+    <div class="motion-guide-grid">
+      <WorkspaceNotice title="Stills remain the safe default" tone="info">
+        Skip motion freely. Choosing a clip only replaces its still inside the same locked timestamp window.
+        <template #actions>
+          <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
+        </template>
+      </WorkspaceNotice>
 
-      <div class="external-motion-note">
-        <span class="guide-icon">02</span>
-        <div>
-          <strong>Bringing clips from another tool?</strong>
-          <p>Use <b>Upload external MP4</b> on the matching scene. Long clips are trimmed, short clips hold their final frame, and narration audio stays in control.</p>
-        </div>
-      </div>
+      <WorkspaceNotice title="External clips use the same timeline" tone="info">
+        Upload an MP4 on the matching scene. Long clips are trimmed, short clips hold their final frame, and narration audio remains in control.
+      </WorkspaceNotice>
     </div>
 
-    <section v-if="stats" class="card mt-3 motion-control-deck" :class="{ 'motion-ready': stats.all_motion_reviewed }">
+    <WorkspaceSection
+      v-if="stats"
+      eyebrow="Episode readiness"
+      title="Motion decisions"
+      description="Choose a clip or keep the approved still for every scene. This pass never changes narration timing."
+      class="motion-control-deck"
+      :class="{ 'motion-ready': stats.all_motion_reviewed }"
+    >
       <div class="motion-summary">
         <div class="motion-summary-copy">
           <span class="motion-summary-kicker">Episode readiness</span>
@@ -82,7 +83,7 @@
           <button class="btn btn-sm btn-ghost" :disabled="savingAll" @click="keepAllStills">Keep all as stills</button>
         </div>
       </div>
-    </section>
+    </WorkspaceSection>
 
     <section v-if="!episodeId" class="card mt-3 empty-state">Pick an episode to review motion.</section>
     <section v-else-if="loading" class="card mt-3 empty-state">Loading motion pass...</section>
@@ -383,52 +384,24 @@ watch(episodeId, () => { void loadReview() })
   --motion-ink: #101710;
   padding-bottom: 72px;
 }
-.motion-hero {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 28px;
-  margin: 14px 0 18px;
-  padding: 26px 30px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--motion-blue) 28%, var(--border));
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 86% 16%, rgba(115,168,223,.2), transparent 30%),
-    linear-gradient(135deg, #17231e 0%, #16211e 45%, #1b2330 100%);
-  box-shadow: 0 18px 48px rgba(0,0,0,.18);
-}
-.motion-hero::after { content: ''; position: absolute; right: -115px; bottom: -175px; width: 250px; height: 250px; border: 1px solid rgba(115,168,223,.2); border-radius: 50%; }
-.motion-hero-copy { position: relative; z-index: 1; max-width: 760px; }
-.motion-hero :deep(.breadcrumb) { margin-bottom: 13px; opacity: .7; }
-.motion-eyebrow { display: block; margin-bottom: 5px; color: var(--motion-blue); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
-.motion-hero h1 { margin: 0; color: #f5f8ff; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.035em; }
-.motion-hero p { margin: 8px 0 0; max-width: 700px; color: rgba(244,247,250,.7); font-size: 14px; line-height: 1.55; }
-.optional-badge { display: inline-block; vertical-align: middle; margin-left: 8px; padding: 4px 9px; border: 1px solid rgba(115,168,223,.5); border-radius: 999px; color: var(--motion-blue); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .motion-hero-route { position: relative; z-index: 1; display: grid; grid-template-columns: 28px auto 22px 28px auto 22px 28px auto; align-items: center; gap: 7px; flex: 0 0 auto; }
-.motion-hero-route span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; color: rgba(255,255,255,.55); font-size: 11px; font-weight: 800; }
+.motion-hero-route span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--text-muted); font-size: 11px; font-weight: 800; }
 .motion-hero-route span.is-complete { border-color: var(--motion-green); background: var(--motion-green); color: var(--motion-ink); }
 .motion-hero-route span.is-current { border-color: var(--motion-blue); color: var(--motion-blue); box-shadow: 0 0 0 4px rgba(115,168,223,.1); }
-.motion-hero-route b { color: rgba(255,255,255,.58); font-size: 11px; font-weight: 600; }
-.motion-hero-route i { height: 1px; background: rgba(255,255,255,.14); }
+.motion-hero-route b { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.motion-hero-route i { height: 1px; background: var(--border); }
 
-.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin-bottom: 0; padding: 16px; border-radius: 14px; background: color-mix(in srgb, var(--bg-secondary) 92%, var(--motion-blue) 8%); box-shadow: 0 10px 30px rgba(0,0,0,.1); }
+.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .motion-command-bar :deep(.region-spacer) { display: none; }
 .motion-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
 .motion-command-bar :deep(.btn-primary-cta) { min-width: 180px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
 
-.motion-guide-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 12px; }
-.motion-intro, .external-motion-note { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 15px 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-secondary); }
-.motion-intro { border-color: color-mix(in srgb, var(--motion-blue) 35%, var(--border)); }
-.motion-intro > div, .external-motion-note > div { flex: 1; min-width: 0; }
-.motion-intro strong, .external-motion-note strong { color: var(--text-primary); font-size: 13px; }
-.motion-intro p, .external-motion-note p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
-.guide-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--motion-blue) 12%, var(--bg-tertiary)); color: var(--motion-blue); font-size: 9px; font-weight: 800; }
+.motion-guide-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 12px; margin-top: var(--space-4); }
+.motion-guide-grid :deep(.workspace-notice) { margin-top: 0; }
 
-.motion-control-deck { overflow: hidden; padding: 0; border-radius: 16px; }
+.motion-control-deck { overflow: hidden; border-radius: 16px; }
 .motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
-.motion-summary { justify-content: space-between; padding: 20px 22px 16px; }
+.motion-summary { justify-content: space-between; padding-bottom: 16px; }
 .motion-summary-kicker { color: var(--motion-blue); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .motion-summary-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
 .motion-summary-copy p { margin: 0; color: var(--text-muted); font-size: 12px; }
@@ -437,9 +410,9 @@ watch(episodeId, () => { void loadReview() })
 .motion-summary-score span { margin-top: 4px; color: var(--text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .motion-summary-score.ready { border-color: color-mix(in srgb, var(--motion-green) 55%, var(--border)); background: color-mix(in srgb, var(--motion-green) 10%, transparent); }
 .motion-summary-score.ready strong { color: var(--motion-green); }
-.motion-progress { height: 4px; margin: 0 22px 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
+.motion-progress { height: 4px; margin: 0 0 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
 .motion-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--motion-blue), var(--motion-green)); transition: width .35s ease; }
-.motion-tool-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 17px 22px; border-top: 1px solid var(--border); }
+.motion-tool-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-top: 17px; border-top: 1px solid var(--border); }
 .motion-tool-heading { display: flex; min-width: 190px; flex-direction: column; gap: 3px; }
 .motion-tool-heading strong { font-size: 13px; }
 .motion-tool-heading span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
@@ -480,16 +453,13 @@ watch(episodeId, () => { void loadReview() })
   .motion-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
-  .motion-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
   .motion-hero-route { display: none; }
   .motion-guide-grid { grid-template-columns: 1fr; }
   .motion-tool-row { align-items: stretch; flex-direction: column; }
   .motion-tools { justify-content: flex-start; }
 }
 @media (max-width: 640px) {
-  .motion-hero { border-radius: 14px; }
-  .motion-command-bar :deep(.top-action-bar) { padding: 12px; }
-  .motion-intro, .external-motion-note, .motion-summary { align-items: flex-start; flex-direction: column; }
+  .motion-summary { align-items: flex-start; flex-direction: column; }
   .motion-summary-score, .model-field { width: 100%; min-width: 0; }
   .motion-tools { align-items: stretch; flex-direction: column; }
   .media-pair { grid-template-columns: 1fr; }

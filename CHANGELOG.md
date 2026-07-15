@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.598 — 2026-07-15
+
+**The shared workspace design now covers production orchestration, planning, and the optional motion pass.**
+
+- Modernized Pipeline with a production summary, dedicated command surface, consistent stage sections, clearer batch scope, and shared preflight and blocking notices.
+- Modernized Production Board with a unified control-room header, visible episode and stage metrics, a compact responsive command bar, and a raised matrix surface while preserving its fast row virtualization.
+- Reorganized Scene Plan into clear prerequisite, configuration, execution, and scene-editor regions without changing deterministic timing, prompt batching, opening visuals, or repair behavior.
+- Brought Motion Review onto the shared review shell with consistent guidance notices and readiness hierarchy while preserving external uploads, still-image decisions, image-to-video generation, and back-to-top navigation.
+- Removed obsolete page-specific hero and guidance styles so these workflows inherit one responsive visual language rather than maintaining competing CSS systems.
+- Added regression coverage preventing orchestration and review pages from drifting back to one-off headers or losing their shared command hierarchy.
+
 ## v1.0.597 — 2026-07-15
 
 **The first shared Story Studio workspace design system now unifies every workflow family.**

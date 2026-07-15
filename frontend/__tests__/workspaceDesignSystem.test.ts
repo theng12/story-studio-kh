@@ -21,6 +21,13 @@ const familyPages = {
   management: source('../pages/projects/[slug]/jobs.vue'),
 }
 
+const orchestrationPages = {
+  pipeline: source('../pages/projects/[slug]/pipeline.vue'),
+  board: source('../pages/projects/[slug]/board.vue'),
+  scenePlan: source('../pages/projects/[slug]/scene-plan.vue'),
+  motionReview: source('../pages/projects/[slug]/motion-review.vue'),
+}
+
 describe('workspace design system', () => {
   test('loads after the compatibility stylesheet', () => {
     assert.match(
@@ -57,6 +64,22 @@ describe('workspace design system', () => {
       assert.match(page, /class="[^"]*workspace-page/, `${family} page must use workspace-page`)
       assert.match(page, /<WorkspaceHero/, `${family} page must use WorkspaceHero`)
     }
+  })
+
+  test('orchestration and review pages share the same hero and command hierarchy', () => {
+    for (const [pageName, page] of Object.entries(orchestrationPages)) {
+      assert.match(page, /class="[^"]*workspace-page/, `${pageName} must use workspace-page`)
+      assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
+      assert.match(page, /workspace-command-surface/, `${pageName} must use a command surface`)
+    }
+
+    assert.match(orchestrationPages.pipeline, /<WorkspaceSection/)
+    assert.match(orchestrationPages.scenePlan, /<WorkspaceSection/)
+    assert.match(orchestrationPages.motionReview, /<WorkspaceNotice/)
+    assert.doesNotMatch(orchestrationPages.pipeline, /class="page-header"/)
+    assert.doesNotMatch(orchestrationPages.scenePlan, /class="page-header"/)
+    assert.doesNotMatch(orchestrationPages.motionReview, /class="motion-hero"/)
+    assert.doesNotMatch(orchestrationPages.board, /class="board-head"/)
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

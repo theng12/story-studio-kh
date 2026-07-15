@@ -16,24 +16,24 @@
     + the request coalescing / single-walk index added in v1.0.337).
 -->
 <template>
-  <div class="board">
-    <header class="board-head">
-      <div class="board-title">
-        <h1>Production Board</h1>
-        <span v-if="!loading" class="board-count">
-          <template v-if="searchActive || hidePending || stepFilter">{{ visibleEpisodes.length }} of {{ episodes.length }} shown</template>
-          <template v-else>{{ episodes.length }} episode{{ episodes.length === 1 ? '' : 's' }}</template>
-        </span>
-        <span v-else class="board-count">Loading…</span>
-        <button
-          v-if="stepFilter && stepFilterCol"
-          type="button"
-          class="board-stepfilter-chip"
-          title="Clear this step filter"
-          @click="stepFilter = null"
-        >needs {{ stepFilterCol.label }} ✕</button>
-      </div>
+  <div class="board workspace-page">
+    <WorkspaceHero
+      eyebrow="Episode control room"
+      title="Production Board"
+      description="See every episode against the same verified completion rules, then open, repair, or mark imported work from one place."
+    >
+      <template #aside>
+        <div class="workspace-metrics">
+          <span class="workspace-metric"><strong>{{ episodes.length }}</strong> episodes</span>
+          <span class="workspace-metric"><strong>{{ columns.length }}</strong> tracked stages</span>
+          <span v-if="searchActive || hidePending || stepFilter" class="workspace-metric" data-tone="info">
+            <strong>{{ visibleEpisodes.length }}</strong> shown
+          </span>
+        </div>
+      </template>
+    </WorkspaceHero>
 
+    <div class="workspace-command-surface board-command-surface">
       <div class="board-tools">
         <!-- Click-mode switch: Open (jump to the step) vs Mark done (toggle a
              manual override for imported-from-elsewhere steps). -->
@@ -93,7 +93,14 @@
           ↻ Repair…
         </button>
       </div>
-    </header>
+      <button
+        v-if="stepFilter && stepFilterCol"
+        type="button"
+        class="board-stepfilter-chip"
+        title="Clear this step filter"
+        @click="stepFilter = null"
+      >Needs {{ stepFilterCol.label }} ✕</button>
+    </div>
 
     <!-- Loading (cold) -->
     <div v-if="loading && !episodes.length" class="board-empty">
@@ -512,28 +519,15 @@ async function markCell(ep: any, col: BoardCol) {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  gap: var(--space-4);
 }
 
-.board-head {
+.board-command-surface {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.board-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.board-title h1 {
-  margin: 0;
-  font-size: 20px;
-}
-.board-count {
-  font-size: 12px;
-  color: var(--text-muted);
 }
 .board-stepfilter-chip {
   font-size: 11px;
@@ -550,6 +544,8 @@ async function markCell(ep: any, col: BoardCol) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 760px;
+  flex-wrap: wrap;
 }
 .board-mode {
   display: inline-flex;
@@ -583,12 +579,14 @@ async function markCell(ep: any, col: BoardCol) {
   opacity: 0.7;
 }
 .board-search-input {
-  padding: 6px 10px 6px 26px;
+  min-height: var(--control-height-sm);
+  padding: 6px 10px 6px 28px;
   font-size: 12px;
-  width: 200px;
+  width: min(280px, 40vw);
 }
 .board-filter {
-  padding: 6px 10px;
+  min-height: var(--control-height-sm);
+  padding: 6px 12px;
   font-size: 12px;
   font-family: inherit;
   border: 1px solid var(--border);
@@ -619,7 +617,9 @@ async function markCell(ep: any, col: BoardCol) {
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow);
 }
 .board-grid {
   border-collapse: separate;
@@ -784,4 +784,19 @@ async function markCell(ep: any, col: BoardCol) {
 .lg-manual { color: var(--success, #22c55e); text-decoration: underline dashed; text-underline-offset: 2px; }
 .lg-pending { opacity: 0.55; }
 .board-legend-hint { opacity: 0.8; }
+
+@media (max-width: 720px) {
+  .board-search,
+  .board-search-input {
+    width: 100%;
+  }
+
+  .board-mode {
+    width: 100%;
+  }
+
+  .board-mode-btn {
+    flex: 1;
+  }
+}
 </style>

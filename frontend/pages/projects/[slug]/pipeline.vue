@@ -1,38 +1,44 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Pipeline</h1>
-    </div>
-    <TopActionBar
-      :project-slug="slug"
-      episode-mode="multi"
-      :generate-label="runButtonLabel"
-      :loading-label="preflighting ? 'Checking…' : 'Queuing…'"
-      :generate-loading="submitting || preflighting"
-      :generate-disabled="!canRun"
-      :generate-status="preflighting ? 'Checking every episode before anything starts…' : (submitting ? 'Queuing batch…' : '')"
-      @generate="openConfirm"
-    />
+  <div class="workspace-page pipeline-workspace">
+    <WorkspaceHero
+      eyebrow="Production orchestration"
+      title="Pipeline"
+      description="Choose the work once, preflight every episode, and let each production chain advance safely through the queue."
+    >
+      <template #aside>
+        <div class="workspace-metrics">
+          <span class="workspace-metric"><strong>{{ selectedEpisodes.size }}</strong> episodes selected</span>
+          <span class="workspace-metric"><strong>{{ checkedStepCount }}</strong> steps selected</span>
+          <span class="workspace-metric" :data-tone="blockingIssues.length ? 'warning' : 'success'">
+            <strong>{{ blockingIssues.length }}</strong> blockers
+          </span>
+        </div>
+      </template>
+    </WorkspaceHero>
 
-    <p class="text-muted mt-1 mb-2">
-      Select episodes and steps to run as a batch. Each episode's chain runs
-      in sequence (<span title="Each step waits for the previous to finish on the same episode before starting.">
-        {{ chainSentence }}
-      </span>); different episodes' steps run concurrently when the queue has capacity.
-      Pick the preset each step runs with using the dropdowns below — selections stick across sessions.
-      <strong title="Pending = anything the 'Select all pending' button picks up. Includes every core step plus video assembly (added 2026 — previously excluded).">Video Assembly is now included in pending</strong>
-      so one click can finish an episode end-to-end.
-    </p>
+    <div class="workspace-command-surface">
+      <TopActionBar
+        :project-slug="slug"
+        episode-mode="multi"
+        :generate-label="runButtonLabel"
+        :loading-label="preflighting ? 'Checking…' : 'Queuing…'"
+        :generate-loading="submitting || preflighting"
+        :generate-disabled="!canRun"
+        :generate-status="preflighting ? 'Checking every episode before anything starts…' : (submitting ? 'Queuing batch…' : '')"
+        @generate="openConfirm"
+      />
+      <p class="pipeline-command-copy">
+        Each episode follows the <strong>{{ chainLabel }}</strong> chain in order while separate episodes share the available queue capacity.
+        Preset choices stay pinned to this project, and completed work is skipped unless you explicitly force a re-run.
+      </p>
+    </div>
 
     <!-- ── Steps to run ─────────────────────────────────────────────────── -->
-    <div class="card mt-3">
-      <div class="flex items-center justify-between">
-        <h3>Steps to Run</h3>
-        <span class="text-muted text-sm">
-          Pick a preset per step — your choice is pinned per-project until you change it.
-        </span>
-      </div>
+    <WorkspaceSection
+      eyebrow="Stage selection"
+      title="Steps to run"
+      description="Choose the stages this batch should advance through. Every selected stage keeps its project-level preset until you change it."
+    >
 
       <div class="steps-grid mt-2">
         <template v-for="entry in chainEntries" :key="entry.kind === 'step' ? entry.id : entry.key">
@@ -115,16 +121,18 @@
         <span v-if="hasExternalNodes">Steps marked “↗” run from their own page (not part of Run Batch) — they're shown here so the full order is visible.</span>
       </p>
 
-      <div v-if="preflightSummary" class="preflight-ok mt-2" role="status">
-        <strong>Preflight passed</strong>
-        <span>{{ preflightSummary }}</span>
-      </div>
-    </div>
+      <WorkspaceNotice v-if="preflightSummary" tone="success" title="Preflight passed">
+        {{ preflightSummary }}
+      </WorkspaceNotice>
+    </WorkspaceSection>
 
     <!-- ── Episodes to include ──────────────────────────────────────────── -->
-    <div class="card mt-2">
-      <div class="flex items-center justify-between flex-wrap episodes-header">
-        <h3>Episodes</h3>
+    <WorkspaceSection
+      eyebrow="Batch scope"
+      title="Episodes"
+      description="Filter, sort, and select the episodes that should enter this run. Selection remains intact while you move between pages."
+    >
+      <template #actions>
         <div class="ep-actions-row">
           <!-- Bulk mark/unmark — only visible when there's a selection so
                the row stays uncluttered for the common (no-selection) case.
@@ -177,7 +185,7 @@
             {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
           </button>
         </div>
-      </div>
+      </template>
 
       <!-- Sort + filter + page-size toolbar. Scales the list to 100+ episodes
            without overwhelming the viewport. Sort + filter are derivations
@@ -445,15 +453,14 @@
           · showing <strong>{{ sortedFilteredEpisodes.length }}</strong> after filter/sort
         </template>
       </div>
-    </div>
+    </WorkspaceSection>
 
     <!-- ── Blocking problems summary ────────────────────────────────────── -->
-    <div v-if="blockingIssues.length" class="card mt-2 problems-card">
-      <strong>⚠ Can't start yet</strong>
+    <WorkspaceNotice v-if="blockingIssues.length" tone="warning" title="This batch is not ready to start">
       <ul class="mt-1 problems-list">
         <li v-for="(msg, i) in blockingIssues" :key="i">{{ msg }}</li>
       </ul>
-    </div>
+    </WorkspaceNotice>
 
 
     <!-- ── Confirmation modal ───────────────────────────────────────────── -->
@@ -1617,6 +1624,21 @@ async function submit() {
 </script>
 
 <style scoped>
+.pipeline-workspace :deep(.workspace-command-surface .top-action-bar) {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pipeline-command-copy {
+  margin: 0;
+  padding: 0 12px 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.55;
+}
+
 /* Episodes-card header — wraps onto a second line on narrow viewports
  * with a smaller gap than the rest of the page. */
 .episodes-header { gap: 8px; }
