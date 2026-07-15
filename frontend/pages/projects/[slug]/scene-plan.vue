@@ -111,162 +111,125 @@
     <WorkspaceSection
       eyebrow="Configuration"
       title="2. Scene workflow settings"
-      description="Choose the visual prompt model, opening behavior, batching, and optional motion pass. Timeline construction itself uses no LLM."
+      description="Choose the prompt model, opening behavior, pack size, motion pass, and episode guidance. Timeline construction itself uses no LLM."
     >
-      <div class="mt-2">
-        <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
-      </div>
-      <label class="flex items-center gap-1 mt-2 text-sm" v-if="status?.research_available">
-        <input type="checkbox" v-model="form.use_research" />
-        Include <code>research.json</code> as context
-      </label>
-      <p
-        v-else
-        class="text-muted text-xs mt-2"
-      >
-        No <code>research.json</code> sidecar found. The planner will run without research context.
-      </p>
-
-      <div class="form-group mt-3">
-        <label>Opening visuals</label>
-        <select v-model="openingMode" class="select" style="max-width: 520px" @change="saveOpeningSettings">
-          <option value="branded-opening">Play a branded opening, then story scenes</option>
-          <option value="from-start">Generate story scenes from the first second</option>
-        </select>
-        <div v-if="openingMode === 'branded-opening'" class="flex items-center gap-2 mt-2">
-          <label class="text-sm">Reserve</label>
-          <input v-model.number="openingReservedSec" class="input" type="number" min="1" max="120" step="0.5" style="max-width: 110px" @change="saveOpeningSettings" />
-          <span class="text-sm text-muted">seconds for the branded intro clip</span>
+      <div class="scene-workflow-grid mt-2">
+        <div class="scene-setting-card scene-setting-model">
+          <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <label v-if="status?.research_available" class="scene-inline-toggle text-sm">
+            <input type="checkbox" v-model="form.use_research" />
+            Include <code>research.json</code> as optional context
+          </label>
+          <span v-else class="text-muted text-xs">Research context is unavailable; prompt generation continues without it.</span>
         </div>
-        <p class="text-muted text-xs mt-1">
-          The rest of the Introduction narration still gets scenes, but its prompts depict the story rather than welcome, CTA, or breathing language.
-        </p>
-      </div>
 
-      <div class="detail-default mt-3">
-        <strong>Full-detail visual prompts</strong>
-        <span>Always on: composition, lighting, palette, atmosphere, and camera direction.</span>
-      </div>
-
-      <div class="form-group mt-2" style="max-width: 440px">
-        <label>Visual prompt output budget</label>
-        <select v-model="form.prompt_max_tokens" class="select">
-          <option value="auto">Automatic — {{ automaticTokenBudget.toLocaleString() }} for this model</option>
-          <option :value="4096">4,096 tokens</option>
-          <option :value="6144">6,144 tokens — extra headroom</option>
-          <option :value="8192">8,192 tokens — slowest, most headroom</option>
-        </select>
-        <p class="text-muted text-xs mt-1">
-          Effective output: <strong>{{ effectivePromptTokenBudget.toLocaleString() }} tokens</strong> per pack. Larger paid-cloud packs require 8,192 tokens; motion uses a smaller automatic budget.
-        </p>
-      </div>
-
-      <details class="advanced-panel mt-2" style="max-width: 620px">
-        <summary>Advanced batching</summary>
-        <div class="form-group mt-2" style="max-width: 440px">
-          <label>Scenes per prompt pack</label>
-          <select v-model="form.prompt_pack_size" class="select">
-            <option value="auto">Automatic — {{ automaticPromptPackSize }} scenes</option>
-            <option :value="5">5 scenes</option>
-            <option :value="10">10 scenes</option>
-            <option :value="20" :disabled="selectedModelCostTier !== 'paid'">20 scenes — paid cloud only</option>
-            <option :value="30" :disabled="selectedModelCostTier !== 'paid'">30 scenes — paid cloud maximum</option>
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
+            <strong>Opening visuals</strong>
+            <span>{{ openingMode === 'branded-opening' ? `${openingReservedSec}s reserved` : 'From first second' }}</span>
+          </div>
+          <select v-model="openingMode" class="select" @change="saveOpeningSettings">
+            <option value="branded-opening">Branded opening, then story scenes</option>
+            <option value="from-start">Story scenes from the first second</option>
           </select>
-          <p class="text-muted text-xs mt-1">
-            Using <strong>{{ effectivePromptPackSize }} scenes per pack</strong> for this {{ selectedModelTierLabel }} model.
-            Local and free-cloud models are hard-capped at 10; paid cloud defaults to 20 and is capped at 30.
+          <div v-if="openingMode === 'branded-opening'" class="scene-inline-field">
+            <label class="text-sm">Reserve</label>
+            <input v-model.number="openingReservedSec" class="input" type="number" min="1" max="120" step="0.5" @change="saveOpeningSettings" />
+            <span class="text-xs text-muted">seconds</span>
+          </div>
+          <p class="scene-setting-help">Remaining introduction narration receives story-focused scenes.</p>
+        </div>
+
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
+            <strong>Prompt packs</strong>
+            <span>Full-detail output</span>
+          </div>
+          <div class="scene-compact-fields">
+            <div class="form-group">
+              <label>Output budget</label>
+              <select v-model="form.prompt_max_tokens" class="select">
+                <option value="auto">Auto · {{ automaticTokenBudget.toLocaleString() }}</option>
+                <option :value="4096">4,096 tokens</option>
+                <option :value="6144">6,144 tokens</option>
+                <option :value="8192">8,192 tokens</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Scenes per pack</label>
+              <select v-model="form.prompt_pack_size" class="select">
+                <option value="auto">Auto · {{ automaticPromptPackSize }} scenes</option>
+                <option :value="5">5 scenes</option>
+                <option :value="10">10 scenes</option>
+                <option :value="20" :disabled="selectedModelCostTier !== 'paid'">20 · paid cloud</option>
+                <option :value="30" :disabled="selectedModelCostTier !== 'paid'">30 · paid cloud max</option>
+              </select>
+            </div>
+          </div>
+          <p class="scene-setting-help">
+            {{ effectivePromptPackSize }} scenes · {{ effectivePromptTokenBudget.toLocaleString() }} tokens per {{ selectedModelTierLabel }} pack. Local and free-cloud models cap at 10 scenes.
           </p>
         </div>
-      </details>
 
-      <!-- v1.0.468 — motion-prompt controls. The planner also writes a per-scene
-           motion_prompt (image-to-video instruction) cohesive with the visual
-           prompt. Intensity biases how lively the motion is — always slow/smooth. -->
-      <div class="form-group mt-3">
-        <label class="flex items-center gap-1">
-          <input v-model="form.generate_motion_prompts" type="checkbox" @change="setMotionEnabled(form.generate_motion_prompts)" />
-          Enable the optional motion-prompt stage
-        </label>
-        <div v-if="form.generate_motion_prompts" class="mt-2">
-          <label>
-            Motion intensity
-            <span class="detail-pill">{{ motionMeta?.label }}</span>
-          </label>
-          <input
-            v-model.number="form.motion_level"
-            type="range"
-            min="1"
-            max="4"
-            step="1"
-            class="detail-slider"
-            list="motion-stops"
-            @change="setMotionLevel(form.motion_level)"
-          />
-          <datalist id="motion-stops">
-            <option value="1" label="Still"></option>
-            <option value="2" label="Gentle"></option>
-            <option value="3" label="Moderate"></option>
-            <option value="4" label="Lively"></option>
-          </datalist>
-          <div class="detail-ticks">
-            <span :class="{ on: form.motion_level === 1 }">Still</span>
-            <span :class="{ on: form.motion_level === 2 }">Gentle</span>
-            <span :class="{ on: form.motion_level === 3 }">Moderate</span>
-            <span :class="{ on: form.motion_level === 4 }">Lively</span>
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
+            <strong>Motion prompts <em>optional</em></strong>
+            <label class="scene-switch-label">
+              <input v-model="form.generate_motion_prompts" type="checkbox" @change="setMotionEnabled(form.generate_motion_prompts)" />
+              {{ form.generate_motion_prompts ? 'On' : 'Off' }}
+            </label>
           </div>
-          <p class="text-muted text-xs mt-1">{{ motionMeta?.hint }}</p>
-        </div>
-      </div>
-
-      <!-- v1.0.364 — unified channel Look. The same shipped-style gallery used
-           on the Character Sheet; picking one sets the Style Bible applied to
-           every scene (channel-wide for continuity, this plan otherwise). -->
-      <div class="mt-2">
-        <label class="block">Look <span class="text-muted text-xs">— the art style for every scene</span></label>
-        <StylePicker class="mt-1" :slug="slug" :image-models="projectConfig?.image_models || {}" @apply="onStyleApply" />
-      </div>
-
-      <div class="grid-2 mt-2">
-        <!-- Continuity: the Look IS the channel Style Bible — shown read-only;
-             edit the wording on the Character Sheet. The planner uses it
-             automatically, so there's no separate style field to drift. -->
-        <div v-if="isContinuityChain" class="form-group">
-          <label>
-            Channel look <span class="text-muted text-xs">— the Style Bible used for every scene</span>
-          </label>
-          <div class="channel-look-box">
-            <span v-if="channelStyleBible">{{ channelStyleBible }}</span>
-            <span v-else class="text-muted">Not set — pick a style above, or set it on the Character Sheet.</span>
+          <div class="scene-motion-controls" :class="{ 'is-disabled': !form.generate_motion_prompts }">
+            <label>
+              Motion intensity
+              <span class="detail-pill">{{ motionMeta?.label }}</span>
+            </label>
+            <input
+              v-model.number="form.motion_level"
+              type="range"
+              min="1"
+              max="4"
+              step="1"
+              class="detail-slider"
+              list="motion-stops"
+              :disabled="!form.generate_motion_prompts"
+              @change="setMotionLevel(form.motion_level)"
+            />
+            <datalist id="motion-stops">
+              <option value="1" label="Still"></option>
+              <option value="2" label="Gentle"></option>
+              <option value="3" label="Moderate"></option>
+              <option value="4" label="Lively"></option>
+            </datalist>
+            <div class="detail-ticks">
+              <span :class="{ on: form.motion_level === 1 }">Still</span>
+              <span :class="{ on: form.motion_level === 2 }">Gentle</span>
+              <span :class="{ on: form.motion_level === 3 }">Moderate</span>
+              <span :class="{ on: form.motion_level === 4 }">Lively</span>
+            </div>
+            <p class="scene-setting-help">{{ form.generate_motion_prompts ? motionMeta?.hint : 'Enable motion prompts to use this intensity.' }}</p>
           </div>
-          <span class="text-muted text-xs">
-            Set once per channel. Edit the wording on the
-            <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Character Sheet</NuxtLink> — the planner uses it automatically.
-          </span>
         </div>
-        <!-- Non-continuity formats keep the per-plan style field. -->
-        <div v-else class="form-group">
-          <label>
-            Style prompt
-            <span class="text-muted text-xs">— applied to every scene</span>
-          </label>
-          <textarea
-            v-model="form.style_prompt"
-            class="textarea"
-            rows="3"
-            placeholder="e.g. cinematic photoreal, warm golden-hour light, shallow depth of field, muted earthy palette, subtle film grain"
-          />
-        </div>
-        <div class="form-group">
-          <label>
-            Custom instructions
-            <span class="text-muted text-xs">— optional, free text</span>
-          </label>
-          <textarea
-            v-model="form.custom_instructions"
-            class="textarea"
-            rows="3"
-            placeholder="e.g. always frame the protagonist slightly off-centre; never show modern technology; keep the same red scarf throughout"
-          />
+
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
+            <strong>Style and guidance</strong>
+            <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Edit Character Sheet</NuxtLink>
+          </div>
+          <div class="character-style-source">
+            <span class="character-style-label">Style from Character Sheet</span>
+            <p v-if="characterSheetStyleBible">{{ characterSheetStyleBible }}</p>
+            <p v-else class="text-muted">No Style Bible is set for this episode yet.</p>
+          </div>
+          <div class="form-group">
+            <label>Custom instructions <span class="text-muted text-xs">— optional</span></label>
+            <textarea
+              v-model="form.custom_instructions"
+              class="textarea"
+              rows="2"
+              placeholder="e.g. keep the protagonist off-centre and the same red scarf throughout"
+            />
+          </div>
         </div>
       </div>
 
@@ -672,7 +635,7 @@ const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { revalidate: revalidateEpisodes } = useEpisodes(slug)
-// v1.0.364 — project config (image_models) for the StylePicker preview models.
+// Project-level defaults for opening behavior, prompt batching, and motion.
 const { config: projectConfig } = useProject()
 
 const openingMode = ref<'branded-opening' | 'from-start'>(
@@ -921,12 +884,10 @@ const recipeEnabled = ref(false)
 // v1.0.263 — recipe composition mode. 'guide' shows per-scene emotion controls;
 // 'scene' (no recurring character) hides them since there's no character to emote.
 const recipeMode = ref<'guide' | 'scene'>('guide')
-// v1.0.364 — unified Look. For continuity-chain the canonical look is the
-// continuity Style Bible (shown read-only here; edited via the StylePicker or
-// the Character Sheet). The planner falls back to it when no per-plan style is
-// set, so it drives every scene without a competing field.
-const isContinuityChain = ref(false)
-const channelStyleBible = ref('')
+// For continuity-chain the canonical look is the Character Sheet's continuity
+// Style Bible. Scene Plan displays it read-only so there is no competing style
+// editor or chance for the two steps to drift.
+const characterSheetStyleBible = ref('')
 
 async function loadContinuity(): Promise<void> {
   const ep = episodeId.value
@@ -934,14 +895,12 @@ async function loadContinuity(): Promise<void> {
   continuityPacing.value = null
   recipeEnabled.value = false
   recipeMode.value = 'guide'
-  isContinuityChain.value = false
-  channelStyleBible.value = ''
+  characterSheetStyleBible.value = ''
   if (!ep) return
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
     if (fmt?.visualSource !== 'continuity-chain') return
-    isContinuityChain.value = true
     const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' }; style_bible?: string } }>(
       `/projects/${slug.value}/continuity/${ep}`,
     )
@@ -949,35 +908,8 @@ async function loadContinuity(): Promise<void> {
     continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
     recipeEnabled.value = r.config?.recipe?.enabled === true
     recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
-    channelStyleBible.value = (r.config?.style_bible || '').trim()
+    characterSheetStyleBible.value = (r.config?.style_bible || '').trim()
   } catch { /* non-continuity project or fetch failed — no chip */ }
-}
-
-// v1.0.364 — apply a picked style. Continuity-chain → write the channel Style
-// Bible (re-fetch first so we never clobber other continuity fields, since the
-// PUT replaces). Otherwise it's this plan's style override.
-async function onStyleApply(data: { style_bible: string; negative_prompt: string }): Promise<void> {
-  const ep = episodeId.value
-  if (!ep) return
-  if (isContinuityChain.value) {
-    try {
-      const r = await get<{ config: Record<string, any> }>(`/projects/${slug.value}/continuity/${ep}`)
-      const merged = {
-        ...(r.config || {}),
-        schema_version: 1,
-        style_bible: data.style_bible,
-        negative_prompt: data.negative_prompt,
-      }
-      const saved = await put<{ config: { style_bible?: string } }>(`/projects/${slug.value}/continuity/${ep}`, merged)
-      channelStyleBible.value = (saved.config?.style_bible || data.style_bible || '').trim()
-      success('Style applied to this episode’s Style Bible')
-    } catch (e: any) {
-      showError(e?.data?.detail || e?.message || 'Failed to save the style')
-    }
-  } else {
-    form.value.style_prompt = data.style_bible
-    success('Style applied to this plan')
-  }
 }
 
 // ── v1.0.260 — Visual Recipe (Prompt Director) apply / revert ───────────
@@ -1090,9 +1022,8 @@ const form = ref({
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
   motion_level: 2,
-  // Global style woven into every scene's visual_prompt, + free-text planner
-  // instructions. Both optional.
-  style_prompt: '',
+  // Episode-specific guidance is optional. The visual style always comes from
+  // the Character Sheet continuity Style Bible.
   custom_instructions: '',
 })
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
@@ -1328,7 +1259,6 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
       detail_level: 4,
       motion_level: form.value.motion_level,
-      style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued in Studio Hub${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
@@ -1437,7 +1367,6 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
       scene_id: scene.id,
       model: form.value.model,
       detail_level: 4,
-      style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success('Regen queued — watch the Jobs panel; the prompt updates when it lands.')
@@ -1527,7 +1456,6 @@ async function regenAllEmptyPrompts(): Promise<void> {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-empty-prompts`, {
       model: form.value.model,
       detail_level: 4,
-      style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     bulkReplan.value.jobId = job?.job_id || null
@@ -1794,7 +1722,7 @@ function removeScene(i: number): void {
 }
 
 // v1.0.242 — savable presets for the plan settings (model, research toggle,
-// opening visuals, output budget, style, motion, and custom instructions). Mirrors the
+// opening visuals, output budget, motion, and custom instructions). Mirrors the
 // same local PresetPicker pattern used on Ideas / Scripts. Stored under
 // config.scene_plan_presets; episode_id/title are stripped automatically.
 const planPresets = usePresets<any>({
@@ -1810,13 +1738,16 @@ const planPresets = usePresets<any>({
     prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
     detail_level: 4,
-    style_prompt: form.value.style_prompt,
     custom_instructions: form.value.custom_instructions,
     generate_motion_prompts: form.value.generate_motion_prompts,
     motion_level: form.value.motion_level,
   }),
   apply: (data) => {
-    Object.assign(form.value, data)
+    // Retired presets may contain a per-plan style. Ignore it so Character
+    // Sheet remains the single authoritative style source.
+    const activeData = { ...(data || {}) }
+    delete activeData.style_prompt
+    Object.assign(form.value, activeData)
     if (data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') {
       openingMode.value = data.opening_mode
       openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
@@ -1845,11 +1776,99 @@ onMounted(() => { void planPresets.load() })
   box-shadow: none;
 }
 
-.advanced-panel {
-  padding: 10px 12px;
+.scene-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.scene-setting-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+}
+.scene-setting-model { grid-column: 1 / -1; }
+.scene-setting-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.scene-setting-head > span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.scene-setting-head em {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.scene-inline-toggle,
+.scene-switch-label,
+.scene-inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scene-switch-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.scene-inline-field .input { width: 90px; }
+.scene-compact-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.scene-setting-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.scene-motion-controls {
+  transition: opacity .15s ease;
+}
+.scene-motion-controls.is-disabled { opacity: .52; }
+.character-style-source {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+}
+.character-style-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.character-style-source p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+@media (max-width: 900px) {
+  .scene-workflow-grid { grid-template-columns: 1fr; }
+  .scene-setting-model { grid-column: auto; }
+}
+@media (max-width: 620px) {
+  .scene-compact-fields { grid-template-columns: 1fr; }
+  .scene-setting-head { align-items: flex-start; }
 }
 .coverage-warning {
   display: flex;
@@ -1861,14 +1880,6 @@ onMounted(() => { void planPresets.load() })
 @media (max-width: 720px) {
   .coverage-warning { align-items: stretch; flex-direction: column; }
 }
-.advanced-panel summary {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-}
-.advanced-panel[open] summary { color: var(--text-primary); }
 .stage-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1902,31 +1913,8 @@ onMounted(() => { void planPresets.load() })
   letter-spacing: .08em;
 }
 @media (max-width: 900px) { .stage-grid { grid-template-columns: 1fr; } }
-/* v1.0.364 — read-only channel Look (Style Bible) box on the Scene Plan page. */
-.channel-look-box {
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
-  background: var(--bg-secondary, #1c1c1f);
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  max-height: 120px;
-  overflow-y: auto;
-}
-.block { display: block; }
 .link { color: var(--accent, #6c8fff); text-decoration: underline; cursor: pointer; }
 .mb-1 { margin-bottom: 4px; }
-
-.detail-default {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
-}
-.detail-default span { color: var(--text-muted); font-size: 12px; }
 /* Bulk prompt action group. */
 .bulk-buttons {
   display: flex;

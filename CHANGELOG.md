@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.617 — 2026-07-16
+
+**Scene Plan settings are compact and use one authoritative style source.**
+
+- Removed the redundant Scene Plan style picker and retired per-plan style overrides; visual style now comes only from Character Sheet.
+- Reorganized Step 2 into a compact, responsive settings grid while keeping prompt batching visible.
+- Kept optional motion controls visible at all times, disabling intensity rather than hiding it when motion is off.
+- Added regression coverage for the single-source style contract and always-visible workflow controls.
+
 ## v1.0.616 — 2026-07-15
 
 **Character Sheet now focuses only on active continuity controls.**
