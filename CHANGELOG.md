@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.603 — 2026-07-15
+
+**Studio Hub connection setup is now explicit, verifiable, and clear about fleet routing.**
+
+- Reworked Local Models → Studio Hub into one connection card with a visible **Save & test connection** action, persistent Saved/Unsaved feedback, and a separate test for the stored connection.
+- Clarified that loopback Story Studio connections need no access token: Studio Hub owns the private credential used to reach remote workers.
+- Added a fleet-authentication readiness check without exposing the Hub's secret and reports rejected remote Hub credentials with an actionable status.
+- Made the routing contract visible: Hub mode sends work to Studio Hub first, while direct sibling URLs are emergency fallback only when the Hub itself is unreachable.
+- Pairs with Studio Hub 1.37.1, which routes remote generation through each machine's connected peer Hub so stale worker credentials cannot fail an entire batch.
+
 ## v1.0.602 — 2026-07-15
 
 **AI model pickers are now readable, searchable, and consistent across the production flow.**

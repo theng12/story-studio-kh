@@ -23,7 +23,7 @@ import {
   getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
   getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
-import { hubHealth, hubStudios, hubStudioAction } from '../lib/studiohub-client.js'
+import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub } from '../lib/studiohub-client.js'
 import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -74,7 +74,10 @@ router.get('/app-settings/local-backend', async (_req, res) => {
       getApiKey('hub').catch(() => ''),
       getRenderWorkersEnabled(),
     ])
-    const health = await hubHealth(hubUrl)
+    const [health, fleet] = await Promise.all([
+      hubHealth(hubUrl),
+      hubFleetStatus(hubUrl, token),
+    ])
     res.json({
       local_backend: mode,
       hub_url: hubUrl,
@@ -84,6 +87,9 @@ router.get('/app-settings/local-backend', async (_req, res) => {
       hub_online: health.ok,
       hub_app_version: health.appVersion || null,
       hub_error: health.ok ? null : (health.error || null),
+      hub_access_mode: isLoopbackHub(hubUrl) ? 'local' : 'token',
+      hub_fleet_ready: fleet.ok && fleet.fleetTokenSet,
+      hub_fleet_error: fleet.ok ? null : (fleet.error || null),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load local-backend setting'))
@@ -120,7 +126,10 @@ router.put('/app-settings/local-backend', async (req, res) => {
     const [mode, hubUrl, token, renderWorkersEnabled] = await Promise.all([
       getLocalBackend(), getHubUrl(), getApiKey('hub').catch(() => ''), getRenderWorkersEnabled(),
     ])
-    const health = await hubHealth(hubUrl)
+    const [health, fleet] = await Promise.all([
+      hubHealth(hubUrl),
+      hubFleetStatus(hubUrl, token),
+    ])
     res.json({
       ok: true,
       local_backend: mode,
@@ -128,7 +137,11 @@ router.put('/app-settings/local-backend', async (req, res) => {
       hub_token_set: !!(token && token.trim()),
       render_workers_enabled: renderWorkersEnabled,
       hub_online: health.ok,
+      hub_app_version: health.appVersion || null,
       hub_error: health.ok ? null : (health.error || null),
+      hub_access_mode: isLoopbackHub(hubUrl) ? 'local' : 'token',
+      hub_fleet_ready: fleet.ok && fleet.fleetTokenSet,
+      hub_fleet_error: fleet.ok ? null : (fleet.error || null),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save local-backend setting'))

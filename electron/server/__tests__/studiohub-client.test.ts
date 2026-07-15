@@ -21,6 +21,7 @@ import {
   hubPollChatPacks,
   hubCancelBatch,
   hubPollBatch,
+  hubFleetStatus,
 } from '../lib/studiohub-client.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 
@@ -70,6 +71,41 @@ describe('isLoopbackHub', () => {
   test('false for tailnet / remote hosts (token needed)', () => {
     assert.equal(isLoopbackHub('http://100.66.3.3:47873'), false)
     assert.equal(isLoopbackHub('http://hub.tailnet.ts.net:47873'), false)
+  })
+})
+
+describe('Hub fleet readiness', () => {
+  test('reports readiness without returning the loopback fleet credential', async () => {
+    const originalFetch = globalThis.fetch
+    let requested = ''
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input)
+      return new Response(JSON.stringify({
+        fleet_token_set: true,
+        token: 'must-not-leave-the-server',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+    try {
+      const status = await hubFleetStatus('http://127.0.0.1:47873', '')
+      assert.equal(requested, 'http://127.0.0.1:47873/api/hub/fleet')
+      assert.deepEqual(status, { ok: true, fleetTokenSet: true })
+      assert.equal('token' in status, false)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('turns a rejected remote credential into an actionable status', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('no', { status: 401 })) as typeof fetch
+    try {
+      assert.deepEqual(
+        await hubFleetStatus('http://100.64.0.10:47873', 'wrong'),
+        { ok: false, fleetTokenSet: false, error: 'Hub access token was rejected' },
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

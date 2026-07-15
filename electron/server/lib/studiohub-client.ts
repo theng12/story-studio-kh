@@ -757,6 +757,41 @@ export interface HubHealth {
   error?: string
 }
 
+export interface HubFleetStatus {
+  ok: boolean
+  fleetTokenSet: boolean
+  error?: string
+}
+
+/** Verify sibling-fleet authentication without returning the credential. */
+export async function hubFleetStatus(
+  hubUrl: string,
+  token?: string,
+  timeoutMs = 5_000,
+): Promise<HubFleetStatus> {
+  const base = trimHubUrl(hubUrl)
+  if (!base) return { ok: false, fleetTokenSet: false, error: 'Hub URL is empty' }
+  try {
+    const resp = await fetch(`${hubApiBase(base)}/fleet`, {
+      headers: { Accept: 'application/json', ...hubHeaders(token) },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!resp.ok) {
+      return {
+        ok: false,
+        fleetTokenSet: false,
+        error: resp.status === 401
+          ? 'Hub access token was rejected'
+          : `Fleet readiness check failed (${resp.status})`,
+      }
+    }
+    const data = await resp.json().catch(() => ({})) as { fleet_token_set?: boolean }
+    return { ok: true, fleetTokenSet: data.fleet_token_set === true }
+  } catch (e: any) {
+    return { ok: false, fleetTokenSet: false, error: e?.message || String(e) }
+  }
+}
+
 /**
  * Liveness probe for the Hub itself (`GET /api/health`, token-exempt). Never
  * throws — returns `{ ok:false, error }`. Used to decide Hub-vs-direct fallback

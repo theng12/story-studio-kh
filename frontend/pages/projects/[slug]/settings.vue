@@ -1561,18 +1561,53 @@
           </label>
         </div>
         <div v-if="localBackend === 'hub'" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-          <label class="local-tts-label">Hub URL</label>
-          <div style="display:flex; gap:8px; margin-top:4px;">
-            <input v-model="hubUrl" :placeholder="hubUrlDefault" style="flex:1; padding:6px 8px;" />
-            <button class="btn btn-sm" :disabled="hubBusy" @click="saveLocalBackend">{{ hubBusy ? 'Saving…' : 'Save' }}</button>
+          <div class="hub-connection-card">
+            <div class="hub-connection-head">
+              <div>
+                <span>Hub connection</span>
+                <strong>One address for the whole Studio fleet</strong>
+              </div>
+              <span class="hub-save-state" :class="{ dirty: hubConnectionDirty, saved: !hubConnectionDirty && !hubError }">
+                {{ hubBusy ? 'Saving...' : hubConnectionDirty ? 'Unsaved changes' : hubSavedNote || 'Saved' }}
+              </span>
+            </div>
+            <label class="local-tts-label">Hub URL</label>
+            <input v-model="hubUrl" class="input hub-connection-input" :placeholder="hubUrlDefault" @keyup.enter="saveLocalBackend" />
+
+            <label class="local-tts-label">Remote Hub access token</label>
+            <input
+              v-model="hubToken"
+              class="input hub-connection-input"
+              type="password"
+              autocomplete="off"
+              :placeholder="hubTokenSet ? 'Stored securely - enter a replacement only if needed' : 'Only required when this Hub URL points to another Mac'"
+              @keyup.enter="saveLocalBackend"
+            />
+            <p class="hub-connection-help">
+              <template v-if="hubAccessMode === 'local'">
+                This is a local Hub connection, so Story Studio needs no access token. Studio Hub manages the private fleet credential used by remote workers.
+              </template>
+              <template v-else>
+                Enter this Hub's access token. It authorizes Story Studio to reach the remote Hub; the Hub manages worker credentials itself.
+              </template>
+            </p>
+
+            <div class="hub-connection-actions">
+              <button class="btn btn-primary btn-sm" :disabled="hubBusy" @click="saveLocalBackend">
+                {{ hubBusy ? 'Saving and testing...' : 'Save & test connection' }}
+              </button>
+              <button class="btn btn-sm" :disabled="hubBusy || hubConnectionDirty" @click="testLocalBackend">
+                Test saved connection
+              </button>
+            </div>
           </div>
-          <label class="local-tts-label" style="display:block; margin-top:10px;">Hub token <span class="text-muted" style="font-weight:normal;">(optional — only needed if Story Studio runs on a different Mac than the Hub)</span></label>
-          <input v-model="hubToken" type="password" :placeholder="hubTokenSet ? '•••••• stored — leave blank to keep' : 'X-Hub-Token (leave blank on the Hub machine — loopback needs none)'" style="width:100%; padding:6px 8px; margin-top:4px;" />
-          <div style="display:flex; align-items:center; gap:6px; margin-top:10px;">
+          <div class="hub-runtime-status">
             <span class="pool-dot" :class="hubOnline ? 'on' : 'off'" />
-            <span v-if="hubOnline" style="font-size:12px;" class="pool-ok">Hub online{{ hubAppVersion ? ' · v' + hubAppVersion : '' }}</span>
-            <span v-else style="font-size:12px;" class="pool-zero">Hub offline{{ hubError ? ' — ' + hubError : '' }} · generation auto-falls-back to Direct</span>
-            <span v-if="hubSavedNote" class="text-muted" style="font-size:12px; margin-left:8px;">{{ hubSavedNote }}</span>
+            <span v-if="hubOnline" class="pool-ok">Hub online{{ hubAppVersion ? ' · v' + hubAppVersion : '' }}</span>
+            <span v-else class="pool-zero">Hub offline{{ hubError ? ' - ' + hubError : '' }}</span>
+            <span class="hub-route-chip" :class="hubFleetReady ? 'ready' : 'warn'">
+              {{ hubFleetReady ? 'Fleet authentication ready' : hubFleetError || 'Fleet authentication unavailable' }}
+            </span>
           </div>
           <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:12px; padding:10px; border:1px solid var(--border); border-radius:8px;">
             <input v-model="renderWorkersEnabled" type="checkbox" @change="saveLocalBackend" style="margin-top:3px;" />
@@ -1581,8 +1616,8 @@
               <span class="text-muted">Off by default for safe rollout. Timestamp assemblies use an available worker; transitions and unavailable workers continue using this Mac.</span>
             </span>
           </label>
-          <p class="text-muted" style="font-size:11px; line-height:1.6; margin-top:10px;">
-            In Hub mode, image / voice / chat generation is submitted to the Hub, which delegates to the least-busy capable Mac. If the Hub is unreachable, Story Studio automatically uses the Direct pools below — so this is safe to leave on. The endpoint lists below remain your Direct fallback.
+          <p class="hub-routing-note">
+            <strong>Hub route active.</strong> Image, voice, chat, video, and render work goes to Studio Hub first. Direct Studio URLs are used only as an emergency fallback when the Hub itself cannot be reached, never when an individual Hub worker reports an error.
           </p>
 
           <!-- Fleet control (ops): start / stop / restart studios via the Hub -->
@@ -5310,6 +5345,9 @@ type LocalBackendInfo = {
   hub_online: boolean
   hub_app_version: string | null
   hub_error: string | null
+  hub_access_mode: 'local' | 'token'
+  hub_fleet_ready: boolean
+  hub_fleet_error: string | null
   render_workers_enabled: boolean
 }
 const localBackend = ref<'direct' | 'hub'>('direct')
@@ -5320,9 +5358,14 @@ const hubTokenSet = ref(false)
 const hubOnline = ref(false)
 const hubAppVersion = ref<string | null>(null)
 const hubError = ref<string | null>(null)
+const hubAccessMode = ref<'local' | 'token'>('local')
+const hubFleetReady = ref(false)
+const hubFleetError = ref<string | null>(null)
 const renderWorkersEnabled = ref(false)
 const hubBusy = ref(false)
 const hubSavedNote = ref('')
+const savedHubUrl = ref('')
+const hubConnectionDirty = computed(() => hubUrl.value.trim() !== savedHubUrl.value || !!hubToken.value.trim())
 async function loadLocalBackend() {
   try {
     const r = await get<LocalBackendInfo>('/app-settings/local-backend')
@@ -5333,7 +5376,12 @@ async function loadLocalBackend() {
     hubOnline.value = r.hub_online
     hubAppVersion.value = r.hub_app_version
     hubError.value = r.hub_error
+    hubAccessMode.value = r.hub_access_mode
+    hubFleetReady.value = r.hub_fleet_ready
+    hubFleetError.value = r.hub_fleet_error
     renderWorkersEnabled.value = r.render_workers_enabled
+    savedHubUrl.value = r.hub_url
+    hubSavedNote.value = 'Saved'
   } catch { /* leave defaults (direct) */ }
 }
 async function saveLocalBackend() {
@@ -5352,13 +5400,38 @@ async function saveLocalBackend() {
     hubUrl.value = r.hub_url
     hubTokenSet.value = r.hub_token_set
     hubOnline.value = r.hub_online
+    hubAppVersion.value = r.hub_app_version
     hubError.value = r.hub_error
+    hubAccessMode.value = r.hub_access_mode
+    hubFleetReady.value = r.hub_fleet_ready
+    hubFleetError.value = r.hub_fleet_error
     renderWorkersEnabled.value = r.render_workers_enabled
     hubToken.value = ''  // never keep the secret in the field
-    hubSavedNote.value = 'Saved.'
-    setTimeout(() => { hubSavedNote.value = '' }, 2500)
+    savedHubUrl.value = r.hub_url
+    hubSavedNote.value = r.hub_online && r.hub_fleet_ready ? 'Saved & verified' : 'Saved - check status'
   } catch (e: any) {
     hubError.value = e?.data?.detail || 'Could not save.'
+  } finally {
+    hubBusy.value = false
+  }
+}
+async function testLocalBackend() {
+  if (hubBusy.value || hubConnectionDirty.value) return
+  hubBusy.value = true
+  hubSavedNote.value = 'Testing...'
+  try {
+    const r = await get<LocalBackendInfo>('/app-settings/local-backend')
+    hubTokenSet.value = r.hub_token_set
+    hubOnline.value = r.hub_online
+    hubAppVersion.value = r.hub_app_version
+    hubError.value = r.hub_error
+    hubAccessMode.value = r.hub_access_mode
+    hubFleetReady.value = r.hub_fleet_ready
+    hubFleetError.value = r.hub_fleet_error
+    hubSavedNote.value = r.hub_online && r.hub_fleet_ready ? 'Connection verified' : 'Check status below'
+  } catch (e: any) {
+    hubError.value = e?.data?.detail || 'Connection test failed.'
+    hubSavedNote.value = 'Test failed'
   } finally {
     hubBusy.value = false
   }
@@ -7329,6 +7402,46 @@ async function deleteProject() {
   background: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
   box-shadow: inset 0 1px rgba(255,255,255,.025);
 }
+.hub-connection-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--settings-gold) 25%, var(--border));
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(227,180,90,.07), rgba(88,198,146,.04));
+}
+.hub-connection-head,
+.hub-connection-actions,
+.hub-runtime-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hub-connection-head { justify-content: space-between; margin-bottom: 4px; }
+.hub-connection-head > div { display: grid; gap: 2px; }
+.hub-connection-head > div > span { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.hub-connection-head strong { font-size: 14px; }
+.hub-connection-input { width: 100%; }
+.hub-connection-help,
+.hub-routing-note { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.hub-connection-actions { margin-top: 4px; }
+.hub-save-state,
+.hub-route-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.hub-save-state.saved,
+.hub-route-chip.ready { border-color: rgba(63,185,80,.36); color: var(--success, #3fb950); background: rgba(63,185,80,.08); }
+.hub-save-state.dirty,
+.hub-route-chip.warn { border-color: rgba(227,180,90,.38); color: var(--settings-gold); background: rgba(227,180,90,.08); }
+.hub-runtime-status { margin-top: 12px; font-size: 12px; }
+.hub-routing-note { margin-top: 10px; padding-left: 12px; border-left: 2px solid rgba(88,198,146,.45); }
+.hub-routing-note strong { color: var(--text-primary); }
 .studio-pane-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
 .studio-pane-icon {
   display: grid;
