@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.615 — 2026-07-15
+
+**Script regeneration controls no longer hide behind an unnecessary drawer.**
+
+- Made Force regenerate permanently visible in the Script Generator's main controls.
+- Kept legacy narration normalization available as a compact contextual maintenance action.
+- Removed the obsolete advanced-disclosure state and added regression coverage for the simplified layout.
+
 ## v1.0.614 — 2026-07-15
 
 **Research presets and run controls are now always visible.**

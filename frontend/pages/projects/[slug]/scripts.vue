@@ -708,30 +708,25 @@
 
       </div>
 
-      <!-- v1.0.182 — Advanced disclosure (shared component). Power controls
-           (force-regenerate, legacy-narration normalizer) collapse here so the
-           default Outline view is just: context strip → model/narrator →
-           word counts → Generate. -->
-      <AdvancedDisclosure v-model:open="scriptAdvancedExpanded" label="Advanced options">
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="form.force" />
-          Force regenerate (overwrite existing)
-        </label>
-        <span class="text-muted text-xs">
-          Per-chapter regeneration is on the Script tab — fix one chapter without redoing the rest.
-        </span>
-        <div v-if="form.episode_id" class="mt-2">
+      <div class="script-regeneration-controls">
+        <div class="script-regeneration-copy">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.force" />
+            <strong>Force regenerate</strong>
+          </label>
+          <span class="text-muted text-xs">
+            Overwrites the existing outline. Per-chapter regeneration remains available on the Script tab.
+          </span>
+        </div>
+        <div v-if="form.episode_id" class="script-maintenance-action">
           <button
             class="btn btn-sm btn-secondary"
             title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
             @click="normalizeOpen = true"
           >🛠 Normalize legacy narration…</button>
-          <p class="text-muted text-xs hint-line">
-            Got a script from before Story Studio (or hand-written prose)?
-            Normalize it once and the rest of the pipeline reads it correctly.
-          </p>
+          <span class="text-muted text-xs">For imported or pre-Story-Studio scripts.</span>
         </div>
-      </AdvancedDisclosure>
+      </div>
 
       </div><!-- /Outline-only main-settings block -->
     </div>
@@ -1061,34 +1056,29 @@ const customStyleText = ref('')
 
 // v1.0.174 — Phase-0 declutter (the page template). The Outline tab used to
 // stack three always-open advisory cards (format context, niche overlay,
-// recency) + power controls inline with the primary inputs. These two
-// disclosures fold all of that away by default:
+// and recency controls). The remaining context disclosure folds that detail
+// away by default:
 //   • scriptContextExpanded → the "what shapes this script" detail
 //     (format envelope + niche overlay + recency-avoidance controls).
-//   • scriptAdvancedExpanded → power controls (force-regenerate, normalize
-//     legacy narration). Collapsed for beginners; one click for full control.
 // A small "needs attention" flag keeps the context strip honest: it opens
 // itself / shows a warning dot when the outline mismatches the format/niche
 // or when chapters fall outside the recommended envelope.
 const scriptContextExpanded = ref(false)
-const scriptAdvancedExpanded = ref(false)
 const customStyles = ref<Array<{ id: string; name: string; description: string }>>([])
 
 // v1.0.297 — Story-guidance helpers.
 const MANUAL_GUIDANCE_MAX = 2000
 const FRESH_NAMES_TIP = 'Use fresh, varied character names that fit the setting — vary cultural origin and sound. Avoid the names this channel keeps reusing: Lyra, Elara, Aria, Kael, Elowen, Seraphina, Thorne.'
 // One click for the common "I don't like these names, reroll" case: seed an
-// editable avoid-instruction into the guidance, tick Force regenerate (so the
-// re-request actually rebuilds instead of serving the cached outline), and
-// reveal the Advanced panel so the user sees Force is on. Idempotent — won't
-// stack the tip if it's already present.
+// editable avoid-instruction into the guidance and tick Force regenerate so
+// the re-request actually rebuilds instead of serving the cached outline.
+// Idempotent — won't stack the tip if it's already present.
 function addFreshNamesTip(): void {
   const cur = form.manual_guidance.trim()
   if (!cur.includes('Avoid the names this channel keeps reusing')) {
     form.manual_guidance = cur ? `${cur}\n${FRESH_NAMES_TIP}` : FRESH_NAMES_TIP
   }
   form.force = true
-  scriptAdvancedExpanded.value = true
   showInfo('Added a "fresh names" instruction and turned on Force regenerate. Tweak the names if you like, then Generate Outline for a new draft.')
 }
 
@@ -2932,6 +2922,34 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   font-size: 13px;
   cursor: pointer;
   color: var(--text-muted);
+}
+.script-regeneration-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--accent) 8%);
+}
+.script-regeneration-copy,
+.script-maintenance-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.script-regeneration-copy .checkbox-label { color: var(--text-primary); white-space: nowrap; }
+.script-maintenance-action { justify-content: flex-end; }
+@media (max-width: 760px) {
+  .script-regeneration-controls,
+  .script-regeneration-copy,
+  .script-maintenance-action {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 .generating-status { display: flex; flex-direction: column; gap: 4px; }
 .gen-label { font-size: 12px; color: var(--accent); }
