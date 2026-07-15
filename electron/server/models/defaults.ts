@@ -154,9 +154,10 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   // Direct ElevenLabs (official API; prefix `eleven_` signals that backend).
   // Pricing is indicative — ElevenLabs charges per character against your plan
   // quota, so this is an approximate USD/1K-char figure for budgeting.
-  'eleven_multilingual_v2': { label: 'ElevenLabs Multilingual v2 [direct]', cost_per_1k_chars: 0.30, provider: 'elevenlabs' },
-  'eleven_turbo_v2_5':      { label: 'ElevenLabs Turbo v2.5 [direct]',      cost_per_1k_chars: 0.15, provider: 'elevenlabs' },
-  'eleven_flash_v2_5':      { label: 'ElevenLabs Flash v2.5 [direct]',      cost_per_1k_chars: 0.10, provider: 'elevenlabs' },
+  'eleven_v3':              { label: 'ElevenLabs v3 [direct]',              cost_per_1k_chars: 0.05, provider: 'elevenlabs' },
+  'eleven_multilingual_v2': { label: 'ElevenLabs Multilingual v2 [direct]', cost_per_1k_chars: 0.10, provider: 'elevenlabs' },
+  'eleven_turbo_v2_5':      { label: 'ElevenLabs Turbo v2.5 [direct]',      cost_per_1k_chars: 0.05, provider: 'elevenlabs' },
+  'eleven_flash_v2_5':      { label: 'ElevenLabs Flash v2.5 [direct]',      cost_per_1k_chars: 0.05, provider: 'elevenlabs' },
   // fal.ai models — verified against live fal.ai docs in Delivery 5
   // (docs/history/fal-model-audit-2026-04.md). Entries for `v2` and `flash-v2.5`
   // were dropped because those queue endpoints do not exist on fal.ai.
@@ -164,10 +165,10 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'multilingual-v2':  { label: 'ElevenLabs Multilingual v2 [fal]',  cost_per_1k_chars: 0.10, provider: 'fal' },
   'eleven-v3':        { label: 'ElevenLabs v3 [fal]',               cost_per_1k_chars: 0.10, provider: 'fal' },
   // GenAIPro models (same ElevenLabs voices, different gateway)
-  'genaipro-multilingual-v2': { label: 'ElevenLabs Multilingual v2 [GenAIPro]', cost_per_1k_chars: 0.10, provider: 'genaipro' },
-  'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.05, provider: 'genaipro' },
-  'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.03, provider: 'genaipro' },
-  'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.10, provider: 'genaipro' },
+  'genaipro-multilingual-v2': { label: 'ElevenLabs Multilingual v2 [GenAIPro]', cost_per_1k_chars: 0.022, provider: 'genaipro' },
+  'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.022, provider: 'genaipro' },
+  'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.022, provider: 'genaipro' },
+  'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.022, provider: 'genaipro' },
   // kie.ai models (same ElevenLabs voices, cheapest gateway). Voice = ElevenLabs
   // voice id; v3 uses kie's text-to-dialogue endpoint (single-turn for narration).
   'kie-eleven-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [kie.ai]',       cost_per_1k_chars: 0.03, provider: 'kie' },

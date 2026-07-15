@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.611 — 2026-07-15
+
+**TTS model pricing defaults now match the configured provider rates.**
+
+- Set all GenAIPro TTS models to $0.022 per 1K characters.
+- Updated fal.ai, direct ElevenLabs, and kie.ai TTS catalog pricing for accurate cost estimates.
+- Removed the stale template v2 entry so new projects inherit the current fal.ai catalog.
+
+**Production Board now keeps ten episodes visible without a nested vertical scroll.**
+
+- Added fixed 10-episode pages while preserving the existing Needs work, search, and per-stage filters.
+- Added first, previous, page status, next, and last controls above the status matrix with a clear visible-row range.
+- Removed the board's height-limited vertical scrolling so each page reads as one complete table on the normal workspace canvas.
+- Kept stage completion totals fleet-wide rather than page-only and added regression coverage for the pagination contract.
+
 ## v1.0.610 — 2026-07-15
 
 **Dashboard is now a fast, verified project command center.**

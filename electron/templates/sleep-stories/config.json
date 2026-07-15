@@ -98,16 +98,19 @@
   ],
   "audio_models": {
     "turbo-v2.5": {
-      "label": "ElevenLabs Turbo v2.5",
-      "cost_per_1k_chars": 0.05
+      "label": "ElevenLabs Turbo v2.5 [fal]",
+      "cost_per_1k_chars": 0.05,
+      "provider": "fal"
     },
-    "v2": {
-      "label": "ElevenLabs v2",
-      "cost_per_1k_chars": 0.1
+    "eleven-v3": {
+      "label": "ElevenLabs v3 [fal]",
+      "cost_per_1k_chars": 0.1,
+      "provider": "fal"
     },
     "multilingual-v2": {
-      "label": "ElevenLabs Multilingual v2",
-      "cost_per_1k_chars": 0.1
+      "label": "ElevenLabs Multilingual v2 [fal]",
+      "cost_per_1k_chars": 0.1,
+      "provider": "fal"
     }
   },
   "audio_pricing_last_updated": ""
