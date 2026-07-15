@@ -1,15 +1,24 @@
 <template>
-  <div class="upload-center">
-    <section class="upload-command-hero">
-      <div class="upload-hero-main">
-        <div class="upload-hero-copy">
-          <span class="upload-hero-kicker">YouTube publishing desk</span>
-          <h1>From finished episode to scheduled release</h1>
-          <p>
-            Review every upload, organize the queue, and hand publishing to YouTube with a schedule you can verify before it goes live.
-          </p>
+  <div class="upload-center workspace-page">
+    <WorkspaceHero
+      eyebrow="Publishing desk"
+      title="YouTube Upload"
+      description="Review finished episodes, organize the queue, and hand publishing to YouTube with a schedule you can verify before it goes live."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Publishing status">
+          <span class="workspace-metric" :data-tone="youtubeAccounts.length ? 'success' : 'warning'">
+            <strong>{{ youtubeAccounts.length ? youtubeAccounts[0]?.remote_title || 'Connected' : 'Not connected' }}</strong> channel
+          </span>
+          <span class="workspace-metric" data-tone="success"><strong>{{ queueCounts.ready }}</strong> ready now</span>
+          <span class="workspace-metric"><strong>{{ queueCounts.uploaded_local + queueCounts.uploaded_freed }}</strong> published</span>
+          <span class="workspace-metric"><strong>{{ plans.length }}</strong> plans</span>
         </div>
-        <div class="upload-header-right">
+      </template>
+    </WorkspaceHero>
+
+    <div class="workspace-command-surface upload-command-surface">
+      <div class="upload-header-right">
         <div
           v-if="quota"
           class="quota-chip"
@@ -31,65 +40,39 @@
           {{ loading ? 'Refreshing…' : 'Refresh connections' }}
         </button>
       </div>
-      </div>
-      <div class="upload-hero-stats" aria-label="Publishing status">
-        <div class="upload-hero-stat">
-          <span>Channel</span>
-          <strong>{{ youtubeAccounts.length ? youtubeAccounts[0]?.remote_title || 'Connected' : 'Not connected' }}</strong>
-          <small>{{ youtubeAccounts.length ? 'Ready for YouTube' : 'Connect in Accounts' }}</small>
-        </div>
-        <div class="upload-hero-stat upload-hero-stat--ready">
-          <span>Ready now</span>
-          <strong>{{ queueCounts.ready }}</strong>
-          <small>finished episodes</small>
-        </div>
-        <div class="upload-hero-stat">
-          <span>Published library</span>
-          <strong>{{ queueCounts.uploaded_local + queueCounts.uploaded_freed }}</strong>
-          <small>linked uploads</small>
-        </div>
-        <div class="upload-hero-stat">
-          <span>Schedule plans</span>
-          <strong>{{ plans.length }}</strong>
-          <small>saved locally</small>
-        </div>
-      </div>
-    </section>
 
-    <!-- Tab strip -->
-    <div class="upload-tabs">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        class="upload-tab"
-        :class="{ active: activeTab === tab.id }"
-        :disabled="tab.disabled"
-        :title="tab.hint"
-        @click="!tab.disabled && (activeTab = tab.id)"
-      >
-        <span class="upload-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-        <span class="upload-tab-copy">
-          <strong>{{ tab.label }}</strong>
-          <small>{{ tab.short }}</small>
-        </span>
-        <span v-if="tab.disabled" class="tab-soon">Phase {{ tab.phase }}</span>
-      </button>
+      <!-- Tab strip -->
+      <div class="upload-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          class="upload-tab"
+          :class="{ active: activeTab === tab.id }"
+          :disabled="tab.disabled"
+          :title="tab.hint"
+          @click="!tab.disabled && (activeTab = tab.id)"
+        >
+          <span class="upload-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+          <span class="upload-tab-copy">
+            <strong>{{ tab.label }}</strong>
+            <small>{{ tab.short }}</small>
+          </span>
+          <span v-if="tab.disabled" class="tab-soon">Phase {{ tab.phase }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- v1.0.501 — ONE banner for an expired/revoked YouTube token, instead of
          six identical raw-stack error toasts from every panel that touches the
          API. Visible on every tab until reconnected or dismissed. -->
-    <div v-if="ytAuthBroken" class="yt-auth-banner mt-2">
-      <span class="yt-auth-icon" aria-hidden="true">🔑</span>
-      <div class="yt-auth-text">
-        <strong>YouTube session expired.</strong>
-        Google expired or revoked this account's token — sync, playlists, scheduling, and uploads will all fail until it's reconnected.
-        <span class="yt-auth-hint">Accounts tab → Disconnect → Connect again, then hit retry.</span>
-      </div>
-      <button class="btn btn-sm btn-primary" @click="activeTab = 'accounts'">Open Accounts</button>
-      <button class="btn btn-sm btn-secondary" @click="retryAfterReconnect">I've reconnected — retry</button>
-      <button class="btn-icon" title="Dismiss (it will reappear on the next failed call)" @click="ytAuthBroken = false">✕</button>
-    </div>
+    <WorkspaceNotice v-if="ytAuthBroken" tone="error" title="YouTube session expired">
+      Google expired or revoked this account's token. Sync, playlists, scheduling, and uploads will fail until you reconnect it in Accounts, then retry.
+      <template #actions>
+        <button class="btn btn-sm btn-primary" @click="activeTab = 'accounts'">Open Accounts</button>
+        <button class="btn btn-sm btn-secondary" @click="retryAfterReconnect">I've reconnected — retry</button>
+        <button class="btn-icon" title="Dismiss (it will reappear on the next failed call)" @click="ytAuthBroken = false">✕</button>
+      </template>
+    </WorkspaceNotice>
 
     <!-- v1.0.501 — operation report: the persistent per-episode receipt for the
          last plan Apply / Apply+Upload. Failures sort first and carry a Retry. -->
@@ -120,7 +103,7 @@
     </div>
 
     <!-- ── Accounts tab ─────────────────────────────────────────────── -->
-    <div v-if="activeTab === 'accounts'" class="card mt-2">
+    <div v-if="activeTab === 'accounts'" class="card workspace-section upload-tab-panel">
       <h3 style="margin: 0">Platforms & Connected Accounts</h3>
       <p class="text-muted" style="font-size: 12px; margin: 4px 0 12px;">
         Story Studio uses the <strong>installed-app loopback flow</strong>: clicking Connect
@@ -252,7 +235,7 @@
     </div>
 
     <!-- ── Queue tab ─────────────────────────────────────────────────── -->
-    <div v-else-if="activeTab === 'queue'" class="card mt-2">
+    <div v-else-if="activeTab === 'queue'" class="card workspace-section upload-tab-panel">
       <div class="queue-command-strip">
         <div class="queue-command-copy">
           <span>Publishing queue</span>
@@ -979,7 +962,7 @@
          ready to upload. Now it's its own tab, paginated, and supports
          marking legacy episodes as already-uploaded (uploaded to YouTube
          years ago, no local video file). -->
-    <div v-else-if="activeTab === 'missing'" class="card mt-2">
+    <div v-else-if="activeTab === 'missing'" class="card workspace-section upload-tab-panel">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">📥 Missing Video</h3>
@@ -1099,7 +1082,7 @@
     </div>
 
     <!-- ── Plans tab ──────────────────────────────────────────────────── -->
-    <div v-else-if="activeTab === 'plans'" class="card mt-2">
+    <div v-else-if="activeTab === 'plans'" class="card workspace-section upload-tab-panel">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">Upload Plans</h3>
@@ -1384,7 +1367,7 @@
     </div>
 
     <!-- ── Playlists tab (A4) ──────────────────────────────────────── -->
-    <div v-else-if="activeTab === 'playlists'" class="card mt-2">
+    <div v-else-if="activeTab === 'playlists'" class="card workspace-section upload-tab-panel">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">YouTube Playlists</h3>
@@ -1524,7 +1507,7 @@
          Match unlinked = "are there channel videos we don't know about?"
                           (fuzzy-match scan finding orphans to link)
          Same code, clearer copy. -->
-    <div v-else-if="activeTab === 'reconcile'" class="card mt-2">
+    <div v-else-if="activeTab === 'reconcile'" class="card workspace-section upload-tab-panel">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">Match unlinked videos</h3>
@@ -1772,7 +1755,7 @@
     </div>
 
     <!-- ── Unlinked Uploads tab (#7) ───────────────────────────────── -->
-    <div v-else-if="activeTab === 'orphans'" class="card mt-2">
+    <div v-else-if="activeTab === 'orphans'" class="card workspace-section upload-tab-panel">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">Unlinked Uploads</h3>
@@ -1968,7 +1951,7 @@
     <!-- ── Analytics tab (extracted to components/upload/AnalyticsTab.vue, v1.0.341) ── -->
     <AnalyticsTab v-else-if="activeTab === 'analytics'" :slug="slug" @reauth="activeTab = 'accounts'" />
     <!-- ── Comments tab ─────────────────────────────────────────────── -->
-    <div v-else-if="activeTab === 'comments'" class="card mt-2">
+    <div v-else-if="activeTab === 'comments'" class="card workspace-section upload-tab-panel">
       <div class="card-header">
         <h3>Comments</h3>
         <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
@@ -2070,7 +2053,7 @@
     </div>
 
     <!-- Placeholder for not-yet-built tabs so the navigation reads honestly -->
-    <div v-else class="card mt-2 tab-placeholder">
+    <div v-else class="card workspace-section upload-tab-panel tab-placeholder">
       <h3>{{ tabs.find(t => t.id === activeTab)?.label }}</h3>
       <p class="text-muted" style="font-size: 13px;">
         This tab arrives in Phase {{ tabs.find(t => t.id === activeTab)?.phase }} of the Upload Center rollout.
@@ -6757,108 +6740,22 @@ onBeforeUnmount(() => {
   --upload-green: #4cc99a;
   padding-bottom: 40px;
 }
-.upload-command-hero {
-  position: relative;
-  overflow: hidden;
-  margin-top: 16px;
-  padding: 24px;
-  border: 1px solid rgba(242, 200, 111, 0.22);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 88% 0%, rgba(76, 201, 154, 0.2), transparent 34%),
-    linear-gradient(135deg, #202a27 0%, #18231f 52%, #151b1a 100%);
-  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.22);
+
+.upload-command-surface {
+  margin-top: var(--space-4);
 }
-.upload-command-hero::after {
-  content: '';
-  position: absolute;
-  width: 260px;
-  height: 260px;
-  right: -95px;
-  bottom: -180px;
-  border: 1px solid rgba(242, 200, 111, 0.22);
-  border-radius: 50%;
-  pointer-events: none;
-}
-.upload-hero-main {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-.upload-hero-copy { max-width: 700px; }
-.upload-hero-kicker {
-  color: var(--upload-gold);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.upload-hero-copy h1 {
-  margin: 6px 0 8px;
-  max-width: 680px;
-  color: var(--upload-ink);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(25px, 3vw, 40px);
-  line-height: 1.04;
-  letter-spacing: -0.025em;
-}
-.upload-hero-copy p {
-  margin: 0;
-  max-width: 650px;
-  color: rgba(244, 241, 232, 0.68);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.upload-hero-stats {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 22px;
-}
-.upload-hero-stat {
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
-}
-.upload-hero-stat span,
-.upload-hero-stat small {
-  display: block;
-  overflow: hidden;
-  color: rgba(244, 241, 232, 0.55);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.upload-hero-stat span { text-transform: uppercase; letter-spacing: 0.08em; }
-.upload-hero-stat strong {
-  display: block;
-  overflow: hidden;
-  margin: 3px 0 1px;
-  color: var(--upload-ink);
-  font-size: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.upload-hero-stat--ready strong { color: #7ce5b9; }
-.upload-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-top: 16px;
-  flex-wrap: wrap; gap: 10px;
-}
-.upload-header h1 { margin: 0; font-size: 22px; }
 
 .upload-header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
+  margin-bottom: var(--space-3);
   flex-wrap: wrap;
+}
+
+.upload-tab-panel {
+  margin-top: var(--workspace-section-gap);
 }
 
 /* Always-visible YouTube quota chip. Replaces the threshold-gated quota
@@ -6909,7 +6806,7 @@ onBeforeUnmount(() => {
   grid-auto-columns: minmax(150px, 1fr);
   grid-auto-flow: column;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 0;
   padding: 5px;
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -8169,21 +8066,6 @@ td.col-actions > a.btn {
   color: var(--text-primary);
 }
 
-/* ── v1.0.501 — YouTube auth-expiry banner ─────────────────────────── */
-.yt-auth-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid rgba(226, 92, 92, 0.5);
-  border-radius: var(--radius-md, 8px);
-  background: rgba(226, 92, 92, 0.08);
-}
-.yt-auth-icon { font-size: 18px; flex: 0 0 auto; }
-.yt-auth-text { flex: 1 1 260px; font-size: 12.5px; line-height: 1.45; }
-.yt-auth-hint { display: block; color: var(--text-muted); font-size: 11.5px; margin-top: 2px; }
-
 /* ── v1.0.501 — operation report card ──────────────────────────────── */
 .op-report { padding: 10px 14px; }
 .op-report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -8856,14 +8738,10 @@ td.col-actions > a.btn {
 }
 .scope-preview-anchor span { margin-right: 4px; color: #4cc99a; }
 @media (max-width: 900px) {
-  .upload-command-hero { padding: 18px; }
-  .upload-hero-main { flex-direction: column; }
-  .upload-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .upload-tabs { grid-auto-columns: minmax(138px, 44vw); }
   .queue-command-strip { align-items: stretch; flex-direction: column; }
 }
 @media (max-width: 560px) {
-  .upload-hero-stats { grid-template-columns: 1fr; }
   .upload-preview-featured-caption { align-items: flex-start; flex-direction: column; }
   .upload-preview-thumb-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

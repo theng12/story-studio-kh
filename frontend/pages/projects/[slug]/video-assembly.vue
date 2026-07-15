@@ -1,40 +1,55 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Video Assembly</h1>
-    </div>
-
-    <TopActionBar
-      :project-slug="slug"
-      :presets="videoBundlePresets"
-      v-model:episode-id="episodeId"
-      filter-field="video_assembly"
-      generate-label="Generate Video"
-      loading-label="Rendering…"
-      :generate-loading="generating || assemblyJobActiveForEpisode"
-      :generate-disabled="!episodeId || !step1Valid"
-      :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
-      @generate="generateVideo"
-      @episode-selected="onEpisodeSelected"
-      @preset-applied="onBundleApplied"
-      @preset-saved="onBundleSaved"
-      @preset-deleted="success('Bundle deleted')"
+  <div class="workspace-page video-assembly-workspace">
+    <WorkspaceHero
+      eyebrow="Unified final render"
+      title="Video Assembly"
+      description="Combine the approved Scene Plan, narration, music, subtitles, motion choices, and presentation effects into one verified final video."
     >
-      <template #actions>
-        <EpisodeImportButton
-          :slug="slug"
-          :episode-code="episodeId"
-          default-tab="final"
-        />
+      <template #aside>
+        <div class="workspace-metrics">
+          <span class="workspace-metric"><strong>{{ currentStep }}/6</strong> {{ stepLabels[currentStep - 1] }}</span>
+          <span class="workspace-metric" :data-tone="step1Valid ? 'success' : 'warning'">
+            <strong>{{ step1Valid ? 'Ready' : 'Check' }}</strong> assets
+          </span>
+          <span v-if="generating || assemblyJobActiveForEpisode" class="workspace-metric" data-tone="info">
+            <strong>{{ activeJobProgress > 0 ? `${activeJobProgress}%` : 'Active' }}</strong> render
+          </span>
+        </div>
       </template>
-    </TopActionBar>
+    </WorkspaceHero>
+
+    <div class="workspace-command-surface">
+      <TopActionBar
+        :project-slug="slug"
+        :presets="videoBundlePresets"
+        v-model:episode-id="episodeId"
+        filter-field="video_assembly"
+        generate-label="Generate Video"
+        loading-label="Rendering…"
+        :generate-loading="generating || assemblyJobActiveForEpisode"
+        :generate-disabled="!episodeId || !step1Valid"
+        :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
+        @generate="generateVideo"
+        @episode-selected="onEpisodeSelected"
+        @preset-applied="onBundleApplied"
+        @preset-saved="onBundleSaved"
+        @preset-deleted="success('Bundle deleted')"
+      >
+        <template #actions>
+          <EpisodeImportButton
+            :slug="slug"
+            :episode-code="episodeId"
+            default-tab="final"
+          />
+        </template>
+      </TopActionBar>
+    </div>
 
     <!-- Applying a preset validates every saved file reference before the
          user can generate. Missing paths remain a clear, actionable blocker. -->
     <div
       v-if="bundleInvalidPaths.length > 0"
-      class="card mt-2 preset-path-check"
+      class="card workspace-section preset-path-check"
       :class="{ 'is-critical': bundleInvalidPaths.length > 0 }"
     >
       <div v-if="bundleInvalidPaths.length > 0" class="path-check-invalid-block">
@@ -66,32 +81,28 @@
       </div>
     </div>
 
-    <p class="text-muted mt-1 mb-2">
-      Assemble scene images (or AI clips), narration, and music into a finished video via FFmpeg.
-      The 6 steps are: <strong>Intro → Title Image → Scene Images → Audio → Effects & Overlays → Export</strong> —
-      outputs a single <code>.mp4</code> in the episode's <code>10 Video Assembly Output</code> folder.
-    </p>
-
     <!-- Stepper Bar -->
-    <div class="stepper mt-3">
-      <template v-for="step in 6" :key="step">
-        <div
-          :class="['step-circle', { active: currentStep === step, completed: step < maxStepReached && step < currentStep }]"
-          @click="goToStep(step)"
-          :title="stepLabels[step - 1]"
-        >
-          <span v-if="step < maxStepReached && step < currentStep">&#10003;</span>
-          <span v-else>{{ step }}</span>
-        </div>
-        <div v-if="step < 6" :class="['step-line', { completed: step < currentStep }]" />
-      </template>
-    </div>
-    <div class="step-labels">
-      <span v-for="(label, i) in stepLabels" :key="i" :class="{ active: currentStep === i + 1 }">{{ label }}</span>
+    <div class="workspace-command-surface assembly-stepper-surface" aria-label="Video assembly steps">
+      <div class="stepper">
+        <template v-for="step in 6" :key="step">
+          <div
+            :class="['step-circle', { active: currentStep === step, completed: step < maxStepReached && step < currentStep }]"
+            @click="goToStep(step)"
+            :title="stepLabels[step - 1]"
+          >
+            <span v-if="step < maxStepReached && step < currentStep">&#10003;</span>
+            <span v-else>{{ step }}</span>
+          </div>
+          <div v-if="step < 6" :class="['step-line', { completed: step < currentStep }]" />
+        </template>
+      </div>
+      <div class="step-labels">
+        <span v-for="(label, i) in stepLabels" :key="i" :class="{ active: currentStep === i + 1 }">{{ label }}</span>
+      </div>
     </div>
 
     <!-- ============ STEP 1: Select & Validate Assets ============ -->
-    <div v-if="currentStep === 1" class="card mt-2">
+    <div v-if="currentStep === 1" class="card workspace-section assembly-step-panel">
       <h3>Step 1: Select &amp; Validate Assets</h3>
       <p class="text-muted mt-1">Choose an episode and scan for available scene media and audio</p>
 
@@ -258,7 +269,7 @@
     </div>
 
     <!-- ============ STEP 2: Branding & Intro ============ -->
-    <div v-if="currentStep === 2" class="card mt-2">
+    <div v-if="currentStep === 2" class="card workspace-section assembly-step-panel">
       <h3>Step 2: Intro</h3>
       <p class="text-muted mt-1">Optional pre-roll clip that plays before the title image and scenes.</p>
 
@@ -437,7 +448,7 @@
     </div>
 
     <!-- ============ STEP 3: Title & Timeline ============ -->
-    <div v-if="currentStep === 3" class="card mt-2">
+    <div v-if="currentStep === 3" class="card workspace-section assembly-step-panel">
       <h3>Step 3: Title &amp; Timeline</h3>
       <p class="text-muted mt-1">Configure title image, scene recycling, and transitions</p>
 
@@ -771,7 +782,7 @@
     </div>
 
     <!-- ============ STEP 4: Effects & Overlays ============ -->
-    <div v-if="currentStep === 4" class="card mt-2">
+    <div v-if="currentStep === 4" class="card workspace-section assembly-step-panel">
       <h3>Step 4: Effects &amp; Overlays</h3>
       <p class="text-muted mt-1">Color grading, visual effects, and optional text + logo overlays.</p>
 
@@ -1854,7 +1865,7 @@
     </div>
 
     <!-- ============ STEP 5: Subtitles (optional) ============ -->
-    <div v-if="currentStep === 5" class="card mt-2">
+    <div v-if="currentStep === 5" class="card workspace-section assembly-step-panel">
       <h3>Step 5: Subtitles</h3>
       <p class="text-muted mt-1">Optional — burn a subtitle track into the final video.</p>
 
@@ -1951,7 +1962,7 @@
     </div>
 
     <!-- ============ STEP 6: Export & Generate ============ -->
-    <div v-if="currentStep === 6" class="card mt-2">
+    <div v-if="currentStep === 6" class="card workspace-section assembly-step-panel">
       <h3>Step 6: Export &amp; Generate</h3>
       <p class="text-muted mt-1">Review settings and generate your video</p>
 
@@ -4905,6 +4916,25 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.video-assembly-workspace :deep(.workspace-command-surface .top-action-bar) {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.assembly-stepper-surface {
+  margin-top: var(--space-4);
+}
+
+.assembly-stepper-surface .stepper {
+  padding-top: 4px;
+}
+
+.assembly-step-panel {
+  margin-top: var(--workspace-section-gap);
+}
+
 /* ── Inline-style sweep helpers (2026-05-02) ─────────────────────────────
  * The cluster below replaced ~135 inline `style="..."` blocks. They keep
  * the existing visuals 1:1 — the only goal is to make the markup re-themable

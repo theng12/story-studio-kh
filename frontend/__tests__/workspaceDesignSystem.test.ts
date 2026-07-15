@@ -28,6 +28,11 @@ const orchestrationPages = {
   motionReview: source('../pages/projects/[slug]/motion-review.vue'),
 }
 
+const deliveryPages = {
+  videoAssembly: source('../pages/projects/[slug]/video-assembly.vue'),
+  upload: source('../pages/projects/[slug]/upload.vue'),
+}
+
 describe('workspace design system', () => {
   test('loads after the compatibility stylesheet', () => {
     assert.match(
@@ -80,6 +85,19 @@ describe('workspace design system', () => {
     assert.doesNotMatch(orchestrationPages.scenePlan, /class="page-header"/)
     assert.doesNotMatch(orchestrationPages.motionReview, /class="motion-hero"/)
     assert.doesNotMatch(orchestrationPages.board, /class="board-head"/)
+  })
+
+  test('assembly and publishing pages share the delivery workspace hierarchy', () => {
+    for (const [pageName, page] of Object.entries(deliveryPages)) {
+      assert.match(page, /class="[^"]*workspace-page/, `${pageName} must use workspace-page`)
+      assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
+      assert.match(page, /workspace-command-surface/, `${pageName} must use a command surface`)
+    }
+
+    assert.match(deliveryPages.videoAssembly, /assembly-step-panel/)
+    assert.match(deliveryPages.upload, /upload-tab-panel/)
+    assert.doesNotMatch(deliveryPages.videoAssembly, /class="page-header"/)
+    assert.doesNotMatch(deliveryPages.upload, /class="upload-command-hero"/)
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.599 — 2026-07-15
+
+**The shared workspace design now carries finished episodes through assembly and publishing.**
+
+- Modernized Video Assembly with a unified delivery header, live step and asset status, a dedicated command surface, and consistent spacing across all six existing assembly steps.
+- Modernized YouTube Upload with compact channel, queue, published-library, and plan metrics plus a single command surface for connection refresh and publishing navigation.
+- Replaced the page-specific YouTube authentication banner with the shared actionable error notice while preserving reconnect, retry, and dismiss behavior.
+- Standardized every Upload Center tab on the shared workspace section rhythm without changing account setup, upload previews, scheduling, playlists, reconciliation, analytics, or comments.
+- Removed the duplicate upload-only hero and status-card CSS so delivery pages now inherit the same responsive visual language as generators, reviews, planning, and orchestration.
+- Added regression coverage that prevents Video Assembly and YouTube Upload from drifting back to one-off page shells.
+
 ## v1.0.598 — 2026-07-15
 
 **The shared workspace design now covers production orchestration, planning, and the optional motion pass.**
