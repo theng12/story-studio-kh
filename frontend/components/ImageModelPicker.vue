@@ -37,8 +37,16 @@
       <span class="imp-chev" aria-hidden="true">▾</span>
     </button>
 
-    <!-- Expanded panel -->
-    <div v-if="expanded" class="imp-panel">
+    <!-- Teleport keeps the rich catalog above cards that intentionally clip their contents. -->
+    <Teleport to="body">
+    <div
+      v-if="expanded"
+      ref="panelEl"
+      class="imp-panel"
+      :style="panelStyle"
+      tabindex="-1"
+      @click.stop
+    >
       <!-- Compat hint at the top: explains cost vs free + img2img caveat. -->
       <div class="imp-compat-hint">
         <span class="imp-compat-icon" aria-hidden="true">💡</span>
@@ -195,6 +203,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -262,6 +271,13 @@ const { get } = useApi()
 const { error: showError } = useToast()
 
 const expanded = ref(false)
+const rootEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const { panelStyle } = useAnchoredPanel(expanded, rootEl, panelEl, {
+  minWidth: 480,
+  maxWidth: 680,
+  maxHeight: 660,
+})
 const search = ref('')
 const capFilter = ref<'' | 'txt2img' | 'img2img' | 'edit'>('')
 
@@ -516,9 +532,9 @@ function onKey(e: KeyboardEvent) {
 // used to only close by re-clicking the trigger — clicking anywhere else left
 // it stuck open. The root carries @click.stop, so inside clicks never reach
 // this listener; the contains() check is a defensive belt-and-braces.
-const rootEl = ref<HTMLElement | null>(null)
 function onClickOutside(e: MouseEvent) {
-  if (expanded.value && !rootEl.value?.contains(e.target as Node)) expanded.value = false
+  const target = e.target as Node
+  if (expanded.value && !rootEl.value?.contains(target) && !panelEl.value?.contains(target)) expanded.value = false
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
@@ -541,7 +557,8 @@ onBeforeUnmount(() => {
 .imp-trigger {
   display: flex; align-items: center; gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  min-height: 44px;
+  padding: 7px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -553,7 +570,17 @@ onBeforeUnmount(() => {
 }
 .imp-trigger:hover { border-color: var(--text-secondary); }
 .imp-trigger.open { border-color: var(--accent); }
-.imp-current { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-current {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .imp-source-chip {
   font-size: 10px; padding: 2px 7px; border-radius: 999px;
   font-weight: 600; letter-spacing: 0.2px;
@@ -576,22 +603,15 @@ onBeforeUnmount(() => {
 
 /* Expanded panel */
 .imp-panel {
-  /* v1.0.231 — fixed, comfortable width independent of the (sometimes narrow)
-     trigger, so the dropdown is readable even when the picker sits inline in a
-     toolbar. Clamps to the viewport on small windows. */
-  position: absolute; top: 100%; left: 0; right: auto;
-  width: 460px;
-  max-width: 92vw;
-  margin-top: 6px;
+  position: fixed;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
-  max-height: min(620px, 70vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  z-index: 50;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  z-index: 1400;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.46);
 }
 
 /* Top hint banner */

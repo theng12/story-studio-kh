@@ -163,16 +163,7 @@
           <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). Was
                auto-picked silently; now you choose it. -->
           <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
-            <span class="sr-llm-label">Rewrite LLM</span>
-            <select v-model="textModel" class="select sr-llm-select">
-              <option value="" disabled>Pick an LLM…</option>
-              <option
-                v-for="m in textModels"
-                :key="m.id"
-                :value="m.id"
-                :disabled="!m.available || !!m.disabled_reason"
-              >{{ m.label || m.id }}{{ (!m.available || m.disabled_reason) ? ' (unavailable)' : '' }}</option>
-            </select>
+            <ModelSelector v-model="textModel" :project-slug="slug" label="Rewrite LLM" />
           </div>
         </div>
       </div>
@@ -1098,18 +1089,6 @@ const rewritingId = ref<string | null>(null)
 // and only auto-fill a default when nothing is chosen yet — a reload / episode
 // switch won't clobber the user's pick.
 const textModel = ref('')
-const textModels = ref<Array<{ id: string; label?: string; available?: boolean; disabled_reason?: string }>>([])
-const IMAGE_MODEL_RE = /^(imagestudio|kie|fal|runware|replicate):/i
-async function loadTextModel(): Promise<void> {
-  try {
-    const models = await get<Array<{ id: string; label?: string; available?: boolean; disabled_reason?: string }>>(`/models?project=${slug.value}`)
-    // Rewrite is an LLM task — drop image models (the route rejects them anyway).
-    textModels.value = (models || []).filter(m => !IMAGE_MODEL_RE.test(m.id))
-    if (!textModel.value) {
-      textModel.value = textModels.value.find(m => m.available && !m.disabled_reason)?.id || ''
-    }
-  } catch { textModels.value = []; textModel.value = '' }
-}
 
 // v1.0.344 — multi-select to re-roll a CHOSEN set of scenes in ONE parallel job
 // across the Mac pool (instead of N serial single-scene jobs that run one Mac
@@ -1725,7 +1704,6 @@ function scrollToTop(): void {
 
 onMounted(() => {
   void loadContinuityFlag()
-  void loadTextModel()    // resolves the LLM model used by "Rewrite with AI"
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
   const el = getScrollContainer()

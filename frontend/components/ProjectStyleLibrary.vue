@@ -40,10 +40,14 @@
         </p>
       </div>
       <div class="psl-controls">
-        <select v-model="previewModel" class="input input-sm">
-          <option value="" :disabled="!!modelOptions.length">Pick preview model</option>
-          <option v-for="opt in modelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-        </select>
+        <ModelMenu
+          v-model="previewModel"
+          class="psl-preview-model"
+          :options="previewModelOptions"
+          media-type="image"
+          title="Style sample model"
+          search-placeholder="Search image models…"
+        />
         <select v-model="previewAspect" class="input input-sm">
           <option v-for="opt in ASPECT_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
         </select>
@@ -336,6 +340,11 @@ const lightboxIndex = ref(0)
 const modelOptions = computed(() =>
   Object.keys(props.imageModels || {}).map(id => ({ value: id, label: id })),
 )
+const previewModelOptions = computed(() => modelOptions.value.map(option => ({
+  id: option.value,
+  label: option.label,
+  group: 'Image models',
+})))
 const anySampleLoading = computed(() => liveSamples.value.some(sample => sample.loading))
 const galleryCount = computed(() => liveSamples.value.filter(sample => sample.url && sample.included).length)
 const lightboxCurrent = computed(() => lightboxImages.value[lightboxIndex.value] || null)
@@ -650,6 +659,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   flex-wrap: wrap;
   align-items: center;
 }
+.psl-preview-model { width: min(360px, 72vw); }
 .psl-editor,
 .psl-empty,
 .psl-preset-card,

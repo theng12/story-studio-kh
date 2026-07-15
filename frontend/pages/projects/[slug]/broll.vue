@@ -501,11 +501,13 @@
           <template v-else>
             <div class="form-group mt-2">
               <label class="text-muted text-xs">Whisper model · on {{ brollVsAvail.device || 'mps' }}</label>
-              <select v-model="brollVsModel" class="select select-sm">
-                <option v-for="m in (brollVsAvail.models || [])" :key="m.repo" :value="m.repo">
-                  {{ m.label || m.repo }}{{ m.size_gb ? ` · ${m.size_gb} GB` : '' }}{{ m.recommended ? ' · recommended' : '' }}{{ m.cached ? '' : ' · not downloaded' }}
-                </option>
-              </select>
+              <ModelMenu
+                v-model="brollVsModel"
+                :options="brollWhisperModelOptions"
+                media-type="transcription"
+                title="Local transcription model"
+                search-placeholder="Search Whisper models…"
+              />
             </div>
             <div v-if="brollVsSelectedNotCached" class="mt-1 text-sm">
               <button class="btn btn-sm btn-secondary" :disabled="downloadingBrollModel" @click="downloadBrollVsModel">
@@ -800,6 +802,18 @@ const brollVsAvail = ref<BrollVsAvail | null>(null)
 const brollVsAvailLoading = ref(false)
 const brollVsModel = ref('')
 const downloadingBrollModel = ref(false)
+const brollWhisperModelOptions = computed(() => (brollVsAvail.value?.models || []).map(model => ({
+  id: model.repo,
+  label: model.label || model.repo,
+  group: 'Voice Studio · local',
+  provider: 'Voice Studio',
+  meta: [model.size_gb ? `${model.size_gb} GB` : '', model.cached ? 'Downloaded' : 'Not downloaded'].filter(Boolean).join(' · '),
+  badges: [
+    { label: 'Free', tone: 'free' as const },
+    ...(model.recommended ? [{ label: 'Recommended', tone: 'info' as const }] : []),
+    ...(!model.cached ? [{ label: 'Download', tone: 'warning' as const }] : []),
+  ],
+})))
 
 // Persistent subtitle config — saved to config.broll_subtitles. Default
 // shape matches what broll-assemble.ts expects on the wire + the

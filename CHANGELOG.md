@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.602 — 2026-07-15
+
+**AI model pickers are now readable, searchable, and consistent across the production flow.**
+
+- Added a shared modern model menu with grouped providers, search, readiness and cost badges, two-line names, and clear disabled reasons.
+- Fixed rich Image and Voice Studio catalogs being clipped by Scene Review and other cards by placing them above the workspace in a viewport-aware floating layer.
+- Unified LLM, image, TTS, image-to-video, and transcription pickers across generators, reviews, style previews, vision analysis, expression markup, and B-Roll tools.
+- Removed the format wizard's stale hardcoded paid-model list so it now restores a live usable model through the shared inventory.
+- Added regression coverage for model-menu accessibility, viewport placement, media-type coverage, and prevention of hardcoded paid defaults.
+
 ## v1.0.601 — 2026-07-15
 
 **The complete writing and thumbnail flow now shares one calm, modern creation workspace.**

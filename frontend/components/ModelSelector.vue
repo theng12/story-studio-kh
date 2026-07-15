@@ -25,33 +25,17 @@
         @click="activeTier = t.key"
       >{{ t.label }} <span class="ms-tier-count">{{ t.count }}</span></button>
     </div>
-    <!-- v1.0.471 — search/filter box. Native <select> can't filter, so this
-         narrows the option list by label / id / provider. Shown once there are
-         enough models to be worth searching. The current selection always stays
-         in the list so the dropdown never goes blank while filtering. -->
-    <input
-      v-if="!loading && allModels.length > SEARCH_THRESHOLD"
-      v-model="query"
-      type="search"
-      class="input ms-search"
-      placeholder="Search models (name / provider)…"
-      aria-label="Search AI models"
+    <ModelMenu
+      :model-value="modelValue"
+      :options="menuOptions"
+      :loading="loading"
+      media-type="llm"
+      title="Choose an AI model"
+      placeholder="Pick an AI model…"
+      search-placeholder="Search model, provider, or capability…"
+      aria-label="AI model options"
+      @update:model-value="selectModel"
     />
-    <select :value="modelValue" :disabled="loading && allModels.length === 0" @change="selectModel" class="select">
-      <option v-if="loading && allModels.length === 0" value="" disabled>Loading AI models… please wait</option>
-      <optgroup v-for="g in filteredGroups" :key="g.provider" :label="g.label">
-        <option
-          v-for="m in g.items"
-          :key="m.id"
-          :value="m.id"
-          :disabled="isDisabled(m.data)"
-          :title="tooltipFor(m.data)"
-        >
-          {{ m.data.label }}{{ suffixFor(m.data) }}
-        </option>
-      </optgroup>
-    </select>
-    <p v-if="query.trim() && filteredGroups.length === 0" class="ms-no-match">No models match “{{ query.trim() }}”.</p>
   </div>
 </template>
 
@@ -111,8 +95,7 @@ function emitModelMeta(value: string) {
   emit('model-meta', allModels.value.find(model => model.id === value) || null)
 }
 
-function selectModel(event: Event) {
-  const value = (event.target as HTMLSelectElement).value
+function selectModel(value: string) {
   emit('update:modelValue', value)
   emitModelMeta(value)
 }
@@ -156,10 +139,6 @@ const groups = computed(() => {
   return groupModels<LlmModelRow>(record, (_id, m) => m.provider || 'other')
 })
 
-// v1.0.471 — only surface the search box once the list is long enough to need it.
-const SEARCH_THRESHOLD = 8
-const query = ref('')
-
 // v1.0.498 — cost-tier tabs (All / Local / Cloud free / Cloud paid). Lets the
 // user hide paid models so they can't be picked by accident (wasting credits).
 // The tabs only appear when the model list actually spans more than one tier —
@@ -183,27 +162,33 @@ const tierTabs = computed(() => {
   return tabs.length > 2 ? tabs : []
 })
 
-// Filtered groups for rendering. Applies BOTH the tier tab and the search query.
-// The currently-selected model is always kept (matches either filter) so the
-// native <select> never goes blank mid-filter. Empty query + 'all' tab → all.
-const filteredGroups = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  const terms = q ? q.split(/\s+/) : []
+// The shared menu owns searching and full-label display. Tier filtering stays
+// here because it is a safety control that prevents accidental paid selection.
+const menuOptions = computed(() => {
   const tier = activeTier.value
   const matches = (m: { id: string; data: LlmModelRow }): boolean => {
     if (m.id === props.modelValue) return true   // never hide the active selection
     if (tier !== 'all' && tierOf(m.data) !== tier) return false
-    if (!terms.length) return true
-    const hay = `${m.data.label} ${m.id} ${m.data.provider || ''}`.toLowerCase()
-    return terms.every(t => hay.includes(t))
+    return true
   }
-  return groups.value
-    .map(g => ({ ...g, items: g.items.filter(matches) }))
-    .filter(g => g.items.length > 0)
+  return groups.value.flatMap(group => group.items.filter(matches).map(({ id, data }) => ({
+    id,
+    label: data.label || id,
+    group: group.label,
+    provider: group.label,
+    meta: suffixFor(data).replace(/^\s*·\s*/, '').replace(/^\s*\((.*)\)\s*$/, '$1'),
+    description: tooltipFor(data),
+    disabled: isDisabled(data),
+    disabledReason: isDisabled(data) ? tooltipFor(data) : '',
+    badges: [
+      { label: tierOf(data) === 'local' ? 'local' : tierOf(data) === 'free' ? 'free' : 'paid', tone: tierOf(data) },
+      ...(props.requireVision && data.supports_vision ? [{ label: 'vision', tone: 'info' as const }] : []),
+    ],
+  })))
 })
 
 // Reset filters when the project (and thus the model list) changes.
-watch(() => props.projectSlug, () => { query.value = ''; activeTier.value = 'all' })
+watch(() => props.projectSlug, () => { activeTier.value = 'all' })
 
 async function loadModels() {
   loading.value = true
@@ -234,11 +219,6 @@ watch(() => props.modelValue, emitModelMeta)
 </script>
 
 <style scoped>
-option:disabled {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
 /* v1.0.498 — cost-tier tabs above the search box. */
 .ms-tier-tabs {
   display: flex;
@@ -260,17 +240,6 @@ option:disabled {
 .ms-tier-tab.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
 .ms-tier-tab.paid.active { background: #b4530a; border-color: #b4530a; }
 .ms-tier-count { opacity: 0.7; font-size: 10px; }
-
-/* v1.0.471 — model search box sits just above the select. */
-.ms-search {
-  width: 100%;
-  margin-bottom: 6px;
-}
-.ms-no-match {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
 
 /* v1.0.48 — loading-state hint next to the label. Same spinner pattern
    as EpisodeSelector so the two dropdowns feel consistent during a

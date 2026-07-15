@@ -70,13 +70,15 @@
       <div class="grid-2">
         <div class="form-group">
           <label>TTS Model <span class="required" aria-hidden="true">*</span></label>
-          <select v-model="form.model" class="select">
-            <optgroup v-for="g in audioModelGroups" :key="g.provider" :label="g.label">
-              <option v-for="m in g.items" :key="m.id" :value="m.id">
-                {{ m.data.label }} {{ m.data.cost_per_1k_chars > 0 ? `($${m.data.cost_per_1k_chars}/1K chars)` : '(Free · local)' }}
-              </option>
-            </optgroup>
-          </select>
+          <ModelMenu
+            v-model="form.model"
+            :options="audioModelOptions"
+            media-type="tts"
+            title="Choose a TTS model"
+            placeholder="Pick a voice model…"
+            search-placeholder="Search model or provider…"
+            aria-label="TTS model options"
+          />
         </div>
       </div>
 
@@ -392,6 +394,20 @@ const visibleAudioModels = computed<Record<string, any>>(() => {
 const audioModelGroups = computed(() =>
   groupModels<any>(visibleAudioModels.value, (id, m) => resolveAudioProvider(id, m)),
 )
+const audioModelOptions = computed(() => audioModelGroups.value.flatMap(group =>
+  group.items.map(({ id, data }) => {
+    const isPaid = Number(data.cost_per_1k_chars || 0) > 0
+    return {
+      id,
+      label: data.label || id,
+      group: group.label,
+      provider: group.label,
+      meta: isPaid ? `$${data.cost_per_1k_chars}/1K characters` : 'Free · local processing',
+      description: data.description || data.hint || '',
+      badges: [{ label: isPaid ? 'paid' : 'local', tone: isPaid ? 'paid' as const : 'local' as const }],
+    }
+  }),
+))
 
 // v1.0.157 — `currentAudioProvider` computed + the cross-source voice
 // reset watcher moved BELOW the `form = reactive({...})` declaration

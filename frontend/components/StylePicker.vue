@@ -8,10 +8,14 @@
         </p>
       </div>
       <div class="sp-builtins-controls">
-        <select v-model="previewModel" class="input input-sm">
-          <option value="" :disabled="!!modelOptions.length">Pick preview model</option>
-          <option v-for="opt in modelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-        </select>
+        <ModelMenu
+          v-model="previewModel"
+          class="sp-preview-model"
+          :options="previewModelOptions"
+          media-type="image"
+          title="Style preview model"
+          search-placeholder="Search image models…"
+        />
         <select v-model="previewAspect" class="input input-sm">
           <option v-for="opt in ASPECT_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
         </select>
@@ -125,6 +129,11 @@ const bundledFailed = ref<Record<string, boolean>>({})
 const modelOptions = computed(() =>
   Object.keys(props.imageModels || {}).map(id => ({ value: id, label: id })),
 )
+const previewModelOptions = computed(() => modelOptions.value.map(option => ({
+  id: option.value,
+  label: option.label,
+  group: 'Image models',
+})))
 
 watch(modelOptions, (opts) => {
   if (!previewModel.value && opts.length) previewModel.value = opts[0]!.value
@@ -183,7 +192,9 @@ async function generatePreview(style: BuiltInStyle) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
+.sp-preview-model { width: min(360px, 72vw); }
 .sp-builtins-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

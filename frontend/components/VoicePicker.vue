@@ -7,7 +7,8 @@
       <span class="vp-chev" aria-hidden="true">▾</span>
     </button>
 
-    <div v-if="expanded" class="vp-panel">
+    <Teleport to="body">
+    <div v-if="expanded" ref="panelEl" class="vp-panel" :style="panelStyle" tabindex="-1" @click.stop>
       <div class="vp-scope" :class="scopeFamily">
         <div>
           <strong>{{ scopeTitle }}</strong>
@@ -125,6 +126,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -207,6 +209,12 @@ const regularCloudVoices = computed(() => compatibleCloudVoices.value.filter(voi
 
 const expanded = ref(false)
 const rootEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const { panelStyle } = useAnchoredPanel(expanded, rootEl, panelEl, {
+  minWidth: 480,
+  maxWidth: 680,
+  maxHeight: 620,
+})
 const search = ref('')
 const favouriteIds = ref<string[]>([])
 const addOpen = ref(false)
@@ -387,7 +395,8 @@ function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') expanded.value = false
 }
 function onClickOutside(event: MouseEvent) {
-  if (expanded.value && !rootEl.value?.contains(event.target as Node)) expanded.value = false
+  const target = event.target as Node
+  if (expanded.value && !rootEl.value?.contains(target) && !panelEl.value?.contains(target)) expanded.value = false
 }
 
 onMounted(() => {
@@ -411,14 +420,14 @@ watch(() => [props.customVoices, props.customVoicesLoaded], reconcileSelection, 
 
 <style scoped>
 .voice-picker { position: relative; width: 100%; }
-.vp-trigger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: inherit; cursor: pointer; text-align: left; font: inherit; }
+.vp-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 7px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: inherit; cursor: pointer; text-align: left; font: inherit; }
 .vp-trigger:hover, .vp-trigger.open { border-color: var(--accent); }
-.vp-current { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-current { display: -webkit-box; flex: 1; min-width: 0; overflow: hidden; line-height: 1.25; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .vp-provider-badge { padding: 2px 7px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); font-size: 10px; }
 .vp-star-badge { color: var(--accent); }
 .vp-chev { color: var(--text-muted); transition: transform .15s; }
 .vp-trigger.open .vp-chev { transform: rotate(180deg); }
-.vp-panel { position: relative; z-index: 20; margin-top: 6px; max-height: 500px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 16px 45px rgba(0,0,0,.28); }
+.vp-panel { position: fixed; z-index: 1400; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: var(--radius-md); box-shadow: 0 24px 70px rgba(0,0,0,.46); }
 .vp-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .vp-scope div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .vp-scope strong { font-size: 12px; }

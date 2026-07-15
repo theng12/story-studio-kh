@@ -270,18 +270,15 @@
                  they know which providers they could enable. -->
             <div v-if="draft.references?.images?.length" class="ref-vision-model">
               <label>Vision model for ✨ Describe:</label>
-              <select v-model="visionModel" class="select" :disabled="visionModelsLoading">
-                <option v-if="visionModelsLoading" value="">Loading models…</option>
-                <option v-else value="">Auto (pick whichever I have a key for)</option>
-                <option
-                  v-for="m in visionModelOptions"
-                  :key="m.id"
-                  :value="m.id"
-                  :disabled="!m.has_key"
-                >
-                  {{ m.label }}{{ m.has_key ? '' : ' — no key configured' }}
-                </option>
-              </select>
+              <ModelMenu
+                v-model="visionModel"
+                class="ref-vision-menu"
+                :options="visionModelMenuOptions"
+                media-type="llm"
+                title="Character vision model"
+                search-placeholder="Search vision models…"
+                :loading="visionModelsLoading"
+              />
               <button
                 v-if="visionModelOptions.some(m => !m.has_key)"
                 type="button"
@@ -720,6 +717,24 @@ const visionModelOptions = computed(() =>
       return a.label.localeCompare(b.label)
     }),
 )
+const visionModelMenuOptions = computed(() => [
+  {
+    id: '',
+    label: 'Auto-pick an available vision model',
+    group: 'Automatic',
+    meta: 'Uses the first compatible provider configured on this Mac.',
+    badges: [{ label: 'Recommended', tone: 'info' as const }],
+  },
+  ...visionModelOptions.value.map(model => ({
+    id: model.id,
+    label: model.label,
+    group: model.provider || 'Vision models',
+    provider: model.provider,
+    disabled: !model.has_key,
+    disabledReason: model.has_key ? undefined : 'No API key configured for this provider.',
+    badges: [{ label: 'Vision', tone: 'info' as const }],
+  })),
+])
 
 const describeButtonTitle = computed(() => {
   const id = visionModel.value
@@ -1067,17 +1082,7 @@ async function uploadFiles(files: File[]) {
 .ref-vision-model label {
   font-size: 11px; color: var(--text-muted);
 }
-.ref-vision-model select {
-  font-size: 12px;
-  padding: 3px 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  flex: 1 1 280px;
-  min-width: 200px;
-}
+.ref-vision-menu { flex: 1 1 380px; max-width: 620px; }
 .cap-link {
   font-size: 11px;
   background: none; border: none;

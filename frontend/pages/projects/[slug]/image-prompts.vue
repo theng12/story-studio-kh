@@ -181,11 +181,16 @@
               {{ referenceImagePath ? 'Change reference…' : 'Extract from reference image…' }}
             </button>
 
-            <select v-if="visionModels.length" v-model="visionModel" class="select select-sm vision-model-select" :disabled="extracting">
-              <option v-for="m in visionModels" :key="m.id" :value="m.id" :disabled="!m.has_key">
-                {{ formatVisionModelLabel(m) }}
-              </option>
-            </select>
+            <ModelMenu
+              v-if="visionModels.length"
+              v-model="visionModel"
+              class="vision-model-select"
+              :options="visionModelMenuOptions"
+              media-type="llm"
+              title="Reference analysis model"
+              search-placeholder="Search vision models…"
+              :disabled="extracting"
+            />
 
             <button
               v-if="referenceImagePath"
@@ -593,12 +598,15 @@
          model id from the dropdown to recolour the badges for that cap. -->
     <div v-if="form.episode_id" class="cap-preview-row">
       <label class="cap-preview-label">Char-count colours against image model:</label>
-      <select v-model="capPreviewModel" class="cap-preview-select" title="Pick the image model these prompts will eventually feed. Each row's char counter colours red/yellow/green against that model's documented cap.">
-        <option value="">(none — show raw counts)</option>
-        <option v-for="m in capPreviewOptions" :key="m.id" :value="m.id">
-          {{ m.label }}<template v-if="m.cap"> · cap ~{{ m.cap.toLocaleString() }}</template>
-        </option>
-      </select>
+      <ModelMenu
+        v-model="capPreviewModel"
+        class="cap-preview-select"
+        :options="capPreviewMenuOptions"
+        media-type="image"
+        title="Prompt compatibility model"
+        search-placeholder="Search image models…"
+        aria-label="Image model for prompt length checks"
+      />
       <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
     </div>
     <PromptReviewPanel
@@ -822,6 +830,22 @@ const allModelCaps = computed(() => {
   })
 })
 const capPreviewOptions = computed(() => allModelCaps.value)
+const capPreviewMenuOptions = computed(() => [
+  {
+    id: '',
+    label: 'Raw character counts only',
+    group: 'Prompt checking',
+    meta: 'Do not compare prompts against a model-specific limit.',
+  },
+  ...capPreviewOptions.value.map(model => ({
+    id: model.id,
+    label: model.label,
+    group: model.provider || 'Image models',
+    provider: model.provider,
+    meta: model.cap ? `${model.cap.toLocaleString()} character prompt cap` : 'No documented prompt cap',
+    badges: model.supportsRefs ? [{ label: 'References', tone: 'info' as const }] : [],
+  })),
+])
 const capPreviewInfo = computed(() => {
   const id = capPreviewModel.value
   if (!id) return { cap: null as number | null, label: '' }
@@ -910,6 +934,15 @@ const lastAnalyzedAt = ref<string | null>(null)
 const lastAnalysisModel = ref<string | null>(null)
 const visionModels = ref<VisionModelCap[]>([])
 const visionModel = ref<string>('claude-sonnet-4-6')
+const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
+  id: model.id,
+  label: model.id,
+  group: model.provider === 'anthropic' ? 'Anthropic' : model.provider === 'openai' ? 'OpenAI' : 'Vision models',
+  provider: model.provider,
+  disabled: !model.has_key,
+  disabledReason: model.has_key ? undefined : 'Add this provider\'s API key to enable it.',
+  badges: [{ label: 'Vision', tone: 'info' as const }],
+})))
 
 // Session history
 interface HistoryEntry {
@@ -1538,12 +1571,6 @@ const lastAnalyzedAtRelative = computed(() => {
   return `${Math.round(diff / 3600_000)} h ago`
 })
 
-function formatVisionModelLabel(m: VisionModelCap): string {
-  const base = m.id
-  if (!m.has_key) return `${base} — no key`
-  return base
-}
-
 async function loadVisionCaps() {
   try {
     const data = await get<{ models: VisionModelCap[]; default: string }>(
@@ -2037,8 +2064,8 @@ async function saveToFile() {
 /* Style-tag textarea — short, no monospace. */
 .style-tag-textarea { min-height: 60px; font-size: 13px; }
 
-/* Vision-model dropdown sits inline with the file picker. */
-.vision-model-select { max-width: 220px; }
+/* Vision-model menu sits inline without truncating long model names. */
+.vision-model-select { width: min(420px, 100%); }
 
 /* Optional focus-hint row beneath the extract / re-analyze buttons.
  * Compact label-input pair so it doesn't dominate the section. */
@@ -2227,13 +2254,7 @@ async function saveToFile() {
 }
 .cap-preview-label { color: var(--text-muted); }
 .cap-preview-select {
-  font-size: 12px;
-  padding: 3px 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
+  width: min(420px, 100%);
 }
 .cap-link {
   font-size: 11px;

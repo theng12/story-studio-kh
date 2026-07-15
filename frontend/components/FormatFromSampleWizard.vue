@@ -44,12 +44,7 @@
         <div class="form-group">
           <label>Model</label>
           <span class="hint">The AI that does the extraction. Uses this project's API keys.</span>
-          <select v-model="model" class="select">
-            <option value="claude-sonnet-4-5">Claude Sonnet 4.5 (recommended)</option>
-            <option value="claude-opus-4-5">Claude Opus 4.5</option>
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-4-turbo">GPT-4 Turbo</option>
-          </select>
+          <ModelSelector v-model="model" :project-slug="projectSlug" label="Format extraction model" />
         </div>
 
         <div class="wiz-actions">
@@ -149,7 +144,7 @@ const step = ref<'input' | 'review' | 'done'>('input')
 const samplesText = ref('')
 const desiredName = ref('')
 const channelIntent = ref('')
-const model = ref('claude-sonnet-4-5')
+const model = ref('')
 const extracting = ref(false)
 const extractError = ref('')
 

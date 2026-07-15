@@ -140,11 +140,15 @@
           <template v-else>
             <div class="form-group">
               <label>Whisper model <span class="text-muted text-xs">· on {{ vsAvail.device || 'mps' }}</span></label>
-              <select v-model="vsModel" class="select select-sm">
-                <option v-for="m in (vsAvail.models || [])" :key="m.repo" :value="m.repo">
-                  {{ m.label || m.repo }}{{ m.size_gb ? ` · ${m.size_gb} GB` : '' }}{{ m.recommended ? ' · recommended' : '' }}{{ m.cached ? '' : ' · not downloaded' }}
-                </option>
-              </select>
+              <ModelMenu
+                v-model="vsModel"
+                :options="whisperModelOptions"
+                media-type="transcription"
+                title="Choose a Whisper model"
+                placeholder="Pick a transcription model…"
+                search-placeholder="Search Whisper models…"
+                aria-label="Whisper model options"
+              />
             </div>
             <div v-if="selectedVsModel && !selectedVsModel.cached" class="sub-download mt-1">
               <p class="validation-msg text-sm" style="margin:0;">
@@ -451,6 +455,18 @@ const coveragePct = computed(() => coverage.value.total ? Math.round((coverage.v
 const selectedVsModel = computed<VsModel | undefined>(() =>
   (vsAvail.value?.models || []).find(m => m.repo === vsModel.value),
 )
+const whisperModelOptions = computed(() => (vsAvail.value?.models || []).map(model => ({
+  id: model.repo,
+  label: model.label || model.repo,
+  group: 'Voice Studio · local',
+  provider: 'Voice Studio',
+  meta: [model.size_gb ? `${model.size_gb} GB` : '', model.cached ? 'Downloaded' : 'Not downloaded'].filter(Boolean).join(' · '),
+  description: model.note || '',
+  badges: [
+    ...(model.recommended ? [{ label: 'recommended', tone: 'info' as const }] : []),
+    { label: model.cached ? 'ready' : 'download', tone: model.cached ? 'local' as const : 'warning' as const },
+  ],
+})))
 
 const transcribeJobActive = computed(() =>
   (jobs.value as any[]).some(j =>

@@ -99,25 +99,15 @@
               ⚡ Normalize all{{ unnormalizedCount ? ` (${unnormalizedCount})` : '' }}
             </button>
             <!-- Vision model for auto-tagging (both clips + images). -->
-            <select
+            <ModelMenu
               v-model="autotagModel"
-              class="select select-sm autotag-model-select"
+              class="autotag-model-select"
+              :options="autotagModelMenuOptions"
+              media-type="llm"
+              title="B-Roll vision model"
+              search-placeholder="Search vision models…"
               :disabled="autotagModelsLoading || !usableAutotagModels.length"
-              title="Which vision model tags your clips/images. Local Chat Studio models are free; cloud models use their configured API key. Video clips tag from a midpoint frame; images tag directly."
-            >
-              <option v-if="autotagModelsLoading" value="" disabled>Loading models…</option>
-              <optgroup v-for="group in autotagModelGroups" :key="group.provider" :label="group.label">
-                <option
-                  v-for="m in group.items"
-                  :key="m.id"
-                  :value="m.id"
-                  :disabled="!isUsableAutotagModel(m.data)"
-                  :title="autotagModelTooltip(m.data)"
-                >
-                  {{ m.data.label }}{{ autotagModelSuffix(m.data) }}
-                </option>
-              </optgroup>
-            </select>
+            />
             <button
               class="btn btn-sm btn-secondary"
               :disabled="!selectedPool.online || autotagging || !untaggedCount"
@@ -1022,7 +1012,7 @@ interface AutotagModelRow {
 // Use the shared model catalog so B-Roll sees the same cloud + local choices
 // as every other LLM picker. Text-only models remain visible but disabled:
 // they cannot inspect the cached thumbnail frame that auto-tagging requires.
-const autotagModel = ref<string>('gpt-4o')
+const autotagModel = ref<string>('')
 const autotagModels = ref<AutotagModelRow[]>([])
 const autotagModelsLoading = ref(false)
 const usableAutotagModels = computed(() => autotagModels.value.filter(isUsableAutotagModel))
@@ -1031,17 +1021,21 @@ const autotagModelGroups = computed(() => {
   for (const model of autotagModels.value) rows[model.id] = model
   return groupModels(rows, (_id, model) => model.provider || 'other')
 })
+const autotagModelMenuOptions = computed(() => autotagModelGroups.value.flatMap(group => group.items.map(item => ({
+  id: item.id,
+  label: item.data.label,
+  group: group.label,
+  provider: group.label,
+  meta: item.data.supports_vision ? 'Analyses images and video frames' : 'Text-only model',
+  disabled: !isUsableAutotagModel(item.data),
+  disabledReason: !isUsableAutotagModel(item.data) ? autotagModelTooltip(item.data) : undefined,
+  badges: item.data.provider === 'chatstudio'
+    ? [{ label: 'Local', tone: 'local' as const }, { label: 'Free', tone: 'free' as const }]
+    : [{ label: 'Vision', tone: 'info' as const }, { label: 'Cloud', tone: 'paid' as const }],
+}))))
 
 function isUsableAutotagModel(model: AutotagModelRow): boolean {
   return model.available && !model.disabled_reason && model.supports_vision
-}
-
-function autotagModelSuffix(model: AutotagModelRow): string {
-  if (model.disabled_reason) return ' (unavailable)'
-  if (!model.available) return model.provider === 'chatstudio' ? ' (offline)' : ' (no key)'
-  if (!model.supports_vision) return ' (text-only)'
-  if (model.provider === 'chatstudio') return ' (local · free)'
-  return ''
 }
 
 function autotagModelTooltip(model: AutotagModelRow): string {
@@ -2035,8 +2029,8 @@ function onThumbError(e: Event): void {
 .pool-filter-btn.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
 .pool-filter-empty { font-size: 12px; padding: 8px 2px; }
 .link-btn { background: none; border: 0; padding: 0; color: var(--accent, #6c8fff); cursor: pointer; font: inherit; text-decoration: underline; }
-/* v1.0.406 — compact vision-model picker in the autotag toolbar. */
-.autotag-model-select { max-width: 230px; font-size: 12px; }
+/* Compact but readable vision-model picker in the autotag toolbar. */
+.autotag-model-select { width: min(360px, 100%); }
 .pool-card.active { border-color: var(--accent, #6c8fff); background: rgba(108,143,255,0.06); }
 .pool-card-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 4px; }

@@ -24,16 +24,15 @@
     <div v-else-if="loadError" class="fish-expr-error">{{ loadError }}</div>
     <template v-else>
       <div class="fish-expr-row">
-        <select v-model="markupModel" class="select fish-expr-model" title="Which LLM writes the tags">
-          <template v-if="modelGroups.length">
-            <optgroup v-for="g in modelGroups" :key="g.provider" :label="g.label">
-              <option v-for="m in g.items" :key="m.id" :value="m.id" :disabled="!m.available">
-                {{ m.label }}{{ m.available ? '' : ' · needs API key' }}
-              </option>
-            </optgroup>
-          </template>
-          <option v-else :value="markupModel">{{ markupModel }}</option>
-        </select>
+        <ModelMenu
+          v-model="markupModel"
+          class="fish-expr-model"
+          :options="markupModelOptions"
+          media-type="llm"
+          title="Expression markup model"
+          search-placeholder="Search text models…"
+          aria-label="Expression markup model"
+        />
         <button type="button" class="btn btn-sm" :disabled="!!busy || jobActive || !sections.length" @click="generateAll">
           {{ jobActive ? `Tagging… (${taggedCount}/${sections.length})` : '✨ Tag all with AI' }}
         </button>
@@ -121,10 +120,21 @@ const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs
 // Gemini, LM Studio) is offered, grouped + labelled. Models without a key show
 // disabled. Defaults to the cheap DeepSeek Flash when it's available.
 const markupModel = computed<string>({
-  get: () => props.expressionModel || 'deepseek-v4-flash',
+  get: () => props.expressionModel || '',
   set: (value) => emit('update:expressionModel', value),
 })
 const modelGroups = ref<Array<{ provider: string; label: string; items: ModelRow[] }>>([])
+const markupModelOptions = computed(() => modelGroups.value.flatMap(group => group.items.map(model => ({
+  id: model.id,
+  label: model.label,
+  group: group.label,
+  provider: group.label,
+  disabled: !model.available,
+  disabledReason: model.available ? undefined : 'Add this provider\'s API key to enable it.',
+  badges: model.provider === 'chatstudio'
+    ? [{ label: 'Local', tone: 'local' as const }, { label: 'Free', tone: 'free' as const }]
+    : [{ label: 'Cloud', tone: 'paid' as const }],
+}))))
 const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'chatstudio']
 
 async function loadModels() {
@@ -308,7 +318,7 @@ onUnmounted(stopPolling)
 .fish-expr-empty, .fish-expr-error { padding: 4px 0; }
 .fish-expr-error { color: var(--danger, #e5534b); font-size: 12px; }
 .fish-expr-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.fish-expr-model { flex: 0 1 220px; }
+.fish-expr-model { flex: 1 1 340px; max-width: 520px; }
 .fish-expr-section { flex: 1; min-width: 0; }
 .fish-expr-editor { display: flex; flex-direction: column; gap: 6px; }
 .fish-expr-tags { display: flex; flex-wrap: wrap; gap: 4px; }

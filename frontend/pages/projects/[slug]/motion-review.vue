@@ -72,10 +72,15 @@
         <div class="motion-tools">
           <label class="model-field">
             <span>Image-to-video model</span>
-            <select v-model="videoModel" class="select">
-              <option value="" disabled>Pick an image-to-video model...</option>
-              <option v-for="model in i2vModels" :key="model.id" :value="model.id">{{ model.label }}</option>
-            </select>
+            <ModelMenu
+              v-model="videoModel"
+              :options="i2vModels"
+              media-type="video"
+              title="Choose an image-to-video model"
+              placeholder="Pick an image-to-video model…"
+              search-placeholder="Search video model or provider…"
+              aria-label="Image-to-video model options"
+            />
           </label>
           <button class="btn btn-sm btn-secondary" :disabled="savingAll || stats.with_clip === 0" @click="approveAllClips">
             Approve all fresh clips
@@ -229,7 +234,19 @@ const motionPresets = usePresets({
 
 const i2vModels = computed(() => Object.entries((config.value as any)?.video_models || {})
   .filter(([, model]: [string, any]) => Array.isArray(model?.modes) && model.modes.includes('frames'))
-  .map(([id, model]: [string, any]) => ({ id, label: model.label || id })))
+  .map(([id, model]: [string, any]) => {
+    const provider = String(model.provider || model.provider_id || 'Video Studio')
+    const credits = Number(model.credits_per_video || model.credits_per_generation || 0)
+    return {
+      id,
+      label: model.label || id,
+      group: provider,
+      provider,
+      meta: credits > 0 ? `${credits} credits per clip` : 'Image-to-video',
+      description: model.description || model.hint || '',
+      badges: [{ label: credits > 0 ? 'paid' : 'I2V', tone: credits > 0 ? 'paid' as const : 'info' as const }],
+    }
+  }))
 watch(i2vModels, (models) => {
   if (!videoModel.value && models.length) videoModel.value = models[0]!.id
 }, { immediate: true })
