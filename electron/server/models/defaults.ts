@@ -157,7 +157,7 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   // Direct ElevenLabs (official API; prefix `eleven_` signals that backend).
   // Pricing is indicative — ElevenLabs charges per character against your plan
   // quota, so this is an approximate USD/1K-char figure for budgeting.
-  'eleven_v3':              { label: 'ElevenLabs v3 [direct]',              cost_per_1k_chars: 0.05, provider: 'elevenlabs' },
+  'eleven_v3':              { label: 'ElevenLabs v3 [direct]',              cost_per_1k_chars: 0.10, provider: 'elevenlabs' },
   'eleven_multilingual_v2': { label: 'ElevenLabs Multilingual v2 [direct]', cost_per_1k_chars: 0.10, provider: 'elevenlabs' },
   'eleven_turbo_v2_5':      { label: 'ElevenLabs Turbo v2.5 [direct]',      cost_per_1k_chars: 0.05, provider: 'elevenlabs' },
   'eleven_flash_v2_5':      { label: 'ElevenLabs Flash v2.5 [direct]',      cost_per_1k_chars: 0.05, provider: 'elevenlabs' },

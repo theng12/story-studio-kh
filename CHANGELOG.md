@@ -11,6 +11,7 @@ What's new in each release. Newest first.
 - Added Kie.ai Nano Banana 2 Lite and Seedream 5 Pro with their current image tiers, request parameters, and cost estimates.
 - Limited the built-in image catalog to the supported Qwen Z-Image, Grok, Seedream, Nano Banana, and GPT Image 2 families.
 - Fixed image generation so the selected resolution tier controls both the displayed price and the provider request.
+- Applied the recorded GenAIPro, fal.ai, ElevenLabs direct, and kie.ai TTS rates, including the corrected ElevenLabs v3 direct price.
 - Added Qwen3-TTS Base 0.6B and 1.7B voice-cloning models while updating the built-in Qwen CustomVoice model.
 - Kept cloned voices on the Voice Studio server that owns their local voice ID instead of allowing Studio Hub to route them to an incompatible server.
 - Made Voice Studio job polling recover from brief server restarts without resubmitting completed speech generation.

@@ -2,6 +2,29 @@
 
 Provider pricing records used by the built-in catalog.
 
+## Text to Speech
+
+Status: **applied to the live model catalog**
+
+Source: user-provided provider pricing, recorded 2026-07-15.
+
+| Provider | Model | Price per 1K characters (USD) |
+| --- | --- | ---: |
+| GenAIPro | ElevenLabs Flash v2.5 | $0.022 |
+| GenAIPro | ElevenLabs Turbo v2.5 | $0.022 |
+| GenAIPro | ElevenLabs Multilingual v2 | $0.022 |
+| GenAIPro | ElevenLabs v3 | $0.022 |
+| fal.ai | ElevenLabs Turbo v2.5 | $0.05 |
+| fal.ai | ElevenLabs Multilingual v2 | $0.10 |
+| fal.ai | ElevenLabs v3 | $0.10 |
+| ElevenLabs direct | Flash v2.5 | $0.05 |
+| ElevenLabs direct | Turbo v2.5 | $0.05 |
+| ElevenLabs direct | Multilingual v2 | $0.10 |
+| ElevenLabs direct | v3 | $0.10 |
+| kie.ai | ElevenLabs Turbo v2.5 | $0.03 |
+| kie.ai | ElevenLabs Multilingual v2 | $0.06 |
+| kie.ai | ElevenLabs v3 | $0.07 |
+
 ## Kie.ai
 
 ### GPT Image 2
