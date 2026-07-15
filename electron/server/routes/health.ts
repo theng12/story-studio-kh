@@ -367,167 +367,29 @@ router.get('/usage/rollup', async (req, res) => {
   }
 })
 
-// Dashboard stats
+// Dashboard overview metadata. Episode completion and stage coverage come from
+// `/projects/:slug/episodes`, the same cached, verified inventory used by the
+// Production Board and Pipeline. Keeping this endpoint lightweight prevents the
+// dashboard from performing a second recursive filesystem scan on every visit.
 router.get('/projects/:slug/dashboard-stats', async (req, res) => {
   const { slug } = req.params
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Not found' })
 
-  const fsP = await import('fs/promises')
-  const pathMod = await import('path')
   const im = await import('../services/idea-manager.js')
-  const { isCloudEvictedPlaceholder } = await import('../lib/http-retry.js')
-
   const ideas = await im.getIdeas(slug)
   const accepted = ideas.filter(i => i.status === 'accepted')
-
-  // Count completed assets by scanning folders. Counters are mutated from
-  // parallel async tasks below — safe in single-threaded JS (each `++` is
-  // synchronous; awaits between them yield, but the increment itself can't
-  // be interrupted by another task).
-  let scriptsGenerated = 0, scenePromptsGenerated = 0, thumbPromptsGenerated = 0
-  let imagesGenerated = 0, thumbsGenerated = 0, audioGenerated = 0, descsGenerated = 0
-  let totalImageFiles = 0, totalAudioFiles = 0
-  const episodesReady = 0  // Tagging removed — ready status computed on frontend
-  let icloud_skipped = 0
-  let scan_partial = false
-
-  // Hard cap on the whole-tree walk. iCloud-backed projects can hang on
-  // OS-level sync requests for tens of seconds per evicted file; without a
-  // bound here, the dashboard fetch could block the user's first project
-  // entry for minutes. When we hit this, we surface what we've counted so
-  // far + a `scan_partial: true` flag so the UI can warn and offer a retry.
-  const SCAN_TIMEOUT_MS = 25_000
-  const scanDeadline = Date.now() + SCAN_TIMEOUT_MS
-
-  async function scanEpisodes(dir: string): Promise<void> {
-    if (Date.now() > scanDeadline) { scan_partial = true; return }
-    // Cheap defensive probe for an iCloud placeholder at this directory.
-    // Keeps the readdir below from blocking on a sync fetch we can't
-    // recover from inside the request lifecycle. The placeholder format
-    // (`.{name}.icloud`) is per-file in iCloud's design, but checking is
-    // a single ENOENT-fast stat — no harm if it always misses.
-    try {
-      if (await isCloudEvictedPlaceholder(dir)) { icloud_skipped++; return }
-    } catch { /* probe is best-effort */ }
-    let entries: import('fs').Dirent[]
-    try {
-      entries = await fsP.readdir(dir, { withFileTypes: true })
-    } catch { return }
-    // Process every entry in parallel. Each branch is independent
-    // I/O — collapsing the sequential await chain into a Promise.all
-    // turns ~800 stat/readdir calls (80 episodes × ~10 subfolders) from
-    // serial latency into the slowest-path latency. On local SSD that's
-    // 5s → ~0.5s; on iCloud projects with placeholder cache hits it's
-    // 30s+ → bound by the slowest single subfolder.
-    await Promise.all(entries.map(async (entry) => {
-      if (!entry.isDirectory()) return
-      if (Date.now() > scanDeadline) { scan_partial = true; return }
-      const fp = pathMod.join(dir, entry.name)
-      if (/^[A-Z]{2,}\d{2,} - /.test(entry.name)) {
-        // Episode folder — read the subfolder list, then process each
-        // asset subfolder in parallel.
-        let subs: string[]
-        try { subs = await fsP.readdir(fp) }
-        catch { return }
-        await Promise.all(subs.map(async (sub) => {
-          if (Date.now() > scanDeadline) { scan_partial = true; return }
-          const cleanSub = sub.toLowerCase()
-          const subPath = pathMod.join(fp, sub)
-          try {
-            const stat = await fsP.stat(subPath)
-            if (!stat.isDirectory()) return
-            const files = await fsP.readdir(subPath)
-            const hasTextArtifact = (fl: string[]) => fl.some(f => f.endsWith('.md') || f.endsWith('.docx'))
-            if ((cleanSub.endsWith('script') || cleanSub.includes('01 script')) && !cleanSub.includes('prompt') && !cleanSub.includes('description')) {
-              if (hasTextArtifact(files)) scriptsGenerated++
-            }
-            if (cleanSub.includes('scene prompt')) {
-              if (hasTextArtifact(files)) scenePromptsGenerated++
-            }
-            if (cleanSub.includes('thumbnail prompt')) {
-              if (hasTextArtifact(files)) thumbPromptsGenerated++
-            }
-            if (cleanSub.includes('scene image') || cleanSub.includes('background image')) {
-              const imgs = files.filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
-              if (imgs.length) imagesGenerated++
-              totalImageFiles += imgs.length
-            }
-            if ((cleanSub.includes('thumbnail image') || cleanSub.includes('thumbnails')) && !cleanSub.includes('prompt')) {
-              const imgs = files.filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
-              if (imgs.length) thumbsGenerated++
-              totalImageFiles += imgs.length
-            }
-            if (cleanSub.includes('audio')) {
-              const auds = files.filter(f => f.endsWith('.mp3') || f.endsWith('.wav'))
-              if (auds.length) audioGenerated++
-              totalAudioFiles += auds.length
-            }
-            if (cleanSub.includes('description')) {
-              if (files.some(f => f.endsWith('.txt'))) descsGenerated++
-            }
-          } catch {}
-        }))
-      } else {
-        await scanEpisodes(fp)
-      }
-    }))
-  }
-
-  const scanStart = Date.now()
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (outputRoot) await scanEpisodes(outputRoot)
-  const scan_duration_ms = Date.now() - scanStart
-
-  // Time saved estimates (minutes)
-  const TIME_PER_SCRIPT = 120       // 2 hours to write manually
-  const TIME_PER_SCENE_PROMPTS = 30 // 30 min to write scene prompts
-  const TIME_PER_THUMB_PROMPTS = 15 // 15 min to write thumbnail prompts
-  const TIME_PER_IMAGE = 10         // 10 min per image (finding/creating)
-  const TIME_PER_AUDIO_CHAPTER = 15 // 15 min recording + editing
-  const TIME_PER_DESC = 20          // 20 min to write YouTube description
-
-  const timeSavedMin =
-    scriptsGenerated * TIME_PER_SCRIPT +
-    scenePromptsGenerated * TIME_PER_SCENE_PROMPTS +
-    thumbPromptsGenerated * TIME_PER_THUMB_PROMPTS +
-    totalImageFiles * TIME_PER_IMAGE +
-    totalAudioFiles * TIME_PER_AUDIO_CHAPTER +
-    descsGenerated * TIME_PER_DESC
-
   const usage = getSessionUsage()
   const sessionStats = await getSessionStats(slug)
 
   res.json({
     ideas: { total: ideas.length, accepted: accepted.length, new: ideas.filter(i => i.status === 'new').length },
-    episodes: { total: accepted.length, ready: episodesReady },
-    assets: {
-      scripts: scriptsGenerated,
-      scene_prompts: scenePromptsGenerated,
-      thumb_prompts: thumbPromptsGenerated,
-      images: imagesGenerated,
-      thumbnails: thumbsGenerated,
-      audio: audioGenerated,
-      descriptions: descsGenerated,
-      total_image_files: totalImageFiles,
-      total_audio_files: totalAudioFiles,
-    },
-    time_saved: { minutes: timeSavedMin, hours: Math.round(timeSavedMin / 60 * 10) / 10 },
     session: {
       api_cost: usage.total_cost,
       calls: usage.entries,
       current: sessionStats.current,
       previous: sessionStats.previous,
       all_time: sessionStats.all_time,
-    },
-    // Scan diagnostics: surface to the UI so it can warn about partial
-    // results (iCloud syncing, timeout, etc.). The frontend renders a
-    // "still downloading" banner when scan_partial is true and lets the
-    // user retry once iCloud catches up.
-    scan: {
-      duration_ms: scan_duration_ms,
-      partial: scan_partial,
-      icloud_skipped,
     },
   })
 })

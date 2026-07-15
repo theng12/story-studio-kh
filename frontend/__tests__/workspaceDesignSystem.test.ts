@@ -15,6 +15,7 @@ const notice = source('../components/WorkspaceNotice.vue')
 const actionBar = source('../components/TopActionBar.vue')
 
 const familyPages = {
+  dashboard: source('../pages/projects/[slug]/index.vue'),
   generator: source('../pages/projects/[slug]/audio.vue'),
   review: source('../pages/projects/[slug]/scene-review.vue'),
   assembly: source('../pages/projects/[slug]/subtitles.vue'),

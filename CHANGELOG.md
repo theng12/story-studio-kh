@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.610 — 2026-07-15
+
+**Dashboard is now a fast, verified project command center.**
+
+- Rebuilt Dashboard with the shared workspace shell, a clearer visual hierarchy, responsive layouts, and compact operational cards.
+- Replaced the hardcoded zero-ready counter and legacy folder guesses with the same verified episode inventory and format-aware completion rules used by Production Board.
+- Added ranked next actions, ready-to-render and final-video counts, current workflow coverage, queue health, publishing readiness, and manual asset-integrity checks.
+- Removed the retired Description route, legacy scene-prompt/image counters, previous-session clutter, and the misleading exact Time Saved headline.
+- Removed the second recursive project scan and one-second loading repaint from normal Dashboard visits, while preserving the expensive deep audit as an explicit cached action.
+- Added regression coverage for verified readiness, current workflow routing, shared design, and dashboard performance boundaries.
+
 ## v1.0.609 — 2026-07-15
 
 **Pipeline now treats introductions as optional and keeps episode navigation within easy reach.**
