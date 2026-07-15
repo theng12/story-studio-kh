@@ -79,6 +79,7 @@
     </div>
 
     <ProjectStyleLibrary
+      v-if="showCustomStyles !== false"
       :project-slug="slug"
       :image-models="imageModels"
       title="Custom styles for this project"
@@ -95,6 +96,8 @@ const props = defineProps<{
   slug: string
   /** project config image_models, for the preview-model picker. */
   imageModels?: Record<string, any>
+  /** Some focused workspaces only need the built-in gallery. */
+  showCustomStyles?: boolean
 }>()
 
 const emit = defineEmits<{

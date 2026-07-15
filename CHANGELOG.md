@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.616 — 2026-07-15
+
+**Character Sheet now focuses only on active continuity controls.**
+
+- Removed project custom-style authoring from Character Sheet while retaining the built-in style gallery.
+- Removed Step 5 Visual Recipe and its composition upload/generation controls from Character Sheet.
+- Prevented retired recipe and composition fields from returning through Character Sheet presets or newly saved continuity configs.
+- Added regression coverage for the simplified four-step workspace.
+
 ## v1.0.615 — 2026-07-15
 
 **Script regeneration controls no longer hide behind an unnecessary drawer.**
