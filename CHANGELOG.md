@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.608 — 2026-07-15
+
+**Research is now a compact, evidence-first workspace instead of a long settings form.**
+
+- Reorganized the page into a clear Brief, Gather, and Verify flow while keeping Research optional and non-blocking.
+- Combined the episode topic, guiding questions, and evidence source into one compact research brief.
+- Moved model selection, source depth, and local presets into one reusable advanced drawer without changing their saved behavior.
+- Added visible review progress and distinct verified, pending, ignored, unsaved, running, and ready states.
+- Reworked claims, citations, recommended structure, and Metadata source handoff into denser review surfaces with clearer actions.
+- Added responsive styling, visual QA, and regression coverage for the modern Research workflow and optional-step contract.
+
 ## v1.0.607 — 2026-07-15
 
 **Ideas Generator is now freeform-first, faster to understand, and far less restrictive.**

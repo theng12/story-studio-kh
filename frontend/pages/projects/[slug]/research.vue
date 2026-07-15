@@ -24,202 +24,233 @@
         <div class="workspace-metrics" aria-label="Research workspace context">
           <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
           <span class="workspace-metric"><strong>{{ result?.claims.length || 0 }}</strong> claims</span>
-          <span class="workspace-metric" :data-tone="unreviewedCount ? 'warning' : 'success'"><strong>{{ unreviewedCount }}</strong> pending review</span>
+          <span class="workspace-metric" :data-tone="researchReadinessTone"><strong>{{ researchReadinessLabel }}</strong> status</span>
         </div>
       </template>
     </WorkspaceHero>
 
     <div class="workspace-command-surface creation-command-surface">
       <TopActionBar
-      :project-slug="slug"
-      v-model:episode-id="episodeId"
-      filter-field="research"
-      generate-label="Run research"
-      loading-label="Researching…"
-      :generate-loading="researching || researchJobActive"
-      :generate-disabled="!canRun"
-      :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
-      @generate="runResearch"
+        :project-slug="slug"
+        v-model:episode-id="episodeId"
+        filter-field="research"
+        generate-label="Run research"
+        loading-label="Researching…"
+        :generate-loading="researching || researchJobActive"
+        :generate-disabled="!canRun"
+        :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
+        @generate="runResearch"
       />
-      <p class="workspace-command-copy">
-        Pick an episode and source, then run research. Review every claim as <strong>verified</strong> or <strong>ignored</strong> before saving.
-      </p>
-    </div>
-
-    <PresetPicker
-      label="Research preset"
-      hint="Saves the source, model, source limit, and reusable questions for one-click Pipeline runs. The episode title becomes each run's topic."
-      :presets="researchPresets.presets.value"
-      :active-id="researchPresets.activeId.value"
-      @update:active-id="researchPresets.setActive"
-      @apply="researchPresets.applyActive(); success('Research preset applied')"
-      @overwrite="researchPresets.overwrite(); success('Research preset saved')"
-      @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-      @rename="(n: string) => researchPresets.rename(n)"
-      @delete="researchPresets.remove()"
-    />
-
-    <!-- Source picker -->
-    <section class="card workspace-section research-stage-card">
-      <h3>1. Source</h3>
-      <p class="text-muted text-sm mt-1">
-        Each source has tradeoffs — pick per episode based on what the
-        topic needs.
-      </p>
-      <div v-if="sourcesLoading" class="text-muted text-sm mt-2">Loading sources…</div>
-      <div v-else class="research-source-grid mt-2">
-        <button
-          v-for="src in sources"
-          :key="src.id"
-          type="button"
-          :class="['research-source-card', { active: form.source_provider === src.id, unconfigured: !src.configured }]"
-          @click="form.source_provider = src.id"
-          :title="src.configured ? '' : 'API key not configured — see App Settings → API Keys'"
-        >
-          <div class="research-source-card-head">
-            <strong>{{ src.display_name }}</strong>
-            <span v-if="!src.configured" class="research-source-badge">no key</span>
-            <span v-else-if="form.source_provider === src.id" class="research-source-badge active">picked</span>
-          </div>
-          <p class="text-muted text-xs research-source-helper">{{ src.helper_text }}</p>
-        </button>
-      </div>
-
-      <!-- v1.0.175 — model picker for the LLM-only source. The web-search
-           source (Perplexity) is bound to its own search-capable models,
-           so the picker only appears for LLM-only — there you can use any
-           configured provider (kie.ai, OpenAI, DeepSeek, Anthropic…).
-           Replaces the old hardcoded Anthropic default; your choice is
-           remembered per project. -->
-      <div v-if="form.source_provider === 'llm-only'" class="research-model-row mt-3">
-        <ModelSelector v-model="form.source_model" :project-slug="slug" />
-        <p class="text-muted text-xs mt-1">
-          Pick any text model from a provider you've configured. Leave on a
-          provider you actually pay for — there's no forced default.
+      <div class="research-flow-rail" aria-label="Research workflow">
+        <span class="research-flow-step" :class="{ active: !result }"><b>1</b> Brief</span>
+        <span class="research-flow-line" aria-hidden="true"></span>
+        <span class="research-flow-step" :class="{ active: researching || researchJobActive, complete: !!result }"><b>2</b> Gather</span>
+        <span class="research-flow-line" aria-hidden="true"></span>
+        <span class="research-flow-step" :class="{ active: !!result, complete: !!result && unreviewedCount === 0 }"><b>3</b> Verify</span>
+        <p class="workspace-command-copy">
+          Research is optional. When used, only claims you verify are passed to Script Generator.
         </p>
       </div>
-    </section>
+    </div>
 
-    <!-- Form -->
-    <section class="card workspace-section research-stage-card">
-      <h3>2. Topic + questions</h3>
-      <div class="form-group mt-2">
-        <label>Episode topic <span class="req">*</span></label>
-        <input
-          v-model="form.topic"
-          class="input"
-          placeholder="e.g. Why the Tacoma Narrows Bridge collapsed in 1940"
-        />
-        <span class="text-muted text-xs">
-          Specific is better than broad. "World War II" → too wide.
-          "Why the German invasion of Norway in 1940 succeeded" → right-sized.
+    <WorkspaceSection
+      eyebrow="Research brief"
+      title="Define what needs evidence"
+      description="The episode title is filled automatically. Refine it only when the research question needs a narrower boundary."
+      class="workspace-section research-brief-section"
+    >
+      <template #actions>
+        <span class="research-selection-pill" :data-ready="selectedSource?.configured ? 'true' : 'false'">
+          {{ selectedSource?.display_name || 'Choose a source' }}
         </span>
+      </template>
+
+      <div class="research-brief-grid">
+        <div class="research-brief-copy">
+          <div class="form-group">
+            <label>Research topic <span class="req">*</span></label>
+            <input
+              v-model="form.topic"
+              class="input research-topic-input"
+              placeholder="What specifically should this episode establish?"
+            />
+            <span class="research-field-note">Specific questions produce stronger, easier-to-review evidence.</span>
+          </div>
+
+          <div class="form-group research-questions-field">
+            <label>Questions to answer <span class="research-optional-label">optional</span></label>
+            <textarea
+              v-model="form.specific_questions"
+              class="textarea"
+              rows="3"
+              placeholder="One question per line, such as: What caused it? What common explanation is wrong?"
+            />
+          </div>
+        </div>
+
+        <aside class="research-source-panel">
+          <div class="research-panel-heading">
+            <span>Evidence source</span>
+            <small>{{ configuredSourceCount }} ready</small>
+          </div>
+          <div v-if="sourcesLoading" class="research-source-loading">
+            <LoadingSpinner size="sm" /> Loading sources…
+          </div>
+          <div v-else class="research-source-grid">
+            <button
+              v-for="src in sources"
+              :key="src.id"
+              type="button"
+              :class="['research-source-card', { active: form.source_provider === src.id, unconfigured: !src.configured }]"
+              @click="form.source_provider = src.id"
+              :title="src.configured ? '' : 'API key not configured — see App Settings → API Keys'"
+            >
+              <span class="research-source-radio" aria-hidden="true"></span>
+              <span class="research-source-card-copy">
+                <strong>{{ src.display_name }}</strong>
+                <small>{{ src.helper_text }}</small>
+              </span>
+              <span class="research-source-badge" :class="{ active: src.configured }">
+                {{ src.configured ? 'Ready' : 'No key' }}
+              </span>
+            </button>
+          </div>
+          <NuxtLink
+            v-if="selectedSource && !selectedSource.configured"
+            :to="`/projects/${slug}/settings#app`"
+            class="research-settings-link"
+          >
+            Configure this source in Settings
+          </NuxtLink>
+        </aside>
       </div>
-      <div class="form-group mt-2">
-        <label>Specifically answer these (optional)</label>
-        <textarea
-          v-model="form.specific_questions"
-          class="textarea"
-          rows="3"
-          placeholder="Anything you want addressed in the research, one per line. e.g.&#10;What was the actual cause of the collapse?&#10;Why is 'resonance' the wrong answer?"
+
+      <AdvancedDisclosure
+        label="Run settings and reusable preset"
+        :badge="researchSettingsBadge"
+        :persist-key="`research_run_settings_open_${slug}`"
+      >
+        <div class="research-advanced-grid">
+          <div v-if="form.source_provider === 'llm-only'" class="research-model-field">
+            <label>Research model</label>
+            <ModelSelector v-model="form.source_model" :project-slug="slug" />
+            <span class="research-field-note">Your last explicit model remains selected for this project.</span>
+          </div>
+          <div class="research-depth-field">
+            <label for="research-max-sources">Source depth</label>
+            <div class="research-depth-control">
+              <input
+                id="research-max-sources"
+                v-model.number="form.max_sources"
+                class="input input-sm"
+                type="number"
+                min="3"
+                max="20"
+              />
+              <span>sources</span>
+            </div>
+            <span class="research-field-note">Web research honors this closely; LLM-only treats it as guidance.</span>
+          </div>
+        </div>
+
+        <PresetPicker
+          class="research-preset-picker"
+          label="Research preset"
+          hint="Saves the source, model, source depth, and reusable questions. Episode topics remain episode-specific."
+          :presets="researchPresets.presets.value"
+          :active-id="researchPresets.activeId.value"
+          @update:active-id="researchPresets.setActive"
+          @apply="researchPresets.applyActive(); success('Research preset applied')"
+          @overwrite="researchPresets.overwrite(); success('Research preset saved')"
+          @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+          @rename="(n: string) => researchPresets.rename(n)"
+          @delete="researchPresets.remove()"
         />
-      </div>
-      <div class="form-group mt-2">
-        <label>Max sources to consult</label>
-        <input
-          v-model.number="form.max_sources"
-          class="input input-sm input-inline"
-          type="number"
-          min="3"
-          max="20"
-        />
-        <span class="text-muted text-xs ml-1">
-          Adapters round / interpret this — Perplexity tends to honor
-          it; LLM-only treats it as a hint.
-        </span>
-      </div>
-    </section>
+      </AdvancedDisclosure>
+    </WorkspaceSection>
 
     <!-- Results -->
-    <section
+    <WorkspaceSection
       v-if="result || researching"
-      class="card workspace-section research-stage-card"
+      eyebrow="Evidence review"
+      :title="researching ? 'Gathering evidence' : 'Verify before use'"
+      :description="researching ? 'The selected source is building a reviewable evidence set.' : 'Only verified claims are passed into Script Generator. Ignored claims remain recorded but are not used.'"
+      class="workspace-section research-review-section"
     >
-      <div class="flex justify-between items-center">
-        <h3>3. Results</h3>
-        <div v-if="result" class="flex gap-2 items-center">
-          <span class="text-muted text-xs">
-            {{ result.claims.length }} claim{{ result.claims.length === 1 ? '' : 's' }}
-            · {{ result.citations.length }} source{{ result.citations.length === 1 ? '' : 's' }}
-            · {{ acceptedCount }} verified, {{ ignoredCount }} ignored, {{ unreviewedCount }} pending
-          </span>
+      <template #actions>
+        <div v-if="result" class="research-result-actions">
           <button class="btn btn-sm btn-primary" :disabled="saving || !dirty" @click="saveResearch">
-            {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
+            {{ saving ? 'Saving…' : (dirty ? 'Save review' : 'Saved') }}
           </button>
           <button
             class="btn btn-sm btn-danger"
             :disabled="deleting"
             @click="deleteResearch"
-            title="Remove the research.json sidecar so the next run starts clean."
+            title="Remove the research files so the next run starts clean."
           >
-            {{ deleting ? 'Deleting…' : '✕ Delete' }}
+            {{ deleting ? 'Deleting…' : 'Delete' }}
           </button>
         </div>
-      </div>
+      </template>
 
-      <div v-if="researching" class="text-muted mt-2">
-        <LoadingSpinner size="sm" /> Adapter is running. Web-search
-        adapters typically take 10-30s; LLM-only is faster but lower
-        quality.
+      <div v-if="researching" class="research-running-state">
+        <LoadingSpinner size="sm" />
+        <div>
+          <strong>Research is running for {{ episodeId }}</strong>
+          <span>Results will appear here automatically. You can continue elsewhere while this job runs.</span>
+        </div>
       </div>
 
       <template v-else-if="result">
-        <p v-if="result.summary" class="text-sm mt-2 research-summary">
-          {{ result.summary }}
-        </p>
-
-        <h4 class="mt-3">Claims</h4>
-        <p class="text-muted text-xs">
-          Mark each claim — only <strong>verified</strong> claims flow
-          into the Script Generator (v1.0.143+).
-        </p>
-        <div v-if="result.claims.length" class="research-claims-bulk">
-          <span class="text-muted text-xs">Bulk:</span>
-          <button type="button" class="btn btn-xs btn-primary" @click="bulkClaims('verified')" title="Mark every claim verified">✓ Verify all</button>
-          <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('unreviewed')" title="Reset every claim to unreviewed (pending)">↺ Reset all</button>
-          <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('ignored')" title="Ignore every claim">⊘ Ignore all</button>
+        <div class="research-review-dashboard">
+          <div class="research-review-score" :data-ready="unreviewedCount === 0 ? 'true' : 'false'">
+            <strong>{{ reviewProgress }}%</strong>
+            <span>reviewed</span>
+          </div>
+          <div class="research-review-counts">
+            <span data-tone="success"><b>{{ acceptedCount }}</b> verified</span>
+            <span data-tone="warning"><b>{{ unreviewedCount }}</b> pending</span>
+            <span><b>{{ ignoredCount }}</b> ignored</span>
+            <span><b>{{ result.citations.length }}</b> sources</span>
+          </div>
+          <div v-if="result.claims.length" class="research-claims-bulk">
+            <button type="button" class="btn btn-xs btn-primary" @click="bulkClaims('verified')" title="Mark every claim verified">Verify all</button>
+            <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('unreviewed')" title="Reset every claim to pending">Reset</button>
+            <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('ignored')" title="Ignore every claim">Ignore all</button>
+          </div>
         </div>
+
+        <p v-if="result.summary" class="research-summary">{{ result.summary }}</p>
+
         <ul class="research-claims-list">
           <li
             v-for="(claim, i) in result.claims"
             :key="claim.id"
             :class="['research-claim', `is-${claim.status}`]"
           >
-            <div class="research-claim-text">
-              <strong>{{ i + 1 }}.</strong>
-              {{ claim.text }}
-              <span v-if="claim.confidence" :class="['research-conf', `conf-${claim.confidence}`]">
-                {{ claim.confidence }}
-              </span>
-            </div>
-            <div v-if="claim.note" class="text-muted text-xs research-claim-note">
-              {{ claim.note }}
-            </div>
-            <div
-              v-if="claim.citation_indices?.length"
-              class="text-muted text-xs research-claim-refs"
-            >
-              <a
-                v-for="idx in claim.citation_indices"
-                :key="idx"
-                class="research-cite-link"
-                :href="result.citations[idx]?.url || '#'"
-                target="_blank"
-                rel="noopener noreferrer"
-                :title="result.citations[idx]?.snippet || result.citations[idx]?.title"
-              >
-                [{{ idx + 1 }}]
-              </a>
+            <div class="research-claim-index">{{ String(i + 1).padStart(2, '0') }}</div>
+            <div class="research-claim-body">
+              <div class="research-claim-text">
+                {{ claim.text }}
+                <span v-if="claim.confidence" :class="['research-conf', `conf-${claim.confidence}`]">
+                  {{ claim.confidence }} confidence
+                </span>
+              </div>
+              <div v-if="claim.note" class="research-claim-note">{{ claim.note }}</div>
+              <div v-if="claim.citation_indices?.length" class="research-claim-refs">
+                <span>Evidence</span>
+                <a
+                  v-for="idx in claim.citation_indices"
+                  :key="idx"
+                  class="research-cite-link"
+                  :href="result.citations[idx]?.url || '#'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :title="result.citations[idx]?.snippet || result.citations[idx]?.title"
+                >
+                  Source {{ idx + 1 }}
+                </a>
+              </div>
             </div>
             <div class="research-claim-actions">
               <button
@@ -227,64 +258,78 @@
                 :class="['btn btn-sm', claim.status === 'verified' ? 'btn-primary' : 'btn-secondary']"
                 @click="setClaimStatus(claim, claim.status === 'verified' ? 'unreviewed' : 'verified')"
               >
-                ✓ Verified
+                {{ claim.status === 'verified' ? 'Verified' : 'Verify' }}
               </button>
               <button
                 type="button"
                 :class="['btn btn-sm', claim.status === 'ignored' ? 'btn-danger' : 'btn-secondary']"
                 @click="setClaimStatus(claim, claim.status === 'ignored' ? 'unreviewed' : 'ignored')"
               >
-                ✕ Ignored
+                {{ claim.status === 'ignored' ? 'Ignored' : 'Ignore' }}
               </button>
             </div>
           </li>
         </ul>
 
-        <h4 class="mt-3" v-if="result.structure?.length">Recommended structure</h4>
-        <ul class="research-structure" v-if="result.structure?.length">
-          <li v-for="(s, i) in result.structure" :key="i">
-            <strong>{{ s.heading }}</strong>
-            <span class="text-muted"> — {{ s.brief }}</span>
-          </li>
-        </ul>
+        <AdvancedDisclosure
+          v-if="result.structure?.length"
+          label="Recommended episode structure"
+          :badge="`${result.structure.length} sections`"
+        >
+          <ol class="research-structure">
+            <li v-for="(s, i) in result.structure" :key="i">
+              <span>{{ String(i + 1).padStart(2, '0') }}</span>
+              <div><strong>{{ s.heading }}</strong><p>{{ s.brief }}</p></div>
+            </li>
+          </ol>
+        </AdvancedDisclosure>
 
-        <div v-if="result.citations?.length" class="research-sources-head mt-3">
-          <h4>Sources</h4>
-          <div class="research-sources-bulk">
-            <span class="text-muted text-xs">In video description ({{ includedSourceCount }}):</span>
-            <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('all')">All</button>
-            <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('verified')" title="Only sources cited by a verified claim">Verified-backing</button>
-            <button type="button" class="btn btn-xs btn-ghost" @click="bulkSources('none')">None</button>
+        <div v-if="result.citations?.length" class="research-sources-panel">
+          <div class="research-sources-head">
+            <div>
+              <span class="research-panel-kicker">Source handoff</span>
+              <h3>Sources in the video description</h3>
+              <p>{{ includedSourceCount }} of {{ result.citations.length }} selected. Metadata will append their titles and links.</p>
+            </div>
+            <div class="research-sources-bulk">
+              <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('all')">All</button>
+              <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('verified')" title="Only sources cited by a verified claim">Verified only</button>
+              <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('none')">None</button>
+            </div>
           </div>
+          <ol class="research-sources">
+            <li v-for="(c, i) in result.citations" :key="i" :class="{ 'src-excluded': c.url && !isSourceIncluded(c) }">
+              <label class="research-source-toggle">
+                <input
+                  v-if="c.url"
+                  type="checkbox"
+                  :checked="isSourceIncluded(c)"
+                  :title="isSourceIncluded(c) ? 'Included in the description' : 'Excluded from the description'"
+                  @change="setSourceIncluded(c, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>{{ i + 1 }}</span>
+              </label>
+              <div class="research-source-content">
+                <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
+                <strong v-else>{{ c.title }}</strong>
+                <p v-if="c.snippet">{{ c.snippet }}</p>
+              </div>
+              <span v-if="c.url && verifiedBackingIdx.has(i)" class="research-source-vbadge" title="Cited by a verified claim">Verified evidence</span>
+            </li>
+          </ol>
         </div>
-        <p v-if="result.citations?.length" class="text-muted text-xs research-sources-note">
-          Ticked sources are appended (title + link) to the YouTube description when you generate Metadata. Tick per source or use the bulk buttons, then <strong>Save</strong>.
-        </p>
-        <ol class="research-sources" v-if="result.citations?.length">
-          <li v-for="(c, i) in result.citations" :key="i" :class="{ 'src-excluded': c.url && !isSourceIncluded(c) }">
-            <input
-              v-if="c.url"
-              type="checkbox"
-              class="research-source-check"
-              :checked="isSourceIncluded(c)"
-              :title="isSourceIncluded(c) ? 'Included in the description' : 'Excluded from the description'"
-              @change="setSourceIncluded(c, ($event.target as HTMLInputElement).checked)"
-            />
-            <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
-            <span v-else>{{ c.title }}</span>
-            <span v-if="c.url && verifiedBackingIdx.has(i)" class="research-source-vbadge" title="Cited by a verified claim">verified-backing</span>
-            <div v-if="c.snippet" class="text-muted text-xs research-source-snippet">{{ c.snippet }}</div>
-          </li>
-        </ol>
       </template>
-    </section>
+    </WorkspaceSection>
 
-    <section v-else class="card workspace-section research-stage-card">
-      <p class="text-muted text-sm">
-        No research yet for this episode. Pick a source above, set the
-        topic, and click <strong>Run research</strong>.
-      </p>
-    </section>
+    <WorkspaceSection v-else class="workspace-section research-empty-section">
+      <div class="research-empty-state">
+        <span class="research-empty-mark">R</span>
+        <div>
+          <strong>{{ episodeId ? 'This episode has no research yet' : 'Choose an episode to begin' }}</strong>
+          <p>{{ episodeId ? 'Confirm the topic and evidence source above, then run research when this story benefits from fact-checking.' : 'Research stays optional and never blocks the production pipeline.' }}</p>
+        </div>
+      </div>
+    </WorkspaceSection>
   </div>
 </template>
 
@@ -458,6 +503,30 @@ const dirty = computed(() => {
 const acceptedCount = computed(() => result.value?.claims.filter(c => c.status === 'verified').length ?? 0)
 const ignoredCount = computed(() => result.value?.claims.filter(c => c.status === 'ignored').length ?? 0)
 const unreviewedCount = computed(() => result.value?.claims.filter(c => c.status === 'unreviewed').length ?? 0)
+const selectedSource = computed(() => sources.value.find(source => source.id === form.value.source_provider) || null)
+const configuredSourceCount = computed(() => sources.value.filter(source => source.configured).length)
+const reviewProgress = computed(() => {
+  const total = result.value?.claims.length || 0
+  if (!total) return 0
+  return Math.round(((total - unreviewedCount.value) / total) * 100)
+})
+const researchReadinessLabel = computed(() => {
+  if (researching.value || researchJobActive.value) return 'Running'
+  if (!result.value) return 'Optional'
+  if (unreviewedCount.value) return `${unreviewedCount.value} to review`
+  if (dirty.value) return 'Unsaved'
+  return 'Ready'
+})
+const researchReadinessTone = computed(() => {
+  if (researching.value || researchJobActive.value) return 'info'
+  if (!result.value) return 'info'
+  if (unreviewedCount.value || dirty.value) return 'warning'
+  return 'success'
+})
+const researchSettingsBadge = computed(() => {
+  const preset = researchPresets.activeId.value ? 'preset selected' : 'no preset'
+  return `${form.value.max_sources} sources · ${preset}`
+})
 
 // v1.0.197 — which sources flow into the YouTube description. Absent flag =
 // included (default-on). The Metadata generator appends the kept ones.
@@ -647,107 +716,320 @@ watch(
 </script>
 
 <style scoped>
-.research-source-grid {
+.research-workspace {
+  --research-success: #55c786;
+  --research-warning: #e0a548;
+  --research-danger: #d66b63;
+}
+
+.research-flow-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.research-flow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.research-flow-step b {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-.research-source-card {
-  text-align: left;
-  background: var(--bg-secondary);
+  place-items: center;
+  width: 22px;
+  height: 22px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.research-source-card:hover { border-color: var(--accent); }
-/* v1.0.147+ — was `rgba(108, 143, 255, 0.08)` (a hardcoded blue tint
-   that fought the app's amber accent palette). Now uses the same
-   accent-dim variable the rest of the app uses for "this is the
-   selected thing" backgrounds, so the source picker matches the
-   active-tab + active-nav-item visual register everywhere else. */
-.research-source-card.active { border-color: var(--accent); background: var(--accent-dim); }
-/* v1.0.147+ — `:not(.active)` so picking an unconfigured source
-   doesn't dim the card the user just clicked (the dim-to-60%
-   "you can't pick this" cue should drop the moment they DO pick
-   it — the "no key" badge alone carries the warning from there). */
-.research-source-card.unconfigured:not(.active) { opacity: 0.6; }
-.research-source-card-head { display: flex; align-items: center; gap: 6px; }
-.research-source-helper { margin: 4px 0 0; line-height: 1.45; }
-.research-source-badge {
+  border-radius: 999px;
+  background: var(--bg-secondary);
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(201, 122, 74, 0.16);
-  color: #c97a4a;
 }
-.research-source-badge.active {
-  background: var(--accent);
-  color: var(--accent-on);
+.research-flow-step.active { color: var(--accent); }
+.research-flow-step.active b { border-color: var(--accent); background: var(--accent-dim); }
+.research-flow-step.complete { color: var(--research-success); }
+.research-flow-step.complete b { border-color: color-mix(in srgb, var(--research-success) 55%, transparent); }
+.research-flow-line { width: 26px; height: 1px; background: var(--border); }
+.research-flow-rail .workspace-command-copy { margin: 0 0 0 auto; }
+
+.research-selection-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--research-warning) 45%, var(--border));
+  border-radius: 999px;
+  color: var(--research-warning);
+  background: color-mix(in srgb, var(--research-warning) 9%, transparent);
+  font-size: 11px;
+  font-weight: 700;
 }
+.research-selection-pill[data-ready='true'] {
+  border-color: color-mix(in srgb, var(--research-success) 45%, var(--border));
+  color: var(--research-success);
+  background: color-mix(in srgb, var(--research-success) 9%, transparent);
+}
+
+.research-brief-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.research-brief-copy,
+.research-source-panel {
+  min-width: 0;
+}
+.research-brief-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.research-brief-copy label,
+.research-advanced-grid label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.research-topic-input { font-size: 14px; font-weight: 600; }
+.research-questions-field { margin: 0; }
+.research-optional-label {
+  margin-left: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.research-field-note {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.research-source-panel {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 55%),
+    var(--bg-secondary);
+}
+.research-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.research-panel-heading small { color: var(--text-muted); font-size: 10px; font-weight: 600; }
+.research-source-grid { display: grid; gap: 7px; }
+.research-source-loading { display: flex; align-items: center; gap: 8px; min-height: 78px; color: var(--text-muted); font-size: 12px; }
+.research-source-card {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 7px);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-primary) 65%, transparent);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.research-source-card:hover { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); transform: translateY(-1px); }
+.research-source-card.active { border-color: var(--accent); background: var(--accent-dim); }
+.research-source-card.unconfigured:not(.active) { opacity: 0.62; }
+.research-source-radio {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text-muted);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 3px transparent;
+}
+.research-source-card.active .research-source-radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--bg-secondary); }
+.research-source-card-copy { display: grid; min-width: 0; gap: 2px; }
+.research-source-card-copy strong { font-size: 12px; }
+.research-source-card-copy small { overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.research-source-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--research-warning);
+  background: color-mix(in srgb, var(--research-warning) 12%, transparent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.research-source-badge.active { color: var(--research-success); background: color-mix(in srgb, var(--research-success) 12%, transparent); }
+.research-settings-link { display: inline-flex; margin-top: 8px; color: var(--accent); font-size: 10px; text-decoration: none; }
+.research-settings-link:hover { text-decoration: underline; }
+
+.research-brief-section :deep(.adv-disclosure) { margin-top: 16px; }
+.research-advanced-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 14px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 7px);
+  background: var(--bg-secondary);
+}
+.research-model-field,
+.research-depth-field { min-width: 0; }
+.research-depth-control { display: flex; align-items: center; gap: 8px; }
+.research-depth-control .input { width: 80px; }
+.research-depth-control span { color: var(--text-muted); font-size: 11px; }
+.research-preset-picker { margin-top: 10px; }
+.research-brief-section :deep(.research-preset-picker.card) { padding: 12px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
+
+.research-result-actions { display: flex; align-items: center; gap: 7px; }
+.research-running-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 90px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md, 10px);
+  background: var(--accent-dim);
+}
+.research-running-state div { display: grid; gap: 4px; }
+.research-running-state strong { font-size: 13px; }
+.research-running-state span { color: var(--text-muted); font-size: 11px; }
+
+.research-review-dashboard {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-secondary);
+}
+.research-review-score {
+  display: grid;
+  place-items: center;
+  min-height: 58px;
+  border: 1px solid color-mix(in srgb, var(--research-warning) 45%, var(--border));
+  border-radius: 8px;
+  color: var(--research-warning);
+  background: color-mix(in srgb, var(--research-warning) 8%, transparent);
+}
+.research-review-score[data-ready='true'] { border-color: color-mix(in srgb, var(--research-success) 45%, var(--border)); color: var(--research-success); background: color-mix(in srgb, var(--research-success) 8%, transparent); }
+.research-review-score strong { font-size: 18px; line-height: 1; }
+.research-review-score span { margin-top: -5px; font-size: 8px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.research-review-counts { display: flex; flex-wrap: wrap; gap: 7px; }
+.research-review-counts span { padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 10px; }
+.research-review-counts span[data-tone='success'] { color: var(--research-success); }
+.research-review-counts span[data-tone='warning'] { color: var(--research-warning); }
+.research-claims-bulk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
 .research-summary {
-  background: var(--bg-secondary);
+  margin: 0 0 12px;
+  padding: 11px 13px;
   border-left: 3px solid var(--accent);
-  padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 0 var(--radius-sm, 7px) var(--radius-sm, 7px) 0;
+  color: var(--text-secondary, var(--text-primary));
+  background: linear-gradient(90deg, var(--accent-dim), transparent);
+  font-size: 12px;
+  line-height: 1.55;
 }
-.research-claims-bulk { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; flex-wrap: wrap; }
-.research-claims-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.research-claims-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .research-claim {
-  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: start;
+  padding: 11px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 7px);
   background: var(--bg-secondary);
 }
-.research-claim.is-verified { border-left: 3px solid #5bb37c; }
-.research-claim.is-ignored { border-left: 3px solid #c97a4a; opacity: 0.6; }
-.research-claim-text { font-size: 13px; line-height: 1.5; }
-.research-claim-note { margin-top: 4px; line-height: 1.5; }
-.research-claim-refs { margin-top: 4px; }
-.research-cite-link {
-  margin-right: 4px;
-  color: var(--accent);
-  text-decoration: none;
-}
+.research-claim.is-verified { border-color: color-mix(in srgb, var(--research-success) 42%, var(--border)); background: linear-gradient(90deg, color-mix(in srgb, var(--research-success) 6%, transparent), var(--bg-secondary) 35%); }
+.research-claim.is-ignored { opacity: 0.58; }
+.research-claim-index { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--text-muted); background: var(--bg-primary); font-size: 9px; font-weight: 800; }
+.research-claim-body { min-width: 0; }
+.research-claim-text { color: var(--text-primary); font-size: 12px; line-height: 1.5; }
+.research-claim-note { margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.research-claim-refs { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--text-muted); font-size: 9px; }
+.research-cite-link { color: var(--accent); text-decoration: none; }
 .research-cite-link:hover { text-decoration: underline; }
-.research-claim-actions { display: flex; gap: 6px; margin-top: 6px; }
-.research-conf {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.conf-high { background: rgba(91, 179, 124, 0.16); color: #5bb37c; }
-.conf-medium { background: rgba(212, 160, 23, 0.16); color: #d4a017; }
-.conf-low, .conf-unknown { background: rgba(201, 122, 74, 0.16); color: #c97a4a; }
+.research-claim-actions { display: flex; align-items: center; gap: 6px; }
+.research-conf { display: inline-flex; margin-left: 6px; padding: 2px 6px; border-radius: 999px; font-size: 8px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+.conf-high { color: var(--research-success); background: color-mix(in srgb, var(--research-success) 13%, transparent); }
+.conf-medium { color: var(--research-warning); background: color-mix(in srgb, var(--research-warning) 13%, transparent); }
+.conf-low, .conf-unknown { color: var(--research-danger); background: color-mix(in srgb, var(--research-danger) 13%, transparent); }
 
-.research-structure { margin: 6px 0 0; padding-left: 22px; }
-.research-structure li { margin: 4px 0; line-height: 1.5; }
-.research-sources { margin: 6px 0 0; padding-left: 4px; font-size: 12px; list-style: none; }
-.research-sources li { margin: 6px 0; line-height: 1.5; }
-.research-source-snippet { margin-top: 2px; font-style: italic; }
+.research-review-section :deep(.adv-disclosure) { margin-top: 12px; }
+.research-structure { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.research-structure li { display: grid; grid-template-columns: 26px 1fr; gap: 9px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); }
+.research-structure li > span { color: var(--accent); font-size: 9px; font-weight: 800; }
+.research-structure strong { font-size: 11px; }
+.research-structure p { margin: 2px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
 
-/* v1.0.197 — sources-in-description controls. */
-.research-sources-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.research-sources-head h4 { margin: 0; }
+.research-sources-panel { margin-top: 12px; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius-md, 10px); background: var(--bg-secondary); }
+.research-sources-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 9px; }
+.research-panel-kicker { color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.research-sources-head h3 { margin: 2px 0; font-size: 13px; }
+.research-sources-head p { margin: 0; color: var(--text-muted); font-size: 10px; }
 .research-sources-bulk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.research-sources-note { margin: 4px 0 0; line-height: 1.5; }
-.research-source-check { margin-right: 6px; vertical-align: middle; }
-.research-sources li.src-excluded { opacity: 0.5; }
-.research-source-vbadge {
-  font-size: 10px;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(91, 179, 124, 0.16);
-  color: #5bb37c;
+.research-sources { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.research-sources li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
+.research-sources li.src-excluded { opacity: 0.46; }
+.research-source-toggle { display: grid; place-items: center; position: relative; width: 30px; height: 30px; border-radius: 6px; color: var(--text-muted); background: var(--bg-secondary); font-size: 9px; font-weight: 800; cursor: pointer; }
+.research-source-toggle input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.research-source-toggle:has(input:checked) { color: var(--accent); outline: 1px solid var(--accent); }
+.research-source-content { min-width: 0; }
+.research-source-content a,
+.research-source-content strong { color: var(--text-primary); font-size: 11px; font-weight: 700; text-decoration: none; }
+.research-source-content a:hover { color: var(--accent); }
+.research-source-content p { overflow: hidden; margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.research-source-vbadge { padding: 2px 7px; border-radius: 999px; color: var(--research-success); background: color-mix(in srgb, var(--research-success) 12%, transparent); font-size: 8px; font-weight: 800; white-space: nowrap; }
+
+.research-empty-state { display: flex; align-items: center; gap: 13px; min-height: 74px; }
+.research-empty-mark { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border)); border-radius: 12px; color: var(--accent); background: var(--accent-dim); font-family: Georgia, serif; font-size: 19px; font-weight: 700; }
+.research-empty-state div { display: grid; gap: 3px; }
+.research-empty-state strong { font-size: 13px; }
+.research-empty-state p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+
+.req { color: var(--research-danger); font-weight: 800; }
+
+@media (max-width: 1080px) {
+  .research-brief-grid { grid-template-columns: 1fr; }
+  .research-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .research-flow-rail .workspace-command-copy { display: none; }
 }
 
-.req { color: var(--error, #e25c5c); font-weight: bold; }
-.input-inline { width: 80px; }
-.ml-1 { margin-left: 4px; }
+@media (max-width: 760px) {
+  .research-flow-line { width: 12px; }
+  .research-flow-step { font-size: 9px; }
+  .research-advanced-grid,
+  .research-source-grid { grid-template-columns: 1fr; }
+  .research-review-dashboard { grid-template-columns: 74px 1fr; }
+  .research-claims-bulk { grid-column: 1 / -1; justify-content: flex-start; }
+  .research-claim { grid-template-columns: 26px minmax(0, 1fr); }
+  .research-claim-actions { grid-column: 2; }
+  .research-sources-head { align-items: flex-start; flex-direction: column; }
+  .research-sources li { grid-template-columns: 34px minmax(0, 1fr); }
+  .research-source-vbadge { grid-column: 2; justify-self: start; }
+}
 </style>
