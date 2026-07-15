@@ -32,6 +32,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
 import type { ImageModelConfig } from '../models/types.js'
+import { resolveImageProviderParams } from '../models/image-provider-params.js'
 
 export const router = Router()
 
@@ -144,18 +145,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   // Provider params + tier override. Same shape generators/images.ts uses;
   // for tiered models we layer the picked tier's api_model on top so the
   // sample render uses the same tier the user is about to pay for.
-  const providerParams: Record<string, any> = {
-    ...((modelConfig as any).provider_params || {
-      endpoint: modelConfig.endpoint,
-      poll: modelConfig.poll,
-      type: modelConfig.type,
-      api_model: modelConfig.api_model,
-    }),
-  }
-  if (tier && Array.isArray((modelConfig as any).tiers)) {
-    const tierEntry = (modelConfig as any).tiers.find((t: any) => t.id === tier)
-    if (tierEntry?.api_model) providerParams.api_model = tierEntry.api_model
-  }
+  const providerParams = resolveImageProviderParams(modelConfig, tier)
 
   const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model: modelName })
   if (!apiKey) {

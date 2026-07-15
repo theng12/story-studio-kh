@@ -25,6 +25,7 @@ import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/pe
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
+import { resolveImageProviderParams } from '../models/image-provider-params.js'
 import fs from 'fs/promises'
 
 // NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
@@ -236,26 +237,10 @@ export async function generateImages(job: Job): Promise<void> {
   const imageProvider = registry.getImageProvider(providerId)
   if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
 
-  // Build the per-call provider params shape from the model config.
-  // The fallback used to carry only endpoint/poll/type/api_model — which
-  // meant `supports_reference_images`, `api_model_i2i`, `refs_field`, and
-  // `aspect_field` silently dropped to undefined before reaching the
-  // kie-client + the reference-support log line below. GPT Image 2 + the
-  // Nano Banana family then reported "does NOT support references" for
-  // months despite the type/defaults declaring them ref-capable. Carry
-  // every provider-relevant field through verbatim so the wiring stays
-  // honest end-to-end.
-  const providerParams = (modelConfig as any).provider_params || {
-    endpoint: modelConfig.endpoint,
-    poll: modelConfig.poll,
-    type: modelConfig.type,
-    api_model: modelConfig.api_model,
-    api_model_i2i: (modelConfig as any).api_model_i2i,
-    refs_field: (modelConfig as any).refs_field,
-    refs_upload: (modelConfig as any).refs_upload === true,
-    aspect_field: (modelConfig as any).aspect_field,
-    supports_reference_images: modelConfig.supports_reference_images === true,
-  }
+  // Full generation and both preview surfaces share the same tier resolver.
+  // This ensures the selected resolution affects the provider payload as well
+  // as the credit estimate.
+  const providerParams = resolveImageProviderParams(modelConfig, req.tier)
   const apiKey = await resolveApiKeyForProvider(project_slug, imageProvider.meta, {
     model: modelName,
     jobId: job.job_id,

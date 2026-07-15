@@ -135,9 +135,12 @@ export async function submitGeneration(
       if (refs.length) payload.input[refsField] = refs
       break
     }
-    default: // 'jobs' — standard endpoint (Nano Banana, NB2, Imagen 4, Seedream, …)
-      payload = { model: activeModel, input: { prompt, [aspectField]: aspectRatio } }
+    default: { // 'jobs' — standard endpoint (Nano Banana, Seedream, etc.)
+      const inputParams = modelConfig.input_params || {}
+      payload = { model: activeModel, input: { ...inputParams, prompt, [aspectField]: aspectRatio } }
       if (refs.length) payload.input[refsField] = refs
+      break
+    }
   }
 
   const resp = await fetch(`${KIE_BASE_URL}${modelConfig.endpoint}`, {

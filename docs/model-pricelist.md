@@ -1,12 +1,12 @@
 # Model Pricelist
 
-Pending provider pricing records collected for a future catalog update.
+Provider pricing records used by the built-in catalog.
 
 ## Kie.ai
 
 ### GPT Image 2
 
-Status: **recorded, not yet applied to the live model catalog**
+Status: **applied to the live model catalog**
 
 Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
@@ -21,14 +21,11 @@ Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
 Provider label shown in source: OpenAI.
 
-Integration notes:
-
-- Do not update `DEFAULT_IMAGE_MODELS` from this record until the remaining provider/model pricing has been collected and reviewed.
-- The current prices imply $0.005 per Kie credit.
+The current prices imply $0.005 per Kie credit.
 
 ### Nano Banana 2 Lite
 
-Status: **recorded, not yet applied to the live model catalog**
+Status: **applied to the live model catalog**
 
 Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
@@ -40,7 +37,7 @@ Provider label shown in source: Google.
 
 ### Nano Banana 2
 
-Status: **recorded, not yet applied to the live model catalog**
+Status: **applied to the live model catalog**
 
 Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
@@ -54,7 +51,7 @@ Provider label shown in source: Google.
 
 ### Qwen Z-Image
 
-Status: **recorded, not yet applied to the live model catalog**
+Status: **applied to the live model catalog**
 
 Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
@@ -66,7 +63,7 @@ Provider label shown in source: Qwen.
 
 ### Seedream 5 Pro
 
-Status: **recorded, category not yet implemented, not yet applied to the live model catalog**
+Status: **generation tiers applied to the live model catalog**
 
 Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
@@ -80,9 +77,13 @@ Source: user-provided Kie.ai pricing screenshot, recorded 2026-07-15.
 
 Provider label shown in source: ByteDance.
 
-## Planned Image Catalog Scope
+The 0.5-credit additional reference-image charge is retained here as provider
+pricing metadata. Story Studio's current estimate is per generated output and
+does not yet add variable reference-image surcharges.
 
-For the later image-model cleanup and pricing implementation, keep only these categories:
+## Image Catalog Scope
+
+The built-in catalog is curated to these categories:
 
 - Qwen Z-Image
 - Grok
@@ -90,4 +91,6 @@ For the later image-model cleanup and pricing implementation, keep only these ca
 - Nano Banana
 - GPT Image 2
 
-The existing image models outside this planned scope are to be reviewed for removal later. This note does not remove or modify them.
+Legacy template rows and the static FLUX entry were removed. GPT Image 2 may
+still appear through multiple providers (Kie, fal.ai, OpenAI, and OpenRouter),
+but those rows remain within the same GPT Image 2 family.

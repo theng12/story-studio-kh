@@ -1362,6 +1362,13 @@ export interface ImageModelTier {
   label: string
   /** Credits charged per image in this tier. */
   credits: number
+  /**
+   * Provider request overrides for this tier. This is intentionally a
+   * structured object rather than a model-specific field so resolution tiers
+   * can map to provider inputs such as `{ input_params: { quality: 'high' } }`
+   * without teaching every caller about each provider's vocabulary.
+   */
+  provider_params?: Record<string, unknown>
 }
 
 export interface ImageModelConfig {
@@ -1381,6 +1388,10 @@ export interface ImageModelConfig {
   tiers?: ImageModelTier[]
   /** Tier id whose credits == credits_per_image. Required when `tiers` is set. */
   default_tier?: string
+  /** Optional provider request fields shared by every call for this model. */
+  provider_params?: Record<string, unknown>
+  /** Extra fields merged into a jobs-style provider's `input` object. */
+  input_params?: Record<string, unknown>
   endpoint: string
   poll: string
   type: string // 'jobs' | 'flux' | '4o' | 'gpt-image'
@@ -2007,6 +2018,8 @@ export interface GenerateImagesRequest {
   model: string
   mode: string // 'scenes' | 'thumbs'
   aspect_ratio: string
+  /** Selected variable-price/provider tier (for example `1k` or `2k`). */
+  tier?: string
   scene_number?: number
   thumb_number?: number
   force: boolean

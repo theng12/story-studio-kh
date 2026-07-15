@@ -212,9 +212,14 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   // is not in the modal's catalog and would hard-error (ValueError: repo not
   // in catalog). The wrapper dispatches mode by repo-name pattern: *Base* →
   // clone (voice_library_id), *CustomVoice* → custom (preset_speaker),
-  // *VoiceDesign* → design (voice_design_prompt). We pin to the 0.6B
-  // CustomVoice variant since it matches our preset_speaker mapping.
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts',      label: 'Qwen3-TTS 0.6B CustomVoice (MLX)', repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit', softMaxChars: 2000, voiceField: 'preset_speaker',    availabilityKey: 'qwen3' },
+  // *VoiceDesign* → design (voice_design_prompt). Keep the established model id
+  // for the preset-speaker variant, but point it at Voice Studio's current
+  // 1.7B catalog row. The two Base rows deliberately use voice_library_id so
+  // the picker shows saved clones (such as `vsname:Aiden`) rather than Qwen's
+  // unrelated built-in speaker that also happens to be named Aiden.
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts',            label: 'Qwen3-TTS 1.7B CustomVoice — built-in speakers (MLX)', repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit', softMaxChars: 2000, voiceField: 'preset_speaker',   availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-0.6b',  label: 'Qwen3-TTS 0.6B Base — voice cloning (MLX)',             repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit',        softMaxChars: 2000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-1.7b',  label: 'Qwen3-TTS 1.7B Base — quality voice cloning (MLX)',     repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit',        softMaxChars: 2000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
   { family: 'bark',           modelId: 'voicestudio-bark',           label: 'Bark',              repo: 'suno/bark',                 softMaxChars: 1000, voiceField: 'bark_voice_preset', availabilityKey: 'bark' },
   // chatterbox-mlx: voiceField correct ('voice_library_id'); repo pinned to a
   // real catalog variant — bare 'mlx-community/Chatterbox' is not in the
@@ -478,6 +483,8 @@ interface PollOpts {
   timeoutMs?: number
   /** Optional progress hook fired on every successful status response. */
   onProgress?: (job: VoiceStudioJob) => void
+  /** Internal/test override for the reconnect delay. Default 2 seconds. */
+  transportRetryMs?: number
 }
 
 /**
@@ -791,6 +798,7 @@ export async function pollJob(
 ): Promise<VoiceStudioJob> {
   const deadline = Date.now() + (opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
   let polls = 0
+  let consecutiveTransportFailures = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
       // Best-effort server-side cancel before throwing.
@@ -804,8 +812,17 @@ export async function pollJob(
         signal: AbortSignal.timeout(15_000),
       })
     } catch (e) {
+      // Voice Studio persists job history and Pinokio may restart the wrapper
+      // immediately after a memory-heavy MLX generation. Resume polling the
+      // same job id instead of reporting a false failure for completed audio.
+      consecutiveTransportFailures += 1
+      if (consecutiveTransportFailures <= 8 && Date.now() < deadline) {
+        await sleepCancellable(opts.transportRetryMs ?? 2_000, opts.isCancelled)
+        continue
+      }
       throw friendlyConnectError(baseUrl, e)
     }
+    consecutiveTransportFailures = 0
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       throw new Error(`Voice Studio poll failed (${resp.status}): ${text.slice(0, 300)}`)

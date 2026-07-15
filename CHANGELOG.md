@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.618 — 2026-07-16
+
+**Current Kie image pricing and safe Qwen voice cloning are now available.**
+
+- Added Kie.ai Nano Banana 2 Lite and Seedream 5 Pro with their current image tiers, request parameters, and cost estimates.
+- Limited the built-in image catalog to the supported Qwen Z-Image, Grok, Seedream, Nano Banana, and GPT Image 2 families.
+- Fixed image generation so the selected resolution tier controls both the displayed price and the provider request.
+- Added Qwen3-TTS Base 0.6B and 1.7B voice-cloning models while updating the built-in Qwen CustomVoice model.
+- Kept cloned voices on the Voice Studio server that owns their local voice ID instead of allowing Studio Hub to route them to an incompatible server.
+- Made Voice Studio job polling recover from brief server restarts without resubmitting completed speech generation.
+
 ## v1.0.617 — 2026-07-16
 
 **Scene Plan settings are compact and use one authoritative style source.**

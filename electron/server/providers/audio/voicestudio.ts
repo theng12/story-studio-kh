@@ -70,7 +70,7 @@ async function downloadUrlToFile(
   }
 }
 
-function buildParams(req: AudioGenerationRequest): VoiceStudioTxt2SpeechParams {
+export function buildVoiceStudioParams(req: AudioGenerationRequest): VoiceStudioTxt2SpeechParams {
   // Everything about an engine — repo, and which submit field carries the
   // voice — comes from the catalog (VOICESTUDIO_ENGINES in the client).
   const engine = engineForModelId(req.modelId)
@@ -88,11 +88,31 @@ function buildParams(req: AudioGenerationRequest): VoiceStudioTxt2SpeechParams {
   //   - `voice_library_id`  → cloning engines (VoxCPM — a GET /api/voices id)
   // The picker surfaces the right id space for the selected model, so by
   // the time we get here `voiceId` is already in the correct namespace.
+  if (engine.voiceField === 'voice_library_id' && !req.voiceId) {
+    throw new Error(
+      `${engine.label} needs a saved Voice Studio clone. Pick a voice from the cloned voice library.`,
+    )
+  }
   if (req.voiceId) {
+    if (engine.voiceField === 'voice_library_id' && req.voiceId.startsWith('vsname:')) {
+      throw new Error(
+        `Voice '${req.voiceId.slice('vsname:'.length)}' was not resolved to this Voice Studio server. ` +
+        'Refresh the voice list and retry.',
+      )
+    }
     params[engine.voiceField] = req.voiceId
   }
   if (typeof req.speed === 'number') params.speed = req.speed
   return params
+}
+
+/**
+ * Hub pooling is safe for model-global preset speakers. A cloned voice id is
+ * local to one Voice Studio installation, while Studio Hub currently routes
+ * by model only and does not translate a voice name to each server's UUID.
+ */
+export function canRouteVoiceThroughHub(params: VoiceStudioTxt2SpeechParams): boolean {
+  return !params.voice_library_id
 }
 
 /** Generate audio and write directly to `outPath`. Used by generators/audio. */
@@ -106,7 +126,7 @@ export async function generateTtsToFile(
     onProgress?: (received: number, total?: number) => void
   } = {},
 ): Promise<void> {
-  const params = buildParams(req)
+  const params = buildVoiceStudioParams(req)
 
   // v1.0.214+ — Transcode to real MP3 on save. Voice Studio returns WAV (some
   // engines FLAC), but the rest of Story Studio's pipeline assumes a uniform
@@ -129,7 +149,7 @@ export async function generateTtsToFile(
     // studio's native field); engine-specific knobs (voice preset, speed) ride
     // in params as an opaque pass-through.
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
+    if (hub.mode === 'hub' && hub.hubUrl && canRouteVoiceThroughHub(params)) {
       try {
         const { repo, text, ...voiceParams } = params
         const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {

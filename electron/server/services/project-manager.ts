@@ -847,7 +847,7 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
  */
 const PROVIDER_INFRA_FIELDS = new Set([
   'api_model', 'api_model_i2i', 'endpoint', 'poll', 'type',
-  'refs_field', 'refs_upload', 'aspect_field', 'provider', 'provider_params', 'supports_reference_images',
+  'refs_field', 'refs_upload', 'aspect_field', 'provider', 'provider_params', 'input_params', 'supports_reference_images',
   'is_custom',
 ])
 

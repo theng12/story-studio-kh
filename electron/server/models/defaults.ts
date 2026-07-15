@@ -10,7 +10,7 @@ import { voicestudioAudioDefaults } from '../lib/voicestudio-client.js'
 // Built-in image models. Tagging providers explicitly keeps the picker honest
 // about where spend goes (kie.ai credits, fal.ai credits, direct OpenAI, etc.).
 //
-// Pricing notes (2026-04-28 refresh):
+// Pricing notes (2026-07-16 refresh):
 //   - All kie.ai credits convert at 1 credit = $0.005 USD.
 //   - Models with multiple price points carry `tiers` + `default_tier`.
 //     `credits_per_image` mirrors the default tier's credits so callers
@@ -127,26 +127,29 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
     api_model: 'nano-banana-2', refs_field: 'image_input', provider: 'kie',
     supports_reference_images: true,
   },
-
-  // ── v1.0.151+ Image Studio KH (Pinokio FastAPI wrapper, local MLX) ───
-  // Sibling of Voice Studio. The model id surfaced here is the only
-  // catalog entry that fits an 8 GB M1 (per /api/catalog probing during
-  // the v1.0.151 integration). Adding more families (FLUX.2 dev,
-  // Qwen-Image, FIBO, Z-Image) is a 2-line change once you're on a Mac
-  // with more unified memory: append the id here + the matching repo
-  // entry in providers/image/imagestudio.ts → MODEL_TO_REPO.
-  //
-  // Cost is $0 — Apple Silicon compute. The kie-shape required fields
-  // (endpoint / poll / type / api_model) are empty strings: they only
-  // route through the kie provider; the imagestudio dispatch bypasses
-  // them via the `provider: 'imagestudio'` field.
-  'imagestudio-flux2-klein-mlx-4bit': {
-    label: 'FLUX.2 klein 4B (MLX 4-bit) [Image Studio · local]',
-    credits_per_image: 0,
-    prompt_char_cap: 1000,
-    endpoint: '', poll: '', type: 'local',
-    api_model: 'AITRADER/FLUX2-klein-4B-mlx-4bit',
-    provider: 'imagestudio',
+  'nano-banana-2-lite': {
+    label: 'Nano Banana 2 Lite',
+    credits_per_image: 4,
+    prompt_char_cap: 5000,
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'nano-banana-2-lite', refs_field: 'image_urls', provider: 'kie',
+    refs_upload: true,
+    supports_reference_images: true,
+  },
+  'seedream-5-pro': {
+    label: 'Seedream 5 Pro',
+    credits_per_image: 7, default_tier: '1k',
+    prompt_char_cap: 5000,
+    tiers: [
+      { id: '1k', label: '1K', credits: 7, provider_params: { input_params: { quality: 'basic' } } },
+      { id: '2k', label: '2K', credits: 14, provider_params: { input_params: { quality: 'high' } } },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'seedream/5-pro-text-to-image',
+    api_model_i2i: 'seedream/5-pro-image-to-image',
+    refs_field: 'image_urls', refs_upload: true, provider: 'kie',
+    input_params: { output_format: 'png', nsfw_checker: true },
+    supports_reference_images: true,
   },
 }
 

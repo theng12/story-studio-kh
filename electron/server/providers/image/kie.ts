@@ -44,6 +44,7 @@ const kieImageProvider: ImageProvider = {
       refs_field: providerParams.refs_field as string | undefined,
       refs_upload: providerParams.refs_upload === true,
       aspect_field: providerParams.aspect_field as string | undefined,
+      input_params: providerParams.input_params as Record<string, unknown> | undefined,
       supports_reference_images: providerParams.supports_reference_images === true,
     } as any
 
