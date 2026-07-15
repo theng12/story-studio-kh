@@ -1,14 +1,26 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Thumbnail Generator</h1>
-    </div>
+  <div class="workspace-page creation-workspace thumbnail-generator-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Render"
+      :title="form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator'"
+      :description="form.mode === 'thumbs'
+        ? 'Render finished YouTube thumbnail artwork from the approved thumbnail prompts.'
+        : 'Render story artwork from the active scene prompt source.'"
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Image generator context">
+          <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'"><strong>{{ form.episode_id || 'No episode' }}</strong> target</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ activeForm.image_mode === 'img2img' ? 'Image → Image' : 'Text → Image' }}</strong> mode</span>
+          <span class="workspace-metric" :data-tone="activeMissingCount ? 'warning' : 'success'"><strong>{{ activeMissingCount }}</strong> missing</span>
+        </div>
+      </template>
+    </WorkspaceHero>
     <!-- Live download speed for the running image-generation job. Only
          visible while bytes are flowing in from the provider CDN; auto-
          hides between jobs. Hover any metric for an inline explainer. -->
     <AssetDownloadStrip :job-types="['images', 'scene_images', 'thumb_images', 'images_repair']" />
-    <TopActionBar
+    <div class="workspace-command-surface creation-command-surface">
+      <TopActionBar
       :project-slug="slug"
       :presets="imgPresets"
       v-model:episode-id="form.episode_id"
@@ -31,20 +43,20 @@
           @imported="() => { refreshImageStatus(); onPanelRefresh() }"
         />
       </template>
-    </TopActionBar>
-
-    <p class="text-muted mt-1 mb-2">
-      {{ form.mode === 'thumbs'
-        ? 'Generate YouTube thumbnail artwork from your thumbnail prompts.'
-        : 'Generate scene artwork from your scene prompts.' }}
-    </p>
+      </TopActionBar>
+      <p class="workspace-command-copy">
+        {{ form.mode === 'thumbs'
+          ? 'Choose the episode and render model, then generate or repair only the thumbnail artwork still needed.'
+          : 'Choose the episode and render model, then generate or repair only the scene artwork still needed.' }}
+      </p>
+    </div>
 
     <!-- Image mode tabs (Text → Image vs Image → Image). Mirrors the
          video page's Text→Video / Image→Video pattern. Default is
          text2img — the existing flow, unchanged. img2img surfaces an
          additional reference-sources card and filters the model
          dropdown to img2img-capable models. -->
-    <div class="mode-tabs mt-3" role="tablist" aria-label="Image generation pipeline">
+    <div class="mode-tabs workspace-stage-tabs" role="tablist" aria-label="Image generation pipeline">
       <button
         v-for="tab in imageModeTabs" :key="tab.id"
         :class="['mode-tab', { active: activeForm.image_mode === tab.id }]"
@@ -64,13 +76,13 @@
          sidebar. Formats that don't use scenes (broll, timestamp, continuity-
          chain) only show Thumbnail Generator in the sidebar, so no scene
          controls leak in here. -->
-    <div class="generator-mode-head mt-2">
+    <div class="generator-mode-head">
       <span class="generator-mode-icon" aria-hidden="true">{{ form.mode === 'thumbs' ? '📸' : '🎬' }}</span>
       <strong>{{ form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator' }}</strong>
       <span class="text-muted text-xs">{{ form.mode === 'thumbs' ? 'YouTube thumbnails' : 'Story artwork (scene images)' }}</span>
     </div>
 
-    <div class="card mt-2">
+    <div class="card workspace-section generator-settings-panel">
       <div class="grid-2">
         <div class="form-group">
           <label>Image Model <span class="required" aria-hidden="true">*</span></label>
@@ -340,7 +352,7 @@
          Hidden until prompts exist on disk and the user expands the
          card — keeps the page calm by default; the user opts in.
     -->
-    <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-preview-heading">
+    <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-preview-heading">
       <button
         type="button"
         class="preview-card-toggle"
@@ -390,7 +402,7 @@
 
     <!-- Image integrity pill + Repair. Generators skip existing non-empty -->
     <!-- files natively, so Repair = re-submit the same form with force=false. -->
-    <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-integrity-heading">
+    <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-integrity-heading">
       <h3 id="image-integrity-heading" class="integrity-title">Image integrity</h3>
       <p class="text-muted text-sm integrity-blurb">
         Check whether every expected image is on disk. <strong>Repair</strong> only
@@ -493,7 +505,7 @@
     <!-- ── Edit existing image (AI clean-up / removal) ────────────────────
          Tile grid that lists the active image pool and
          opens the shared ImageEditDialog on click. Audit pain-point #14. -->
-    <div v-if="form.episode_id" class="card mt-2">
+    <div v-if="form.episode_id" class="card workspace-section">
       <div class="card-header">
         <h3>Edit Existing Images</h3>
         <button

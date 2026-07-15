@@ -1,10 +1,20 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Metadata Generator</h1>
-    </div>
-    <TopActionBar
+  <div class="workspace-page creation-workspace metadata-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Package"
+      title="Metadata Generator"
+      description="Prepare the final title, description, tags, links, and chapter information from the approved episode script."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Metadata workspace context">
+          <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
+          <span class="workspace-metric" :data-tone="scriptReady ? 'success' : 'warning'"><strong>{{ scriptReady ? 'Ready' : 'Needed' }}</strong> script</span>
+          <span v-if="metadataBusy" class="workspace-metric" data-tone="info"><strong>Active</strong> generation</span>
+        </div>
+      </template>
+    </WorkspaceHero>
+    <div class="workspace-command-surface creation-command-surface">
+      <TopActionBar
       :project-slug="slug"
       :presets="metadataPresets"
       v-model:episode-id="episodeId"
@@ -19,7 +29,12 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
+      />
+      <p class="workspace-command-copy">
+        Generate the complete publishing package at once, or open the section editor below to refine individual outputs.
+        <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">Edit channel template →</NuxtLink>
+      </p>
+    </div>
 
     <!-- v1.0.298 — persistent generation feedback. The button spinner covers
          "is it running"; this row covers "is it done, and did it work" AFTER
@@ -39,15 +54,6 @@
       <button type="button" class="btn btn-link btn-xs meta-result-dismiss" @click="lastGenResult = null">Dismiss</button>
     </div>
 
-    <p class="text-muted mt-1 mb-2">
-      SEO title, description, and tags — all saved as a single metadata file per episode.
-      Use <strong>Generate Metadata</strong> above to run all three sections at once, or the
-      <strong>Generate just this</strong> button inside each section to regenerate selectively.
-      <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">
-        Edit channel template →
-      </NuxtLink>
-    </p>
-
     <!-- Channel "what worked" inspiration. Auto-included server-side in
          the title generator's LLM prompt; this card surfaces the titles
          being used as a vibe reference. Hides silently when no analytics
@@ -58,7 +64,7 @@
     <!-- such so users don't wonder why moving this control changes all -->
     <!-- three generators (consistency with image-prompts, which uses one -->
     <!-- shared model across Scene + Thumbnail pools). -->
-    <div class="card mt-3 shared-settings">
+    <div class="card workspace-section shared-settings">
       <div class="shared-settings-label">
         <span>AI Model</span>
         <span class="text-muted text-xs font-normal">used by all sections below</span>
@@ -71,7 +77,7 @@
     <!-- v1.0.198 — starter templates. Format-neutral starting points that
          replace the old sleep-story-only default. The format-matched one is
          applied automatically on a fresh episode; pick another to switch. -->
-    <div class="card mt-2 starter-templates">
+    <div class="card workspace-section starter-templates">
       <div class="shared-settings-label">
         <span>Starter template</span>
         <span class="text-muted text-xs font-normal">a starting point for the description sections — tweak after applying</span>

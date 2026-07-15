@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.601 — 2026-07-15
+
+**The complete writing and thumbnail flow now shares one calm, modern creation workspace.**
+
+- Modernized Ideas Generator, Research, Script Generator, Metadata Generator, Thumbnail Prompts, and Thumbnail Generator with the shared workspace shell.
+- Added clear creative-purpose headers, live episode and job context, and compact readiness metrics without changing any generation behavior.
+- Standardized preset and episode controls inside one command surface so the six pages no longer shift between unrelated toolbar layouts.
+- Applied consistent section spacing, stage tabs, nested panels, and responsive control sizing while preserving each page's specialized creative tools.
+- Added regression coverage that prevents creation pages from restoring one-off headers or losing their shared hero, command, and section hierarchy.
+
 ## v1.0.600 — 2026-07-15
 
 **Large production workspaces now stay responsive without weakening authoritative asset checks.**

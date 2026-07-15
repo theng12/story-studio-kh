@@ -1,10 +1,20 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Thumbnail Prompts</h1>
-    </div>
-    <TopActionBar
+  <div class="workspace-page creation-workspace thumbnail-prompts-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Art direction"
+      title="Thumbnail Prompts"
+      description="Translate the episode into focused cover-art direction while Scene Plan continues to own narration-timed story visuals."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Thumbnail prompt workspace context">
+          <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'"><strong>{{ form.episode_id || 'No episode' }}</strong> target</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ activeForm.aspect_ratio }}</strong> frame</span>
+          <span v-if="promptsJobActiveForEpisode" class="workspace-metric" data-tone="warning"><strong>Active</strong> generation</span>
+        </div>
+      </template>
+    </WorkspaceHero>
+    <div class="workspace-command-surface creation-command-surface">
+      <TopActionBar
       :project-slug="slug"
       :presets="promptPresets"
       v-model:episode-id="form.episode_id"
@@ -18,7 +28,11 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
+      />
+      <p class="workspace-command-copy">
+        Create thumbnail-only prompts here. Narration-timed scene prompts remain authoritative in <strong>Scene Plan</strong>.
+      </p>
+    </div>
 
     <!-- v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue.
          Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
@@ -40,12 +54,7 @@
       </button>
     </div>
 
-    <p class="text-muted mt-1 mb-2">
-      Create cover-art prompts for YouTube thumbnails. Story-scene prompts now
-      belong to the narration-timed Scene Plan workflow.
-    </p>
-
-    <div class="card mt-3">
+    <div class="card workspace-section prompt-settings-panel">
       <!-- v1.0.179 — character references are opt-in here too (matches the
            Script page). Off by default → the LLM describes scene subjects
            freely. Toggle on to fold a pinned cast's names + descriptions
@@ -122,7 +131,7 @@
         </div>
       </div>
 
-      <div v-if="formTab === 'thumbnails' && showVisualStyleGallery" class="card mt-2">
+      <div v-if="formTab === 'thumbnails' && showVisualStyleGallery" class="card workspace-section nested-workspace-section">
         <StylePicker
           :slug="slug"
           :image-models="config?.image_models || {}"
@@ -666,7 +675,7 @@
       </div>
 
       <!-- Current tab -->
-      <div v-if="activeTab === 'current' && generatedPrompts" class="card mt-1">
+      <div v-if="activeTab === 'current' && generatedPrompts" class="card workspace-section prompt-result-panel">
         <div class="card-header">
           <h3>Review &amp; Edit</h3>
           <div class="flex gap-2">
@@ -716,7 +725,7 @@
       />
 
       <!-- History tab -->
-      <div v-if="activeTab === 'history'" class="card mt-1">
+      <div v-if="activeTab === 'history'" class="card workspace-section prompt-history-panel">
         <EmptyState v-if="history.length === 0" icon="🕘" title="No history yet" message="Past prompt generations in this session will appear here." />
         <table v-else class="history-table">
           <thead>

@@ -14,13 +14,23 @@
   saves — the script gen wiring lands next release.
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Research</h1>
-    </div>
+  <div class="workspace-page creation-workspace research-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Evidence"
+      title="Research"
+      description="Collect source-backed context, review claims, and pass only approved evidence into the Script Generator."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Research workspace context">
+          <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
+          <span class="workspace-metric"><strong>{{ result?.claims.length || 0 }}</strong> claims</span>
+          <span class="workspace-metric" :data-tone="unreviewedCount ? 'warning' : 'success'"><strong>{{ unreviewedCount }}</strong> pending review</span>
+        </div>
+      </template>
+    </WorkspaceHero>
 
-    <TopActionBar
+    <div class="workspace-command-surface creation-command-surface">
+      <TopActionBar
       :project-slug="slug"
       v-model:episode-id="episodeId"
       filter-field="research"
@@ -30,15 +40,11 @@
       :generate-disabled="!canRun"
       :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
       @generate="runResearch"
-    />
-
-    <p class="text-muted mt-1 mb-2">
-      Research + fact-checking phase. Produces a <code>research.json</code>
-      sidecar the Script Generator will consume (v1.0.143+) so factual
-      claims trace back to real sources. Pick a source, set the topic,
-      run. Review the returned claims and mark <strong>verified</strong> /
-      <strong>ignored</strong> before saving.
-    </p>
+      />
+      <p class="workspace-command-copy">
+        Pick an episode and source, then run research. Review every claim as <strong>verified</strong> or <strong>ignored</strong> before saving.
+      </p>
+    </div>
 
     <PresetPicker
       label="Research preset"
@@ -54,7 +60,7 @@
     />
 
     <!-- Source picker -->
-    <section class="card mt-3">
+    <section class="card workspace-section research-stage-card">
       <h3>1. Source</h3>
       <p class="text-muted text-sm mt-1">
         Each source has tradeoffs — pick per episode based on what the
@@ -95,7 +101,7 @@
     </section>
 
     <!-- Form -->
-    <section class="card mt-3">
+    <section class="card workspace-section research-stage-card">
       <h3>2. Topic + questions</h3>
       <div class="form-group mt-2">
         <label>Episode topic <span class="req">*</span></label>
@@ -137,7 +143,7 @@
     <!-- Results -->
     <section
       v-if="result || researching"
-      class="card mt-3"
+      class="card workspace-section research-stage-card"
     >
       <div class="flex justify-between items-center">
         <h3>3. Results</h3>
@@ -273,7 +279,7 @@
       </template>
     </section>
 
-    <section v-else class="card mt-3">
+    <section v-else class="card workspace-section research-stage-card">
       <p class="text-muted text-sm">
         No research yet for this episode. Pick a source above, set the
         topic, and click <strong>Run research</strong>.

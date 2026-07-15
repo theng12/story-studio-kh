@@ -33,6 +33,15 @@ const deliveryPages = {
   upload: source('../pages/projects/[slug]/upload.vue'),
 }
 
+const creationPages = {
+  ideas: source('../pages/projects/[slug]/ideas.vue'),
+  research: source('../pages/projects/[slug]/research.vue'),
+  scripts: source('../pages/projects/[slug]/scripts.vue'),
+  metadata: source('../pages/projects/[slug]/metadata.vue'),
+  thumbnailPrompts: source('../pages/projects/[slug]/image-prompts.vue'),
+  thumbnails: source('../pages/projects/[slug]/images.vue'),
+}
+
 describe('workspace design system', () => {
   test('loads after the compatibility stylesheet', () => {
     assert.match(
@@ -98,6 +107,24 @@ describe('workspace design system', () => {
     assert.match(deliveryPages.upload, /upload-tab-panel/)
     assert.doesNotMatch(deliveryPages.videoAssembly, /class="page-header"/)
     assert.doesNotMatch(deliveryPages.upload, /class="upload-command-hero"/)
+  })
+
+  test('core creation pages share one creative workspace hierarchy', () => {
+    for (const [pageName, page] of Object.entries(creationPages)) {
+      assert.match(page, /class="[^"]*workspace-page/, `${pageName} must use workspace-page`)
+      assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
+      assert.match(page, /workspace-command-surface/, `${pageName} must use a command surface`)
+      assert.match(page, /workspace-section/, `${pageName} must use workspace sections`)
+      assert.doesNotMatch(page, /class="page-header"/, `${pageName} must not restore a one-off header`)
+    }
+
+    for (const pattern of [
+      '.creation-command-surface',
+      '.workspace-command-copy',
+      '.workspace-stage-tabs',
+    ]) {
+      assert.ok(designSystem.includes(pattern), `missing creation workspace pattern: ${pattern}`)
+    }
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

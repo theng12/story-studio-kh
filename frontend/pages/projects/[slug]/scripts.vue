@@ -1,10 +1,20 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Script Generator</h1>
-    </div>
-    <TopActionBar
+  <div class="workspace-page creation-workspace scripts-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Write"
+      title="Script Generator"
+      description="Build the outline, expand approved chapters, and finish the introduction through one visible writing flow."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Script workspace context">
+          <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'"><strong>{{ form.episode_id || 'No episode' }}</strong> target</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ scriptsTab }}</strong> workspace</span>
+          <span v-if="scriptJobActiveForEpisode" class="workspace-metric" data-tone="warning"><strong>Active</strong> generation</span>
+        </div>
+      </template>
+    </WorkspaceHero>
+    <div class="workspace-command-surface creation-command-surface">
+      <TopActionBar
       :project-slug="slug"
       :presets="scriptPresets"
       v-model:episode-id="form.episode_id"
@@ -19,18 +29,15 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
-
-    <p class="text-muted mt-1 mb-2">
-      Three distinct steps, one per tab. Start on the
-      <strong>Outline</strong> tab to plan the chapter list, then expand the chapters you want.
-      The <strong>Script</strong> tab shows the on-disk per-chapter files and lets you regenerate any single chapter.
-      The <strong>Introduction</strong> tab writes the opening once the chapters are on disk — the introduction needs the chapters as context.
-    </p>
+      />
+      <p class="workspace-command-copy">
+        Start with <strong>Outline</strong>, expand and repair chapters in <strong>Script</strong>, then finish the optional opening in <strong>Introduction</strong>.
+      </p>
+    </div>
 
     <!-- v1.0.269 — Bring your own: paste a finished script or an outline and
          inject it into this episode, skipping format-shaped generation. -->
-    <section v-if="form.episode_id" class="card mt-2 byo-card">
+    <section v-if="form.episode_id" class="card workspace-section byo-card">
       <button class="byo-head" @click="byoOpen = !byoOpen">
         <span><strong>{{ byoOpen ? '▾' : '▸' }} ✍️ Bring your own</strong> — paste a script or outline</span>
         <span class="text-muted text-xs">skip generation; inject directly into the flow</span>
@@ -72,7 +79,7 @@
          bad first impression. -->
     <!-- v1.0.176 — tab order follows the real flow: Outline (plan) →
          Script (write/regenerate) → Introduction (optional, last). -->
-    <div class="form-tabs mt-3">
+    <div class="form-tabs workspace-stage-tabs">
       <button
         type="button"
         :class="['form-tab', { active: scriptsTab === 'outline' }]"
@@ -101,7 +108,7 @@
          itself. Title / pattern / character / normalize stay visible
          on the first two tabs so the user always sees what episode
          they're configuring. -->
-    <div class="card mt-3" v-show="scriptsTab !== 'script'">
+    <div class="card workspace-section" v-show="scriptsTab !== 'script'">
       <div class="form-group field-medium">
         <label>Episode Title</label>
         <input v-model="form.title" class="input" placeholder="The Whispering Forest" />

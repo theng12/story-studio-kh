@@ -1,11 +1,15 @@
 <template>
-  <div>
-    <div class="flex justify-between items-center">
-      <div>
-        <h1>Ideas Generator</h1>
-        <p class="text-muted mt-1">{{ allIdeas.length }} ideas &middot; {{ statusCounts.accepted }} accepted &middot; Next: {{ nextEpisode }}</p>
-      </div>
-      <div class="flex gap-2">
+  <div class="workspace-page creation-workspace ideas-workspace">
+    <WorkspaceHero
+      eyebrow="Create · Discover"
+      title="Ideas Generator"
+      description="Shape channel-fit concepts, test title directions, and promote the strongest ideas into production-ready episodes."
+    >
+      <template #aside>
+        <div class="workspace-metrics" aria-label="Ideas workspace context">
+          <span class="workspace-metric"><strong>{{ allIdeas.length }}</strong> ideas</span>
+          <span class="workspace-metric" data-tone="success"><strong>{{ statusCounts.accepted }}</strong> accepted</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ nextEpisode }}</strong> next code</span>
         <button
           v-if="statusCounts.accepted > 0"
           class="btn btn-secondary btn-sm"
@@ -16,8 +20,9 @@
           <LoadingSpinner v-if="compactState.opening" size="sm" />
           {{ compactState.opening ? 'Loading…' : '↓ Compact codes' }}
         </button>
-      </div>
-    </div>
+        </div>
+      </template>
+    </WorkspaceHero>
 
     <!-- v1.0.93+ hydration-error banner. The Ideas page hits two endpoints
          on mount (`/projects/:slug` + `/projects/:slug/settings/config`)
@@ -63,7 +68,8 @@
          giant table parked underneath. Splitting into two `v-show` panes
          lets each mode get the screen alone. ?tab= keeps the URL honest
          so deep links / back-forward / refresh land on the same view. -->
-    <div class="form-tabs mt-3">
+    <div class="workspace-command-surface creation-command-surface">
+      <div class="form-tabs">
       <button
         type="button"
         :class="['form-tab', { active: ideasTab === 'workflow' }]"
@@ -80,6 +86,10 @@
         📋 Manage
         <span class="text-muted text-xs ml-1">({{ allIdeas.length }})</span>
       </button>
+      </div>
+      <p class="workspace-command-copy">
+        Use <strong>Workflow</strong> to generate, promote, or import. Use <strong>Manage</strong> to search and maintain the complete idea catalog.
+      </p>
     </div>
 
     <!-- ── Workflow tab ────────────────────────────────────────────────── -->
@@ -92,7 +102,7 @@
     <TopPerformersInspiration :slug="slug" class="mt-3" />
 
     <!-- Generator -->
-    <div class="generator-panel mt-3">
+    <div class="card workspace-section generator-panel">
       <h3 class="generator-title">Generate New Ideas</h3>
 
       <!-- v1.0.170 — Channel context strip. Replaces the two stacked config
