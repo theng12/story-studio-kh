@@ -189,260 +189,171 @@
           </div>
       </ContextStrip>
 
-      <!-- Idea-generator preset.
-           Captures the entire form (genre/theme/mood/keywords/count/model,
-           pattern, niche override, title prefix/suffix) so a user with
-           multiple channel framings ("Morning Prayer", "Evening Prayer",
-           "Daily Devotional") can switch between them in one click. Same
-           PresetPicker pattern used elsewhere. -->
-      <PresetPicker
-        label="Ideas preset"
-        hint="Saves the niche, prefix/suffix, pattern, mood/theme/audience, and the rest of this form. Pick one and click Apply to load; Save as… to capture the current form."
-        :presets="ideasPresets.presets.value"
-        :active-id="ideasPresets.activeId.value"
-        @update:active-id="ideasPresets.setActive"
-        @apply="onIdeasPresetApplied"
-        @overwrite="ideasPresets.overwrite(); success('Preset saved')"
-        @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-        @rename="(n: string) => ideasPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-        @delete="ideasPresets.remove(); success('Preset deleted')"
-      />
-
-      <!-- v1.0.170 — the standalone "Format Indicator" card was merged into
-           the Channel context strip above (Format chip + the expandable
-           "Change setup" panel carry its name/badge/description/switch +
-           create-custom links). Removing it ends the "Format shown 3×"
-           clutter that opened the page. -->
-
-      <p class="text-muted text-sm generator-blurb">
-        Pick an audience and a few descriptive fields, then click <strong>Generate Ideas</strong> — you'll get a short list of episode titles to accept or dismiss.
-        Not sure where to start? <strong>🎲 Randomize</strong> fills the form for you (no cost until you Generate), or <strong>✨ Surprise Me</strong> does both at once.
-      </p>
-      <div class="generator-body">
-        <!-- v1.0.171 — the form is grouped into three labelled sections so
-             the long flat field list reads as distinct decisions:
-               1. What to make   — the creative inputs
-               2. Topic & titles — subject domain + title shaping/branding
-               3. Generation settings — model + per-idea item count
-             No fields were removed; everything that existed is still here,
-             just grouped + relabelled in plain language (UI text only). -->
-
-        <!-- ── 1. What to make ─────────────────────────────────────────── -->
-        <fieldset class="form-section">
-          <legend class="form-section-title">What to make</legend>
-          <div class="grid-2">
-            <div class="form-group">
-              <label>
-                Audience
-                <span v-if="audienceFromFormat" class="vocab-source-tag" :title="`Pulled from ${formatDisplayName} format`">
-                  · {{ formatDisplayName }}
-                </span>
-              </label>
-              <ComboInput
-                v-model="form.audience"
-                :options="audienceOptions"
-                placeholder="Pick or type an audience…"
-                searchable
-                allow-custom
-              />
-            </div>
-            <div class="form-group">
-              <label>
-                Genre
-                <span class="vocab-source-tag" :title="vocabSourceTooltip('genre')">
-                  · {{ vocabSourceLabel('genre') }}
-                </span>
-              </label>
-              <ComboInput v-model="form.genre" :options="allGenres" placeholder="Pick or add a genre" searchable allow-custom @add-custom="onAddGenre" />
-            </div>
-            <div class="form-group">
-              <label>
-                Theme (optional)
-                <span class="vocab-source-tag" :title="vocabSourceTooltip('theme')">
-                  · {{ vocabSourceLabel('theme') }}
-                </span>
-              </label>
-              <ComboInput v-model="form.theme" :options="allThemes" placeholder="Pick or add a theme" searchable allow-custom @add-custom="onAddTheme" />
-            </div>
-            <div class="form-group">
-              <label>
-                Mood
-                <span class="vocab-source-tag" :title="vocabSourceTooltip('mood')">
-                  · {{ vocabSourceLabel('mood') }}
-                </span>
-              </label>
-              <ComboInput v-model="form.mood" :options="allMoods" placeholder="Pick or add a mood" searchable allow-custom @add-custom="onAddMood" />
-            </div>
+      <div class="idea-composer">
+        <div class="idea-composer-heading">
+          <div>
+            <span class="idea-step-label">Creative brief</span>
+            <h4>What should this batch explore?</h4>
+            <p>Write naturally. A sentence, a rough question, or a detailed direction all work.</p>
           </div>
-          <div class="grid-3 mt-2">
-            <div class="form-group col-span-2">
-              <label>
-                Keywords
-                <span class="vocab-source-tag" :title="vocabSourceTooltip('keyword')">
-                  · {{ vocabSourceLabel('keyword') }}
-                </span>
-              </label>
-              <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
-            </div>
-            <div class="form-group">
-              <label>How many ideas
-                <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                  — episode candidates per click
-                </span>
-              </label>
-              <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
-            </div>
-          </div>
-          <div class="grid-2 mt-2">
-            <div class="form-group">
-              <label>Creative freedom</label>
-              <select v-model="form.creative_mode" class="select">
-                <option value="guided">Balanced — format-aware, flexible</option>
-                <option value="open">Open — let the model lead</option>
-                <option value="strict">Guardrails — predictable and constrained</option>
-              </select>
-              <p class="text-muted text-xs mt-1">Open removes fixed examples and random fiction levers; output structure remains reliable.</p>
-            </div>
-            <div class="form-group">
-              <label>Your creative direction <span class="text-muted">(optional)</span></label>
-              <textarea v-model="form.creative_direction" class="textarea" rows="3" placeholder="What should the model explore, surprise you with, or avoid sounding like?" />
-            </div>
-          </div>
-        </fieldset>
+          <span class="idea-open-badge">Freeform first</span>
+        </div>
 
-        <!-- ── 2. Topic & titles ───────────────────────────────────────── -->
-        <fieldset class="form-section">
-          <legend class="form-section-title">Topic &amp; titles</legend>
+        <textarea
+          v-model="form.creative_direction"
+          class="textarea idea-brief-input"
+          rows="4"
+          placeholder="Example: Find surprising human stories behind ordinary inventions. Avoid familiar success stories; focus on overlooked failures, strange trade-offs, and vivid moments that can carry a full episode."
+        />
 
-          <!-- Topic (a.k.a. niche) override (optional). The Ideas Generator
-               runs through getEffectiveFormat({ nicheIdOverride }), so this
-               dropdown swaps subject vocab + audience hint for THIS batch
-               only — the project's saved topic under Settings is untouched.
-               (Field/config key is still niche_id; UI label says "Topic".) -->
-          <div class="form-group">
-            <label>Topic <span class="text-muted" style="font-size:11px;font-weight:normal;">— subject domain for this batch</span></label>
-            <NichePicker v-model="form.niche_id" />
-            <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
-              <span class="banner-icon">↪</span>
-              <span class="banner-text">
-                <strong>Overriding</strong> the project's saved topic
-                <span v-if="projectNicheId">(<code>{{ projectNicheId }}</code>)</span>
-                <span v-else>(none)</span>
-                for this generation only.
-                <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">
-                  Reset to project default
-                </a>
-              </span>
+        <div class="idea-choice-row">
+          <div class="idea-choice-group freedom-group">
+            <div class="idea-choice-heading">
+              <span>Creative freedom</span>
+              <small>How tightly should the channel format guide the model?</small>
+            </div>
+            <div class="freedom-options" role="radiogroup" aria-label="Creative freedom">
+              <button
+                v-for="mode in creativeModes"
+                :key="mode.id"
+                type="button"
+                class="freedom-option"
+                :class="{ active: form.creative_mode === mode.id }"
+                role="radio"
+                :aria-checked="form.creative_mode === mode.id"
+                @click="form.creative_mode = mode.id"
+              >
+                <strong>{{ mode.label }}</strong>
+                <span>{{ mode.description }}</span>
+              </button>
             </div>
           </div>
 
-          <!-- Title template (optional). When set, every generated idea's
-               title is shaped to this template — the literal {X} placeholder
-               is replaced by each idea's own subject. Blank = default LLM
-               titling. Persisted per project. -->
-          <div class="ideas-title-template-block mt-2">
-            <label class="ideas-title-template-label">
-              Title shape <span class="text-muted">(optional template)</span>
-            </label>
-            <input
-              v-model="form.title_template"
-              type="text"
-              class="input input-sm"
-              placeholder="e.g. Fall asleep to {X}   ·   leave blank for free-form titles"
-              spellcheck="false"
+          <div class="idea-choice-group lens-group">
+            <div class="idea-choice-heading">
+              <span>Optional lenses</span>
+              <small>Combine any that help. Leave empty for full freedom.</small>
+            </div>
+            <div class="creative-lenses">
+              <button
+                v-for="lens in creativeLensOptions"
+                :key="lens.prompt"
+                type="button"
+                class="creative-lens"
+                :class="{ active: form.creative_lenses.includes(lens.prompt) }"
+                :aria-pressed="form.creative_lenses.includes(lens.prompt)"
+                @click="toggleCreativeLens(lens.prompt)"
+              >{{ lens.label }}</button>
+            </div>
+          </div>
+        </div>
+
+        <AdvancedDisclosure
+          v-model:open="ideaRefinementsOpen"
+          label="Refine topic, audience, titles, and generation settings"
+          :badge="refinementBadge"
+        >
+          <div class="idea-refinement-shell">
+            <PresetPicker
+              label="Ideas preset"
+              hint="Save or restore this complete creative setup. Presets stay on this Mac."
+              :presets="ideasPresets.presets.value"
+              :active-id="ideasPresets.activeId.value"
+              @update:active-id="ideasPresets.setActive"
+              @apply="onIdeasPresetApplied"
+              @overwrite="ideasPresets.overwrite(); success('Preset saved')"
+              @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+              @rename="(n: string) => ideasPresets.rename(n).then(() => success(`Renamed to ${n}`))"
+              @delete="ideasPresets.remove(); success('Preset deleted')"
             />
-            <p class="ideas-title-template-hint text-muted">
-              Use <code>{X}</code> as the subject placeholder. Each generated
-              idea fills it with its own subject — so 10 ideas with template
-              <code>"Fall asleep to {X}"</code> become 10 different
-              "Fall asleep to …" titles. Blank = the LLM titles freely.
-            </p>
-          </div>
 
-          <!-- Channel branding (prefix/suffix). Same project-config keys as
-               the Metadata Generator (broll_channel_title_prefix/suffix), so
-               editing here also updates the final YouTube title wrap. -->
-          <div class="ideas-title-wrap-block mt-2">
-            <div class="title-wrap-header">
-              <strong>Channel branding on titles</strong>
-              <span class="text-muted text-xs">
-                · added to the front/back of every generated title. Synced with the Metadata Generator.
-              </span>
-            </div>
-            <div class="grid-2 mt-1">
-              <div class="form-group">
-                <label>Before the title</label>
-                <input
-                  v-model="titleConfig.prefix"
-                  type="text"
-                  class="input"
-                  placeholder="e.g. Morning Prayer: "
-                />
-                <span class="text-muted text-xs">Trailing space / punctuation included verbatim.</span>
-              </div>
-              <div class="form-group">
-                <label>After the title</label>
-                <input
-                  v-model="titleConfig.suffix"
-                  type="text"
-                  class="input"
-                  placeholder="e.g.  | Daily Prayer Channel"
-                />
-                <span class="text-muted text-xs">Leading space included verbatim if you want a gap.</span>
-              </div>
-            </div>
-            <p v-if="titleConfig.prefix || titleConfig.suffix" class="text-muted text-xs mt-1 hint-line">
-              Preview:
-              <code>{{ titlePreviewText }}</code>
-            </p>
-          </div>
-        </fieldset>
+            <div class="idea-refinement-grid">
+              <section class="idea-refinement-card">
+                <div class="idea-refinement-heading">
+                  <span class="idea-refinement-number">01</span>
+                  <div><strong>Creative attributes</strong><small>Optional. Blank means the model chooses.</small></div>
+                </div>
+                <div class="compact-grid">
+                  <div class="form-group">
+                    <label>Audience <span v-if="audienceFromFormat" class="vocab-source-tag">· {{ formatDisplayName }}</span></label>
+                    <ComboInput v-model="form.audience" :options="audienceOptions" placeholder="Use format default" searchable allow-custom />
+                  </div>
+                  <div class="form-group">
+                    <label>Genre <span class="vocab-source-tag">· {{ vocabSourceLabel('genre') }}</span></label>
+                    <ComboInput v-model="form.genre" :options="allGenres" placeholder="Model chooses" searchable allow-custom @add-custom="onAddGenre" />
+                  </div>
+                  <div class="form-group">
+                    <label>Theme</label>
+                    <ComboInput v-model="form.theme" :options="allThemes" placeholder="Model chooses" searchable allow-custom @add-custom="onAddTheme" />
+                  </div>
+                  <div class="form-group">
+                    <label>Mood</label>
+                    <ComboInput v-model="form.mood" :options="allMoods" placeholder="Model chooses" searchable allow-custom @add-custom="onAddMood" />
+                  </div>
+                </div>
+                <div class="form-group compact-keywords">
+                  <label>Required keywords</label>
+                  <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="None required" allow-custom :max="12" @add-custom="onAddKeyword" />
+                </div>
+              </section>
 
-        <!-- ── 3. Generation settings ──────────────────────────────────── -->
-        <fieldset class="form-section">
-          <legend class="form-section-title">Generation settings</legend>
-          <div class="grid-2">
-            <ModelSelector
-              v-if="modelPreferenceReady"
-              v-model="form.model"
-              :project-slug="slug"
-            />
-            <div v-else class="form-group">
-              <label>AI Model</label>
-              <div class="input text-muted" aria-live="polite">Restoring your last used model…</div>
-            </div>
+              <section class="idea-refinement-card">
+                <div class="idea-refinement-heading">
+                  <span class="idea-refinement-number">02</span>
+                  <div><strong>Topic and title shape</strong><small>Override only when this batch needs it.</small></div>
+                </div>
+                <div class="form-group">
+                  <label>Topic override</label>
+                  <NichePicker v-model="form.niche_id" />
+                  <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
+                    <span class="banner-text">Using a batch-only topic. <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">Reset</a></span>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Title template <span class="text-muted">(optional)</span></label>
+                  <input v-model="form.title_template" type="text" class="input" placeholder="e.g. The hidden story of {X}" spellcheck="false" />
+                  <span class="text-muted text-xs">Use <code>{X}</code> for a different subject in every idea.</span>
+                </div>
+                <div class="compact-grid">
+                  <div class="form-group"><label>Title prefix</label><input v-model="titleConfig.prefix" class="input" placeholder="Before every title" /></div>
+                  <div class="form-group"><label>Title suffix</label><input v-model="titleConfig.suffix" class="input" placeholder="After every title" /></div>
+                </div>
+                <p v-if="titleConfig.prefix || titleConfig.suffix" class="title-wrap-preview">Preview: <code>{{ titlePreviewText }}</code></p>
+              </section>
 
-            <!-- Pinned per-idea item/chapter count. Most useful for listicle
-                 / explainer formats where the title encodes the count
-                 ("10 mysteries explained"). Blank = LLM picks per-idea. -->
-            <div class="form-group">
-              <label>
-                How many items per video
-                <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                  — pin to force "{{ form.items_per_listicle || 'N' }} {{ formatId === 'listicle' ? 'mysteries / paradoxes / cases' : 'chapters' }}…" in every title. Leave blank for auto.
-                </span>
-              </label>
-              <input
-                v-model.number="form.items_per_listicle"
-                class="input"
-                type="number"
-                min="1"
-                max="100"
-                :placeholder="formatId === 'listicle' ? 'e.g. 10' : 'auto (let LLM pick)'"
-              />
+              <section class="idea-refinement-card idea-refinement-wide">
+                <div class="idea-refinement-heading">
+                  <span class="idea-refinement-number">03</span>
+                  <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
+                </div>
+                <div class="generation-settings-grid">
+                  <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
+                  <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
+                  <div class="form-group">
+                    <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
+                    <input v-model.number="form.items_per_listicle" class="input" type="number" min="1" max="100" placeholder="Auto" />
+                    <span class="text-muted text-xs">Leave blank unless every idea needs the same fixed count.</span>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
-        </fieldset>
+        </AdvancedDisclosure>
       </div>
 
-      <!-- Action cluster lives in its own blocked region so the progress -->
-      <!-- spinner and wrapping chips don't bleed into the table below when -->
-      <!-- the viewport narrows (pain-point #3). -->
-      <div class="generator-actions">
+      <div class="idea-launch-dock">
+        <div class="idea-launch-summary">
+          <span class="launch-summary-label">Ready to explore</span>
+          <strong>{{ creativeBriefSummary }}</strong>
+        </div>
+        <label class="idea-count-control">
+          <span>Ideas</span>
+          <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
+        </label>
         <div class="generator-actions-primary">
           <button class="btn btn-primary" :disabled="generating" @click="generate">
             <LoadingSpinner v-if="generating" size="sm" label="Generating ideas…" show-label />
-            <template v-else>Generate Ideas</template>
+            <template v-else>Generate {{ form.count }} ideas</template>
           </button>
           <button
             class="btn btn-secondary"
@@ -450,7 +361,7 @@
             title="Fills genre, theme, mood, audience, and keywords with random picks from the pools. Review or tweak before generating — no API cost."
             @click="randomizeForm"
           >
-            🎲 Randomize
+            Randomize attributes
           </button>
           <button
             class="btn btn-secondary"
@@ -459,27 +370,24 @@
             @click="surpriseMe"
           >
             <LoadingSpinner v-if="generating" size="sm" label="Surprising you…" show-label />
-            <template v-else>✨ Surprise Me</template>
+            <template v-else>Surprise me</template>
           </button>
         </div>
-        <!-- v1.0.171 — the three "other ways to add" buttons (rare power
-             ops) collapse behind one disclosure so they no longer sit at the
-             same visual weight as Generate. Click to reveal. -->
-        <div class="generator-actions-secondary">
+      </div>
+      <div class="generator-actions-secondary">
           <button
             type="button"
             class="btn btn-ghost btn-sm other-ways-toggle"
             :aria-expanded="otherWaysOpen"
             @click="otherWaysOpen = !otherWaysOpen"
           >
-            {{ otherWaysOpen ? '▾' : '▸' }} Other ways to add
+            {{ otherWaysOpen ? '▾' : '▸' }} Add ideas another way
           </button>
           <template v-if="otherWaysOpen">
             <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add idea manually</button>
-            <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">📋 Paste from an LLM</button>
-            <button class="btn btn-secondary btn-sm" @click="openImportFolder">📂 Import episode folder</button>
+            <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">Paste from an LLM</button>
+            <button class="btn btn-secondary btn-sm" @click="openImportFolder">Import episode folder</button>
           </template>
-        </div>
       </div>
     </div>
 
@@ -1420,18 +1328,38 @@ async function bulkMarkSelected(done: boolean) {
   }
 }
 
+type CreativeMode = 'strict' | 'guided' | 'open'
+
+const creativeModes: Array<{ id: CreativeMode; label: string; description: string }> = [
+  { id: 'open', label: 'Explore freely', description: 'Brief leads; format stays as context.' },
+  { id: 'guided', label: 'Balanced', description: 'Fresh ideas with a little channel guidance.' },
+  { id: 'strict', label: 'Channel-safe', description: 'Predictable ideas inside firm guardrails.' },
+]
+
+const creativeLensOptions = [
+  { label: 'Challenge assumptions', prompt: 'challenge the obvious framing or accepted assumption' },
+  { label: 'Overlooked angles', prompt: 'find an overlooked angle that most episodes would miss' },
+  { label: 'Human-first', prompt: 'ground the concept in specific human stakes and choices' },
+  { label: 'Cinematic', prompt: 'favor visually rich situations with a strong cinematic hook' },
+  { label: 'Curiosity and mystery', prompt: 'build curiosity around an unresolved question or hidden cause' },
+  { label: 'Clear and useful', prompt: 'make the payoff concrete, understandable, and genuinely useful' },
+]
+
 const form = reactive({
-  genre: 'fantasy',
+  // Blank creative attributes are intentional. The freeform brief leads;
+  // optional channel-format context remains available to the backend.
+  genre: '',
   theme: '',
-  audience: 'adults',
-  mood: 'calming',
+  audience: '',
+  mood: '',
   keywords: [] as string[],
   count: 5,
   // Resolved from last-used memory/history before ModelSelector mounts.
   // Empty is intentional: a paid model must never be a hidden default.
   model: '',
-  creative_mode: 'guided' as 'strict' | 'guided' | 'open',
+  creative_mode: 'open' as CreativeMode,
   creative_direction: '',
+  creative_lenses: [] as string[],
   // v1.0.165+ — optional title template. Empty = LLM titles freely.
   // When set (e.g. "Fall asleep to {X}"), the backend instructs the
   // LLM to shape every generated title to it, substituting {X} with
@@ -1459,9 +1387,16 @@ const projectNicheId = ref<string>('')
 // (Format · Topic · Titles) is always visible, and clicking it reveals the
 // detail panel that the old config cards used to show inline.
 const setupExpanded = ref(false)
+const ideaRefinementsOpen = ref(false)
 // v1.0.171 — "Other ways to add" (manual / paste / import) collapsed by
 // default so these rare power ops don't compete with the Generate button.
 const otherWaysOpen = ref(false)
+
+function toggleCreativeLens(prompt: string) {
+  const index = form.creative_lenses.indexOf(prompt)
+  if (index >= 0) form.creative_lenses.splice(index, 1)
+  else form.creative_lenses.push(prompt)
+}
 
 // v1.0.93+ — channel-level title prefix/suffix. Reads from + writes to
 // the SAME project-config keys the Metadata Generator uses (broll_channel_
@@ -1472,6 +1407,31 @@ const otherWaysOpen = ref(false)
 const titleConfig = reactive({
   prefix: '',
   suffix: '',
+})
+
+const refinementCount = computed(() => [
+  form.genre,
+  form.theme,
+  form.audience,
+  form.mood,
+  form.keywords.length ? 'keywords' : '',
+  form.niche_id !== projectNicheId.value ? 'topic' : '',
+  form.title_template,
+  titleConfig.prefix || titleConfig.suffix,
+  form.items_per_listicle,
+].filter(Boolean).length)
+
+const refinementBadge = computed(() => refinementCount.value
+  ? `${refinementCount.value} active`
+  : 'optional')
+
+const creativeBriefSummary = computed(() => {
+  const parts: string[] = []
+  parts.push(creativeModes.find(mode => mode.id === form.creative_mode)?.label || 'Explore freely')
+  if (form.creative_direction.trim()) parts.push('custom brief')
+  if (form.creative_lenses.length) parts.push(`${form.creative_lenses.length} lens${form.creative_lenses.length === 1 ? '' : 'es'}`)
+  if (refinementCount.value) parts.push(`${refinementCount.value} refinement${refinementCount.value === 1 ? '' : 's'}`)
+  return parts.join(' · ')
 })
 const TITLE_PREFIX_KEY = 'broll_channel_title_prefix'
 const TITLE_SUFFIX_KEY = 'broll_channel_title_suffix'
@@ -1513,6 +1473,7 @@ const ideasPresets = usePresets<any>({
     model: form.model,
     creative_mode: form.creative_mode,
     creative_direction: form.creative_direction,
+    creative_lenses: [...form.creative_lenses],
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
     niche_id: form.niche_id,
@@ -1530,6 +1491,7 @@ const ideasPresets = usePresets<any>({
     if (typeof data.model === 'string') form.model = data.model
     if (['strict', 'guided', 'open'].includes(data.creative_mode)) form.creative_mode = data.creative_mode
     if (typeof data.creative_direction === 'string') form.creative_direction = data.creative_direction
+    if (Array.isArray(data.creative_lenses)) form.creative_lenses = data.creative_lenses.filter((value: unknown) => typeof value === 'string')
     if (typeof data.title_template === 'string') form.title_template = data.title_template
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle
@@ -2017,21 +1979,6 @@ const audienceOptions = computed(() => {
 })
 /** True iff the active format declared its own audienceDefault (used by the label tag). */
 const audienceFromFormat = computed(() => !!activeFormat.value?.idea?.audienceDefault)
-
-// Seed the audience field from the format's default the first time
-// the format loads on a fresh project — without this, listicle users
-// see "adults" instead of "curious adults" until they manually pick.
-// Only fires when the user hasn't typed anything custom yet (i.e. the
-// field still holds the page's hardcoded 'adults' default).
-let audienceSeeded = false
-watch(activeFormat, (fmt) => {
-  if (audienceSeeded) return
-  const fmtAud = fmt?.idea?.audienceDefault
-  if (fmtAud && form.audience === 'adults') {
-    form.audience = fmtAud
-    audienceSeeded = true
-  }
-}, { immediate: true })
 
 function pickRandom<T>(arr: readonly T[]): T | undefined {
   if (!arr.length) return undefined
@@ -3099,14 +3046,163 @@ async function confirmCompact() {
 </script>
 
 <style scoped>
-/* Generator panel */
-.generator-panel { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px 20px; }
-.generator-title { margin: 0 0 4px; }
-.generator-blurb { margin: 0 0 12px; }
-.generator-body { display: flex; flex-direction: column; gap: 14px; }
-.generator-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
-.generator-actions-primary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* Freeform-first idea composer. The default surface deliberately stays short:
+   brief, freedom, lenses, launch. Specialized controls live in one shared
+   AdvancedDisclosure instead of three permanently-open fieldsets. */
+.generator-panel {
+  padding: 16px;
+  overflow: visible;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(240, 198, 116, 0.08), transparent 30%),
+    var(--bg-secondary);
+}
+.generator-title { margin: 0 0 12px; font-size: 18px; }
+.idea-composer {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+}
+.idea-composer-heading,
+.idea-choice-heading,
+.idea-refinement-heading,
+.idea-launch-dock {
+  display: flex;
+  align-items: center;
+}
+.idea-composer-heading { justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.idea-composer-heading h4 { margin: 2px 0 2px; font-size: 16px; }
+.idea-composer-heading p { margin: 0; color: var(--text-muted); font-size: 12px; }
+.idea-step-label,
+.launch-summary-label {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.idea-open-badge {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.idea-brief-input {
+  width: 100%;
+  min-height: 108px;
+  padding: 14px 15px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.55;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: var(--bg-primary);
+}
+.idea-brief-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.idea-choice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.idea-choice-group {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+}
+.idea-choice-heading { justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.idea-choice-heading > span { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.idea-choice-heading small { font-size: 10px; color: var(--text-muted); text-align: right; }
+.freedom-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.freedom-option {
+  min-width: 0;
+  padding: 9px 10px;
+  text-align: left;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+.freedom-option:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); transform: translateY(-1px); }
+.freedom-option.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary)); }
+.freedom-option strong,
+.freedom-option span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.freedom-option strong { color: var(--text-primary); font-size: 11px; white-space: nowrap; }
+.freedom-option span { margin-top: 3px; font-size: 9px; line-height: 1.35; color: var(--text-muted); }
+.creative-lenses { display: flex; flex-wrap: wrap; gap: 6px; }
+.creative-lens {
+  padding: 6px 9px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.creative-lens:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.creative-lens.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.idea-composer :deep(.adv-disclosure) { margin-top: 12px; }
+.idea-composer :deep(.adv-disclosure-toggle) { padding: 9px 11px; background: color-mix(in srgb, var(--bg-primary) 70%, transparent); }
+.idea-refinement-shell { display: flex; flex-direction: column; gap: 10px; }
+.idea-refinement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.idea-refinement-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.idea-refinement-wide { grid-column: 1 / -1; }
+.idea-refinement-heading { gap: 8px; margin-bottom: 10px; }
+.idea-refinement-number {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 9px;
+  font-weight: 800;
+}
+.idea-refinement-heading strong,
+.idea-refinement-heading small { display: block; }
+.idea-refinement-heading strong { font-size: 12px; }
+.idea-refinement-heading small { margin-top: 1px; color: var(--text-muted); font-size: 9px; }
+.compact-grid,
+.generation-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.idea-refinement-card .form-group { margin: 0; min-width: 0; }
+.idea-refinement-card .form-group + .form-group { margin-top: 8px; }
+.compact-grid .form-group + .form-group,
+.generation-settings-grid .form-group + .form-group { margin-top: 0; }
+.compact-keywords { margin-top: 8px !important; }
+.title-wrap-preview { margin: 7px 0 0; color: var(--text-muted); font-size: 10px; }
+.title-wrap-preview code { color: var(--text-secondary); }
+.idea-launch-dock {
+  gap: 12px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-md);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 11%, var(--bg-tertiary)), var(--bg-tertiary));
+}
+.idea-launch-summary { flex: 1 1 220px; min-width: 0; }
+.idea-launch-summary span,
+.idea-launch-summary strong { display: block; }
+.idea-launch-summary strong { margin-top: 2px; overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.idea-count-control { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 11px; }
+.idea-count-control .input { width: 64px; height: 34px; padding: 5px 8px; }
+.generator-actions-primary { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 /* Disclosure toggle is a borderless/background-less .btn, so its only
  * affordance is the text colour. `--text-muted` (#6b7280) reads fine on the
  * light bg but only hits ~3.9:1 on the dark page bg (#0f1117) — under the
@@ -3115,25 +3211,6 @@ async function confirmCompact() {
  * than the primary actions) and brighten to primary on hover for affordance. */
 .other-ways-toggle { color: var(--text-secondary); }
 .other-ways-toggle:hover { color: var(--text-primary); }
-
-/* v1.0.171 — grouped form sections. Each fieldset is a labelled box so the
-   long field list reads as three distinct decisions instead of one wall. */
-.form-section {
-  border: 1px solid var(--border, #2a2a2a);
-  border-radius: var(--radius-sm, 6px);
-  padding: 12px 14px 14px;
-  margin: 0;
-  min-width: 0;   /* let grid children shrink inside the fieldset */
-}
-.form-section-title {
-  padding: 0 6px;
-  margin-left: -2px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted, #9a9a9a);
-}
 
 /* Format Indicator Card — sits between the title and the form. Visual
    anchor that tells the user which format flavours every dropdown +
@@ -4021,4 +4098,27 @@ async function confirmCompact() {
 }
 .context-override-tag { color: var(--accent, #6c8fff); background: rgba(108, 143, 255, 0.10); }
 .effective-link.subtle { margin-left: 0; opacity: 0.85; }
+
+@media (max-width: 1180px) {
+  .idea-choice-row { grid-template-columns: 1fr; }
+  .idea-refinement-grid { grid-template-columns: 1fr; }
+  .idea-refinement-wide { grid-column: auto; }
+  .idea-launch-dock { align-items: flex-end; flex-wrap: wrap; }
+}
+
+@media (max-width: 720px) {
+  .generator-panel,
+  .idea-composer { padding: 12px; }
+  .idea-composer-heading { align-items: flex-start; }
+  .idea-open-badge { display: none; }
+  .freedom-options,
+  .compact-grid,
+  .generation-settings-grid { grid-template-columns: 1fr; }
+  .idea-choice-heading { align-items: flex-start; flex-direction: column; }
+  .idea-choice-heading small { text-align: left; }
+  .idea-launch-dock { align-items: stretch; flex-direction: column; }
+  .idea-count-control { justify-content: space-between; }
+  .generator-actions-primary { display: grid; grid-template-columns: 1fr; }
+  .generator-actions-primary .btn { width: 100%; }
+}
 </style>

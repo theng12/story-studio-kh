@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.607 — 2026-07-15
+
+**Ideas Generator is now freeform-first, faster to understand, and far less restrictive.**
+
+- Replaced the sparse three-section form with one focused creative brief, compact freedom choices, optional inspiration lenses, and a single launch bar.
+- Removed the hidden fantasy, adult, calming, and balanced defaults; blank refinements now genuinely leave genre, mood, and framing open to the selected model.
+- Moved topic, audience, title shaping, presets, model selection, and fixed item counts into one optional refinement area without removing useful controls.
+- Added six combinable creative lenses for challenging assumptions, overlooked angles, human stakes, cinematic hooks, mystery, and practical clarity.
+- Updated the backend prompt contract so freeform briefs lead, lenses remain inspiration rather than formulas, and format context does not silently become a creative cage.
+- Added responsive and regression coverage for the new creative flow and unrestricted defaults.
+
 ## v1.0.606 — 2026-07-15
 
 **Pipeline stage selection is now explicit and safer.**

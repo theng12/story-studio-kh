@@ -1925,6 +1925,10 @@ export interface GenerateIdeasRequest {
   /** User-authored creative brief. In open mode this is the primary artistic
    * direction; technical output/schema requirements still apply. */
   creative_direction?: string
+  /** Optional creative lenses selected in the Ideas workspace. They are
+   * inspiration prompts, never hard constraints or replacements for the
+   * user's freeform brief. */
+  creative_lenses?: string[]
   /**
    * v1.0.165+ — optional title template. When set (e.g. "Fall asleep to
    * {X}"), the idea-generator prompt instructs the LLM to shape EVERY

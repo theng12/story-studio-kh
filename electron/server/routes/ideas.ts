@@ -117,6 +117,41 @@ export function rewriteLeadingCount(title: string, target: number): string {
   return title.slice(0, m.start) + String(target) + title.slice(m.end)
 }
 
+/**
+ * Build the user-controlled portion of the idea prompt. Empty refinement
+ * fields deliberately stay open rather than inheriting old fantasy/sleep
+ * defaults. The channel format may still provide its audience context.
+ */
+export function buildCreativeParameters(
+  req: GenerateIdeasRequest,
+  formatAudience = '',
+): string {
+  const clean = (value: unknown, fallback: string) => {
+    const text = typeof value === 'string' ? value.trim() : ''
+    return text || fallback
+  }
+  const keywords = Array.isArray(req.keywords)
+    ? req.keywords.map(value => clean(value, '')).filter(Boolean).slice(0, 12)
+    : []
+  const lenses = Array.isArray(req.creative_lenses)
+    ? [...new Set(req.creative_lenses
+      .map(value => clean(value, '').slice(0, 120))
+      .filter(Boolean))].slice(0, 8)
+    : []
+
+  const lines = [
+    `- Genre: ${clean(req.genre, 'model chooses freely')}`,
+    `- Theme: ${clean(req.theme, 'model chooses freely')}`,
+    `- Target audience: ${clean(req.audience, clean(formatAudience, 'model chooses freely'))}`,
+    `- Mood/tone: ${clean(req.mood, 'model chooses freely')}`,
+    `- Keywords to incorporate: ${keywords.length ? keywords.join(', ') : 'none required'}`,
+  ]
+  if (lenses.length) {
+    lines.push(`- Creative lenses (use as inspiration, not a formula): ${lenses.join('; ')}`)
+  }
+  return lines.join('\n')
+}
+
 function buildPrompt(
   req: GenerateIdeasRequest,
   format: Format,
@@ -126,7 +161,6 @@ function buildPrompt(
   titleTemplate?: string,
   topPerformersBlock: string = '',
 ): string {
-  const keywords = req.keywords?.length ? req.keywords.join(', ') : 'none specified'
   const standardsSection = standards
     ? `\nProduction standards (style reference, not a formula to copy):\n\n${standards.slice(0, 2000)}\n`
     : ''
@@ -148,7 +182,6 @@ function buildPrompt(
   // The format's role line ("You are helping generate new story ideas for a
   // sleep-story narration channel.") flows in here too so the LLM gets the
   // channel context even though this prompt has no system message.
-  const audience = req.audience || format.idea.audienceDefault
   const formatGuidance = `${format.idea.systemPromptRole}
 
 ${format.idea.guidanceText}`
@@ -288,17 +321,14 @@ ${themeRules.map(r => `     · ${r}`).join('\n')}`
   const userDirection = req.creative_direction?.trim()
     ? `\nUSER CREATIVE DIRECTION — prioritize this over optional style guidance:\n${req.creative_direction.trim()}\n`
     : ''
+  const creativeParameters = buildCreativeParameters(req, format.idea.audienceDefault)
 
   return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
 ${formatGuidance}
 ${titleTemplateBlock}${topPerformersBlock}${exampleBlock}
 PARAMETERS:
-- Genre: ${req.genre}
-- Theme: ${req.theme || 'open / surprise me'}
-- Target audience: ${audience}
-- Mood/tone: ${req.mood}
-- Keywords to incorporate: ${keywords}
+${creativeParameters}
 - Creativity seed: ${seed} (ignore semantics; use only to diverge from prior output)
 ${standardsSection}${avoidSection}${extraAvoid}
 ${creativityBlock}${userDirection}
