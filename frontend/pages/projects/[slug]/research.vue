@@ -125,12 +125,29 @@
         </aside>
       </div>
 
-      <AdvancedDisclosure
-        label="Run settings and reusable preset"
-        :badge="researchSettingsBadge"
-        :persist-key="`research_run_settings_open_${slug}`"
-      >
-        <div class="research-advanced-grid">
+      <div class="research-setup-surface">
+        <div class="research-setup-heading">
+          <div>
+            <span class="research-panel-kicker">Reusable setup</span>
+            <h3>Preset and run controls</h3>
+          </div>
+          <p>Visible on every visit, so the active research setup is never hidden.</p>
+        </div>
+        <PresetPicker
+          class="research-preset-picker"
+          label="Research preset"
+          hint="Saves the source, model, source depth, and reusable questions. Episode topics remain episode-specific."
+          :presets="researchPresets.presets.value"
+          :active-id="researchPresets.activeId.value"
+          @update:active-id="researchPresets.setActive"
+          @apply="researchPresets.applyActive(); success('Research preset applied')"
+          @overwrite="researchPresets.overwrite(); success('Research preset saved')"
+          @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+          @rename="(n: string) => researchPresets.rename(n)"
+          @delete="researchPresets.remove()"
+        />
+
+        <div class="research-run-controls">
           <div v-if="form.source_provider === 'llm-only'" class="research-model-field">
             <label>Research model</label>
             <ModelSelector v-model="form.source_model" :project-slug="slug" />
@@ -152,21 +169,7 @@
             <span class="research-field-note">Web research honors this closely; LLM-only treats it as guidance.</span>
           </div>
         </div>
-
-        <PresetPicker
-          class="research-preset-picker"
-          label="Research preset"
-          hint="Saves the source, model, source depth, and reusable questions. Episode topics remain episode-specific."
-          :presets="researchPresets.presets.value"
-          :active-id="researchPresets.activeId.value"
-          @update:active-id="researchPresets.setActive"
-          @apply="researchPresets.applyActive(); success('Research preset applied')"
-          @overwrite="researchPresets.overwrite(); success('Research preset saved')"
-          @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-          @rename="(n: string) => researchPresets.rename(n)"
-          @delete="researchPresets.remove()"
-        />
-      </AdvancedDisclosure>
+      </div>
     </WorkspaceSection>
 
     <!-- Results -->
@@ -523,11 +526,6 @@ const researchReadinessTone = computed(() => {
   if (unreviewedCount.value || dirty.value) return 'warning'
   return 'success'
 })
-const researchSettingsBadge = computed(() => {
-  const preset = researchPresets.activeId.value ? 'preset selected' : 'no preset'
-  return `${form.value.max_sources} sources · ${preset}`
-})
-
 // v1.0.197 — which sources flow into the YouTube description. Absent flag =
 // included (default-on). The Metadata generator appends the kept ones.
 function isSourceIncluded(c: ResearchCitation): boolean { return c.include_in_description !== false }
@@ -881,8 +879,35 @@ watch(
 .research-settings-link { display: inline-flex; margin-top: 8px; color: var(--accent); font-size: 10px; text-decoration: none; }
 .research-settings-link:hover { text-decoration: underline; }
 
-.research-brief-section :deep(.adv-disclosure) { margin-top: 16px; }
-.research-advanced-grid {
+.research-setup-surface {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.4fr);
+  gap: 12px 14px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%);
+}
+.research-setup-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  grid-column: 1 / -1;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.research-setup-heading h3 { margin: 2px 0 0; font-size: 14px; }
+.research-setup-heading p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: right;
+}
+.research-run-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 210px;
   gap: 14px;
@@ -896,8 +921,8 @@ watch(
 .research-depth-control { display: flex; align-items: center; gap: 8px; }
 .research-depth-control .input { width: 80px; }
 .research-depth-control span { color: var(--text-muted); font-size: 11px; }
-.research-preset-picker { margin-top: 10px; }
-.research-brief-section :deep(.research-preset-picker.card) { padding: 12px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
+.research-preset-picker { align-self: stretch; }
+.research-brief-section :deep(.research-preset-picker.card) { margin: 0; padding: 12px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
 
 .research-result-actions { display: flex; align-items: center; gap: 7px; }
 .research-running-state {
@@ -1017,13 +1042,17 @@ watch(
   .research-brief-grid { grid-template-columns: 1fr; }
   .research-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .research-flow-rail .workspace-command-copy { display: none; }
+  .research-setup-surface { grid-template-columns: 1fr; }
+  .research-setup-heading { grid-column: 1; }
 }
 
 @media (max-width: 760px) {
   .research-flow-line { width: 12px; }
   .research-flow-step { font-size: 9px; }
-  .research-advanced-grid,
+  .research-run-controls,
   .research-source-grid { grid-template-columns: 1fr; }
+  .research-setup-heading { align-items: flex-start; flex-direction: column; }
+  .research-setup-heading p { text-align: left; }
   .research-review-dashboard { grid-template-columns: 74px 1fr; }
   .research-claims-bulk { grid-column: 1 / -1; justify-content: flex-start; }
   .research-claim { grid-template-columns: 26px minmax(0, 1fr); }

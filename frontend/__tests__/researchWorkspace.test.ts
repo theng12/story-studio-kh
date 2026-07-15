@@ -17,11 +17,14 @@ describe('Research workspace flow', () => {
     assert.match(research, /title="Define what needs evidence"/)
   })
 
-  test('keeps provider tuning and presets out of the primary brief', () => {
-    assert.match(research, /label="Run settings and reusable preset"/)
+  test('keeps presets and run controls visible without a settings disclosure', () => {
+    assert.match(research, /class="research-setup-surface"/)
+    assert.match(research, /Preset and run controls/)
     assert.match(research, /<ModelSelector v-model="form\.source_model"/)
     assert.match(research, /<PresetPicker/)
     assert.match(research, /Episode topics remain episode-specific/)
+    assert.doesNotMatch(research, /label="Run settings and reusable preset"/)
+    assert.doesNotMatch(research, /research_run_settings_open_/)
   })
 
   test('makes review completeness and Script handoff explicit', () => {

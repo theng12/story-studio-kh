@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.614 — 2026-07-15
+
+**Research presets and run controls are now always visible.**
+
+- Moved the reusable Research preset out of the collapsed run-settings drawer and into a permanent setup surface.
+- Kept model selection and source depth visible beside the preset so the complete run configuration can be reviewed at a glance.
+- Removed the obsolete per-project disclosure state while preserving all existing preset save, apply, rename, and delete behavior.
+- Added responsive layout and regression coverage for the always-visible Research setup.
+
 ## v1.0.613 — 2026-07-15
 
 **Recorded pending Kie.ai Nano Banana 2 Lite pricing.**
