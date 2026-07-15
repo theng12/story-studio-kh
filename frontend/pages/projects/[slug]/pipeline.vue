@@ -37,8 +37,32 @@
     <WorkspaceSection
       eyebrow="Stage selection"
       title="Steps to run"
-      description="Choose the stages this batch should advance through. Every selected stage keeps its project-level preset until you change it."
+      description="Nothing is selected automatically. Choose stages manually or use a safe shortcut; every selected stage keeps its project-level preset until you change it."
     >
+      <template #actions>
+        <div class="step-selection-actions" role="group" aria-label="Stage selection shortcuts">
+          <span class="step-selection-count">{{ checkedStepCount }} selected</span>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off."
+            @click="selectRequiredSteps"
+          >Required stages</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            title="Select every available stage in the current production chain, including optional and paid stages."
+            @click="selectAllSteps"
+          >Select all</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-ghost"
+            :disabled="checkedStepCount === 0"
+            title="Clear every selected stage."
+            @click="clearSelectedSteps"
+          >Clear</button>
+        </div>
+      </template>
 
       <div class="steps-grid mt-2">
         <template v-for="entry in chainEntries" :key="entry.kind === 'step' ? entry.id : entry.key">
@@ -738,38 +762,41 @@ const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 
 const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
 
 const stepChecked = reactive<Record<StepId, boolean>>({
-  // Research enriches factual projects but must never make an episode pending
-  // or run unexpectedly as part of the default one-click chain.
+  // Pipeline always opens with an empty stage selection. Starting work is an
+  // explicit decision; shortcuts below provide safe required-only or full-chain
+  // selection without reviving the old surprise "everything on" behavior.
   research: false,
-  broll: true,
-  'script-only': true,
-  // v1.0.363 — Introduction defaults OFF. It was a sleep-story convention;
-  // for every current format it's redundant, and nothing downstream gates on
-  // it anymore (Metadata now needs only the Script). Opt in per project when a
-  // format genuinely wants a separate intro.
+  broll: false,
+  'script-only': false,
   'introduction-only': false,
-  image_prompts: true,
-  thumb_images: true,
-  audio: true, audio_merge: true, metadata: true,
-  // v1.0.363 — audio-paced format steps default ON so one click runs the whole
-  // chain end-to-end ("run all the way to final video"). They only count when
-  // they're part of the active format's chain (checkedStepsOrdered filters to
-  // visibleSteps), so a scenes-format run ignores scene_plan/scene_review/etc.
-  subtitles: true,
-  character_sheet: true,
-  scene_plan: true,
-  scene_review: true,
-  // Audio-paced formats now use text-to-image followed by image-to-video.
-  // Provider spend is surfaced on the tile and preflight, but the step is part
-  // of the requested one-click chain once a Motion Review preset is saved.
-  motion_review: true,
-  // video_assembly defaults ON so "Run all pending" finishes episodes end
-  // -to-end in one click. The chain mechanism guarantees it waits for its
-  // inputs (audio_merge + images) — if an episode is missing either, that
-  // episode's chain stops at the failing step and skips assembly
-  // automatically while other episodes continue.
-  video_assembly: true,
+  image_prompts: false,
+  thumb_images: false,
+  audio: false,
+  audio_merge: false,
+  metadata: false,
+  subtitles: false,
+  character_sheet: false,
+  scene_plan: false,
+  scene_review: false,
+  motion_review: false,
+  video_assembly: false,
 })
+
+function clearSelectedSteps(): void {
+  for (const step of stepsMeta) stepChecked[step.id] = false
+}
+
+function selectRequiredSteps(): void {
+  clearSelectedSteps()
+  for (const step of visibleSteps.value) {
+    if (!step.optional) stepChecked[step.id] = true
+  }
+}
+
+function selectAllSteps(): void {
+  clearSelectedSteps()
+  for (const step of visibleSteps.value) stepChecked[step.id] = true
+}
 
 // Intro depends on script context. If the user unchecks Script (chapters),
 // auto-uncheck Introduction so the batch never queues an intro step that
@@ -1637,6 +1664,21 @@ async function submit() {
   color: var(--text-secondary);
   font-size: var(--font-sm);
   line-height: 1.55;
+}
+
+.step-selection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.step-selection-count {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Episodes-card header — wraps onto a second line on narrow viewports

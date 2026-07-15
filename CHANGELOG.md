@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.606 — 2026-07-15
+
+**Pipeline stage selection is now explicit and safer.**
+
+- Pipeline opens with no production stages selected, matching its existing empty episode selection.
+- Added **Required stages** to select the current chain without optional Research or paid Motion Clips.
+- Added clear **Select all** and **Clear** shortcuts while preserving manual per-stage control.
+- Added regression coverage to prevent stages from silently returning to an all-selected default.
+
 ## v1.0.605 — 2026-07-15
 
 **Production Board now opens focused on episodes that still need work.**
