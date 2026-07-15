@@ -26,7 +26,7 @@
         <div class="workspace-metrics">
           <span class="workspace-metric"><strong>{{ episodes.length }}</strong> episodes</span>
           <span class="workspace-metric"><strong>{{ columns.length }}</strong> tracked stages</span>
-          <span v-if="searchActive || hidePending || stepFilter" class="workspace-metric" data-tone="info">
+          <span v-if="searchActive || needsWorkOnly || stepFilter" class="workspace-metric" data-tone="info">
             <strong>{{ visibleEpisodes.length }}</strong> shown
           </span>
         </div>
@@ -66,11 +66,11 @@
         <button
           type="button"
           class="board-filter"
-          :class="{ active: hidePending }"
+          :class="{ active: needsWorkOnly }"
           title="Hide episodes whose steps are all done — focus on what still needs work."
-          @click="hidePending = !hidePending"
+          @click="needsWorkOnly = !needsWorkOnly"
         >
-          {{ hidePending ? '◉' : '○' }} Needs work only
+          {{ needsWorkOnly ? '◉' : '○' }} Needs work only
         </button>
         <button
           type="button"
@@ -120,11 +120,11 @@
       <p class="board-empty-title">Nothing matches</p>
       <p class="text-muted">
         <template v-if="stepFilter && stepFilterCol">Every episode has {{ stepFilterCol.label }} done. </template>
-        <template v-if="hidePending">Every shown episode is fully done. </template>
+        <template v-if="needsWorkOnly">Every episode is fully done. </template>
         <template v-if="searchActive">No episode matches "{{ search }}". </template>
         Clear the filters to see all {{ episodes.length }}.
       </p>
-      <button class="btn btn-secondary" @click="search = ''; hidePending = false; stepFilter = null">Clear filters</button>
+      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null">Show all episodes</button>
     </div>
 
     <!-- The matrix -->
@@ -352,7 +352,9 @@ const columnDoneCounts = computed(() => {
 
 // ── Filtering ─────────────────────────────────────────────────────────────
 const search = ref('')
-const hidePending = ref(false)
+// Production Board is an exception dashboard: completed episodes are hidden
+// until the user explicitly asks to see the full archive.
+const needsWorkOnly = ref(true)
 // Click a column header to show only episodes still pending THAT step
 // ("who needs Audio?"). Null = no per-step filter.
 const stepFilter = ref<string | null>(null)
@@ -370,7 +372,7 @@ watch(columns, cols => {
 const visibleEpisodes = computed(() => {
   let list = episodes.value
   if (stepFilter.value) list = list.filter(ep => ep.status?.[stepFilter.value!] !== true)
-  if (hidePending.value) list = list.filter(ep => !isFullyDone(ep))
+  if (needsWorkOnly.value) list = list.filter(ep => !isFullyDone(ep))
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
     list = list.filter(ep =>

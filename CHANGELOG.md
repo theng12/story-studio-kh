@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.605 — 2026-07-15
+
+**Production Board now opens focused on episodes that still need work.**
+
+- Enabled **Needs work only** by default so completed episodes no longer bury missing or incomplete production stages.
+- Kept a clear **Show all episodes** escape when the full archive is needed.
+- Added regression coverage to prevent future releases from restoring the completed-first default.
+
 ## v1.0.604 — 2026-07-15
 
 **Phase 5 unifies the remaining assembly and library workspaces, with one shared Channel Characters system.**
