@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.619 — 2026-07-16
+
+**Audio chapters can now be sent to TTS one at a time.**
+
+- Added an inline Generate action to every Audio Generator chapter row.
+- Ensured inline generation submits only that chapter through the existing confirmation, provider, queue, and completion path.
+- Disabled conflicting row actions while the episode already has an audio job in flight and respected regeneration mode for completed chapters.
+- Added responsive row controls and regression coverage for exact one-chapter dispatch.
+
 ## v1.0.618 — 2026-07-16
 
 **Current Kie image pricing and safe Qwen voice cloning are now available.**

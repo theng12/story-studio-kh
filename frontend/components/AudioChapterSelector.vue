@@ -17,7 +17,8 @@
                     missing/all, which targets every section)
 
   Multi-select: checkboxes plus Select All / None / Missing Only
-  bulk actions. The chosen slugs flow back through v-model:selected as
+  bulk actions. Each row also exposes an explicit one-section generation
+  action. The chosen slugs flow back through v-model:selected as
   a comma-joined string ("intro,Chapter_01,Chapter_03") so the existing
   audio backend (which already parses that format) doesn't need a contract
   change.
@@ -71,6 +72,16 @@
           <span class="cs-pill" :class="`pill-${runtimeStatus(s)}`">
             {{ statusText(runtimeStatus(s)) }}
           </span>
+          <button
+            type="button"
+            class="cs-generate"
+            :disabled="inlineActionDisabled(s)"
+            :title="inlineActionTitle(s)"
+            :aria-label="`${inlineActionLabel(s)} ${prettyLabel(s.label)} only`"
+            @click.stop.prevent="emit('generate-section', s.slug)"
+          >
+            {{ runtimeStatus(s) === 'generating' ? 'Queued…' : inlineActionLabel(s) }}
+          </button>
           <!-- In-app listen: play the generated audio without opening Finder.
                Only shown once at least one chunk exists on disk. -->
           <button
@@ -125,11 +136,20 @@ const props = withDefaults(defineProps<{
   allowDuplicates?: boolean
   /** Bump to force a refetch (e.g. after a generation finishes). */
   refreshKey?: number
-}>(), { allowDuplicates: false })
+  /** Parent-level gate for voice, script, confirmation, or queue readiness. */
+  inlineGenerateDisabled?: boolean
+  /** Explains a disabled inline action without duplicating parent validation. */
+  inlineGenerateDisabledReason?: string
+}>(), {
+  allowDuplicates: false,
+  inlineGenerateDisabled: false,
+  inlineGenerateDisabledReason: '',
+})
 
 const emit = defineEmits<{
   'update:selected': [value: string]
   'update:allowDuplicates': [value: boolean]
+  'generate-section': [slug: string]
   /**
    * Selection AFTER duplicate-skip filtering — what should actually be sent
    * to the backend. Pages that submit jobs read this instead of `selected`.
@@ -242,6 +262,28 @@ function statusText(status: string): string {
     : '○ pending'
 }
 
+function inlineActionLabel(section: SectionRow): string {
+  return runtimeStatus(section) === 'generated' || runtimeStatus(section) === 'stale'
+    ? 'Regenerate'
+    : 'Generate'
+}
+
+function inlineActionDisabled(section: SectionRow): boolean {
+  const status = runtimeStatus(section)
+  if (status === 'generating' || props.inlineGenerateDisabled) return true
+  return status === 'generated' && !allowDuplicatesLocal.value
+}
+
+function inlineActionTitle(section: SectionRow): string {
+  const status = runtimeStatus(section)
+  if (status === 'generating') return 'This chapter is already queued or generating.'
+  if (props.inlineGenerateDisabled) return props.inlineGenerateDisabledReason || 'Audio generation is not ready.'
+  if (status === 'generated' && !allowDuplicatesLocal.value) {
+    return 'Choose Regenerate or New version below to generate this completed chapter again.'
+  }
+  return `Send only ${prettyLabel(section.label)} to the selected TTS provider.`
+}
+
 function prettyLabel(label: string): string {
   // Section labels come from the docx parser as "Introduction", "Chapter 1",
   // etc. — already display-ready in most cases. Trim defensively.
@@ -347,7 +389,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
 
 .cs-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-columns: auto 1fr auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
@@ -355,6 +397,27 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   font-size: 13px;
 }
 .cs-row input[type="checkbox"] { margin: 0; }
+
+.cs-generate {
+  min-width: 76px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cs-generate:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-secondary));
+  border-color: var(--accent);
+}
+.cs-generate:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
 
 .cs-play {
   background: none;
@@ -427,5 +490,27 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .cs-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "check name status generate"
+      "check meta play play";
+  }
+  .cs-row > input[type="checkbox"] { grid-area: check; }
+  .cs-name { grid-area: name; }
+  .cs-meta {
+    grid-area: meta;
+    white-space: normal;
+  }
+  .cs-pill { grid-area: status; }
+  .cs-generate { grid-area: generate; }
+  .cs-play,
+  .cs-play-spacer {
+    grid-area: play;
+    justify-self: end;
+  }
 }
 </style>

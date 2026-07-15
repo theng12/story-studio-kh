@@ -125,7 +125,10 @@
         v-model:selected="form.sections"
         :allow-duplicates="form.generation_mode !== 'skip'"
         :refresh-key="audioStatus.total"
+        :inline-generate-disabled="inlineGenerateDisabled"
+        :inline-generate-disabled-reason="inlineGenerateDisabledReason"
         @update:effective-selected="onEffectiveSelectionChange"
+        @generate-section="submitSection"
       />
 
       <div class="grid-3">
@@ -572,6 +575,21 @@ const scriptGateReason = computed(() => {
   if (!form.episode_id || scriptReady.value) return ''
   return statusKnown.value ? noScriptTooltip : 'Checking script status…'
 })
+const inlineGenerateDisabled = computed(() =>
+  !scriptReady.value
+  || !form.voice
+  || !selectedVoiceCompatible.value
+  || submitting.value
+  || audioJobActiveForEpisode.value,
+)
+const inlineGenerateDisabledReason = computed(() => {
+  if (!scriptReady.value) return scriptGateReason.value || 'Generate the script first.'
+  if (!form.voice) return 'Pick a voice first.'
+  if (!selectedVoiceCompatible.value) return `Pick a voice labelled for ${currentAudioProviderLabel.value}.`
+  if (submitting.value) return 'The audio request is being queued.'
+  if (audioJobActiveForEpisode.value) return 'Another audio job for this episode is already queued or running.'
+  return ''
+})
 
 // v1.0.78 — inline rescan-from-disk affordance. Hits the existing
 // /episodes?rescan=1 server-side path which calls
@@ -800,6 +818,14 @@ watch(() => form.episode_id, (v) => {
 
 // ── Main generation ────────────────────────────────────────────────────
 async function submit() {
+  await queueAudio()
+}
+
+async function submitSection(sectionSlug: string) {
+  await queueAudio(sectionSlug)
+}
+
+async function queueAudio(sectionOverride?: string) {
   // A voice MUST be explicitly picked — there is no default. This guards the
   // programmatic path; the Generate button is also disabled until a voice is
   // set. Prevents the silent "generated with the default voice" failure mode.
@@ -815,9 +841,9 @@ async function submit() {
   // selector, we send them as the comma-joined `sections` string the backend
   // already understands. If nothing is selected and they hit Generate, treat
   // that as "all" so the original one-click flow still works.
-  const sections = effectiveSections.value.length
+  const sections = sectionOverride || (effectiveSections.value.length
     ? effectiveSections.value.join(',')
-    : 'all'
+    : 'all')
 
   // Translate the unified `generation_mode` into the backend's existing
   // (force, no_overwrite) booleans. Backend untouched — generators/audio.ts
@@ -833,7 +859,7 @@ async function submit() {
   // falls back to the per-model cap (or the chunker default) in every case.
   delete payload.max_chunk_chars
 
-  if (form.episode_id && effectiveSections.value.length === 0 && form.sections) {
+  if (!sectionOverride && form.episode_id && effectiveSections.value.length === 0 && form.sections) {
     // User selected items but every one was filtered out as already-generated.
     showError('Every selected section already has audio. Switch Generation Mode to "Regenerate" or "New version" to overwrite, or pick different sections.')
     return
@@ -845,7 +871,9 @@ async function submit() {
   audioGenerating.value = true
   try {
     await post(`/projects/${slug.value}/generate/audio`, payload)
-    success(`Audio generation queued for ${sections === 'all' ? 'all sections' : effectiveSections.value.length + ' section(s)'}`)
+    success(sectionOverride
+      ? `${sectionOverride.replaceAll('_', ' ')} queued by itself.`
+      : `Audio generation queued for ${sections === 'all' ? 'all sections' : effectiveSections.value.length + ' section(s)'}`)
   } catch (e: any) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
     showError(e.data?.detail || `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`)
