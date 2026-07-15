@@ -418,7 +418,7 @@
 
       <ul class="review-scene-list mt-2">
         <li
-          v-for="scene in scenes"
+          v-for="scene in renderedScenes"
           :id="`sr-scene-${scene.id}`"
           :key="scene.id"
           :class="['review-scene-row', {
@@ -445,6 +445,7 @@
                 :alt="`Scene ${scene.scene_index}`"
                 class="review-thumb"
                 :style="{ aspectRatio: thumbAspect }"
+                loading="lazy"
                 title="Click to preview full size"
               />
               <!-- Re-render overlay (force / from-here / per-scene regen). -->
@@ -556,6 +557,14 @@
           </div>
         </li>
       </ul>
+      <div
+        v-if="renderedScenes.length < scenes.length"
+        ref="sceneLoadSentinel"
+        class="review-list-more"
+      >
+        <span>{{ renderedScenes.length }} of {{ scenes.length }} scenes loaded</span>
+        <button class="btn btn-sm btn-ghost" @click="loadMoreScenes">Load next {{ SCENE_RENDER_BATCH }}</button>
+      </div>
     </section>
 
 
@@ -670,7 +679,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Review')
@@ -771,6 +780,15 @@ interface RenderStatus {
 
 const plan = ref<PlanMeta | null>(null)
 const scenes = ref<ReviewScene[]>([])
+const SCENE_RENDER_BATCH = 40
+const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
+const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.value))
+const sceneLoadSentinel = ref<HTMLElement | null>(null)
+let sceneLoadObserver: IntersectionObserver | null = null
+let reviewLoadSequence = 0
+function loadMoreScenes(): void {
+  renderedSceneLimit.value = Math.min(scenes.value.length, renderedSceneLimit.value + SCENE_RENDER_BATCH)
+}
 const audioPath = ref<string | null>(null)
 const stats = ref<ReviewStats | null>(null)
 const promptIntegrity = ref<PromptIntegrity | null>(null)
@@ -979,8 +997,13 @@ const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.i
 const sceneInputsComplete = computed(() =>
   promptIntegrity.value?.complete === true && subtitleIntegrity.value?.complete === true,
 )
-function jumpToScene(id: string): void {
+async function jumpToScene(id: string): Promise<void> {
   if (typeof document === 'undefined') return
+  const index = scenes.value.findIndex(scene => scene.id === id)
+  if (index >= renderedSceneLimit.value) {
+    renderedSceneLimit.value = index + 1
+    await nextTick()
+  }
   const el = document.getElementById(`sr-scene-${id}`)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -1256,7 +1279,9 @@ function seekTo(sec: number): void {
 
 // ── Data fetch ──────────────────────────────────────────────────────
 async function loadReview(): Promise<void> {
-  if (!episodeId.value) {
+  const ep = episodeId.value
+  const requestSequence = ++reviewLoadSequence
+  if (!ep) {
     plan.value = null
     scenes.value = []
     audioPath.value = null
@@ -1277,7 +1302,8 @@ async function loadReview(): Promise<void> {
       prompt_integrity?: PromptIntegrity
       subtitle_integrity?: SubtitleIntegrity
     }
-    const r = await get<ReviewResponse>(`/projects/${slug.value}/scene-review/${episodeId.value}`)
+    const r = await get<ReviewResponse>(`/projects/${slug.value}/scene-review/${ep}`)
+    if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
     plan.value = r.scene_plan
     scenes.value = r.scenes
     audioPath.value = r.audio_path
@@ -1289,7 +1315,7 @@ async function loadReview(): Promise<void> {
   } catch (e: any) {
     if (e?.__slugRace) return
   } finally {
-    loading.value = false
+    if (requestSequence === reviewLoadSequence && episodeId.value === ep) loading.value = false
   }
 }
 
@@ -1698,7 +1724,6 @@ function scrollToTop(): void {
 }
 
 onMounted(() => {
-  void loadReview()
   void loadContinuityFlag()
   void loadTextModel()    // resolves the LLM model used by "Rewrite with AI"
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
@@ -1708,13 +1733,29 @@ onMounted(() => {
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
   }
+  if (typeof IntersectionObserver !== 'undefined') {
+    sceneLoadObserver = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) loadMoreScenes()
+    }, { root: el, rootMargin: '500px 0px' })
+    if (sceneLoadSentinel.value) sceneLoadObserver.observe(sceneLoadSentinel.value)
+  }
+})
+watch(sceneLoadSentinel, (next, previous) => {
+  if (!sceneLoadObserver) return
+  if (previous) sceneLoadObserver.unobserve(previous)
+  if (next) sceneLoadObserver.observe(next)
 })
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('keydown', onPreviewKey)
   const el = getScrollContainer()
   if (el) el.removeEventListener('scroll', onScroll)
+  sceneLoadObserver?.disconnect()
+  sceneLoadObserver = null
 })
-watch(episodeId, () => { void loadReview() })
+watch(episodeId, () => {
+  renderedSceneLimit.value = SCENE_RENDER_BATCH
+  void loadReview()
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -2143,6 +2184,15 @@ watch(episodeId, () => { void loadReview() })
   align-items: start;
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
+}
+.review-list-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 .review-scene-row.is-approved { border-left: 3px solid #5bb37c; }
 .review-scene-row.is-missing { opacity: 0.75; }

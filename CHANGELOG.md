@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.600 — 2026-07-15
+
+**Large production workspaces now stay responsive without weakening authoritative asset checks.**
+
+- Added shared request coalescing and safe caching for stable project settings, active formats, and model inventories, with precise save-time invalidation and protection against stale in-flight responses.
+- Made Scene Plan progressively mount long timelines, replaced full-plan serialization on every edit with explicit change tracking, and consolidated prompt, timing, and coverage diagnostics into one pass.
+- Made Scene Review and Motion Review progressively reveal large scene collections while deferring off-screen image and video loading until it is useful.
+- Prevented stale episode responses and overlapping Motion Review polling from replacing current workspace state during navigation or slow fleet responses.
+- Reduced repeated Production Board completion scans, parallelized API-key inventory reads, and shortened the interactive Studio Hub model timeout while preserving direct-studio fallback.
+- Made clearing completed Job Queue history update immediately even when project storage is on a slow synchronized volume.
+- Added regression coverage for stable shared caches, mutation invalidation, stale-read protection, progressive scene mounting, and deferred media loading.
+
 ## v1.0.599 — 2026-07-15
 
 **The shared workspace design now carries finished episodes through assembly and publishing.**

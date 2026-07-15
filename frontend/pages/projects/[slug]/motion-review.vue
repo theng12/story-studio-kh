@@ -92,7 +92,7 @@
     </section>
 
     <ul v-else class="motion-grid mt-3">
-      <li v-for="scene in scenes" :key="scene.id" class="motion-card" :class="`choice-${scene.motion_choice || (scene.clip_exists ? 'legacy' : 'pending')}`">
+      <li v-for="scene in renderedScenes" :key="scene.id" class="motion-card" :class="`choice-${scene.motion_choice || (scene.clip_exists ? 'legacy' : 'pending')}`">
         <div class="media-pair">
           <div class="media-box">
             <span class="media-label">Approved image</span>
@@ -101,7 +101,7 @@
           </div>
           <div class="media-box">
             <span class="media-label">Motion result</span>
-            <video v-if="scene.clip_exists" :src="clipUrl(scene)" controls loop preload="metadata" />
+            <video v-if="scene.clip_exists" :src="clipUrl(scene)" controls loop preload="none" />
             <div v-else class="missing-media">No clip yet</div>
           </div>
         </div>
@@ -140,6 +140,14 @@
         </div>
       </li>
     </ul>
+    <div
+      v-if="renderedScenes.length < scenes.length"
+      ref="sceneLoadSentinel"
+      class="motion-list-more"
+    >
+      <span>{{ renderedScenes.length }} of {{ scenes.length }} scenes loaded</span>
+      <button class="btn btn-sm btn-ghost" @click="loadMoreScenes">Load next {{ SCENE_RENDER_BATCH }}</button>
+    </div>
 
     <Transition name="motion-float">
       <button
@@ -193,6 +201,15 @@ const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { isJobActiveFor } = useJobs()
 const scenes = ref<MotionScene[]>([])
+const SCENE_RENDER_BATCH = 24
+const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
+const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.value))
+const sceneLoadSentinel = ref<HTMLElement | null>(null)
+let sceneLoadObserver: IntersectionObserver | null = null
+let reviewLoadSequence = 0
+function loadMoreScenes(): void {
+  renderedSceneLimit.value = Math.min(scenes.value.length, renderedSceneLimit.value + SCENE_RENDER_BATCH)
+}
 const stats = ref<MotionStats | null>(null)
 const loading = ref(false)
 const queuing = ref(false)
@@ -243,17 +260,21 @@ function choiceLabel(scene: MotionScene) {
 }
 
 async function loadReview() {
-  if (!episodeId.value) { scenes.value = []; stats.value = null; return }
+  const ep = episodeId.value
+  const requestSequence = ++reviewLoadSequence
+  if (!ep) { scenes.value = []; stats.value = null; return }
   loading.value = true
   try {
-    const result = await get<{ scenes: MotionScene[]; stats: MotionStats | null }>(`/projects/${slug.value}/scene-review/${episodeId.value}`)
+    const result = await get<{ scenes: MotionScene[]; stats: MotionStats | null }>(`/projects/${slug.value}/scene-review/${ep}`)
+    if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
     scenes.value = result.scenes || []
     stats.value = result.stats
     cacheBuster.value = Date.now()
   } catch (error: any) {
+    if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
     showError(error?.data?.detail || error?.message || 'Could not load Motion Review')
   } finally {
-    loading.value = false
+    if (requestSequence === reviewLoadSequence && episodeId.value === ep) loading.value = false
   }
 }
 
@@ -362,18 +383,36 @@ function scrollToTop(): void {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
-  refreshTimer = setInterval(() => { if (clipJobsActive.value) void loadReview() }, 3000)
+  refreshTimer = setInterval(() => {
+    if (clipJobsActive.value && !loading.value) void loadReview()
+  }, 3000)
   const el = getScrollContainer()
   if (el) {
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
   }
+  if (typeof IntersectionObserver !== 'undefined') {
+    sceneLoadObserver = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) loadMoreScenes()
+    }, { root: el, rootMargin: '500px 0px' })
+    if (sceneLoadSentinel.value) sceneLoadObserver.observe(sceneLoadSentinel.value)
+  }
+})
+watch(sceneLoadSentinel, (next, previous) => {
+  if (!sceneLoadObserver) return
+  if (previous) sceneLoadObserver.unobserve(previous)
+  if (next) sceneLoadObserver.observe(next)
 })
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   getScrollContainer()?.removeEventListener('scroll', onScroll)
+  sceneLoadObserver?.disconnect()
+  sceneLoadObserver = null
 })
-watch(episodeId, () => { void loadReview() })
+watch(episodeId, () => {
+  renderedSceneLimit.value = SCENE_RENDER_BATCH
+  void loadReview()
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -422,6 +461,7 @@ watch(episodeId, () => { void loadReview() })
 .motion-ready { border-color: color-mix(in srgb, var(--motion-green) 65%, var(--border)); }
 
 .motion-grid { display: grid; gap: 14px; padding: 0; list-style: none; }
+.motion-list-more { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; color: var(--text-muted); font-size: 12px; }
 .motion-card { display: grid; grid-template-columns: minmax(380px, .9fr) minmax(320px, 1.1fr); gap: 18px; padding: 15px; border: 1px solid var(--border); border-left: 4px solid var(--motion-gold); border-radius: 14px; background: var(--bg-secondary); box-shadow: 0 6px 22px rgba(0,0,0,.07); transition: border-color .18s ease, transform .18s ease; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 .motion-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--motion-blue) 30%, var(--border)); }
 .motion-card.choice-clip, .motion-card.choice-legacy { border-left-color: var(--motion-green); }

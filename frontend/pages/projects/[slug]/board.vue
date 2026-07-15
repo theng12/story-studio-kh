@@ -337,6 +337,18 @@ const columns = computed<BoardCol[]>(() =>
   flowForVisualSource(visualSource.value)
     .filter(s => STEP_FIELD[s.key])
     .map(s => ({ ...s, field: STEP_FIELD[s.key] })))
+const requiredColumnFields = computed(() =>
+  columns.value.filter(col => !col.optional).map(col => col.field))
+const columnDoneCounts = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const col of columns.value) counts[col.field] = 0
+  for (const ep of episodes.value) {
+    for (const field of Object.keys(counts)) {
+      if (ep.status?.[field] === true) counts[field]++
+    }
+  }
+  return counts
+})
 
 // ── Filtering ─────────────────────────────────────────────────────────────
 const search = ref('')
@@ -371,7 +383,7 @@ const visibleEpisodes = computed(() => {
 /** Fully done = every required SHOWN column's step is done. Optional columns
  * remain visible and filterable, but never keep an episode in Needs work. */
 function isFullyDone(ep: any): boolean {
-  return columns.value.filter(col => !col.optional).every(col => ep.status?.[col.field] === true)
+  return requiredColumnFields.value.every(field => ep.status?.[field] === true)
 }
 
 // ── Active jobs (row-level 🔄) ─────────────────────────────────────────────
@@ -415,7 +427,7 @@ function cellTitle(ep: any, col: BoardCol): string {
   return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state} — click to open`
 }
 function doneCount(col: BoardCol): number {
-  return episodes.value.filter(ep => ep.status?.[col.field] === true).length
+  return columnDoneCounts.value[col.field] || 0
 }
 function markTitle(ep: any, col: BoardCol): string {
   const detected = ep.status?.[col.field] === true

@@ -489,7 +489,7 @@
 
         <ul class="scene-list mt-2">
           <li
-            v-for="(scene, i) in plan.scenes"
+            v-for="(scene, i) in renderedScenes"
             :id="`splan-scene-${scene.id}`"
             :key="scene.id"
             class="scene-row"
@@ -531,6 +531,7 @@
                 v-model="scene.transcript_segment"
                 class="textarea scene-textarea"
                 rows="2"
+                @input="markPlanDirty"
               />
             </div>
             <div class="form-group mt-1">
@@ -541,6 +542,7 @@
                 v-model="scene.visual_prompt"
                 class="textarea scene-textarea"
                 rows="2"
+                @input="markPlanDirty"
               />
             </div>
             <!-- v1.0.468 — per-scene motion prompt (image-to-video instruction).
@@ -552,6 +554,7 @@
                 class="textarea scene-textarea"
                 rows="2"
                 placeholder="e.g. Slow push-in as mist drifts across the valley; the lantern flame flickers gently."
+                @input="markPlanDirty"
                 @blur="saveMotionPrompt(scene)"
               />
               <button
@@ -624,6 +627,14 @@
             </div>
           </li>
         </ul>
+        <div
+          v-if="renderedScenes.length < plan.scenes.length"
+          ref="sceneLoadSentinel"
+          class="scene-list-more"
+        >
+          <span>{{ renderedScenes.length }} of {{ plan.scenes.length }} scenes loaded</span>
+          <button class="btn btn-sm btn-ghost" @click="loadMoreScenes">Load next {{ SCENE_RENDER_BATCH }}</button>
+        </div>
       </template>
     </section>
 
@@ -650,7 +661,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -828,7 +839,26 @@ interface ScenePlan {
 
 const status = ref<ScenePlanStatus | null>(null)
 const plan = ref<ScenePlan | null>(null)
-const serverPlan = ref<string>('')  // snapshot for dirty check
+const dirty = ref(false)
+const SCENE_RENDER_BATCH = 60
+const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
+const sceneLoadSentinel = ref<HTMLElement | null>(null)
+const renderedScenes = computed(() => (plan.value?.scenes || []).slice(0, renderedSceneLimit.value))
+let sceneLoadObserver: IntersectionObserver | null = null
+let loadedPlanEpisode = ''
+let statusLoadSequence = 0
+let continuityLoadSequence = 0
+
+function markPlanDirty(): void {
+  if (plan.value) dirty.value = true
+}
+
+function loadMoreScenes(): void {
+  renderedSceneLimit.value = Math.min(
+    plan.value?.scenes.length || 0,
+    renderedSceneLimit.value + SCENE_RENDER_BATCH,
+  )
+}
 const missingSubtitleSections = computed(() => {
   const stitched = status.value?.stitched_srt
   if (!stitched) return []
@@ -899,19 +929,23 @@ const isContinuityChain = ref(false)
 const channelStyleBible = ref('')
 
 async function loadContinuity(): Promise<void> {
+  const ep = episodeId.value
+  const requestSequence = ++continuityLoadSequence
   continuityPacing.value = null
   recipeEnabled.value = false
   recipeMode.value = 'guide'
   isContinuityChain.value = false
   channelStyleBible.value = ''
-  if (!episodeId.value) return
+  if (!ep) return
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
+    if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
     if (fmt?.visualSource !== 'continuity-chain') return
     isContinuityChain.value = true
     const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' }; style_bible?: string } }>(
-      `/projects/${slug.value}/continuity/${episodeId.value}`,
+      `/projects/${slug.value}/continuity/${ep}`,
     )
+    if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
     continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
     recipeEnabled.value = r.config?.recipe?.enabled === true
     recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
@@ -1025,9 +1059,11 @@ async function pollUntilRecomposed(beforeSig: string, ep: string): Promise<void>
 /** A hand-edit to a scene's emotion locks it so the next apply keeps it. */
 function markEmotionEdited(scene: ScenePlanEntry): void {
   scene.emotion_locked = true
+  markPlanDirty()
 }
 function toggleEmotionLock(scene: ScenePlanEntry): void {
   scene.emotion_locked = !scene.emotion_locked
+  markPlanDirty()
 }
 
 /** Set a scene's type and lock it so deterministic repairs keep the choice. The
@@ -1035,6 +1071,7 @@ function toggleEmotionLock(scene: ScenePlanEntry): void {
 function setSceneType(scene: ScenePlanEntry, value: string): void {
   scene.scene_type = value as SceneType
   scene.scene_type_locked = true
+  markPlanDirty()
 }
 
 type PromptCostTier = 'local' | 'free' | 'paid'
@@ -1111,28 +1148,47 @@ const planDisabledReason = computed(() => {
   if (!subtitleTimelineComplete.value) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
   return ''
 })
-const dirty = computed(() => plan.value && JSON.stringify(plan.value) !== serverPlan.value)
-const duplicateVisualPromptIds = computed(() => {
+const sceneDiagnostics = computed(() => {
+  const scenes = plan.value?.scenes || []
   const seen = new Set<string>()
   const duplicates = new Set<string>()
-  for (const scene of plan.value?.scenes || []) {
+  for (const scene of scenes) {
     const normalized = scene.visual_prompt?.trim().replace(/\s+/g, ' ').toLocaleLowerCase() || ''
     if (!normalized) continue
     if (seen.has(normalized)) duplicates.add(scene.id)
     else seen.add(normalized)
   }
-  return duplicates
+  let visualDone = 0
+  let motionDone = 0
+  let motionPending = 0
+  let overlong = 0
+  const problems: Array<{ scene: ScenePlanEntry; index: number; reasons: string[] }> = []
+  const problemIds = new Set<string>()
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i]!
+    const visualReady = !!scene.visual_prompt?.trim() && !duplicates.has(scene.id)
+    if (visualReady) visualDone++
+    if (visualReady && scene.motion_prompt?.trim()) motionDone++
+    if (visualReady && !scene.motion_prompt?.trim()) motionPending++
+    const duration = scene.end_sec - scene.start_sec
+    if (duration > OVERLONG_SEC) overlong++
+    const reasons: string[] = []
+    if (!scene.visual_prompt?.trim()) reasons.push('no prompt')
+    else if (duplicates.has(scene.id)) reasons.push('duplicate prompt')
+    if (sceneOverlapsMissingSubtitles(scene)) reasons.push('missing subtitle narration')
+    else if (duration > OVERLONG_SEC) reasons.push(`${duration.toFixed(0)}s long`)
+    if (reasons.length) {
+      problems.push({ scene, index: i + 1, reasons })
+      problemIds.add(scene.id)
+    }
+  }
+  return { duplicates, visualDone, motionDone, motionPending, overlong, problems, problemIds }
 })
-const visualDoneCount = computed(() => (plan.value?.scenes || []).filter(
-  s => !!s.visual_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id),
-).length)
+const duplicateVisualPromptIds = computed(() => sceneDiagnostics.value.duplicates)
+const visualDoneCount = computed(() => sceneDiagnostics.value.visualDone)
 const visualPendingCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
-const motionDoneCount = computed(() => (plan.value?.scenes || []).filter(
-  s => !!s.motion_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id),
-).length)
-const motionPendingCount = computed(() => (plan.value?.scenes || []).filter(
-  s => !!s.visual_prompt?.trim() && !duplicateVisualPromptIds.value.has(s.id) && !s.motion_prompt?.trim(),
-).length)
+const motionDoneCount = computed(() => sceneDiagnostics.value.motionDone)
+const motionPendingCount = computed(() => sceneDiagnostics.value.motionPending)
 const timelineBuiltLabel = computed(() => {
   if (!plan.value?.scenes?.length) return 'Not built yet'
   const estimated = !plan.value.timeline_built_at && visualDoneCount.value === 0
@@ -1190,23 +1246,33 @@ async function runHeaderPrimaryAction(): Promise<void> {
 }
 
 async function loadStatus(): Promise<void> {
-  if (!episodeId.value) {
+  const ep = episodeId.value
+  const requestSequence = ++statusLoadSequence
+  if (!ep) {
     status.value = null
     plan.value = null
-    serverPlan.value = ''
+    dirty.value = false
     return
   }
   try {
-    const r = await get<ScenePlanStatus>(`/projects/${slug.value}/scene-plan/${episodeId.value}`)
+    const r = await get<ScenePlanStatus>(`/projects/${slug.value}/scene-plan/${ep}`)
+    if (requestSequence !== statusLoadSequence || episodeId.value !== ep) return
     status.value = r
     if (r.scene_plan) {
       plan.value = r.scene_plan
-      serverPlan.value = JSON.stringify(r.scene_plan)
+      dirty.value = false
+      if (loadedPlanEpisode !== ep) {
+        loadedPlanEpisode = ep
+        renderedSceneLimit.value = SCENE_RENDER_BATCH
+      }
     } else {
       plan.value = null
-      serverPlan.value = ''
+      dirty.value = false
+      loadedPlanEpisode = ep
+      renderedSceneLimit.value = SCENE_RENDER_BATCH
     }
   } catch (e: any) {
+    if (requestSequence !== statusLoadSequence || episodeId.value !== ep) return
     if (e?.__slugRace) return
     // Non-fatal — empty-state renders.
   }
@@ -1335,33 +1401,20 @@ async function pollUntilPlanLanded(
 // Flag scenes that look broken so they're findable without scrolling. An exact
 // duplicate is pending work, not a valid prompt for another scene.
 const OVERLONG_SEC = 20
-const problemScenes = computed(() => {
-  const list: Array<{ scene: ScenePlanEntry; index: number; reasons: string[] }> = []
-  ;(plan.value?.scenes || []).forEach((s, i) => {
-    const reasons: string[] = []
-    const dur = s.end_sec - s.start_sec
-    if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
-    else if (duplicateVisualPromptIds.value.has(s.id)) reasons.push('duplicate prompt')
-    if (sceneOverlapsMissingSubtitles(s)) reasons.push('missing subtitle narration')
-    else if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
-    if (reasons.length) list.push({ scene: s, index: i + 1, reasons })
-  })
-  return list
-})
-const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
-const overlongSceneCount = computed(() =>
-  (plan.value?.scenes || []).filter(scene => scene.end_sec - scene.start_sec > OVERLONG_SEC).length,
-)
+const problemScenes = computed(() => sceneDiagnostics.value.problems)
+const problemIds = computed(() => sceneDiagnostics.value.problemIds)
+const overlongSceneCount = computed(() => sceneDiagnostics.value.overlong)
 
 // Missing and duplicated prompts can be regenerated without changing bounds.
-const emptyPromptCount = computed(() => {
-  return (plan.value?.scenes || []).filter(
-    s => !s.visual_prompt || !s.visual_prompt.trim() || duplicateVisualPromptIds.value.has(s.id),
-  ).length
-})
+const emptyPromptCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
 
-function jumpToScene(id: string): void {
+async function jumpToScene(id: string): Promise<void> {
   if (typeof document === 'undefined') return
+  const sceneIndex = plan.value?.scenes.findIndex(scene => scene.id === id) ?? -1
+  if (sceneIndex >= renderedSceneLimit.value) {
+    renderedSceneLimit.value = sceneIndex + 1
+    await nextTick()
+  }
   const el = document.getElementById(`splan-scene-${id}`)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -1556,10 +1609,23 @@ onMounted(() => {
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
   }
+  if (typeof IntersectionObserver !== 'undefined') {
+    sceneLoadObserver = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) loadMoreScenes()
+    }, { root: el, rootMargin: '500px 0px' })
+    if (sceneLoadSentinel.value) sceneLoadObserver.observe(sceneLoadSentinel.value)
+  }
+})
+watch(sceneLoadSentinel, (next, previous) => {
+  if (!sceneLoadObserver) return
+  if (previous) sceneLoadObserver.unobserve(previous)
+  if (next) sceneLoadObserver.observe(next)
 })
 onUnmounted(() => {
   const el = getScrollContainer()
   if (el) el.removeEventListener('scroll', onScroll)
+  sceneLoadObserver?.disconnect()
+  sceneLoadObserver = null
 })
 
 const repairingLongScenes = ref(false)
@@ -1647,7 +1713,7 @@ async function savePlan(): Promise<void> {
   saving.value = true
   try {
     await put(`/projects/${slug.value}/scene-plan/${episodeId.value}`, plan.value)
-    serverPlan.value = JSON.stringify(plan.value)
+    dirty.value = false
     success('Scene plan saved')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to save scene plan')
@@ -1669,7 +1735,7 @@ async function deletePlan(): Promise<void> {
   try {
     await del(`/projects/${slug.value}/scene-plan/${episodeId.value}`)
     plan.value = null
-    serverPlan.value = ''
+    dirty.value = false
     success('Scene plan deleted')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to delete scene plan')
@@ -1690,6 +1756,7 @@ function mergeScene(i: number): void {
   prev.transcript_segment = `${prev.transcript_segment} ${cur.transcript_segment}`.trim()
   prev.visual_prompt = `${prev.visual_prompt} (merged with: ${cur.visual_prompt})`
   plan.value.scenes.splice(i, 1)
+  markPlanDirty()
 }
 
 function splitScene(i: number): void {
@@ -1707,6 +1774,7 @@ function splitScene(i: number): void {
   }
   cur.end_sec = midpoint
   plan.value.scenes.splice(i + 1, 0, newScene)
+  markPlanDirty()
 }
 
 function removeScene(i: number): void {
@@ -1722,6 +1790,7 @@ function removeScene(i: number): void {
     if (prev) prev.end_sec = cur.end_sec
   }
   plan.value.scenes.splice(i, 1)
+  markPlanDirty()
 }
 
 // v1.0.242 — savable presets for the plan settings (model, research toggle,
@@ -1762,8 +1831,10 @@ const planPresets = usePresets<any>({
   },
 })
 
-onMounted(() => { void loadStatus(); void loadContinuity(); void planPresets.load() })
-watch(episodeId, () => { void loadStatus(); void loadContinuity() })
+watch([slug, episodeId], () => {
+  void Promise.all([loadStatus(), loadContinuity()])
+}, { immediate: true })
+onMounted(() => { void planPresets.load() })
 </script>
 
 <style scoped>
@@ -1971,6 +2042,15 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   padding: 6px 10px;
 }
 .scene-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.scene-list-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .scene-row {
   padding: 10px 12px;
   border: 1px solid var(--border);

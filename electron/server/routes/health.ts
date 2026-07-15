@@ -179,10 +179,12 @@ router.get('/models', async (req, res) => {
 
   // App-level secrets — present regardless of project context.
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  const appOpenai = await getApiKey('openai').catch(() => '')
-  const appKie = await getApiKey('kie').catch(() => '')
-  const appDeepseek = await getApiKey('deepseek').catch(() => '')
-  const appOpenrouter = await getApiKey('openrouter').catch(() => '')
+  const [appOpenai, appKie, appDeepseek, appOpenrouter] = await Promise.all([
+    getApiKey('openai').catch(() => ''),
+    getApiKey('kie').catch(() => ''),
+    getApiKey('deepseek').catch(() => ''),
+    getApiKey('openrouter').catch(() => ''),
+  ])
 
   // Per-project fallback for backwards compat (only openai/kie are stored
   // per-project; deepseek/openrouter are app-level only).
@@ -268,7 +270,10 @@ router.get('/models', async (req, res) => {
     }> = []
     if (hub.mode === 'hub' && hub.hubUrl) {
       try {
-        const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'chat')
+        // Model pickers are interactive UI. A sleeping/unreachable Hub must
+        // not hold the whole page for the generic 20-second inventory timeout;
+        // direct Chat Studio remains the fallback below.
+        const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'chat', false, 5_000)
         const seen = new Set<string>()
         for (const row of rows) {
           if (!row?.repo || seen.has(row.repo)) continue

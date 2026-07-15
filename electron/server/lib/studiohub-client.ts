@@ -155,12 +155,13 @@ export async function hubCatalog(
   token: string | undefined,
   modality?: string,
   force = false,
+  timeoutMs = 20_000,
 ): Promise<any[]> {
   const query = new URLSearchParams()
   if (modality) query.set('modality', modality)
   if (force) query.set('force', 'true')
   const suffix = query.size ? `?${query}` : ''
-  const result = await hubGetJson<{ models?: any[] }>(hubUrl, token, `/catalog${suffix}`)
+  const result = await hubGetJson<{ models?: any[] }>(hubUrl, token, `/catalog${suffix}`, timeoutMs)
   return Array.isArray(result.models) ? result.models : []
 }
 

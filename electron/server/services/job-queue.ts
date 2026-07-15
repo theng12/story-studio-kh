@@ -1103,9 +1103,12 @@ export async function clearFinished(projectSlug: string): Promise<number> {
     }
   }
   if (count > 0) emitCleared(projectSlug, clearedIds)
-  // Persist after notifying subscribers so the UI clears immediately even on
-  // a slow/synced project volume. The route still awaits durability.
-  await persistProjectSnapshot(projectSlug).catch(() => {})
+  // Clearing history is a UI housekeeping action, not an asset mutation.
+  // Return as soon as memory + SSE are updated; persist the compact snapshot
+  // behind the response so an iCloud-backed project cannot freeze the button.
+  void persistProjectSnapshot(projectSlug).catch((e) => {
+    console.warn('[job-queue] failed to persist cleared history', { projectSlug, error: e?.message })
+  })
   return count
 }
 

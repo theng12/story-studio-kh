@@ -47,25 +47,49 @@ const BOOT_READY_POLL_MS = 250
 // the affected entries below, so saved settings never wait for expiry.
 const getInflight = new Map<string, Promise<any>>()
 const getCache = new Map<string, { at: number; value: any }>()
+const getCacheEpoch = new Map<string, number>()
 
 function cacheTtlFor(path: string): number {
-  if (/\/projects\/[^/]+\/settings\/config(?:[?#]|$)/.test(path)) return 10_000
-  if (/\/models\?/.test(path)) return 30_000
-  if (/\/projects\/[^/]+\/effective-format(?:[?#]|$)/.test(path)) return 30_000
+  // These payloads are stable navigation data, not generation status. Keep
+  // them hot between workspaces; their owning mutations invalidate them below.
+  if (/\/projects\/[^/]+\/settings\/config(?:[?#]|$)/.test(path)) return 60_000
+  if (/\/models\?/.test(path)) return 5 * 60_000
+  if (/\/projects\/[^/]+\/effective-format(?:[?#]|$)/.test(path)) return 5 * 60_000
   return 0
+}
+
+function expireCacheKey(key: string): void {
+  // The request itself cannot be cancelled here, but removing it from the
+  // shared map prevents a post-save reader from joining that stale promise.
+  getInflight.delete(key)
+  getCache.delete(key)
+  getCacheEpoch.set(key, (getCacheEpoch.get(key) || 0) + 1)
 }
 
 function invalidateGetCache(mutatedPath: string): void {
   const projectMatch = mutatedPath.match(/^\/projects\/([^/?#]+)/)
-  const projectPrefix = projectMatch ? `/projects/${projectMatch[1]}` : ''
-  for (const key of getCache.keys()) {
-    if (key === mutatedPath || (projectPrefix && key.startsWith(projectPrefix))) {
-      getCache.delete(key)
+  const projectPrefix = projectMatch ? `/projects/${projectMatch[1]}` : null
+  const changesProjectSettings = !!projectPrefix
+    && mutatedPath.startsWith(`${projectPrefix}/settings/config`)
+  const changesProjectIdentity = !!projectPrefix
+    && new RegExp(`^${projectPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[?#]|$)`).test(mutatedPath)
+
+  // Do not flush stable project settings after every scene/audio/job write.
+  // That broad invalidation made unrelated generation actions force presets,
+  // formats, and model selectors to reload on the next page.
+  const candidates = new Set([...getCache.keys(), ...getInflight.keys()])
+  for (const key of candidates) {
+    const isProjectConfig = !!projectPrefix && key.startsWith(`${projectPrefix}/settings/config`)
+    const isEffectiveFormat = !!projectPrefix && key.startsWith(`${projectPrefix}/effective-format`)
+    if (key === mutatedPath
+      || (changesProjectSettings && (isProjectConfig || isEffectiveFormat))
+      || (changesProjectIdentity && (isProjectConfig || isEffectiveFormat))) {
+      expireCacheKey(key)
     }
   }
   // API-key and local-backend changes affect model availability globally.
   if (/secrets|app-settings|settings\/config/.test(mutatedPath)) {
-    for (const key of getCache.keys()) if (key.startsWith('/models?')) getCache.delete(key)
+    for (const key of candidates) if (key.startsWith('/models?')) expireCacheKey(key)
   }
 }
 
@@ -84,6 +108,7 @@ export function _markBootReadyForTests(): void {
 export function _clearApiGetCacheForTests(): void {
   getInflight.clear()
   getCache.clear()
+  getCacheEpoch.clear()
 }
 
 function waitForBootReady(): Promise<void> {
@@ -290,8 +315,13 @@ export function useApi() {
     if (hit && Date.now() - hit.at < ttl) return hit.value as T
     const pending = getInflight.get(path)
     if (pending) return pending as Promise<T>
+    const requestEpoch = getCacheEpoch.get(path) || 0
     const request = api<T>(path, options).then((value) => {
-      getCache.set(path, { at: Date.now(), value })
+      // A mutation may finish while this read is in flight. Never let that
+      // older response repopulate the cache after invalidation.
+      if ((getCacheEpoch.get(path) || 0) === requestEpoch) {
+        getCache.set(path, { at: Date.now(), value })
+      }
       return value
     }).finally(() => {
       if (getInflight.get(path) === request) getInflight.delete(path)
