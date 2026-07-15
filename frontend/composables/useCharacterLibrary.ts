@@ -16,6 +16,10 @@ export function useCharacterLibrary() {
     return await get<Character[]>('/character-library')
   }
 
+  async function create(draft: Partial<Character> & Pick<Character, 'name' | 'description'>): Promise<Character> {
+    return await post<Character>('/character-library', draft)
+  }
+
   async function getOne(id: string): Promise<Character> {
     return await get<Character>(`/character-library/${encodeURIComponent(id)}`)
   }
@@ -26,6 +30,25 @@ export function useCharacterLibrary() {
 
   async function remove(id: string): Promise<{ ok: boolean }> {
     return await del<{ ok: boolean }>(`/character-library/${encodeURIComponent(id)}`)
+  }
+
+  async function setChannelProfile(
+    id: string,
+    channelSlug: string,
+    profile: NonNullable<Character['channel_profiles']>[string] | null,
+  ): Promise<Character> {
+    return await put<Character>(
+      `/character-library/${encodeURIComponent(id)}/channel-profile/${encodeURIComponent(channelSlug)}`,
+      profile,
+    )
+  }
+
+  async function uploadReferenceImage(id: string, file: File): Promise<{ relativePath: string }> {
+    const data_base64 = await fileToBase64(file)
+    return await post<{ relativePath: string }>(
+      `/character-library/${encodeURIComponent(id)}/reference-image`,
+      { filename: file.name, data_base64 },
+    )
   }
 
   /** Save a project character to the library. Returns the saved library record. */
@@ -78,7 +101,21 @@ export function useCharacterLibrary() {
   }
 
   return {
-    list, getOne, update, remove, saveProjectCharacter, importToProject,
+    list, create, getOne, update, remove, setChannelProfile, uploadReferenceImage,
+    saveProjectCharacter, importToProject,
     listForProject, assignToProject, unassignFromProject,
   }
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      const idx = dataUrl.indexOf('base64,')
+      resolve(idx >= 0 ? dataUrl.slice(idx + 'base64,'.length) : dataUrl)
+    }
+    reader.onerror = () => reject(reader.error || new Error('FileReader failed'))
+    reader.readAsDataURL(file)
+  })
 }

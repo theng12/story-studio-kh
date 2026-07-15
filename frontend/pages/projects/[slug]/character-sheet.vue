@@ -12,11 +12,12 @@
   isContinuityChain).
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">🎭 Character Sheet</h1>
-    </div>
+  <div class="workspace-page character-sheet-workspace">
+    <WorkspaceHero
+      eyebrow="Continuity · Visual anchors"
+      title="Character Sheet"
+      description="Choose the Channel Characters and reference images that lock this episode's cast, wardrobe, and visual identity."
+    />
 
     <TopActionBar
       :project-slug="slug"
@@ -31,13 +32,6 @@
       @generate="saveConfig"
     />
 
-    <p class="text-muted mt-1 mb-2">
-      Lock this episode's look. Pick the Character(s) that anchor every scene
-      (their reference images carry the face/wardrobe), or drop in a one-off
-      sheet just for this episode. The settings below feed the paced Scene
-      Plan and the sequential render.
-    </p>
-
     <div v-if="!episodeId" class="card mt-3">
       <p class="text-muted text-sm">Pick an episode above to set its character anchor + continuity settings.</p>
     </div>
@@ -47,20 +41,19 @@
       <section class="card mt-3">
         <div class="card-header">
           <h3>1. Anchor characters</h3>
-          <NuxtLink :to="`/projects/${slug}/characters`" class="btn btn-ghost btn-sm">Manage characters →</NuxtLink>
+          <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="btn btn-ghost btn-sm">Manage channel characters →</NuxtLink>
         </div>
         <p class="text-muted text-sm mt-1">
           Tick who appears in this episode. Their reference images anchor
           every scene. A character with no reference image can still guide the
           text prompt, but won't lock the visual — add a portrait on the
-          Characters page (or upload a sheet below).
+          Channel Characters workspace (or upload a sheet below).
         </p>
 
         <div v-if="charsLoading" class="text-muted text-sm mt-2">Loading characters…</div>
         <div v-else-if="!characters.length" class="text-muted text-sm mt-2">
-          No characters for this episode yet.
-          <NuxtLink :to="`/projects/${slug}/characters`" class="cs-link">Create one →</NuxtLink>
-          (make it project-wide, or episode-scoped to this episode).
+          No Channel Characters are assigned to this channel yet.
+          <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="cs-link">Create or assign one →</NuxtLink>
         </div>
         <div v-else class="cs-char-list mt-2">
           <CharacterCard

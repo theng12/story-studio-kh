@@ -72,6 +72,49 @@ describe('character-library', () => {
     assert.equal(read?.name, 'Aria')
   })
 
+  test('createLibraryCharacter: creates one canonical record with channel labels', async () => {
+    const created = await cl.createLibraryCharacter({
+      name: 'Channel Guide',
+      description: 'A calm recurring host',
+      projects: [SLUG_A, SLUG_B],
+    })
+    assert.equal(created.id, 'channel-guide')
+    assert.equal(created.scope, 'project')
+    assert.deepEqual(created.projects, [SLUG_A, SLUG_B])
+    assert.equal(created.episode_codes, undefined)
+    assert.equal((await cm.listCharacters(SLUG_A))[0]?.id, 'channel-guide')
+  })
+
+  test('channel voice profile overrides the default only for its channel', async () => {
+    const created = await cl.createLibraryCharacter({
+      name: 'Narrator',
+      description: 'A shared narrator',
+      projects: [SLUG_A, SLUG_B],
+      speech: { voiceId: 'default-voice', voiceProvider: 'elevenlabs' },
+    })
+    await cl.setChannelProfile(created.id, SLUG_A, {
+      speech: { voiceId: 'fish-a', voiceProvider: 'fishaudio', tonation: 'gentle' },
+    })
+    const forA = await cm.getCharacter(SLUG_A, created.id)
+    const forB = await cm.getCharacter(SLUG_B, created.id)
+    assert.deepEqual(forA?.speech, { voiceId: 'fish-a', voiceProvider: 'fishaudio', tonation: 'gentle' })
+    assert.deepEqual(forB?.speech, { voiceId: 'default-voice', voiceProvider: 'elevenlabs' })
+  })
+
+  test('unassign removes the retired channel voice profile without touching other channels', async () => {
+    const created = await cl.createLibraryCharacter({
+      name: 'Guide', description: 'Shared guide', projects: [SLUG_A, SLUG_B],
+      channel_profiles: {
+        [SLUG_A]: { speech: { voiceId: 'a' } },
+        [SLUG_B]: { speech: { voiceId: 'b' } },
+      },
+    })
+    const updated = await cl.unassignFromProject(created.id, SLUG_A)
+    assert.deepEqual(updated?.projects, [SLUG_B])
+    assert.equal(updated?.channel_profiles?.[SLUG_A], undefined)
+    assert.equal(updated?.channel_profiles?.[SLUG_B]?.speech?.voiceId, 'b')
+  })
+
   test('saveToLibrary: collision returns 409 (unless overwrite:true)', async () => {
     await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd1', scope: 'project' })
     await cl.saveToLibrary(SLUG_A, 'aria')

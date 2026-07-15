@@ -5,15 +5,15 @@
       <span class="hint">
         Select characters to include in this episode. The script generator uses these names + descriptions
         instead of inventing characters every time. Leave empty to keep today's behaviour (LLM invents the cast).
-        Multi-select: project-scoped characters appear first, then episode-scoped for this episode.
+        Every option comes from the shared Channel Characters roster for this channel.
       </span>
     </label>
 
     <div v-if="loading" class="muted">Loading characters…</div>
     <div v-else-if="!available.length" class="empty-cast">
-      No characters yet for this episode.
-      <button class="btn btn-secondary btn-sm" @click="showQuickCreate = true">+ Quick character (this episode only)</button>
-      <NuxtLink :to="`/projects/${projectSlug}/characters`" class="link-sm">…or open the Characters page →</NuxtLink>
+      No Channel Characters are assigned yet.
+      <button class="btn btn-secondary btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
+      <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug } }" class="link-sm">Open Channel Characters →</NuxtLink>
     </div>
 
     <div v-else class="picker-list">
@@ -26,18 +26,18 @@
         />
         <div class="cast-info">
           <strong>{{ c.name }}</strong>
-          <span :class="['scope-tag', `scope-${c.scope}`]">{{ c.scope === 'project' ? 'project' : 'episode' }}</span>
+          <span class="scope-tag scope-project">channel</span>
           <span class="cast-desc">{{ shortDesc(c.description) }}</span>
         </div>
       </label>
       <div class="picker-actions">
-        <button class="btn btn-ghost btn-sm" @click="showQuickCreate = true">+ Quick character (this episode only)</button>
-        <NuxtLink :to="`/projects/${projectSlug}/characters`" class="link-sm">Edit characters →</NuxtLink>
+        <button class="btn btn-ghost btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
+        <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug } }" class="link-sm">Manage Channel Characters →</NuxtLink>
       </div>
     </div>
 
-    <!-- Quick create — minimal modal-ish form for the most common case
-         (one episode-scoped character with name + description only) -->
+    <!-- Quick create writes directly to the shared roster and labels it for
+         this channel. It never creates an episode-only duplicate. -->
     <div v-if="showQuickCreate" class="quick-create">
       <div class="form-group">
         <label>Name</label>
@@ -126,13 +126,9 @@ async function saveQuickCreate() {
     const created = await cm.create({
       name: quick.value.name.trim(),
       description: quick.value.description.trim(),
-      scope: 'episode',
-      episode_codes: [props.episodeCode],
+      scope: 'project',
     })
-    available.value = [...available.value, created].sort((a, b) => {
-      if (a.scope !== b.scope) return a.scope === 'project' ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+    available.value = [...available.value, created].sort((a, b) => a.name.localeCompare(b.name))
     // Auto-select the new character.
     emit('update:modelValue', [...props.modelValue, created.id])
     cancelQuickCreate()

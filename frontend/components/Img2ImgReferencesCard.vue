@@ -143,7 +143,7 @@
         <p class="text-muted text-sm i2i-hint">
           Already-wired Phase 8 logic. Characters live under your
           <NuxtLink :to="`/projects/${projectSlug}/characters`">project's Characters</NuxtLink>
-          page (or the global <NuxtLink to="/character-library">Character Library</NuxtLink>).
+          page (or the shared <NuxtLink to="/character-library">Channel Characters</NuxtLink> workspace).
           When a scene's prompt text mentions a character by name, that character's
           uploaded reference images get attached automatically.
         </p>

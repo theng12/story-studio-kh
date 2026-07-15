@@ -20,15 +20,49 @@
  */
 
 import { Router } from 'express'
+import { existsSync } from 'fs'
 import * as cl from '../services/character-library.js'
+import * as migration from '../services/character-migration.js'
 
 export const router = Router()
 
+let initialMigration: Promise<void> | null = null
+
+function ensureLegacyCharactersMigrated(): Promise<void> {
+  if (!initialMigration) {
+    initialMigration = migration.runMigration({ confirm: true })
+      .then(result => {
+        if (result.totals.failed) {
+          console.warn(`[character-library] ${result.totals.failed} legacy character migration(s) failed verification`)
+        }
+        const conflicts = result.items.filter(item => item.status === 'conflict')
+        if (conflicts.length) {
+          console.warn(`[character-library] ${conflicts.length} legacy id conflict(s) remain in the safety bridge`)
+        }
+      })
+      .catch(error => {
+        initialMigration = null
+        throw error
+      })
+  }
+  return initialMigration
+}
+
 router.get('/character-library', async (_req, res) => {
   try {
+    await ensureLegacyCharactersMigrated()
     res.json(await cl.listLibrary())
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to list character library: ${e.message}` })
+  }
+})
+
+router.post('/character-library', async (req, res) => {
+  try {
+    const created = await cl.createLibraryCharacter(req.body || {})
+    res.status(201).json(created)
+  } catch (e: any) {
+    res.status(e?.status || 400).json({ detail: e.message })
   }
 })
 
@@ -59,6 +93,46 @@ router.delete('/character-library/:id', async (req, res) => {
     res.json({ ok: true, id: req.params.id })
   } catch (e: any) {
     res.status(500).json({ detail: e.message })
+  }
+})
+
+router.put('/character-library/:id/channel-profile/:slug', async (req, res) => {
+  try {
+    const updated = await cl.setChannelProfile(req.params.id, req.params.slug, req.body || null)
+    if (!updated) return res.status(404).json({ detail: 'Channel character not found' })
+    res.json(updated)
+  } catch (e: any) {
+    res.status(400).json({ detail: e.message })
+  }
+})
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+router.get('/character-library/:id/reference-image/:filename', async (req, res) => {
+  try {
+    const character = await cl.getLibraryCharacter(req.params.id)
+    if (!character || !character.references?.images?.includes(req.params.filename)) {
+      return res.status(404).json({ detail: 'Reference image not found' })
+    }
+    const file = `${cl.libraryCharacterDir(req.params.id)}/${req.params.filename}`
+    if (!existsSync(file)) return res.status(404).json({ detail: 'Reference image file missing on disk' })
+    res.sendFile(file)
+  } catch (e: any) {
+    res.status(500).json({ detail: e.message })
+  }
+})
+
+router.post('/character-library/:id/reference-image', async (req, res) => {
+  try {
+    const { filename, data_base64 } = req.body || {}
+    if (typeof filename !== 'string' || !filename.trim()) return res.status(400).json({ detail: 'filename is required' })
+    if (typeof data_base64 !== 'string' || !data_base64) return res.status(400).json({ detail: 'data_base64 is required' })
+    const buf = Buffer.from(data_base64, 'base64')
+    if (!buf.length) return res.status(400).json({ detail: 'decoded image is empty' })
+    if (buf.length > MAX_IMAGE_BYTES) return res.status(413).json({ detail: 'Image is larger than 5 MB' })
+    res.json({ ok: true, ...(await cl.addLibraryReferenceImage(req.params.id, buf, filename)) })
+  } catch (e: any) {
+    res.status(e?.message?.includes('not found') ? 404 : 500).json({ detail: e.message })
   }
 })
 

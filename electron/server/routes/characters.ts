@@ -17,6 +17,7 @@
 import { Router } from 'express'
 import { existsSync } from 'fs'
 import * as cm from '../services/character-manager.js'
+import * as cl from '../services/character-library.js'
 import * as pm from '../services/project-manager.js'
 import { analyzeStyle, visionKeyAvailable } from '../lib/vision-client.js'
 import { respondWithError, humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -25,6 +26,7 @@ export const router = Router()
 
 router.get('/projects/:slug/characters', async (req, res) => {
   try {
+    await cl.ensureProjectCharactersMigrated(req.params.slug)
     const episodeCode = typeof req.query.episode_code === 'string' ? req.query.episode_code : undefined
     res.json(await cm.listCharacters(req.params.slug, { episodeCode }))
   } catch (e: any) {
@@ -51,7 +53,7 @@ router.post('/projects/:slug/characters', async (req, res) => {
     if (!body.description || typeof body.description !== 'string' || !body.description.trim()) {
       return res.status(400).json({ detail: 'description is required' })
     }
-    const created = await cm.createCharacter(req.params.slug, body)
+    const created = await cl.createLibraryCharacter({ ...body, scope: 'project', episode_codes: undefined, projects: [req.params.slug] })
     res.status(201).json(created)
   } catch (e: any) {
     // character-manager throws with .status set on validation/conflict
@@ -66,7 +68,10 @@ router.post('/projects/:slug/characters', async (req, res) => {
 
 router.put('/projects/:slug/characters/:id', async (req, res) => {
   try {
-    const updated = await cm.updateCharacter(req.params.slug, req.params.id, req.body || {})
+    const library = await cl.getLibraryCharacter(req.params.id)
+    const updated = library && library.projects?.includes(req.params.slug)
+      ? await cl.updateLibraryCharacter(req.params.id, req.body || {})
+      : await cm.updateCharacter(req.params.slug, req.params.id, req.body || {})
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
@@ -76,7 +81,10 @@ router.put('/projects/:slug/characters/:id', async (req, res) => {
 
 router.put('/projects/:slug/characters/:id/promote', async (req, res) => {
   try {
-    const updated = await cm.promoteToProject(req.params.slug, req.params.id)
+    const library = await cl.getLibraryCharacter(req.params.id)
+    const updated = library && library.projects?.includes(req.params.slug)
+      ? cl.resolveForChannel(library, req.params.slug)
+      : await cm.promoteToProject(req.params.slug, req.params.id)
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
@@ -86,7 +94,10 @@ router.put('/projects/:slug/characters/:id/promote', async (req, res) => {
 
 router.delete('/projects/:slug/characters/:id', async (req, res) => {
   try {
-    const ok = await cm.deleteCharacter(req.params.slug, req.params.id)
+    const library = await cl.getLibraryCharacter(req.params.id)
+    const ok = library && library.projects?.includes(req.params.slug)
+      ? !!(await cl.unassignFromProject(req.params.id, req.params.slug))
+      : await cm.deleteCharacter(req.params.slug, req.params.id)
     if (!ok) return res.status(404).json({ detail: 'Character not found' })
     res.json({ ok: true, id: req.params.id })
   } catch (e: any) {
@@ -140,7 +151,10 @@ router.post('/projects/:slug/characters/:id/reference-image', async (req, res) =
     if (buf.length > MAX_IMAGE_BYTES) {
       return res.status(413).json({ detail: `Image too large (${buf.length} bytes, max ${MAX_IMAGE_BYTES})` })
     }
-    const result = await cm.addReferenceImage(req.params.slug, req.params.id, buf, filename)
+    const library = await cl.getLibraryCharacter(req.params.id)
+    const result = library && library.projects?.includes(req.params.slug)
+      ? await cl.addLibraryReferenceImage(req.params.id, buf, filename)
+      : await cm.addReferenceImage(req.params.slug, req.params.id, buf, filename)
     res.json({ ok: true, relativePath: result.relativePath })
   } catch (e: any) {
     const status = e?.message?.includes('not found') ? 404 : 500

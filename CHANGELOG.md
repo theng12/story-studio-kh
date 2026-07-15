@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.604 — 2026-07-15
+
+**Phase 5 unifies the remaining assembly and library workspaces, with one shared Channel Characters system.**
+
+- Replaced separate project and global character workflows with one **Channel Characters** workspace backed by a canonical shared record.
+- Added channel labels and independent provider-aware voice profiles, so the same character can use a different voice and delivery for each channel.
+- Added safe copy-and-verify migration for older project characters; verified originals remain untouched as recovery backups and id conflicts are never overwritten.
+- Routed quick creation, script cast selection, continuity anchors, reference images, and downstream voice resolution through the shared channel roster.
+- Modernized Audio Assembly, Character Sheet, Presets, Channel Characters, Assets Library, thumbnail templates, and metadata templates with the shared workspace design.
+- Added regression coverage for canonical character precedence, channel-specific voice resolution, safe unassignment, and Phase 5 workspace consistency.
+
 ## v1.0.603 — 2026-07-15
 
 **Studio Hub connection setup is now explicit, verifiable, and clear about fleet routing.**

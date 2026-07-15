@@ -42,6 +42,16 @@ const creationPages = {
   thumbnails: source('../pages/projects/[slug]/images.vue'),
 }
 
+const libraryPages = {
+  audioAssembly: source('../pages/projects/[slug]/audio-merge.vue'),
+  characterSheet: source('../pages/projects/[slug]/character-sheet.vue'),
+  channelCharacters: source('../pages/character-library.vue'),
+  presets: source('../pages/projects/[slug]/presets.vue'),
+  thumbnailTemplates: source('../pages/projects/[slug]/thumbnail-templates.vue'),
+  metadataTemplate: source('../pages/projects/[slug]/metadata-template.vue'),
+  assetsLibrary: source('../pages/broll-library.vue'),
+}
+
 describe('workspace design system', () => {
   test('loads after the compatibility stylesheet', () => {
     assert.match(
@@ -125,6 +135,16 @@ describe('workspace design system', () => {
     ]) {
       assert.ok(designSystem.includes(pattern), `missing creation workspace pattern: ${pattern}`)
     }
+  })
+
+  test('phase five assembly and library pages use the shared workspace shell', () => {
+    for (const [pageName, page] of Object.entries(libraryPages)) {
+      assert.match(page, /class="[^"]*workspace-page/, `${pageName} must use workspace-page`)
+      assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
+      assert.doesNotMatch(page, /class="page-header"/, `${pageName} must not restore a one-off header`)
+    }
+    assert.match(libraryPages.channelCharacters, /Channel voice profiles/)
+    assert.match(libraryPages.channelCharacters, /Channel labels/)
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

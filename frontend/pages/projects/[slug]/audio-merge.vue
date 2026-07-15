@@ -1,9 +1,10 @@
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Audio Assembly</h1>
-    </div>
+  <div class="workspace-page audio-assembly-workspace">
+    <WorkspaceHero
+      eyebrow="Assembly · Sound"
+      title="Audio Assembly"
+      description="Build one narration master from chapter audio, then layer the opening, music, ambience, silence, and ducking in a predictable order."
+    />
     <TopActionBar
       :project-slug="slug"
       :presets="mergePresets"
@@ -30,11 +31,9 @@
       </template>
     </TopActionBar>
 
-    <p class="text-muted mt-1 mb-2">
-      Merges chapter narration into a single file, optionally layered with an intro clip, background music, and ambience.
-      Mixing order is fixed: <strong>Intro → Narration (with music ducked under) → Ambience layered throughout</strong>.
-      Reorder chapters and tune silences below.
-    </p>
+    <WorkspaceNotice class="mt-2" title="Fixed mixing order" tone="info">
+      Intro → narration with music ducked underneath → ambience layered throughout. Reorder chapters and tune silence below.
+    </WorkspaceNotice>
 
     <!-- FFmpeg Status -->
     <div class="ffmpeg-status mt-2" v-if="ffmpegStatus">

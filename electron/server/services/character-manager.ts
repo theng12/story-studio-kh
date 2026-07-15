@@ -48,14 +48,10 @@ function characterDir(slug: string, characterId: string): string {
  * route so it doesn't have to redo path arithmetic.
  */
 export function referenceImagePath(slug: string, characterId: string, filename: string): string {
-  const projectPath = path.join(characterDir(slug, characterId), filename)
-  if (existsSync(projectPath)) return projectPath
-  // Unified-library fallback: a character assigned from the app-level library
-  // keeps its reference images in the library folder, not the project folder.
-  // Resolve the path inline (sync) to avoid an async import here — the
-  // library layout is a stable constant shared with character-library.ts.
   const libraryPath = path.join(pm.PROJECTS_ROOT, '.character-library', characterId, filename)
   if (existsSync(libraryPath)) return libraryPath
+  const projectPath = path.join(characterDir(slug, characterId), filename)
+  if (existsSync(projectPath)) return projectPath
   // Neither exists — preserve legacy behaviour (the project path; callers
   // existsSync-check before reading).
   return projectPath
@@ -78,17 +74,18 @@ function characterJsonPath(slug: string, characterId: string): string {
  * no per-consumer change. See docs/character-unification-spec.md.
  */
 export async function getCharacter(slug: string, characterId: string): Promise<Character | null> {
+  // Canonical Channel Character wins. This also overlays the channel's voice
+  // profile so every existing prompt/audio consumer gets the right voice.
+  const cl = await import('./character-library.js')
+  const lib = await cl.getLibraryCharacter(characterId)
+  if (lib && (lib.projects || []).includes(slug)) {
+    return normalize(cl.resolveForChannel(lib, slug))
+  }
   const p = characterJsonPath(slug, characterId)
   if (existsSync(p)) {
     const raw = await fs.readFile(p, 'utf-8')
     const parsed = JSON.parse(raw) as Character
     return normalize(parsed)
-  }
-  // Fall back to an assigned library character.
-  const cl = await import('./character-library.js')
-  const lib = await cl.getLibraryCharacter(characterId)
-  if (lib && (lib.projects || []).includes(slug)) {
-    return normalize({ ...lib, source: 'library' })
   }
   return null
 }
@@ -159,11 +156,11 @@ export async function listCharacters(slug: string, opts?: { episodeCode?: string
   }
   if (!assigned.length) return own
 
-  const ownIds = new Set(own.map(c => c.id))
-  const merged = own.slice()
-  for (const lib of assigned) {
-    if (ownIds.has(lib.id)) continue  // project copy wins on id collision
-    merged.push(normalize({ ...lib, source: 'library' }))
+  const assignedIds = new Set(assigned.map(c => c.id))
+  const merged = assigned.map(lib => normalize(lib))
+  for (const legacy of own) {
+    if (assignedIds.has(legacy.id)) continue
+    merged.push(legacy)
   }
   // Re-apply the stable picker order across the merged set.
   merged.sort((a, b) => {

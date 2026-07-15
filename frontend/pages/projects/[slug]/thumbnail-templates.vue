@@ -1,17 +1,12 @@
 <template>
-  <div>
-    <div class="tt-header">
-      <h1>🖼 Thumbnail Templates</h1>
-      <NuxtLink :to="`/projects/${slug}/images`" class="btn btn-sm btn-secondary">
-        ← Back to Images
-      </NuxtLink>
-    </div>
-
-    <p class="text-muted tt-intro">
-      A library of thumbnail layouts. Each template declares where the title, subtitle, accent rule,
-      and logo land — drop a portrait into the Compose dialog and the template paints the text over
-      it. Templates are decoupled from niches: any project can use any template.
-    </p>
+  <div class="workspace-page thumbnail-template-workspace">
+    <WorkspaceHero
+      eyebrow="Library · Thumbnail composition"
+      title="Thumbnail Templates"
+      description="Reusable layouts for title, subtitle, accent rules, and logo placement. Any channel can use any template without tying it to a niche."
+    >
+      <template #aside><NuxtLink :to="`/projects/${slug}/images`" class="btn btn-sm btn-secondary">Back to Thumbnails</NuxtLink></template>
+    </WorkspaceHero>
 
     <!-- Currently active row — shows what would be used for THIS project's -->
     <!-- next compose. Reads from the same resolution chain the compose -->

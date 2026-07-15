@@ -21,6 +21,7 @@ const modelSurfaces = {
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
   characters: source('../pages/projects/[slug]/characters.vue'),
+  channelCharacters: source('../pages/character-library.vue'),
   formatWizard: source('../components/FormatFromSampleWizard.vue'),
 }
 
@@ -51,7 +52,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
     assert.match(modelSurfaces.sceneReview, /<ModelSelector[^>]+label="Rewrite LLM"/)
     assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
-    assert.match(modelSurfaces.characters, /title="Character vision model"/)
+    assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })
 
   test('the format wizard no longer restores a hardcoded paid model list', () => {

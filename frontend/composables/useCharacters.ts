@@ -17,6 +17,10 @@ export interface CharacterSpeech {
   voiceProvider?: string
 }
 
+export interface CharacterChannelProfile {
+  speech?: CharacterSpeech
+}
+
 export interface CharacterReferences {
   images?: string[]
   style_keywords?: string[]
@@ -30,8 +34,9 @@ export interface Character {
   scope: 'episode' | 'project'
   episode_codes?: string[]
   speech?: CharacterSpeech
+  channel_profiles?: Record<string, CharacterChannelProfile>
   references?: CharacterReferences
-  /** Unified-library assignment tags — project slugs this library character is assigned to. */
+  /** Channel assignment labels. Values are project/channel slugs. */
   projects?: string[]
   source: 'project' | 'imported' | 'library'
   schemaVersion: 1

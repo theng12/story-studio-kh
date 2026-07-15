@@ -23,7 +23,7 @@
         <div class="card-meta">
           <strong class="char-name">{{ character.name }}</strong>
           <span v-if="character.archetype" class="char-archetype">{{ character.archetype }}</span>
-          <span :class="['scope-badge', `scope-${character.scope}`]">{{ scopeLabel }}</span>
+          <span class="scope-badge scope-project">Channel Character</span>
           <span v-if="character.source === 'imported'" class="source-badge">imported</span>
         </div>
         <div class="card-actions" @click.stop>
@@ -32,11 +32,6 @@
       </div>
 
       <p v-if="character.description" class="char-desc">{{ character.description }}</p>
-
-      <div v-if="character.scope === 'episode'" class="char-episodes">
-        <span class="muted">Episodes:</span>
-        <span v-for="ec in character.episode_codes" :key="ec" class="ep-chip">{{ ec }}</span>
-      </div>
 
       <div v-if="character.speech?.tonation" class="char-speech">
         <span class="muted">Tonation:</span> {{ character.speech.tonation }}
@@ -66,7 +61,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { Character } from '../composables/useCharacters.js'
 
 // v1.0.191 — shared character card, used by the Characters library list AND
@@ -81,7 +75,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ toggle: [] }>()
 
-const scopeLabel = computed(() => props.character.scope === 'project' ? 'project-wide' : 'episode-only')
 </script>
 
 <style scoped>

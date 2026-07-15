@@ -175,8 +175,8 @@
 
         <div class="nav-divider" />
         <div class="nav-section-label">Library</div>
-        <NuxtLink :to="`/projects/${slug}/characters`" class="nav-item" active-class="active" title="Persistent cast for this project — episode-scoped or project-wide. Used by script + image generation to keep names and looks consistent.">
-          <span class="nav-icon">&#128100;</span> Characters
+        <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="nav-item" active-class="active" title="Shared character roster filtered to this channel, including its channel-specific voice profiles.">
+          <span class="nav-icon">&#128100;</span> Channel Characters
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active" title="Manage every saved preset in this project — rename, duplicate, export, delete.">
           <span class="nav-icon">&#128194;</span> Presets
@@ -203,9 +203,6 @@
 
         <div class="nav-divider" />
         <div class="nav-section-label">Shared Library</div>
-        <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
-          <span class="nav-icon">&#127991;</span> Character Library
-        </NuxtLink>
         <NuxtLink to="/broll-library" class="nav-item" active-class="active" title="App-level Assets Library. Register folders (typically your portable SSD) holding B-Roll video clips, still images, or sound effects (SFX). Indexes, tags, and shares them across every project on this machine.">
           <span class="nav-icon">&#127909;</span> Assets Library
         </NuxtLink>

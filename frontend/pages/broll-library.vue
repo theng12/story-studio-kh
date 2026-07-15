@@ -11,18 +11,15 @@
       re-scan, normalize-all, and per-clip normalize.
 -->
 <template>
-  <div class="broll-page">
-    <header class="page-header">
-      <div>
-        <h1>Assets Library</h1>
-        <p class="text-muted">
-          App-level pool of stock footage shared across every project on this machine. Register a
-          folder (typically your portable SSD) once; the app indexes clips, generates thumbnails,
-          and optionally normalises everything to 1080p so video assembly stays fast.
-        </p>
-      </div>
-      <button class="btn btn-primary" @click="openCreateModal()">+ Register pool</button>
-    </header>
+  <div class="workspace-page broll-page">
+    <WorkspaceHero
+      eyebrow="Library · Shared media"
+      title="Assets Library"
+      description="Register media folders once, then index, tag, preview, and normalize reusable footage, images, and sound effects for every channel."
+      :breadcrumb="false"
+    >
+      <template #aside><button class="btn btn-primary" @click="openCreateModal()">+ Register pool</button></template>
+    </WorkspaceHero>
 
     <div v-if="loading" class="muted">Loading pools…</div>
 

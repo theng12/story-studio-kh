@@ -55,6 +55,63 @@ function libraryJsonPath(characterId: string): string {
   return path.join(libraryDir(characterId), 'character.json')
 }
 
+function validateId(value: string): string {
+  const id = value.trim()
+  if (!id || !/^[a-z0-9][a-z0-9-]*[a-z0-9]?$/.test(id)) {
+    throw new Error(`Invalid character id '${id}' — must be kebab-case`)
+  }
+  return id
+}
+
+function slugify(name: string): string {
+  return name.toLowerCase().trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function sanitizeFilename(name: string): string {
+  const base = path.basename(name).replace(/[^a-zA-Z0-9._-]/g, '_')
+  return base || `ref-${Date.now()}`
+}
+
+/** Create the canonical app-level Channel Character record. */
+export async function createLibraryCharacter(
+  draft: Partial<Character> & Pick<Character, 'name' | 'description'>,
+): Promise<Character> {
+  const name = String(draft.name || '').trim()
+  const description = String(draft.description || '').trim()
+  if (!name) throw new Error('name is required')
+  if (!description) throw new Error('description is required')
+  const id = validateId(String(draft.id || slugify(name)))
+  const file = libraryJsonPath(id)
+  if (existsSync(file)) {
+    const e = new Error(`Channel character id '${id}' already exists`)
+    ;(e as any).status = 409
+    throw e
+  }
+
+  const projects = normalizeProjects(draft.projects)
+  const record: Character = {
+    id,
+    name,
+    archetype: draft.archetype?.trim() || undefined,
+    description,
+    scope: 'project',
+    speech: draft.speech ? { ...draft.speech } : undefined,
+    channel_profiles: draft.channel_profiles ? structuredClone(draft.channel_profiles) : undefined,
+    references: draft.references ? structuredClone(draft.references) : undefined,
+    projects,
+    source: 'project',
+    schemaVersion: SCHEMA_VERSION,
+    created_at: new Date().toISOString(),
+  }
+  await fs.mkdir(libraryDir(id), { recursive: true })
+  await withLock(file, async () => writeJsonAtomic(file, record))
+  return record
+}
+
 /** Read one library character. Null if missing. */
 export async function getLibraryCharacter(characterId: string): Promise<Character | null> {
   const p = libraryJsonPath(characterId)
@@ -100,7 +157,10 @@ export async function saveToLibrary(
   sourceCharacterId: string,
   opts?: { libraryId?: string; overwrite?: boolean },
 ): Promise<Character> {
-  const source = await cm.getCharacter(slug, sourceCharacterId)
+  // Migration/snapshot compatibility must read the legacy source directly;
+  // the canonical project reader intentionally prefers an existing library
+  // record with the same id.
+  const source = (await cm.listOwnCharacters(slug)).find(c => c.id === sourceCharacterId) || null
   if (!source) throw new Error(`Character '${sourceCharacterId}' not found in project '${slug}'`)
 
   const libraryId = (opts?.libraryId || source.id).trim()
@@ -265,6 +325,7 @@ export async function updateLibraryCharacter(
       archetype: patch.archetype?.trim() ?? current.archetype,
       description: patch.description?.trim() ?? current.description,
       speech: patch.speech !== undefined ? patch.speech : current.speech,
+      channel_profiles: patch.channel_profiles !== undefined ? patch.channel_profiles : current.channel_profiles,
       references: patch.references !== undefined ? patch.references : current.references,
       // Assignment tags are managed via assign/unassign, not generic edits —
       // but allow an explicit patch.projects through (e.g. bulk reassign UI).
@@ -338,9 +399,12 @@ export async function unassignFromProject(characterId: string, slug: string): Pr
   let result: Character | null = null
   await withLock(file, async () => {
     const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const channelProfiles = { ...(current.channel_profiles || {}) }
+    delete channelProfiles[cleanSlug]
     const merged: Character = {
       ...current,
       projects: normalizeProjects(current.projects).filter(s => s !== cleanSlug),
+      channel_profiles: Object.keys(channelProfiles).length ? channelProfiles : undefined,
     }
     await writeJsonAtomic(file, merged)
     result = merged
@@ -362,6 +426,58 @@ export async function setProjects(characterId: string, slugs: string[]): Promise
   return result
 }
 
+/** Save a channel-specific voice/delivery profile without changing other channels. */
+export async function setChannelProfile(
+  characterId: string,
+  slug: string,
+  profile: NonNullable<Character['channel_profiles']>[string] | null,
+): Promise<Character | null> {
+  const cleanSlug = String(slug || '').trim()
+  if (!cleanSlug) throw new Error('channel slug is required')
+  const current = await getLibraryCharacter(characterId)
+  if (!current) return null
+  const channelProfiles = { ...(current.channel_profiles || {}) }
+  if (profile?.speech && Object.values(profile.speech).some(Boolean)) channelProfiles[cleanSlug] = profile
+  else delete channelProfiles[cleanSlug]
+  return updateLibraryCharacter(characterId, {
+    channel_profiles: channelProfiles,
+  })
+}
+
+/**
+ * Copy-and-verify bridge for records created before Channel Characters became
+ * the only authoring surface. Originals remain untouched as recovery backups.
+ * Conflicting ids are deliberately left in the legacy store rather than
+ * overwritten; the unified reader keeps those visible until renamed.
+ */
+export async function ensureProjectCharactersMigrated(slug: string): Promise<void> {
+  const own = await cm.listOwnCharacters(slug)
+  for (const character of own) {
+    const existing = await getLibraryCharacter(character.id)
+    if (!existing) {
+      try { await saveToLibrary(slug, character.id) }
+      catch (e: any) { console.warn(`[character-library] migration skipped '${slug}/${character.id}': ${e.message}`) }
+      continue
+    }
+    const sameIdentity = existing.name.trim() === character.name.trim()
+      && existing.description.trim() === character.description.trim()
+    if (sameIdentity && !normalizeProjects(existing.projects).includes(slug)) {
+      await assignToProject(existing.id, slug)
+    }
+  }
+}
+
+/** Resolve the effective voice profile for one channel. */
+export function resolveForChannel(character: Character, slug: string): Character {
+  return {
+    ...character,
+    scope: 'project',
+    episode_codes: undefined,
+    speech: character.channel_profiles?.[slug]?.speech || character.speech,
+    source: 'library',
+  }
+}
+
 /**
  * List the library characters assigned to a given project. The unified
  * per-project view (character-manager.listCharacters) merges these in. Each
@@ -374,5 +490,29 @@ export async function listForProject(slug: string): Promise<Character[]> {
   const all = await listLibrary()
   return all
     .filter(c => normalizeProjects(c.projects).includes(cleanSlug))
-    .map(c => ({ ...c, source: 'library' as const }))
+    .map(c => resolveForChannel(c, cleanSlug))
+}
+
+/** Save a reference image beside the canonical library record. */
+export async function addLibraryReferenceImage(
+  characterId: string,
+  buf: Buffer,
+  filename: string,
+): Promise<{ relativePath: string; absolutePath: string }> {
+  const current = await getLibraryCharacter(characterId)
+  if (!current) throw new Error(`Channel character '${characterId}' not found`)
+  const safe = sanitizeFilename(filename)
+  const dir = libraryDir(characterId)
+  await fs.mkdir(dir, { recursive: true })
+  const absolutePath = path.join(dir, safe)
+  await fs.writeFile(absolutePath, buf)
+  const images = new Set(current.references?.images || [])
+  images.add(safe)
+  await updateLibraryCharacter(characterId, {
+    references: {
+      images: [...images],
+      style_keywords: current.references?.style_keywords,
+    },
+  })
+  return { relativePath: safe, absolutePath }
 }

@@ -1133,6 +1133,11 @@ export interface CharacterSpeech {
   voiceProvider?: string
 }
 
+export interface CharacterChannelProfile {
+  /** Channel-specific delivery and voice selection. Falls back to speech when absent. */
+  speech?: CharacterSpeech
+}
+
 export interface CharacterReferences {
   /** Relative paths (from the character folder) to reference image files. Phase 7 image-gen integration consumes these. */
   images?: string[]
@@ -1172,12 +1177,14 @@ export interface Character {
   episode_codes?: string[]
 
   speech?: CharacterSpeech
+  /** Per-channel voice overrides, keyed by project/channel slug. */
+  channel_profiles?: Record<string, CharacterChannelProfile>
   references?: CharacterReferences
 
   /**
-   * Unified-library assignment tags. On an app-level library record, lists the
-   * project slugs this character is assigned to (the "taggable/assignable per
-   * project" model). Undefined/empty = library-only, not assigned anywhere.
+   * Channel assignment labels. The persisted key remains `projects` so older
+   * installations can read the data, but each slug represents one channel.
+   * Undefined/empty = available in the library but not assigned to a channel.
    * Per-project on-disk characters leave this undefined — their folder
    * location IS their assignment. See docs/character-unification-spec.md.
    */

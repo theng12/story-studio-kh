@@ -192,15 +192,15 @@ describe('character-manager', () => {
     assert.equal(seed?.source, 'library', 'assigned-from-library marked source=library')
   })
 
-  test('listCharacters: dedups by id, on-disk project character wins', async () => {
+  test('listCharacters: dedups by id, canonical Channel Character wins', async () => {
     const cl = await import('../services/character-library.js')
     await cm.createCharacter(SLUG, { name: 'Aria', description: 'project version', scope: 'project' })
     await cl.saveToLibrary(SLUG, 'aria')  // library copy assigned to SLUG, same id
     const unified = await cm.listCharacters(SLUG)
     const arias = unified.filter(c => c.id === 'aria')
     assert.equal(arias.length, 1, 'no duplicate when both stores hold the id')
-    assert.equal(arias[0].description, 'project version', 'on-disk project copy wins')
-    assert.equal(arias[0].source, 'project')
+    assert.equal(arias[0].description, 'project version', 'canonical copy preserves the migrated content')
+    assert.equal(arias[0].source, 'library')
   })
 
   test('getCharacter: falls back to an assigned library character', async () => {

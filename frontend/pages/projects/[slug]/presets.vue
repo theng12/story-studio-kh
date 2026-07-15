@@ -1,18 +1,17 @@
 <template>
-  <div>
-    <div class="presets-header">
-      <h1>🗂 Presets</h1>
-      <button class="btn btn-sm btn-ghost" :disabled="loading" @click="loadAll">
-        <LoadingSpinner v-if="loading" size="sm" />
-        {{ loading ? 'Loading…' : '↻ Refresh' }}
-      </button>
-    </div>
-
-    <p class="text-muted mt-1 mb-2" style="font-size: 13px; max-width: 860px;">
-      All presets saved for <strong>{{ projectName || 'this project' }}</strong>, grouped by where they're used.
-      Heavy editing lives on each feature page — this view is for cross-cutting management (rename, delete, export).
-      Presets are local to this project and appear in one list, with no device or cloud scope to manage.
-    </p>
+  <div class="workspace-page presets-workspace">
+    <WorkspaceHero
+      eyebrow="Library · Reusable setup"
+      title="Presets"
+      :description="`Every preset saved for ${projectName || 'this channel'}, grouped by where it is used. All presets are local, with one clear source of truth.`"
+    >
+      <template #aside>
+        <button class="btn btn-sm btn-secondary" :disabled="loading" @click="loadAll">
+          <LoadingSpinner v-if="loading" size="sm" />
+          {{ loading ? 'Loading…' : 'Refresh' }}
+        </button>
+      </template>
+    </WorkspaceHero>
 
     <div v-if="error" class="text-danger mt-2" style="font-size: 13px;">{{ error }}</div>
 

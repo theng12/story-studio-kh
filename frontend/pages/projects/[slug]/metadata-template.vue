@@ -6,17 +6,12 @@
   copy consistent across every upload. v1.0.89+.
 -->
 <template>
-  <div>
-    <div class="page-header">
-      <Breadcrumb />
-      <h1 class="page-title">Channel Metadata Template</h1>
-    </div>
-
-    <p class="text-muted mt-2">
-      When this template is set, the Metadata Generator stops writing each title / description / tag pool from scratch.
-      Instead, ONE small LLM call extracts the <strong>{placeholder}</strong> values from the episode's story context,
-      and your template stays intact around them. Reads like the same editorial voice every episode.
-    </p>
+  <div class="workspace-page metadata-template-workspace">
+    <WorkspaceHero
+      eyebrow="Templates · Publishing voice"
+      title="Channel Metadata Template"
+      description="Lock the recurring structure of titles, descriptions, and tags. Generation fills only the story-specific placeholders, keeping the channel voice consistent."
+    />
 
     <section class="card mt-3">
       <h3>Placeholders you can use</h3>
