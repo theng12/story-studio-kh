@@ -100,6 +100,40 @@
         title="Clear this step filter"
         @click="stepFilter = null"
       >Needs {{ stepFilterCol.label }} ✕</button>
+      <div v-if="visibleEpisodes.length" class="board-pagination" aria-label="Episode pages">
+        <span class="board-page-range">{{ visibleRangeText }}</span>
+        <button
+          type="button"
+          class="board-page-btn board-page-edge"
+          :disabled="currentPage <= 1"
+          title="First page"
+          aria-label="First page"
+          @click="goToPage(1)"
+        >«</button>
+        <button
+          type="button"
+          class="board-page-btn"
+          :disabled="currentPage <= 1"
+          @click="goToPage(currentPage - 1)"
+        >Prev</button>
+        <span class="board-page-indicator">
+          Page <strong>{{ currentPage }}</strong> of {{ totalPages }}
+        </span>
+        <button
+          type="button"
+          class="board-page-btn"
+          :disabled="currentPage >= totalPages"
+          @click="goToPage(currentPage + 1)"
+        >Next</button>
+        <button
+          type="button"
+          class="board-page-btn board-page-edge"
+          :disabled="currentPage >= totalPages"
+          title="Last page"
+          aria-label="Last page"
+          @click="goToPage(totalPages)"
+        >»</button>
+      </div>
     </div>
 
     <!-- Loading (cold) -->
@@ -156,7 +190,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="ep in visibleEpisodes" :key="ep.episode_code" class="board-row">
+          <tr v-for="ep in paginatedEpisodes" :key="ep.episode_code" class="board-row">
             <th class="col-ep sticky-col">
               <div class="ep-cell">
                 <div class="ep-cell-text">
@@ -360,6 +394,8 @@ const needsWorkOnly = ref(true)
 const stepFilter = ref<string | null>(null)
 const searchActive = computed(() => search.value.trim().length > 0)
 const stepFilterCol = computed(() => columns.value.find(c => c.field === stepFilter.value) || null)
+const EPISODES_PER_PAGE = 10
+const currentPage = ref(1)
 
 function toggleStepFilter(field: string) {
   stepFilter.value = stepFilter.value === field ? null : field
@@ -380,6 +416,33 @@ const visibleEpisodes = computed(() => {
       (ep.title || '').toLowerCase().includes(q))
   }
   return [...list].sort((a, b) => a.episode_code.localeCompare(b.episode_code))
+})
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(visibleEpisodes.value.length / EPISODES_PER_PAGE)))
+
+const paginatedEpisodes = computed(() => {
+  const start = (currentPage.value - 1) * EPISODES_PER_PAGE
+  return visibleEpisodes.value.slice(start, start + EPISODES_PER_PAGE)
+})
+
+const visibleRangeText = computed(() => {
+  const total = visibleEpisodes.value.length
+  if (!total) return '0 of 0'
+  const start = (currentPage.value - 1) * EPISODES_PER_PAGE + 1
+  const end = Math.min(total, currentPage.value * EPISODES_PER_PAGE)
+  return `Showing ${start}–${end} of ${total}`
+})
+
+function goToPage(page: number) {
+  currentPage.value = Math.max(1, Math.min(totalPages.value, Math.floor(page)))
+}
+
+// Filtering can shrink the result set substantially. Always return to a real
+// page instead of leaving the board on an empty slice.
+watch([search, needsWorkOnly, stepFilter], () => { currentPage.value = 1 })
+watch(totalPages, pages => {
+  if (currentPage.value > pages) currentPage.value = pages
 })
 
 /** Fully done = every required SHOWN column's step is done. Optional columns
@@ -531,8 +594,7 @@ async function markCell(ep: any, col: BoardCol) {
 .board {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   gap: var(--space-4);
 }
 
@@ -614,6 +676,39 @@ async function markCell(ep: any, col: BoardCol) {
 .board-filter.active { background: var(--accent); color: #0f1117; border-color: var(--accent); }
 .board-filter:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.board-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.board-page-range,
+.board-page-indicator {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.board-page-btn {
+  min-width: 48px;
+  min-height: var(--control-height-sm);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-page-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.board-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.board-page-edge { min-width: 32px; padding-inline: 8px; }
+
 /* ── Empty / loading ── */
 .board-empty {
   display: flex;
@@ -627,9 +722,8 @@ async function markCell(ep: any, col: BoardCol) {
 
 /* ── Grid ── */
 .board-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);

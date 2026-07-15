@@ -11,19 +11,19 @@ What's new in each release. Newest first.
 - Added the 1K image tier at 4 credits per generation and $0.02 per image.
 - Kept the record separate from the live model catalog pending the complete pricing review.
 
-## v1.0.612 — 2026-07-15
-
-**Added a pending Kie.ai model pricing record.**
-
-- Recorded GPT Image 2 text-to-image and image-to-image pricing for 1K, 2K, and 4K generations.
-- Kept the record separate from the live model catalog until the remaining provider pricing is collected.
-
 **Production Board now keeps ten episodes visible without a nested vertical scroll.**
 
 - Added fixed 10-episode pages while preserving the existing Needs work, search, and per-stage filters.
 - Added first, previous, page status, next, and last controls above the status matrix with a clear visible-row range.
 - Removed the board's height-limited vertical scrolling so each page reads as one complete table on the normal workspace canvas.
 - Kept stage completion totals fleet-wide rather than page-only and added regression coverage for the pagination contract.
+
+## v1.0.612 — 2026-07-15
+
+**Added a pending Kie.ai model pricing record.**
+
+- Recorded GPT Image 2 text-to-image and image-to-image pricing for 1K, 2K, and 4K generations.
+- Kept the record separate from the live model catalog until the remaining provider pricing is collected.
 
 ## v1.0.611 — 2026-07-15
 
