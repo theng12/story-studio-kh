@@ -15,9 +15,11 @@
 
 import fs from 'fs/promises'
 import path from 'path'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { callAiWithRetry } from '../lib/ai-client.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 import { getScriptConcurrency } from './app-settings.js'
+import { requireJobCompletion } from './job-completion.js'
 
 /** Filename of the per-episode sidecar, stored next to the narration file. */
 export const EXPRESSION_SIDECAR = 'audio_expression.json'
@@ -52,8 +54,38 @@ export async function readExpression(narrationPath: string): Promise<ExpressionS
 }
 
 export async function writeExpression(narrationPath: string, data: ExpressionSidecar): Promise<void> {
-  await fs.mkdir(path.dirname(expressionSidecarPath(narrationPath)), { recursive: true }).catch(() => {})
-  await fs.writeFile(expressionSidecarPath(narrationPath), JSON.stringify(data, null, 2), 'utf-8')
+  const sidecarPath = expressionSidecarPath(narrationPath)
+  await withLock(sidecarPath, () => writeJsonAtomic(sidecarPath, data))
+}
+
+export async function checkpointExpressionSection(
+  narrationPath: string,
+  slug: string,
+  text: string,
+  model: string,
+  dialect: TagDialect,
+): Promise<ExpressionSidecar> {
+  const tagged = text.trim()
+  if (!slug.trim()) throw new Error('Cannot checkpoint expression markup without a section slug.')
+  if (!tagged) throw new Error(`Cannot checkpoint empty expression markup for ${slug}.`)
+  const sidecarPath = expressionSidecarPath(narrationPath)
+  return withLock(sidecarPath, async () => {
+    let existing: ExpressionSidecar | null = null
+    try {
+      const parsed = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
+      if (parsed?.sections && typeof parsed.sections === 'object') existing = parsed as ExpressionSidecar
+    } catch { /* first completed section, or a corrupt sidecar to replace */ }
+    const reusable = existing && (existing.dialect ?? 'fish') === dialect
+    const next: ExpressionSidecar = {
+      schema_version: 1,
+      model,
+      dialect,
+      generated_at: new Date().toISOString(),
+      sections: { ...(reusable ? existing!.sections : {}), [slug]: tagged },
+    }
+    await writeJsonAtomic(sidecarPath, next)
+    return next
+  })
 }
 
 /**
@@ -148,6 +180,66 @@ export function addSentencePacing(text: string, dialect: TagDialect = 'fish'): s
 
 interface AiKeys { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
 
+const EXPRESSION_TAG_RE = /\[[^\]\r\n]{1,100}\]/g
+const EXPRESSION_TOKEN_RE = /\.\.\.|…|[\p{L}\p{N}\p{M}]+|[^\s\p{L}\p{N}\p{M}]/gu
+
+function expressionTokens(text: string): string[] {
+  return text.match(EXPRESSION_TOKEN_RE) || []
+}
+
+function isEllipsis(token: string): boolean {
+  return token === '…' || token === '...'
+}
+
+export interface ExpressionMarkupIntegrity {
+  valid: boolean
+  reason?: string
+}
+
+/**
+ * Prove that a model inserted tags without changing the narration. Whitespace
+ * around an inserted tag may move, and ElevenLabs may add ellipses, but every
+ * original word and punctuation token must remain in the same order.
+ */
+export function inspectExpressionMarkup(
+  original: string,
+  tagged: string,
+  dialect: TagDialect,
+): ExpressionMarkupIntegrity {
+  if (!tagged.trim()) return { valid: false, reason: 'the model returned empty text' }
+  const tags = tagged.match(EXPRESSION_TAG_RE) || []
+  if (!tags.length) return { valid: false, reason: 'the model returned no expression tags' }
+
+  const originalTokens = expressionTokens(original)
+  const taggedTokens = expressionTokens(tagged.replace(EXPRESSION_TAG_RE, ' '))
+  let sourceIndex = 0
+  let taggedIndex = 0
+  while (taggedIndex < taggedTokens.length) {
+    const candidate = taggedTokens[taggedIndex]!
+    if (sourceIndex < originalTokens.length && candidate === originalTokens[sourceIndex]) {
+      sourceIndex++
+      taggedIndex++
+      continue
+    }
+    if (dialect === 'elevenlabs' && isEllipsis(candidate)) {
+      taggedIndex++
+      continue
+    }
+    const expected = originalTokens[sourceIndex] ?? '<end of narration>'
+    return {
+      valid: false,
+      reason: `narration changed near token ${sourceIndex + 1} (expected ${JSON.stringify(expected)}, received ${JSON.stringify(candidate)})`,
+    }
+  }
+  if (sourceIndex !== originalTokens.length) {
+    return {
+      valid: false,
+      reason: `narration ended early at token ${sourceIndex + 1} of ${originalTokens.length}`,
+    }
+  }
+  return { valid: true }
+}
+
 /**
  * Run the LLM markup pass over one section's text in the given dialect. Returns
  * the tagged text (or the original on an empty/failed response so a section is
@@ -162,7 +254,11 @@ export async function markupSectionText(
 ): Promise<string> {
   const out = await callAiWithRetry(model, systemFor(dialect), sectionText, apiKeys, false, { slug })
   const trimmed = (out || '').trim()
-  return trimmed.length ? trimmed : sectionText
+  const integrity = inspectExpressionMarkup(sectionText, trimmed, dialect)
+  if (!integrity.valid) {
+    throw new Error(`Expression markup rejected because ${integrity.reason}. The original narration was not changed.`)
+  }
+  return trimmed
 }
 
 /** Expression tagging follows the machine's text-generation concurrency.
@@ -237,30 +333,41 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
   const concurrency = await expressionTagConcurrency(model, targets.length)
   job.output_lines.push(`Tagging ${targets.length} section(s) with ${model} (${dialect}) — concurrency ${concurrency}…`)
 
-  // If the saved sidecar was tagged in a DIFFERENT dialect, don't carry its
-  // tags forward — start fresh so we never mix Fish + ElevenLabs tags.
-  const existing = await readExpression(narrationPath)
-  const reusable = existing && (existing.dialect ?? 'fish') === dialect
-  const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
   let completed = 0
   let cancelled = false
-  let writeChain = Promise.resolve()
+  const failures = new Map<string, string>()
   await mapExpressionConcurrent(targets, concurrency, async (s, index) => {
     if (isCancelled(job.job_id)) { cancelled = true; return '' }
     job.output_lines.push(`  ${s.label} (${index + 1}/${targets.length})`)
-    const tagged = await markupSectionText(model, s.text, apiKeys, job.project_slug, dialect)
-    if (isCancelled(job.job_id)) { cancelled = true; return tagged }
-    sectionsOut[s.slug] = tagged
-    completed++
-    const snapshot = { ...sectionsOut }
-    // Serialize sidecar writes even when LLM requests finish together.
-    writeChain = writeChain.then(() => writeExpression(narrationPath, {
-      schema_version: 1, model, dialect, generated_at: new Date().toISOString(), sections: snapshot,
-    }))
-    await writeChain
-    job.progress = Math.round((completed / targets.length) * 100)
-    return tagged
+    try {
+      const tagged = await markupSectionText(model, s.text, apiKeys, job.project_slug, dialect)
+      if (isCancelled(job.job_id)) { cancelled = true; return tagged }
+      await checkpointExpressionSection(narrationPath, s.slug, tagged, model, dialect)
+      completed++
+      job.progress = Math.round((completed / targets.length) * 100)
+      job.output_lines.push(`  Saved ${s.label} (${completed}/${targets.length})`)
+      return tagged
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      failures.set(s.slug, detail)
+      job.output_lines.push(`  Failed ${s.label}: ${detail}`)
+      return ''
+    }
   })
   if (cancelled) { job.output_lines.push('Cancelled by user.'); return }
+  const missingSlugs = targets.filter(section => failures.has(section.slug)).map(section => section.slug)
+  if (missingSlugs.length) {
+    // Generic manual Retry clones params. Narrowing this job's durable params
+    // prevents another paid call for sections already checkpointed above.
+    job.params.slugs = missingSlugs
+  }
+  requireJobCompletion(job, {
+    label: 'Expression markup',
+    expected: targets.length,
+    completed,
+    missing: missingSlugs,
+    retry_hint: 'Valid tagged sections were saved. Retry processes only the missing sections and never changes the narration source.',
+  })
+  job.progress = 100
   job.output_lines.push('Expression markup complete.')
 }

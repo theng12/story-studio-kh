@@ -499,6 +499,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
 
     const rawModel = model.replace(/^chatstudio:/, '')
+    const targetIds = new Set(targets.map(({ scene }) => scene.id))
     const durableTargetIds = new Set<string>()
     const syncMemoryPlan = (fresh: ScenePlan) => {
       plan.generated_at = fresh.generated_at
@@ -511,6 +512,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     }
     const persistPrompt = async (sceneId: string, text: string) => {
+      if (!targetIds.has(sceneId)) {
+        throw new Error(`Provider returned unexpected scene ID ${sceneId}; no prompt was saved for it.`)
+      }
       let lastError: unknown
       for (let attempt = 1; attempt <= 5; attempt++) {
         try {
@@ -811,25 +815,34 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // Map into the 10–95 band the job reserves for the work.
         job.progress = 10 + Math.round((done / Math.max(1, total)) * 85)
       },
+      onResult: async (index, prompt) => {
+        const sceneId = existing.scenes[index]!.id
+        await checkpointScenePrompt(outPath, sceneId, prompt, 'visual')
+        job.output_lines.push(`Checkpointed scene #${index + 1} (${sceneId}); later failures cannot discard it.`)
+      },
     })
-    existing.generated_at = new Date().toISOString()
-    await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
     job.output_dir = paths.episode_dir
-    job.progress = 100
-    const succeeded = targetIndices.length - failed
-    const remainingTargetIds = new Set(inspectScenePromptIntegrity(existing.scenes).invalid_ids)
-    const stillInvalid = targetIndices.filter(index => remainingTargetIds.has(existing.scenes[index]!.id)).length
+    const remainingTargetIds = new Set(inspectScenePromptIntegrity(persisted.scenes).invalid_ids)
+    const stillInvalidIds = targetIndices
+      .map(index => existing.scenes[index]!.id)
+      .filter(sceneId => remainingTargetIds.has(sceneId))
+    const succeeded = targetIndices.length - stillInvalidIds.length
     job.output_lines.push(
       `✓ Bulk regen complete — ${succeeded} prompt(s) filled`
-      + (failed ? `, ${failed} still empty (re-run the button to retry, or fill them in manually).` : '.'),
+      + (stillInvalidIds.length ? `, ${stillInvalidIds.length} still missing or duplicated.` : '.'),
     )
-    if (stillInvalid) {
-      throw new Error(
-        `${stillInvalid} regenerated prompt(s) are still missing or duplicated. `
-        + 'Retry the repair; image rendering remains blocked.',
-      )
+    requireJobCompletion(job, {
+      label: 'Visual prompt repair',
+      expected: targetIndices.length,
+      completed: succeeded,
+      missing: stillInvalidIds,
+      retry_hint: 'Valid prompts were saved immediately. Retry repair to request only the remaining scene IDs.',
+    })
+    if (failed && !stillInvalidIds.length) {
+      job.output_lines.push('All target prompts are durable despite transient worker failures reported during generation.')
     }
+    job.progress = 100
     return
   }
 
@@ -913,23 +926,31 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       should_cancel: () => isCancelled(job.job_id),
       onWarn: (m) => job.output_lines.push(m),
       onProgress: (done, total) => { job.progress = 10 + Math.round((done / Math.max(1, total)) * 85) },
+      onResult: async (index, prompt) => {
+        const sceneId = existing.scenes[index]!.id
+        await checkpointScenePrompt(outPath, sceneId, prompt, 'motion')
+        job.output_lines.push(`Checkpointed motion for scene #${index + 1} (${sceneId}).`)
+      },
     })
-    existing.generated_at = new Date().toISOString()
-    await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
     job.output_dir = paths.episode_dir
-    job.progress = 100
-    const succeeded = targetIndices.length - failed
+    const stillMissingIds = targetIndices
+      .map(index => existing.scenes[index]!.id)
+      .filter(sceneId => !persisted.scenes.find(scene => scene.id === sceneId)?.motion_prompt?.trim())
+    const succeeded = targetIndices.length - stillMissingIds.length
     job.output_lines.push(
       `✓ Bulk motion regen complete — ${succeeded} prompt(s) filled`
-      + (failed ? `, ${failed} still empty (re-run to retry, or fill them in manually).` : '.'),
+      + (stillMissingIds.length ? `, ${stillMissingIds.length} still empty.` : '.'),
     )
-    const stillMissing = targetIndices.filter(index => !existing.scenes[index]?.motion_prompt?.trim())
     requireJobCompletion(job, {
-      label: 'Motion prompt repair', expected: targetIndices.length, completed: targetIndices.length - stillMissing.length,
-      missing: stillMissing.map(index => existing.scenes[index]!.id),
-      retry_hint: 'Existing motion prompts were kept; Retry fills only the remaining gaps.',
+      label: 'Motion prompt repair', expected: targetIndices.length, completed: succeeded,
+      missing: stillMissingIds,
+      retry_hint: 'Existing motion prompts were saved immediately; Retry fills only the remaining gaps.',
     })
+    if (failed && !stillMissingIds.length) {
+      job.output_lines.push('All target motion prompts are durable despite transient worker failures reported during generation.')
+    }
+    job.progress = 100
     return
   }
 
@@ -1190,18 +1211,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         `Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})` +
         (promptModel ? ` · fast prompt model: ${motionModel}` : '') + '…',
       )
-      // Throttled incremental save so finished motion prompts survive a
-      // mid-phase crash / cancel (mirrors the visual planner's protection).
-      let saveInFlight = false
-      let lastSavedAt = 0
-      const persist = async (done: number, total: number) => {
-        if (saveInFlight) return
-        if (done - lastSavedAt < 10 && done < total) return // save every 10, and at the end
-        saveInFlight = true
-        lastSavedAt = done
-        try { await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8') } catch { /* best-effort */ }
-        finally { saveInFlight = false }
-      }
       const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
         model: motionModel,
         motion_level: motionLevel,
@@ -1214,26 +1223,31 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         onProgress: (done, total) => {
           if (done % 10 === 0 || done === total) job.output_lines.push(`${done}/${total} motion prompt(s) so far…`)
           job.progress = 80 + Math.round((done / Math.max(1, total)) * 18) // 80→98 band
-          void persist(done, total)
+        },
+        onResult: async (index, prompt) => {
+          await checkpointScenePrompt(outPath, plan.scenes[index]!.id, prompt, 'motion')
         },
       })
-      const made = targets.length - failed
+      const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      const stillMissingIds = targets
+        .map(index => plan.scenes[index]!.id)
+        .filter(sceneId => !persisted.scenes.find(scene => scene.id === sceneId)?.motion_prompt?.trim())
+      const made = targets.length - stillMissingIds.length
       job.output_lines.push(
-        failed
-          ? `✓ Motion prompts: ${made}/${targets.length} written (${failed} left empty — use "Regen empty motion prompts").`
+        stillMissingIds.length
+          ? `✓ Motion prompts: ${made}/${targets.length} saved (${stillMissingIds.length} left empty — use "Regen empty motion prompts").`
           : `✓ Motion prompts: ${made}/${targets.length} written.`,
       )
-      const stillMissing = targets.filter(index => !plan.scenes[index]?.motion_prompt?.trim())
       requireJobCompletion(job, {
-        label: 'Motion prompt generation', expected: targets.length, completed: targets.length - stillMissing.length,
-        missing: stillMissing.map(index => plan.scenes[index]!.id),
-        retry_hint: 'Motion prompts already written were kept; Retry fills only the remaining gaps.',
+        label: 'Motion prompt generation', expected: targets.length, completed: made,
+        missing: stillMissingIds,
+        retry_hint: 'Motion prompts already saved were kept; Retry fills only the remaining gaps.',
       })
+      if (failed && !stillMissingIds.length) {
+        job.output_lines.push('All motion prompts are durable despite transient worker failures reported during generation.')
+      }
     }
   }
-
-  // Final save — captures the last batch of motion prompts.
-  await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
 
   job.output_dir = paths.episode_dir
   job.progress = 100

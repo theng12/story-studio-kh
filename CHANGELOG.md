@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.625 — 2026-07-16
+
+**Every Scene Plan prompt path now preserves completed work scene by scene.**
+
+- Extended locked, atomic prompt checkpoints to bulk visual repair, bulk motion repair, and the retired planner's remaining motion pass so a later failure cannot discard earlier results.
+- Re-read the saved Scene Plan before reporting completion instead of trusting in-memory worker counts.
+- Kept incomplete jobs visibly failed while making Retry target only scene IDs that are still missing or duplicated.
+- Rejected unexpected provider scene IDs before they can modify a different scene.
+- Hardened expression-markup generation to save each completed chapter independently and reject tag output that omits, rewords, or reorders narration.
+- Added regression coverage for concurrent expression checkpoints, dialect changes, narration integrity, truncated prompt JSON, and concurrent prompt saves.
+
 ## v1.0.624 — 2026-07-16
 
 **Scene prompts and media now checkpoint independently without losing completed work.**
