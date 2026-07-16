@@ -13,7 +13,7 @@
 
 import fs from 'fs/promises'
 import path from 'path'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import * as pm from '../services/project-manager.js'
@@ -28,7 +28,7 @@ import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -60,7 +60,10 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const idSet = Array.isArray(params.scene_ids) && params.scene_ids.length ? new Set(params.scene_ids) : null
   const targets = plan.scenes.filter((s) => {
     if (idSet) return idSet.has(s.id)
-    return !existsSync(path.join(outDir, `${s.id}.png`))
+    try {
+      const stat = statSync(path.join(outDir, `${s.id}.png`))
+      return !stat.isFile() || stat.size <= 0
+    } catch { return true }
   })
   if (!targets.length) {
     job.output_lines.push('No scenes to render (all have images or no prompt).')
@@ -102,6 +105,8 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   const total = targets.length
   let done = 0, made = 0, failed = 0
+  const successfulSceneIds = new Set<string>()
+  const failedSceneIds = new Set<string>()
 
   const buildReq = (scene: ScenePlanEntry): ImageGenerationRequest => ({
     prompt: scene.visual_prompt!,
@@ -117,6 +122,8 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     const outPath = path.join(outDir, `${scene.id}.png`)
     await downloadImage(url, outPath)
     await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
+    successfulSceneIds.add(scene.id)
+    failedSceneIds.delete(scene.id)
   }
 
   job.output_lines.push(`Scene images — ${imageProvider.meta.name} / ${model} · ${total} scene(s)`)
@@ -134,6 +141,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
           if (!scene) return
           if (result.error || !result.url) {
             failed++
+            failedSceneIds.add(scene.id)
             job.output_lines.push(`Scene ${scene.scene_index} failed: ${result.error || 'no image'}`)
           } else {
             await saveScene(scene, result.url)
@@ -147,13 +155,16 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
       batched = true
     } catch (e: any) {
       if (!isConnectionError(e)) throw e
-      done = 0; made = 0; failed = 0
-      job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-scene rendering.`)
+      done = successfulSceneIds.size; failed = 0; failedSceneIds.clear()
+      job.output_lines.push(
+        `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
+        `${targets.length - successfulSceneIds.size} unverified scene(s); ${successfulSceneIds.size} checkpoint(s) kept.`,
+      )
     }
   }
 
   if (!batched) {
-    for (const scene of targets) {
+    for (const scene of targets.filter(item => !successfulSceneIds.has(item.id))) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
       try {
         const result = await imageProvider.generateImage(buildReq(scene))
@@ -163,6 +174,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
         job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
       } catch (e: any) {
         failed++
+        failedSceneIds.add(scene.id)
         job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
       } finally {
         done++
@@ -173,14 +185,19 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
 
   job.output_dir = outDir
   job.progress = 100
-  const missing: string[] = []
-  for (const scene of targets) {
-    const stat = await fs.stat(path.join(outDir, `${scene.id}.png`)).catch(() => null)
-    if (!stat?.isFile() || stat.size === 0) missing.push(scene.id)
+  const mediaAudit = await auditSceneImageCompletion(planPath, targets.map(scene => scene.id), [outDir])
+  const invalid = new Set<string>(mediaAudit.invalid)
+  for (const scene of targets) if (!successfulSceneIds.has(scene.id)) invalid.add(scene.id)
+  for (const sceneId of failedSceneIds) invalid.add(sceneId)
+  const unresolved = new Set(mediaAudit.missing)
+  for (const item of invalid) unresolved.add(item.replace(/ \(.+\)$/, ''))
+  if (unresolved.size > 0) {
+    job.params.scene_ids = targets.filter(scene => unresolved.has(scene.id)).map(scene => scene.id)
   }
   requireJobCompletion(job, {
-    label: 'Scene image generation', expected: targets.length, completed: targets.length - missing.length,
-    missing,
+    label: 'Scene image generation', expected: targets.length, completed: targets.length - unresolved.size,
+    missing: mediaAudit.missing,
+    invalid: [...invalid],
     retry_hint: 'Successful images were saved; Retry renders only the missing scenes.',
   })
   job.output_lines.push(`Done — ${made} rendered; ${targets.length}/${targets.length} target image(s) verified.`)

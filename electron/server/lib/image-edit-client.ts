@@ -204,7 +204,7 @@ async function editWithGemini(input: EditImageInput, image: { buffer: Buffer; mi
 async function editWithOpenAI(input: EditImageInput, image: { buffer: Buffer; mime: string }): Promise<Buffer> {
   const { default: OpenAI } = await import('openai')
   const { toFile } = await import('openai/uploads')
-  const client = new OpenAI({ apiKey: input.apiKey })
+  const client = new OpenAI({ apiKey: input.apiKey, maxRetries: 0 })
   const file = await toFile(image.buffer, 'reference.png', { type: image.mime })
   // OpenAI's images.edit accepts an optional `mask` field — same
   // dimensions as the source. Transparent pixels = "edit here";

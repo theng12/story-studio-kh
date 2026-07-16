@@ -591,6 +591,7 @@ router.post('/projects/:slug/image-pool/generate', async (req, res) => {
         model,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
         variants: Number.isFinite(Number(body.variants)) ? Number(body.variants) : 1,
+        run_id: typeof body.run_id === 'string' ? body.run_id : undefined,
       },
     })
     res.status(201).json(job)

@@ -758,6 +758,8 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',
+  outline_only: 'Script outline',
+  expand_chapters: 'Chapter expansion',
   image_prompts: 'Prompts',
   images: 'Images (All)',
   scene_images: 'Scene Images',
@@ -770,6 +772,25 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   video: 'AI Video',
   video_assembly: 'Video Assembly',
   subtitles_transcribe: 'Subtitles',
+  research_run: 'Research',
+  scene_plan_run: 'Scene Plan prompts',
+  scene_image_generate: 'Scene image',
+  scene_images_batch: 'Scene Review images',
+  scene_clip_generate: 'Motion clip',
+  scene_clips_batch: 'Motion Review clips',
+  continuity_render: 'Scene Review images',
+  prompt_director: 'Prompt director',
+  composition_generate: 'Image composition',
+  expression_markup: 'Expression markup',
+  image_pool_generate: 'Image pool',
+  youtube_upload: 'YouTube upload',
+  youtube_playlist_update: 'YouTube playlist',
+  youtube_thumbnail_refresh: 'YouTube thumbnail',
+  broll_normalize: 'B-roll normalize',
+  broll_select: 'B-roll selection',
+  broll_assemble: 'B-roll assembly',
+  broll_autotag: 'B-roll tags',
+  broll_fetch: 'B-roll download',
 }
 function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABELS[type] || type
@@ -816,18 +837,24 @@ const filterTabs = computed(() => {
     { type: 'script-only',          label: 'Scripts' },
     { type: 'introduction-only',    label: 'Introductions' },
     { type: 'chapter-only',         label: 'Chapter Regen' },
+    { type: 'research_run',         label: 'Research' },
     { type: 'metadata',             label: 'Metadata' },
     { type: 'image_prompts',        label: 'Prompts' },
+    { type: 'scene_plan_run',       label: 'Scene Plan' },
     { type: 'scene_images',         label: 'Scene Images' },
+    { type: 'continuity_render',    label: 'Scene Review' },
+    { type: 'scene_images_batch',   label: 'Scene Review Batch' },
     { type: 'thumb_images',         label: 'Thumb Images' },
     { type: 'images',               label: 'Images (All)' },
     { type: 'images_repair',        label: 'Image Repair' },
     { type: 'video',                label: 'AI Video' },
+    { type: 'scene_clips_batch',    label: 'Motion Review' },
     { type: 'video_repair',         label: 'Video Repair' },
     { type: 'audio',                label: 'Audio' },
     { type: 'audio_merge',          label: 'Audio Merge' },
     { type: 'video_assembly',       label: 'Video Assembly' },
     { type: 'subtitles_transcribe', label: 'Subtitles' },
+    { type: 'youtube_upload',       label: 'YouTube' },
   ]
   return types.map(t => ({
     ...t,
@@ -1107,18 +1134,33 @@ function toggleExpand(jobId: string) {
 // — over-warning on free jobs would teach users to dismiss the toast.
 const COST_INCURRING_TYPES = new Set([
   'script-only', 'introduction-only', 'chapter-only',
-  'image_prompts', 'metadata',
-  'images', 'scene_images', 'thumb_images',
+  'outline_only', 'expand_chapters', 'image_prompts', 'metadata',
+  'research_run', 'scene_plan_run', 'prompt_director', 'expression_markup',
+  'images', 'scene_images', 'thumb_images', 'continuity_render',
+  'scene_images_batch', 'scene_image_generate', 'composition_generate', 'image_pool_generate',
   'audio',
-  'video',
+  'video', 'scene_clips_batch', 'scene_clip_generate',
   'subtitles_transcribe',
 ])
 
+const HUB_CANCELLABLE_TYPES = new Set([
+  'scene_plan_run',
+  'continuity_render',
+  'scene_images_batch',
+  'scene_image_generate',
+  'scene_clips_batch',
+  'scene_clip_generate',
+])
+
 async function cancelJob(job: RJob) {
-  const wasRunningWithCost = job.status === 'running' && COST_INCURRING_TYPES.has(job.type)
+  const wasRunningWithCost = job.status === 'running'
+    && COST_INCURRING_TYPES.has(job.type)
+    && !job.auto_retry?.eligible
   try {
     await del(`/projects/${slug.value}/jobs/${job.job_id}`)
-    if (wasRunningWithCost) {
+    if (job.status === 'running' && HUB_CANCELLABLE_TYPES.has(job.type)) {
+      success('Stop requested. Any active Studio Hub batch will also be cancelled; completed checkpoints remain saved.')
+    } else if (wasRunningWithCost) {
       // Multi-line toast — local cancel doesn't signal upstream, so
       // already-submitted provider tasks may complete on their side and
       // bill the account. The new Repair & Retry path can pick them up
@@ -1190,6 +1232,9 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'FREE LOCAL RETRY — The automatic attempts are exhausted or this run was stopped. Starts another bounded local retry cycle and keeps verified files already on disk. No paid API request is made.'
   }
   const jobType = job.type
+  if (jobType === 'scene_plan_run') {
+    return 'SMART RETRY — Keeps every prompt already verified on disk and requests only missing or duplicated stable scene IDs. Paid cloud models make one manual request per remaining pack; local models use bounded free retries.'
+  }
   if (jobType === 'image_prompts') {
     const mode = (job.params as any)?.mode
     if (mode === 'thumbnails') {
@@ -1343,6 +1388,34 @@ async function retryJob(job: RJob) {
     video_assembly:  { url: `/projects/${slug.value}/generate/video-assembly`, params: job.params },
     images_repair:   { url: `/projects/${slug.value}/generate/images-repair`,  params: { episode_id: job.episode_id } },
     video_repair:    { url: `/projects/${slug.value}/generate/video-repair`,   params: { episode_id: job.episode_id } },
+    continuity_render: {
+      url: `/projects/${slug.value}/scene-review/${job.episode_id}/continuity-render`,
+      params: job.params,
+    },
+    scene_images_batch: {
+      url: `/projects/${slug.value}/scene-review/${job.episode_id}/continuity-render`,
+      params: { ...job.params, independent: true },
+    },
+    scene_image_generate: {
+      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-image`,
+      params: job.params,
+    },
+    composition_generate: {
+      url: `/projects/${slug.value}/episodes/${job.episode_id}/img2img-references/composition/generate`,
+      params: job.params,
+    },
+    image_pool_generate: {
+      url: `/projects/${slug.value}/image-pool/generate`,
+      params: job.params,
+    },
+    scene_clip_generate: {
+      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-clip`,
+      params: job.params,
+    },
+    scene_clips_batch: {
+      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-clips-batch`,
+      params: job.params,
+    },
     // Whisper transcription uses a non-`/generate` URL because the endpoint
     // lives under /video-editor. The episode id is a path param, not a body
     // field. We MUST forward `engine` and `per_chapter` too: without them the
@@ -1392,7 +1465,15 @@ async function retryJob(job: RJob) {
   }
 
   const target = endpointMap[job.type]
-  if (!target) { showError(`Cannot retry job type: ${job.type}`); return }
+  if (!target) {
+    try {
+      await post(`/projects/${slug.value}/jobs/${job.job_id}/retry`, {})
+      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
+    } catch (e: any) {
+      showError(e?.data?.detail || e?.message || 'Failed to retry job')
+    }
+    return
+  }
 
   // v1.0.114 — Retry is now RESUBMIT-ONLY. The previous Repair-then-Retry
   // combined path was split out into repairJobOnly() above, exposed as

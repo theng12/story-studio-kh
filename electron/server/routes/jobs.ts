@@ -182,6 +182,14 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   res.json(job)
 })
 
+// Queue-level Retry fallback. Specialized generator pages may still use their
+// own healing endpoints, but every registered job type remains recoverable
+// even when a newer executor has not yet been added to a frontend map.
+router.post('/projects/:slug/jobs/:jobId/retry', (req, res) => {
+  const job = jq.retryTerminalJob(req.params.slug, req.params.jobId)
+  res.status(202).json({ ok: true, job })
+})
+
 router.delete('/projects/:slug/jobs/:jobId', (req, res) => {
   if (!jq.cancelJob(req.params.jobId)) {
     return res.status(400).json({ detail: 'Job not found or not cancellable' })

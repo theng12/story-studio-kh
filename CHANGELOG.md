@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.628 — 2026-07-16
+
+**Production jobs now preserve every verified prompt and media result before reporting completion.**
+
+- Kept Scene Plan visual and motion prompts checkpointed independently by stable scene ID, with visible per-pack saved counts and manual Retry limited to missing or duplicated prompts.
+- Verified scene images, motion clips, compositions, and image-pool outputs from authoritative files before allowing their jobs to finish; valid partial results remain available for recovery.
+- Prevented an accepted Studio Hub batch from falling back to duplicate provider work during a temporary monitoring outage, and required cancellation acknowledgement on stop or timeout.
+- Added a queue-level Retry fallback so every failed or cancelled job can be re-enqueued with its exact durable parameters even before a page-specific recovery control exists.
+- Disabled hidden SDK retries for paid OpenAI-compatible and Anthropic requests while retaining bounded automatic retries for verified local/free work.
+- Added clearer Scene Plan, Scene Review, Motion Review, and publishing job labels, filters, cancellation feedback, and smart-retry explanations.
+- Added regression coverage for partial prompt/media checkpoints, Hub reconnection and cancellation, retry parameter preservation, and paid-provider one-shot policy.
+
 ## v1.0.627 — 2026-07-16
 
 **Scene Plan now proves every prompt checkpoint independently before a pack or job can finish.**

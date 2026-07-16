@@ -14,6 +14,7 @@
  * keys resolve; the target pool is app-level (by id).
  */
 
+import fs from 'fs/promises'
 import path from 'path'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
@@ -27,6 +28,7 @@ import { isConnectionError } from '../lib/endpoint-pool.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { hashInput, recordTask } from '../services/task-manifest.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
@@ -35,6 +37,8 @@ interface ImagePoolGenerateParams {
   aspect_ratio?: string
   /** Images to generate per prompt (1–4). Default 1. */
   variants?: number
+  /** Durable identity retained by manual/local retries. */
+  run_id?: string
 }
 
 export async function generateImagePoolImages(job: Job): Promise<void> {
@@ -95,10 +99,48 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
     `Generating ${total} image(s) into "${pool.name}" — ${imageProvider.meta.name} / ${model} · ${prompts.length} prompt(s) × ${variants}`,
   )
 
-  const stamp = Date.now()
+  const runId = typeof params.run_id === 'string' && params.run_id.trim()
+    ? params.run_id.trim()
+    : `${Date.now()}-${job.job_id}`
+  job.params.run_id = runId
+  const items = prompts.flatMap((prompt, promptIndex) =>
+    Array.from({ length: variants }, (_, variantIndex) => {
+      const index = promptIndex * variants + variantIndex
+      return {
+        index,
+        prompt,
+        filename: `gen-${runId}-${String(index + 1).padStart(4, '0')}.png`,
+      }
+    }),
+  )
+  const isUsable = async (filename: string): Promise<boolean> => {
+    const stat = await fs.stat(path.join(pool.folder_path, filename)).catch(() => null)
+    return !!stat?.isFile() && stat.size > 0
+  }
+  const initialReady = new Set<string>()
+  for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
+  let remaining = items.filter(item => !initialReady.has(item.filename))
   let made = 0
   let failed = 0
-  let idx = 0
+  let processed = initialReady.size
+  const successfulFiles = new Set(initialReady)
+  const failedFiles = new Set<string>()
+
+  const saveResult = async (item: typeof items[number], result: { url?: string; taskId?: string }): Promise<void> => {
+    if (!result.url) throw new Error('provider returned no image')
+    if (result.taskId) {
+      await recordTask(pool.folder_path, item.filename, {
+        provider: imageProvider.meta.providerId || imageProvider.meta.id,
+        task_id: result.taskId,
+        submitted_at: new Date().toISOString(),
+        input_hash: hashInput(item.prompt),
+      })
+    }
+    await downloadImage(result.url, path.join(pool.folder_path, item.filename))
+    if (!await isUsable(item.filename)) throw new Error('downloaded image is empty')
+    successfulFiles.add(item.filename)
+    failedFiles.delete(item.filename)
+  }
 
   // Studio Hub batch (§6b): in Hub mode, submit ALL images as ONE batch so the
   // Hub distributes them across the whole fleet — this loop is otherwise SERIAL
@@ -106,47 +148,57 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   // (no references). On a connection error, fall back to the serial loop.
   let batchDone = false
   const hub = await getHubBackend()
-  if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && total > 0) {
+  if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && remaining.length > 0) {
     try {
-      const reqs: ImageGenerationRequest[] = []
-      for (let p = 0; p < prompts.length; p++) {
-        for (let v = 0; v < variants; v++) {
-          reqs.push({ prompt: prompts[p]!, apiKey, aspectRatio, modelId: model, providerParams } as ImageGenerationRequest)
-        }
-      }
+      const batchItems = [...remaining]
+      const reqs: ImageGenerationRequest[] = batchItems.map(item => ({
+        prompt: item.prompt, apiKey, aspectRatio, modelId: model, providerParams,
+      } as ImageGenerationRequest))
       job.output_lines.push(`Studio Hub batch — ${reqs.length} image(s) as ONE render; the Hub distributes across the fleet.`)
       await renderImageBatchViaHub(reqs, {
         label: `storystudio:pool/${pool.name}`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onItemDone: async (index, result) => {
-          const outName = `gen-${stamp}-${String(index + 1).padStart(4, '0')}.png`
+          const item = batchItems[index]
+          if (!item) return
           if (result.error || !result.url) {
             failed++
+            failedFiles.add(item.filename)
             job.output_lines.push(`✗ image ${index + 1} failed: ${result.error || 'no image'}`)
           } else {
-            await downloadImage(result.url, path.join(pool.folder_path, outName))
-            made++
-            job.output_lines.push(`✓ ${made}/${total}`)
+            try {
+              await saveResult(item, result)
+              made++
+              job.output_lines.push(`✓ ${successfulFiles.size}/${total}`)
+            } catch (e: any) {
+              failed++
+              failedFiles.add(item.filename)
+              job.output_lines.push(`✗ image ${index + 1} could not be checkpointed: ${e?.message || e}`)
+            }
           }
-          job.progress = Math.round(((made + failed) / total) * 90)
+          processed++
+          job.progress = Math.round((processed / total) * 90)
         },
       })
       batchDone = true
     } catch (e: any) {
       if (!isConnectionError(e)) throw e
-      made = 0; failed = 0
-      job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-image generation.`)
+      failed = 0
+      failedFiles.clear()
+      remaining = items.filter(item => !successfulFiles.has(item.filename))
+      processed = successfulFiles.size
+      job.output_lines.push(
+        `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
+        `${remaining.length} unverified image(s); ${successfulFiles.size} checkpoint(s) kept.`,
+      )
     }
   }
 
-  if (!batchDone) for (let p = 0; p < prompts.length; p++) {
-    const prompt = prompts[p]!
-    for (let v = 0; v < variants; v++) {
+  if (!batchDone) for (const item of remaining) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-      idx++
       try {
         const result = await imageProvider.generateImage({
-          prompt,
+          prompt: item.prompt,
           apiKey,
           aspectRatio,
           modelId: model,
@@ -154,32 +206,31 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           isCancelled: () => jq.isCancelled(job.job_id),
         })
         if (!result.urls.length) throw new Error('provider returned no image')
-        // Unique, scan-friendly name. Pool selection is by content hash, so
-        // the name is cosmetic — just keep them ordered + collision-free.
-        const outName = `gen-${stamp}-${String(idx).padStart(4, '0')}.png`
-        await downloadImage(result.urls[0]!, path.join(pool.folder_path, outName))
+        await saveResult(item, { url: result.urls[0], taskId: result.taskId })
         made++
-        job.output_lines.push(`✓ ${made}/${total} — "${prompt.slice(0, 60)}${prompt.length > 60 ? '…' : ''}"`)
+        job.output_lines.push(`✓ ${successfulFiles.size}/${total} — "${item.prompt.slice(0, 60)}${item.prompt.length > 60 ? '…' : ''}"`)
       } catch (e: any) {
         failed++
-        job.output_lines.push(`✗ prompt ${p + 1} variant ${v + 1} failed: ${e?.message || e}`)
+        failedFiles.add(item.filename)
+        job.output_lines.push(`✗ item ${item.index + 1} failed: ${e?.message || e}`)
       }
-      job.progress = Math.round((idx / total) * 90)
-    }
+      processed++
+      job.progress = Math.round((processed / total) * 90)
   }
-
-  if (made === 0) throw new Error(`No images generated (${failed} failed). Check the model + API key.`)
 
   // Index the new files (image mode) so they're thumbnailed + selectable.
   job.output_lines.push('Indexing new images into the pool…')
   const scan = await scanPoolFolder(pool.folder_path, undefined, 'image')
   job.progress = 100
+  const missing: string[] = []
+  for (const item of items) if (!await isUsable(item.filename)) missing.push(item.filename)
+  for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)
   requireJobCompletion(job, {
-    label: 'Image pool generation', expected: total, completed: made,
-    missing: Array.from({ length: failed }, (_, index) => `failed item ${index + 1}`),
-    retry_hint: 'Generated images were kept; Retry the failed items.',
+    label: 'Image pool generation', expected: total, completed: total - missing.length,
+    missing,
+    retry_hint: 'Generated images were kept under stable names; Retry submits only missing items.',
   })
   job.output_lines.push(
-    `Done — generated ${made}/${total} image(s); pool indexed (+${scan.added.length} new).`,
+    `Done — ${total}/${total} image(s) verified; pool indexed (+${scan.added.length} new).`,
   )
 }

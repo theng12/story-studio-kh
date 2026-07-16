@@ -75,6 +75,7 @@ const openrouterProvider: TextProvider = {
     const client = new OpenAI({
       apiKey,
       baseURL: OPENROUTER_BASE,
+      maxRetries: 0,
       defaultHeaders: {
         'HTTP-Referer': 'https://story-studio-kh.local',
         'X-Title': 'Story Studio KH',

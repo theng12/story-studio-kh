@@ -20,6 +20,8 @@ import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
+import { requireJobCompletion } from '../services/job-completion.js'
+import { hashInput, recordTask } from '../services/task-manifest.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
@@ -107,11 +109,23 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   const outDir = path.join(paths.episode_dir, 'img2img-references')
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, COMPOSITION_FILENAME)
+  if (result.taskId) {
+    await recordTask(outDir, COMPOSITION_FILENAME, {
+      provider: imageProvider.meta.providerId || imageProvider.meta.id,
+      task_id: result.taskId,
+      submitted_at: new Date().toISOString(),
+      input_hash: hashInput(prompt),
+    })
+  }
   await downloadImage(result.urls[0]!, outPath)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error('Downloaded composition template is empty.')
 
   job.output_dir = outDir
   job.progress = 100
+  requireJobCompletion(job, {
+    label: 'Composition template generation', expected: 1, completed: 1,
+    retry_hint: 'The provider task was recorded; use Repair before Retry if the download was interrupted.',
+  })
   job.output_lines.push(`Done → ${COMPOSITION_FILENAME}`)
 }

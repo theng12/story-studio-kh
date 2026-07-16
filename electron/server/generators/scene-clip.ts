@@ -28,8 +28,9 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, VideoModelConfig, ScenePlan } from '../models/types.js'
 import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
-import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
+import { auditSceneClipCompletion, checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { hashInput, recordTask } from '../services/task-manifest.js'
 
 /**
  * Canonical "11 Video Assets" directory for an episode — the named folder
@@ -133,6 +134,16 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const outDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.mp4`)
+  const taskId = result.taskIds?.[0]
+  if (taskId) {
+    await recordTask(outDir, `${scene_id}.mp4`, {
+      provider: provider.meta.providerId || provider.meta.id,
+      task_id: taskId,
+      submitted_at: new Date().toISOString(),
+      input_hash: hashInput(scene.motion_prompt),
+      ...(result.videoUrls[0] ? { result_url: result.videoUrls[0] } : {}),
+    })
+  }
   await downloadVideo(result.videoUrls[0]!, outPath, (received) => {
     // Coarse 70→95 progress band while the clip downloads.
     if (received > 0 && (job.progress ?? 0) < 95) job.progress = Math.min(95, (job.progress ?? 0) + 1)
@@ -171,38 +182,67 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   const ready = [] as ScenePlan['scenes']
+  const requiredIds: string[] = []
+  const blockers: string[] = []
   for (const scene of plan.scenes) {
+    if (scene.motion_choice === 'still') continue
+    requiredIds.push(scene.id)
     const image = scene.image_path && existsSync(scene.image_path)
       ? scene.image_path
       : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene.id)
-    if (!image || !scene.motion_prompt?.trim()) continue
+    if (!image) { blockers.push(`${scene.id} (missing image)`); continue }
+    const imageStat = await fs.stat(image).catch(() => null)
+    if (!imageStat?.isFile() || imageStat.size <= 0) { blockers.push(`${scene.id} (empty image)`); continue }
+    if (!scene.motion_prompt?.trim()) { blockers.push(`${scene.id} (missing motion prompt)`); continue }
     const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
-    const freshClip = existsSync(clipPath)
+    const clipStat = await fs.stat(clipPath).catch(() => null)
+    const freshClip = !!clipStat?.isFile() && clipStat.size > 0
       && scene.rendered_motion_prompt === scene.motion_prompt
       && (scene.image_version == null || scene.clip_source_image_version === scene.image_version)
+      && scene.motion_choice === 'clip'
     if (!freshClip) ready.push(scene)
   }
+  if (blockers.length) {
+    requireJobCompletion(job, {
+      label: 'Motion clip preflight', expected: requiredIds.length,
+      completed: requiredIds.length - blockers.length,
+      invalid: blockers,
+      retry_hint: 'Generate the missing image/motion prompts or mark those scenes Still, then Retry.',
+    })
+  }
   if (!ready.length) {
-    job.output_lines.push('All ready scenes already have fresh image-to-video clips.')
     job.progress = 100
+    requireJobCompletion(job, {
+      label: 'Motion clip generation', expected: requiredIds.length, completed: requiredIds.length,
+    })
+    job.output_lines.push('All required scenes already have fresh, selected image-to-video clips.')
     return
   }
 
   const originalParams = job.params
   job.output_lines.push(`Motion Clips: ${ready.length} scene(s), processed in order to avoid provider bursts.`)
-  for (let index = 0; index < ready.length; index++) {
-    if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-    const scene = ready[index]!
-    job.params = {
-      episode_id,
-      scene_id: scene.id,
-      model,
-      aspect_ratio: params.aspect_ratio || '16:9',
-      auto_approve_clip: true,
+  try {
+    for (let index = 0; index < ready.length; index++) {
+      if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      const scene = ready[index]!
+      job.params = {
+        episode_id,
+        scene_id: scene.id,
+        model,
+        aspect_ratio: params.aspect_ratio || '16:9',
+        auto_approve_clip: true,
+      }
+      await generateSceneClipJob(job)
+      job.progress = Math.round(((index + 1) / ready.length) * 100)
     }
-    await generateSceneClipJob(job)
-    job.progress = Math.round(((index + 1) / ready.length) * 100)
+  } finally {
+    job.params = originalParams
   }
-  job.params = originalParams
-  job.output_lines.push(`Motion Clips complete: ${ready.length} generated and selected for assembly.`)
+  const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir)
+  requireJobCompletion(job, {
+    label: 'Motion clip generation', expected: audit.expected, completed: audit.completed,
+    missing: audit.missing, invalid: audit.invalid,
+    retry_hint: 'Completed clips were kept; Retry generates only missing or stale clips.',
+  })
+  job.output_lines.push(`Motion Clips complete: ${requiredIds.length}/${requiredIds.length} verified and selected for assembly.`)
 }

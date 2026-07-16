@@ -56,7 +56,10 @@ const openaiProvider: TextProvider = {
       throw new Error('No OpenAI API key configured. Add one in Settings → API Keys.')
     }
 
-    const client = new OpenAI({ apiKey })
+    // Paid completions are intentionally one-shot. The queue offers a manual
+    // Retry after preserving diagnostics; SDK-level retries could submit a
+    // second billable completion after an ambiguous network failure.
+    const client = new OpenAI({ apiKey, maxRetries: 0 })
 
     // Request options (second argument) carries the AbortSignal — the SDK
     // threads it to the underlying fetch, so a user cancel tears down the

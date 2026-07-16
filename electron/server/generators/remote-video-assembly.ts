@@ -22,6 +22,7 @@ import {
 import type { GenerateVideoRequest, Job, ScenePlan, VideoFrameConfig, VideoPostAudio, VideoSceneAnimation } from '../models/types.js'
 import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { getRenderWorkersEnabled } from '../services/app-settings.js'
+import { isCancelled } from '../services/job-queue.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { ensureExternalFinalVideoDir, externalRootIsReachable } from '../services/external-video-store.js'
@@ -490,6 +491,7 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     submitted = true
     const status = await hubPollBatch(backend.hubUrl, backend.hubToken, submittedJob.batch_id, {
       timeoutMs: 12 * 60 * 60_000,
+      isCancelled: () => isCancelled(job.job_id),
       onProgress: value => {
         const item = value.items?.[0]
         if (item?.state === 'running') job.output_lines[job.output_lines.length - 1] = 'Render Studio: rendering locally on worker...'

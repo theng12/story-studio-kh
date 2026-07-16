@@ -316,6 +316,8 @@ export interface HubBatchStatus {
 export interface HubPollOpts {
   isCancelled?: () => boolean
   timeoutMs?: number
+  /** Test/diagnostic override; production uses an increasing reconnect delay. */
+  reconnectDelayMs?: number
   onProgress?: (s: HubBatchStatus) => void
   /** Fired once per item the FIRST time it reaches a terminal state, so a
    *  multi-item batch can save/stream each result as it finishes rather than
@@ -415,6 +417,7 @@ export async function hubPollBatch(
   const deadline = Date.now() + (opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS)
   const seenDone = new Set<number>()
   let polls = 0
+  let consecutivePollFailures = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
       try {
@@ -431,12 +434,32 @@ export async function hubPollBatch(
         signal: AbortSignal.timeout(15_000),
       })
     } catch (e: any) {
-      throw new Error(`Can't reach Studio Hub while polling ${batchId}: ${e?.message || e}. Connection error.`)
+      consecutivePollFailures += 1
+      if (consecutivePollFailures < 6) {
+        await sleepCancellable(
+          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+          opts.isCancelled,
+        )
+        continue
+      }
+      throw new Error(
+        `Studio Hub accepted batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
+        'Direct fallback was not started because the Hub batch may still be running.',
+      )
     }
     if (!resp.ok) {
       const t = await resp.text().catch(() => '')
+      if (resp.status >= 500 && consecutivePollFailures < 5) {
+        consecutivePollFailures += 1
+        await sleepCancellable(
+          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+          opts.isCancelled,
+        )
+        continue
+      }
       throw new Error(`Studio Hub poll failed (${resp.status}): ${t.slice(0, 300)}`)
     }
+    consecutivePollFailures = 0
     const s = await resp.json() as HubBatchStatus
     try { opts.onProgress?.(s) } catch { /* never let UI plumbing kill polling */ }
     if (opts.onItemDone) {
@@ -469,9 +492,16 @@ export async function hubPollBatch(
     await sleepCancellable(sleepMs, opts.isCancelled)
     polls += 1
   }
+  try {
+    await hubCancelBatch(hubUrl, token, batchId)
+  } catch (error: any) {
+    throw new Error(
+      `Studio Hub batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
+    )
+  }
   throw new Error(
-    `Studio Hub batch ${batchId} did not complete within ` +
-    `${Math.round((opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS) / 60_000)} min`,
+    `Studio Hub batch ${batchId} exceeded its monitoring limit and was cancelled after ` +
+    `${Math.round((opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS) / 60_000)} min. Verified completed items remain saved.`,
   )
 }
 
@@ -547,10 +577,12 @@ export async function hubPollChatPacks(
   opts: {
     isCancelled?: () => boolean
     timeoutMs?: number
+    reconnectDelayMs?: number
     onProgress?: (status: HubChatBatchStatus) => void | Promise<void>
   } = {},
 ): Promise<HubChatBatchStatus> {
   const deadline = Date.now() + (opts.timeoutMs ?? 60 * 60_000)
+  let consecutivePollFailures = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
       try {
@@ -567,18 +599,48 @@ export async function hubPollChatPacks(
         signal: AbortSignal.timeout(15_000),
       })
     } catch (e: any) {
-      throw new Error(`Can't reach Studio Hub while polling Chat batch ${batchId}: ${e?.message || e}. Connection error.`)
+      consecutivePollFailures += 1
+      if (consecutivePollFailures < 6) {
+        await sleepCancellable(
+          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+          opts.isCancelled,
+        )
+        continue
+      }
+      throw new Error(
+        `Studio Hub accepted Chat batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
+        'Direct fallback was not started because the Hub batch may still be running.',
+      )
     }
     if (!resp.ok) {
       const detail = await resp.text().catch(() => '')
+      if (resp.status >= 500 && consecutivePollFailures < 5) {
+        consecutivePollFailures += 1
+        await sleepCancellable(
+          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+          opts.isCancelled,
+        )
+        continue
+      }
       throw new Error(`Studio Hub Chat poll failed (${resp.status}): ${detail.slice(0, 500)}`)
     }
+    consecutivePollFailures = 0
     const status = await resp.json() as HubChatBatchStatus
     await opts.onProgress?.(status)
     if (['done', 'partial', 'error', 'cancelled'].includes(status.status)) return status
     await sleepCancellable(2_000, opts.isCancelled)
   }
-  throw new Error(`Studio Hub Chat batch ${batchId} did not complete within the allowed time`)
+  try {
+    await hubCancelPath(hubUrl, token, `/chat/jobs/${encodeURIComponent(batchId)}`)
+  } catch (error: any) {
+    throw new Error(
+      `Studio Hub Chat batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
+    )
+  }
+  throw new Error(
+    `Studio Hub Chat batch ${batchId} exceeded its monitoring limit and was cancelled. ` +
+    'Prompts already checkpointed by stable scene ID remain saved.',
+  )
 }
 
 // ── Reference-image assets (upload-once) ───────────────────────────────────

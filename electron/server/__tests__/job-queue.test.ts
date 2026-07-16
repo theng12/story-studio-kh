@@ -277,6 +277,55 @@ describe('verified completion backstop', () => {
   })
 })
 
+describe('retryTerminalJob()', () => {
+  test('replaces a failed job only after the exact checkpoint params are re-enqueued', async () => {
+    const proj = await pm.createProject({ name: 'JQ Generic Retry' })
+    jq.registerExecutor('research_run', async () => { throw new Error('first attempt failed') })
+    const original = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'research_run',
+      episode_id: 'EP001',
+      title: 'Research checkpoint',
+      params: { model: 'cloud-model', pending_ids: ['item-2'] },
+    })
+
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(original.job_id)?.status !== 'error') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(original.job_id)?.status, 'error')
+
+    let received: Record<string, any> | undefined
+    jq.registerExecutor('research_run', async job => { received = job.params })
+    const retried = jq.retryTerminalJob(proj.slug, original.job_id)
+    assert.notEqual(retried.job_id, original.job_id)
+    assert.equal(jq.getJob(original.job_id), null)
+
+    const retryDeadline = Date.now() + 2_000
+    while (Date.now() < retryDeadline && jq.getJob(retried.job_id)?.status !== 'done') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.deepEqual(received, { model: 'cloud-model', pending_ids: ['item-2'] })
+    assert.equal(jq.getJob(retried.job_id)?.status, 'done')
+  })
+
+  test('refuses to replace a non-terminal job', async () => {
+    const proj = await pm.createProject({ name: 'JQ Unsafe Retry' })
+    let release!: () => void
+    const block = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('research_run', async () => await block)
+    const active = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'research_run',
+      episode_id: 'EP002',
+      title: 'Still active',
+      params: {},
+    })
+    assert.throws(() => jq.retryTerminalJob(proj.slug, active.job_id), /Only failed or cancelled jobs/)
+    release()
+  })
+})
+
 describe('cancelJob()', () => {
   test('returns false for unknown job ID', () => {
     const ok = jq.cancelJob('does-not-exist')

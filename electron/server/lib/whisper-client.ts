@@ -73,7 +73,7 @@ export async function transcribeToSrt(opts: TranscribeOptions): Promise<string> 
 // ── Single-file path ───────────────────────────────────────────────────────
 
 async function transcribeSingleFile(filePath: string, opts: TranscribeOptions): Promise<string> {
-  const client = new OpenAI({ apiKey: opts.apiKey })
+  const client = new OpenAI({ apiKey: opts.apiKey, maxRetries: 0 })
   opts.onProgress?.('upload', 10)
 
   // The OpenAI SDK accepts a ReadStream directly for the `file` field, and

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
-import { checkpointSceneClip, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
 
 const tempDirs: string[] = []
@@ -78,5 +78,46 @@ describe('scene media checkpoints', () => {
     assert.equal(saved.scenes[0]?.rendered_motion_prompt, 'Slow push in')
     assert.equal(saved.scenes[0]?.clip_source_image_version, 'image-v1')
     assert.equal(saved.scenes[0]?.motion_choice, 'clip')
+  })
+
+  it('audits canonical, empty, missing, and removed scene images', async () => {
+    const { dir, planPath } = await fixture()
+    const canonicalDir = path.join(dir, 'images')
+    await fs.mkdir(canonicalDir)
+    await fs.writeFile(path.join(canonicalDir, 'scene-1.png'), 'image-one')
+    await fs.writeFile(path.join(canonicalDir, 'scene-2.png'), '')
+
+    const audit = await auditSceneImageCompletion(
+      planPath,
+      ['scene-1', 'scene-2', 'scene-3'],
+      [canonicalDir],
+    )
+    assert.deepEqual(audit, {
+      expected: 3,
+      completed: 1,
+      missing: [],
+      invalid: ['scene-2 (empty image)', 'scene-3 (missing from scene plan)'],
+    })
+  })
+
+  it('rejects stale, empty, and unselected motion clips', async () => {
+    const { dir, planPath } = await fixture()
+    const clipsDir = path.join(dir, 'clips')
+    await fs.mkdir(clipsDir)
+    await fs.writeFile(path.join(clipsDir, 'scene-1.mp4'), 'clip-one')
+    await fs.writeFile(path.join(clipsDir, 'scene-2.mp4'), '')
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    plan.scenes[0]!.motion_prompt = 'Slow push in'
+    plan.scenes[0]!.rendered_motion_prompt = 'Different prompt'
+    plan.scenes[0]!.motion_choice = 'clip'
+    await fs.writeFile(planPath, JSON.stringify(plan))
+
+    const audit = await auditSceneClipCompletion(planPath, ['scene-1', 'scene-2'], clipsDir)
+    assert.deepEqual(audit, {
+      expected: 2,
+      completed: 0,
+      missing: [],
+      invalid: ['scene-1 (stale motion prompt)', 'scene-2 (empty clip)'],
+    })
   })
 })

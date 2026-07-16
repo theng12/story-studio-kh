@@ -20,7 +20,7 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
@@ -39,7 +39,7 @@ import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
 
 interface ContinuityRenderParams {
@@ -341,8 +341,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // folder, so an episode that hasn't been consolidated yet isn't needlessly
   // re-rendered from scratch (it already has its images, just in the old place).
   const legacySceneDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  const hasUsableFile = (filePath: string): boolean => {
+    try {
+      const stat = statSync(filePath)
+      return stat.isFile() && stat.size > 0
+    } catch { return false }
+  }
   const hasRenderedImage = (id: string): boolean =>
-    existsSync(path.join(outDir, `${id}.png`)) || existsSync(path.join(legacySceneDir, `${id}.png`))
+    hasUsableFile(path.join(outDir, `${id}.png`)) || hasUsableFile(path.join(legacySceneDir, `${id}.png`))
 
   const aspectRatio = params.aspect_ratio || '16:9'
   // v1.0.261 — explicit render size (local Image Studio only). When provided,
@@ -410,6 +416,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   let rendered = 0
   let skipped = 0
   const failedSceneIds: string[] = []
+  const successfulSceneIds = new Set<string>()
 
   // Live status sidecar — written before each render, cleared when the job ends.
   // Serialise writes through a tiny promise chain so concurrent workers in
@@ -575,6 +582,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               }
               await downloadImage(result.url, outPath)
               await persistImagePath(b.scene.id, outPath, b.scene.visual_prompt)
+              successfulSceneIds.add(b.scene.id)
               rendered++
               job.output_lines.push(`Scene ${b.scene.scene_index}/${scenes.length} (${b.scene.id}) ✓`)
             }
@@ -588,13 +596,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       } catch (e: any) {
         if (!isConnectionError(e)) throw e
         inFlight.clear()
-        done = 0
+        done = successfulSceneIds.size
         failedSceneIds.length = 0
-        job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-scene rendering.`)
+        job.output_lines.push(
+          `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
+          `${toRender.length - successfulSceneIds.size} unverified scene(s); ${successfulSceneIds.size} checkpoint(s) kept.`,
+        )
         await pushStatus()
       }
     }
 
+    const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
     if (renderedViaBatch) {
       await writeStatus({ active: false, updated_at: new Date().toISOString() })
     } else try {
@@ -605,14 +617,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // Resolve once all work is claimed (or the job is cancelled) AND every
       // worker has drained — so a cancelled run can't hang waiting on workers.
       const maybeFinish = () => {
-        if ((idx >= toRender.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
+        if ((idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
       }
       const worker = async (): Promise<void> => {
         active++
         try {
-        while (idx < toRender.length) {
+        while (idx < fallbackTargets.length) {
           if (jq.isCancelled(job.job_id)) return
-          const scene = toRender[idx++]!
+          const scene = fallbackTargets[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
           // Per-scene refs — character scenes get the anchor stack, non-character
           // scenes drop it (no prev-render in parallel mode either way).
@@ -642,6 +654,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             }
             await downloadImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath, scene.visual_prompt)
+            successfulSceneIds.add(scene.id)
             rendered++
             job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sref.refPaths.length} ref(s)${sref.includeCharacter ? '' : ' · no-character'}`)
           } catch (e: any) {
@@ -668,8 +681,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         : concurrency
       const liveNow = () => (dispatcher ? Math.max(1, dispatcher.liveCount()) : maxWorkers)
       const ensureWorkers = () => {
-        if (idx >= toRender.length || jq.isCancelled(job.job_id)) return
-        const want = Math.min(maxWorkers, liveNow(), toRender.length - idx + active)
+        if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
+        const want = Math.min(maxWorkers, liveNow(), fallbackTargets.length - idx + active)
         while (active < want) void worker()
       }
       ensureWorkers()
@@ -678,7 +691,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       let poolScaler: ReturnType<typeof setInterval> | null = null
       if (dispatcher && providerId === 'imagestudio') {
         poolScaler = setInterval(() => {
-          if (idx >= toRender.length || jq.isCancelled(job.job_id)) return
+          if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
           void (async () => {
             try {
               const { health: imgHealth } = await import('../lib/imagestudio-client.js')
@@ -709,10 +722,23 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
     job.output_dir = outDir
     job.progress = 100
+    const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir, legacySceneDir])
+    const invalid = new Set<string>(mediaAudit.invalid)
+    for (const sceneId of failedSceneIds) invalid.add(sceneId)
+    for (const scene of toRender) if (!successfulSceneIds.has(scene.id)) invalid.add(scene.id)
+    const unresolved = new Set(mediaAudit.missing)
+    for (const item of invalid) unresolved.add(item.replace(/ \(.+\)$/, ''))
+    if (unresolved.size > 0) {
+      job.params.scene_ids = toRender.filter(scene => unresolved.has(scene.id)).map(scene => scene.id)
+      // The scope is already narrowed to failed IDs. Do not let an older image
+      // suppress a failed explicit re-render on the next attempt.
+      job.params.missing_only = false
+    }
     requireJobCompletion(job, {
       label: 'Continuity scene rendering', expected: toRender.length,
-      completed: toRender.length - new Set(failedSceneIds).size,
-      missing: [...new Set(failedSceneIds)],
+      completed: toRender.length - unresolved.size,
+      missing: mediaAudit.missing,
+      invalid: [...invalid],
       retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
     })
     job.output_lines.push(`Done (parallel) — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
@@ -729,6 +755,12 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // non-character cutaways between his appearances. Non-character scenes never
   // set or consume it.
   let prevCharRender: { path: string; id: string; index: number } | null = null
+  const sequentialTargetIds = scenes.filter(scene => {
+    if (singleIndex > 0) return scene.scene_index === singleIndex
+    if (force) return true
+    if (fromIndex > 0) return scene.scene_index >= fromIndex
+    return !hasRenderedImage(scene.id)
+  }).map(scene => scene.id)
 
   try {
   for (let i = 0; i < scenes.length; i++) {
@@ -818,6 +850,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     await downloadImage(result.urls[0]!, outPath)
 
     await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
+    successfulSceneIds.add(scene.id)
 
     // Only character scenes seed the guide-continuity chain; cutaways don't,
     // so the next character scene anchors off the last character render.
@@ -832,5 +865,22 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
   job.output_dir = outDir
   job.progress = 100
-  job.output_lines.push(`Done — rendered ${rendered}, skipped ${skipped} (already had images).`)
+  const mediaAudit = await auditSceneImageCompletion(planPath, sequentialTargetIds, [outDir, legacySceneDir])
+  const invalid = new Set<string>(mediaAudit.invalid)
+  for (const sceneId of sequentialTargetIds) if (!successfulSceneIds.has(sceneId)) invalid.add(sceneId)
+  const unresolved = new Set(mediaAudit.missing)
+  for (const item of invalid) unresolved.add(item.replace(/ \(.+\)$/, ''))
+  if (unresolved.size > 0) {
+    job.params.scene_ids = sequentialTargetIds.filter(sceneId => unresolved.has(sceneId))
+    job.params.missing_only = false
+    job.params.independent = true
+  }
+  requireJobCompletion(job, {
+    label: 'Continuity scene rendering', expected: sequentialTargetIds.length,
+    completed: sequentialTargetIds.length - unresolved.size,
+    missing: mediaAudit.missing,
+    invalid: [...invalid],
+    retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
+  })
+  job.output_lines.push(`Done — ${sequentialTargetIds.length}/${sequentialTargetIds.length} target image(s) verified; ${skipped} skipped.`)
 }

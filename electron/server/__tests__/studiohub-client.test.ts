@@ -84,6 +84,28 @@ describe('Hub item persistence callbacks', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('reconnects to an accepted batch instead of starting duplicate fallback work', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) throw new Error('temporary network loss')
+      return new Response(JSON.stringify({
+        id: 'batch-1', queued: 0, running: 0, done: 1, error: 0,
+        items: [{ index: 0, state: 'done', artifact_url: 'http://worker/image' }],
+      }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await hubPollBatch('http://hub:47873', undefined, 'batch-1', {
+        reconnectDelayMs: 1,
+      })
+      assert.equal(result.done, 1)
+      assert.equal(calls, 2)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
 
 describe('hubHeaders', () => {
@@ -258,6 +280,32 @@ describe('durable Hub Chat packs', () => {
       assert.equal(polls, 1)
       assert.equal(calls[0], 'http://hub:47873/api/hub/chat/jobs')
       assert.equal(calls[1], 'http://hub:47873/api/hub/chat/jobs/chat-123')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('reconnects to accepted prompt packs without direct cloud fallback', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) throw new Error('temporary network loss')
+      return new Response(JSON.stringify({
+        id: 'chat-123', status: 'partial', total_scenes: 2, completed_scenes: 1,
+        packs: [{
+          pack_id: 'visual-0001', scene_ids: ['s1', 's2'], state: 'partial',
+          missing_scene_ids: ['s2'], results: [{ scene_id: 's1', text: 'saved' }],
+        }],
+      }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await hubPollChatPacks('http://hub:47873', undefined, 'chat-123', {
+        reconnectDelayMs: 1,
+      })
+      assert.equal(result.completed_scenes, 1)
+      assert.equal(result.packs[0]?.results?.[0]?.scene_id, 's1')
+      assert.equal(calls, 2)
     } finally {
       globalThis.fetch = originalFetch
     }

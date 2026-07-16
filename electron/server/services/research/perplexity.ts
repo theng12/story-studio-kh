@@ -53,6 +53,7 @@ class PerplexityAdapter implements ResearchAdapter {
     const client = new OpenAI({
       apiKey,
       baseURL: PERPLEXITY_BASE,
+      maxRetries: 0,
     })
 
     const { system, user } = buildResearchPrompt(opts)

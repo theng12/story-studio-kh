@@ -1,13 +1,109 @@
 import fs from 'fs/promises'
+import path from 'path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { ScenePlan } from '../models/types.js'
+
+export interface SceneImageCompletionAudit {
+  expected: number
+  completed: number
+  missing: string[]
+  invalid: string[]
+}
+
+export type SceneClipCompletionAudit = SceneImageCompletionAudit
 
 async function assertUsableFile(filePath: string, label: string): Promise<void> {
   const stat = await fs.stat(filePath).catch(() => null)
   if (!stat?.isFile() || stat.size <= 0) {
     throw new Error(`${label} was not saved as a usable file: ${filePath}`)
   }
+}
+
+/** Re-read the plan and verify the exact scene IDs against files downstream
+ * Scene Review can resolve. This catches omitted callbacks, empty downloads,
+ * deleted plan rows, and stale stored paths before a job can report success. */
+export async function auditSceneImageCompletion(
+  planPath: string,
+  sceneIds: string[],
+  imageDirectories: string[],
+): Promise<SceneImageCompletionAudit> {
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
+  const missing: string[] = []
+  const invalid: string[] = []
+
+  for (const sceneId of [...new Set(sceneIds)]) {
+    const scene = scenesById.get(sceneId)
+    if (!scene) {
+      invalid.push(`${sceneId} (missing from scene plan)`)
+      continue
+    }
+
+    const candidates = [
+      ...imageDirectories.map(dir => path.join(dir, `${sceneId}.png`)),
+      ...(typeof scene.image_path === 'string' && scene.image_path.trim() ? [scene.image_path] : []),
+    ]
+    let foundEmpty = false
+    let foundUsable = false
+    for (const candidate of [...new Set(candidates)]) {
+      const stat = await fs.stat(candidate).catch(() => null)
+      if (!stat?.isFile()) continue
+      if (stat.size > 0) {
+        foundUsable = true
+        break
+      }
+      foundEmpty = true
+    }
+    if (!foundUsable) {
+      if (foundEmpty) invalid.push(`${sceneId} (empty image)`)
+      else missing.push(sceneId)
+    }
+  }
+
+  const expected = new Set(sceneIds).size
+  return { expected, completed: expected - missing.length - invalid.length, missing, invalid }
+}
+
+export async function auditSceneClipCompletion(
+  planPath: string,
+  sceneIds: string[],
+  clipsDirectory: string,
+): Promise<SceneClipCompletionAudit> {
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
+  const missing: string[] = []
+  const invalid: string[] = []
+
+  for (const sceneId of [...new Set(sceneIds)]) {
+    const scene = scenesById.get(sceneId)
+    if (!scene) {
+      invalid.push(`${sceneId} (missing from scene plan)`)
+      continue
+    }
+    const clipPath = path.join(clipsDirectory, `${sceneId}.mp4`)
+    const stat = await fs.stat(clipPath).catch(() => null)
+    if (!stat?.isFile()) {
+      missing.push(sceneId)
+      continue
+    }
+    if (stat.size <= 0) {
+      invalid.push(`${sceneId} (empty clip)`)
+      continue
+    }
+    if (scene.rendered_motion_prompt !== (scene.motion_prompt || '')) {
+      invalid.push(`${sceneId} (stale motion prompt)`)
+      continue
+    }
+    if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) {
+      invalid.push(`${sceneId} (stale source image)`)
+      continue
+    }
+    if (scene.motion_choice !== 'clip') invalid.push(`${sceneId} (clip not selected)`)
+  }
+
+  const expected = new Set(sceneIds).size
+  return { expected, completed: expected - missing.length - invalid.length, missing, invalid }
 }
 
 export async function checkpointSceneImage(

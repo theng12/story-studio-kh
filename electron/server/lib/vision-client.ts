@@ -160,6 +160,7 @@ async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
   const client = new Anthropic({
     apiKey: input.apiKey,
+    maxRetries: 0,
     ...(input.baseURL ? { baseURL: input.baseURL } : {}),
   })
   const basePrompt =
@@ -186,7 +187,7 @@ async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime
 async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: string): Promise<string> {
   const { default: OpenAI } = await import('openai')
   const { isCompletionTokensModel } = await import('../providers/text/openai.js')
-  const client = new OpenAI({ apiKey: input.apiKey })
+  const client = new OpenAI({ apiKey: input.apiKey, maxRetries: 0 })
   const dataUrl = `data:${mime};base64,${imageBuffer.toString('base64')}`
   const basePrompt =
     input.mode === 'character' ? CHARACTER_PROMPT :

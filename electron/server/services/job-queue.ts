@@ -1023,6 +1023,47 @@ export function getJob(jobId: string): Job | null {
 }
 
 /**
+ * Re-enqueue a terminal job with the exact durable parameters that produced it.
+ *
+ * Page-specific Retry maps are useful when a workflow needs special healing,
+ * but they are not a safe completeness boundary: every newly registered job
+ * type would otherwise become impossible to retry until the frontend learned
+ * about it. This queue-level fallback keeps the original record until the new
+ * job has been accepted, then removes it from history.
+ */
+export function retryTerminalJob(projectSlug: string, jobId: string): Job {
+  const original = jobs.get(jobId)
+  if (!original || original.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  if (original.status !== 'error' && original.status !== 'cancelled') {
+    throw Object.assign(
+      new Error('Only failed or cancelled jobs can be retried.'),
+      { status: 409, expose: true },
+    )
+  }
+
+  const retried = enqueue({
+    project_slug: original.project_slug,
+    type: original.type,
+    episode_id: original.episode_id,
+    title: original.title,
+    params: structuredClone(original.params || {}),
+  })
+
+  jobs.delete(jobId)
+  emitCleared(projectSlug, [jobId])
+  void persistProjectSnapshot(projectSlug).catch((error) => {
+    console.warn('[job-queue] failed to persist retried job replacement', {
+      projectSlug,
+      jobId,
+      error: error?.message,
+    })
+  })
+  return retried
+}
+
+/**
  * Record which account served a provider for a running job. Called from the
  * secrets-aware resolver (providers/registry.ts) when `ctx.jobId` is set.
  * Merges into the job's `accounts_used` map — same provider overwrites with

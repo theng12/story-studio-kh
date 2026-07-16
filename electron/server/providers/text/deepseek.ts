@@ -46,7 +46,7 @@ const deepseekProvider: TextProvider = {
     const slug = MODELS[model]
     if (!slug) throw new Error(`Unsupported DeepSeek model: ${model}`)
 
-    const client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE })
+    const client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE, maxRetries: 0 })
     const reqOpts = signal ? { signal } : undefined
     const messages = [
       { role: 'system' as const, content: system },

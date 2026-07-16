@@ -424,9 +424,37 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       scene_id: sceneId,
       model,
       aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+      auto_approve_clip: body.auto_approve_clip === true,
     },
   })
   res.status(201).json(job)
+})
+
+// One durable episode-level owner used by Pipeline and Job Retry. Unlike the
+// per-scene fan-out below, this runs a strict preflight before any provider
+// submission and verifies the complete selected motion stage at the end.
+router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+  try {
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'scene_clips_batch' as JobType,
+      episode_id: episodeId,
+      title: `Motion clips — ${episodeId}`,
+      params: {
+        episode_id: episodeId,
+        model,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+      },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    if (e instanceof jq.DuplicateJobError) return res.status(409).json({ detail: e.message })
+    res.status(500).json(humanizeBackendError(e, 'Failed to queue motion clips'))
+  }
 })
 
 // ── POST /scene-review/:ep/generate-missing-clips ─────────────────────
