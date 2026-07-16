@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.630 — 2026-07-16
+
+**Render Studio can now execute the complete unified Video Assembly.**
+
+- Transfers every enabled assembly asset through Studio Hub before work starts: title and outro cards, intro/outro clips, timeline media, music, ambience, overlays, frame backgrounds, subtitles, and compilation plates.
+- Applies title and chapter text, timed overlay layers, chroma key, advanced subtitle placement and animation, compilation layouts, finishing effects, and selected MP4/MOV/WebM export containers on the render worker.
+- Preserves original media filename extensions in the checksummed worker cache so FFmpeg reliably identifies every transferred image, video, audio, and subtitle file.
+- Keeps strict preflight and final validation: an enabled missing asset, incomplete worker result, or invalid returned file fails loudly rather than silently dropping a creative control.
+
+---
+
 ## v1.0.629 — 2026-07-16
 
 **Render Studio can now finish the same branded Video Assembly you configured locally.**
@@ -11,7 +22,7 @@ What's new in each release. Newest first.
 - Transfers title images, logo artwork, and presentation-frame backgrounds through Studio Hub with immutable checksums before a worker starts rendering.
 - Applies the same color grading, vignette, film grain, cinematic letterbox bars, framing, subtitles, and logo ordering on Render Studio workers.
 - Keeps branded openings aligned to Scene Plan reservations and refuses a render when enabled supporting media is missing instead of silently omitting it.
-- Retains local fallback only for features that do not yet have an exact worker equivalent, including text title/outro cards, timeline clips, music/ambient mixes, free-form overlays, compilation layouts, and animated or precisely placed subtitles.
+- Retained local fallback only for features that did not yet have an exact worker equivalent. All current Video Assembly controls are now worker-capable in v1.0.630.
 - Added regression coverage for worker-safe title, branding, finishing, and frame-media configurations.
 
 ## v1.0.628 — 2026-07-16
