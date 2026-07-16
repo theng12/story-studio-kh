@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
 import { checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
-import { parseDirectPackResults } from '../generators/scene-plan.js'
+import { checkpointPackPromptResults, parseDirectPackResults } from '../generators/scene-plan.js'
 import type { ScenePlan } from '../models/types.js'
 
 const tempDirs: string[] = []
@@ -43,6 +43,47 @@ describe('scene prompt checkpoints', () => {
       [...parseDirectPackResults(truncated, ['scene-1', 'scene-2', 'scene-3'], 'visual')],
       [['scene-1', 'First'], ['scene-2', 'Second']],
     )
+  })
+
+  it('keeps checkpointing later prompt rows when one row cannot be saved', async () => {
+    const saved = new Set<string>()
+    const durable: string[] = []
+    const errors = await checkpointPackPromptResults(
+      new Map([
+        ['scene-1', 'First prompt'],
+        ['scene-2', 'Second prompt'],
+        ['scene-3', 'Third prompt'],
+      ]),
+      new Set(['scene-1', 'scene-2', 'scene-3']),
+      saved,
+      async sceneId => {
+        if (sceneId === 'scene-2') throw new Error('temporary checkpoint failure')
+        durable.push(sceneId)
+      },
+    )
+
+    assert.deepEqual(durable, ['scene-1', 'scene-3'])
+    assert.deepEqual([...saved], ['scene-1', 'scene-3'])
+    assert.equal(errors.length, 1)
+    assert.match(errors[0]!, /scene-2: temporary checkpoint failure/)
+  })
+
+  it('rejects unexpected pack IDs without blocking valid scene prompts', async () => {
+    const saved = new Set<string>()
+    const durable: string[] = []
+    const errors = await checkpointPackPromptResults(
+      [
+        ['unknown-scene', 'Wrong prompt'],
+        ['scene-1', 'Valid prompt'],
+      ],
+      new Set(['scene-1']),
+      saved,
+      async sceneId => { durable.push(sceneId) },
+    )
+
+    assert.deepEqual(durable, ['scene-1'])
+    assert.deepEqual([...saved], ['scene-1'])
+    assert.deepEqual(errors, ['unexpected scene ID unknown-scene'])
   })
 
   it('preserves completed prompts when a later scene result is invalid', async () => {

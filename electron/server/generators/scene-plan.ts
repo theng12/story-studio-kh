@@ -216,6 +216,38 @@ export function parseDirectPackResults(
   return results
 }
 
+/**
+ * Checkpoint every usable member of a provider pack independently. One bad
+ * scene row or one failed disk write must not prevent later valid rows from
+ * becoming durable; the final completion audit will report only what remains.
+ */
+export async function checkpointPackPromptResults(
+  entries: Iterable<readonly [string, string]>,
+  expectedIds: ReadonlySet<string>,
+  savedIds: Set<string>,
+  persist: (sceneId: string, text: string) => Promise<void>,
+): Promise<string[]> {
+  const errors: string[] = []
+  for (const [sceneId, text] of entries) {
+    if (savedIds.has(sceneId)) continue
+    if (!expectedIds.has(sceneId)) {
+      errors.push(`unexpected scene ID ${sceneId}`)
+      continue
+    }
+    if (!text.trim()) {
+      errors.push(`${sceneId}: empty prompt`)
+      continue
+    }
+    try {
+      await persist(sceneId, text)
+      savedIds.add(sceneId)
+    } catch (error: any) {
+      errors.push(`${sceneId}: ${error?.message || String(error)}`)
+    }
+  }
+  return errors
+}
+
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
 export async function runScenePlanJob(job: Job): Promise<void> {
@@ -533,9 +565,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const reportedHubPackCounts = new Map<string, number>()
     const persistHubResults = async (status: HubChatBatchStatus) => {
       for (const pack of status.packs || []) {
-        for (const result of pack.results || []) {
-          if (!result.text?.trim() || durableTargetIds.has(result.scene_id)) continue
-          await persistPrompt(result.scene_id, result.text)
+        const errors = await checkpointPackPromptResults(
+          (pack.results || []).map(result => [result.scene_id, result.text] as const),
+          new Set(pack.scene_ids),
+          durableTargetIds,
+          persistPrompt,
+        )
+        if (errors.length) {
+          job.output_lines.push(
+            `Could not checkpoint ${errors.length} result(s) from ${pack.pack_id}: ${errors.join(' | ')}. Other valid results were kept.`,
+          )
         }
         const durableCount = pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)).length
         if (durableCount > (reportedHubPackCounts.get(pack.pack_id) || 0)) {
@@ -578,7 +617,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           await persistHubResults(finalStatus)
           usedHub = true
           if (finalStatus.completed_scenes < finalStatus.total_scenes) {
-            throw new Error(`Hub batch ${submitted.batch_id} saved ${finalStatus.completed_scenes}/${finalStatus.total_scenes} prompts. Retry this stage to submit only the missing scene IDs.`)
+            job.output_lines.push(
+              `Hub batch ${submitted.batch_id} reported ${finalStatus.completed_scenes}/${finalStatus.total_scenes} complete. `
+              + 'Checking the saved scene plan now; Retry will submit only the missing scene IDs.',
+            )
           }
         } catch (e: any) {
           if (!/Connection error|Can't reach Studio Hub/i.test(String(e?.message || e))) throw e
@@ -630,10 +672,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
                 },
               )
               const results = parseDirectPackResults(raw, missing, isMotion ? 'motion' : 'visual')
-              for (const [sceneId, text] of results) {
-                await persistPrompt(sceneId, text)
-                saved.add(sceneId)
-              }
+              const checkpointErrors = await checkpointPackPromptResults(
+                results,
+                new Set(pack.scene_ids),
+                saved,
+                persistPrompt,
+              )
               const finish = diagnostics?.finishReason || diagnostics?.nativeFinishReason
               const tokenSummary = diagnostics?.completionTokens != null
                 ? `; ${diagnostics.completionTokens.toLocaleString()} completion tokens${diagnostics.reasoningTokens ? `, ${diagnostics.reasoningTokens.toLocaleString()} reasoning` : ''}`
@@ -641,6 +685,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               lastError = results.size
                 ? `response ${finish === 'length' ? 'hit its output limit and ' : ''}omitted ${pack.scene_ids.length - saved.size} scene(s)${tokenSummary}`
                 : `response was not valid scene-result JSON${finish ? ` (finish: ${finish}${tokenSummary})` : ''}`
+              if (checkpointErrors.length) lastError += `; checkpoint errors: ${checkpointErrors.join(' | ')}`
             } catch (error: any) {
               lastError = error?.message || String(error)
             }

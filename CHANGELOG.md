@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.626 — 2026-07-16
+
+**One failed Scene Plan result no longer blocks valid prompts in the same batch.**
+
+- Checkpointed every returned scene row independently for direct cloud and Studio Hub prompt packs.
+- Continued saving later valid rows when one scene ID is unexpected, malformed, or temporarily cannot be written.
+- Let the shared completion audit inspect the authoritative saved Scene Plan so partial Hub jobs report the exact remaining scene IDs.
+- Kept paid-provider safety intact: cloud work is never auto-retried, and manual Retry requests only prompts that are still missing or duplicated.
+- Added regression coverage for mid-pack checkpoint failures and unexpected provider scene IDs.
+
 ## v1.0.625 — 2026-07-16
 
 **Every Scene Plan prompt path now preserves completed work scene by scene.**
