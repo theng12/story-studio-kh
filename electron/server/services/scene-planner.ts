@@ -1158,6 +1158,8 @@ export async function generatePromptsForScenes(
     should_cancel?: () => boolean
     onProgress?: (done: number, total: number) => void
     onWarn?: (msg: string) => void
+    /** Called after one prompt is generated. Resolve only after it is durable. */
+    onResult?: (sceneIndex: number, prompt: string) => Promise<void>
   },
 ): Promise<number> {
   if (!targetIndices.length) return 0
@@ -1222,8 +1224,9 @@ export async function generatePromptsForScenes(
 
       let lastErr: any = null
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        let prompt = ''
         try {
-          const prompt = await generateVisualPromptOnly({
+          prompt = await generateVisualPromptOnly({
             transcript_segment: scene.transcript_segment,
             model: ctx.model,
             detail_level: ctx.detail_level,
@@ -1234,14 +1237,17 @@ export async function generatePromptsForScenes(
             prev_visual_prompts: prevPrompts,
             next_transcript_segments: nextTranscripts,
           })
-          if (prompt && prompt.trim()) {
-            scene.visual_prompt = prompt
-            return
-          }
-          lastErr = new Error('model returned an empty prompt')
         } catch (e: any) {
           lastErr = e
         }
+        if (prompt && prompt.trim()) {
+          scene.visual_prompt = prompt
+          // Persistence is outside the provider try/catch. A disk failure must
+          // stop loudly, never spend another model request for valid output.
+          await ctx.onResult?.(i, prompt)
+          return
+        }
+        if (!lastErr) lastErr = new Error('model returned an empty prompt')
         if (attempt < maxRetries) {
           ctx.onWarn?.(
             `Scene #${i + 1}: prompt attempt ${attempt + 1}/${maxRetries + 1} failed `
@@ -1473,6 +1479,8 @@ export async function generateMotionPromptsForScenes(
     should_cancel?: () => boolean
     onProgress?: (done: number, total: number) => void
     onWarn?: (msg: string) => void
+    /** Called after one prompt is generated. Resolve only after it is durable. */
+    onResult?: (sceneIndex: number, prompt: string) => Promise<void>
   },
 ): Promise<number> {
   if (!targetIndices.length) return 0
@@ -1505,8 +1513,9 @@ export async function generateMotionPromptsForScenes(
       }
       let lastErr: any = null
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        let prompt = ''
         try {
-          const prompt = await generateMotionPromptOnly({
+          prompt = await generateMotionPromptOnly({
             transcript_segment: scene.transcript_segment,
             visual_prompt: scene.visual_prompt,
             model: ctx.model,
@@ -1516,14 +1525,15 @@ export async function generateMotionPromptsForScenes(
             apiKeys: ctx.apiKeys,
             slug: ctx.slug,
           })
-          if (prompt && prompt.trim()) {
-            scene.motion_prompt = prompt
-            return
-          }
-          lastErr = new Error('model returned an empty motion prompt')
         } catch (e: any) {
           lastErr = e
         }
+        if (prompt && prompt.trim()) {
+          scene.motion_prompt = prompt
+          await ctx.onResult?.(i, prompt)
+          return
+        }
+        if (!lastErr) lastErr = new Error('model returned an empty motion prompt')
         if (attempt < maxRetries) {
           ctx.onWarn?.(
             `Scene #${i + 1}: motion-prompt attempt ${attempt + 1}/${maxRetries + 1} failed `

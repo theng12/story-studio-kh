@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.623 — 2026-07-16
+
+**Scene Plan prompts now survive incomplete LLM packs one result at a time.**
+
+- Atomically checkpointed every visual and motion prompt by stable scene ID as soon as it is returned.
+- Preserved complete rows from truncated cloud JSON instead of discarding an otherwise useful response.
+- Continued processing later prompt packs when an earlier pack is incomplete, while failing the final job for the exact missing IDs.
+- Made manual Retry submit only prompts still missing from the authoritative Scene Plan and prevented Hub fallback from repeating saved work.
+- Added live per-pack saved counts and regression coverage for partial, concurrent, empty, and truncated prompt results.
+
 ## v1.0.622 — 2026-07-16
 
 **Studio Hub scene images are now saved durably as each render finishes.**

@@ -35,6 +35,8 @@ import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
+import { checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
@@ -149,7 +151,7 @@ interface ScenePlanRunParams {
   prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192
 }
 
-function parseDirectPackResults(
+export function parseDirectPackResults(
   raw: string,
   expectedIds: string[],
   kind: 'visual' | 'motion',
@@ -162,7 +164,35 @@ function parseDirectPackResults(
   try {
     parsed = JSON.parse(sanitizeJsonControlChars(clean))
   } catch {
-    return new Map()
+    // Preserve complete rows from a response truncated after several valid
+    // scene objects. Retry/manual repair then asks only for omitted IDs.
+    const recovered: unknown[] = []
+    for (let start = 0; start < clean.length; start++) {
+      if (clean[start] !== '{') continue
+      let depth = 0
+      let quoted = false
+      let escaped = false
+      for (let i = start; i < clean.length; i++) {
+        const char = clean[i]!
+        if (quoted) {
+          if (escaped) escaped = false
+          else if (char === '\\') escaped = true
+          else if (char === '"') quoted = false
+          continue
+        }
+        if (char === '"') { quoted = true; continue }
+        if (char === '{') depth++
+        else if (char === '}') depth--
+        if (depth !== 0) continue
+        try {
+          const row = JSON.parse(sanitizeJsonControlChars(clean.slice(start, i + 1)))
+          if (row?.scene_id || row?.id) recovered.push(row)
+        } catch { /* this object is not a complete scene row */ }
+        break
+      }
+    }
+    if (!recovered.length) return new Map()
+    parsed = recovered
   }
   const candidate = Array.isArray(parsed)
     ? parsed
@@ -469,25 +499,48 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
 
     const rawModel = model.replace(/^chatstudio:/, '')
-    const persistHubResults = async (status: HubChatBatchStatus) => {
-      let changed = false
-      for (const pack of status.packs || []) {
-        for (const result of pack.results || []) {
-          const scene = plan.scenes.find(s => s.id === result.scene_id)
-          if (!scene || !result.text?.trim()) continue
-          if (isMotion) {
-            if (scene.motion_prompt !== result.text.trim()) { scene.motion_prompt = result.text.trim(); changed = true }
-          } else if (scene.visual_prompt !== result.text.trim()) {
-            scene.visual_prompt = result.text.trim(); changed = true
-          }
+    const durableTargetIds = new Set<string>()
+    const syncMemoryPlan = (fresh: ScenePlan) => {
+      plan.generated_at = fresh.generated_at
+      plan.planning_stage = fresh.planning_stage
+      for (const freshScene of fresh.scenes) {
+        const memoryScene = plan.scenes.find(scene => scene.id === freshScene.id)
+        if (!memoryScene) continue
+        memoryScene.visual_prompt = freshScene.visual_prompt
+        memoryScene.motion_prompt = freshScene.motion_prompt
+      }
+    }
+    const persistPrompt = async (sceneId: string, text: string) => {
+      let lastError: unknown
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+          const checkpoint = await checkpointScenePrompt(outPath, sceneId, text, isMotion ? 'motion' : 'visual')
+          syncMemoryPlan(checkpoint.plan)
+          durableTargetIds.add(sceneId)
+          job.progress = 10 + Math.round((durableTargetIds.size / Math.max(1, targets.length)) * 85)
+          return
+        } catch (error) {
+          lastError = error
+          if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 150 * attempt))
         }
       }
-      if (changed) {
-        plan.generated_at = new Date().toISOString()
-        plan.planning_stage = isMotion ? 'motion' : 'visual'
-        await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+      throw new Error(`Could not save ${sceneId} after 5 attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
+    }
+    const reportedHubPackCounts = new Map<string, number>()
+    const persistHubResults = async (status: HubChatBatchStatus) => {
+      for (const pack of status.packs || []) {
+        for (const result of pack.results || []) {
+          if (!result.text?.trim() || durableTargetIds.has(result.scene_id)) continue
+          await persistPrompt(result.scene_id, result.text)
+        }
+        const durableCount = pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)).length
+        if (durableCount > (reportedHubPackCounts.get(pack.pack_id) || 0)) {
+          reportedHubPackCounts.set(pack.pack_id, durableCount)
+          job.output_lines.push(
+            `Checkpointed ${pack.pack_id}: ${durableCount}/${pack.scene_ids.length} prompts saved${durableCount < pack.scene_ids.length ? '; Hub will continue with only the missing IDs.' : '.'}`,
+          )
+        }
       }
-      job.progress = 10 + Math.round((status.completed_scenes / Math.max(1, status.total_scenes)) * 85)
     }
 
     let usedHub = false
@@ -506,7 +559,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           })
           if (isMotion) plan.motion_prompt_batch_id = submitted.batch_id
           else plan.visual_prompt_batch_id = submitted.batch_id
-          await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+          await withLock(outPath, async () => {
+            const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+            if (isMotion) fresh.motion_prompt_batch_id = submitted.batch_id
+            else fresh.visual_prompt_batch_id = submitted.batch_id
+            await writeJsonAtomic(outPath, fresh)
+            syncMemoryPlan(fresh)
+          })
           job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to ${promptPackSize} scenes per Chat Studio.`)
           const finalStatus = await hubPollChatPacks(hub.hubUrl, hub.hubToken, submitted.batch_id, {
             isCancelled: () => isCancelled(job.job_id),
@@ -528,12 +587,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const [a, o, k] = await Promise.all([
         getApiKey('anthropic').catch(() => ''), getApiKey('openai').catch(() => ''), getApiKey('kie').catch(() => ''),
       ])
-      const indices = targets.map(t => t.index)
+      // A Hub outage can happen after some results have already checkpointed.
+      // Direct fallback must continue only the still-missing scenes.
+      const indices = targets
+        .filter(({ scene }) => !durableTargetIds.has(scene.id))
+        .map(t => t.index)
       const apiKeys = { anthropic_api_key: a, openai_api_key: o, kie_api_key: k }
       const isDirectCloud = !model.startsWith('chatstudio:')
       if (isDirectCloud) {
         job.output_lines.push(`Studio Hub has no direct worker route for ${model}; processing ${packs.length} adaptive cloud pack(s) through the configured provider.`)
-        let completed = 0
+        const incompletePacks: string[] = []
         for (const pack of packs) {
           if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
           const saved = new Set<string>()
@@ -564,15 +627,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               )
               const results = parseDirectPackResults(raw, missing, isMotion ? 'motion' : 'visual')
               for (const [sceneId, text] of results) {
-                const scene = plan.scenes.find(item => item.id === sceneId)
-                if (!scene) continue
-                if (isMotion) scene.motion_prompt = text
-                else scene.visual_prompt = text
+                await persistPrompt(sceneId, text)
                 saved.add(sceneId)
               }
-              plan.generated_at = new Date().toISOString()
-              plan.planning_stage = isMotion ? 'motion' : 'visual'
-              await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
               const finish = diagnostics?.finishReason || diagnostics?.nativeFinishReason
               const tokenSummary = diagnostics?.completionTokens != null
                 ? `; ${diagnostics.completionTokens.toLocaleString()} completion tokens${diagnostics.reasoningTokens ? `, ${diagnostics.reasoningTokens.toLocaleString()} reasoning` : ''}`
@@ -586,29 +643,28 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           }
           if (saved.size < pack.scene_ids.length) {
             const missing = pack.scene_ids.filter(id => !saved.has(id))
-            throw new Error(
-              `${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length} prompts after ${maxPackAttempts} attempt(s) (${lastError}). Missing: ${missing.join(', ')}`,
-            )
+            incompletePacks.push(`${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length}; missing ${missing.join(', ')} (${lastError})`)
+            job.output_lines.push(`Partial checkpoint: ${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length}. Continuing with later packs; Retry will request only ${missing.length} missing scene(s).`)
+          } else {
+            job.output_lines.push(`Checkpointed ${pack.pack_id}: ${saved.size}/${pack.scene_ids.length} prompts saved.`)
           }
-          completed += saved.size
-          job.progress = 10 + Math.round((completed / targets.length) * 85)
         }
+        if (incompletePacks.length) job.output_lines.push(`Incomplete packs: ${incompletePacks.join(' | ')}`)
       } else if (isMotion) {
         await generateMotionPromptsForScenes(plan.scenes, indices, {
           model, motion_level: params.motion_level, style_prompt: effectiveStyle,
           custom_instructions: params.custom_instructions, apiKeys,
           slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
+          onResult: async (index, prompt) => persistPrompt(plan.scenes[index]!.id, prompt),
         })
       } else {
         await generatePromptsForScenes(plan.scenes, indices, {
           model, detail_level: 4, style_prompt: effectiveStyle,
           custom_instructions: params.custom_instructions, apiKeys,
           slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
+          onResult: async (index, prompt) => persistPrompt(plan.scenes[index]!.id, prompt),
         })
       }
-      plan.generated_at = new Date().toISOString()
-      plan.planning_stage = isMotion ? 'motion' : 'visual'
-      await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
     }
     job.output_dir = paths.episode_dir
     if (!isMotion) {
