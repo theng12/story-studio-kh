@@ -4,6 +4,13 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import {
+  buildColorGradingFilters,
+  buildGateEnable,
+  buildLetterboxFilter,
+  calculateLogoPosition,
+  computeVignetteAngle,
+} from '../lib/video-effects.js'
 import { buildAnimationFilter, isZoompanAnimation } from '../lib/animation-filters.js'
 import { buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
@@ -19,7 +26,11 @@ import {
   hubUploadRenderAsset,
   hubWorkerReachableUrl,
 } from '../lib/studiohub-client.js'
-import type { GenerateVideoRequest, Job, ScenePlan, VideoFrameConfig, VideoPostAudio, VideoSceneAnimation } from '../models/types.js'
+import type {
+  GenerateVideoRequest, Job, ScenePlan, VideoColorGrading, VideoFilmGrain,
+  VideoFrameConfig, VideoIntroConfig, VideoLetterbox, VideoLogoConfig,
+  VideoPostAudio, VideoSceneAnimation, VideoTitleImageConfig, VideoVignetteConfig,
+} from '../models/types.js'
 import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { getRenderWorkersEnabled } from '../services/app-settings.js'
 import { isCancelled } from '../services/job-queue.js'
@@ -38,12 +49,18 @@ interface Params {
   export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
   transition?: { type?: string; duration?: number }
   frame?: VideoFrameConfig
-  intro?: { enabled?: boolean; video_path?: string; duration?: number }
+  intro?: VideoIntroConfig
   scene_animation?: VideoSceneAnimation
   post_audio?: VideoPostAudio
   merged_audio_path?: string
-  title_image?: { enabled?: boolean; image_path?: string }
+  title_image?: VideoTitleImageConfig
   title_card?: { enabled?: boolean }
+  logo?: VideoLogoConfig
+  color_grading?: VideoColorGrading
+  vignette?: VideoVignetteConfig
+  film_grain?: VideoFilmGrain
+  letterbox?: VideoLetterbox
+  exclude_intro_from_effects?: boolean
 }
 
 interface RecipeAsset {
@@ -84,15 +101,12 @@ export function remoteVideoAssemblyFallbackReasons(req: GenerateVideoRequest): s
   if (req.transition && req.transition !== 'none' && !getTransition(req.transition)?.xfade) {
     reasons.push(`unsupported transition "${req.transition}"`)
   }
-  if (req.title_image?.enabled || req.title_card?.enabled) reasons.push('title card/image')
+  if (req.title_card?.enabled) reasons.push('text title card')
   if (req.outro?.enabled || req.outro_card?.enabled) reasons.push('outro')
   if (req.timeline_clips?.some(clip => clip.enabled)) reasons.push('custom timeline clips')
-  if (req.logo?.enabled) reasons.push('logo overlay')
   if (req.music?.enabled || req.background_noise?.enabled) reasons.push('music/background audio mix')
-  if (req.color_grading?.enabled || req.vignette?.enabled || req.film_grain?.enabled || req.letterbox?.enabled) reasons.push('visual effects')
   if (req.chroma_key?.enabled || req.overlays?.enabled) reasons.push('overlay layers')
   if (req.video_layout === 'compilation') reasons.push('presentation/compilation layout')
-  if (req.frame?.enabled && req.frame.background_path) reasons.push('presentation-frame media background')
   const subtitleStyle = req.subtitles?.style
   if (req.subtitles?.enabled && (
     (subtitleStyle?.animation && subtitleStyle.animation !== 'none')
@@ -132,6 +146,12 @@ export async function tryRunRemoteVideoAssembly(job: Job): Promise<boolean> {
     merged_audio_path: req.merged_audio_path,
     title_image: req.title_image,
     title_card: req.title_card,
+    logo: req.logo,
+    color_grading: req.color_grading,
+    vignette: req.vignette,
+    film_grain: req.film_grain,
+    letterbox: req.letterbox,
+    exclude_intro_from_effects: req.exclude_intro_from_effects,
     subtitles: req.subtitles?.enabled ? {
       enabled: true,
       position: style?.position,
@@ -246,14 +266,25 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
   const audioDuration = await getAudioDuration(audioPath)
   if (!audioDuration) throw new Error('Could not read merged audio duration.')
   const openingReserved = Math.max(0, Number(plan.opening_reserved_sec) || 0)
-  if ((params.title_image?.enabled || params.title_card?.enabled) && openingReserved <= 0) {
-    job.output_lines.push('Render Studio fallback: this episode uses a standalone title image; using this Mac for exact title timing.')
-    return false
+  const introPath = params.intro?.enabled && params.intro.video_path ? params.intro.video_path : ''
+  if (openingReserved > 0 && (!introPath || !existsSync(introPath))) {
+    throw new Error(`Scene Plan reserves a ${openingReserved.toFixed(1)}s branded opening, but no intro video is enabled.`)
   }
+  if (introPath && !existsSync(introPath)) throw new Error('Enabled intro video is missing. Choose a valid file or disable Intro before retrying.')
+  const useTitleImage = !!params.title_image?.enabled && openingReserved <= 0
+  if (params.title_image?.enabled && openingReserved > 0) {
+    job.output_lines.push('Render Studio: title image skipped because the branded opening owns the reserved opening window.')
+  }
+  const titlePath = useTitleImage ? params.title_image?.image_path || '' : ''
+  if (titlePath && !existsSync(titlePath)) throw new Error('Enabled title image is missing. Choose a valid thumbnail or disable Title Image before retrying.')
+  const titleDuration = titlePath ? Math.max(0.25, clamp(params.title_image?.duration, 0.25, 600, 5)) : 0
+  const introDuration = introPath
+    ? openingReserved || (await getAudioDuration(introPath)) || Math.max(0.25, clamp(params.intro?.duration, 0.25, 600, 5))
+    : 0
   const coverage = inspectScenePlanCoverage({
     scenes: plan.scenes,
     total_duration_sec: audioDuration,
-  }, { headCovered: openingReserved > 0 })
+  }, { headCovered: openingReserved > 0 || !!introPath || !!titlePath })
   if (coverage.blockingUncoveredSec > COVERAGE_FAIL_SEC) {
     throw new Error(`Narration has ${coverage.blockingUncoveredSec.toFixed(1)}s without a planned scene. Repair Scene Plan coverage first.`)
   }
@@ -322,21 +353,33 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
       sceneIds.push(await addAsset(clip || imageFor(plan.scenes[index]!.id), `scene-${index}`))
     }
 
-    let introId = ''
-    if (openingReserved > 0) {
-      if (!params.intro?.enabled || !params.intro.video_path || !existsSync(params.intro.video_path)) {
-        throw new Error(`Scene Plan reserves a ${openingReserved.toFixed(1)}s branded opening, but no intro video is enabled.`)
-      }
-      introId = await addAsset(params.intro.video_path, 'intro')
-    }
+    const introId = introPath ? await addAsset(introPath, 'intro') : ''
+    const titleId = titlePath ? await addAsset(titlePath, 'title-image') : ''
+    const logoId = params.logo?.enabled && params.logo.image_path
+      ? await addAsset(params.logo.image_path, 'logo')
+      : ''
+    const frameBackgroundId = params.frame?.enabled && params.frame.background_path
+      ? await addAsset(params.frame.background_path, 'frame-background')
+      : ''
 
     const steps: Array<{ tool: 'ffmpeg'; args: string[] }> = []
     if (introId) {
       steps.push({ tool: 'ffmpeg', args: [
         '-y', '-stream_loop', '-1', '-i', `{{asset:${introId}}}`, '-an',
-        '-vf', baseFilter, '-t', openingReserved.toFixed(3),
+        '-vf', baseFilter, '-t', introDuration.toFixed(3),
         '-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps),
         '{{work:intro.mp4}}',
+      ] })
+    }
+    if (titleId) {
+      const isVideo = /\.(mp4|mov|m4v|webm)$/i.test(titlePath)
+      const titleInput = isVideo
+        ? ['-stream_loop', '-1', '-i', `{{asset:${titleId}}}`]
+        : ['-loop', '1', '-t', titleDuration.toFixed(3), '-i', `{{asset:${titleId}}}`]
+      steps.push({ tool: 'ffmpeg', args: [
+        '-y', ...titleInput, '-an', '-vf', baseFilter, '-t', titleDuration.toFixed(3),
+        '-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps),
+        '{{work:title.mp4}}',
       ] })
     }
     for (let index = 0; index < plan.scenes.length; index++) {
@@ -419,6 +462,7 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     }
     const concatRows = [
       ...(introId ? ["file '{{work:intro.mp4}}'"] : []),
+      ...(titleId ? ["file '{{work:title.mp4}}'"] : []),
       ...sceneTimelineFiles.map(file => `file '${file}'`),
       ...(postRoll > 0 ? ["file '{{work:post-tail.mp4}}'"] : []),
     ]
@@ -449,6 +493,15 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     else audioFilters.push('[a_narr]anull[aout]')
     finalArgs.push(...extraAudioInputs)
 
+    let nextVisualInput = 2 + (musicId ? 1 : 0) + (ambientId ? 1 : 0)
+    const frameBackgroundInput = frameBackgroundId ? nextVisualInput++ : -1
+    if (frameBackgroundId) {
+      const isVideoBackground = /\.(mp4|mov|m4v|webm)$/i.test(params.frame?.background_path || '')
+      finalArgs.push(...(isVideoBackground ? ['-stream_loop', '-1'] : ['-loop', '1']), '-i', `{{asset:${frameBackgroundId}}}`)
+    }
+    const logoInput = logoId ? nextVisualInput++ : -1
+    if (logoId) finalArgs.push('-loop', '1', '-i', `{{asset:${logoId}}}`)
+
     let subtitleFilter = ''
     if (subtitleId) {
       const settings = params.subtitles || {}
@@ -460,23 +513,70 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
       ].join(',')
       subtitleFilter = `subtitles='{{asset:${subtitleId}}}':force_style='${style}'`
     }
+    const effectsStart = params.exclude_intro_from_effects && (introDuration + titleDuration) > 0
+      ? introDuration + titleDuration
+      : 0
+    const gateEnable = buildGateEnable(effectsStart, postRoll > 0 ? audioDuration : 0)
+    const videoFilters: string[] = []
+    let videoLabel = '[0:v]'
+    let labelCounter = 0
+    const nextLabel = () => `[rv${labelCounter++}]`
+    if (params.color_grading?.enabled) {
+      const grade = buildColorGradingFilters(params.color_grading, gateEnable)
+      if (grade) {
+        const label = nextLabel()
+        videoFilters.push(`${videoLabel}${grade}${label}`)
+        videoLabel = label
+      }
+    }
+    if (params.vignette?.enabled) {
+      const label = nextLabel()
+      const angle = computeVignetteAngle(params.vignette.strength ?? 0.7)
+      videoFilters.push(`${videoLabel}vignette=angle=${angle.toFixed(4)}:mode=forward:eval=init${gateEnable}${label}`)
+      videoLabel = label
+    }
+    if (params.film_grain?.enabled) {
+      const label = nextLabel()
+      videoFilters.push(`${videoLabel}noise=alls=${Math.round(clamp(params.film_grain.strength, 0, 100, 15))}:allf=t+u${gateEnable}${label}`)
+      videoLabel = label
+    }
+    if (params.letterbox?.enabled) {
+      const label = nextLabel()
+      const letterbox = buildLetterboxFilter(videoLabel, label, width, height, params.letterbox.ratio, params.letterbox.color || 'black')
+      if (letterbox) {
+        videoFilters.push(letterbox)
+        videoLabel = label
+      }
+    }
     const frameOn = params.frame?.enabled === true
     if (frameOn) {
-      const filters = [`[0:v]${subtitleFilter || 'null'}[framepre]`]
-      filters.push(...buildVideoFrameFilter({
-        inputLabel: '[framepre]', outputLabel: '[vout]', prefix: 'remoteframe',
-        width, height, fps, config: params.frame!,
+      const frameLabel = nextLabel()
+      videoFilters.push(...buildVideoFrameFilter({
+        inputLabel: videoLabel, backgroundInputLabel: frameBackgroundInput >= 0 ? `[${frameBackgroundInput}:v]` : undefined,
+        outputLabel: frameLabel, prefix: 'remoteframe', width, height, fps, config: params.frame!,
       }))
-      filters.push(...audioFilters)
-      finalArgs.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
-      finalArgs.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps))
-    } else if (subtitleFilter) {
-      finalArgs.push('-filter_complex', [`[0:v]${subtitleFilter}[vout]`, ...audioFilters].join(';'), '-map', '[vout]', '-map', '[aout]')
-      finalArgs.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps))
-    } else {
-      finalArgs.push('-filter_complex', audioFilters.join(';'), '-map', '0:v', '-map', '[aout]')
-      finalArgs.push('-c:v', 'copy')
+      videoLabel = frameLabel
     }
+    if (subtitleFilter) {
+      const label = nextLabel()
+      videoFilters.push(`${videoLabel}${subtitleFilter}${label}`)
+      videoLabel = label
+    }
+    if (logoInput >= 0 && params.logo) {
+      const logoLabel = `[rvlogo]`
+      const logoWidth = Math.round(width * clamp(params.logo.scale, 0.01, 1, 0.1))
+      const position = calculateLogoPosition(params.logo.position, Math.round(clamp(params.logo.margin, 0, 500, 20)), params.logo.custom_x, params.logo.custom_y)
+      videoFilters.push(`[${logoInput}:v]scale=${logoWidth}:-1,format=rgba,colorchannelmixer=aa=${clamp(params.logo.opacity, 0, 1, 1)}${logoLabel}`)
+      const label = nextLabel()
+      const logoGate = gateEnable || (params.logo.hide_during_intro ? `:enable='gt(t,10)'` : '')
+      videoFilters.push(`${videoLabel}${logoLabel}overlay=${position.x}:${position.y}${logoGate}${label}`)
+      videoLabel = label
+    }
+    const needsVideoEncode = videoFilters.length > 0
+    const filters = [...videoFilters, `${videoLabel}null[vout]`, ...audioFilters]
+    finalArgs.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
+    if (needsVideoEncode) finalArgs.push('-c:v', '{{video_encoder}}', '-b:v', bitrate, '-pix_fmt', 'yuv420p', '-r', String(fps))
+    else finalArgs.push('-c:v', 'copy')
     finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', '{{output}}')
     steps.push({ tool: 'ffmpeg', args: finalArgs })
 

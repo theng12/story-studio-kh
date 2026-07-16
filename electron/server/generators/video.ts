@@ -37,6 +37,13 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import {
+  buildColorGradingFilters,
+  buildGateEnable,
+  buildLetterboxFilter,
+  calculateLogoPosition,
+  computeVignetteAngle,
+} from '../lib/video-effects.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { tryRunRemoteVideoAssembly } from './remote-video-assembly.js'
 import type {
@@ -307,35 +314,7 @@ export function buildEncoderArgs(opts: {
  * filtergraph fail to initialise. Subtitles are kept off the intro by their
  * cue timestamps being offset past the lead-in, not by a filter gate.
  */
-function buildGateEnable(start: number, end: number): string {
-  if (start > 0 && end > 0) return `:enable='between(t,${start.toFixed(2)},${end.toFixed(2)})'`
-  if (start > 0)            return `:enable='gt(t,${start.toFixed(2)})'`
-  if (end > 0)              return `:enable='lt(t,${end.toFixed(2)})'`
-  return ''
-}
-
-/** FFmpeg's vignette grows stronger as its lens angle approaches PI/2. */
-export function computeVignetteAngle(strengthValue: unknown): number {
-  const strength = Math.max(0, Math.min(Number(strengthValue) || 0, 1))
-  return 0.45 + strength * (1.25 - 0.45)
-}
-
-/** Draw cinematic bars over the frame without scaling or cropping it. */
-export function buildLetterboxFilter(
-  inputLabel: string,
-  outputLabel: string,
-  width: number,
-  height: number,
-  ratioName: string,
-  color: string,
-): string | null {
-  const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.00:1': 2.0, '1.85:1': 1.85 }
-  const pictureHeight = Math.floor((width / (ratioMap[ratioName] || 2.35)) / 2) * 2
-  const barHeight = Math.max(0, Math.floor(((height - pictureHeight) / 2) / 2) * 2)
-  if (barHeight <= 0) return null
-  return `${inputLabel}drawbox=x=0:y=0:w=iw:h=${barHeight}:color=${color}:t=fill,` +
-    `drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=${color}:t=fill${outputLabel}`
-}
+export { buildLetterboxFilter, computeVignetteAngle } from '../lib/video-effects.js'
 
 // ── Portable-path expansion ────────────────────────────────────────────────
 // Walks the fields of a GenerateVideoRequest that carry user-supplied file
@@ -4077,7 +4056,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // the exclude-intro feature.
   if (hasLogo && logo) {
     const logoW = Math.round(w * (logo.scale || 0.1))
-    const pos = calculateLogoPosition(logo.position, w, h, logoW, 0, logo.margin || 20, logo.custom_x, logo.custom_y)
+    const pos = calculateLogoPosition(logo.position, logo.margin || 20, logo.custom_x, logo.custom_y)
     const opacity = logo.opacity ?? 1
 
     const lp = vn()
@@ -4481,101 +4460,6 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   if (succeededTier !== tiers[0]) {
     job.output_lines.push(`✓ Final video produced via recovery tier — ${succeededTier.degraded || succeededTier.label}`)
   }
-}
-
-// ── Color Grading Filter Builder ─────────────────────────────────────────
-
-function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = ''): string {
-  // Start with preset base values, then layer user adjustments.
-  //
-  // Keep this map 1:1 in sync with `COLOR_PRESET_BASE` in the frontend
-  // page `frontend/pages/projects/[slug]/video-assembly.vue` — the live
-  // CSS preview reads from there to approximate what we render here.
-  // Adding/removing a preset in either spot without updating the other
-  // means the UI either silently falls back to `none` (frontend) or
-  // misrepresents the look (preview).
-  const presets: Record<string, { brightness: number; contrast: number; saturation: number; warmth: number; tint: number }> = {
-    'none':              { brightness: 0,    contrast: 1.0,  saturation: 1.0,  warmth:  0,     tint:  0 },
-    'warm-night':        { brightness: -0.05, contrast: 1.1,  saturation: 0.9,  warmth:  0.15,  tint:  0 },
-    'cool-moonlight':    { brightness:  0.02, contrast: 1.05, saturation: 0.8,  warmth: -0.15,  tint: -0.05 },
-    'cinematic':         { brightness: -0.03, contrast: 1.2,  saturation: 0.85, warmth:  0.05,  tint:  0 },
-    'vintage':           { brightness:  0.05, contrast: 0.95, saturation: 0.7,  warmth:  0.20,  tint:  0.05 },
-    'dreamy-haze':       { brightness:  0.08, contrast: 0.9,  saturation: 0.75, warmth:  0.10,  tint:  0.05 },
-    'golden-hour':       { brightness:  0.03, contrast: 1.1,  saturation: 1.1,  warmth:  0.25,  tint:  0.02 },
-    'noir':              { brightness: -0.10, contrast: 1.4,  saturation: 0.0,  warmth:  0,     tint:  0 },
-    // ── New sleep-story presets (10) — mirror frontend COLOR_PRESET_BASE ──
-    'firelight':         { brightness: -0.05, contrast: 1.15, saturation: 1.0,  warmth:  0.30,  tint:  0 },
-    'rainy-dusk':        { brightness: -0.02, contrast: 1.0,  saturation: 0.7,  warmth: -0.10,  tint:  0 },
-    'lavender-mist':     { brightness:  0.05, contrast: 0.95, saturation: 0.85, warmth: -0.05,  tint:  0.08 },
-    'forest-canopy':     { brightness: -0.03, contrast: 1.1,  saturation: 0.95, warmth: -0.05,  tint: -0.05 },
-    'desert-twilight':   { brightness:  0.02, contrast: 1.05, saturation: 1.05, warmth:  0.18,  tint:  0.04 },
-    'ocean-depths':      { brightness: -0.08, contrast: 1.15, saturation: 0.85, warmth: -0.20,  tint: -0.03 },
-    'sepia-dream':       { brightness:  0.0,  contrast: 1.05, saturation: 0.4,  warmth:  0.15,  tint:  0.05 },
-    'frosted-glass':     { brightness:  0.15, contrast: 0.85, saturation: 0.65, warmth: -0.05,  tint:  0 },
-    'autumn-glow':       { brightness:  0.0,  contrast: 1.1,  saturation: 1.15, warmth:  0.20,  tint:  0.03 },
-    'starlit-night':     { brightness: -0.10, contrast: 1.25, saturation: 0.6,  warmth: -0.18,  tint: -0.02 },
-    'misty-morning':     { brightness:  0.10, contrast: 0.9,  saturation: 0.7,  warmth: -0.08,  tint:  0.02 },
-  }
-
-  const base = presets[cg.preset] || presets['none']
-
-  // Layer user adjustments on top of preset
-  const brightness = base.brightness + (cg.brightness || 0)
-  const contrast = base.contrast * (cg.contrast ?? 1.0)
-  const saturation = base.saturation * (cg.saturation ?? 1.0)
-  const warmth = base.warmth + (cg.warmth || 0)
-  const tint = base.tint + (cg.tint || 0)
-
-  const parts: string[] = []
-
-  // eq filter for brightness, contrast, saturation
-  const eqParts: string[] = []
-  if (Math.abs(brightness) > 0.001) eqParts.push(`brightness=${brightness.toFixed(3)}`)
-  if (Math.abs(contrast - 1.0) > 0.001) eqParts.push(`contrast=${contrast.toFixed(3)}`)
-  if (Math.abs(saturation - 1.0) > 0.001) eqParts.push(`saturation=${saturation.toFixed(3)}`)
-  if (eqParts.length > 0) parts.push(`eq=${eqParts.join(':')}${gateSuffix}`)
-
-  // colorbalance for warmth/tint
-  if (Math.abs(warmth) > 0.001 || Math.abs(tint) > 0.001) {
-    // Warmth: boost red shadows + red midtones, reduce blue
-    // Tint: boost/reduce green vs magenta
-    const rs = (warmth * 0.3).toFixed(3)
-    const gs = (tint * -0.2).toFixed(3)
-    const bs = (warmth * -0.3).toFixed(3)
-    const rm = (warmth * 0.15).toFixed(3)
-    const gm = (tint * -0.1).toFixed(3)
-    const bm = (warmth * -0.15).toFixed(3)
-    parts.push(`colorbalance=rs=${rs}:gs=${gs}:bs=${bs}:rm=${rm}:gm=${gm}:bm=${bm}${gateSuffix}`)
-  }
-
-  if (parts.length === 0) return ''
-  return parts.join(',')
-}
-
-// ── Logo Position Calculator ──────────────────────────────────────────────
-
-function calculateLogoPosition(
-  position: string,
-  videoW: number, videoH: number,
-  logoW: number, logoH: number,
-  margin: number,
-  customX?: number, customY?: number,
-): { x: string; y: string } {
-  if (position === 'custom' && customX !== undefined && customY !== undefined) {
-    return { x: customX.toString(), y: customY.toString() }
-  }
-  const positions: Record<string, { x: string; y: string }> = {
-    'top-left':      { x: `${margin}`, y: `${margin}` },
-    'top-center':    { x: `(W-w)/2`, y: `${margin}` },
-    'top-right':     { x: `W-w-${margin}`, y: `${margin}` },
-    'center-left':   { x: `${margin}`, y: `(H-h)/2` },
-    'center':        { x: `(W-w)/2`, y: `(H-h)/2` },
-    'center-right':  { x: `W-w-${margin}`, y: `(H-h)/2` },
-    'bottom-left':   { x: `${margin}`, y: `H-h-${margin}` },
-    'bottom-center': { x: `(W-w)/2`, y: `H-h-${margin}` },
-    'bottom-right':  { x: `W-w-${margin}`, y: `H-h-${margin}` },
-  }
-  return positions[position] || positions['bottom-right']
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

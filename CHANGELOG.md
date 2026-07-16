@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.629 — 2026-07-16
+
+**Render Studio can now finish the same branded Video Assembly you configured locally.**
+
+- Transfers title images, logo artwork, and presentation-frame backgrounds through Studio Hub with immutable checksums before a worker starts rendering.
+- Applies the same color grading, vignette, film grain, cinematic letterbox bars, framing, subtitles, and logo ordering on Render Studio workers.
+- Keeps branded openings aligned to Scene Plan reservations and refuses a render when enabled supporting media is missing instead of silently omitting it.
+- Retains local fallback only for features that do not yet have an exact worker equivalent, including text title/outro cards, timeline clips, music/ambient mixes, free-form overlays, compilation layouts, and animated or precisely placed subtitles.
+- Added regression coverage for worker-safe title, branding, finishing, and frame-media configurations.
+
 ## v1.0.628 — 2026-07-16
 
 **Production jobs now preserve every verified prompt and media result before reporting completion.**

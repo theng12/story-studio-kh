@@ -26,20 +26,32 @@ test('continuity assembly features supported by Render Studio stay eligible', ()
   assert.deepEqual(reasons, [])
 })
 
-test('advanced layers trigger a named local fallback instead of being dropped', () => {
+test('only effects without a worker-equivalent trigger a named local fallback', () => {
   const reasons = remoteVideoAssemblyFallbackReasons(request({
     logo: { enabled: true },
     overlays: { enabled: true, items: [] },
     title_image: { enabled: true, image_path: '/tmp/title.png' },
   } as any))
-  assert.deepEqual(reasons, ['title card/image', 'logo overlay', 'overlay layers'])
+  assert.deepEqual(reasons, ['overlay layers'])
 })
 
-test('title media stays local even when an intro is also enabled', () => {
+test('title media stays worker-safe even when an intro is also enabled', () => {
   assert.deepEqual(remoteVideoAssemblyFallbackReasons(request({
     intro: { enabled: true, video_path: '/tmp/intro.mp4' },
     title_image: { enabled: true, image_path: '/tmp/title.png', duration: 5 },
-  } as any)), ['title card/image'])
+  } as any)), [])
+})
+
+test('worker-safe visual assembly supports titles, branding, and finishing effects', () => {
+  assert.deepEqual(remoteVideoAssemblyFallbackReasons(request({
+    title_image: { enabled: true, image_path: '/tmp/title.png', duration: 5 },
+    logo: { enabled: true, image_path: '/tmp/logo.png' },
+    color_grading: { enabled: true, preset: 'warm-night' },
+    vignette: { enabled: true, strength: 0.5 },
+    film_grain: { enabled: true, strength: 5 },
+    letterbox: { enabled: true, ratio: '2.35:1', color: 'black' },
+    frame: { enabled: true, background_path: '/tmp/background.mp4' },
+  } as any)), [])
 })
 
 test('older presets without an explicit format still use worker-safe MP4', () => {
