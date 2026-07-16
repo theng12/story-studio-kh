@@ -17,7 +17,7 @@ import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import { resolveEpisodePaths } from './utils.js'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { UploadPlatform } from './upload-store.js'
 
 /**
@@ -63,6 +63,19 @@ export interface UploadSidecar {
   description: string
   tags: string[]
   thumbnail_set: boolean
+  /** Last thumbnail mutation that was both accepted remotely and durably
+   * checkpointed locally. Used by backfill jobs to prove this run completed. */
+  thumbnail_sync?: {
+    video_id: string
+    account_id: string
+    verified_at: string
+  }
+  /** Verified playlist memberships keyed by playlist id. */
+  playlist_sync?: Record<string, {
+    video_id: string
+    account_id: string
+    verified_at: string
+  }>
   /** Optional: free-form error note from the last sync, e.g. "thumbnail_failed_verification". */
   last_error?: string
   /**
@@ -94,6 +107,17 @@ function sidecarPath(episodeDir: string, platform: UploadPlatform): string {
   return path.join(episodeDir, `${platform}_upload.json`)
 }
 
+async function readSidecarAtPath(filePath: string): Promise<UploadSidecar | null> {
+  if (!existsSync(filePath)) return null
+  try {
+    const raw = await fsp.readFile(filePath, 'utf-8')
+    const data = JSON.parse(raw)
+    return data && typeof data === 'object' ? data as UploadSidecar : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Returns the parsed sidecar only when the episode is actually uploaded
  * (i.e. carries a non-empty `video_id`). The video_id gate is what makes
@@ -123,15 +147,7 @@ export async function readSidecar(slug: string, episode_code: string, fallback_t
 export async function readSidecarRaw(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform): Promise<UploadSidecar | null> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, platform)
-  if (!existsSync(p)) return null
-  try {
-    const raw = await fsp.readFile(p, 'utf-8')
-    const data = JSON.parse(raw)
-    if (!data || typeof data !== 'object') return null
-    return data as UploadSidecar
-  } catch {
-    return null
-  }
+  return readSidecarAtPath(p)
 }
 
 export async function writeSidecar(slug: string, episode_code: string, fallback_title: string, sidecar: UploadSidecar): Promise<void> {
@@ -140,13 +156,175 @@ export async function writeSidecar(slug: string, episode_code: string, fallback_
   // parent directory would otherwise throw before the atomic write's temp
   // file is even created.
   await fsp.mkdir(paths.episode_dir, { recursive: true })
-  await writeJsonAtomic(sidecarPath(paths.episode_dir, sidecar.platform), sidecar)
+  const p = sidecarPath(paths.episode_dir, sidecar.platform)
+  await withLock(p, () => writeJsonAtomic(p, sidecar))
+}
+
+export function inspectUploadSidecarIdentity(
+  sidecar: UploadSidecar | null,
+  expected: { platform: UploadPlatform; video_id: string; account_id: string; channel_id: string },
+): string[] {
+  if (!sidecar) return ['upload sidecar is missing or unreadable']
+  const invalid: string[] = []
+  if (sidecar.platform !== expected.platform) invalid.push(`platform is ${sidecar.platform || 'empty'}`)
+  if (sidecar.video_id !== expected.video_id) invalid.push(`video_id is ${sidecar.video_id || 'empty'}`)
+  if (sidecar.account_id !== expected.account_id) invalid.push(`account_id is ${sidecar.account_id || 'empty'}`)
+  if (sidecar.channel_id !== expected.channel_id) invalid.push(`channel_id is ${sidecar.channel_id || 'empty'}`)
+  if (!sidecar.uploaded_at?.trim()) invalid.push('uploaded_at is empty')
+  if (!sidecar.last_sync_at?.trim()) invalid.push('last_sync_at is empty')
+  return invalid
+}
+
+export async function checkpointUploadSidecarIdentity(
+  slug: string,
+  episode_code: string,
+  fallback_title: string,
+  sidecar: UploadSidecar,
+): Promise<{ saved: UploadSidecar | null; invalid: string[] }> {
+  await writeSidecar(slug, episode_code, fallback_title, sidecar)
+  const saved = await readSidecar(slug, episode_code, fallback_title, sidecar.platform)
+  return {
+    saved,
+    invalid: inspectUploadSidecarIdentity(saved, {
+      platform: sidecar.platform,
+      video_id: sidecar.video_id,
+      account_id: sidecar.account_id,
+      channel_id: sidecar.channel_id,
+    }),
+  }
+}
+
+/** Record a remotely verified playlist membership without overwriting newer
+ * upload metadata or schedule changes written by another operation. */
+export async function checkpointPlaylistSync(
+  slug: string,
+  episode_code: string,
+  fallback_title: string,
+  expected: { playlist_id: string; video_id: string; account_id: string },
+): Promise<UploadSidecar> {
+  const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
+  const p = sidecarPath(paths.episode_dir, 'youtube')
+  return withLock(p, async () => {
+    const current = await readSidecarAtPath(p)
+    if (!current?.video_id) throw new Error('Cannot checkpoint playlist membership without a valid YouTube upload sidecar.')
+    if (current.video_id !== expected.video_id) {
+      throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; playlist checkpoint was not written.`)
+    }
+    if (current.account_id !== expected.account_id) {
+      throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; playlist checkpoint was not written.`)
+    }
+    const next: UploadSidecar = {
+      ...current,
+      playlist_sync: {
+        ...(current.playlist_sync || {}),
+        [expected.playlist_id]: {
+          video_id: expected.video_id,
+          account_id: expected.account_id,
+          verified_at: new Date().toISOString(),
+        },
+      },
+    }
+    await writeJsonAtomic(p, next)
+    return next
+  })
+}
+
+export function inspectThumbnailCheckpoint(
+  sidecar: UploadSidecar | null,
+  expected: { video_id: string; account_id: string; verified_after?: string },
+): string[] {
+  if (!sidecar) return ['upload sidecar is missing or unreadable']
+  const invalid: string[] = []
+  if (!sidecar.thumbnail_set) invalid.push('thumbnail_set is false')
+  const record = sidecar.thumbnail_sync
+  if (!record) return [...invalid, 'thumbnail has no verified checkpoint']
+  if (record.video_id !== expected.video_id) invalid.push(`thumbnail checkpoint video_id is ${record.video_id || 'empty'}`)
+  if (record.account_id !== expected.account_id) invalid.push(`thumbnail checkpoint account_id is ${record.account_id || 'empty'}`)
+  if (!record.verified_at?.trim()) invalid.push('thumbnail checkpoint verified_at is empty')
+  if (expected.verified_after && record.verified_at < expected.verified_after) {
+    invalid.push(`thumbnail checkpoint predates this run (${record.verified_at})`)
+  }
+  return invalid
+}
+
+/**
+ * Merge thumbnail state into an existing upload record by exact path. The
+ * operation retries local persistence only; it never repeats the provider
+ * request. This prevents a successful thumbnails.set call from being lost or
+ * from overwriting a concurrent schedule/playlist update.
+ */
+export async function checkpointThumbnailStateAtPath(
+  filePath: string,
+  expected: { video_id: string; account_id: string },
+  state: { set: boolean; error?: string; remotely_verified: boolean },
+): Promise<UploadSidecar> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      return await withLock(filePath, async () => {
+        const current = await readSidecarAtPath(filePath)
+        if (!current?.video_id) throw new Error('Cannot checkpoint thumbnail state without a valid upload sidecar.')
+        if (current.video_id !== expected.video_id) {
+          throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; thumbnail checkpoint was not written.`)
+        }
+        if (current.account_id !== expected.account_id) {
+          throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; thumbnail checkpoint was not written.`)
+        }
+        const next: UploadSidecar = {
+          ...current,
+          thumbnail_set: state.set,
+          last_error: state.error || undefined,
+          last_sync_at: new Date().toISOString(),
+          thumbnail_sync: state.remotely_verified && state.set
+            ? {
+                video_id: expected.video_id,
+                account_id: expected.account_id,
+                verified_at: new Date().toISOString(),
+              }
+            : current.thumbnail_sync,
+        }
+        await writeJsonAtomic(filePath, next)
+        const saved = await readSidecarAtPath(filePath)
+        if (!saved) throw new Error('Thumbnail checkpoint was unreadable after save.')
+        return saved
+      })
+    } catch (error) {
+      lastError = error
+      const detail = error instanceof Error ? error.message : String(error)
+      if (/Upload record changed|Upload account changed|without a valid upload sidecar/i.test(detail)) throw error
+      if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 150 * attempt))
+    }
+  }
+  throw new Error(`Could not save thumbnail checkpoint after 5 attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
+}
+
+export async function auditThumbnailCheckpointAtPath(
+  filePath: string,
+  expected: { video_id: string; account_id: string; verified_after?: string },
+): Promise<{ sidecar: UploadSidecar | null; invalid: string[] }> {
+  const sidecar = await readSidecarAtPath(filePath)
+  return { sidecar, invalid: inspectThumbnailCheckpoint(sidecar, expected) }
+}
+
+export function inspectPlaylistSyncCheckpoint(
+  sidecar: UploadSidecar | null,
+  expected: { playlist_id: string; video_id: string; account_id: string },
+): string[] {
+  const record = sidecar?.playlist_sync?.[expected.playlist_id]
+  if (!record) return [`playlist ${expected.playlist_id} has no verified checkpoint`]
+  const invalid: string[] = []
+  if (record.video_id !== expected.video_id) invalid.push(`playlist checkpoint video_id is ${record.video_id || 'empty'}`)
+  if (record.account_id !== expected.account_id) invalid.push(`playlist checkpoint account_id is ${record.account_id || 'empty'}`)
+  if (!record.verified_at?.trim()) invalid.push('playlist checkpoint verified_at is empty')
+  return invalid
 }
 
 export async function deleteSidecar(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform): Promise<void> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, platform)
-  if (existsSync(p)) await fsp.rm(p, { force: true })
+  await withLock(p, async () => {
+    if (existsSync(p)) await fsp.rm(p, { force: true })
+  })
 }
 
 /**
@@ -203,20 +381,24 @@ export async function setScheduledFor(
   platform: UploadPlatform,
   scheduled_for: string | null,
 ): Promise<void> {
-  const existing = await readSidecarRaw(slug, episode_code, fallback_title, platform)
-  if (!existing) {
-    if (!scheduled_for) return
-    await writeSidecar(slug, episode_code, fallback_title, makePlanningStubSidecar(platform, scheduled_for))
-    return
-  }
-  // No-op when the field is already in the desired state — saves a write
-  // and keeps the migration's "second run is free" property honest.
-  if (existing.scheduled_for === scheduled_for) return
-  if (!scheduled_for && !existing.video_id) {
-    // Planning stub being cleared — nothing else to keep, drop the file.
-    await deleteSidecar(slug, episode_code, fallback_title, platform)
-    return
-  }
-  const next: UploadSidecar = { ...existing, scheduled_for }
-  await writeSidecar(slug, episode_code, fallback_title, next)
+  const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
+  await fsp.mkdir(paths.episode_dir, { recursive: true })
+  const p = sidecarPath(paths.episode_dir, platform)
+  await withLock(p, async () => {
+    const existing = await readSidecarAtPath(p)
+    if (!existing) {
+      if (!scheduled_for) return
+      await writeJsonAtomic(p, makePlanningStubSidecar(platform, scheduled_for))
+      return
+    }
+    // No-op when the field is already in the desired state — saves a write
+    // and keeps the migration's "second run is free" property honest.
+    if (existing.scheduled_for === scheduled_for) return
+    if (!scheduled_for && !existing.video_id) {
+      // Planning stub being cleared — nothing else to keep, drop the file.
+      await fsp.rm(p, { force: true })
+      return
+    }
+    await writeJsonAtomic(p, { ...existing, scheduled_for })
+  })
 }

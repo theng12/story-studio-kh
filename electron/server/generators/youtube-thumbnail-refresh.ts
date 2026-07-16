@@ -27,9 +27,12 @@ import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { resolveUploadMetadata } from '../lib/upload-metadata.js'
 import { setThumbnail } from '../lib/youtube-client.js'
 import { readQuota, QUOTA_COST } from '../services/upload-quota.js'
-import type { UploadSidecar } from '../services/upload-sidecar.js'
+import {
+  auditThumbnailCheckpointAtPath,
+  checkpointThumbnailStateAtPath,
+  type UploadSidecar,
+} from '../services/upload-sidecar.js'
 import type { UploadPlatform } from '../services/upload-store.js'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 
 export interface RefreshRow {
@@ -91,16 +94,6 @@ export async function enumerateUploadRows(slug: string, platform: UploadPlatform
   return rows
 }
 
-/** Merge thumbnail_set / last_error into the sidecar in place (by path). */
-async function patchSidecarThumbnail(sidecarPath: string, set: boolean, error?: string): Promise<void> {
-  let sc: UploadSidecar
-  try { sc = JSON.parse(await fsp.readFile(sidecarPath, 'utf-8')) } catch { return }
-  sc.thumbnail_set = set
-  sc.last_error = error || undefined
-  sc.last_sync_at = new Date().toISOString()
-  await writeJsonAtomic(sidecarPath, sc)
-}
-
 export interface RefreshPreview {
   total_uploaded: number
   will_fix: number
@@ -140,6 +133,7 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
 
   const all = await enumerateUploadRows(slug, platform)
   const targets = selectEpisodesNeedingThumbnail(all, { mode, accountId })
+  const runStartedAt = new Date().toISOString()
   job.output_lines.push(`Thumbnail backfill: ${targets.length} of ${all.length} uploaded episode(s) to process (mode=${mode}).`)
 
   const cost = QUOTA_COST.thumbnails_set
@@ -162,14 +156,38 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
       job.output_lines.push(`• ${row.episode_code}: no thumbnail image on disk — make/pin one first.`)
       continue
     }
+    let remoteAccepted = false
     try {
       await setThumbnail({ slug, accountId, videoId: row.video_id, filePath: meta.thumbnailPath })
-      await patchSidecarThumbnail(row.sidecar_path, true, undefined)
+      remoteAccepted = true
+      const saved = await checkpointThumbnailStateAtPath(
+        row.sidecar_path,
+        { video_id: row.video_id, account_id: accountId },
+        { set: true, remotely_verified: true },
+      )
+      const checkpointErrors = (await auditThumbnailCheckpointAtPath(row.sidecar_path, {
+        video_id: row.video_id,
+        account_id: accountId,
+        verified_after: runStartedAt,
+      })).invalid
+      if (checkpointErrors.length || !saved.thumbnail_set) {
+        throw new Error(`Thumbnail was accepted remotely but its local checkpoint is incomplete: ${checkpointErrors.join('; ') || 'thumbnail_set is false'}`)
+      }
       done++
       job.output_lines.push(`✓ ${row.episode_code}: thumbnail set.`)
     } catch (e: any) {
       const msg = String(e?.message || 'thumbnail failed')
-      await patchSidecarThumbnail(row.sidecar_path, false, msg).catch(() => {})
+      if (!remoteAccepted) {
+        await checkpointThumbnailStateAtPath(
+          row.sidecar_path,
+          { video_id: row.video_id, account_id: accountId },
+          { set: false, error: msg, remotely_verified: false },
+        ).catch(checkpointError => {
+          job.output_lines.push(`⚠ ${row.episode_code}: could not save failure checkpoint — ${checkpointError?.message || checkpointError}`)
+        })
+      } else {
+        job.output_lines.push(`⚠ ${row.episode_code}: YouTube accepted the thumbnail, but its local completion checkpoint failed. Retry will verify this row again.`)
+      }
       if (/quota/i.test(msg)) {
         unresolved.push(row.episode_code)
         stopped = 'quota'
@@ -190,9 +208,23 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
     const processed = targets.length - remaining
     for (const row of targets.slice(processed)) unresolved.push(row.episode_code)
   }
+  // Counters are useful progress feedback, but the saved sidecars are the
+  // authoritative completion proof. Re-read every requested row before Done.
+  const durable = new Set<string>()
+  for (const row of targets) {
+    const audit = await auditThumbnailCheckpointAtPath(row.sidecar_path, {
+      video_id: row.video_id,
+      account_id: accountId,
+      verified_after: runStartedAt,
+    })
+    if (!audit.invalid.length) durable.add(row.episode_code)
+  }
+  const finalMissing = targets
+    .filter(row => !durable.has(row.episode_code))
+    .map(row => row.episode_code)
   requireJobCompletion(job, {
-    label: 'YouTube thumbnail backfill', expected: targets.length, completed: done,
-    missing: [...new Set(unresolved)],
+    label: 'YouTube thumbnail backfill', expected: targets.length, completed: durable.size,
+    missing: [...new Set([...unresolved, ...finalMissing])],
     retry_hint: stopped === 'quota'
       ? 'Daily quota was reached; Retry tomorrow. Completed thumbnails remain set.'
       : 'Completed thumbnails remain set; add missing images or Retry failed uploads.',

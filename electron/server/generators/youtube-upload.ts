@@ -21,8 +21,15 @@ import * as pm from '../services/project-manager.js'
 import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
-import { uploadVideo, updateVideoMetadata, setThumbnail, addVideoToPlaylist, type PrivacyStatus } from '../lib/youtube-client.js'
-import { readSidecar, writeSidecar, type UploadSidecar } from '../services/upload-sidecar.js'
+import { uploadVideo, updateVideoMetadata, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
+import {
+  checkpointPlaylistSync,
+  checkpointThumbnailStateAtPath,
+  checkpointUploadSidecarIdentity,
+  inspectUploadSidecarIdentity,
+  readSidecar,
+  type UploadSidecar,
+} from '../services/upload-sidecar.js'
 import * as store from '../services/upload-store.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import {
@@ -32,6 +39,8 @@ import {
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
+import { requireJobCompletion } from '../services/job-completion.js'
+import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 
 interface YouTubeUploadParams {
   episode_id: string
@@ -128,6 +137,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   //      pointless probe on a file we'd never read.
   const existing = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
   const shouldUpdateOnly = !!existing && !!existing.video_id
+  const preserveExistingStatus = shouldUpdateOnly && params.preserve_status !== false
 
   let videoPath: string | null = null
   if (!shouldUpdateOnly) {
@@ -222,8 +232,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // metadata" to fix a title typo. The caller can opt out by passing
     // preserve_status: false (e.g. a future "Update metadata + privacy"
     // affordance).
-    const preserveStatus = params.preserve_status !== false
-    if (preserveStatus) {
+    if (preserveExistingStatus) {
       job.output_lines.push('Preserving current YouTube privacy + schedule (not changed). Pass preserve_status: false to also update them.')
     }
     uploaded = await updateVideoMetadata({
@@ -231,7 +240,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       accountId,
       videoId: existing!.video_id,
       snippet: snippetFromMeta(meta, job.output_lines, categoryId),
-      ...(preserveStatus ? {} : { status: { privacyStatus: privacy, publishAt } }),
+      ...(preserveExistingStatus ? {} : { status: { privacyStatus: privacy, publishAt } }),
     })
     videoId = uploaded.id
     job.progress = 90
@@ -321,6 +330,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       },
       signal: abort.signal,
       episodeCode: episodeId,
+      deferResumeCleanup: true,
       logLines: job.output_lines,
       resumeFromSessionUrl,
       onProgress: (sent, total) => {
@@ -343,14 +353,55 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     job.output_lines.push(`Upload complete — video id: ${videoId}`)
   }
 
+  if (!videoId?.trim()) throw new Error('YouTube returned success without a video id; no upload record was written.')
+  if (shouldUpdateOnly && videoId !== existing!.video_id) {
+    throw new Error(`YouTube metadata update returned video ${videoId}, but this episode is linked to ${existing!.video_id}. No local record was changed.`)
+  }
+
+  // Checkpoint the permanent remote identity before thumbnail or playlist
+  // work. uploadVideo deliberately retains the transient resumable-session
+  // sidecar until this durable write succeeds. That closes the crash window
+  // that could otherwise make Retry upload the same video again and spend
+  // another 1,600 quota units.
+  let thumbnail_set = existing?.thumbnail_set || false
+  const sidecar: UploadSidecar = {
+    ...(existing || {}),
+    platform: 'youtube',
+    video_id: videoId,
+    account_id: accountId,
+    channel_id: account.remote_id,
+    uploaded_at: existing?.uploaded_at || new Date().toISOString(),
+    last_sync_at: new Date().toISOString(),
+    scheduled_for: preserveExistingStatus ? existing!.scheduled_for : (publishAt || null),
+    privacy_status: preserveExistingStatus ? existing!.privacy_status : privacy,
+    title: meta.title,
+    description: meta.description,
+    tags: meta.tags,
+    thumbnail_set,
+  }
+  const identityCheckpoint = await checkpointUploadSidecarIdentity(slug, episodeId, idea.title || '', sidecar)
+  const identityErrors = identityCheckpoint.invalid
+  if (identityErrors.length) {
+    requireJobCompletion(job, {
+      label: 'YouTube remote identity checkpoint',
+      expected: 1,
+      completed: 0,
+      invalid: identityErrors,
+      retry_hint: 'Do not upload again manually. Retry first checks the permanent video ID and repairs the local record safely.',
+    })
+  }
+  await deleteResumeSidecar(slug, episodeId, 'youtube').catch(() => {})
+  job.output_lines.push(`Permanent upload checkpoint saved for https://youtu.be/${videoId}.`)
+
   // Thumbnail — best-effort. Channel must be verified for custom thumbnails;
   // a failure here is a warning in the sidecar, not a fatal error.
-  let thumbnail_set = existing?.thumbnail_set || false
   let thumb_error = ''
+  let thumbnailVerifiedThisRun = false
   if (meta.thumbnailPath && existsSync(meta.thumbnailPath)) {
     try {
       await setThumbnail({ slug, accountId, videoId, filePath: meta.thumbnailPath })
       thumbnail_set = true
+      thumbnailVerifiedThisRun = true
       job.output_lines.push('Thumbnail set ✓')
     } catch (e: any) {
       thumb_error = String(e?.message || 'thumbnail failed')
@@ -367,23 +418,26 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   }
   job.progress = 95
 
-  // Write / refresh sidecar.
-  const sidecar: UploadSidecar = {
-    platform: 'youtube',
-    video_id: videoId,
-    account_id: accountId,
-    channel_id: account.remote_id,
-    uploaded_at: existing?.uploaded_at || new Date().toISOString(),
-    last_sync_at: new Date().toISOString(),
-    scheduled_for: publishAt || null,
-    privacy_status: privacy,
-    title: meta.title,
-    description: meta.description,
-    tags: meta.tags,
-    thumbnail_set,
-    last_error: thumb_error || undefined,
-  }
-  await writeSidecar(slug, episodeId, idea.title || '', sidecar)
+  // Merge optional thumbnail details into the current record rather than
+  // writing the stale pre-thumbnail object over a concurrent schedule or
+  // playlist update.
+  const sidecarPath = path.join(paths.episode_dir, 'youtube_upload.json')
+  await checkpointThumbnailStateAtPath(
+    sidecarPath,
+    { video_id: videoId, account_id: accountId },
+    { set: thumbnail_set, error: thumb_error || undefined, remotely_verified: thumbnailVerifiedThisRun },
+  )
+  const finalCheckpoint = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
+  const sidecarErrors = inspectUploadSidecarIdentity(finalCheckpoint, {
+    platform: 'youtube', video_id: videoId, account_id: accountId, channel_id: account.remote_id,
+  })
+  requireJobCompletion(job, {
+    label: 'YouTube upload record',
+    expected: 1,
+    completed: sidecarErrors.length ? 0 : 1,
+    invalid: sidecarErrors,
+    retry_hint: 'The remote video is not re-uploaded when a valid video ID is already recorded; Retry repairs metadata or the local checkpoint safely.',
+  })
   job.progress = 100
 
   job.output_lines.push(`Sidecar written. URL: https://youtu.be/${videoId}`)
@@ -405,8 +459,23 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   }
   if (playlistToUse) {
     try {
-      await addVideoToPlaylist({ slug, accountId, playlistId: playlistToUse, videoId })
-      job.output_lines.push(`Added to playlist ${playlistToUse}.`)
+      const membership = await ensureYoutubePlaylistMembership({
+        slug,
+        accountId,
+        playlistId: playlistToUse,
+        videoId,
+        isCancelled: () => isCancelled(job.job_id),
+      })
+      await checkpointPlaylistSync(slug, episodeId, idea.title || '', {
+        playlist_id: playlistToUse,
+        video_id: videoId,
+        account_id: accountId,
+      })
+      job.output_lines.push(
+        membership.inserted
+          ? `Added to playlist ${playlistToUse} and verified membership.`
+          : `Playlist ${playlistToUse} already contains this video; skipped the 50-unit insert.`,
+      )
     } catch (e: any) {
       job.output_lines.push(`⚠ Playlist add failed: ${e?.message || 'unknown'} — upload itself is OK.`)
     }

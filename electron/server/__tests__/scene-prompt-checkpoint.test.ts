@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
-import { checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
+import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
 import { checkpointPackPromptResults, parseDirectPackResults } from '../generators/scene-plan.js'
 import type { ScenePlan } from '../models/types.js'
 
@@ -120,5 +120,34 @@ describe('scene prompt checkpoints', () => {
     const saved = JSON.parse(await fs.readFile(file, 'utf-8')) as ScenePlan
     assert.equal(saved.scenes[0]?.visual_prompt, '')
     assert.equal(saved.planning_stage, 'timeline')
+  })
+
+  it('audits completion from the saved plan and names only missing visual prompts', async () => {
+    const file = await makePlan()
+    await checkpointScenePrompt(file, 'scene-1', 'A complete visual prompt', 'visual')
+
+    const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'visual')
+    assert.deepEqual(audit.completed_ids, ['scene-1'])
+    assert.deepEqual(audit.missing_ids, ['scene-2'])
+  })
+
+  it('treats a duplicated saved visual prompt as incomplete', async () => {
+    const file = await makePlan()
+    await checkpointScenePrompt(file, 'scene-1', 'Repeated visual prompt', 'visual')
+    await checkpointScenePrompt(file, 'scene-2', 'Repeated visual prompt', 'visual')
+
+    const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'visual')
+    assert.deepEqual(audit.completed_ids, ['scene-1'])
+    assert.deepEqual(audit.missing_ids, ['scene-2'])
+  })
+
+  it('audits motion prompts independently from visual prompt state', async () => {
+    const file = await makePlan()
+    await checkpointScenePrompt(file, 'scene-1', 'Visual one', 'visual')
+    await checkpointScenePrompt(file, 'scene-1', 'Motion one', 'motion')
+
+    const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'motion')
+    assert.deepEqual(audit.completed_ids, ['scene-1'])
+    assert.deepEqual(audit.missing_ids, ['scene-2'])
   })
 })

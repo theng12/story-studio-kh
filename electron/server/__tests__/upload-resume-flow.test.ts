@@ -228,6 +228,55 @@ describe('uploadVideo resume path', () => {
     assert.ok(resumedLine, `expected a "Resuming upload from byte" line in logLines, got: ${logLines.join('\n')}`)
   })
 
+  test('can retain the resume record until a permanent video-id checkpoint is durable', async () => {
+    const proj = await setupProject()
+    const totalBytes = 1024 * 1024
+    const filePath = path.join(tempDir, 'video-deferred.mp4')
+    await fs.writeFile(filePath, Buffer.alloc(totalBytes, 0xef))
+
+    const { server } = fakeYouTube({
+      totalBytes,
+      serverHasBytesAt: 256 * 1024,
+      finalVideo: {
+        id: 'vid_deferred_xyz',
+        snippet: { title: 'deferred' },
+        status: { privacyStatus: 'private' },
+      },
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    const sessionUrl = `http://127.0.0.1:${port}/upload?token=deferred`
+
+    await resume.writeResumeSidecar(proj.slug, 'EP003', {
+      platform: 'youtube',
+      account_id: 'acc_test',
+      file_path: filePath,
+      file_size: totalBytes,
+      session_url: sessionUrl,
+      created_at: new Date().toISOString(),
+      quota_charged: true,
+    })
+
+    try {
+      const result = await yt.uploadVideo({
+        slug: proj.slug,
+        accountId: 'acc_test',
+        filePath,
+        snippet: { title: 'deferred' },
+        status: { privacyStatus: 'private' },
+        episodeCode: 'EP003',
+        resumeFromSessionUrl: sessionUrl,
+        deferResumeCleanup: true,
+      })
+      assert.equal(result.id, 'vid_deferred_xyz')
+    } finally {
+      server.close()
+    }
+
+    const retained = await resume.readResumeSidecar(proj.slug, 'EP003', 'youtube')
+    assert.ok(retained, 'resume record must survive until the caller checkpoints the permanent video id')
+  })
+
   test('clears sidecar and falls back to fresh init when session is gone (404)', async () => {
     const proj = await setupProject()
     const totalBytes = 1024 * 1024

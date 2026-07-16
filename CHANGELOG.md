@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.627 — 2026-07-16
+
+**Scene Plan now proves every prompt checkpoint independently before a pack or job can finish.**
+
+- Re-read the authoritative saved Scene Plan after every LLM pack and reported the exact durable count, such as 17/20, instead of treating the provider call as all-or-nothing.
+- Continued later packs after a partial cloud response while keeping every valid visual or motion prompt already saved by stable scene ID.
+- Made final completion use the on-disk prompt audit, so incomplete jobs fail loudly and manual Retry requests only missing or duplicated scene IDs.
+- Hardened YouTube publishing checkpoints so a completed upload ID survives optional thumbnail or playlist failures and cannot be accidentally uploaded twice after a crash.
+- Verified playlist membership before spending insert quota and checkpointed thumbnail, schedule, and playlist updates without overwriting one another.
+- Added regression coverage for partial prompt packs, disk-verified completion, crash-safe upload identity, deferred resumable cleanup, and provider mutation checkpoints.
+
 ## v1.0.626 — 2026-07-16
 
 **One failed Scene Plan result no longer blocks valid prompts in the same batch.**

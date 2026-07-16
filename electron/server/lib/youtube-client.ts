@@ -116,6 +116,12 @@ export interface UploadVideoArgs {
   episodeCode?: string
   /** Optional log sink for "Resuming from byte X / Y" surface lines. */
   logLines?: string[]
+  /**
+   * Keep the transient resumable-session record after YouTube returns the
+   * video. The upload generator uses this until it has durably checkpointed
+   * the permanent video id, closing the crash window between those writes.
+   */
+  deferResumeCleanup?: boolean
 }
 
 export interface UploadedVideo {
@@ -228,7 +234,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
         })
         if (finalProbe.status === 200 || finalProbe.status === 201) {
           const result = await finalProbe.json() as any
-          if (args.episodeCode) {
+          if (args.episodeCode && !args.deferResumeCleanup) {
             await deleteResumeSidecar(args.slug, args.episodeCode, 'youtube').catch(() => {})
           }
           args.onProgress?.(totalBytes, totalBytes)
@@ -365,7 +371,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
       signal: args.signal,
     })
     if (!result?.id) throw new Error('Upload succeeded but no video id returned.')
-    if (args.episodeCode) {
+    if (args.episodeCode && !args.deferResumeCleanup) {
       await deleteResumeSidecar(args.slug, args.episodeCode, 'youtube').catch(() => {})
     }
     return { id: result.id, snippet: result.snippet, status: result.status }
@@ -862,6 +868,36 @@ export async function addVideoToPlaylist(opts: {
     throw new Error(quotaMsg || `playlistItems.insert failed (${resp.status}): ${text.slice(0, 300)}`)
   }
   await recordQuotaOrLog(opts.slug, 'playlist_items_insert')
+}
+
+/** A one-unit preflight/verification read used to prevent duplicate
+ * 50-unit playlist inserts and to prove the remote mutation completed. */
+export async function isVideoInPlaylist(opts: {
+  slug: string
+  accountId: string
+  playlistId: string
+  videoId: string
+}): Promise<boolean> {
+  const params = new URLSearchParams({
+    part: 'id',
+    playlistId: opts.playlistId,
+    videoId: opts.videoId,
+    maxResults: '1',
+  })
+  await checkQuota(opts.slug, 'playlist_items_list')
+  const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, accessToken =>
+    fetch(`${PLAYLIST_ITEMS_URL}?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }),
+  )
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+    throw new Error(quotaMsg || `playlistItems.list failed (${resp.status}): ${text.slice(0, 300)}`)
+  }
+  await recordQuotaOrLog(opts.slug, 'playlist_items_list')
+  const data = await resp.json() as { items?: unknown[] }
+  return Array.isArray(data.items) && data.items.length > 0
 }
 
 // ── Reconcile helpers (used in Phase 6) ───────────────────────────────────

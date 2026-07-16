@@ -233,9 +233,10 @@ const queues: Record<JobType, QueueState> = {
   // Upload Center — YouTube video upload (resumable) + metadata PATCH.
   youtube_upload: { pending: [], running: false, executor: null },
   // Playlist-only update — adds an existing video to a playlist via
-  // playlistItems.insert. Idempotent server-side (YouTube returns 200
-  // for an already-present pair, generator treats that as success).
-  // Cheap quota-wise (50 units) so it gets its own queue slot rather
+  // playlistItems.insert. The executor performs a 1-unit membership read
+  // before and after mutation so Retry never creates duplicate entries or
+  // repeats the 50-unit insert after an ambiguous provider response.
+  // It gets its own queue slot rather
   // than blocking behind the heavier upload queue.
   youtube_playlist_update: { pending: [], running: false, executor: null },
   // Backfill thumbnails onto already-uploaded videos (thumbnails.set only,

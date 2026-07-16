@@ -35,7 +35,7 @@ import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
-import { checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
+import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   clearLegacyPlannerFallbackReasons,
@@ -645,7 +645,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         const incompletePacks: string[] = []
         for (const pack of packs) {
           if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
-          const saved = new Set<string>()
+          // A connection fallback or a resumed run may already have made some
+          // rows durable. Never submit or count those rows again.
+          const saved = new Set(pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)))
           let lastError = ''
           const maxPackAttempts = isLocalTextModel(model) ? 3 : 1
           for (let attempt = 1; attempt <= maxPackAttempts && saved.size < pack.scene_ids.length; attempt++) {
@@ -690,12 +692,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               lastError = error?.message || String(error)
             }
           }
-          if (saved.size < pack.scene_ids.length) {
-            const missing = pack.scene_ids.filter(id => !saved.has(id))
-            incompletePacks.push(`${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length}; missing ${missing.join(', ')} (${lastError})`)
-            job.output_lines.push(`Partial checkpoint: ${pack.pack_id} saved ${saved.size}/${pack.scene_ids.length}. Continuing with later packs; Retry will request only ${missing.length} missing scene(s).`)
+          const receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
+          syncMemoryPlan(receipt.plan)
+          for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
+          if (receipt.missing_ids.length) {
+            const missing = receipt.missing_ids
+            incompletePacks.push(`${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length}; missing ${missing.join(', ')} (${lastError})`)
+            job.output_lines.push(`Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Continuing with later packs; Retry will request only ${missing.length} missing scene(s).`)
           } else {
-            job.output_lines.push(`Checkpointed ${pack.pack_id}: ${saved.size}/${pack.scene_ids.length} prompts saved.`)
+            job.output_lines.push(`Checkpointed ${pack.pack_id}: ${receipt.completed_ids.length}/${pack.scene_ids.length} prompts verified on disk.`)
           }
         }
         if (incompletePacks.length) job.output_lines.push(`Incomplete packs: ${incompletePacks.join(' | ')}`)
@@ -716,24 +721,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     }
     job.output_dir = paths.episode_dir
+    const completion = await auditScenePromptCompletion(outPath, targetIds, isMotion ? 'motion' : 'visual')
+    syncMemoryPlan(completion.plan)
     if (!isMotion) {
-      const remainingInvalid = new Set(inspectScenePromptIntegrity(plan.scenes).invalid_ids)
-      const failedTargets = targets.filter(({ scene }) => remainingInvalid.has(scene.id))
       requireJobCompletion(job, {
-        label: 'Visual prompt generation', expected: targets.length, completed: targets.length - failedTargets.length,
-        missing: failedTargets.map(({ scene }) => scene.id),
+        label: 'Visual prompt generation', expected: targets.length, completed: completion.completed_ids.length,
+        missing: completion.missing_ids,
         retry_hint: 'Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
       })
     } else {
-      const missingMotion = targets.filter(({ scene }) => !scene.motion_prompt?.trim())
       requireJobCompletion(job, {
-        label: 'Motion prompt generation', expected: targets.length, completed: targets.length - missingMotion.length,
-        missing: missingMotion.map(({ scene }) => scene.id),
+        label: 'Motion prompt generation', expected: targets.length, completed: completion.completed_ids.length,
+        missing: completion.missing_ids,
         retry_hint: 'Motion is optional until enabled; once enabled, Retry fills only the missing prompts.',
       })
     }
     job.progress = 100
-    job.output_lines.push(`Saved ${targets.length} ${stage} prompt(s) by stable scene ID.`)
+    job.output_lines.push(`Verified ${completion.completed_ids.length}/${targets.length} ${stage} prompt(s) on disk by stable scene ID.`)
     return
   }
 

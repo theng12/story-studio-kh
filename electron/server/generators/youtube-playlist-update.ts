@@ -4,9 +4,9 @@
  * Pushes an already-uploaded video into a playlist via
  * `playlistItems.insert`. The action is intentionally **add-only / never
  * destructive**: we never call `playlistItems.delete`, so playlists the
- * app didn't track stay intact. If the video is already in the target
- * playlist, YouTube returns success and the row's last-sync timestamp
- * advances — the user sees a clean "✓ Synced" with no surprise removals.
+ * app didn't track stay intact. A one-unit membership check skips the
+ * 50-unit insert when the video is already present, and a second check
+ * proves a new insertion before the job may report success.
  *
  * Why a separate job type rather than a flag on `youtube_upload`:
  *   - 50 quota units vs. 1600+ for an upload — different cost class.
@@ -19,10 +19,16 @@
 
 import type { Job } from '../models/types.js'
 import * as im from '../services/idea-manager.js'
-import { readSidecar } from '../services/upload-sidecar.js'
+import {
+  checkpointPlaylistSync,
+  inspectPlaylistSyncCheckpoint,
+  readSidecar,
+} from '../services/upload-sidecar.js'
 import * as store from '../services/upload-store.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
-import { addVideoToPlaylist } from '../lib/youtube-client.js'
+import { isCancelled } from '../services/job-queue.js'
+import { requireJobCompletion } from '../services/job-completion.js'
+import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 
 interface YoutubePlaylistUpdateParams {
   episode_id: string
@@ -69,6 +75,7 @@ export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
   let playlistId = (params.playlist_id || '').trim()
   if (playlistId === '_none_') {
     job.output_lines.push('Playlist override is "Don\'t add" — skipping (no-op).')
+    requireJobCompletion(job, { label: 'YouTube playlist opt-out', expected: 0, completed: 0 })
     job.progress = 100
     return
   }
@@ -92,12 +99,35 @@ export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
     )
   }
 
-  await addVideoToPlaylist({
+  const membership = await ensureYoutubePlaylistMembership({
     slug,
     accountId,
     playlistId,
     videoId: sidecar.video_id,
+    isCancelled: () => isCancelled(job.job_id),
   })
-  job.output_lines.push(`Added video ${sidecar.video_id} to playlist ${playlistId} ✓`)
+  await checkpointPlaylistSync(slug, episodeId, idea.title || '', {
+    playlist_id: playlistId,
+    video_id: sidecar.video_id,
+    account_id: accountId,
+  })
+  const saved = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
+  const checkpointErrors = inspectPlaylistSyncCheckpoint(saved, {
+    playlist_id: playlistId,
+    video_id: sidecar.video_id,
+    account_id: accountId,
+  })
+  requireJobCompletion(job, {
+    label: 'YouTube playlist membership',
+    expected: 1,
+    completed: checkpointErrors.length ? 0 : 1,
+    invalid: checkpointErrors,
+    retry_hint: 'Retry verifies remote membership first and will not repeat the 50-unit insert when the video is already present.',
+  })
+  job.output_lines.push(
+    membership.inserted
+      ? `Added video ${sidecar.video_id} to playlist ${playlistId} and verified it ✓`
+      : `Video ${sidecar.video_id} was already in playlist ${playlistId}; no insert quota was spent ✓`,
+  )
   job.progress = 100
 }

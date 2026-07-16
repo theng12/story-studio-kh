@@ -2,12 +2,51 @@ import fs from 'fs/promises'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { ScenePlan } from '../models/types.js'
+import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 
 export type ScenePromptCheckpointKind = 'visual' | 'motion'
 
 export interface ScenePromptCheckpointResult {
   changed: boolean
   plan: ScenePlan
+}
+
+export interface ScenePromptCompletionAudit {
+  plan: ScenePlan
+  completed_ids: string[]
+  missing_ids: string[]
+}
+
+/**
+ * Re-read the authoritative Scene Plan and prove which requested prompts are
+ * durable. Generation code must not report completion from an in-memory
+ * worker count because another process, restart, or failed write can make that
+ * count disagree with the file consumed by Scene Review.
+ */
+export async function auditScenePromptCompletion(
+  planPath: string,
+  targetIds: Iterable<string>,
+  kind: ScenePromptCheckpointKind,
+): Promise<ScenePromptCompletionAudit> {
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  const requested = [...new Set(targetIds)]
+  const sceneById = new Map(plan.scenes.map(scene => [scene.id, scene]))
+  const invalidVisualIds = kind === 'visual'
+    ? new Set(inspectScenePromptIntegrity(plan.scenes).invalid_ids)
+    : null
+  const completedIds: string[] = []
+  const missingIds: string[] = []
+
+  for (const sceneId of requested) {
+    const scene = sceneById.get(sceneId)
+    const complete = kind === 'motion'
+      ? !!scene?.motion_prompt?.trim()
+      : !!scene?.visual_prompt?.trim() && !invalidVisualIds!.has(sceneId)
+    if (complete) completedIds.push(sceneId)
+    else missingIds.push(sceneId)
+  }
+
+  return { plan, completed_ids: completedIds, missing_ids: missingIds }
 }
 
 /**
