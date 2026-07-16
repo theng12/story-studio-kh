@@ -1968,7 +1968,7 @@
 
       <PresetPicker
         label="Export preset"
-        hint="Captures resolution, quality and format."
+        hint="Captures render location, resolution, quality, and format."
         :presets="exportPresets.presets.value"
         :active-id="exportPresets.activeId.value"
         @update:active-id="exportPresets.setActive"
@@ -2023,6 +2023,25 @@
            HEVC means; the helper text explains the trade-off right
            where the choice is made. -->
       <div class="grid-2 mt-2">
+        <!-- Render target is saved in the export preset. The remote option is
+             deliberately strict: this Mac stays the control centre unless the
+             operator picks the local option for this particular workflow. -->
+        <div class="form-group">
+          <label>Render location</label>
+          <select v-model="exportSettings.render_target" class="select">
+            <option value="remote">Remote Render Studio fleet — recommended</option>
+            <option value="local">This Mac — render locally</option>
+          </select>
+          <p class="text-muted text-sm mt-1">
+            <template v-if="exportSettings.render_target === 'remote'">
+              Studio Hub sends this episode to an external Render Studio worker. If none is available, it waits or fails clearly; this Mac will not take over.
+            </template>
+            <template v-else>
+              This export intentionally uses this Mac's local FFmpeg renderer. Choose this only when you want to reserve the fleet for other work.
+            </template>
+          </p>
+        </div>
+
         <!-- Resolution -->
         <div class="form-group">
           <label>Resolution</label>
@@ -2274,6 +2293,10 @@
           <div class="summary-row">
             <span class="text-muted">Resolution</span>
             <span>{{ exportSettings.resolution }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="text-muted">Render location</span>
+            <span>{{ exportSettings.render_target === 'remote' ? 'Remote Render Studio fleet' : 'This Mac' }}</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Quality / Format</span>
@@ -3279,6 +3302,7 @@ const outroCard = reactive({
 
 // --------------- Step 6: Export ---------------
 const exportSettings = reactive<{
+  render_target: 'remote' | 'local'
   resolution: '720p' | '1080p' | '1440p' | '4k'
   quality: 'compact' | 'fast' | 'medium' | 'high'
   fps: 24 | 25 | 30 | 60
@@ -3286,6 +3310,9 @@ const exportSettings = reactive<{
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
 }>({
+  // This Mac coordinates the fleet by default. Local rendering remains a
+  // deliberate export-preset option for cases where the operator wants it.
+  render_target: 'remote',
   resolution: '1080p',
   quality: 'high',
   fps: 30,

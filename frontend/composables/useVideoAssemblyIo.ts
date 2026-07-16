@@ -227,6 +227,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       transition_duration: s.transition.type === 'none' ? 0 : s.transition.duration,
       transition_pool: s.transition.pool,
       transition_randomize: s.transition.randomize_mode,
+      render_target: s.exportSettings.render_target === 'local' ? 'local' : 'remote',
       resolution: s.exportSettings.resolution,
       quality: s.exportSettings.quality,
       fps: s.exportSettings.fps,

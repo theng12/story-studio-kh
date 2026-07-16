@@ -35,9 +35,14 @@ import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
-import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import {
+  resolveLaunchStaggerMs,
+  resolvePerformanceConcurrency,
+  resolveVoiceStudioConcurrency,
+} from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { getVoicePresetsGlobal } from '../services/app-settings.js'
+import { getHubBackend } from '../lib/studiohub-client.js'
 import { voiceSupportsProvider } from '../services/voice-presets.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
@@ -612,6 +617,8 @@ export async function generateAudio(job: Job): Promise<void> {
   // ── Concurrency pool ───────────────────────────────────────────────────
   const baseAudioConcurrency = resolvePerformanceConcurrency((config as any).audio_concurrency)
   const isLocalAudioProvider = providerId === 'voicestudio'
+  const hubBackend = isLocalAudioProvider ? await getHubBackend() : null
+  const isHubAudioProvider = isLocalAudioProvider && hubBackend?.mode === 'hub'
 
   // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio
   // instance has its OWN voice library with locally-unique UUIDs, so a
@@ -622,15 +629,15 @@ export async function generateAudio(job: Job): Promise<void> {
   // pinning (see the comment below).
   let voicePool: import('../services/voicestudio-voice-pool.js').VoicePoolResult | null = null
   let voiceFilteredEndpoints: string[] | null = null
-  if (isLocalAudioProvider && req.voice) {
+  if (isLocalAudioProvider && !isHubAudioProvider && req.voice) {
     const { resolveVoicePool, parseVoiceName, parseHubVoiceId } = await import('../services/voicestudio-voice-pool.js')
     voicePool = await resolveVoicePool(apiKey)
     const voiceJobName = parseVoiceName(req.voice)
     const hubVoiceId = parseHubVoiceId(req.voice)
     if (hubVoiceId) {
       // Hub-managed clones have the same stable id on every synchronized
-      // worker. Keep all matching direct endpoints available as a fallback if
-      // Hub connectivity drops; an empty direct pool is valid in Hub-only mode.
+      // worker. In explicit Direct mode, keep only direct endpoints where that
+      // stable id is present.
       const matching = Object.values(voicePool.voicesByName).flatMap(voice =>
         Object.entries(voice.idByEndpoint)
           .filter(([, id]) => id === hubVoiceId)
@@ -639,7 +646,7 @@ export async function generateAudio(job: Job): Promise<void> {
       if (matching.length) {
         voiceFilteredEndpoints = [...new Set(matching)]
         job.output_lines.push(
-          `Studio Hub shared voice available on ${voiceFilteredEndpoints.length} configured direct fallback endpoint(s).`,
+          `Shared voice available on ${voiceFilteredEndpoints.length} configured direct endpoint(s).`,
         )
       }
     } else if (voiceJobName) {
@@ -698,7 +705,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // health-checking + least-busy + failover, same as the image renderer.
   let audioDispatcher: Dispatcher | null = null
   let voicePoolSize = 1
-  if (isLocalAudioProvider) {
+  if (isLocalAudioProvider && !isHubAudioProvider) {
     // v1.0.437 — honour the per-Mac on/off switch: build the pool over enabled
     // endpoints only, so a Mac switched off in Settings is never used.
     const eps = parseEnabledEndpoints(apiKey)
@@ -735,9 +742,18 @@ export async function generateAudio(job: Job): Promise<void> {
   // Local: serial per Mac (MLX is serial), but parallelise across the pool.
   // Cloud providers keep their tier-tuned default (3 = ElevenLabs Starter-safe).
   const concurrency = isLocalAudioProvider
-    ? Math.max(1, Math.min(baseAudioConcurrency, voicePoolSize))
+    ? resolveVoiceStudioConcurrency(
+        baseAudioConcurrency,
+        isHubAudioProvider ? 'hub' : 'direct',
+        voicePoolSize,
+      )
     : baseAudioConcurrency
-  if (isLocalAudioProvider && voicePoolSize === 1 && baseAudioConcurrency !== 1) {
+  if (isHubAudioProvider) {
+    job.output_lines.push(
+      `Studio Hub voice routing: ${Math.min(baseAudioConcurrency, tasks.length)} section(s) in parallel; ` +
+      'the Hub assigns each section to an available Voice Studio.',
+    )
+  } else if (isLocalAudioProvider && voicePoolSize === 1 && baseAudioConcurrency !== 1) {
     job.output_lines.push(
       `Local modal (${providerId}): concurrency 1 ` +
       `(single Apple Silicon MLX endpoint is serial — add more Image/Voice Studio URLs to parallelise across Macs).`,
@@ -778,7 +794,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // decode churn) and we surface a one-time "restart this Mac soon"
   // hint to the Jobs panel. Single-job scoped — each new audio job
   // starts with fresh baselines. Only meaningful when isLocalAudioProvider.
-  const latencyStats = isLocalAudioProvider ? newLatencyStats() : null
+  const latencyStats = isLocalAudioProvider && !isHubAudioProvider ? newLatencyStats() : null
 
   async function processTask(task: ChunkTask): Promise<void> {
     if (isCancelled()) return
@@ -867,7 +883,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // voice overrides go through the same path. Raw UUIDs (legacy
         // projects) pass through unchanged — pre-filtered above to the
         // single endpoint that has them.
-        await runOnPool(audioDispatcher, apiKey, async (ep) => {
+        const generateVoiceChunk = async (ep: string) => {
           let voiceIdForCall: string | undefined = effectiveVoice
           if (effectiveVoice && voicePool) {
             const { parseVoiceName, pickEndpointForVoice } = await import('../services/voicestudio-voice-pool.js')
@@ -914,7 +930,12 @@ export async function generateAudio(job: Job): Promise<void> {
             })
           }
           return callResult
-        })
+        }
+        if (isHubAudioProvider) {
+          await generateVoiceChunk('studiohub')
+        } else {
+          await runOnPool(audioDispatcher, apiKey, generateVoiceChunk)
+        }
       } else {
         const chunkFilename = path.basename(task.outputPath)
         // User-configurable TTS timeout (minutes → ms). Undefined means use

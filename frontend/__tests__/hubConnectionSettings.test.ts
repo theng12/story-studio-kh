@@ -14,8 +14,8 @@ test('Hub connection has an explicit save/test action and persistent feedback', 
   assert.doesNotMatch(source, /setTimeout\(\(\) => \{ hubSavedNote\.value = ''/)
 })
 
-test('local Hub and direct-fallback responsibilities are explained accurately', () => {
+test('local Hub and strict routing responsibilities are explained accurately', () => {
   assert.match(source, /local Hub connection, so Story Studio needs no access token/)
   assert.match(source, /Studio Hub manages the private fleet credential/)
-  assert.match(source, /Direct Studio URLs are used only as an emergency fallback when the Hub itself cannot be reached/)
+  assert.match(source, /Story Studio never switches to a direct Studio URL automatically/)
 })

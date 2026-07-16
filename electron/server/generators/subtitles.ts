@@ -131,13 +131,18 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   try {
     let srtRaw: string
     if (engine === 'voicestudio') {
-      // Same local-pool dispatcher the per-chapter path uses: least-busy Mac
-      // with mid-job failover. Never falls back to OpenAI.
+      // Uses the explicitly selected local route: Studio Hub fleet assignment
+      // or the Direct URL pool. Never switches transports or falls back to OpenAI.
       const { getApiKey } = await import('../services/app-secrets-store.js')
       const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
         await import('../lib/voicestudio-client.js')
+      const { getHubBackend } = await import('../lib/studiohub-client.js')
       const vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-      job.output_lines.push(`Engine: Studio Hub (Voice fleet; direct fallback) · ${req.model || 'default Whisper model'}`)
+      const routing = await getHubBackend()
+      job.output_lines.push(
+        `Engine: ${routing.mode === 'hub' ? 'Studio Hub voice fleet' : 'Direct Voice Studio URL pool'} · ` +
+        `${req.model || 'default Whisper model'}`,
+      )
       job.progress = Math.max(job.progress ?? 0, 10)
       const result = await transcribeViaConfiguredBackend(vsStoredUrl, sourceAudio, {
         model: req.model,
@@ -192,7 +197,7 @@ async function transcribePerChapter(
   if (!config) throw new Error('Project not found')
 
   // v1.0.217+ — resolve the chosen engine up front. 'voicestudio' uses the
-  // local modal's free Whisper STT; 'openai' is the paid fallback.
+  // local modal's free Whisper STT; 'openai' is the separately selected paid engine.
   const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
   const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
     await import('../lib/voicestudio-client.js')
@@ -202,11 +207,16 @@ async function transcribePerChapter(
 
   if (engine === 'voicestudio') {
     const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { getHubBackend } = await import('../lib/studiohub-client.js')
     // v1.0.348 — keep the URL list intact. The per-chapter call below uses
     // the shared least-busy transcription dispatcher, so separate episode jobs
     // can run on separate Macs instead of every job choosing endpoint #1.
     vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    job.output_lines.push(`Engine: Studio Hub (Voice fleet; direct fallback) · ${vsModel || 'default Whisper model'}`)
+    const routing = await getHubBackend()
+    job.output_lines.push(
+      `Engine: ${routing.mode === 'hub' ? 'Studio Hub voice fleet' : 'Direct Voice Studio URL pool'} · ` +
+      `${vsModel || 'default Whisper model'}`,
+    )
   } else {
     apiKey = await resolveApiKeyForProviderId(projectSlug, 'openai', {
       model: req.model || 'whisper',

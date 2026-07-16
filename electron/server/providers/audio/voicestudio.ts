@@ -26,24 +26,35 @@ import {
   engineForModelId,
   type VoiceStudioTxt2SpeechParams,
 } from '../../lib/voicestudio-client.js'
-import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
-import { isConnectionError } from '../../lib/endpoint-pool.js'
-import { studioFetch } from '../../lib/studio-auth.js'
+import {
+  getHubBackend,
+  hubBatchArtifactUrl,
+  hubHeaders,
+  hubPollBatch,
+  hubSubmitJob,
+} from '../../lib/studiohub-client.js'
 import { parseHubVoiceId } from '../../services/voicestudio-voice-pool.js'
 import type { AudioProvider, AudioGenerationRequest, AudioGenerationResult } from '../types.js'
 
 /**
- * Stream a URL's bytes to a file (with progress). Used by the Studio Hub voice
- * path to pull the produced audio from the artifact_url the Hub returns — which
- * points at the producing studio's own machine on the tailnet, not the Hub.
+ * Stream a Studio Hub artifact to a file (with progress). The Hub proxy is the
+ * only valid download path in Hub mode: it authenticates to the selected worker
+ * without exposing or requiring Story Studio to know that worker's credential.
  */
-async function downloadUrlToFile(
-  url: string,
+export async function downloadHubArtifactToFile(
+  hubUrl: string,
+  hubToken: string,
+  batchId: string,
+  itemIndex: number,
   outPath: string,
   opts: { signal?: AbortSignal; onProgress?: (received: number, total?: number) => void } = {},
 ): Promise<void> {
-  const resp = await studioFetch(url, opts.signal ? { signal: opts.signal } : {})
-  if (!resp.ok) throw new Error(`Studio Hub artifact download failed (${resp.status}) for ${url}`)
+  const url = hubBatchArtifactUrl(hubUrl, batchId, itemIndex)
+  const resp = await fetch(url, {
+    headers: hubHeaders(hubToken),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  })
+  if (!resp.ok) throw new Error(`Studio Hub artifact download failed (${resp.status}) through ${url}`)
   const total = Number(resp.headers.get('content-length')) || undefined
   await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {})
   const body = resp.body as ReadableStream<Uint8Array> | null
@@ -144,60 +155,57 @@ export async function generateTtsToFile(
   // streams to the UI during the fetch; the encode is a quick local step.
   const tmpDownload = path.join(os.tmpdir(), `voicestudio-dl-${randomUUID()}`)
   try {
-    let downloaded = false
-
     // Studio Hub routing (Phase 3): when local_backend === 'hub', submit a
     // 1-item voice batch and let the Hub delegate across the fleet, then pull
-    // the produced audio from the returned artifact_url. On a CONNECTION error
-    // fall back to the direct Voice Studio pool — the Hub is an optimisation,
-    // never a hard dependency. A real job error (bad engine, TTS failure)
-    // surfaces as-is. `prompt` carries the text (the Hub maps it to the
+    // the produced audio through the Hub's authenticated artifact gateway.
+    // Hub and Direct are explicit, mutually exclusive settings: Hub failure is
+    // reported and never starts duplicate work against a direct Voice Studio.
+    // `prompt` carries the text (the Hub maps it to the
     // studio's native field); engine-specific knobs (voice preset, speed) ride
     // in params as an opaque pass-through.
     const hub = await getHubBackend()
-    const selectedHubVoice = !!parseHubVoiceId(req.voiceId)
-    if (
-      hub.hubUrl &&
-      (hub.mode === 'hub' || selectedHubVoice) &&
-      canRouteVoiceThroughHub(params, req.voiceId)
-    ) {
-      try {
-        const { repo, text, ...voiceParams } = params
-        const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
-          modality: 'voice', model: repo, label: 'storystudio-kh', routing: 'pool',
-          items: [{ prompt: text, params: voiceParams as Record<string, any> }],
-        })
-        const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: opts.isCancelled })
-        const item = status.items?.[0]
-        if (!item || item.state !== 'done' || !item.artifact_url) {
-          throw new Error(
-            `Studio Hub voice job did not produce audio: ${item?.error || item?.state || 'no item'}` +
-            `${status.governor_note ? ` (${status.governor_note})` : ''}`,
-          )
-        }
-        await downloadUrlToFile(item.artifact_url, tmpDownload, { signal: opts.signal, onProgress: opts.onProgress })
-        downloaded = true
-      } catch (e: any) {
-        if (!isConnectionError(e)) throw e
-        console.warn(
-          `[studiohub] voice via Hub unreachable (${e?.message || e}) — ` +
-          `falling back to the direct Voice Studio pool`,
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) {
+        throw new Error('Studio Hub routing is selected, but no Hub URL is configured. Open Settings → Local Models → Studio Hub.')
+      }
+      if (!canRouteVoiceThroughHub(params, req.voiceId)) {
+        throw new Error(
+          'Studio Hub routing is selected, but this cloned voice belongs to one direct Voice Studio. ' +
+          'Select a Hub-managed shared voice, or explicitly switch Settings → Local Models → Generation backend to Direct.',
         )
       }
-    }
-
-    if (!downloaded) {
+      const { repo, text, ...voiceParams } = params
+      const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+        modality: 'voice', model: repo, label: 'storystudio-kh', routing: 'pool',
+        items: [{ prompt: text, params: voiceParams as Record<string, any> }],
+      })
+      const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: opts.isCancelled })
+      const item = status.items?.[0]
+      if (!item || item.state !== 'done' || !item.artifact_url) {
+        throw new Error(
+          `Studio Hub voice job did not produce audio: ${item?.error || item?.state || 'no item'}` +
+          `${status.governor_note ? ` (${status.governor_note})` : ''}`,
+        )
+      }
+      await downloadHubArtifactToFile(
+        hub.hubUrl,
+        hub.hubToken,
+        sub.batch_id,
+        item.index,
+        tmpDownload,
+        { signal: opts.signal, onProgress: opts.onProgress },
+      )
+    } else {
       if (!baseUrl) {
         throw new Error(
-          'Voice Studio modal URL not configured. ' +
-          'Open App Settings → Local Models and set the URL (Tailscale IP + port).',
+          'Direct Voice Studio routing is selected, but no Voice Studio URL is configured. ' +
+          'Open Settings → Local Models → Voice Studio and set at least one direct URL.',
         )
       }
       const submit = await submitTxt2Speech(baseUrl, params)
       await pollJob(baseUrl, submit.job_id, { isCancelled: opts.isCancelled })
       await downloadAudio(baseUrl, submit.job_id, tmpDownload, {
-        signal: opts.signal,
-        onProgress: opts.onProgress,
+        signal: opts.signal, onProgress: opts.onProgress,
       })
     }
 

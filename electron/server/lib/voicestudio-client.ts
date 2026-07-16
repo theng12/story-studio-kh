@@ -1138,7 +1138,7 @@ export async function runOnTranscribePool<T>(
   })
 }
 
-/** Hub-first transcription; direct Voice Studio pool is connection fallback. */
+/** Transcribe through the explicitly selected backend. No cross-backend fallback. */
 export async function transcribeViaConfiguredBackend(
   stored: string | null | undefined,
   audioPath: string,
@@ -1146,18 +1146,15 @@ export async function transcribeViaConfiguredBackend(
 ): Promise<VoiceStudioTranscribeResult> {
   const { getHubBackend, hubTranscription, hubTranscribeFile } = await import('./studiohub-client.js')
   const hub = await getHubBackend()
-  if (hub.mode === 'hub' && hub.hubUrl) {
-    try {
-      let model = opts.model
-      if (!model) {
-        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
-        model = inventory.default_model || inventory.models.find(m => m.cached)?.repo
-      }
-      if (!model) throw new Error('Studio Hub has no downloaded Whisper model')
-      return await hubTranscribeFile(hub.hubUrl, hub.hubToken, audioPath, { ...opts, model })
-    } catch (error: any) {
-      if (!/Connection error|fetch failed|ECONN|timed? ?out/i.test(String(error?.message || error))) throw error
+  if (hub.mode === 'hub') {
+    if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+    let model = opts.model
+    if (!model) {
+      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
+      model = inventory.default_model || inventory.models.find(m => m.cached)?.repo
     }
+    if (!model) throw new Error('Studio Hub has no downloaded Whisper model')
+    return hubTranscribeFile(hub.hubUrl, hub.hubToken, audioPath, { ...opts, model })
   }
   return runOnTranscribePool(stored, opts.model, (endpoint, model) =>
     transcribeFile(endpoint, audioPath, { ...opts, model }))
@@ -1176,24 +1173,23 @@ export async function readyTranscribeEndpointCount(
   return candidates.length
 }
 
-/** Hub fleet count first; direct endpoint count only when Hub is unavailable. */
+/** Count ready workers on the explicitly selected backend. */
 export async function readyTranscribeBackendCount(
   stored: string | null | undefined,
   requestedModel?: string,
 ): Promise<number> {
   const { getHubBackend, hubTranscription } = await import('./studiohub-client.js')
   const hub = await getHubBackend()
-  if (hub.mode === 'hub' && hub.hubUrl) {
-    try {
-      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
-      if (requestedModel) {
-        const model = inventory.models.find(m => m.repo === requestedModel && m.cached)
-        return model?.available_on?.length || 0
-      }
-      const preferred = inventory.models.find(m => m.repo === inventory.default_model && m.cached)
-        || inventory.models.find(m => m.cached)
-      return preferred?.available_on?.length || 0
-    } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+  if (hub.mode === 'hub') {
+    if (!hub.hubUrl) return 0
+    const inventory = await hubTranscription(hub.hubUrl, hub.hubToken)
+    if (requestedModel) {
+      const model = inventory.models.find(m => m.repo === requestedModel && m.cached)
+      return model?.available_on?.length || 0
+    }
+    const preferred = inventory.models.find(m => m.repo === inventory.default_model && m.cached)
+      || inventory.models.find(m => m.cached)
+    return preferred?.available_on?.length || 0
   }
   return readyTranscribeEndpointCount(stored, requestedModel)
 }

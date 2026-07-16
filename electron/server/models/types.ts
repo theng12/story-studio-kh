@@ -2663,6 +2663,9 @@ export interface GenerateVideoRequest {
   scene_recycling: VideoSceneRecycling
   /** Unified assembly always hydrates this to `scene_plan` before rendering. */
   scene_pool_mode?: 'scene_plan'
+  /** Where this final assembly runs. Remote is strict: it never falls back
+   * to the control-centre Mac when no external Render Studio is available. */
+  render_target?: 'remote' | 'local'
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

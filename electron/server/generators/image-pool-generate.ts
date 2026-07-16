@@ -24,7 +24,6 @@ import * as bp from '../services/broll-pool-manager.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
 import { getHubBackend } from '../lib/studiohub-client.js'
 import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
-import { isConnectionError } from '../lib/endpoint-pool.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -145,7 +144,8 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   // Studio Hub batch (§6b): in Hub mode, submit ALL images as ONE batch so the
   // Hub distributes them across the whole fleet — this loop is otherwise SERIAL
   // (one image at a time), which barely uses the fleet. Pool stills are txt2img
-  // (no references). On a connection error, fall back to the serial loop.
+  // (no references). Hub mode is strict; failure preserves verified files and
+  // stops instead of switching transports.
   let batchDone = false
   const hub = await getHubBackend()
   if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && remaining.length > 0) {
@@ -182,15 +182,11 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
       })
       batchDone = true
     } catch (e: any) {
-      if (!isConnectionError(e)) throw e
-      failed = 0
-      failedFiles.clear()
-      remaining = items.filter(item => !successfulFiles.has(item.filename))
-      processed = successfulFiles.size
       job.output_lines.push(
-        `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
-        `${remaining.length} unverified image(s); ${successfulFiles.size} checkpoint(s) kept.`,
+        `Studio Hub batch failed: ${e?.message || e}. ` +
+        `${successfulFiles.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
       )
+      throw e
     }
   }
 

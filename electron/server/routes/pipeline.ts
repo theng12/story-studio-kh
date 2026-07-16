@@ -822,6 +822,9 @@ export function flattenVideoAssemblyBundle(
     const { episode_id: _e, title: _t, ...rest } = bundleData
     return {
       ...rest,
+      // Controller-first default for pre-target presets. A local render is
+      // only allowed when the saved preset deliberately opts into it.
+      render_target: rest.render_target === 'local' ? 'local' : 'remote',
       episode_id: episodeId,
       title: title || '',
     }
@@ -843,6 +846,9 @@ export function flattenVideoAssemblyBundle(
   for (const k of ['resolution', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
+  // Controller-first default for older export presets. This is flattened with
+  // the other export fields so batch and single-episode renders agree.
+  out.render_target = exportS.render_target === 'local' ? 'local' : 'remote'
 
   // ── Timeline slot
   if (timeline.scene_recycling)  out.scene_recycling  = timeline.scene_recycling

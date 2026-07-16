@@ -450,8 +450,8 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 //   'direct' — the current behaviour: Story Studio talks to each Mac's Studio
 //              server directly via the per-provider endpoint pools.
 //   'hub'    — route generation through Studio Hub KH (a single control-plane
-//              that delegates across the fleet); auto-falls-back to 'direct'
-//              when the Hub is unreachable, so it's never a hard dependency.
+//              that delegates across the fleet). Failure is reported; direct
+//              endpoints are never used unless 'direct' is selected.
 // Per-machine (like server_mode / last_seen_version). Default 'direct' so an
 // install with no Hub configured behaves exactly as before.
 

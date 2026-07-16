@@ -270,9 +270,8 @@ router.get('/models', async (req, res) => {
     }> = []
     if (hub.mode === 'hub' && hub.hubUrl) {
       try {
-        // Model pickers are interactive UI. A sleeping/unreachable Hub must
-        // not hold the whole page for the generic 20-second inventory timeout;
-        // direct Chat Studio remains the fallback below.
+        // Model pickers are interactive UI. Use a short Hub timeout, but keep
+        // transport selection strict: a failed Hub probe does not query Direct.
         const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'chat', false, 5_000)
         const seen = new Set<string>()
         for (const row of rows) {
@@ -295,9 +294,9 @@ router.get('/models', async (req, res) => {
             is_reasoning: row.is_reasoning === true,
           })
         }
-      } catch { /* Hub unavailable: direct pool remains the emergency fallback. */ }
+      } catch { /* Hub inventory unavailable: leave Hub-backed entries empty. */ }
     }
-    if (!entries.length && lmBaseRaw) {
+    if (hub.mode !== 'hub' && !entries.length && lmBaseRaw) {
       // v1.0.497 — catalog instead of the raw /v1/models dump: Chat Studio now
       // proxies free cloud LLM providers (OpenRouter / NVIDIA / Groq / Gemini /
       // HF Router / …) and its /v1/models lists ~450 upstream models. The

@@ -1,7 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { getHubBackend, getOrUploadHubAsset, hubCatalog, hubPollBatch, hubSubmitJob } from './studiohub-client.js'
-import { isConnectionError } from './endpoint-pool.js'
 import { studioFetch } from './studio-auth.js'
 import type { VideoGenerationRequest, VideoGenerationResult } from '../providers/types.js'
 import type { VideoModelConfig } from '../models/types.js'
@@ -65,18 +64,23 @@ async function directCatalog(): Promise<any[]> {
 export async function getVideoStudioCatalog(force = false): Promise<VideoStudioCatalogResult> {
   if (!force && catalogCache && catalogCache.expiresAt > Date.now()) return catalogCache.value
   const hub = await getHubBackend()
-  let hubError = ''
-  if (hub.mode === 'hub' && hub.hubUrl) {
+  if (hub.mode === 'hub') {
+    if (!hub.hubUrl) {
+      const value = { source: 'unavailable' as const, models: {}, error: 'Studio Hub routing is selected, but no Studio Hub URL is configured' }
+      catalogCache = { expiresAt: Date.now() + 5_000, value }
+      return value
+    }
     try {
       const models = normalizeVideoStudioCatalog(await hubCatalog(hub.hubUrl, hub.hubToken, 'video', force))
-      if (Object.keys(models).length) {
-        const value = { source: 'hub' as const, models }
-        catalogCache = { expiresAt: Date.now() + CATALOG_TTL_MS, value }
-        return value
-      }
-      hubError = 'Studio Hub reported no ready image-to-video models'
+      const value: VideoStudioCatalogResult = Object.keys(models).length
+        ? { source: 'hub', models }
+        : { source: 'unavailable', models: {}, error: 'Studio Hub reported no ready image-to-video models' }
+      catalogCache = { expiresAt: Date.now() + CATALOG_TTL_MS, value }
+      return value
     } catch (error: any) {
-      hubError = error?.message || String(error)
+      const value = { source: 'unavailable' as const, models: {}, error: error?.message || String(error) }
+      catalogCache = { expiresAt: Date.now() + 5_000, value }
+      return value
     }
   }
   try {
@@ -88,7 +92,7 @@ export async function getVideoStudioCatalog(force = false): Promise<VideoStudioC
     return value
   } catch (error: any) {
     const detail = error?.message || String(error)
-    const value = { source: 'unavailable' as const, models: {}, error: [hubError, detail].filter(Boolean).join('; ') }
+    const value = { source: 'unavailable' as const, models: {}, error: detail }
     catalogCache = { expiresAt: Date.now() + 5_000, value }
     return value
   }
@@ -144,36 +148,31 @@ export async function generateViaVideoStudio(request: VideoGenerationRequest): P
   const repo = request.providerParams?.repo
   if (!repo) throw new Error('Video Studio model is missing its live catalog repository id.')
   const hub = await getHubBackend()
-  if (hub.mode === 'hub' && hub.hubUrl) {
+  if (hub.mode === 'hub') {
+    if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
     let submittedId = ''
-    try {
-      const assetId = await getOrUploadHubAsset(hub.hubUrl, hub.hubToken, request.startImagePath)
-      const reference = assetId
-        ? { asset_id: assetId }
-        : { b64: (await fs.readFile(request.startImagePath)).toString('base64') }
-      const defaults = request.providerParams?.video_defaults || {}
-      const submitted = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
-        modality: 'video', model: repo, label: 'storystudio-motion', routing: 'pool',
-        items: [{ prompt: request.prompt, params: {
-          reference_images: [reference], ref_mode: 'img2video',
-          aspect_ratio: request.aspectRatio === 'portrait' ? '9:16' : '16:9',
-          ...defaults,
-        } }],
-      })
-      submittedId = submitted.batch_id
-      const status = await hubPollBatch(hub.hubUrl, hub.hubToken, submittedId, {
-        isCancelled: request.isCancelled, timeoutMs: 60 * 60_000,
-      })
-      const item = status.items?.[0]
-      if (!item || item.state !== 'done' || !item.artifact_url) {
-        throw new Error(`Studio Hub video job ${submittedId} did not produce a clip: ${item?.error || item?.state || 'no result'}`)
-      }
-      return { videoUrls: [item.artifact_url], taskIds: [submittedId] }
-    } catch (error: any) {
-      // Never submit a duplicate paid provider task after the Hub accepted it.
-      if (submittedId || !isConnectionError(error)) throw error
-      console.warn(`[studiohub] Video Studio via Hub unreachable (${error?.message || error}); using direct fallback`)
+    const assetId = await getOrUploadHubAsset(hub.hubUrl, hub.hubToken, request.startImagePath)
+    const reference = assetId
+      ? { asset_id: assetId }
+      : { b64: (await fs.readFile(request.startImagePath)).toString('base64') }
+    const defaults = request.providerParams?.video_defaults || {}
+    const submitted = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+      modality: 'video', model: repo, label: 'storystudio-motion', routing: 'pool',
+      items: [{ prompt: request.prompt, params: {
+        reference_images: [reference], ref_mode: 'img2video',
+        aspect_ratio: request.aspectRatio === 'portrait' ? '9:16' : '16:9',
+        ...defaults,
+      } }],
+    })
+    submittedId = submitted.batch_id
+    const status = await hubPollBatch(hub.hubUrl, hub.hubToken, submittedId, {
+      isCancelled: request.isCancelled, timeoutMs: 60 * 60_000,
+    })
+    const item = status.items?.[0]
+    if (!item || item.state !== 'done' || !item.artifact_url) {
+      throw new Error(`Studio Hub video job ${submittedId} did not produce a clip: ${item?.error || item?.state || 'no result'}`)
     }
+    return { videoUrls: [item.artifact_url], taskIds: [submittedId] }
   }
   return submitDirect(request, repo)
 }

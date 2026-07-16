@@ -40,7 +40,7 @@ export async function cachedStudioFleetToken(): Promise<string> {
   return inflight
 }
 
-/** Authenticated fetch for direct Studio fallback traffic. */
+/** Authenticated fetch used only when Direct Studio URLs are selected. */
 export async function studioFetch(
   input: string | URL | Request,
   init: RequestInit = {},

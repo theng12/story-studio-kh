@@ -25,7 +25,7 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
-import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, isConnectionError, type Dispatcher } from '../lib/endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { getHubBackend } from '../lib/studiohub-client.js'
 import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
@@ -540,8 +540,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // batch so the Hub work-steals them across the WHOLE fleet. The per-scene
     // worker pool below is bounded by the direct endpoint list, which under-uses
     // the fleet in Hub mode; a shared reference uploads once (one asset_id).
-    // Results stream back per scene as they finish (poll-based, no webhook). On
-    // a connection error, fall back to the per-scene pool.
+    // Results stream back per scene as they finish (poll-based, no webhook).
+    // Hub mode is strict; failures preserve checkpoints and stop the job.
     let renderedViaBatch = false
     const hubBackend = await getHubBackend()
     if (hubBackend.mode === 'hub' && hubBackend.hubUrl && providerId === 'imagestudio' && toRender.length) {
@@ -594,15 +594,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         })
         renderedViaBatch = true
       } catch (e: any) {
-        if (!isConnectionError(e)) throw e
         inFlight.clear()
         done = successfulSceneIds.size
-        failedSceneIds.length = 0
         job.output_lines.push(
-          `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
-          `${toRender.length - successfulSceneIds.size} unverified scene(s); ${successfulSceneIds.size} checkpoint(s) kept.`,
+          `Studio Hub batch failed: ${e?.message || e}. ` +
+          `${successfulSceneIds.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
         )
         await pushStatus()
+        throw e
       }
     }
 

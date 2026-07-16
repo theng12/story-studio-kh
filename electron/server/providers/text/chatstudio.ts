@@ -21,7 +21,7 @@ import OpenAI from 'openai'
 import { registry } from '../registry.js'
 import { redactSecrets } from '../../lib/redact-secrets.js'
 import { chatstudioApiBase, getChatstudioDispatcher, healthCached, markHealthDown } from '../../lib/chatstudio-client.js'
-import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
+import { runOnPool } from '../../lib/endpoint-pool.js'
 import { getHubBackend, hubChatRootBase, hubHeaders } from '../../lib/studiohub-client.js'
 import type { TextProvider, TextGenerationRequest } from '../types.js'
 
@@ -112,10 +112,8 @@ const chatstudioProvider: TextProvider = {
         // SKIPPED for the Studio Hub gateway: it's a single always-on local
         // process, and its /v1/models probe aggregates chat models across the
         // WHOLE fleet (including offline Macs), so a cold first call can exceed
-        // the short probe window and be mis-read as "down" — causing a needless
-        // fallback to Direct on the very first request. A genuinely dead Hub
-        // instead surfaces as a fast connect error from the completion below,
-        // which still drives the fallback.
+        // the short probe window and be mis-read as "down". A genuinely dead Hub
+        // instead surfaces as a connection error from the completion below.
         if (!opts?.skipPreflight) {
           const probe = await healthCached(endpointUrl, CHATSTUDIO_PREFLIGHT_PROBE_MS)
           if (!probe.ok) {
@@ -217,23 +215,12 @@ const chatstudioProvider: TextProvider = {
       })
     }
 
-    // Studio Hub routing: when local_backend === 'hub', run the completion
-    // through the Hub's OpenAI-compatible chat gateway. On a CONNECTION error
-    // (Hub process down / unreachable) auto-fall-back to the direct pool — the
-    // Hub is an optimisation, never a hard dependency. A real content error
-    // (e.g. model not downloaded) surfaces as-is — the direct pool is the same
-    // fleet and couldn't run it either.
+    // Studio Hub routing is strict: Hub and Direct are explicit settings, so a
+    // Hub outage is reported and never starts duplicate direct work.
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
-      try {
-        return await runAgainst(hubChatRootBase(hub.hubUrl), hubHeaders(hub.hubToken), { skipPreflight: true })
-      } catch (err: any) {
-        if (!isConnectionError(err)) throw err
-        console.warn(
-          `[studiohub] chat via Hub unreachable (${err?.message || err}) — ` +
-          `falling back to the direct Chat Studio pool`,
-        )
-      }
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      return runAgainst(hubChatRootBase(hub.hubUrl), hubHeaders(hub.hubToken), { skipPreflight: true })
     }
     const { cachedStudioFleetToken } = await import('../../lib/studio-auth.js')
     const studioToken = await cachedStudioFleetToken()

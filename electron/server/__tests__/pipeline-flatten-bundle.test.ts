@@ -28,12 +28,13 @@ describe('flattenVideoAssemblyBundle', () => {
     const out = flattenVideoAssemblyBundle({}, 'EP0042', 'My Episode')
     assert.equal(out.episode_id, 'EP0042')
     assert.equal(out.title, 'My Episode')
+    assert.equal(out.render_target, 'remote', 'older presets keep the control Mac out of final rendering by default')
   })
 
   test('flattens export slot fields to top level', () => {
     const out = flattenVideoAssemblyBundle(
       bundle({
-        export: { resolution: '1920x1080', quality: 'high', fps: 30, codec: 'h264', format: 'mp4' },
+        export: { resolution: '1920x1080', quality: 'high', fps: 30, codec: 'h264', format: 'mp4', render_target: 'local' },
       }),
       'EP0001',
       '',
@@ -43,6 +44,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.fps, 30)
     assert.equal(out.codec, 'h264')
     assert.equal(out.format, 'mp4')
+    assert.equal(out.render_target, 'local')
   })
 
   test('flattens timeline slot — scene_recycling, duration, transition, scene_animation', () => {
@@ -297,13 +299,14 @@ describe('flattenVideoAssemblyBundle', () => {
       assert.equal(out.video_layout, 'compilation')
     })
 
-    test('empty bundle data still returns just episode_id + title (no false legacy detection)', () => {
+    test('empty bundle data uses the safe remote render default without false legacy detection', () => {
       const out = flattenVideoAssemblyBundle({}, 'EP0042', 'Empty')
       assert.equal(out.episode_id, 'EP0042')
       assert.equal(out.title, 'Empty')
+      assert.equal(out.render_target, 'remote')
       // Should NOT have triggered legacy passthrough — bundle was empty,
-      // not legacy.
-      assert.equal(Object.keys(out).length, 2)
+      // not legacy; only the routing safety default was applied.
+      assert.equal(Object.keys(out).length, 3)
     })
 
     test('bundle with `fallback` ignores legacy passthrough even if top-level looks flat', () => {

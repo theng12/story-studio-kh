@@ -318,12 +318,32 @@ export function unregisteredJobTypes(): JobType[] {
 // of them COMBINED (not per-type). 1 = the old fully-serial behaviour.
 const LLM_GROUP = 'llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
+const REMOTE_RENDER_GROUP = 'remote_render'
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
 ])
 /** Which concurrency group a type belongs to: the shared LLM group, or its
  *  own singleton group (= the type name) so non-LLM types keep one slot. */
-function groupOf(type: JobType): string {
+/** Remote final renders upload a complete recipe, then execute independently
+ * on Render Studio Macs. Let the Hub schedule several episodes at once while
+ * preserving serial safety for the local FFmpeg renderer. */
+const REMOTE_RENDER_CONCURRENCY = 4
+
+function usesRemoteRender(job: Job | undefined): boolean {
+  if (job?.type !== 'video_assembly') return false
+  // New jobs persist the export preset's choice. Legacy jobs without a
+  // target become remote by default so the control-centre Mac is not silently
+  // recruited as a worker after an update.
+  if (job.params?.render_target === 'local') return false
+  if (job.params?.render_target === 'remote') return true
+  if (Object.prototype.hasOwnProperty.call(job.params || {}, 'remote_render_requested')) {
+    return job.params?.remote_render_requested === true
+  }
+  return true
+}
+
+function groupOf(type: JobType, job?: Job): string {
+  if (usesRemoteRender(job)) return REMOTE_RENDER_GROUP
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
 }
@@ -350,6 +370,7 @@ export function getSubtitleTranscribeConcurrency(): number {
 function groupLimit(group: string): number {
   if (group === LLM_GROUP) return llmConcurrency
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
+  if (group === REMOTE_RENDER_GROUP) return REMOTE_RENDER_CONCURRENCY
   return 1
 }
 
@@ -459,14 +480,26 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 function pump(type: JobType): void {
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
-  const group = groupOf(type)
-  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+  const next = q.pending[0]
+  const group = groupOf(type, next)
+  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
+    // A local final render owns this queue alone. Remote final renders have
+    // their own bounded group because their FFmpeg work happens off this Mac.
+    if (group === REMOTE_RENDER_GROUP && q.running) return
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
+      if (groupOf(type, q.pending[0]) !== group) break
       const job = q.pending.shift()!
+      // Keep release/cancellation in the same lane even if Settings changes
+      // while this remote batch is running.
+      if (group === REMOTE_RENDER_GROUP) {
+        job.params.render_target = 'remote'
+        job.params.remote_render_requested = true
+      }
       groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
     }
   } else {
+    if (type === 'video_assembly' && (groupActive[REMOTE_RENDER_GROUP] || 0) > 0) return
     if (q.running || q.pending.length === 0) return
     q.running = true
     const job = q.pending.shift()!
@@ -479,12 +512,13 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
+  else if (group === REMOTE_RENDER_GROUP) pump('video_assembly')
 }
 
 /** Release the slot a finished job held, then pull in the next work. */
-function releaseSlot(type: JobType): void {
-  const group = groupOf(type)
-  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+function releaseSlot(type: JobType, job: Job): void {
+  const group = groupOf(type, job)
+  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     pumpGroup(group)
   } else {
@@ -715,7 +749,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     await persistJob(job)
     emitUpdate(job)
   } finally {
-    releaseSlot(type)
+    releaseSlot(type, job)
   }
 }
 

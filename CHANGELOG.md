@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.632 — 2026-07-16
+
+**Video Assembly now treats this Mac as the control centre by default.**
+
+- Added a saved Render location choice to every Video Assembly export preset: `Remote Render Studio fleet` or `This Mac`.
+- Made Remote strict: final-video jobs exclude the Hub Mac and wait for an external Render Studio worker instead of silently falling back to local rendering.
+- Allow up to four remote final-video jobs to submit at once, while explicit local renders remain safely serial.
+- Added live remote worker name and percentage progress to the Story Studio job log and a Render queue in Studio Hub Jobs.
+- Older export presets now heal to the remote control-centre route unless they explicitly selected local rendering.
+
+**Studio routing is now explicit and Voice Studio fleet jobs are reliable.**
+
+- Local generation now uses exactly the route selected in Settings: `Studio Hub only` or `Direct Studio URLs only`. A Hub outage reports a failure instead of silently starting direct work.
+- Fixed Voice Studio audio downloads to use Studio Hub's authenticated artifact gateway, preventing completed Hub jobs from failing with worker `401` errors.
+- Fixed Hub-routed TTS concurrency so Story Studio submits the configured number of sections and lets Studio Hub distribute them across available Voice Studio Macs.
+
+---
+
 ## v1.0.631 — 2026-07-16
 
 **Research presets and dashboard readiness are clearer and more consistent.**

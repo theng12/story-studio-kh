@@ -24,7 +24,7 @@ import {
   DEFAULT_IMAGESTUDIO_BASE_URL, getImagestudioDispatcher, health as imgHealth,
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
-import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
+import { runOnPool } from '../../lib/endpoint-pool.js'
 import { getHubBackend, hubSubmitJob, hubPollBatch, hubBatchArtifactUrl, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem } from '../../lib/studiohub-client.js'
 import { promises as fsp } from 'fs'
 
@@ -282,12 +282,11 @@ const imagestudioImageProvider: ImageProvider = {
     // (img2img / edit) are supported — a reference image rides along as base64
     // in params.reference_images (Phase 2b; the Hub decodes + forwards it to the
     // studio's img2img/edit and infers the mode from the model's capabilities).
-    // On a CONNECTION error the Hub attempt falls back to the direct pool below —
-    // the Hub is an optimisation, never a hard dependency. A real job error (bad
-    // model, generation failure, non-img2img model) surfaces as-is.
+    // Hub and Direct are explicit, mutually exclusive settings. A Hub failure
+    // surfaces as-is and never starts duplicate work against the direct pool.
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
-      try {
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
         // Submit a 1-item batch. For a reference-guided render, buildHubImageItem
         // prefers an UPLOADED asset_id (upload-once — the same character sheet is
         // reused across a whole render, so we don't re-base64 it per scene) and
@@ -315,14 +314,7 @@ const imagestudioImageProvider: ImageProvider = {
             `${governor ? ` (${governor})` : ''}`,
           )
         }
-        return { urls: [hubBatchArtifactUrl(hub.hubUrl, batchId, item.index)], taskId: batchId }
-      } catch (e: any) {
-        if (!isConnectionError(e)) throw e
-        console.warn(
-          `[studiohub] image via Hub unreachable (${e?.message || e}) — ` +
-          `falling back to the direct Image Studio pool`,
-        )
-      }
+      return { urls: [hubBatchArtifactUrl(hub.hubUrl, batchId, item.index)], taskId: batchId }
     }
 
     // Submit + poll on a SINGLE pooled endpoint. runOnPool picks least-busy and,

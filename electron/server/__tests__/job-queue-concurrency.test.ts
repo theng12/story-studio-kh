@@ -164,4 +164,36 @@ describe('LLM-group concurrency', () => {
     await settle()
     assert.equal(b.peak, 3)
   })
+
+  test('remote final renders submit several episodes to Render Studio workers', async () => {
+    const proj = await pm.createProject({ name: 'JQCC6' })
+    const b = makeBlocker()
+    jq.registerExecutor('video_assembly', b.executor)
+    for (const ep of ['EP001', 'EP002', 'EP003', 'EP004', 'EP005']) {
+      jq.enqueue({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: { render_target: 'remote' } })
+    }
+    await waitFor(() => b.active === 4)
+    assert.equal(b.peak, 4, 'four remote assemblies may submit to different Render Studio workers')
+    b.releases.splice(0, 4).forEach(release => release())
+    await waitFor(() => b.done === 4 && b.active === 1)
+    b.releases.shift()!()
+    await waitFor(() => b.done === 5)
+  })
+
+  test('an explicit This Mac final-render preset stays serial', async () => {
+    const proj = await pm.createProject({ name: 'JQCC7' })
+    const b = makeBlocker()
+    jq.registerExecutor('video_assembly', b.executor)
+    for (const ep of ['EP001', 'EP002']) {
+      jq.enqueue({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: { render_target: 'local' } })
+    }
+    await waitFor(() => b.active === 1)
+    await settle()
+    assert.equal(b.peak, 1, 'the control Mac owns only one explicit local final render')
+    b.releases.shift()!()
+    await waitFor(() => b.done === 1 && b.active === 1)
+    b.releases.shift()!()
+    await waitFor(() => b.done === 2)
+    assert.equal(b.peak, 1)
+  })
 })

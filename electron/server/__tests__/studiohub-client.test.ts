@@ -190,11 +190,10 @@ describe('Hub shared voice inventory', () => {
   })
 })
 
-describe('hubSubmitJob fallback contract', () => {
-  // A DOWN Hub must throw a message that endpoint-pool's isConnectionError()
-  // recognises — that's what makes the image/chat providers fall back to the
-  // direct pool instead of failing the job. (Uses a refused local port.)
-  test('a dead Hub throws a connection-error the providers fall back on', async () => {
+describe('hubSubmitJob strict transport contract', () => {
+  // A DOWN Hub must throw a clearly classified connection error. Providers
+  // report it and keep the configured Hub route; they do not switch to Direct.
+  test('a dead Hub throws a classified connection error', async () => {
     let err: any
     try {
       await hubSubmitJob('http://127.0.0.1:1', undefined, {
@@ -311,7 +310,7 @@ describe('durable Hub Chat packs', () => {
     }
   })
 
-  test('a dead Hub Chat queue preserves direct-fallback wording', async () => {
+  test('a dead Hub Chat queue reports a strict Hub connection failure', async () => {
     await assert.rejects(
       () => hubSubmitChatPacks('http://127.0.0.1:1', undefined, {
         model: 'repo/model', kind: 'motion',

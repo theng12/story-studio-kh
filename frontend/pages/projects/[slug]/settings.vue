@@ -1463,7 +1463,7 @@
         </div>
         <div class="local-models-state">
           <span class="pool-dot" :class="localBackend === 'hub' && hubOnline ? 'on' : 'off'" />
-          <span>{{ localBackend === 'hub' ? (hubOnline ? 'Hub online' : 'Hub fallback active') : 'Direct routing' }}</span>
+          <span>{{ localBackend === 'hub' ? (hubOnline ? 'Hub online' : 'Hub unavailable') : 'Direct routing' }}</span>
         </div>
       </header>
 
@@ -1553,11 +1553,11 @@
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
           <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:12.5px;">
             <input type="radio" value="direct" v-model="localBackend" @change="saveLocalBackend" style="margin-top:3px;" />
-            <span><strong>Direct</strong> — talk to each Studio Mac directly (the endpoint pools below).</span>
+            <span><strong>Direct Studio URLs</strong> — use only the endpoint pools configured below.</span>
           </label>
           <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:12.5px;">
             <input type="radio" value="hub" v-model="localBackend" @change="saveLocalBackend" style="margin-top:3px;" />
-            <span><strong>Studio Hub</strong> — route through one control-plane that delegates across your whole fleet.</span>
+            <span><strong>Studio Hub</strong> — use only the Hub control-plane, which delegates across your whole fleet.</span>
           </label>
         </div>
         <div v-if="localBackend === 'hub'" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
@@ -1612,12 +1612,12 @@
           <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:12px; padding:10px; border:1px solid var(--border); border-radius:8px;">
             <input v-model="renderWorkersEnabled" type="checkbox" @change="saveLocalBackend" style="margin-top:3px;" />
             <span style="font-size:12px; line-height:1.5;">
-              <strong>Use Render Studio workers for final videos</strong><br />
-              <span class="text-muted">Off by default for safe rollout. Timestamp assemblies use an available worker; transitions and unavailable workers continue using this Mac.</span>
+              <strong>Make Render Studio fleet available</strong><br />
+              <span class="text-muted">Each Video Assembly export preset chooses Remote fleet or This Mac. Remote is strict: if no remote worker is online, the job stops clearly and never silently renders on this Mac.</span>
             </span>
           </label>
           <p class="hub-routing-note">
-            <strong>Hub route active.</strong> Image, voice, chat, video, and render work goes to Studio Hub first. Direct Studio URLs are used only as an emergency fallback when the Hub itself cannot be reached, never when an individual Hub worker reports an error.
+            <strong>Strict Hub route active.</strong> Image, voice, chat, video, transcription, and render work use Studio Hub only. If the Hub cannot be reached, the job reports a failure; Story Studio never switches to a direct Studio URL automatically.
           </p>
 
           <!-- Fleet control (ops): start / stop / restart studios via the Hub -->
@@ -5094,7 +5094,7 @@ const videoModelSource = ref<'hub' | 'direct' | 'compatibility'>('compatibility'
 const refreshingVideoModels = ref(false)
 const videoModelSourceLabel = computed(() => videoModelSource.value === 'hub'
   ? 'Studio Hub'
-  : videoModelSource.value === 'direct' ? 'Video Studio direct fallback' : 'saved compatibility data')
+  : videoModelSource.value === 'direct' ? 'Direct Video Studio URL' : 'saved compatibility data')
 const editVoices = ref<SavedVoice[]>([])
 const voiceProviderFilter = ref<'all' | VoiceProviderId>('all')
 const voiceSort = ref<'provider' | 'name-asc' | 'name-desc'>('provider')
@@ -5335,8 +5335,7 @@ async function checkLocalServers() {
 }
 
 // ── Local generation backend (Direct pools | Studio Hub) — v1.0.528 ─────────
-// Per-machine toggle. In Hub mode the local providers route generation through
-// Studio Hub KH, which auto-falls-back to the Direct pools when unreachable.
+// Per-machine, strict transport choice. Hub mode never falls back to Direct.
 type LocalBackendInfo = {
   local_backend: 'direct' | 'hub'
   hub_url: string

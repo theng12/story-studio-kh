@@ -589,42 +589,40 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     let usedHub = false
     if (model.startsWith('chatstudio:')) {
       const hub = await getHubBackend()
-      if (hub.mode === 'hub' && hub.hubUrl) {
-        try {
-          const submitted = await hubSubmitChatPacks(hub.hubUrl, hub.hubToken, {
-            model: rawModel,
-            model_cost_tier: promptCostTier,
-            kind: isMotion ? 'motion' : 'visual',
-            label: `${episode_id} ${stage} prompts`,
-            project: job.project_slug,
-            episode: episode_id,
-            packs,
-          })
-          if (isMotion) plan.motion_prompt_batch_id = submitted.batch_id
-          else plan.visual_prompt_batch_id = submitted.batch_id
-          await withLock(outPath, async () => {
-            const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-            if (isMotion) fresh.motion_prompt_batch_id = submitted.batch_id
-            else fresh.visual_prompt_batch_id = submitted.batch_id
-            await writeJsonAtomic(outPath, fresh)
-            syncMemoryPlan(fresh)
-          })
-          job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to ${promptPackSize} scenes per Chat Studio.`)
-          const finalStatus = await hubPollChatPacks(hub.hubUrl, hub.hubToken, submitted.batch_id, {
-            isCancelled: () => isCancelled(job.job_id),
-            onProgress: persistHubResults,
-          })
-          await persistHubResults(finalStatus)
-          usedHub = true
-          if (finalStatus.completed_scenes < finalStatus.total_scenes) {
-            job.output_lines.push(
-              `Hub batch ${submitted.batch_id} reported ${finalStatus.completed_scenes}/${finalStatus.total_scenes} complete. `
-              + 'Checking the saved scene plan now; Retry will submit only the missing scene IDs.',
-            )
-          }
-        } catch (e: any) {
-          if (!/Connection error|Can't reach Studio Hub/i.test(String(e?.message || e))) throw e
-          job.output_lines.push(`Studio Hub unavailable — using the direct Chat Studio pool fallback. (${e?.message || e})`)
+      if (hub.mode === 'hub') {
+        if (!hub.hubUrl) {
+          throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
+        }
+        const submitted = await hubSubmitChatPacks(hub.hubUrl, hub.hubToken, {
+          model: rawModel,
+          model_cost_tier: promptCostTier,
+          kind: isMotion ? 'motion' : 'visual',
+          label: `${episode_id} ${stage} prompts`,
+          project: job.project_slug,
+          episode: episode_id,
+          packs,
+        })
+        if (isMotion) plan.motion_prompt_batch_id = submitted.batch_id
+        else plan.visual_prompt_batch_id = submitted.batch_id
+        await withLock(outPath, async () => {
+          const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+          if (isMotion) fresh.motion_prompt_batch_id = submitted.batch_id
+          else fresh.visual_prompt_batch_id = submitted.batch_id
+          await writeJsonAtomic(outPath, fresh)
+          syncMemoryPlan(fresh)
+        })
+        job.output_lines.push(`Studio Hub batch ${submitted.batch_id}: ${submitted.packs} pack(s), up to ${promptPackSize} scenes per Chat Studio.`)
+        const finalStatus = await hubPollChatPacks(hub.hubUrl, hub.hubToken, submitted.batch_id, {
+          isCancelled: () => isCancelled(job.job_id),
+          onProgress: persistHubResults,
+        })
+        await persistHubResults(finalStatus)
+        usedHub = true
+        if (finalStatus.completed_scenes < finalStatus.total_scenes) {
+          job.output_lines.push(
+            `Hub batch ${submitted.batch_id} reported ${finalStatus.completed_scenes}/${finalStatus.total_scenes} complete. `
+            + 'Checking the saved scene plan now; Retry will submit only the missing scene IDs.',
+          )
         }
       }
     }
@@ -633,20 +631,19 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const [a, o, k] = await Promise.all([
         getApiKey('anthropic').catch(() => ''), getApiKey('openai').catch(() => ''), getApiKey('kie').catch(() => ''),
       ])
-      // A Hub outage can happen after some results have already checkpointed.
-      // Direct fallback must continue only the still-missing scenes.
+      // Resumed Direct-mode work must continue only the still-missing scenes.
       const indices = targets
         .filter(({ scene }) => !durableTargetIds.has(scene.id))
         .map(t => t.index)
       const apiKeys = { anthropic_api_key: a, openai_api_key: o, kie_api_key: k }
       const isDirectCloud = !model.startsWith('chatstudio:')
       if (isDirectCloud) {
-        job.output_lines.push(`Studio Hub has no direct worker route for ${model}; processing ${packs.length} adaptive cloud pack(s) through the configured provider.`)
+        job.output_lines.push(`Processing ${packs.length} adaptive cloud pack(s) through the configured provider (${model}).`)
         const incompletePacks: string[] = []
         for (const pack of packs) {
           if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
-          // A connection fallback or a resumed run may already have made some
-          // rows durable. Never submit or count those rows again.
+          // A resumed run may already have made some rows durable. Never submit
+          // or count those rows again.
           const saved = new Set(pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)))
           let lastError = ''
           const maxPackAttempts = isLocalTextModel(model) ? 3 : 1

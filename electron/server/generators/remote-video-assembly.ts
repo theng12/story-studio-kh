@@ -19,6 +19,7 @@ import {
   hubApiBase,
   hubDeleteRenderAsset,
   hubDownloadRenderResult,
+  hubHealth,
   hubHeaders,
   hubPollBatch,
   hubStudios,
@@ -145,15 +146,18 @@ export function remoteVideoAssemblyFallbackReasons(req: GenerateVideoRequest): s
 /** Run the full unified Video Assembly on Render Studio. Every external file
  * becomes a checksummed Hub asset; workers only receive confined placeholders. */
 export async function tryRunRemoteVideoAssembly(job: Job): Promise<boolean> {
-  if (!await getRenderWorkersEnabled()) {
-    job.output_lines.push('Render Studio: disabled in Settings; using this Mac.')
+  const renderTarget = job.params?.render_target === 'local' ? 'local' : 'remote'
+  if (renderTarget === 'local') {
+    job.output_lines.push('Render target: This Mac (selected in the Video Assembly export preset).')
     return false
+  }
+  if (!await getRenderWorkersEnabled()) {
+    throw new Error('Remote Render Studio is disabled in Settings. Re-enable the fleet connection or use a local-render export preset; this Mac was not used automatically.')
   }
   const req = job.params as GenerateVideoRequest
   const reasons = remoteVideoAssemblyFallbackReasons(req)
   if (reasons.length) {
-    job.output_lines.push(`Render Studio fallback: using this Mac because the worker recipe does not yet support ${reasons.join(', ')}.`)
-    return false
+    throw new Error(`Remote Render Studio cannot start because ${reasons.join(', ')}. Local rendering was not used.`)
   }
   const adapted: Params = {
     episode_id: req.episode_id,
@@ -200,6 +204,25 @@ export async function tryRunRemoteVideoAssembly(job: Job): Promise<boolean> {
 
 const QUALITY_TO_CRF: Record<string, number> = { compact: 32, fast: 28, medium: 23, high: 18 }
 
+const REMOTE_RENDER_ROUTING_MIN_HUB_VERSION = [1, 42, 2] as const
+
+/**
+ * Remote-only final rendering depends on Studio Hub understanding
+ * `routing: "remote"`. Older Hubs accepted the field but treated the local Hub
+ * Mac as eligible, which defeats an explicit remote preset.
+ */
+export function hubSupportsRemoteRenderRouting(version: string | undefined): boolean {
+  const match = String(version || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)/)
+  if (!match) return false
+  const current = match.slice(1).map(Number)
+  for (let index = 0; index < REMOTE_RENDER_ROUTING_MIN_HUB_VERSION.length; index += 1) {
+    const expected = REMOTE_RENDER_ROUTING_MIN_HUB_VERSION[index]!
+    const actual = current[index]!
+    if (actual !== expected) return actual > expected
+  }
+  return true
+}
+
 async function validateMainCopy(filePath: string, expectedDuration: number): Promise<void> {
   const ffprobe = await getFFprobePath()
   await new Promise<void>((resolve, reject) => {
@@ -236,27 +259,43 @@ async function validateMainCopy(filePath: string, expectedDuration: number): Pro
 }
 
 /**
- * Offload unified Video Assembly when a healthy render worker is available.
- * Returns false before any transfer starts when local assembly should be used.
+ * Offload unified Video Assembly to a remote Render Studio worker. When the
+ * operator opted into render workers, unsafe local fallback is never allowed.
  */
 async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean> {
   const episodeId = params.episode_id
   if (!episodeId) return false
-  if (!await getRenderWorkersEnabled()) return false
+  if (!await getRenderWorkersEnabled()) {
+    throw new Error('Remote Render Studio was disabled while this remote job was starting. Re-enable it and retry; local rendering was not used.')
+  }
   const backend = await getHubBackend()
   if (backend.mode !== 'hub' || !backend.hubUrl) {
-    job.output_lines.push('Render Studio: Studio Hub is not the active backend; using this Mac.')
-    return false
+    throw new Error('Remote Render Studio is enabled, but Studio Hub is not the active backend. Select Studio Hub in Settings; local rendering was not used.')
   }
   try {
-    const studios = await hubStudios(backend.hubUrl, backend.hubToken)
-    if (!studios.some(studio => studio.modality === 'render' && studio.status === 'up')) {
-      job.output_lines.push('Render Studio: no online render worker is available; using this Mac.')
-      return false
+    const health = await hubHealth(backend.hubUrl)
+    if (!health.ok) {
+      throw new Error(`Studio Hub is unavailable: ${health.error || 'health check failed'}`)
     }
+    if (!hubSupportsRemoteRenderRouting(health.appVersion)) {
+      throw new Error(
+        `Studio Hub v1.42.2 or newer is required for a Remote Render Studio preset ` +
+        `(found ${health.appVersion || 'an unknown version'}). Update Studio Hub, then retry; this Mac was not used.`,
+      )
+    }
+    const studios = await hubStudios(backend.hubUrl, backend.hubToken)
+    const remoteWorkers = studios.filter(studio => (
+      studio.modality === 'render'
+      && studio.status === 'up'
+      && studio.machine
+      && studio.machine !== 'local'
+    ))
+    if (!remoteWorkers.length) {
+      throw new Error('No remote Render Studio worker is online. Start a remote Render Studio in Studio Hub and retry; this Mac was intentionally excluded.')
+    }
+    job.output_lines.push(`Render Studio: ${remoteWorkers.length} remote worker(s) online. This Mac is excluded for this final render.`)
   } catch (error: any) {
-    job.output_lines.push(`Render Studio: Studio Hub worker check failed (${error?.message || error}); using this Mac.`)
-    return false
+    throw new Error(`Render Studio remote-worker check failed: ${error?.message || error}. Local rendering was not used.`)
   }
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
@@ -895,18 +934,30 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     job.output_lines.push(`Render Studio: queued ${plan.scenes.length} scenes (${width}x${height} @ ${fps}fps).`)
     const submittedJob = await hubSubmitJob(backend.hubUrl, backend.hubToken, {
       modality: 'render', model: 'episode-assembly-v1', label: `story-video-assembly:${episodeId}`,
+      routing: 'remote',
       items: [{ prompt: episodeId, params: {
         workflow: 'video_assembly',
         recipe: { version: 1, output_extension: renderFormat, assets, files: [...recipeFiles, { name: 'scenes.txt', content: concat }], steps },
       } }],
     })
     submitted = true
+    const progressLine = job.output_lines.push(
+      `Studio Hub: remote render batch ${submittedJob.batch_id} accepted; waiting for a remote Render Studio worker.`,
+    ) - 1
     const status = await hubPollBatch(backend.hubUrl, backend.hubToken, submittedJob.batch_id, {
       timeoutMs: 12 * 60 * 60_000,
       isCancelled: () => isCancelled(job.job_id),
       onProgress: value => {
         const item = value.items?.[0]
-        if (item?.state === 'running') job.output_lines[job.output_lines.length - 1] = 'Render Studio: rendering locally on worker...'
+        if (!item) return
+        if (item.state === 'running') {
+          const worker = item.machine || (item.studio?.includes('@') ? item.studio.split('@')[1] : item.studio) || 'remote worker'
+          const pct = typeof item.progress === 'number' ? Math.round(Math.max(0, Math.min(1, item.progress)) * 100) : null
+          if (pct != null) job.progress = Math.max(1, Math.min(99, pct))
+          job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} via Studio Hub (batch ${submittedJob.batch_id}).`
+        } else if (item.state === 'queued') {
+          job.output_lines[progressLine] = `Studio Hub: batch ${submittedJob.batch_id} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
+        }
       },
     })
     terminal = true
@@ -930,7 +981,9 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     job.output_dir = finalDir
     const stat = await fs.stat(outPath)
     if (!stat.isFile() || stat.size <= 0) throw new Error('Verified render download is empty.')
-    job.output_lines.push(`Done via Render Studio -> ${path.basename(outPath)} (${(stat.size / 1024 / 1024).toFixed(1)} MB, ${result.encoder || 'verified encoder'})`)
+    const worker = result.machine || (result.studio?.includes('@') ? result.studio.split('@')[1] : result.studio) || 'remote worker'
+    job.progress = 100
+    job.output_lines.push(`Done via Render Studio on ${worker} -> ${path.basename(outPath)} (${(stat.size / 1024 / 1024).toFixed(1)} MB, ${result.encoder || 'verified encoder'})`)
     return true
   } finally {
     // Assets are safe to remove from Hub only after a terminal worker result.

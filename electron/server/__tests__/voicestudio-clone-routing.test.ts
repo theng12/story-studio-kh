@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
+import fs from 'fs/promises'
 import http from 'node:http'
+import os from 'os'
+import path from 'path'
 import { describe, test } from 'node:test'
 import { pollJob } from '../lib/voicestudio-client.js'
 import {
   buildVoiceStudioParams,
   canRouteVoiceThroughHub,
+  downloadHubArtifactToFile,
 } from '../providers/audio/voicestudio.js'
 import { engineForModelId, modelShipsVoicepack } from '../lib/voicestudio-client.js'
 
@@ -46,6 +50,36 @@ describe('Voice Studio Qwen3 clone routing', () => {
 
     assert.equal(params.voice_library_id, '074743daa991')
     assert.equal(canRouteVoiceThroughHub(params, selectedVoice), true)
+  })
+
+  test('downloads completed audio through the authenticated Hub gateway', async () => {
+    let requestedPath = ''
+    let token = ''
+    const server = http.createServer((req, res) => {
+      requestedPath = req.url || ''
+      token = String(req.headers['x-hub-token'] || '')
+      res.setHeader('Content-Type', 'audio/wav')
+      res.end(Buffer.from('test-audio'))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const outPath = path.join(os.tmpdir(), `story-studio-hub-audio-${Date.now()}.wav`)
+    try {
+      const address = server.address()
+      assert.ok(address && typeof address === 'object')
+      await downloadHubArtifactToFile(
+        `http://127.0.0.1:${address.port}`,
+        'fleet-access',
+        'batch 123',
+        0,
+        outPath,
+      )
+      assert.equal(requestedPath, '/api/hub/jobs/batch%20123/items/0/artifact')
+      assert.equal(token, 'fleet-access')
+      assert.equal(await fs.readFile(outPath, 'utf8'), 'test-audio')
+    } finally {
+      await fs.rm(outPath, { force: true })
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    }
   })
 
   test('uses Voice Studio audited Qwen long-form chunk guidance', () => {

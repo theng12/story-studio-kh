@@ -5,8 +5,8 @@
  * When `local_backend === 'hub'` (App Settings → Local Models), the local
  * providers route generation through the Hub instead of hitting each Mac
  * directly, and the Hub delegates to a least-busy / capability-matched studio.
- * A Hub failure AUTO-FALLS-BACK to the direct pool (see each provider), so the
- * Hub is an optimisation, never a hard single point of failure.
+ * Hub and Direct are explicit, mutually exclusive settings. A Hub failure is
+ * reported to the user and never silently starts work through a direct URL.
  *
  * Auth: `X-Hub-Token` header. Loopback (127.0.0.1 / localhost) is token-exempt
  * on the Hub, so when Story Studio runs ON the Hub machine the token is unused
@@ -281,7 +281,7 @@ export interface HubSubmitBody {
   modality: 'image' | 'voice' | 'music' | 'video' | 'render'
   model: string
   label?: string
-  /** 'pool' (Hub picks least-busy capable studio) | 'studio:<id>'. */
+  /** 'pool' (Hub picks a capable studio) | 'remote' (never Hub Mac) | 'studio:<id>'. */
   routing?: string
   sharedParams?: Record<string, any>
   items: HubJobItem[]
@@ -298,6 +298,10 @@ export interface HubBatchItemResult {
   sha256?: string
   bytes?: number
   encoder?: string
+  /** Live worker identity and progress, supplied while a Hub item is running. */
+  machine?: string
+  progress?: number | null
+  run_started?: number
   error?: string | null
 }
 
@@ -309,6 +313,8 @@ export interface HubBatchStatus {
   done?: number
   error?: number
   cancelled?: boolean
+  /** The Hub route used for this batch, including remote-only final renders. */
+  routing?: string
   governor_note?: string
   items: HubBatchItemResult[]
 }
@@ -372,9 +378,9 @@ export async function hubCancelBatch(
 }
 
 /**
- * Submit a batch to the Hub. Returns `{ batch_id }`. A connection error phrasing
- * ("Connection error") lets the caller's isConnectionError() drive fallback to
- * the direct pool; a non-connection error (bad model, etc.) surfaces as-is.
+ * Submit a batch to the Hub. Returns `{ batch_id }`. Connection failures use
+ * clear phrasing for diagnostics and retry classification; they never switch
+ * the configured transport.
  */
 export async function hubSubmitJob(
   hubUrl: string,
@@ -406,7 +412,7 @@ export async function hubSubmitJob(
 /**
  * Poll a batch until every item is terminal (queued + running == 0). Returns
  * the final status. Cancels the batch on isCancelled. A connection error while
- * polling is phrased so the caller can fall back to the direct pool.
+ * polling is retried against the same accepted Hub batch to avoid duplicates.
  */
 export async function hubPollBatch(
   hubUrl: string,
@@ -444,7 +450,7 @@ export async function hubPollBatch(
       }
       throw new Error(
         `Studio Hub accepted batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
-        'Direct fallback was not started because the Hub batch may still be running.',
+        'No alternate transport was started because the Hub batch may still be running.',
       )
     }
     if (!resp.ok) {
@@ -609,7 +615,7 @@ export async function hubPollChatPacks(
       }
       throw new Error(
         `Studio Hub accepted Chat batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
-        'Direct fallback was not started because the Hub batch may still be running.',
+        'No alternate transport was started because the Hub batch may still be running.',
       )
     }
     if (!resp.ok) {
@@ -916,8 +922,8 @@ export async function hubFleetStatus(
 
 /**
  * Liveness probe for the Hub itself (`GET /api/health`, token-exempt). Never
- * throws — returns `{ ok:false, error }`. Used to decide Hub-vs-direct fallback
- * and to power the Settings "Hub online" indicator.
+ * throws — returns `{ ok:false, error }`. Powers the Settings "Hub online"
+ * indicator without changing the selected routing mode.
  */
 export async function hubHealth(hubUrl: string, timeoutMs = 4000): Promise<HubHealth> {
   const base = trimHubUrl(hubUrl)

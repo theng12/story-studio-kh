@@ -1287,6 +1287,13 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
     return res.status(409).json({ detail: `Video assembly already queued/running for ${episode_id}` })
   }
 
+  // The Video Assembly export preset owns the render location. Default old
+  // presets to the fleet so the main Mac remains a control centre; choosing
+  // `local` is always an explicit, saved preset decision.
+  req.body.render_target = req.body.render_target === 'local' ? 'local' : 'remote'
+  // Kept on the job as a compatibility marker for jobs saved by older builds.
+  req.body.remote_render_requested = req.body.render_target === 'remote'
+
   const job = enqueue({
     project_slug: slug,
     type: 'video_assembly',

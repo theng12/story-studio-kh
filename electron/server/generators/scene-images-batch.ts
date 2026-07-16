@@ -22,7 +22,6 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { resolveSceneImagesDir } from './scene-image.js'
 import { getHubBackend } from '../lib/studiohub-client.js'
 import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
-import { isConnectionError } from '../lib/endpoint-pool.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
@@ -154,12 +153,11 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
       })
       batched = true
     } catch (e: any) {
-      if (!isConnectionError(e)) throw e
-      done = successfulSceneIds.size; failed = 0; failedSceneIds.clear()
       job.output_lines.push(
-        `Studio Hub batch unreachable (${e?.message || e}) — falling back for ` +
-        `${targets.length - successfulSceneIds.size} unverified scene(s); ${successfulSceneIds.size} checkpoint(s) kept.`,
+        `Studio Hub batch failed: ${e?.message || e}. ` +
+        `${successfulSceneIds.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
       )
+      throw e
     }
   }
 

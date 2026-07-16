@@ -530,6 +530,8 @@ export async function generateImages(job: Job): Promise<void> {
   let dispatcher: Dispatcher | null = null
   let poolEndpoints: string[] = []
   let lastHealthyPool = new Set<string>()
+  const imageRouting = isLocalProvider ? await getHubBackend() : null
+  const isHubImageProvider = imageRouting?.mode === 'hub'
   // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
   // but the user may run a POOL of Macs. The old code hard-clamped local
   // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a
@@ -538,7 +540,7 @@ export async function generateImages(job: Job): Promise<void> {
   // run concurrently, and the provider's least-busy dispatcher spreads the work.
   // A single endpoint stays at concurrency 1, exactly as before.
   let concurrency = baseConcurrency
-  if (isLocalProvider) {
+  if (isLocalProvider && !isHubImageProvider) {
     const { health: imgHealth } = await import('../lib/imagestudio-client.js')
     poolEndpoints = parseEnabledEndpoints(apiKey)
     if (poolEndpoints.length <= 1) {
@@ -559,31 +561,25 @@ export async function generateImages(job: Job): Promise<void> {
     }
   }
 
-  // v1.0.536 — Studio Hub mode: generation is submitted to the Hub, which
-  // distributes across the WHOLE fleet. The direct-pool cap above (image
-  // concurrency × reachable DIRECT endpoints) throttles how many scenes we hand
-  // the Hub at once — so a big render only lights up a few studios even when the
-  // Hub has a dozen online. Size the worker pool to the Hub's up image-studio
-  // count instead so the whole fleet stays fed. (Chain mode is serial — it's
-  // handled by its own path below — so leave it alone.)
-  if (isLocalProvider && !refSources.chain) {
-    try {
-      const hub = await getHubBackend()
-      if (hub.mode === 'hub' && hub.hubUrl) {
-        const studios = await hubStudios(hub.hubUrl, hub.hubToken)
-        const upImage = studios.filter((s) => s.modality === 'image' && s.status === 'up').length
-        if (upImage > 0) {
-          const scaled = Math.max(1, Math.min(50, Math.max(baseConcurrency, upImage)))
-          if (scaled !== concurrency) {
-            concurrency = scaled
-            job.output_lines.push(
-              `Studio Hub mode — feeding the fleet: submitting up to ${concurrency} scene(s) at once across ` +
-              `${upImage} online image studio(s) (the Hub distributes them).`,
-            )
-          }
-        }
-      }
-    } catch { /* Hub unreachable — keep the direct-pool concurrency */ }
+  // Studio Hub and Direct URLs are exclusive routes. In Hub mode, never probe
+  // or cap work against the direct endpoint pool: the Hub owns fleet selection.
+  if (isHubImageProvider) {
+    if (!imageRouting?.hubUrl) {
+      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
+    }
+    if (refSources.chain) {
+      concurrency = 1
+      job.output_lines.push('Studio Hub image routing: chain mode is serial so each scene can reference the previous render.')
+    } else {
+      const studios = await hubStudios(imageRouting.hubUrl, imageRouting.hubToken)
+      const upImage = studios.filter((s) => s.modality === 'image' && s.status === 'up').length
+      if (upImage < 1) throw new Error('Studio Hub has no reachable Image Studio workers.')
+      concurrency = Math.max(1, Math.min(50, Math.max(baseConcurrency, upImage)))
+      job.output_lines.push(
+        `Studio Hub image routing: submitting up to ${concurrency} scene(s) at once across ` +
+        `${upImage} online Image Studio worker(s).`,
+      )
+    }
   }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.

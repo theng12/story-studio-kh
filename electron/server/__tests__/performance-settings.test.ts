@@ -6,6 +6,7 @@ import {
   PERFORMANCE_CONCURRENCY_DEFAULT,
   resolveLaunchStaggerMs,
   resolvePerformanceConcurrency,
+  resolveVoiceStudioConcurrency,
 } from '../lib/performance-settings.js'
 
 describe('performance setting defaults', () => {
@@ -24,5 +25,16 @@ describe('performance setting defaults', () => {
   test('stagger is capped at twenty seconds', () => {
     assert.equal(resolveLaunchStaggerMs(99_000), LAUNCH_STAGGER_MAX_MS)
     assert.equal(LAUNCH_STAGGER_MAX_MS, 20_000)
+  })
+})
+
+describe('Voice Studio routing concurrency', () => {
+  test('Studio Hub uses configured concurrency instead of the direct URL count', () => {
+    assert.equal(resolveVoiceStudioConcurrency(6, 'hub', 1), 6)
+  })
+
+  test('Direct routing remains serial per configured Voice Studio endpoint', () => {
+    assert.equal(resolveVoiceStudioConcurrency(6, 'direct', 1), 1)
+    assert.equal(resolveVoiceStudioConcurrency(6, 'direct', 4), 4)
   })
 })

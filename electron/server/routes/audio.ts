@@ -867,14 +867,11 @@ router.get('/voicestudio/voices', async (req, res) => {
     // Hub mode owns one canonical clone library for the fleet. Its stable id is
     // installed unchanged on every synchronized Voice Studio, so the picker can
     // select once and the Hub can safely dispatch to any synced model worker.
-    // Direct endpoint aggregation remains the compatibility fallback when an
-    // older Hub lacks this endpoint or the Hub cannot be reached.
+    // Direct endpoint aggregation is used only when Direct routing is selected.
     const { getHubBackend, hubSharedVoices, trimHubUrl } = await import('../lib/studiohub-client.js')
     const hub = await getHubBackend()
-    // Inventory ownership is independent of the generation fallback toggle:
-    // when a Hub is configured, it remains the canonical shared-voice source.
-    if (hub.hubUrl) {
-      try {
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
         const r = await swrFetch(vsVoicesCache, `vs-voices:hub:${hub.hubUrl}`, async () => {
           const shared = await hubSharedVoices(hub.hubUrl, hub.hubToken)
           const voices = shared.map(voice => {
@@ -907,12 +904,6 @@ router.get('/voicestudio/voices', async (req, res) => {
         }, { forceRefresh })
         res.json({ ...r.value, stale: r.stale || undefined })
         return
-      } catch (error: any) {
-        console.warn(
-          `[studiohub] shared voice inventory unavailable (${error?.message || error}) — ` +
-          'falling back to direct Voice Studio discovery',
-        )
-      }
     }
 
     if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
@@ -1004,15 +995,12 @@ router.get('/voicestudio/models', async (req, res) => {
     const { getHubBackend, hubModels } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
-      try {
-        const rows = await hubModels(hub.hubUrl, hub.hubToken, 'voice', req.query.refresh === '1')
-        const result = listAvailableHubEngines(rows)
-        if (result.models.length) {
-          res.json({ ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' })
-          return
-        }
-      } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      const rows = await hubModels(hub.hubUrl, hub.hubToken, 'voice', req.query.refresh === '1')
+      const result = listAvailableHubEngines(rows)
+      res.json({ ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' })
+      return
     }
     const stored = await getApiKey('voicestudio')
     const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
@@ -1044,14 +1032,11 @@ router.get('/voicestudio/transcribe-availability', async (req, res) => {
     const { getHubBackend, hubTranscription } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
-      try {
-        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, req.query.refresh === '1')
-        if (inventory.models.length || inventory.endpoint_count > 0) {
-          res.json({ ...inventory, configured: true, source: 'hub' })
-          return
-        }
-      } catch { /* Hub unavailable: direct pool is the emergency fallback. */ }
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, req.query.refresh === '1')
+      res.json({ ...inventory, configured: true, source: 'hub' })
+      return
     }
     const stored = await getApiKey('voicestudio')
     const r = await swrFetch(vsTranscribeCache, `vs-transcribe-pool:${stored || ''}`, async () => {
@@ -1075,17 +1060,15 @@ router.post('/voicestudio/download-model', async (req, res) => {
     const { getHubBackend, hubTranscription, hubBroadcastDownload } = await import('../lib/studiohub-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl) {
-      try {
-        const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, true)
-        const model = inventory.models.find(m => m.repo === repo)
-        const studios = [...new Set((model?.machines || []).map(m => m.studio).filter(Boolean))]
-        if (studios.length) {
-          const result = await hubBroadcastDownload(hub.hubUrl, hub.hubToken, repo, studios)
-          res.json({ ok: true, source: 'hub', ...result })
-          return
-        }
-      } catch { /* Hub unavailable: direct endpoint is the emergency fallback. */ }
+    if (hub.mode === 'hub') {
+      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, true)
+      const model = inventory.models.find(m => m.repo === repo)
+      const studios = [...new Set((model?.machines || []).map(m => m.studio).filter(Boolean))]
+      if (!studios.length) throw new Error(`Studio Hub has no Voice Studio target for ${repo}`)
+      const result = await hubBroadcastDownload(hub.hubUrl, hub.hubToken, repo, studios)
+      res.json({ ok: true, source: 'hub', ...result })
+      return
     }
     const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models.' })

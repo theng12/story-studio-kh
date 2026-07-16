@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { remoteVideoAssemblyFallbackReasons } from '../generators/remote-video-assembly.js'
+import { hubSupportsRemoteRenderRouting, remoteVideoAssemblyFallbackReasons } from '../generators/remote-video-assembly.js'
 import type { GenerateVideoRequest } from '../models/types.js'
 
 function request(overrides: Partial<GenerateVideoRequest> = {}): GenerateVideoRequest {
@@ -80,4 +80,12 @@ test('the default crossfade is worker-compatible for continuity renders', () => 
 test('invalid transitions still name the safe local fallback reason', () => {
   const reasons = remoteVideoAssemblyFallbackReasons(request({ transition: 'not-a-real-transition' }))
   assert.deepEqual(reasons, ['unsupported transition "not-a-real-transition"'])
+})
+
+test('remote-only presets require the Hub version that enforces remote routing', () => {
+  assert.equal(hubSupportsRemoteRenderRouting(undefined), false)
+  assert.equal(hubSupportsRemoteRenderRouting('1.42.1'), false)
+  assert.equal(hubSupportsRemoteRenderRouting('v1.42.2'), true)
+  assert.equal(hubSupportsRemoteRenderRouting('1.43.0'), true)
+  assert.equal(hubSupportsRemoteRenderRouting('2.0.0'), true)
 })
