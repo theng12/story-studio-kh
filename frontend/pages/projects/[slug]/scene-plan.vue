@@ -168,6 +168,7 @@
           </div>
           <p class="scene-setting-help">
             {{ effectivePromptPackSize }} scenes · {{ effectivePromptTokenBudget.toLocaleString() }} tokens per {{ selectedModelTierLabel }} pack. Local and free-cloud models cap at 10 scenes.
+            The output budget is separate from the model's larger input/context window; supported cloud providers use JSON mode without paid reasoning for these packs.
           </p>
         </div>
 

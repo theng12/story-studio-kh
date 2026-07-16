@@ -16,13 +16,39 @@
 import OpenAI from 'openai'
 import { registry } from '../registry.js'
 import { redactSecrets } from '../../lib/redact-secrets.js'
-import type { TextProvider, TextGenerationRequest } from '../types.js'
+import type { TextProvider, TextGenerationRequest, TextGenerationDiagnostics } from '../types.js'
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
 /** Internal id → OpenRouter model slug. Exact-match only (no prefix claim). */
 const MODELS: Record<string, string> = {
   'deepseek-v4-flash-openrouter': 'deepseek/deepseek-v4-flash',
+}
+
+/** OpenRouter-specific request fields are not part of the OpenAI SDK's
+ * generated types, even though OpenRouter accepts them on this endpoint. */
+export function openRouterRequestExtras(request: Pick<TextGenerationRequest, 'jsonMode' | 'disableReasoning' | 'temperature'>): Record<string, unknown> {
+  return {
+    ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+    ...(request.disableReasoning ? { reasoning: { effort: 'none' } } : {}),
+    ...(request.temperature != null ? { temperature: request.temperature } : {}),
+  }
+}
+
+function responseDiagnostics(response: any): TextGenerationDiagnostics {
+  const choice = response?.choices?.[0]
+  const usage = response?.usage
+  return {
+    requestId: response?.id,
+    model: response?.model,
+    provider: response?.provider,
+    finishReason: choice?.finish_reason,
+    nativeFinishReason: choice?.native_finish_reason,
+    promptTokens: usage?.prompt_tokens,
+    completionTokens: usage?.completion_tokens,
+    reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+    totalTokens: usage?.total_tokens,
+  }
 }
 
 const openrouterProvider: TextProvider = {
@@ -59,27 +85,34 @@ const openrouterProvider: TextProvider = {
       { role: 'system' as const, content: system },
       { role: 'user' as const, content: userMessage },
     ]
+    const extras = openRouterRequestExtras(request)
 
     try {
       if (stream) {
         const collected: string[] = []
-        const response = await client.chat.completions.create({
+        const response: any = await client.chat.completions.create({
           model: slug,
           max_tokens: maxTokens || 16000,
           messages,
           stream: true,
-        }, reqOpts)
+          ...extras,
+        } as any, reqOpts)
+        let lastChunk: any
         for await (const chunk of response) {
+          lastChunk = chunk
           const delta = chunk.choices[0]?.delta?.content
           if (delta) collected.push(delta)
         }
+        if (lastChunk) request.onDiagnostics?.(responseDiagnostics(lastChunk))
         return collected.join('')
       }
       const response = await client.chat.completions.create({
         model: slug,
         max_tokens: maxTokens || 8000,
         messages,
-      }, reqOpts)
+        ...extras,
+      } as any, reqOpts)
+      request.onDiagnostics?.(responseDiagnostics(response))
       return response.choices[0]?.message?.content || ''
     } catch (err: any) {
       if (err?.name === 'AbortError' || signal?.aborted) {

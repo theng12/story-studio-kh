@@ -154,6 +154,14 @@ export interface TextGenerationRequest {
   apiKey: string
   stream?: boolean
   maxTokens?: number
+  /** Prefer provider-native JSON mode for strict machine-readable workflows. */
+  jsonMode?: boolean
+  /** Disable paid reasoning tokens when the task is deterministic formatting. */
+  disableReasoning?: boolean
+  /** Optional sampling temperature for callers that need stable structured output. */
+  temperature?: number
+  /** Provider response details used to explain truncation and token consumption. */
+  onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /** Abort signal passed through to the SDK — streaming providers tear down
    *  the fetch on abort, so a user-cancelled job stops paying for a long
    *  completion that would otherwise run to max_tokens. */
@@ -169,6 +177,18 @@ export interface TextGenerationRequest {
    * silently drop images. Empty array == undefined == "no images".
    */
   images?: string[]
+}
+
+export interface TextGenerationDiagnostics {
+  requestId?: string
+  model?: string
+  provider?: string
+  finishReason?: string
+  nativeFinishReason?: string
+  promptTokens?: number
+  completionTokens?: number
+  reasoningTokens?: number
+  totalTokens?: number
 }
 
 export interface TextProvider {

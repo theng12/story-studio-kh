@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.620 — 2026-07-16
+
+**Cloud scene prompt packs no longer lose their output budget to hidden reasoning.**
+
+- Disabled OpenRouter reasoning for deterministic Scene Plan prompt packs so visible prompts receive the full response budget.
+- Enabled provider-native JSON mode for direct cloud scene packs, preventing malformed structured responses from silently dropping scene IDs.
+- Captured provider finish reasons and token usage so incomplete jobs can distinguish output truncation from invalid JSON.
+- Clarified in Scene Plan that the response budget is separate from the model's much larger input/context window.
+- Preserved paid-call safety: valid partial prompts remain saved and manual Retry submits only missing scene IDs without automatically spending credits again.
+
 ## v1.0.619 — 2026-07-16
 
 **Audio chapters can now be sent to TTS one at a time.**

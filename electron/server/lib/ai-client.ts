@@ -22,6 +22,7 @@ import { SUPPORTED_MODELS, LEGACY_MODEL_ALIASES } from '../models/types.js'
 import { trackFromText } from '../services/usage-tracker.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
+import type { TextGenerationDiagnostics } from '../providers/types.js'
 
 export interface CallAiContext {
   /** Project slug — enables account-aware key resolution. */
@@ -37,6 +38,14 @@ export interface CallAiContext {
    *  emit large structured output (e.g. the scene planner's full-episode
    *  JSON) which would otherwise truncate at the conservative default. */
   maxTokens?: number
+  /** Ask supporting providers to guarantee a valid JSON object response. */
+  jsonMode?: boolean
+  /** Skip reasoning tokens for deterministic extraction/formatting work. */
+  disableReasoning?: boolean
+  /** Sampling temperature forwarded to providers that support it. */
+  temperature?: number
+  /** Receives provider finish reason and token usage without changing callAi's return type. */
+  onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /**
    * v1.0.283 — optional image attachments for vision-capable models. Each
    * entry is a base64 data URL. Forwarded to the provider's `callText`
@@ -120,6 +129,10 @@ export async function callAi(
     stream,
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
+    jsonMode: ctx.jsonMode,
+    disableReasoning: ctx.disableReasoning,
+    temperature: ctx.temperature,
+    onDiagnostics: ctx.onDiagnostics,
     images: ctx.images,
   })
 

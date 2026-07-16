@@ -22,6 +22,7 @@ import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getHubBackend, hubPollChatPacks, hubSubmitChatPacks, type HubChatBatchStatus, type HubChatPack } from '../lib/studiohub-client.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import type { TextGenerationDiagnostics } from '../providers/types.js'
 import {
   parseScenePromptPackSetting,
   parseScenePromptTokenSetting,
@@ -540,6 +541,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           const maxPackAttempts = isLocalTextModel(model) ? 3 : 1
           for (let attempt = 1; attempt <= maxPackAttempts && saved.size < pack.scene_ids.length; attempt++) {
             const missing = pack.scene_ids.filter(id => !saved.has(id))
+            let diagnostics: TextGenerationDiagnostics | undefined
             const correction = attempt > 1
               ? `\n\nYour previous response was incomplete. Return JSON for ONLY these missing scene IDs: ${JSON.stringify(missing)}. Do not repeat completed IDs.`
               : ''
@@ -550,7 +552,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
                 `${pack.messages.slice(1).map(message => message.content).join('\n\n')}${correction}`,
                 apiKeys,
                 false,
-                { slug: job.project_slug, jobId: job.job_id, maxTokens: Number(pack.params?.max_tokens) || visualMaxTokens },
+                {
+                  slug: job.project_slug,
+                  jobId: job.job_id,
+                  maxTokens: Number(pack.params?.max_tokens) || visualMaxTokens,
+                  jsonMode: true,
+                  disableReasoning: true,
+                  temperature: Number(pack.params?.temperature) || 0.5,
+                  onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
+                },
               )
               const results = parseDirectPackResults(raw, missing, isMotion ? 'motion' : 'visual')
               for (const [sceneId, text] of results) {
@@ -563,9 +573,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               plan.generated_at = new Date().toISOString()
               plan.planning_stage = isMotion ? 'motion' : 'visual'
               await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+              const finish = diagnostics?.finishReason || diagnostics?.nativeFinishReason
+              const tokenSummary = diagnostics?.completionTokens != null
+                ? `; ${diagnostics.completionTokens.toLocaleString()} completion tokens${diagnostics.reasoningTokens ? `, ${diagnostics.reasoningTokens.toLocaleString()} reasoning` : ''}`
+                : ''
               lastError = results.size
-                ? `response omitted ${pack.scene_ids.length - saved.size} scene(s)`
-                : 'response was not valid scene-result JSON'
+                ? `response ${finish === 'length' ? 'hit its output limit and ' : ''}omitted ${pack.scene_ids.length - saved.size} scene(s)${tokenSummary}`
+                : `response was not valid scene-result JSON${finish ? ` (finish: ${finish}${tokenSummary})` : ''}`
             } catch (error: any) {
               lastError = error?.message || String(error)
             }

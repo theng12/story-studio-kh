@@ -172,6 +172,19 @@ describe('Audio provider (fal)', () => {
 })
 
 describe('Text providers error handling', () => {
+  test('OpenRouter scene-pack extras disable reasoning and require JSON', async () => {
+    const { openRouterRequestExtras } = await import('../providers/text/openrouter.js')
+    assert.deepEqual(
+      openRouterRequestExtras({ jsonMode: true, disableReasoning: true, temperature: 0.5 }),
+      {
+        response_format: { type: 'json_object' },
+        reasoning: { effort: 'none' },
+        temperature: 0.5,
+      },
+    )
+    assert.deepEqual(openRouterRequestExtras({}), {})
+  })
+
   test('deepseek throws without API key', async () => {
     const p = registry.getTextProvider('deepseek')!
     await assert.rejects(() =>
