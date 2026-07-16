@@ -19,6 +19,16 @@ function routePaths(): string[] {
 }
 
 describe('jobs router registration order', () => {
+  test('/jobs/all/stream is registered before /jobs/all/:jobId', () => {
+    const paths = routePaths()
+    const streamIdx = paths.indexOf('/jobs/all/stream')
+    const jobIdIdx = paths.indexOf('/jobs/all/:jobId')
+
+    assert.notEqual(streamIdx, -1, '/jobs/all/stream route must exist')
+    assert.notEqual(jobIdIdx, -1, '/jobs/all/:jobId route must exist')
+    assert.ok(streamIdx < jobIdIdx, 'the universal stream must not be shadowed by the job-id route')
+  })
+
   test('/jobs/app/stream is registered before /jobs/app/:jobId', () => {
     const paths = routePaths()
     const streamIdx = paths.indexOf('/jobs/app/stream')

@@ -188,9 +188,12 @@
 
 
         <div class="nav-divider" />
-        <NuxtLink :to="`/projects/${slug}/jobs`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#9881;</span> Jobs
+        <NuxtLink :to="`/projects/${slug}/jobs`" class="nav-item" :class="{ active: isJobsScope('project') }">
+          <span class="nav-icon">&#9881;</span> Project Jobs
           <span v-if="stats.running + stats.queued > 0" class="nav-badge">{{ stats.running + stats.queued }}</span>
+        </NuxtLink>
+        <NuxtLink :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }" class="nav-item" :class="{ active: isJobsScope('all') }" title="Monitor and control jobs from every project in one queue.">
+          <span class="nav-icon">&#9783;</span> All Jobs
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active" title="Everything for this project AND this Mac — API keys, appearance, models, voices, folders. Grouped into ‘This Mac’ vs ‘This Project’ zones.">
           <span class="nav-icon">&#9881;</span> Settings
@@ -429,6 +432,11 @@ function isImagesActive(tab: 'thumbnails'): boolean {
   if (!route.path.endsWith('/images')) return false
   const q = String(route.query.tab || 'thumbnails')
   return q === tab
+}
+
+function isJobsScope(scope: 'project' | 'all'): boolean {
+  if (!route.path.endsWith('/jobs')) return false
+  return scope === 'all' ? route.query.scope === 'all' : route.query.scope !== 'all'
 }
 
 const { project, loadProject } = useProject()

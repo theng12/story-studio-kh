@@ -11,6 +11,30 @@ import type { Job } from '../models/types.js'
 
 export const router = Router()
 
+const APP_SLUG = '_app_'
+
+function summarizeJobs(jobsList: Job[]) {
+  return {
+    running: jobsList.filter(job => job.status === 'running').length,
+    queued: jobsList.filter(job => job.status === 'queued').length,
+    done: jobsList.filter(job => job.status === 'done').length,
+    error: jobsList.filter(job => job.status === 'error').length,
+    total: jobsList.length,
+  }
+}
+
+async function allJobScopes(): Promise<string[]> {
+  const projects = await pm.listProjects()
+  return [...new Set([...projects.map(project => project.slug), APP_SLUG])]
+}
+
+async function allJobsSnapshot() {
+  const scopes = await allJobScopes()
+  const lists = await Promise.all(scopes.map(scope => jq.getJobs(scope)))
+  const jobsList = lists.flat()
+  return { jobs: jobsList, stats: summarizeJobs(jobsList) }
+}
+
 // ── Job stream (SSE) ────────────────────────────────────────────────────────
 /**
  * GET /projects/:slug/jobs/stream
@@ -86,6 +110,63 @@ router.get('/projects/:slug/jobs', async (req, res) => {
   res.json({ jobs: jobsList, stats })
 })
 
+// ── Universal jobs ────────────────────────────────────────────────────────
+// One control-centre view across every project plus app-level library work.
+// The initial snapshot loads each durable jobs.json once; after that, SSE
+// carries only incremental updates, so merely having many projects does not
+// create a polling loop across their folders.
+router.get('/jobs/all/stream', async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  res.write('retry: 5000\n\n')
+  function send(eventName: string, payload: unknown) {
+    res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
+  }
+  try {
+    send('snapshot', await allJobsSnapshot())
+  } catch (error) {
+    console.error('[jobs/all/stream] snapshot error:', error)
+  }
+  const onUpdate = (job: Job) => send('update', job)
+  const onCleared = (event: jq.JobsClearedEvent) => send('cleared', event)
+  jq.jobEvents.on('update', onUpdate)
+  jq.jobEvents.on('cleared', onCleared)
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
+  req.on('close', () => {
+    clearInterval(keepalive)
+    jq.jobEvents.off('update', onUpdate)
+    jq.jobEvents.off('cleared', onCleared)
+  })
+})
+
+router.get('/jobs/all', async (_req, res) => {
+  res.json(await allJobsSnapshot())
+})
+
+router.post('/jobs/all/:jobId/retry', (req, res) => {
+  const existing = jq.getJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId)
+  res.status(202).json({ ok: true, job })
+})
+
+router.delete('/jobs/all/:jobId', (req, res) => {
+  if (!jq.cancelJob(req.params.jobId)) {
+    return res.status(400).json({ detail: 'Job not found or not cancellable' })
+  }
+  res.json({ ok: true })
+})
+
+router.delete('/jobs/all', async (_req, res) => {
+  const scopes = await allJobScopes()
+  const cleared = await Promise.all(scopes.map(scope => jq.clearFinished(scope)))
+  res.json({ ok: true, cleared: cleared.reduce((total, count) => total + count, 0) })
+})
+
 // ── App-level jobs (broll_normalize, broll_autotag, etc.) ─────────────
 //
 // Per-project jobs filter by `project_slug` exact match in getJobs().
@@ -95,8 +176,6 @@ router.get('/projects/:slug/jobs', async (req, res) => {
 // endpoint + SSE stream surfaces them so the B-Roll Library page (and
 // future app-level surfaces) can render their own jobs panel without
 // polluting the per-project view.
-const APP_SLUG = '_app_'
-
 router.get('/jobs/app', async (_req, res) => {
   const jobsList = await jq.getJobs(APP_SLUG)
   const stats = jq.getQueueStats(APP_SLUG)

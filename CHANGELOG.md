@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.633 — 2026-07-16
+
+**All projects now share one universal job control centre.**
+
+- Added an `All Jobs` workspace beside `Project Jobs`, with a clear scope switch and a project filter for working across several channels at once.
+- Combined every project’s active queue and saved history into one live view while preserving project identity, progress, logs, sorting, status filters, and pagination.
+- Made cancel, retry, repair, dismissal, and clear-history actions target each job’s owning project rather than whichever project is currently open.
+- Added direct project links on universal job cards and included app-level library jobs without mixing them into project-only views.
+- Kept the global view lightweight: it loads durable histories once, then receives incremental queue events instead of continuously polling every project folder.
+
+---
+
 ## v1.0.632 — 2026-07-16
 
 **Video Assembly now treats this Mac as the control centre by default.**

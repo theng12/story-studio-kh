@@ -202,3 +202,31 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     )
   })
 })
+
+describe('SSE /jobs/all/stream', () => {
+  test('initial snapshot combines jobs from every project', async () => {
+    const a = await pm.createProject({ name: 'SSE_All_A' })
+    const b = await pm.createProject({ name: 'SSE_All_B' })
+    jq.enqueue({ project_slug: a.slug, type: 'script-only', episode_id: 'ALL_A1', title: '', params: {} })
+    jq.enqueue({ project_slug: b.slug, type: 'script-only', episode_id: 'ALL_B1', title: '', params: {} })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const frames = await collectFrames('/api/jobs/all/stream', 200)
+    const snapshot = frames.find(frame => frame.event === 'snapshot')
+    assert.ok(snapshot, 'universal stream should send a snapshot')
+    const payload = JSON.parse(snapshot.data)
+    assert.ok(payload.jobs.some((job: any) => job.project_slug === a.slug && job.episode_id === 'ALL_A1'))
+    assert.ok(payload.jobs.some((job: any) => job.project_slug === b.slug && job.episode_id === 'ALL_B1'))
+    assert.equal(payload.stats.total, payload.jobs.length)
+  })
+
+  test('receives updates from another project without resubscribing', async () => {
+    const project = await pm.createProject({ name: 'SSE_All_Update' })
+    const collection = collectFrames('/api/jobs/all/stream', 350)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    jq.enqueue({ project_slug: project.slug, type: 'script-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
+    const frames = await collection
+    const updates = frames.filter(frame => frame.event === 'update').map(frame => JSON.parse(frame.data))
+    assert.ok(updates.some(job => job.project_slug === project.slug && job.episode_id === 'ALL_LIVE_1'))
+  })
+})

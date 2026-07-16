@@ -2,11 +2,17 @@
   <div class="workspace-page jobs-workspace">
     <WorkspaceHero
       eyebrow="Management · Operations"
-      title="Job Queue"
-      description="Monitor active work, understand failures, recover completed provider output, and keep generation history manageable."
+      :title="isUniversal ? 'All Jobs' : 'Project Jobs'"
+      :description="isUniversal
+        ? 'Monitor and control work across every project from one queue. Filter by project without switching workspaces.'
+        : 'Monitor this project’s active work, understand failures, recover output, and manage its history.'"
     >
       <template #aside>
         <div class="jobs-hero-aside">
+          <nav class="job-scope-switch" aria-label="Job queue scope">
+            <NuxtLink :to="`/projects/${slug}/jobs`" :class="{ active: !isUniversal }">This project</NuxtLink>
+            <NuxtLink :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }" :class="{ active: isUniversal }">All projects</NuxtLink>
+          </nav>
           <div class="workspace-metrics" aria-label="Job queue summary">
             <span class="workspace-metric" data-tone="info"><strong>{{ stats.running }}</strong> running</span>
             <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> queued</span>
@@ -15,6 +21,7 @@
           </div>
           <div class="jobs-hero-actions">
             <NuxtLink
+              v-if="!isUniversal"
               :to="`/projects/${slug}/board?repair=1`"
               class="btn btn-sm btn-secondary"
               title="After a bulk pipeline run, open Repair (on the Production Board) to one-click recover any provider-completed output that didn't persist locally (no credits consumed)."
@@ -215,6 +222,14 @@
 
     <!-- Sort Bar -->
     <div class="sort-bar">
+      <label v-if="isUniversal" class="project-filter">
+        <span>Project</span>
+        <select v-model="projectFilter">
+          <option value="all">All projects</option>
+          <option value="_app_">App tools</option>
+          <option v-for="project in projects" :key="project.slug" :value="project.slug">{{ project.name }}</option>
+        </select>
+      </label>
       <span class="text-muted sort-label">Sort by:</span>
       <button
         v-for="col in sortColumns"
@@ -258,6 +273,13 @@
         <div class="job-row-main">
           <div class="job-identity">
             <StatusBadge :status="job.status" />
+            <NuxtLink
+              v-if="isUniversal && job.project_slug !== '_app_'"
+              :to="`/projects/${job.project_slug}/jobs`"
+              class="job-project"
+              :title="`Open ${projectName(job.project_slug)} jobs`"
+            >{{ projectName(job.project_slug) }}</NuxtLink>
+            <span v-else-if="isUniversal" class="job-project">App tools</span>
             <span class="job-type">{{ jobDisplayLabel(job) }}</span>
             <span class="job-episode">{{ job.episode_id }}</span>
             <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
@@ -299,7 +321,7 @@
             <button
               v-if="['done', 'error', 'cancelled'].includes(job.status)"
               class="btn-icon"
-              @click="removeJob(job.job_id)"
+              @click="removeJob(job)"
               title="Dismiss"
             >
               &#10005;
@@ -445,6 +467,13 @@
           <div class="job-row-main">
             <div class="job-identity">
               <StatusBadge :status="job.status" />
+              <NuxtLink
+                v-if="isUniversal && job.project_slug !== '_app_'"
+                :to="`/projects/${job.project_slug}/jobs`"
+                class="job-project"
+                :title="`Open ${projectName(job.project_slug)} jobs`"
+              >{{ projectName(job.project_slug) }}</NuxtLink>
+              <span v-else-if="isUniversal" class="job-project">App tools</span>
               <span class="job-type">{{ jobDisplayLabel(job) }}</span>
               <span class="job-episode">{{ job.episode_id }}</span>
               <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
@@ -470,7 +499,7 @@
               >
                 Retry
               </button>
-              <button class="btn-icon" @click="removeJob(job.job_id)" title="Dismiss">&#10005;</button>
+              <button class="btn-icon" @click="removeJob(job)" title="Dismiss">&#10005;</button>
             </div>
           </div>
 
@@ -568,8 +597,36 @@ useAppTitle('Jobs')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, del, post } = useApi()
-const { jobs, stats } = useJobs()
+const projectQueue = useJobs()
+const universalQueue = useAllJobs()
+const isUniversal = computed(() => route.query.scope === 'all')
+const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
+const stats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
 const { success, error: showError, info } = useToast()
+
+interface ProjectOption { slug: string; name: string }
+const projects = ref<ProjectOption[]>([])
+const projectFilter = ref('all')
+const projectNames = computed(() => new Map(projects.value.map(project => [project.slug, project.name])))
+function projectName(projectSlug: string) {
+  return projectNames.value.get(projectSlug) || projectSlug
+}
+
+async function loadProjects() {
+  if (projects.value.length) return
+  try { projects.value = await get<ProjectOption[]>('/projects') }
+  catch { projects.value = [] }
+}
+
+watch(isUniversal, enabled => {
+  projectFilter.value = 'all'
+  if (enabled) {
+    universalQueue.start()
+    void loadProjects()
+  } else {
+    universalQueue.stop()
+  }
+}, { immediate: true })
 
 // Account attribution helpers. Populated by the resolver whenever it runs
 // under a jobId (see electron/server/providers/registry.ts). Present only
@@ -626,6 +683,7 @@ onMounted(() => {
   queueTimer = setInterval(checkQueuePaused, 5000)
 })
 onUnmounted(() => {
+  if (isUniversal.value) universalQueue.stop()
   if (timer) clearInterval(timer)
   if (queueTimer) clearInterval(queueTimer)
 })
@@ -723,7 +781,7 @@ async function repairAllFailed() {
 // trivial and the aggregation logic pure / unit-testable.
 const batchSummary = computed(() => buildLatestBatchSummary(jobs.value as readonly Job[]))
 const showBulkFinishedBanner = computed(() => {
-  if (bulkBannerDismissed.value) return false
+  if (isUniversal.value || bulkBannerDismissed.value) return false
   return batchSummary.value !== null
 })
 
@@ -808,6 +866,10 @@ function jobDisplayLabel(job: Pick<RJob, 'type' | 'params'>): string {
 // ── Filter tabs ─────────────────────────────────────────────────────────
 
 const activeFilter = ref('all')
+const projectScopedJobs = computed(() => {
+  if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
+  return jobs.value.filter(job => job.project_slug === projectFilter.value)
+})
 // v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | error | done | cancelled.
 const statusFilter = ref<'all' | 'running' | 'queued' | 'error' | 'done' | 'cancelled'>('all')
 const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> = [
@@ -821,8 +883,8 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'all'
-    ? jobs.value.length
-    : jobs.value.filter(j => j.status === s.key).length,
+    ? projectScopedJobs.value.length
+    : projectScopedJobs.value.filter(j => j.status === s.key).length,
 })))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
@@ -859,8 +921,8 @@ const filterTabs = computed(() => {
   return types.map(t => ({
     ...t,
     count: t.type === 'all'
-      ? jobs.value.filter(j => j.status === 'running' || j.status === 'queued').length
-      : jobs.value.filter(j => j.type === t.type && (j.status === 'running' || j.status === 'queued')).length,
+      ? projectScopedJobs.value.filter(j => j.status === 'running' || j.status === 'queued').length
+      : projectScopedJobs.value.filter(j => j.type === t.type && (j.status === 'running' || j.status === 'queued')).length,
   }))
 })
 
@@ -868,7 +930,9 @@ const filterLabel = computed(() => filterTabs.value.find(t => t.type === activeF
 
 const emptyTitle = computed(() => activeFilter.value === 'all' ? 'No jobs yet' : `No ${filterLabel.value} jobs`)
 const emptyMessage = computed(() => activeFilter.value === 'all'
-  ? "Start generating scripts, images, or audio to see background jobs here. This page auto-refreshes every 3 seconds while you're on it."
+  ? (isUniversal.value
+      ? 'Jobs from every project appear here automatically as soon as they are queued.'
+      : 'Start generating scripts, images, or audio to see this project’s background jobs here.')
   : 'Try switching to the All tab to see other jobs.')
 
 // Auto-select tab for most recent active type
@@ -887,6 +951,7 @@ const sortKey = ref('created_at')
 const sortDir = ref<'asc' | 'desc'>('desc')
 
 const sortColumns = [
+  { key: 'project_slug', label: 'Project' },
   { key: 'status', label: 'Status' },
   { key: 'type', label: 'Type' },
   { key: 'episode_id', label: 'Episode' },
@@ -906,7 +971,7 @@ function toggleSort(key: string) {
 // ── Filtered + Sorted + Paginated ───────────────────────────────────────
 
 const filteredJobs = computed(() => {
-  let list = [...jobs.value]
+  let list = [...projectScopedJobs.value]
   if (activeFilter.value !== 'all') {
     list = list.filter(j => j.type === activeFilter.value)
   }
@@ -964,6 +1029,7 @@ const paginatedHistory = computed(() => {
 // Reset page when either filter changes
 watch(activeFilter, () => { currentPage.value = 1 })
 watch(statusFilter, () => { currentPage.value = 1 })
+watch(projectFilter, () => { currentPage.value = 1 })
 
 const finishedCount = computed(() =>
   jobs.value.filter(j => ['done', 'error', 'cancelled'].includes(j.status)).length
@@ -1157,7 +1223,7 @@ async function cancelJob(job: RJob) {
     && COST_INCURRING_TYPES.has(job.type)
     && !job.auto_retry?.eligible
   try {
-    await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+    await del(jobQueuePath(job))
     if (job.status === 'running' && HUB_CANCELLABLE_TYPES.has(job.type)) {
       success('Stop requested. Any active Studio Hub batch will also be cancelled; completed checkpoints remain saved.')
     } else if (wasRunningWithCost) {
@@ -1175,9 +1241,19 @@ async function cancelJob(job: RJob) {
   } catch (e: any) { showError(e.data?.detail || 'Failed to cancel job') }
 }
 
-async function removeJob(jobId: string) {
+function jobProjectSlug(job: Pick<RJob, 'project_slug'>): string {
+  return job.project_slug || slug.value
+}
+
+function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
+  return jobProjectSlug(job) === '_app_'
+    ? `/jobs/all/${job.job_id}`
+    : `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}`
+}
+
+async function removeJob(job: RJob) {
   try {
-    await del(`/projects/${slug.value}/jobs/${jobId}`)
+    await del(jobQueuePath(job))
     success('Job removed')
   } catch (e: any) { showError(e.data?.detail || 'Failed to remove job') }
 }
@@ -1189,32 +1265,32 @@ async function removeJob(jobId: string) {
 // Sync repair returns the reconciliation result in the POST response;
 // queued repair returns a job_id we must poll until terminal before
 // considering the repair "done" (otherwise the retry races it).
-const REPAIR_ENDPOINTS: Record<string, { url: string; body: any; mode: 'sync' | 'queued' }> = {
+const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; body: any; mode: 'sync' | 'queued' }> = {
   audio: {
     // Provider-aware since v1.0.504 — the route reconciles every chunk from
     // whatever gateway made it (GenAIPro / kie.ai / fal.ai) via the task-manifest
     // sidecar; no provider hint needed.
-    url: `/projects/${slug.value}/episodes/__EPISODE__/audio-repair`,
+    url: projectSlug => `/projects/${projectSlug}/episodes/__EPISODE__/audio-repair`,
     body: {},
     mode: 'sync',
   },
   images: {
-    url: `/projects/${slug.value}/generate/images-repair`,
+    url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
     body: { episode_id: '__EPISODE__' },
     mode: 'queued',
   },
   scene_images: {
-    url: `/projects/${slug.value}/generate/images-repair`,
+    url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
     body: { episode_id: '__EPISODE__' },
     mode: 'queued',
   },
   thumb_images: {
-    url: `/projects/${slug.value}/generate/images-repair`,
+    url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
     body: { episode_id: '__EPISODE__' },
     mode: 'queued',
   },
   video: {
-    url: `/projects/${slug.value}/generate/video-repair`,
+    url: projectSlug => `/projects/${projectSlug}/generate/video-repair`,
     body: { episode_id: '__EPISODE__' },
     mode: 'queued',
   },
@@ -1298,7 +1374,12 @@ async function repairJobOnly(job: RJob) {
   }
   // Substitute the episode_id into both URL and body templates so the
   // shared REPAIR_ENDPOINTS map stays declarative.
-  const url = template.url.replace('__EPISODE__', job.episode_id)
+  const projectSlug = jobProjectSlug(job)
+  if (projectSlug === '_app_') {
+    showError('App-level jobs do not have episode assets to repair.')
+    return
+  }
+  const url = template.url(projectSlug).replace('__EPISODE__', job.episode_id)
   const body = JSON.parse(
     JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id)
   )
@@ -1315,7 +1396,7 @@ async function repairJobOnly(job: RJob) {
     }>(url, body)
 
     if (template.mode === 'queued' && resp?.job_id) {
-      await waitForJobTerminal(resp.job_id, 10 * 60_000)
+      await waitForJobTerminal(resp.job_id, 10 * 60_000, projectSlug)
     }
 
     // Sync repair returns a useful summary; queued repair returns nothing
@@ -1361,6 +1442,7 @@ async function repairJobOnly(job: RJob) {
 }
 
 async function retryJob(job: RJob) {
+  const projectSlug = jobProjectSlug(job)
   // Every job type the queue knows about needs an entry here — otherwise
   // a failed 20-minute video-assembly becomes un-retryable with a cryptic
   // "Cannot retry job type: X" toast. When a new generator is added, this
@@ -1368,52 +1450,52 @@ async function retryJob(job: RJob) {
   const endpointMap: Record<string, { url: string; params: any }> = {
     // M1: legacy 'script' job type was removed. Retry now routes the two
     // independent jobs to their respective endpoints.
-    'script-only':       { url: `/projects/${slug.value}/generate/script-only`,       params: job.params },
-    'introduction-only': { url: `/projects/${slug.value}/generate/introduction-only`, params: job.params },
-    'chapter-only':      { url: `/projects/${slug.value}/generate/chapter-only`,      params: job.params },
-    outline_only:        { url: `/projects/${slug.value}/generate/outline-only`,       params: job.params },
-    expand_chapters:     { url: `/projects/${slug.value}/generate/expand-chapters`,    params: job.params },
+    'script-only':       { url: `/projects/${projectSlug}/generate/script-only`,       params: job.params },
+    'introduction-only': { url: `/projects/${projectSlug}/generate/introduction-only`, params: job.params },
+    'chapter-only':      { url: `/projects/${projectSlug}/generate/chapter-only`,      params: job.params },
+    outline_only:        { url: `/projects/${projectSlug}/generate/outline-only`,       params: job.params },
+    expand_chapters:     { url: `/projects/${projectSlug}/generate/expand-chapters`,    params: job.params },
     // v1.0.308 — image_prompts Retry is now SMART: it routes to the dedicated
     // /generate/image-prompts route with fill_gaps=true, so the generator
     // regenerates ONLY missing prompt entries for the job's mode and merges
     // them into existing files (preserving the ones that already succeeded). Previously this went
     // through pipeline/run-batch which regenerated all N from scratch.
-    image_prompts:   { url: `/projects/${slug.value}/generate/image-prompts`, params: { ...job.params, fill_gaps: true } },
-    scene_images:    { url: `/projects/${slug.value}/generate/images`,  params: { ...job.params, mode: 'scenes' } },
-    thumb_images:    { url: `/projects/${slug.value}/generate/images`,  params: { ...job.params, mode: 'thumbs' } },
-    images:          { url: `/projects/${slug.value}/generate/images`,  params: job.params },
-    audio:           { url: `/projects/${slug.value}/generate/audio`,   params: job.params },
-    audio_merge:     { url: `/projects/${slug.value}/generate/audio-merge`,    params: job.params },
-    video:           { url: `/projects/${slug.value}/generate/video`,         params: job.params },
-    video_assembly:  { url: `/projects/${slug.value}/generate/video-assembly`, params: job.params },
-    images_repair:   { url: `/projects/${slug.value}/generate/images-repair`,  params: { episode_id: job.episode_id } },
-    video_repair:    { url: `/projects/${slug.value}/generate/video-repair`,   params: { episode_id: job.episode_id } },
+    image_prompts:   { url: `/projects/${projectSlug}/generate/image-prompts`, params: { ...job.params, fill_gaps: true } },
+    scene_images:    { url: `/projects/${projectSlug}/generate/images`,  params: { ...job.params, mode: 'scenes' } },
+    thumb_images:    { url: `/projects/${projectSlug}/generate/images`,  params: { ...job.params, mode: 'thumbs' } },
+    images:          { url: `/projects/${projectSlug}/generate/images`,  params: job.params },
+    audio:           { url: `/projects/${projectSlug}/generate/audio`,   params: job.params },
+    audio_merge:     { url: `/projects/${projectSlug}/generate/audio-merge`,    params: job.params },
+    video:           { url: `/projects/${projectSlug}/generate/video`,         params: job.params },
+    video_assembly:  { url: `/projects/${projectSlug}/generate/video-assembly`, params: job.params },
+    images_repair:   { url: `/projects/${projectSlug}/generate/images-repair`,  params: { episode_id: job.episode_id } },
+    video_repair:    { url: `/projects/${projectSlug}/generate/video-repair`,   params: { episode_id: job.episode_id } },
     continuity_render: {
-      url: `/projects/${slug.value}/scene-review/${job.episode_id}/continuity-render`,
+      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
       params: job.params,
     },
     scene_images_batch: {
-      url: `/projects/${slug.value}/scene-review/${job.episode_id}/continuity-render`,
+      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
       params: { ...job.params, independent: true },
     },
     scene_image_generate: {
-      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-image`,
+      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-image`,
       params: job.params,
     },
     composition_generate: {
-      url: `/projects/${slug.value}/episodes/${job.episode_id}/img2img-references/composition/generate`,
+      url: `/projects/${projectSlug}/episodes/${job.episode_id}/img2img-references/composition/generate`,
       params: job.params,
     },
     image_pool_generate: {
-      url: `/projects/${slug.value}/image-pool/generate`,
+      url: `/projects/${projectSlug}/image-pool/generate`,
       params: job.params,
     },
     scene_clip_generate: {
-      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-clip`,
+      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clip`,
       params: job.params,
     },
     scene_clips_batch: {
-      url: `/projects/${slug.value}/scene-review/${job.episode_id}/generate-clips-batch`,
+      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clips-batch`,
       params: job.params,
     },
     // Whisper transcription uses a non-`/generate` URL because the endpoint
@@ -1426,7 +1508,7 @@ async function retryJob(job: RJob) {
     // "400 invalid model ID". Forward force as well so a retry of a "re-run"
     // job still overwrites instead of skipping the existing SRT.
     subtitles_transcribe: {
-      url: `/projects/${slug.value}/video-editor/subtitles/transcribe/${job.episode_id}`,
+      url: `/projects/${projectSlug}/video-editor/subtitles/transcribe/${job.episode_id}`,
       params: {
         language: job.params?.language,
         model: job.params?.model,
@@ -1450,7 +1532,7 @@ async function retryJob(job: RJob) {
   if (BATCH_ONLY_TYPES.has(job.type)) {
     try {
       const resp = await post<{ jobs: Array<{ job_id: string }>; skipped?: Array<{ reason: string }> }>(
-        `/projects/${slug.value}/pipeline/run-batch`,
+        `/projects/${projectSlug}/pipeline/run-batch`,
         { episode_ids: [job.episode_id], steps: [job.type], force: true },
       )
       if (!resp?.jobs?.length) {
@@ -1458,7 +1540,7 @@ async function retryJob(job: RJob) {
         showError(reason)
         return
       }
-      await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+      await del(jobQueuePath(job))
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
     } catch (e: any) { showError(e?.data?.detail || 'Failed to retry job') }
     return
@@ -1467,7 +1549,7 @@ async function retryJob(job: RJob) {
   const target = endpointMap[job.type]
   if (!target) {
     try {
-      await post(`/projects/${slug.value}/jobs/${job.job_id}/retry`, {})
+      await post(projectSlug === '_app_' ? `/jobs/all/${job.job_id}/retry` : `/projects/${projectSlug}/jobs/${job.job_id}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
     } catch (e: any) {
       showError(e?.data?.detail || e?.message || 'Failed to retry job')
@@ -1486,7 +1568,7 @@ async function retryJob(job: RJob) {
   // duplicate provider charges on every "retry until it works" click.
   // Now both actions are deliberate solo clicks; nothing combines them.
   try {
-    await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+    await del(jobQueuePath(job))
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to retry job') }
@@ -1504,13 +1586,13 @@ async function retryJob(job: RJob) {
  * so the caller's catch surfaces it as a non-fatal warning and continues
  * to the retry.
  */
-async function waitForJobTerminal(jobId: string, timeoutMs: number): Promise<void> {
+async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug: string): Promise<void> {
   const POLL_INTERVAL_MS = 2000
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     let job: any
     try {
-      job = await $fetch(`/api/projects/${slug.value}/jobs/${jobId}`)
+      job = await $fetch(projectSlug === '_app_' ? `/api/jobs/app/${jobId}` : `/api/projects/${projectSlug}/jobs/${jobId}`)
     } catch (e: any) {
       // 404 = job already cleared (rare — would mean another tab's
       // "Clear finished" ran during the wait). Treat as terminal.
@@ -1526,7 +1608,7 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number): Promise<voi
 
 async function clearFinished() {
   try {
-    const result = await del<{ cleared: number }>(`/projects/${slug.value}/jobs`)
+    const result = await del<{ cleared: number }>(isUniversal.value ? '/jobs/all' : `/projects/${slug.value}/jobs`)
     success(`Cleared ${result.cleared} finished job(s)`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to clear jobs') }
 }
@@ -1545,6 +1627,59 @@ async function clearFinished() {
   justify-content: flex-end;
   gap: 8px;
 }
+.job-scope-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+}
+.job-scope-switch a {
+  padding: 6px 11px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.job-scope-switch a.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.project-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.project-filter select {
+  min-width: 190px;
+  height: 31px;
+  padding: 0 30px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.job-project {
+  max-width: 180px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-project:hover { border-color: var(--accent); }
 
 /* Post-bulk summary banner — surfaces once all pipeline batch jobs settle.
    Layout is a vertical card with a header, optional failure breakdown,
@@ -2012,5 +2147,7 @@ async function clearFinished() {
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
   .job-identity { flex-basis: 100%; }
   .job-actions { margin-left: auto; }
+  .project-filter { width: 100%; }
+  .project-filter select { min-width: 0; flex: 1; }
 }
 </style>
