@@ -36,13 +36,13 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import {
-  resolveLaunchStaggerMs,
-  resolvePerformanceConcurrency,
-  resolveVoiceStudioConcurrency,
+  resolveGenerationConcurrency,
+  resolveGenerationLaunchStaggerMs,
+  type GenerationExecution,
 } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { getVoicePresetsGlobal } from '../services/app-settings.js'
-import { getHubBackend } from '../lib/studiohub-client.js'
+import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
 import { voiceSupportsProvider } from '../services/voice-presets.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
@@ -615,10 +615,11 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   // ── Concurrency pool ───────────────────────────────────────────────────
-  const baseAudioConcurrency = resolvePerformanceConcurrency((config as any).audio_concurrency)
-  const isLocalAudioProvider = providerId === 'voicestudio'
-  const hubBackend = isLocalAudioProvider ? await getHubBackend() : null
-  const isHubAudioProvider = isLocalAudioProvider && hubBackend?.mode === 'hub'
+  const isVoiceStudioProvider = providerId === 'voicestudio'
+  const voiceStudioCloud = modelEntry?.is_cloud === true || modelEntry?.provider_params?.is_cloud === true
+  const isLocalAudioWork = providerId === 'macos' || (isVoiceStudioProvider && !voiceStudioCloud)
+  const hubBackend = isVoiceStudioProvider ? await getHubBackend() : null
+  const isHubAudioProvider = isVoiceStudioProvider && hubBackend?.mode === 'hub'
 
   // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio
   // instance has its OWN voice library with locally-unique UUIDs, so a
@@ -629,7 +630,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // pinning (see the comment below).
   let voicePool: import('../services/voicestudio-voice-pool.js').VoicePoolResult | null = null
   let voiceFilteredEndpoints: string[] | null = null
-  if (isLocalAudioProvider && !isHubAudioProvider && req.voice) {
+  if (isVoiceStudioProvider && !isHubAudioProvider && req.voice) {
     const { resolveVoicePool, parseVoiceName, parseHubVoiceId } = await import('../services/voicestudio-voice-pool.js')
     voicePool = await resolveVoicePool(apiKey)
     const voiceJobName = parseVoiceName(req.voice)
@@ -705,7 +706,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // health-checking + least-busy + failover, same as the image renderer.
   let audioDispatcher: Dispatcher | null = null
   let voicePoolSize = 1
-  if (isLocalAudioProvider && !isHubAudioProvider) {
+  if (isVoiceStudioProvider && !isHubAudioProvider) {
     // v1.0.437 — honour the per-Mac on/off switch: build the pool over enabled
     // endpoints only, so a Mac switched off in Settings is never used.
     const eps = parseEnabledEndpoints(apiKey)
@@ -739,21 +740,35 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
-  // Local: serial per Mac (MLX is serial), but parallelise across the pool.
-  // Cloud providers keep their tier-tuned default (3 = ElevenLabs Starter-safe).
-  const concurrency = isLocalAudioProvider
-    ? resolveVoiceStudioConcurrency(
-        baseAudioConcurrency,
-        isHubAudioProvider ? 'hub' : 'direct',
-        voicePoolSize,
-      )
-    : baseAudioConcurrency
-  if (isHubAudioProvider) {
+  // Saved concurrency + spacing are cloud-provider safeguards. Local work is
+  // governed by fleet capacity instead: one request per reachable Direct Mac,
+  // or one outstanding request per online Hub Voice Studio. Counting all
+  // online Voice Studios (rather than only currently model-ready ones) leaves
+  // queued work available for a Mac that finishes installing the model.
+  let localCapacity = providerId === 'macos' ? 1 : voicePoolSize
+  if (isLocalAudioWork && isHubAudioProvider) {
+    if (!hubBackend?.hubUrl) {
+      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
+    }
+    const studios = await hubStudios(hubBackend.hubUrl, hubBackend.hubToken)
+    localCapacity = studios.filter(studio => studio.modality === 'voice' && studio.status === 'up').length
+    if (localCapacity < 1) throw new Error('Studio Hub has no reachable Voice Studio workers.')
+  }
+  const execution: GenerationExecution = isLocalAudioWork
+    ? (isHubAudioProvider ? 'local-hub' : 'local-direct')
+    : 'cloud'
+  const concurrency = resolveGenerationConcurrency(
+    (config as any).audio_concurrency,
+    execution,
+    tasks.length,
+    localCapacity,
+  )
+  if (isHubAudioProvider && isLocalAudioWork) {
     job.output_lines.push(
-      `Studio Hub voice routing: ${Math.min(baseAudioConcurrency, tasks.length)} section(s) in parallel; ` +
-      'the Hub assigns each section to an available Voice Studio.',
+      `Studio Hub local voice routing: up to ${concurrency} section(s) in parallel across ` +
+      `${localCapacity} online Voice Studio worker(s); cloud limits do not throttle local work.`,
     )
-  } else if (isLocalAudioProvider && voicePoolSize === 1 && baseAudioConcurrency !== 1) {
+  } else if (isLocalAudioWork && isVoiceStudioProvider && voicePoolSize === 1) {
     job.output_lines.push(
       `Local modal (${providerId}): concurrency 1 ` +
       `(single Apple Silicon MLX endpoint is serial — add more Image/Voice Studio URLs to parallelise across Macs).`,
@@ -768,7 +783,10 @@ export async function generateAudio(job: Job): Promise<void> {
   // so all N workers don't submit to ElevenLabs/fal/GenAIPro in the same
   // millisecond. New projects default to 2000 ms; an explicit 0 still
   // disables it. Clamp 0..20000.
-  const launchStaggerMs = resolveLaunchStaggerMs((config as any).audio_launch_stagger_ms)
+  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
+    (config as any).audio_launch_stagger_ms,
+    execution,
+  )
   if (tasks.length > 1) {
     job.output_lines.push(
       `Pool: ${Math.min(concurrency, tasks.length)} in parallel` +
@@ -793,8 +811,8 @@ export async function generateAudio(job: Job): Promise<void> {
   // suffering from MLX memory pressure (KV cache fragmentation, VAE
   // decode churn) and we surface a one-time "restart this Mac soon"
   // hint to the Jobs panel. Single-job scoped — each new audio job
-  // starts with fresh baselines. Only meaningful when isLocalAudioProvider.
-  const latencyStats = isLocalAudioProvider && !isHubAudioProvider ? newLatencyStats() : null
+  // starts with fresh baselines. Only meaningful for local Direct Voice Studio.
+  const latencyStats = isLocalAudioWork && isVoiceStudioProvider && !isHubAudioProvider ? newLatencyStats() : null
 
   async function processTask(task: ChunkTask): Promise<void> {
     if (isCancelled()) return
@@ -1046,7 +1064,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // when it detects the pattern (mid-loop, before catching); the worker
   // checks the flag at top of each iteration and short-circuits with a
   // clear "modal died — restart Voice Studio and retry" message.
-  const isLocalModalAudio = providerId === 'voicestudio'
+  const isLocalModalAudio = isLocalAudioWork && isVoiceStudioProvider
   const LOCAL_MODAL_INTER_CHUNK_DELAY_MS = 3_000
   let localModalPriorChunkCompleted = false
   let modalDiedDuringRun = false

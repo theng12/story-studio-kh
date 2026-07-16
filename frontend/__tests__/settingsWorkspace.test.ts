@@ -51,6 +51,8 @@ describe('Settings workspace navigation', () => {
     for (const section of ['Scripts & prompts', 'Images', 'Audio & TTS', 'Motion clips', 'Transcription']) {
       assert.match(settingsSource, new RegExp(section.replace('&', '&amp;')))
     }
+    assert.match(settingsSource, /Cloud provider safeguards/)
+    assert.match(settingsSource, /Local Studio work automatically uses the available fleet/)
     assert.match(settingsSource, /Save performance/)
   })
 

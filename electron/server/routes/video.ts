@@ -974,7 +974,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     // One Whisper inference per Mac. With 2-3 model-ready Voice Studio URLs,
     // different episode transcription jobs can run together; one URL stays
     // serial so we don't pile multiple long STT requests onto the same modal.
-    setSubtitleTranscribeConcurrency(Math.max(1, Math.min(3, readyEndpoints || 1)))
+    setSubtitleTranscribeConcurrency(Math.max(1, Math.min(50, readyEndpoints || 1)))
   }
 
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {

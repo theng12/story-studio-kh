@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.634 — 2026-07-17
+
+**Local Studio fleets now run at full live capacity without weakening cloud safeguards.**
+
+- Split generation performance into two explicit lanes: direct and Studio-proxied cloud models keep the saved concurrency and launch spacing, while local Voice, Image, Video, Chat, and transcription work ignores those cloud limits.
+- Made Studio Hub audio submit one request per online Voice Studio instead of stopping at the project's cloud TTS cap, so every model-ready Mac can work on a chapter immediately.
+- Made Direct local pools use every reachable configured Studio once, with no artificial launch stagger, while preserving one-inference-per-Mac safety and serial dependency modes such as chained images.
+- Kept cloud models routed through Chat Studio, Image Studio, or Video Studio under the same configured provider limits as direct cloud APIs.
+- Clarified the Performance screen as Cloud generation limits and added regression coverage for local bypass, cloud-proxy limits, mixed local/cloud queues, and fleet-capacity dispatch.
+
+---
+
 ## v1.0.633 — 2026-07-16
 
 **All projects now share one universal job control centre.**

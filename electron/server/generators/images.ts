@@ -20,8 +20,13 @@ import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
-import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
-import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import { getHubBackend, hubCatalog, hubStudios } from '../lib/studiohub-client.js'
+import {
+  resolveGenerationConcurrency,
+  resolveGenerationLaunchStaggerMs,
+  resolvePerformanceConcurrency,
+  type GenerationExecution,
+} from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
@@ -523,15 +528,37 @@ export async function generateImages(job: Job): Promise<void> {
   // horizontally and the per-second-rate-limit concern is the real cap.
   const configConcurrency = resolvePerformanceConcurrency((config as any).image_concurrency)
   const reqConcurrency = Number((req as any).concurrency) || 0
-  const isLocalProvider = providerId === 'imagestudio'
+  const isStudioProvider = providerId === 'imagestudio'
   const baseConcurrency = reqConcurrency
     ? Math.max(1, Math.min(50, reqConcurrency))
     : configConcurrency
   let dispatcher: Dispatcher | null = null
   let poolEndpoints: string[] = []
   let lastHealthyPool = new Set<string>()
-  const imageRouting = isLocalProvider ? await getHubBackend() : null
+  const imageRouting = isStudioProvider ? await getHubBackend() : null
   const isHubImageProvider = imageRouting?.mode === 'hub'
+  let isStudioCloud = providerParams.is_cloud === true
+  if (isStudioProvider && providerParams.is_cloud == null) {
+    const { repoForModelId, listAvailableModels } = await import('../lib/imagestudio-client.js')
+    const repo = repoForModelId(modelName)
+    if (repo) {
+      if (isHubImageProvider && imageRouting?.hubUrl) {
+        const rows = await hubCatalog(imageRouting.hubUrl, imageRouting.hubToken, 'image')
+        isStudioCloud = rows.some(row => row?.repo === repo && row?.is_cloud === true)
+      } else {
+        const directUrl = parseEnabledEndpoints(apiKey)[0]
+        if (directUrl) {
+          const inventory = await listAvailableModels(directUrl)
+          isStudioCloud = inventory.models.some(model => model.repo === repo && model.is_cloud === true)
+        }
+      }
+    }
+  }
+  const isLocalImageWork = isStudioProvider && !isStudioCloud
+  const execution: GenerationExecution = isLocalImageWork
+    ? (isHubImageProvider ? 'local-hub' : 'local-direct')
+    : 'cloud'
+  const workloadItemCount = mode === 'scenes' ? scenes.length : thumbnails.length
   // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
   // but the user may run a POOL of Macs. The old code hard-clamped local
   // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a
@@ -539,25 +566,32 @@ export async function generateImages(job: Job): Promise<void> {
   // across the HEALTHY ones: each Mac still runs serially, but different Macs
   // run concurrently, and the provider's least-busy dispatcher spreads the work.
   // A single endpoint stays at concurrency 1, exactly as before.
-  let concurrency = baseConcurrency
-  if (isLocalProvider && !isHubImageProvider) {
+  let concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount)
+  if (isStudioProvider && !isHubImageProvider) {
     const { health: imgHealth } = await import('../lib/imagestudio-client.js')
     poolEndpoints = parseEnabledEndpoints(apiKey)
     if (poolEndpoints.length <= 1) {
-      concurrency = 1
+      concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount, 1)
     } else {
       const { healthy, offline } = await healthyEndpoints(poolEndpoints, async (u) => (await imgHealth(u, 4000)).ok)
       lastHealthyPool = new Set(healthy)
       dispatcher = createDispatcher(poolEndpoints)
       for (const u of offline) dispatcher.markDown(u)
-      concurrency = Math.max(1, Math.min(baseConcurrency, healthy.length))
-      job.output_lines.push(
-        `Local modal pool: ${healthy.length}/${poolEndpoints.length} endpoint(s) reachable — ` +
-        `generating with concurrency=${concurrency} (each Mac runs one inference at a time, in parallel).` +
-        (offline.length
-          ? ` Offline now: ${offline.join(', ')} — they will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online.`
-          : ''),
+      concurrency = resolveGenerationConcurrency(
+        baseConcurrency,
+        execution,
+        workloadItemCount,
+        Math.max(1, healthy.length),
       )
+      if (isLocalImageWork) {
+        job.output_lines.push(
+          `Local modal pool: ${healthy.length}/${poolEndpoints.length} endpoint(s) reachable — ` +
+          `using all ${concurrency} available local worker(s); cloud limits do not throttle local work.` +
+          (offline.length
+            ? ` Offline now: ${offline.join(', ')} — they will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online.`
+            : ''),
+        )
+      }
     }
   }
 
@@ -574,18 +608,28 @@ export async function generateImages(job: Job): Promise<void> {
       const studios = await hubStudios(imageRouting.hubUrl, imageRouting.hubToken)
       const upImage = studios.filter((s) => s.modality === 'image' && s.status === 'up').length
       if (upImage < 1) throw new Error('Studio Hub has no reachable Image Studio workers.')
-      concurrency = Math.max(1, Math.min(50, Math.max(baseConcurrency, upImage)))
-      job.output_lines.push(
-        `Studio Hub image routing: submitting up to ${concurrency} scene(s) at once across ` +
-        `${upImage} online Image Studio worker(s).`,
-      )
+      concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount, upImage)
+      if (isLocalImageWork) {
+        job.output_lines.push(
+          `Studio Hub local image routing: up to ${concurrency} scene(s) at once across ` +
+          `${upImage} online Image Studio worker(s); cloud limits do not throttle local work.`,
+        )
+      } else {
+        job.output_lines.push(
+          `Studio Hub cloud image routing: up to ${concurrency} provider request(s) at once across ` +
+          `${upImage} online Image Studio proxy worker(s).`,
+        )
+      }
     }
   }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
   // After the spread the rolling pool runs at full concurrency. New projects
   // default to 2000 ms; an explicit 0 still disables it. Clamp 0..20000.
-  const launchStaggerMs = resolveLaunchStaggerMs((config as any).image_launch_stagger_ms)
+  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
+    (config as any).image_launch_stagger_ms,
+    execution,
+  )
 
   // Read the per-folder task manifests once at the top so we can attempt
   // free recovery (existing-task poll) before issuing any fresh submit.
@@ -796,7 +840,7 @@ export async function generateImages(job: Job): Promise<void> {
 
     const maxWorkers = concurrency
     const liveNow = () => {
-      if (!dispatcher || !poolEndpoints.length) return maxWorkers
+      if (!isLocalImageWork || !dispatcher || !poolEndpoints.length) return maxWorkers
       return Math.max(1, Math.min(maxWorkers, dispatcher.liveCount()))
     }
 

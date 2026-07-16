@@ -28,9 +28,14 @@ import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import { resolveLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import {
+  resolveGenerationConcurrency,
+  resolveGenerationLaunchStaggerMs,
+  type GenerationExecution,
+} from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
+import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
 import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -241,12 +246,43 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // in flight; the user can bump this up
   // up to 50 via Settings → Video → Concurrency once their provider account
   // has the credits / quota to handle it.
-  const concurrency = resolvePerformanceConcurrency((config as any).video_concurrency)
+  const isVideoStudioProvider = providerId === 'videostudio'
+  const isVideoStudioCloud = (modelConfig as any)?.provider_params?.is_cloud === true
+  const isLocalVideoWork = isVideoStudioProvider && !isVideoStudioCloud
+  const videoRouting = isVideoStudioProvider ? await getHubBackend() : null
+  let localCapacity = 1
+  if (isLocalVideoWork && videoRouting?.mode === 'hub') {
+    if (!videoRouting.hubUrl) {
+      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
+    }
+    const studios = await hubStudios(videoRouting.hubUrl, videoRouting.hubToken)
+    localCapacity = studios.filter(studio => studio.modality === 'video' && studio.status === 'up').length
+    if (localCapacity < 1) throw new Error('Studio Hub has no reachable Video Studio workers.')
+  }
+  const execution: GenerationExecution = isLocalVideoWork
+    ? (videoRouting?.mode === 'hub' ? 'local-hub' : 'local-direct')
+    : 'cloud'
+  const concurrency = resolveGenerationConcurrency(
+    (config as any).video_concurrency,
+    execution,
+    prompts.length,
+    localCapacity,
+  )
   // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
   // so all workers don't hit Veo / fal / Kie in the same millisecond.
   // New projects default to 2000 ms; an explicit 0 still disables it.
   // Clamp 0..20000.
-  const launchStaggerMs = resolveLaunchStaggerMs((config as any).video_launch_stagger_ms)
+  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
+    (config as any).video_launch_stagger_ms,
+    execution,
+  )
+  if (isLocalVideoWork) {
+    job.output_lines.push(
+      videoRouting?.mode === 'hub'
+        ? `Studio Hub local video routing: up to ${concurrency} clip(s) at once across ${localCapacity} online Video Studio worker(s); cloud limits do not throttle local work.`
+        : 'Local Video Studio routing: one clip at a time on this direct Studio endpoint; cloud launch controls are bypassed.',
+    )
+  }
   if (prompts.length > 1) {
     job.output_lines.push(
       `Pool: ${Math.min(concurrency, prompts.length)} in parallel` +

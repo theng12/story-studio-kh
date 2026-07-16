@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { mapExpressionConcurrent } from '../services/audio-expression.js'
+import { mapExpressionConcurrent, resolveExpressionTagConcurrency } from '../services/audio-expression.js'
 
 describe('expression tagging concurrency', () => {
   test('runs short chapter tagging calls concurrently while preserving result order', async () => {
@@ -28,5 +28,11 @@ describe('expression tagging concurrency', () => {
       active--
     })
     assert.equal(maxActive, 2)
+  })
+
+  test('saved text limits apply to cloud tagging but not local Chat Studio work', () => {
+    assert.equal(resolveExpressionTagConcurrency('deepseek-v4-flash', 10, 3), 3)
+    assert.equal(resolveExpressionTagConcurrency('chatstudio:mlx-community/Qwen3-8B-4bit', 10, 3), 10)
+    assert.equal(resolveExpressionTagConcurrency('chatstudio:provider:openrouter:model', 10, 3), 3)
   })
 })

@@ -20,6 +20,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 import { getScriptConcurrency } from './app-settings.js'
 import { requireJobCompletion } from './job-completion.js'
+import { isLocalTextModel } from './job-retry-policy.js'
 
 /** Filename of the per-episode sidecar, stored next to the narration file. */
 export const EXPRESSION_SIDECAR = 'audio_expression.json'
@@ -261,11 +262,19 @@ export async function markupSectionText(
   return trimmed
 }
 
-/** Expression tagging follows the machine's text-generation concurrency.
- * The user controls the provider-appropriate value in Settings. */
+export function resolveExpressionTagConcurrency(
+  model: string,
+  itemCount: number,
+  configured: number,
+): number {
+  return Math.max(1, Math.min(itemCount, isLocalTextModel(model) ? itemCount : configured))
+}
+
+/** Cloud expression tagging follows the saved provider limit. Local Chat
+ * Studio work is released immediately to its own fleet scheduler. */
 export async function expressionTagConcurrency(model: string, itemCount: number): Promise<number> {
   const configured = await getScriptConcurrency()
-  return Math.max(1, Math.min(itemCount, configured))
+  return resolveExpressionTagConcurrency(model, itemCount, configured)
 }
 
 /** Small bounded worker pool shared by background Tag All and audio auto-tag. */

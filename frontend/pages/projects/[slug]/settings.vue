@@ -1314,9 +1314,9 @@
     <div v-if="activeTab === 'performance'" class="card settings-panel performance-panel mt-2">
       <header class="settings-section-head">
         <div>
-          <span class="settings-section-kicker">Throughput control</span>
-          <h3>Generation performance</h3>
-          <p>Choose a reliable starting profile, then tune only the workloads that need more capacity.</p>
+          <span class="settings-section-kicker">Cloud provider safeguards</span>
+          <h3>Cloud generation limits</h3>
+          <p>Control paid and hosted API traffic. Local Studio work automatically uses the available fleet and ignores these limits.</p>
         </div>
         <span class="settings-section-count">{{ performanceProfileLabel }}</span>
       </header>
@@ -1344,42 +1344,42 @@
         <article class="performance-card performance-card--text">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">Aa</span>
-            <div><h4>Scripts &amp; prompts</h4><p>App-wide queue capacity across local and cloud language models.</p></div>
+            <div><h4>Scripts &amp; prompts</h4><p>App-wide queue capacity for direct cloud and Chat Studio cloud models.</p></div>
             <span class="performance-value">{{ scriptConcurrency }} jobs</span>
           </header>
           <div class="performance-control">
-            <label>Concurrent text jobs</label>
+            <label>Concurrent cloud text jobs</label>
             <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
             <div class="performance-scale"><span>Serial</span><span>50 maximum</span></div>
           </div>
-          <footer class="performance-card-foot"><span>This Mac</span><span>Studio Hub distributes compatible work</span></footer>
+          <footer class="performance-card-foot"><span>This Mac</span><span>Local Chat Studio jobs bypass this cap</span></footer>
         </article>
 
         <article class="performance-card performance-card--image">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">▧</span>
-            <div><h4>Images</h4><p>Parallel scene and thumbnail requests inside each job.</p></div>
+            <div><h4>Images</h4><p>Parallel direct-cloud and Image Studio cloud requests inside each job.</p></div>
             <span class="performance-value">{{ imageConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Concurrency</label>
+            <label>Cloud concurrency</label>
             <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
             <label>Launch spacing <span>{{ formatLaunchStagger(imageLaunchStaggerMs) }}</span></label>
             <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
           </div>
-          <footer class="performance-card-foot"><span>This project</span><span>2 seconds prevents burst-rate spikes</span></footer>
+          <footer class="performance-card-foot"><span>This project</span><span>Local image fleets run at live capacity</span></footer>
         </article>
 
         <article class="performance-card performance-card--audio">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">◖</span>
-            <div><h4>Audio &amp; TTS</h4><p>Parallel narration chunks plus the provider wait limit.</p></div>
+            <div><h4>Audio &amp; TTS</h4><p>Parallel cloud narration requests plus the provider wait limit.</p></div>
             <span class="performance-value">{{ audioConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Concurrency</label>
+            <label>Cloud concurrency</label>
             <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
@@ -1397,11 +1397,11 @@
         <article class="performance-card performance-card--video">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">▶</span>
-            <div><h4>Motion clips</h4><p>Image-to-video requests are expensive; raise this deliberately.</p></div>
+            <div><h4>Motion clips</h4><p>Cloud image-to-video requests are expensive; raise this deliberately.</p></div>
             <span class="performance-value">{{ videoConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Concurrency</label>
+            <label>Cloud concurrency</label>
             <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
@@ -1414,36 +1414,36 @@
         <article class="performance-card performance-card--subtitle">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">CC</span>
-            <div><h4>Transcription</h4><p>Chapter-level Whisper work across Voice Studio or cloud workers.</p></div>
+            <div><h4>Transcription</h4><p>Chapter-level cloud Whisper requests. Local Voice Studio always matches its ready fleet.</p></div>
             <span class="performance-value">{{ subtitleConcurrency === 'auto' ? 'Auto' : `${subtitleConcurrency} at once` }}</span>
           </header>
           <div class="performance-control">
-            <label>Concurrent chapters</label>
+            <label>Concurrent cloud chapters</label>
             <select v-model="subtitleConcurrency" class="select">
-              <option value="auto">Auto — match online Macs</option>
+              <option value="auto">Auto — 3 cloud requests</option>
               <option value="1">1 (sequential)</option>
               <option value="2">2</option><option value="3">3</option><option value="4">4</option>
               <option value="6">6</option><option value="8">8</option><option value="12">12</option>
               <option value="16">16</option><option value="24">24</option><option value="32">32</option><option value="50">50</option>
             </select>
           </div>
-          <footer class="performance-card-foot"><span>This project</span><span>Auto adapts to the live Voice Studio pool</span></footer>
+          <footer class="performance-card-foot"><span>This project</span><span>Local transcription adapts automatically</span></footer>
         </article>
 
         <article class="performance-guidance-card">
           <span class="settings-section-kicker">How to tune</span>
-          <h4>Raise capacity only when the queue is healthy</h4>
-          <p>Keep launch spacing near 2 seconds. Increase concurrency in small steps, then watch Jobs for 429, timeout, or memory errors.</p>
+          <h4>Tune only for your cloud provider limits</h4>
+          <p>Keep launch spacing near 2 seconds. Increase cloud concurrency in small steps, then watch Jobs for 429 or timeout errors.</p>
           <dl>
             <div><dt>429 errors</dt><dd>Raise spacing or lower concurrency.</dd></div>
-            <div><dt>Idle fleet</dt><dd>Raise the matching workload by 1–3.</dd></div>
-            <div><dt>Single local Mac</dt><dd>Use Balanced or Gentle.</dd></div>
+            <div><dt>Local fleet</dt><dd>No tuning needed; all ready Studios are used automatically.</dd></div>
+            <div><dt>Cloud proxy</dt><dd>Cloud models inside a Studio still follow these safeguards.</dd></div>
           </dl>
         </article>
       </div>
 
       <div class="performance-save-bar">
-        <div><strong>Ready to apply</strong><span>One save updates this project's controls and this Mac's text-job capacity.</span></div>
+        <div><strong>Ready to apply</strong><span>One save updates this project's cloud safeguards and this Mac's cloud text-job capacity.</span></div>
         <SaveIndicator v-bind="savedHintProps('performance')" />
         <button class="btn btn-primary" @click="savePerformance">Save performance</button>
       </div>
@@ -5511,9 +5511,9 @@ interface PerformanceProfile {
   stagger: number
 }
 const performanceProfiles: PerformanceProfile[] = [
-  { id: 'gentle', label: 'Gentle', summary: '1 worker · widest spacing', script: 1, image: 1, audio: 1, video: 1, subtitle: '1', stagger: 3_000 },
-  { id: 'balanced', label: 'Balanced', summary: 'Recommended · 3 workers', script: 3, image: 3, audio: 3, video: 3, subtitle: '3', stagger: 2_000 },
-  { id: 'fleet', label: 'Fleet', summary: 'More local capacity', script: 8, image: 6, audio: 6, video: 3, subtitle: 'auto', stagger: 1_200 },
+  { id: 'gentle', label: 'Gentle', summary: '1 cloud request · widest spacing', script: 1, image: 1, audio: 1, video: 1, subtitle: '1', stagger: 3_000 },
+  { id: 'balanced', label: 'Balanced', summary: 'Recommended · 3 cloud requests', script: 3, image: 3, audio: 3, video: 3, subtitle: '3', stagger: 2_000 },
+  { id: 'fleet', label: 'Fleet', summary: 'Higher cloud throughput', script: 8, image: 6, audio: 6, video: 3, subtitle: 'auto', stagger: 1_200 },
 ]
 const activePerformanceProfile = computed<PerformanceProfileId | 'custom'>(() => {
   const matched = performanceProfiles.find(profile =>

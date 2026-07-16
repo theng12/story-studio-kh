@@ -13,18 +13,29 @@ export function resolvePerformanceConcurrency(value: unknown): number {
   return Math.max(PERFORMANCE_CONCURRENCY_MIN, Math.min(PERFORMANCE_CONCURRENCY_MAX, parsed))
 }
 
+export type GenerationExecution = 'cloud' | 'local-direct' | 'local-hub'
+
 /**
- * Voice Studio is serial per direct MLX endpoint, but Studio Hub owns a fleet
- * queue and must receive up to the user's configured workload concurrency.
+ * Performance sliders are provider safeguards, not local-fleet throttles.
+ *
+ * Cloud requests honour the saved cap. Local Direct requests use every
+ * reachable model endpoint once, while local Hub requests keep one request in
+ * flight per online Studio. The Hub may leave an item queued when an online Mac
+ * lacks the selected model; that is intentional and lets the worker join the
+ * same running workload as soon as its catalog reports the model ready.
  */
-export function resolveVoiceStudioConcurrency(
+export function resolveGenerationConcurrency(
   configured: unknown,
-  routing: 'direct' | 'hub',
-  directPoolSize: number,
+  execution: GenerationExecution,
+  itemCount: number,
+  localCapacity = 1,
 ): number {
-  const base = resolvePerformanceConcurrency(configured)
-  if (routing === 'hub') return base
-  return Math.max(1, Math.min(base, Math.max(1, Math.floor(directPoolSize))))
+  const items = Math.max(1, Math.floor(Number(itemCount)) || 1)
+  if (execution === 'cloud') {
+    return Math.min(items, resolvePerformanceConcurrency(configured))
+  }
+  const capacity = Math.max(1, Math.floor(Number(localCapacity)) || 1)
+  return Math.min(items, capacity)
 }
 
 export function resolveLaunchStaggerMs(value: unknown): number {
@@ -32,4 +43,12 @@ export function resolveLaunchStaggerMs(value: unknown): number {
   const parsed = Math.floor(Number(value))
   if (!Number.isFinite(parsed)) return LAUNCH_STAGGER_DEFAULT_MS
   return Math.max(LAUNCH_STAGGER_MIN_MS, Math.min(LAUNCH_STAGGER_MAX_MS, parsed))
+}
+
+/** Local Studio work starts immediately; only cloud providers need burst spacing. */
+export function resolveGenerationLaunchStaggerMs(
+  value: unknown,
+  execution: GenerationExecution,
+): number {
+  return execution === 'cloud' ? resolveLaunchStaggerMs(value) : 0
 }

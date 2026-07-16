@@ -103,6 +103,71 @@ describe('LLM-group concurrency', () => {
     assert.equal(b.peak, 1)
   })
 
+  test('local Chat Studio jobs bypass the cloud text-job limit', async () => {
+    const proj = await pm.createProject({ name: 'JQCC-LOCAL' })
+    const b = makeBlocker()
+    jq.registerExecutor('metadata', b.executor)
+    jq.setLlmConcurrency(1)
+    for (const ep of ['EP001', 'EP002', 'EP003']) {
+      jq.enqueue({
+        project_slug: proj.slug,
+        type: 'metadata',
+        episode_id: ep,
+        title: ep,
+        params: { model: 'chatstudio:mlx-community/Qwen3-8B-4bit' },
+      })
+    }
+    await waitFor(() => b.active === 3)
+    assert.equal(b.peak, 3, 'local work is admitted to the Studio fleet immediately')
+    b.releases.splice(0, 3).forEach(release => release())
+    await waitFor(() => b.done === 3)
+    await settle()
+  })
+
+  test('cloud models proxied through Chat Studio still obey the saved limit', async () => {
+    const proj = await pm.createProject({ name: 'JQCC-CLOUD-PROXY' })
+    const b = makeBlocker()
+    jq.registerExecutor('metadata', b.executor)
+    jq.setLlmConcurrency(1)
+    for (const ep of ['EP001', 'EP002']) {
+      jq.enqueue({
+        project_slug: proj.slug,
+        type: 'metadata',
+        episode_id: ep,
+        title: ep,
+        params: { model: 'chatstudio:provider:openrouter:openai/gpt-4o-mini' },
+      })
+    }
+    await waitFor(() => b.active === 1)
+    assert.equal(b.active, 1)
+    b.releases.shift()!()
+    await waitFor(() => b.done === 1 && b.active === 1)
+    b.releases.shift()!()
+    await waitFor(() => b.done === 2)
+    await settle()
+    assert.equal(b.peak, 1)
+  })
+
+  test('adjacent local and cloud text jobs enter their independent lanes', async () => {
+    const proj = await pm.createProject({ name: 'JQCC-MIXED' })
+    const b = makeBlocker()
+    jq.registerExecutor('metadata', b.executor)
+    jq.setLlmConcurrency(1)
+    const rows = [
+      ['EP001', 'chatstudio:local/model-a'],
+      ['EP002', 'chatstudio:provider:openrouter:model-b'],
+      ['EP003', 'chatstudio:local/model-c'],
+    ]
+    for (const [episode_id, model] of rows) {
+      jq.enqueue({ project_slug: proj.slug, type: 'metadata', episode_id, title: episode_id, params: { model } })
+    }
+    await waitFor(() => b.active === 3)
+    assert.equal(b.peak, 3)
+    b.releases.splice(0, 3).forEach(release => release())
+    await waitFor(() => b.done === 3)
+    await settle()
+  })
+
   test('budget is SHARED across different text types (outline + metadata)', async () => {
     const proj = await pm.createProject({ name: 'JQCC3' })
     const b = makeBlocker()              // one closure-state both types share

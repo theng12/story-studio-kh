@@ -17,7 +17,7 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
-import { resolveJobAutoRetryPolicy } from './job-retry-policy.js'
+import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -314,9 +314,11 @@ export function unregisteredJobTypes(): JobType[] {
 // episodes are independent (separate folders; enqueue dedup already forbids
 // two jobs on the *same* episode+type), so several can safely run at once.
 //
-// They therefore share ONE budget: `llmConcurrency` jobs at a time across all
-// of them COMBINED (not per-type). 1 = the old fully-serial behaviour.
+// Cloud jobs share ONE budget: `llmConcurrency` jobs at a time across all of
+// them COMBINED (not per-type). Local Chat Studio jobs enter an independent
+// lane immediately and let Studio Hub / Direct dispatchers own backpressure.
 const LLM_GROUP = 'llm'
+const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
 const REMOTE_RENDER_GROUP = 'remote_render'
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
@@ -342,9 +344,20 @@ function usesRemoteRender(job: Job | undefined): boolean {
   return true
 }
 
+function usesLocalTextFleet(job: Job | undefined): boolean {
+  if (!job || !LLM_TYPES.has(job.type)) return false
+  if (job.type === 'scene_plan_run' && (job.params?.stage === 'timeline' || job.params?.model === 'deterministic-timeline')) {
+    return true
+  }
+  const model = [job.params?.model, job.params?.vision_model, job.params?.ai_model, job.params?.llm_model]
+    .find(value => typeof value === 'string' && value.trim())
+  return typeof model === 'string' && isLocalTextModel(model)
+}
+
 function groupOf(type: JobType, job?: Job): string {
   if (usesRemoteRender(job)) return REMOTE_RENDER_GROUP
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
+  if (usesLocalTextFleet(job)) return LOCAL_LLM_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
 }
 /** Active (running) job count for the shared LLM group. Non-LLM types track
@@ -369,6 +382,9 @@ export function getSubtitleTranscribeConcurrency(): number {
 }
 function groupLimit(group: string): number {
   if (group === LLM_GROUP) return llmConcurrency
+  // Local Chat Studio work is admitted immediately. Studio Hub or the Direct
+  // endpoint dispatcher owns the actual machine queue and backpressure.
+  if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
   if (group === REMOTE_RENDER_GROUP) return REMOTE_RENDER_CONCURRENCY
   return 1
@@ -482,7 +498,7 @@ function pump(type: JobType): void {
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)
-  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
     // A local final render owns this queue alone. Remote final renders have
     // their own bounded group because their FFmpeg work happens off this Mac.
     if (group === REMOTE_RENDER_GROUP && q.running) return
@@ -498,6 +514,12 @@ function pump(type: JobType): void {
       groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
     }
+    // A single job-type FIFO can contain adjacent local and cloud work. They
+    // have independent budgets, so let the next lane claim its head now rather
+    // than waiting for an unrelated local job to finish first.
+    if (q.pending.length > 0 && groupOf(type, q.pending[0]) !== group) {
+      queueMicrotask(() => pump(type))
+    }
   } else {
     if (type === 'video_assembly' && (groupActive[REMOTE_RENDER_GROUP] || 0) > 0) return
     if (q.running || q.pending.length === 0) return
@@ -510,7 +532,7 @@ function pump(type: JobType): void {
 /** A freed LLM slot can be taken by ANY text generator, not just the one that
  *  finished — so re-pump every type in the group. */
 function pumpGroup(group: string): void {
-  if (group === LLM_GROUP) for (const t of LLM_TYPES) pump(t)
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
   else if (group === REMOTE_RENDER_GROUP) pump('video_assembly')
 }
@@ -518,7 +540,7 @@ function pumpGroup(group: string): void {
 /** Release the slot a finished job held, then pull in the next work. */
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
-  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     pumpGroup(group)
   } else {

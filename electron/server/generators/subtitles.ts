@@ -300,31 +300,28 @@ async function transcribePerChapter(
   // user can re-run to fill in just the stragglers (existing SRTs are skipped).
   const failures: Array<{ slug: string; error: string }> = []
 
-  // v1.0.389/390 — per-chapter transcription concurrency (Settings → Performance
-  // → Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
-  // cloud Whisper parallelises requests. Value is a number (clamped 1–50) or
-  // 'auto'. New projects default to 3; Auto remains available to match the live
-  // Voice Studio pool (with dispatcher failover) or use 3 for cloud Whisper.
+  // Cloud Whisper honours Settings → Cloud generation limits. Local Voice
+  // Studio always fans chapters across every model-ready Mac; a cloud tuning
+  // choice must never leave free local capacity idle.
   const { getConfig } = await import('../services/project-manager.js')
   const subConfig = await getConfig(projectSlug)
   const rawConc = (subConfig as any)?.subtitle_concurrency
-  const isAuto = rawConc === 'auto'
   let concurrency: number
-  if (isAuto) {
-    if (engine === 'voicestudio') {
-      const { readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
-      const n = await readyTranscribeBackendCount(vsStoredUrl, vsModel).catch(() => 1)
-      concurrency = Math.max(1, Math.min(50, n || 1))
-    } else {
-      concurrency = 3  // cloud Whisper — safe parallel default
-    }
+  if (engine === 'voicestudio') {
+    const { readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
+    const n = await readyTranscribeBackendCount(vsStoredUrl, vsModel).catch(() => 1)
+    concurrency = Math.max(1, Math.min(50, n || 1))
   } else {
-    concurrency = Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
+    concurrency = rawConc === 'auto'
+      ? 3
+      : Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
   }
-  const autoNote = isAuto ? (engine === 'voicestudio' ? ` (auto — ${concurrency} online Mac${concurrency === 1 ? '' : 's'})` : ' (auto)') : ''
+  const routingNote = engine === 'voicestudio'
+    ? ` (local fleet — ${concurrency} model-ready Mac${concurrency === 1 ? '' : 's'}; cloud limit bypassed)`
+    : (rawConc === 'auto' ? ' (cloud default)' : '')
   job.output_lines.push(
     `Transcribing ${sections.length} chapter(s)` +
-    (concurrency > 1 ? ` — up to ${concurrency} at a time${autoNote}` : ` (sequential${autoNote})`) + '…',
+    (concurrency > 1 ? ` — up to ${concurrency} at a time${routingNote}` : ` (sequential${routingNote})`) + '…',
   )
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)
