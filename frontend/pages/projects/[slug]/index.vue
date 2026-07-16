@@ -35,24 +35,36 @@
 
     <section class="dashboard-metrics" aria-label="Project readiness">
       <NuxtLink :to="`/projects/${slug}/board`" class="dashboard-metric dashboard-metric-attention">
-        <span class="dashboard-metric-kicker">Needs work</span>
+        <span class="dashboard-metric-top">
+          <span class="dashboard-metric-kicker">Needs work</span>
+          <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
+        </span>
         <strong>{{ needsWorkCount }}</strong>
-        <span>{{ needsWorkCount === 1 ? 'episode has' : 'episodes have' }} at least one required stage pending</span>
+        <span class="dashboard-metric-detail">{{ needsWorkCount === 1 ? 'episode has' : 'episodes have' }} at least one required stage pending</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/video-assembly`" class="dashboard-metric dashboard-metric-accent">
-        <span class="dashboard-metric-kicker">Ready to render</span>
+        <span class="dashboard-metric-top">
+          <span class="dashboard-metric-kicker">Ready to render</span>
+          <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
+        </span>
         <strong>{{ readyToRenderCount }}</strong>
-        <span>verified through Scene Review and waiting for final assembly</span>
+        <span class="dashboard-metric-detail">Verified through Scene Review and waiting for final assembly</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/upload`" class="dashboard-metric dashboard-metric-success">
-        <span class="dashboard-metric-kicker">Final videos</span>
+        <span class="dashboard-metric-top">
+          <span class="dashboard-metric-kicker">Final videos</span>
+          <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
+        </span>
         <strong>{{ finalVideoCount }}</strong>
-        <span>assembled episodes ready for publishing or already delivered</span>
+        <span class="dashboard-metric-detail">Assembled episodes ready for publishing or already delivered</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/ideas`" class="dashboard-metric">
-        <span class="dashboard-metric-kicker">Idea library</span>
+        <span class="dashboard-metric-top">
+          <span class="dashboard-metric-kicker">Idea library</span>
+          <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
+        </span>
         <strong>{{ overview?.ideas?.total || 0 }}</strong>
-        <span>{{ overview?.ideas?.new || 0 }} new ideas waiting for review</span>
+        <span class="dashboard-metric-detail">{{ overview?.ideas?.new || 0 }} new ideas waiting for review</span>
       </NuxtLink>
     </section>
 
@@ -544,17 +556,19 @@ onBeforeUnmount(() => {
 
 .dashboard-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .dashboard-metric {
   position: relative;
   display: flex;
-  min-height: 154px;
-  padding: 20px;
+  min-width: 0;
+  min-height: 148px;
+  padding: 18px;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
   overflow: hidden;
   color: inherit;
   text-decoration: none;
@@ -566,25 +580,15 @@ onBeforeUnmount(() => {
   transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
 
-.dashboard-metric::before {
-  content: '';
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  width: 34px;
-  height: 3px;
-  border-radius: 3px;
-  background: var(--text-muted);
-  opacity: .5;
-}
-
 .dashboard-metric:hover { transform: translateY(-2px); border-color: var(--border-light); }
-.dashboard-metric-attention::before { background: var(--dashboard-gold); opacity: 1; }
-.dashboard-metric-accent::before { background: var(--dashboard-blue); opacity: 1; }
-.dashboard-metric-success::before { background: var(--dashboard-green); opacity: 1; }
+.dashboard-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .dashboard-metric-kicker { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
-.dashboard-metric strong { margin: 8px 0 10px; font: 700 36px/1 var(--font-display); color: var(--text-primary); }
-.dashboard-metric > span:last-child { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.dashboard-metric-arrow { width: 34px; height: 3px; border-radius: 3px; background: var(--text-muted); color: transparent; flex: 0 0 auto; opacity: .5; }
+.dashboard-metric-attention .dashboard-metric-arrow { background: var(--dashboard-gold); opacity: 1; }
+.dashboard-metric-accent .dashboard-metric-arrow { background: var(--dashboard-blue); opacity: 1; }
+.dashboard-metric-success .dashboard-metric-arrow { background: var(--dashboard-green); opacity: 1; }
+.dashboard-metric strong { margin: 0; font: 700 36px/1 var(--font-display); color: var(--text-primary); }
+.dashboard-metric-detail { display: block; min-width: 0; margin-top: auto; color: var(--text-secondary); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 
 .focus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .focus-card {

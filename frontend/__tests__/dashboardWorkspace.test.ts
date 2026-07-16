@@ -44,4 +44,11 @@ describe('project dashboard workspace', () => {
     assert.match(route, /getSessionStats/)
     assert.doesNotMatch(route, /scanEpisodes|readdir|SCAN_TIMEOUT_MS|timeSavedMin/)
   })
+
+  test('keeps summary card labels and supporting copy responsive', () => {
+    assert.match(dashboard, /dashboard-metric-top/)
+    assert.match(dashboard, /dashboard-metric-detail/)
+    assert.match(dashboard, /repeat\(auto-fit, minmax\(220px, 1fr\)\)/)
+    assert.match(dashboard, /overflow-wrap: anywhere/)
+  })
 })

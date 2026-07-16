@@ -1,7 +1,7 @@
 <!--
   Compact toolbar strip for generator pages. Holds the three things that
   always go together at the start of a generator flow:
-    1. Preset picker (loads form settings) + ⋯ overflow menu (Apply / Save / Save as / Delete)
+    1. Preset picker plus direct actions (Apply / Save / Save as / Rename / Delete)
     2. Episode selector (targets the generation)
     3. Generate button (kicks off the job)
 
@@ -51,8 +51,8 @@
         </template>
       </Popover>
       <!-- v1.0.119+ — Preset actions inlined as buttons. The previous
-           ⋯ overflow menu hid four common actions (Apply / Save /
-           Save as… / Delete) behind a kebab, which trained the user to
+           ⋯ overflow menu hid common actions (Apply / Save /
+           Save as… / Rename / Delete) behind a kebab, which trained the user to
            click twice for the operation they perform every session.
            Matches the PresetPicker row style used elsewhere (Ideas,
            Prompts) so the action set is consistent project-wide. -->
@@ -77,6 +77,13 @@
           title="Snapshot the current values under a new preset name."
           @click="openSaveAs"
         >Save as…</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="!hasActivePreset"
+          title="Change the active preset's name without changing its saved settings."
+          @click="openRename"
+        >Rename</button>
         <button
           type="button"
           class="btn btn-sm btn-danger"
@@ -158,7 +165,7 @@
       </Popover>
     </div>
 
-    <!-- Save-as modal (same pattern as the old PresetPicker) -->
+    <!-- Preset action modals use the same keyboard-safe pattern as PresetPicker. -->
     <Modal
       :visible="showSaveAs"
       size="sm"
@@ -181,6 +188,32 @@
         <button type="button" class="btn btn-secondary" :disabled="savingPreset" @click="showSaveAs = false">Cancel</button>
         <button type="button" class="btn btn-primary" :disabled="!newPresetName.trim() || savingPreset" @click="confirmSaveAs">
           {{ savingPreset ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </Modal>
+
+    <Modal
+      :visible="showRename"
+      size="sm"
+      labelledby="top-action-preset-rename-title"
+      @close="showRename = false"
+    >
+      <h3 id="top-action-preset-rename-title">Rename preset</h3>
+      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+        This changes only the preset name. Its saved settings stay exactly the same.
+      </p>
+      <input
+        v-model="renamePresetName"
+        ref="renamePresetNameInput"
+        class="input"
+        placeholder="Preset name"
+        :disabled="renamingPreset"
+        @keyup.enter.stop.prevent="confirmRename"
+      />
+      <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+        <button type="button" class="btn btn-secondary" :disabled="renamingPreset" @click="showRename = false">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="!renamePresetName.trim() || renamingPreset" @click="confirmRename">
+          {{ renamingPreset ? 'Renaming…' : 'Rename' }}
         </button>
       </div>
     </Modal>
@@ -211,6 +244,7 @@ const props = withDefaults(defineProps<{
     applyActive: () => any
     overwrite: () => Promise<any>
     saveAs: (name: string) => Promise<any>
+    rename: (name: string) => Promise<any>
     remove: () => Promise<any>
   }
   // Episode selector
@@ -240,6 +274,7 @@ const emit = defineEmits<{
   (e: 'generate'): void
   (e: 'preset-applied'): void
   (e: 'preset-saved'): void
+  (e: 'preset-renamed'): void
   (e: 'preset-deleted'): void
 }>()
 
@@ -254,6 +289,10 @@ const showSaveAs = ref(false)
 const newPresetName = ref('')
 const newPresetNameInput = ref<HTMLInputElement | null>(null)
 const savingPreset = ref(false)
+const showRename = ref(false)
+const renamePresetName = ref('')
+const renamePresetNameInput = ref<HTMLInputElement | null>(null)
+const renamingPreset = ref(false)
 
 // Active episode (captured from EpisodeSelector's emit) — used by the
 // hover popover to show per-section status icons.
@@ -370,6 +409,30 @@ async function confirmSaveAs() {
     emit('preset-saved')
   } finally {
     savingPreset.value = false
+  }
+}
+
+function openRename() {
+  if (!activePreset.value || renamingPreset.value) return
+  renamePresetName.value = activePreset.value.name
+  showRename.value = true
+  nextTick(() => {
+    renamePresetNameInput.value?.focus()
+    renamePresetNameInput.value?.select()
+  })
+}
+
+async function confirmRename() {
+  const name = renamePresetName.value.trim()
+  if (!name || !activePreset.value || renamingPreset.value) return
+  renamingPreset.value = true
+  try {
+    await props.presets?.rename(name)
+    renamePresetName.value = ''
+    showRename.value = false
+    emit('preset-renamed')
+  } finally {
+    renamingPreset.value = false
   }
 }
 

@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.631 — 2026-07-16
+
+**Research presets and dashboard readiness are clearer and more consistent.**
+
+- Moved Research preset selection and actions into the same top command bar used by the other generator workspaces; the lower panel now contains only source-specific run controls.
+- Added a safe in-place Rename action to every workspace using the shared top preset bar. Renaming preserves the preset ID and all saved settings.
+- Reworked the Dashboard readiness summary cards with responsive metric headers and wrapping support so long status explanations no longer crowd or overflow at narrower window sizes.
+
+---
+
 ## v1.0.630 — 2026-07-16
 
 **Render Studio can now execute the complete unified Video Assembly.**

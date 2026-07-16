@@ -195,6 +195,25 @@ describe('usePresets.saveAs() / overwrite() / remove() / setActive()', () => {
     assert.equal(presets.activeId.value, '', 'activeId cleared after removing the active preset')
   })
 
+  test('rename() changes only the active preset name and preserves its saved settings', async () => {
+    const { presets, form } = makeController('rename-active')
+    await presets.load()
+    form.value = 47
+    const created = await presets.saveAs('Original name')
+    assert.ok(created)
+
+    const renamed = await presets.rename('  Refined name  ')
+    assert.ok(renamed)
+    assert.equal(renamed.name, 'Refined name')
+    assert.equal(renamed.data.value, 47)
+    assert.equal(presets.activeId.value, created.id, 'renaming must not change the active preset')
+
+    const fresh = makeController('rename-active')
+    await fresh.presets.load()
+    assert.equal(fresh.presets.presets.value[0].name, 'Refined name')
+    assert.equal(fresh.form.value, 47, 'renaming must not alter the stored form snapshot')
+  })
+
   test('setActive() switches activeId and persists', async () => {
     const { presets, form } = makeController('s5')
     await presets.load()

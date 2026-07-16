@@ -17,11 +17,13 @@ describe('Research workspace flow', () => {
     assert.match(research, /title="Define what needs evidence"/)
   })
 
-  test('keeps presets and run controls visible without a settings disclosure', () => {
+  test('keeps presets in the shared command bar and run controls visible without a settings disclosure', () => {
+    assert.match(research, /:presets="researchPresets"/)
+    assert.match(research, /@preset-renamed="success\('Research preset renamed'\)"/)
     assert.match(research, /class="research-setup-surface"/)
-    assert.match(research, /Preset and run controls/)
+    assert.match(research, /Tune the evidence run/)
     assert.match(research, /<ModelSelector v-model="form\.source_model"/)
-    assert.match(research, /<PresetPicker/)
+    assert.doesNotMatch(research, /<PresetPicker/)
     assert.match(research, /Episode topics remain episode-specific/)
     assert.doesNotMatch(research, /label="Run settings and reusable preset"/)
     assert.doesNotMatch(research, /research_run_settings_open_/)

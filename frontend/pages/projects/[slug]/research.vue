@@ -34,12 +34,17 @@
         :project-slug="slug"
         v-model:episode-id="episodeId"
         filter-field="research"
+        :presets="researchPresets"
         generate-label="Run research"
         loading-label="Researching…"
         :generate-loading="researching || researchJobActive"
         :generate-disabled="!canRun"
         :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
         @generate="runResearch"
+        @preset-applied="success('Research preset applied')"
+        @preset-saved="success('Research preset saved')"
+        @preset-renamed="success('Research preset renamed')"
+        @preset-deleted="success('Research preset deleted')"
       />
       <div class="research-flow-rail" aria-label="Research workflow">
         <span class="research-flow-step" :class="{ active: !result }"><b>1</b> Brief</span>
@@ -128,25 +133,11 @@
       <div class="research-setup-surface">
         <div class="research-setup-heading">
           <div>
-            <span class="research-panel-kicker">Reusable setup</span>
-            <h3>Preset and run controls</h3>
+            <span class="research-panel-kicker">Run controls</span>
+            <h3>Tune the evidence run</h3>
           </div>
-          <p>Visible on every visit, so the active research setup is never hidden.</p>
+          <p>Save, apply, or rename reusable research presets in the command bar above. Episode topics remain episode-specific.</p>
         </div>
-        <PresetPicker
-          class="research-preset-picker"
-          label="Research preset"
-          hint="Saves the source, model, source depth, and reusable questions. Episode topics remain episode-specific."
-          :presets="researchPresets.presets.value"
-          :active-id="researchPresets.activeId.value"
-          @update:active-id="researchPresets.setActive"
-          @apply="researchPresets.applyActive(); success('Research preset applied')"
-          @overwrite="researchPresets.overwrite(); success('Research preset saved')"
-          @save-as="(n: string) => researchPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-          @rename="(n: string) => researchPresets.rename(n)"
-          @delete="researchPresets.remove()"
-        />
-
         <div class="research-run-controls">
           <div v-if="form.source_provider === 'llm-only'" class="research-model-field">
             <label>Research model</label>
@@ -881,7 +872,7 @@ watch(
 
 .research-setup-surface {
   display: grid;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px 14px;
   margin-top: 16px;
   padding: 14px;
@@ -921,9 +912,6 @@ watch(
 .research-depth-control { display: flex; align-items: center; gap: 8px; }
 .research-depth-control .input { width: 80px; }
 .research-depth-control span { color: var(--text-muted); font-size: 11px; }
-.research-preset-picker { align-self: stretch; }
-.research-brief-section :deep(.research-preset-picker.card) { margin: 0; padding: 12px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
-
 .research-result-actions { display: flex; align-items: center; gap: 7px; }
 .research-running-state {
   display: flex;

@@ -20,7 +20,7 @@ describe('preset modal keyboard guards', () => {
   test('Return confirms on key release and cannot leak into the opener', () => {
     for (const component of [presetPicker, topActionBar, settings, scripts, stylePreview, imagePrompts]) {
       assert.doesNotMatch(component, /@keydown\.enter(?:\.prevent)?="(?:confirmSaveAs|savePreset|confirmSaveCustomStyle|confirmSavePreset|saveStylePreset)"/)
-      assert.match(component, /@keyup\.enter\.stop\.prevent="(?:confirmSaveAs|savePreset|confirmSaveCustomStyle|confirmSavePreset|saveStylePreset)"/)
+      assert.match(component, /@keyup\.enter\.stop\.prevent="(?:confirmSaveAs|confirmRename|savePreset|confirmSaveCustomStyle|confirmSavePreset|saveStylePreset)"/)
     }
   })
 
@@ -28,6 +28,13 @@ describe('preset modal keyboard guards', () => {
     assert.match(topActionBar, /if \(!name \|\| savingPreset\.value\) return/)
     assert.match(topActionBar, /newPresetName\.value = ''[\s\S]*showSaveAs\.value = false/)
     assert.match(topActionBar, /:disabled="!newPresetName\.trim\(\) \|\| savingPreset"/)
+  })
+
+  test('the shared toolbar renames the active preset in place with the same keyboard guard', () => {
+    assert.match(topActionBar, />Rename<\/button>/)
+    assert.match(topActionBar, /@keyup\.enter\.stop\.prevent="confirmRename"/)
+    assert.match(topActionBar, /await props\.presets\?\.rename\(name\)/)
+    assert.match(topActionBar, /emit\('preset-renamed'\)/)
   })
 
   test('preset storage exposes one local list without device or cloud scope controls', () => {
