@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.622 — 2026-07-16
+
+**Studio Hub scene images are now saved durably as each render finishes.**
+
+- Routed completed image artifacts through Studio Hub's authenticated proxy instead of exposing raw fleet-worker links to Story Studio.
+- Saved every image atomically and updated its stable Scene Plan record before advancing job progress.
+- Retried transient per-item save failures five times and surfaced a blocking error if persistence still fails instead of silently discarding completed work.
+- Removed best-effort Scene Plan writes that could leave generated PNGs invisible in Scene Review.
+- Recovered all 101 existing EP0037 images from Studio Hub without regenerating or spending credits.
+
 ## v1.0.621 — 2026-07-16
 
 **Qwen3 cloned voices now flow through one fleet-wide Studio Hub library.**

@@ -10,6 +10,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { studioFetch } from './studio-auth.js'
+import { getHubBackend, hubHeaders } from './studiohub-client.js'
 import { sleepCancellable } from './http-retry.js'
 import { redactSecrets } from './redact-secrets.js'
 import type { ImageModelConfig } from '../models/types.js'
@@ -412,6 +413,7 @@ export async function downloadImage(
   onProgress?: (bytesReceived: number, totalBytes?: number) => void,
 ): Promise<void> {
   await fs.mkdir(path.dirname(savePath), { recursive: true })
+  const tempPath = `${savePath}.partial-${process.pid}-${Date.now()}`
 
   // v1.0.234 — some providers (OpenAI's Images API) return the bytes inline as
   // base64 rather than a fetchable URL. Node's fetch can't open `data:` URLs,
@@ -422,13 +424,24 @@ export async function downloadImage(
     const b64 = comma >= 0 ? url.slice(comma + 1) : ''
     const buf = Buffer.from(b64, 'base64')
     if (!buf.length) throw new Error('Download failed: empty data: URL')
-    await fs.writeFile(savePath, buf)
+    await fs.writeFile(tempPath, buf, { flag: 'wx' })
+    await fs.rename(tempPath, savePath)
     try { onProgress?.(buf.length, buf.length) } catch { /* ignore UI plumbing */ }
     return
   }
 
   const isStudioArtifact = /\/api\/generate\/jobs\/[^/]+\/image(?:\?|$)/.test(url)
-  const resp = await (isStudioArtifact ? studioFetch : fetch)(url, { signal: AbortSignal.timeout(120000) })
+  const isHubArtifact = /\/api\/hub\/jobs\/[^/]+\/items\/\d+\/artifact(?:\?|$)/.test(url)
+  let resp: Response
+  if (isHubArtifact) {
+    const hub = await getHubBackend()
+    resp = await fetch(url, {
+      headers: hubHeaders(hub.hubToken),
+      signal: AbortSignal.timeout(120000),
+    })
+  } else {
+    resp = await (isStudioArtifact ? studioFetch : fetch)(url, { signal: AbortSignal.timeout(120000) })
+  }
   if (!resp.ok || !resp.body) throw new Error(`Download failed: ${resp.status}`)
   const cl = resp.headers.get('content-length')
   const total = cl ? Number(cl) || undefined : undefined
@@ -440,22 +453,23 @@ export async function downloadImage(
       cb(null, chunk)
     },
   })
-  const writeStream = createWriteStream(savePath)
+  const writeStream = createWriteStream(tempPath, { flags: 'wx' })
   // Clean up a partial/truncated file on stream error so the generator's
   // `existsSync` skip guard doesn't mistake it for a valid cache hit next run.
   try {
     await pipeline(Readable.fromWeb(resp.body as any), counter, writeStream)
   } catch (e) {
-    await fs.rm(savePath, { force: true }).catch(() => {})
+    await fs.rm(tempPath, { force: true }).catch(() => {})
     throw e
   }
   // Providers occasionally return 200 with a 0-byte body; treat that as a
   // failure here rather than letting the half-file propagate downstream.
-  const stat = await fs.stat(savePath)
+  const stat = await fs.stat(tempPath)
   if (stat.size === 0) {
-    await fs.rm(savePath, { force: true }).catch(() => {})
+    await fs.rm(tempPath, { force: true }).catch(() => {})
     throw new Error('Image download wrote 0 bytes')
   }
+  await fs.rename(tempPath, savePath)
 }
 
 function sleep(ms: number): Promise<void> {

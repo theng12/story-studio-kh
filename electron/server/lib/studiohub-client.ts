@@ -59,6 +59,13 @@ export function hubApiBase(hubUrl: string): string {
   return `${trimHubUrl(hubUrl)}/api/hub`
 }
 
+/** Stable Hub-owned proxy for a worker artifact. Story Studio must download
+ * through this route rather than the worker's raw URL so fleet authentication,
+ * worker location, and future storage changes remain Hub concerns. */
+export function hubBatchArtifactUrl(hubUrl: string, batchId: string, itemIndex: number): string {
+  return `${hubApiBase(hubUrl)}/jobs/${encodeURIComponent(batchId)}/items/${itemIndex}/artifact`
+}
+
 /** Auth headers for a Hub request. Empty object when no token (loopback). */
 export function hubHeaders(token: string | undefined | null): Record<string, string> {
   return token && token.trim() ? { 'X-Hub-Token': token.trim() } : {}
@@ -436,8 +443,24 @@ export async function hubPollBatch(
       for (const it of s.items || []) {
         if (it && !seenDone.has(it.index) &&
             (it.state === 'done' || it.state === 'error' || it.state === 'cancelled')) {
-          seenDone.add(it.index)
-          try { await opts.onItemDone(it) } catch { /* a per-item handler must not kill polling */ }
+          let lastError: unknown
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+              await opts.onItemDone(it)
+              seenDone.add(it.index)
+              lastError = undefined
+              break
+            } catch (error) {
+              lastError = error
+              if (attempt < 5) await sleepCancellable(Math.min(4_000, attempt * 750), opts.isCancelled)
+            }
+          }
+          if (lastError) {
+            const detail = lastError instanceof Error ? lastError.message : String(lastError)
+            throw new Error(
+              `Studio Hub item ${it.index} finished, but Story Studio could not save it after 5 attempts: ${detail}`,
+            )
+          }
         }
       }
     }

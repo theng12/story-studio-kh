@@ -123,7 +123,11 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
       target.image_version = new Date().toISOString()
       target.motion_choice = 'pending'
       target.approved = false
-      await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
+      const temp = `${planPath}.partial-${process.pid}-${Date.now()}`
+      await fs.writeFile(temp, JSON.stringify(fresh, null, 2), 'utf-8')
+      await fs.rename(temp, planPath)
+    } else {
+      throw new Error(`Scene ${scene.id} disappeared before its image could be saved to the plan.`)
     }
   }
 
@@ -140,19 +144,16 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
         onItemDone: async (index, result) => {
           const scene = targets[index]
           if (!scene) return
-          try {
-            if (result.error || !result.url) {
-              failed++
-              job.output_lines.push(`Scene ${scene.scene_index} failed: ${result.error || 'no image'}`)
-            } else {
-              await saveScene(scene, result.url)
-              made++
-              job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
-            }
-          } finally {
-            done++
-            job.progress = Math.round((done / total) * 100)
+          if (result.error || !result.url) {
+            failed++
+            job.output_lines.push(`Scene ${scene.scene_index} failed: ${result.error || 'no image'}`)
+          } else {
+            await saveScene(scene, result.url)
+            made++
+            job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
           }
+          done++
+          job.progress = Math.round((done / total) * 100)
         },
       })
       batched = true

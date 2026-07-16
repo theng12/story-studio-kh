@@ -25,7 +25,7 @@ import {
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
 import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
-import { getHubBackend, hubSubmitJob, hubPollBatch, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem } from '../../lib/studiohub-client.js'
+import { getHubBackend, hubSubmitJob, hubPollBatch, hubBatchArtifactUrl, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem } from '../../lib/studiohub-client.js'
 import { promises as fsp } from 'fs'
 
 /**
@@ -206,7 +206,9 @@ export async function renderImageBatchViaHub(
     timeoutMs: Math.max(20 * 60_000, requests.length * 45_000),
     onItemDone: async (it) => {
       await opts.onItemDone?.(it.index, {
-        url: it.state === 'done' ? it.artifact_url : undefined,
+        url: it.state === 'done' && it.artifact_url
+          ? hubBatchArtifactUrl(hub.hubUrl, sub.batch_id, it.index)
+          : undefined,
         taskId: it.asset_id || sub.batch_id,
         error: it.state === 'done' ? undefined : (it.error || it.state),
       })
@@ -313,7 +315,7 @@ const imagestudioImageProvider: ImageProvider = {
             `${governor ? ` (${governor})` : ''}`,
           )
         }
-        return { urls: [item.artifact_url], taskId: batchId }
+        return { urls: [hubBatchArtifactUrl(hub.hubUrl, batchId, item.index)], taskId: batchId }
       } catch (e: any) {
         if (!isConnectionError(e)) throw e
         console.warn(

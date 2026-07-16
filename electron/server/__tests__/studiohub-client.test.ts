@@ -14,6 +14,7 @@ import {
   trimHubUrl,
   hubChatRootBase,
   hubApiBase,
+  hubBatchArtifactUrl,
   hubHeaders,
   isLoopbackHub,
   hubSubmitJob,
@@ -50,6 +51,38 @@ describe('hubChatRootBase', () => {
 describe('hubApiBase', () => {
   test('builds the batch-jobs API base', () => {
     assert.equal(hubApiBase('http://127.0.0.1:47873/'), 'http://127.0.0.1:47873/api/hub')
+  })
+})
+
+describe('hubBatchArtifactUrl', () => {
+  test('uses the authenticated Hub proxy instead of a raw worker URL', () => {
+    assert.equal(
+      hubBatchArtifactUrl('http://hub:47873/', 'batch 123', 7),
+      'http://hub:47873/api/hub/jobs/batch%20123/items/7/artifact',
+    )
+  })
+})
+
+describe('Hub item persistence callbacks', () => {
+  test('retries a completed item until the caller durably saves it', async () => {
+    const originalFetch = globalThis.fetch
+    let saveAttempts = 0
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      id: 'batch-1', queued: 0, running: 0, done: 1, error: 0,
+      items: [{ index: 0, state: 'done', artifact_url: 'http://worker/image' }],
+    }), { status: 200 })) as typeof fetch
+    try {
+      const result = await hubPollBatch('http://hub:47873', undefined, 'batch-1', {
+        onItemDone: async () => {
+          saveAttempts++
+          if (saveAttempts === 1) throw new Error('temporary disk failure')
+        },
+      })
+      assert.equal(result.done, 1)
+      assert.equal(saveAttempts, 2)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

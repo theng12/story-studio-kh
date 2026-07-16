@@ -427,23 +427,23 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // workers can't clobber each other's writes to the shared plan file.
   let planChain: Promise<void> = Promise.resolve()
   const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
-    planChain = planChain.then(async () => {
-      try {
-        const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-        const target = fresh.scenes.find(s => s.id === sceneId)
-        if (target) {
-          target.image_path = outPath
-          // v1.0.359 — stamp the prompt this image was rendered from so Scene
-          // Review can flag the image as stale if visual_prompt later changes.
-          target.rendered_prompt = renderedPrompt
-          target.image_version = new Date().toISOString()
-          target.motion_choice = 'pending'
-          target.approved = false   // user re-approves after a render
-          await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
-        }
-      } catch { /* best-effort — the PNG on disk is what Scene Review reads */ }
+    const operation = planChain.catch(() => {}).then(async () => {
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(s => s.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} disappeared before its image could be saved to the plan.`)
+      target.image_path = outPath
+      // Stamp the exact prompt this image was rendered from so Scene Review can
+      // detect stale media without treating a completed file as current.
+      target.rendered_prompt = renderedPrompt
+      target.image_version = new Date().toISOString()
+      target.motion_choice = 'pending'
+      target.approved = false
+      const temp = `${planPath}.partial-${process.pid}-${Date.now()}`
+      await fs.writeFile(temp, JSON.stringify(fresh, null, 2), 'utf-8')
+      await fs.rename(temp, planPath)
     })
-    return planChain
+    planChain = operation.catch(() => {})
+    return operation
   }
 
   // v1.0.336 — per-scene reference stack. Character scenes get the full anchor
@@ -572,30 +572,27 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             const b = batchReqs[index]
             if (!b) return
             const outPath = path.join(outDir, `${b.scene.id}.png`)
-            try {
-              if (result.error || !result.url) {
-                failedSceneIds.push(b.scene.id)
-                job.output_lines.push(`Scene ${b.scene.scene_index} failed: ${result.error || 'no image'}`)
-              } else {
-                if (result.taskId) {
-                  await recordTask(outDir, `${b.scene.id}.png`, {
-                    provider: imageProvider.meta.providerId || imageProvider.meta.id,
-                    task_id: result.taskId,
-                    submitted_at: new Date().toISOString(),
-                    input_hash: hashInput(b.req.prompt),
-                  })
-                }
-                await downloadImage(result.url, outPath)
-                await persistImagePath(b.scene.id, outPath, b.scene.visual_prompt)
-                rendered++
-                job.output_lines.push(`Scene ${b.scene.scene_index}/${scenes.length} (${b.scene.id}) ✓`)
+            if (result.error || !result.url) {
+              failedSceneIds.push(b.scene.id)
+              job.output_lines.push(`Scene ${b.scene.scene_index} failed: ${result.error || 'no image'}`)
+            } else {
+              if (result.taskId) {
+                await recordTask(outDir, `${b.scene.id}.png`, {
+                  provider: imageProvider.meta.providerId || imageProvider.meta.id,
+                  task_id: result.taskId,
+                  submitted_at: new Date().toISOString(),
+                  input_hash: hashInput(b.req.prompt),
+                })
               }
-            } finally {
-              inFlight.delete(b.scene.scene_index)
-              done++
-              job.progress = Math.round((done / Math.max(1, toRender.length)) * 100)
-              await pushStatus()
+              await downloadImage(result.url, outPath)
+              await persistImagePath(b.scene.id, outPath, b.scene.visual_prompt)
+              rendered++
+              job.output_lines.push(`Scene ${b.scene.scene_index}/${scenes.length} (${b.scene.id}) ✓`)
             }
+            inFlight.delete(b.scene.scene_index)
+            done++
+            job.progress = Math.round((done / Math.max(1, toRender.length)) * 100)
+            await pushStatus()
           },
         })
         renderedViaBatch = true
