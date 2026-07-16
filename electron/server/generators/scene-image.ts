@@ -34,6 +34,8 @@ import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ImageModelConfig, ScenePlan } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 /** Legacy flat folder at the episode root where continuity / scene-review
  *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
@@ -206,25 +208,13 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)
   job.progress = 90
 
-  // Update scene_plan.json with the resolved image_path so the Scene
-  // Review page picks it up on next refresh. Re-read first to avoid
-  // racing other in-flight scene-image jobs on the same plan.
-  const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  const target = fresh.scenes.find(s => s.id === scene_id)
-  if (target) {
-    target.image_path = outPath
-    // v1.0.359 — stamp the prompt this image was rendered from so Scene Review
-    // can flag it stale if visual_prompt changes later (re-prompt without render).
-    target.rendered_prompt = target.visual_prompt
-    target.image_version = new Date().toISOString()
-    target.motion_choice = 'pending'
-    // Reset approval if it was set against a prior image — user
-    // should re-approve after a regen.
-    target.approved = false
-    await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
-  }
+  await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt)
 
   job.output_dir = outDir
   job.progress = 100
+  requireJobCompletion(job, {
+    label: 'Scene image generation', expected: 1, completed: 1,
+    retry_hint: 'The downloaded image is kept; Retry repairs only an incomplete registration.',
+  })
   job.output_lines.push(`Done → ${path.basename(outPath)}`)
 }

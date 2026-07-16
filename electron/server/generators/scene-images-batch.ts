@@ -28,6 +28,7 @@ import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -115,20 +116,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const saveScene = async (scene: ScenePlanEntry, url: string): Promise<void> => {
     const outPath = path.join(outDir, `${scene.id}.png`)
     await downloadImage(url, outPath)
-    const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    const target = fresh.scenes.find((s) => s.id === scene.id)
-    if (target) {
-      target.image_path = outPath
-      target.rendered_prompt = target.visual_prompt
-      target.image_version = new Date().toISOString()
-      target.motion_choice = 'pending'
-      target.approved = false
-      const temp = `${planPath}.partial-${process.pid}-${Date.now()}`
-      await fs.writeFile(temp, JSON.stringify(fresh, null, 2), 'utf-8')
-      await fs.rename(temp, planPath)
-    } else {
-      throw new Error(`Scene ${scene.id} disappeared before its image could be saved to the plan.`)
-    }
+    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
   }
 
   job.output_lines.push(`Scene images — ${imageProvider.meta.name} / ${model} · ${total} scene(s)`)

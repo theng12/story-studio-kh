@@ -28,6 +28,8 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, VideoModelConfig, ScenePlan } from '../models/types.js'
 import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
+import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 
 /**
  * Canonical "11 Video Assets" directory for an episode — the named folder
@@ -139,20 +141,21 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded clip is empty for scene ${scene_id}`)
   job.progress = 95
 
-  // Record clip_path + the motion prompt it was rendered from (stale detection).
-  // Re-read to avoid racing other in-flight clip jobs on the same plan.
-  const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  const target = fresh.scenes.find(s => s.id === scene_id)
-  if (target) {
-    target.clip_path = outPath
-    target.rendered_motion_prompt = target.motion_prompt
-    target.clip_source_image_version = target.image_version
-    target.motion_choice = params.auto_approve_clip ? 'clip' : 'pending'
-    await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
-  }
+  await checkpointSceneClip(
+    planPath,
+    scene_id,
+    outPath,
+    scene.motion_prompt,
+    scene.image_version,
+    params.auto_approve_clip === true,
+  )
 
   job.output_dir = outDir
   job.progress = 100
+  requireJobCompletion(job, {
+    label: 'Scene motion clip generation', expected: 1, completed: 1,
+    retry_hint: 'The downloaded clip is kept; Retry repairs only an incomplete registration.',
+  })
   job.output_lines.push(`✓ Clip saved: ${path.basename(outPath)}`)
 }
 

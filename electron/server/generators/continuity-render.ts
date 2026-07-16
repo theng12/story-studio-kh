@@ -39,6 +39,7 @@ import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
 
 interface ContinuityRenderParams {
@@ -428,19 +429,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   let planChain: Promise<void> = Promise.resolve()
   const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
     const operation = planChain.catch(() => {}).then(async () => {
-      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      const target = fresh.scenes.find(s => s.id === sceneId)
-      if (!target) throw new Error(`Scene ${sceneId} disappeared before its image could be saved to the plan.`)
-      target.image_path = outPath
-      // Stamp the exact prompt this image was rendered from so Scene Review can
-      // detect stale media without treating a completed file as current.
-      target.rendered_prompt = renderedPrompt
-      target.image_version = new Date().toISOString()
-      target.motion_choice = 'pending'
-      target.approved = false
-      const temp = `${planPath}.partial-${process.pid}-${Date.now()}`
-      await fs.writeFile(temp, JSON.stringify(fresh, null, 2), 'utf-8')
-      await fs.rename(temp, planPath)
+      await checkpointSceneImage(planPath, sceneId, outPath, renderedPrompt)
     })
     planChain = operation.catch(() => {})
     return operation
@@ -828,20 +817,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }
     await downloadImage(result.urls[0]!, outPath)
 
-    // Persist image_path back to scene_plan.json (re-read to avoid clobbering
-    // any concurrent edit). Reset approval — the user re-approves after render.
-    try {
-      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      const target = fresh.scenes.find(s => s.id === scene.id)
-      if (target) {
-        target.image_path = outPath
-        target.rendered_prompt = scene.visual_prompt   // v1.0.359 — stale-detection stamp
-        target.image_version = new Date().toISOString()
-        target.motion_choice = 'pending'
-        target.approved = false
-        await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
-      }
-    } catch { /* best-effort — the file on disk is what Scene Review reads */ }
+    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
 
     // Only character scenes seed the guide-continuity chain; cutaways don't,
     // so the next character scene anchors off the last character render.

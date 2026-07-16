@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.624 — 2026-07-16
+
+**Scene prompts and media now checkpoint independently without losing completed work.**
+
+- Kept each valid visual or motion prompt durable as soon as its stable scene ID returns, even when another result in the same LLM pack is missing or malformed.
+- Continued later prompt packs after a partial response while leaving the overall job visibly incomplete and making Retry request only missing scene IDs.
+- Centralized scene image and motion-clip registration behind one locked, atomic Scene Plan checkpoint so concurrent jobs cannot overwrite each other.
+- Verified every downloaded image and clip is a non-empty file before linking it into Scene Review, and failed loudly if its stable scene disappeared.
+- Removed best-effort media registration paths that could leave paid results on disk but invisible to the app.
+- Added regression coverage for truncated prompt responses, concurrent prompt and media saves, empty files, missing scenes, and clip metadata.
+
 ## v1.0.623 — 2026-07-16
 
 **Scene Plan prompts now survive incomplete LLM packs one result at a time.**
