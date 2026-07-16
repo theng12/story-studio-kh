@@ -839,14 +839,13 @@ router.post('/voicestudio/test', async (req, res) => {
 router.get('/voicestudio/voices', async (req, res) => {
   try {
     const {
-      listPresetVoices, familyShipsVoicepack,
+      listPresetVoices, modelShipsVoicepack,
       familyForModelId, DEFAULT_VOICESTUDIO_BASE_URL,
     } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { resolveVoicePool } = await import('../services/voicestudio-voice-pool.js')
     const stored = await getApiKey('voicestudio')
     const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
     const modelId = typeof req.query.model === 'string' ? req.query.model : ''
     const family = familyForModelId(modelId)
     const forceRefresh = req.query.refresh === '1'
@@ -855,7 +854,8 @@ router.get('/voicestudio/voices', async (req, res) => {
     // into the model itself — they're identical across every Voice Studio
     // instance. No pool resolution needed; one endpoint's preset list IS
     // the authoritative answer.
-    if (family && familyShipsVoicepack(family)) {
+    if (family && modelShipsVoicepack(modelId)) {
+      if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'voicepack' }); return }
       const r = await swrFetch(vsVoicesCache, `vs-voices:pack:${baseUrl}:${family}`, async () => {
         const voices = await listPresetVoices(baseUrl, family)
         return { voices, baseUrl, source: 'voicepack' as const }
@@ -863,6 +863,59 @@ router.get('/voicestudio/voices', async (req, res) => {
       res.json({ ...r.value, stale: r.stale || undefined })
       return
     }
+
+    // Hub mode owns one canonical clone library for the fleet. Its stable id is
+    // installed unchanged on every synchronized Voice Studio, so the picker can
+    // select once and the Hub can safely dispatch to any synced model worker.
+    // Direct endpoint aggregation remains the compatibility fallback when an
+    // older Hub lacks this endpoint or the Hub cannot be reached.
+    const { getHubBackend, hubSharedVoices, trimHubUrl } = await import('../lib/studiohub-client.js')
+    const hub = await getHubBackend()
+    // Inventory ownership is independent of the generation fallback toggle:
+    // when a Hub is configured, it remains the canonical shared-voice source.
+    if (hub.hubUrl) {
+      try {
+        const r = await swrFetch(vsVoicesCache, `vs-voices:hub:${hub.hubUrl}`, async () => {
+          const shared = await hubSharedVoices(hub.hubUrl, hub.hubToken)
+          const voices = shared.map(voice => {
+            const targets = Array.isArray(voice.targets) ? voice.targets : []
+            const synced = targets.filter(target => target.status === 'synced')
+            return {
+              id: voice.id,
+              name: voice.name,
+              language: voice.language,
+              gender: voice.gender,
+              duration_seconds: voice.duration_seconds,
+              has_transcript: voice.has_transcript,
+              audio_url: voice.audio_url
+                ? `${trimHubUrl(hub.hubUrl)}${voice.audio_url.startsWith('/') ? '' : '/'}${voice.audio_url}`
+                : undefined,
+              available_on: synced.map(target => target.machine || target.studio_id).filter(Boolean),
+              available_everywhere: targets.length > 0 && synced.length === targets.length,
+              endpoint_count: voice.sync?.total ?? targets.length,
+              synced_count: voice.sync?.synced ?? synced.length,
+              sync_pending: (voice.sync?.pending ?? 0) + (voice.sync?.failed ?? 0),
+              voice_kind: 'studiohub-shared' as const,
+            }
+          })
+          return {
+            voices,
+            baseUrl,
+            source: 'studiohub' as const,
+            inventory: { owner: 'studiohub', hubUrl: hub.hubUrl },
+          }
+        }, { forceRefresh })
+        res.json({ ...r.value, stale: r.stale || undefined })
+        return
+      } catch (error: any) {
+        console.warn(
+          `[studiohub] shared voice inventory unavailable (${error?.message || error}) — ` +
+          'falling back to direct Voice Studio discovery',
+        )
+      }
+    }
+
+    if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
     // v1.0.293 — Clone-engine voices (VoxCPM2 / Chatterbox) are user-
     // uploaded references and live in each Voice Studio instance's
     // independent library. Query ALL configured endpoints and aggregate

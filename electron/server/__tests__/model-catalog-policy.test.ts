@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeCatalog } from '../services/project-manager.js'
+import { mergeCatalog, migrateRetiredAudioDefaults } from '../services/project-manager.js'
 
 describe('model catalog ownership', () => {
   test('keeps built-in user pricing but drops project-added model entries', () => {
@@ -32,5 +32,21 @@ describe('model catalog ownership', () => {
     assert.equal(merged.built_in.label, 'Renamed by stale config')
     assert.deepEqual(merged.built_in.provider_params, { model: 'provider/current-model' })
     assert.equal('is_custom' in merged.built_in, false)
+  })
+
+  test('heals only the retired Qwen character cap', () => {
+    const defaults: Record<string, Record<string, any>> = {
+      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 3000 },
+      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 3000 },
+    }
+    const saved: Record<string, Record<string, any>> = {
+      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 2000 },
+      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 2400 },
+    }
+
+    const merged = migrateRetiredAudioDefaults(mergeCatalog(defaults, saved), saved)
+
+    assert.equal(merged['voicestudio-qwen3-tts-base-0.6b'].tts_soft_max_chars, 3000)
+    assert.equal(merged['voicestudio-qwen3-tts-base-1.7b'].tts_soft_max_chars, 2400)
   })
 })

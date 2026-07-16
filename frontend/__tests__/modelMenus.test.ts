@@ -43,6 +43,11 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /<Teleport to="body">/)
   })
 
+  test('Voice Studio preserves Hub-owned clone identity in the picker', () => {
+    assert.match(voicePicker, /voice_kind === 'studiohub-shared'/)
+    assert.match(voicePicker, /`hubvoice:\$\{voice\.id\}`/)
+  })
+
   test('LLM, image, TTS, video, and transcription surfaces use shared menus', () => {
     assert.match(modelSelector, /<ModelMenu/)
     assert.match(modelSurfaces.audio, /media-type="tts"/)

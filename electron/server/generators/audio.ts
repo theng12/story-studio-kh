@@ -622,12 +622,27 @@ export async function generateAudio(job: Job): Promise<void> {
   // pinning (see the comment below).
   let voicePool: import('../services/voicestudio-voice-pool.js').VoicePoolResult | null = null
   let voiceFilteredEndpoints: string[] | null = null
-  let voiceJobName: string | null = null   // for per-chunk lookup in the lambda
   if (isLocalAudioProvider && req.voice) {
-    const { resolveVoicePool, parseVoiceName } = await import('../services/voicestudio-voice-pool.js')
+    const { resolveVoicePool, parseVoiceName, parseHubVoiceId } = await import('../services/voicestudio-voice-pool.js')
     voicePool = await resolveVoicePool(apiKey)
-    voiceJobName = parseVoiceName(req.voice)
-    if (voiceJobName) {
+    const voiceJobName = parseVoiceName(req.voice)
+    const hubVoiceId = parseHubVoiceId(req.voice)
+    if (hubVoiceId) {
+      // Hub-managed clones have the same stable id on every synchronized
+      // worker. Keep all matching direct endpoints available as a fallback if
+      // Hub connectivity drops; an empty direct pool is valid in Hub-only mode.
+      const matching = Object.values(voicePool.voicesByName).flatMap(voice =>
+        Object.entries(voice.idByEndpoint)
+          .filter(([, id]) => id === hubVoiceId)
+          .map(([endpoint]) => endpoint),
+      )
+      if (matching.length) {
+        voiceFilteredEndpoints = [...new Set(matching)]
+        job.output_lines.push(
+          `Studio Hub shared voice available on ${voiceFilteredEndpoints.length} configured direct fallback endpoint(s).`,
+        )
+      }
+    } else if (voiceJobName) {
       // Name-keyed voice — filter the dispatcher to endpoints that have it.
       const v = voicePool.voicesByName[voiceJobName]
       if (!v) {

@@ -22,6 +22,7 @@ import {
   hubCancelBatch,
   hubPollBatch,
   hubFleetStatus,
+  hubSharedVoices,
 } from '../lib/studiohub-client.js'
 import { isConnectionError } from '../lib/endpoint-pool.js'
 
@@ -103,6 +104,31 @@ describe('Hub fleet readiness', () => {
         await hubFleetStatus('http://100.64.0.10:47873', 'wrong'),
         { ok: false, fleetTokenSet: false, error: 'Hub access token was rejected' },
       )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('Hub shared voice inventory', () => {
+  test('loads canonical voice ids and synchronization targets', async () => {
+    const originalFetch = globalThis.fetch
+    let requested = ''
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input)
+      return new Response(JSON.stringify({
+        voices: [{
+          id: '074743daa991', name: 'Vincent', language: 'en',
+          targets: [{ studio_id: 'voice@mac-a', machine: 'mac-a', status: 'synced' }],
+          sync: { total: 1, synced: 1 },
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+    try {
+      const voices = await hubSharedVoices('http://hub:47873/', 'token')
+      assert.equal(requested, 'http://hub:47873/api/hub/shared-voices')
+      assert.equal(voices[0]?.id, '074743daa991')
+      assert.equal(voices[0]?.targets?.[0]?.status, 'synced')
     } finally {
       globalThis.fetch = originalFetch
     }

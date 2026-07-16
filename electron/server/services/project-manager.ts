@@ -876,6 +876,31 @@ export function mergeCatalog<T extends Record<string, any>>(
   return out
 }
 
+const QWEN3_RETIRED_CHAR_CAP = 2000
+const QWEN3_AUDIO_MODEL_IDS = new Set([
+  'voicestudio-qwen3-tts',
+  'voicestudio-qwen3-tts-base-0.6b',
+  'voicestudio-qwen3-tts-base-1.7b',
+])
+
+/** Heal the former built-in Qwen cap without replacing deliberate user limits. */
+export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
+  merged: Record<string, T>,
+  saved: Record<string, T> | null | undefined,
+): Record<string, T> {
+  for (const modelId of QWEN3_AUDIO_MODEL_IDS) {
+    const savedCap = saved?.[modelId]?.tts_soft_max_chars
+    const currentDefault = DEFAULT_AUDIO_MODELS[modelId]?.tts_soft_max_chars
+    if (savedCap === QWEN3_RETIRED_CHAR_CAP && currentDefault) {
+      merged[modelId] = {
+        ...merged[modelId],
+        tts_soft_max_chars: currentDefault,
+      }
+    }
+  }
+  return merged
+}
+
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
@@ -898,7 +923,11 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   // behind whatever shape was on disk, so existing projects never saw
   // tier-aware pricing despite running a tier-aware build.
   raw.image_models = mergeCatalog(DEFAULT_IMAGE_MODELS, raw.image_models)
-  raw.audio_models = mergeCatalog(DEFAULT_AUDIO_MODELS, raw.audio_models)
+  const savedAudioModels = raw.audio_models
+  raw.audio_models = migrateRetiredAudioDefaults(
+    mergeCatalog(DEFAULT_AUDIO_MODELS, savedAudioModels),
+    savedAudioModels,
+  )
   raw.video_models = sanitizeVideoCatalog(mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models))
   if (!raw.voice_presets || !raw.voice_presets.length) {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]

@@ -246,6 +246,7 @@ export function pickEndpointForVoice(
 // Helpers below parse + format these strings.
 
 export const VSNAME_PREFIX = 'vsname:'
+export const HUBVOICE_PREFIX = 'hubvoice:'
 
 export function isVoiceName(field: string | null | undefined): boolean {
   return typeof field === 'string' && field.startsWith(VSNAME_PREFIX)
@@ -258,4 +259,19 @@ export function parseVoiceName(field: string | null | undefined): string | null 
 
 export function formatVoiceName(name: string): string {
   return `${VSNAME_PREFIX}${name}`
+}
+
+/** Hub-owned voices use one stable id on every synchronized Voice Studio. */
+export function isHubVoice(field: string | null | undefined): boolean {
+  return typeof field === 'string' && field.startsWith(HUBVOICE_PREFIX)
+}
+
+export function parseHubVoiceId(field: string | null | undefined): string | null {
+  if (!isHubVoice(field)) return null
+  const id = (field as string).slice(HUBVOICE_PREFIX.length).trim()
+  return id || null
+}
+
+export function formatHubVoiceId(id: string): string {
+  return `${HUBVOICE_PREFIX}${id}`
 }

@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.621 — 2026-07-16
+
+**Qwen3 cloned voices now flow through one fleet-wide Studio Hub library.**
+
+- Loaded canonical cloned voices from Studio Hub first, with direct Voice Studio discovery retained only as a compatibility fallback.
+- Preserved each Hub voice's stable identity in presets and generation requests so the selected clone is never confused with a same-named local voice.
+- Routed Hub-owned voices back through Studio Hub even when an older local routing preference still says Direct.
+- Fixed Qwen Base models being mistaken for the Qwen CustomVoice preset-speaker model simply because they share a model family.
+- Updated the audited Qwen3 safe request threshold from 2,000 to 3,000 characters while preserving deliberately customized limits.
+
 ## v1.0.620 — 2026-07-16
 
 **Cloud scene prompt packs no longer lose their output budget to hidden reasoning.**

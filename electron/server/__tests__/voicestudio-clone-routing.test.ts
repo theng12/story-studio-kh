@@ -6,6 +6,7 @@ import {
   buildVoiceStudioParams,
   canRouteVoiceThroughHub,
 } from '../providers/audio/voicestudio.js'
+import { engineForModelId, modelShipsVoicepack } from '../lib/voicestudio-client.js'
 
 describe('Voice Studio Qwen3 clone routing', () => {
   test('sends a resolved library id to Qwen3 Base and bypasses Hub pooling', () => {
@@ -32,6 +33,30 @@ describe('Voice Studio Qwen3 clone routing', () => {
     assert.equal(params.repo, 'mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit')
     assert.equal(params.preset_speaker, 'Aiden')
     assert.equal(canRouteVoiceThroughHub(params), true)
+  })
+
+  test('routes a Hub-owned Qwen clone with its stable worker id', () => {
+    const selectedVoice = 'hubvoice:074743daa991'
+    const params = buildVoiceStudioParams({
+      text: 'Hello from Vincent.',
+      apiKey: '',
+      modelId: 'voicestudio-qwen3-tts-base-1.7b',
+      voiceId: selectedVoice,
+    })
+
+    assert.equal(params.voice_library_id, '074743daa991')
+    assert.equal(canRouteVoiceThroughHub(params, selectedVoice), true)
+  })
+
+  test('uses Voice Studio audited Qwen long-form chunk guidance', () => {
+    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-0.6b')?.softMaxChars, 3000)
+    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-1.7b')?.softMaxChars, 3000)
+  })
+
+  test('classifies Qwen voice mode by exact model rather than shared family', () => {
+    assert.equal(modelShipsVoicepack('voicestudio-qwen3-tts'), true)
+    assert.equal(modelShipsVoicepack('voicestudio-qwen3-tts-base-0.6b'), false)
+    assert.equal(modelShipsVoicepack('voicestudio-qwen3-tts-base-1.7b'), false)
   })
 
   test('rejects unresolved clone names before they reach a worker', () => {

@@ -217,9 +217,12 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   // 1.7B catalog row. The two Base rows deliberately use voice_library_id so
   // the picker shows saved clones (such as `vsname:Aiden`) rather than Qwen's
   // unrelated built-in speaker that also happens to be named Aiden.
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts',            label: 'Qwen3-TTS 1.7B CustomVoice — built-in speakers (MLX)', repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit', softMaxChars: 2000, voiceField: 'preset_speaker',   availabilityKey: 'qwen3' },
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-0.6b',  label: 'Qwen3-TTS 0.6B Base — voice cloning (MLX)',             repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit',        softMaxChars: 2000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-1.7b',  label: 'Qwen3-TTS 1.7B Base — quality voice cloning (MLX)',     repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit',        softMaxChars: 2000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
+  // mlx-audio generates at most 4096 audio tokens per segment (12 Hz) and
+  // splits on newlines. Voice Studio audits 3000 characters as the practical
+  // per-submit threshold, so keep Story Studio's sentence chunker aligned.
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts',            label: 'Qwen3-TTS 1.7B CustomVoice — built-in speakers (MLX)', repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit', softMaxChars: 3000, voiceField: 'preset_speaker',   availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-0.6b',  label: 'Qwen3-TTS 0.6B Base — voice cloning (MLX)',             repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit',        softMaxChars: 3000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-1.7b',  label: 'Qwen3-TTS 1.7B Base — quality voice cloning (MLX)',     repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit',        softMaxChars: 3000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
   { family: 'bark',           modelId: 'voicestudio-bark',           label: 'Bark',              repo: 'suno/bark',                 softMaxChars: 1000, voiceField: 'bark_voice_preset', availabilityKey: 'bark' },
   // chatterbox-mlx: voiceField correct ('voice_library_id'); repo pinned to a
   // real catalog variant — bare 'mlx-community/Chatterbox' is not in the
@@ -240,6 +243,12 @@ export function engineForFamily(family: VoiceStudioFamily): VoiceStudioEngine | 
 export function familyShipsVoicepack(family: VoiceStudioFamily): boolean {
   const e = engineForFamily(family)
   return !!e && e.voiceField !== 'voice_library_id'
+}
+
+/** Model-specific check for families such as Qwen3 that mix presets + clones. */
+export function modelShipsVoicepack(modelId: string): boolean {
+  const engine = engineForModelId(modelId)
+  return !!engine && engine.voiceField !== 'voice_library_id'
 }
 
 /**

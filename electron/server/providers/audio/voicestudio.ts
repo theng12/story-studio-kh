@@ -29,6 +29,7 @@ import {
 import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
 import { isConnectionError } from '../../lib/endpoint-pool.js'
 import { studioFetch } from '../../lib/studio-auth.js'
+import { parseHubVoiceId } from '../../services/voicestudio-voice-pool.js'
 import type { AudioProvider, AudioGenerationRequest, AudioGenerationResult } from '../types.js'
 
 /**
@@ -100,7 +101,9 @@ export function buildVoiceStudioParams(req: AudioGenerationRequest): VoiceStudio
         'Refresh the voice list and retry.',
       )
     }
-    params[engine.voiceField] = req.voiceId
+    params[engine.voiceField] = engine.voiceField === 'voice_library_id'
+      ? (parseHubVoiceId(req.voiceId) || req.voiceId)
+      : req.voiceId
   }
   if (typeof req.speed === 'number') params.speed = req.speed
   return params
@@ -111,8 +114,11 @@ export function buildVoiceStudioParams(req: AudioGenerationRequest): VoiceStudio
  * local to one Voice Studio installation, while Studio Hub currently routes
  * by model only and does not translate a voice name to each server's UUID.
  */
-export function canRouteVoiceThroughHub(params: VoiceStudioTxt2SpeechParams): boolean {
-  return !params.voice_library_id
+export function canRouteVoiceThroughHub(
+  params: VoiceStudioTxt2SpeechParams,
+  selectedVoiceId?: string,
+): boolean {
+  return !params.voice_library_id || !!parseHubVoiceId(selectedVoiceId)
 }
 
 /** Generate audio and write directly to `outPath`. Used by generators/audio. */
@@ -149,7 +155,12 @@ export async function generateTtsToFile(
     // studio's native field); engine-specific knobs (voice preset, speed) ride
     // in params as an opaque pass-through.
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl && canRouteVoiceThroughHub(params)) {
+    const selectedHubVoice = !!parseHubVoiceId(req.voiceId)
+    if (
+      hub.hubUrl &&
+      (hub.mode === 'hub' || selectedHubVoice) &&
+      canRouteVoiceThroughHub(params, req.voiceId)
+    ) {
       try {
         const { repo, text, ...voiceParams } = params
         const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {

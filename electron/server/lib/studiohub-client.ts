@@ -114,6 +114,34 @@ export interface HubTranscriptionInventory {
   models: Array<HubModelInfo & { cached: boolean }>
 }
 
+export interface HubSharedVoiceTarget {
+  studio_id: string
+  machine?: string
+  reachable?: boolean
+  status: 'synced' | 'pending' | 'conflict' | 'unsupported' | 'failed' | string
+  message?: string
+}
+
+export interface HubSharedVoice {
+  id: string
+  name: string
+  language?: string
+  gender?: string
+  duration_seconds?: number
+  has_transcript?: boolean
+  audio_url?: string
+  targets?: HubSharedVoiceTarget[]
+  sync?: {
+    total?: number
+    synced?: number
+    pending?: number
+    conflict?: number
+    unsupported?: number
+    failed?: number
+    syncing?: boolean
+  }
+}
+
 async function hubGetJson<T>(
   hubUrl: string,
   token: string | undefined,
@@ -171,6 +199,15 @@ export function hubTranscription(
   force = false,
 ): Promise<HubTranscriptionInventory> {
   return hubGetJson(hubUrl, token, `/transcription${force ? '?force=true' : ''}`)
+}
+
+/** Canonical cloning references owned and synchronized by Studio Hub. */
+export async function hubSharedVoices(
+  hubUrl: string,
+  token: string | undefined,
+): Promise<HubSharedVoice[]> {
+  const result = await hubGetJson<{ voices?: HubSharedVoice[] }>(hubUrl, token, '/shared-voices')
+  return Array.isArray(result.voices) ? result.voices : []
 }
 
 export async function hubBroadcastDownload(
