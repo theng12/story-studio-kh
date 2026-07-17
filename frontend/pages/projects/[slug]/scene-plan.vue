@@ -172,6 +172,68 @@
           </p>
         </div>
 
+        <div class="scene-setting-card scene-creative-card">
+          <div class="scene-setting-head">
+            <strong>Visual interpretation</strong>
+            <span>{{ creativeProfileMeta.label }} · {{ creativeProfileMeta.usage }}</span>
+          </div>
+          <p class="scene-setting-help">Art style stays in Character Sheet. Choose how narration becomes imagery; one strategy is assigned to each scene before existing prompt packs run.</p>
+          <div class="creative-profile-grid" role="radiogroup" aria-label="Visual interpretation profile">
+            <button
+              v-for="profile in CREATIVE_PROFILES"
+              :key="profile.id"
+              type="button"
+              class="creative-profile"
+              :class="{ active: form.creative_profile === profile.id }"
+              role="radio"
+              :aria-checked="form.creative_profile === profile.id"
+              @click="selectCreativeProfile(profile.id)"
+            >
+              <strong>{{ profile.label }}</strong>
+              <span>{{ profile.usage }}</span>
+            </button>
+          </div>
+          <div class="scene-creative-controls">
+            <label class="form-group">
+              <span>Creative intensity <strong>{{ creativeIntensityLabel }}</strong></span>
+              <input v-model.number="form.creative_intensity" type="range" min="1" max="4" step="1" class="detail-slider" list="creative-intensity-stops" />
+              <datalist id="creative-intensity-stops">
+                <option value="1" label="Faithful"></option>
+                <option value="2" label="Balanced"></option>
+                <option value="3" label="Expressive"></option>
+                <option value="4" label="Experimental"></option>
+              </datalist>
+              <span class="detail-ticks"><span>Faithful</span><span>Balanced</span><span>Expressive</span><span>Experimental</span></span>
+            </label>
+            <label class="form-group">
+              <span>Recurring motifs <span class="text-muted text-xs">optional</span></span>
+              <input v-model="form.creative_motifs" class="input" placeholder="e.g. lanterns, paths, gold light, open windows" />
+            </label>
+            <label class="form-group">
+              <span>Avoided imagery <span class="text-muted text-xs">optional</span></span>
+              <input v-model="form.creative_avoid_cliches" class="input" placeholder="e.g. stock prayer poses, floating text, repeated doorways" />
+            </label>
+          </div>
+          <template v-if="form.creative_profile === 'custom'">
+            <div class="creative-strategy-picker">
+              <span class="text-xs text-muted">Choose the strategies this custom profile may use.</span>
+              <button
+                v-for="strategy in CREATIVE_STRATEGIES"
+                :key="strategy.id"
+                type="button"
+                class="creative-strategy-chip"
+                :class="{ active: form.creative_strategies.includes(strategy.id) }"
+                :aria-pressed="form.creative_strategies.includes(strategy.id)"
+                @click="toggleCreativeStrategy(strategy.id)"
+              >{{ strategy.label }}</button>
+            </div>
+            <label class="form-group">
+              <span>Custom direction <span class="text-muted text-xs">optional</span></span>
+              <textarea v-model="form.creative_custom_direction" class="textarea" rows="2" placeholder="Describe the visual thinking you want this channel to favor across the episode." />
+            </label>
+          </template>
+        </div>
+
         <div class="scene-setting-card">
           <div class="scene-setting-head">
             <strong>Motion prompts <em>optional</em></strong>
@@ -468,6 +530,11 @@
               <span v-if="scene.boundary_reason" class="text-muted text-xs scene-boundary-reason">
                 · {{ scene.boundary_reason }}
               </span>
+              <span
+                v-if="scene.creative_strategy"
+                class="scene-strategy-badge"
+                :title="`This scene's prompt uses the ${creativeStrategyLabel(scene.creative_strategy)} visual strategy.`"
+              >{{ creativeStrategyLabel(scene.creative_strategy) }}</span>
               <!-- v1.0.336 — continuity only: who/what is in the shot. 'Character'
                    includes the guide; the others render WITHOUT him so he stays
                    selective. Drives the renderer's per-scene reference stack. -->
@@ -776,8 +843,44 @@ interface ScenePlanEntry {
   // guide; the rest render without him. Unset → treated as 'character'.
   scene_type?: SceneType
   scene_type_locked?: boolean
+  creative_strategy?: CreativeStrategy
 }
 type SceneType = 'character' | 'event' | 'environment' | 'map' | 'artifact'
+type CreativeProfile = 'narrative' | 'balanced' | 'editorial' | 'spiritual' | 'abstract' | 'custom'
+type CreativeStrategy =
+  | 'literal-narrative' | 'documentary' | 'editorial-metaphor' | 'symbolic'
+  | 'poetic-environment' | 'character-psychology' | 'spiritual-allegory' | 'surreal'
+  | 'conceptual-collage' | 'minimal-graphic'
+interface CreativeDirection {
+  profile: CreativeProfile
+  intensity: 1 | 2 | 3 | 4
+  strategies: CreativeStrategy[]
+  recurring_motifs?: string
+  avoid_cliches?: string
+  custom_direction?: string
+}
+const CREATIVE_PROFILES: Array<{ id: CreativeProfile; label: string; usage: string }> = [
+  { id: 'narrative', label: 'Narrative', usage: 'Stories, history, biography, explanations' },
+  { id: 'balanced', label: 'Balanced', usage: 'Education with occasional visual metaphor' },
+  { id: 'editorial', label: 'Editorial', usage: 'Psychology, culture, commentary, Capi' },
+  { id: 'spiritual', label: 'Spiritual', usage: 'Faith, prayer, hope, reflection, Abiding Faith' },
+  { id: 'abstract', label: 'Abstract', usage: 'Artistic essays, dreamlike and conceptual work' },
+  { id: 'custom', label: 'Custom', usage: 'Your own selected mix of visual strategies' },
+]
+const CREATIVE_STRATEGIES: Array<{ id: CreativeStrategy; label: string }> = [
+  { id: 'literal-narrative', label: 'Literal narrative' },
+  { id: 'documentary', label: 'Documentary' },
+  { id: 'editorial-metaphor', label: 'Editorial metaphor' },
+  { id: 'symbolic', label: 'Symbolic' },
+  { id: 'poetic-environment', label: 'Poetic environment' },
+  { id: 'character-psychology', label: 'Character psychology' },
+  { id: 'spiritual-allegory', label: 'Spiritual allegory' },
+  { id: 'surreal', label: 'Surreal' },
+  { id: 'conceptual-collage', label: 'Conceptual collage' },
+  { id: 'minimal-graphic', label: 'Minimal graphic' },
+]
+const CREATIVE_INTENSITY_LABELS = ['Faithful', 'Balanced', 'Expressive', 'Experimental']
+const CREATIVE_STRATEGY_LABELS = Object.fromEntries(CREATIVE_STRATEGIES.map(strategy => [strategy.id, strategy.label])) as Record<CreativeStrategy, string>
 const SCENE_TYPE_OPTIONS: Array<{ value: SceneType; emoji: string; label: string }> = [
   { value: 'character', emoji: '🧒', label: 'Character' },
   { value: 'event', emoji: '⚔️', label: 'Event' },
@@ -799,6 +902,7 @@ interface ScenePlan {
   opening_reserved_sec?: number
   visual_prompt_batch_id?: string
   motion_prompt_batch_id?: string
+  creative_direction?: CreativeDirection
 }
 
 const status = ref<ScenePlanStatus | null>(null)
@@ -1023,6 +1127,14 @@ const form = ref({
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
   motion_level: 2,
+  // Visual interpretation is separate from the Character Sheet Style Bible.
+  // Narrative is the compatibility-safe default for existing story channels.
+  creative_profile: 'narrative' as CreativeProfile,
+  creative_intensity: 2,
+  creative_strategies: ['literal-narrative', 'editorial-metaphor', 'symbolic', 'poetic-environment'] as CreativeStrategy[],
+  creative_motifs: '',
+  creative_avoid_cliches: '',
+  creative_custom_direction: '',
   // Episode-specific guidance is optional. The visual style always comes from
   // the Character Sheet continuity Style Bible.
   custom_instructions: '',
@@ -1035,6 +1147,40 @@ if (!['auto', 5, 10, 20, 30].includes(form.value.prompt_pack_size)) {
 }
 if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
   form.value.prompt_max_tokens = 'auto'
+}
+if (!CREATIVE_PROFILES.some(profile => profile.id === form.value.creative_profile)) {
+  form.value.creative_profile = 'narrative'
+}
+form.value.creative_intensity = Math.max(1, Math.min(4, Math.round(Number(form.value.creative_intensity) || 2)))
+form.value.creative_strategies = form.value.creative_strategies.filter(strategy => CREATIVE_STRATEGIES.some(option => option.id === strategy))
+if (!form.value.creative_strategies.length) {
+  form.value.creative_strategies = ['literal-narrative', 'editorial-metaphor', 'symbolic', 'poetic-environment']
+}
+
+const creativeProfileMeta = computed(() => CREATIVE_PROFILES.find(profile => profile.id === form.value.creative_profile) || CREATIVE_PROFILES[0]!)
+const creativeIntensityLabel = computed(() => CREATIVE_INTENSITY_LABELS[Math.max(0, Math.min(3, form.value.creative_intensity - 1))])
+const creativeDirectionPayload = computed<CreativeDirection>(() => ({
+  profile: form.value.creative_profile,
+  intensity: Math.max(1, Math.min(4, Math.round(Number(form.value.creative_intensity) || 2))) as CreativeDirection['intensity'],
+  strategies: [...form.value.creative_strategies],
+  recurring_motifs: form.value.creative_motifs.trim() || undefined,
+  avoid_cliches: form.value.creative_avoid_cliches.trim() || undefined,
+  custom_direction: form.value.creative_custom_direction.trim() || undefined,
+}))
+function selectCreativeProfile(profile: CreativeProfile): void {
+  form.value.creative_profile = profile
+}
+function toggleCreativeStrategy(strategy: CreativeStrategy): void {
+  const index = form.value.creative_strategies.indexOf(strategy)
+  if (index >= 0) {
+    // A custom profile must always retain one usable strategy.
+    if (form.value.creative_strategies.length > 1) form.value.creative_strategies.splice(index, 1)
+  } else {
+    form.value.creative_strategies.push(strategy)
+  }
+}
+function creativeStrategyLabel(strategy?: CreativeStrategy): string {
+  return strategy ? CREATIVE_STRATEGY_LABELS[strategy] : ''
 }
 
 const selectedModelCostTier = computed<PromptCostTier>(() => {
@@ -1260,6 +1406,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
       detail_level: 4,
       motion_level: form.value.motion_level,
+      creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued in Studio Hub${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
@@ -1368,6 +1515,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
       scene_id: scene.id,
       model: form.value.model,
       detail_level: 4,
+      creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success('Regen queued — watch the Jobs panel; the prompt updates when it lands.')
@@ -1457,6 +1605,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-empty-prompts`, {
       model: form.value.model,
       detail_level: 4,
+      creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     bulkReplan.value.jobId = job?.job_id || null
@@ -1738,6 +1887,7 @@ const planPresets = usePresets<any>({
     model_cost_tier: selectedModelCostTier.value,
     prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
+    creative_direction: creativeDirectionPayload.value,
     detail_level: 4,
     custom_instructions: form.value.custom_instructions,
     generate_motion_prompts: form.value.generate_motion_prompts,
@@ -1748,7 +1898,22 @@ const planPresets = usePresets<any>({
     // Sheet remains the single authoritative style source.
     const activeData = { ...(data || {}) }
     delete activeData.style_prompt
+    const savedCreative = activeData.creative_direction as Partial<CreativeDirection> | undefined
+    delete activeData.creative_direction
     Object.assign(form.value, activeData)
+    if (savedCreative) {
+      if (CREATIVE_PROFILES.some(profile => profile.id === savedCreative.profile)) {
+        form.value.creative_profile = savedCreative.profile as CreativeProfile
+      }
+      form.value.creative_intensity = Math.max(1, Math.min(4, Math.round(Number(savedCreative.intensity) || 2)))
+      if (Array.isArray(savedCreative.strategies)) {
+        const usable = savedCreative.strategies.filter(strategy => CREATIVE_STRATEGIES.some(option => option.id === strategy))
+        if (usable.length) form.value.creative_strategies = usable
+      }
+      form.value.creative_motifs = savedCreative.recurring_motifs || ''
+      form.value.creative_avoid_cliches = savedCreative.avoid_cliches || ''
+      form.value.creative_custom_direction = savedCreative.custom_direction || ''
+    }
     if (data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') {
       openingMode.value = data.opening_mode
       openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
@@ -2022,6 +2187,75 @@ onMounted(() => { void planPresets.load() })
 .detail-ticks span:first-child { text-align: left; }
 .detail-ticks span:last-child { text-align: right; }
 .detail-ticks span.on { color: var(--accent); font-weight: 600; }
+
+/* Creative direction changes visual interpretation, never the Style Bible. */
+.scene-creative-card { border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }
+.creative-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.creative-profile {
+  min-width: 0;
+  padding: 9px 10px;
+  text-align: left;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.035));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.creative-profile:hover { border-color: color-mix(in srgb, var(--accent) 62%, var(--border)); transform: translateY(-1px); }
+.creative-profile.active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-tertiary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.creative-profile strong, .creative-profile span { display: block; }
+.creative-profile strong { font-size: 12px; }
+.creative-profile span { margin-top: 3px; font-size: 10.5px; line-height: 1.35; color: var(--text-muted); }
+.scene-creative-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(220px, 1fr) minmax(220px, 1fr);
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+.scene-creative-controls .form-group { margin: 0; }
+.creative-strategy-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0; }
+.creative-strategy-picker > span { flex-basis: 100%; margin-bottom: 2px; }
+.creative-strategy-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.creative-strategy-chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-tertiary)); color: var(--text-primary); }
+.scene-strategy-badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+@media (max-width: 1100px) {
+  .creative-profile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .scene-creative-controls { grid-template-columns: 1fr 1fr; }
+  .scene-creative-controls > :first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 680px) {
+  .creative-profile-grid, .scene-creative-controls { grid-template-columns: 1fr; }
+  .scene-creative-controls > :first-child { grid-column: auto; }
+}
 
 .validation-msg {
   color: #c97a4a;

@@ -735,6 +735,8 @@ export function resolveStepParams(
       } : {}),
       prompt_pack_size: parseScenePromptPackSetting(data.prompt_pack_size),
       prompt_max_tokens: parseScenePromptTokenSetting(data.prompt_max_tokens),
+      creative_direction: data.creative_direction && typeof data.creative_direction === 'object'
+        ? data.creative_direction : undefined,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
     }

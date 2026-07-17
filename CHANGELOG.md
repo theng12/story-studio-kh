@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.636 — 2026-07-17
+
+**Scene Plan now supports intentional visual interpretation without adding another generation pass.**
+
+- Added a compact Creative Direction control to Scene Plan with Narrative, Balanced, Editorial, Spiritual, Abstract, and Custom profiles, each with a clear best-use hint.
+- Kept Character Sheet as the sole art-style authority. Creative Direction changes how narration is interpreted, not the selected medium, palette, or continuity Style Bible.
+- Assigns a stable visual-thinking strategy to every scene before the existing visual-prompt packs run, spreading literal narrative, metaphor, symbolism, psychology, spiritual allegory, surrealism, and other approaches across an episode without an extra LLM call.
+- Added intensity, recurring motifs, and avoided-imagery guidance, plus explicit strategy selection and free-form direction for Custom profiles.
+- Saves the exact direction and per-scene assignment into both Scene Plan presets and `scene_plan.json`, so prompt-only and missing-prompt repairs preserve the original creative intent instead of silently drifting.
+- Added visible per-scene strategy badges and regression coverage for deterministic variety, preserved repairs, prompt guidance, preset persistence, and the single-pass workflow contract.
+
+---
+
 ## v1.0.635 — 2026-07-17
 
 **The art-style library now scales cleanly from twelve looks to hundreds.**

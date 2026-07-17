@@ -29,8 +29,14 @@ import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { resetChatstudioDispatcher } from '../lib/chatstudio-client.js'
 import { CHATSTUDIO_MODEL_PREFIX } from '../providers/text/chatstudio.js'
 import { isLocalTextModel } from './job-retry-policy.js'
+import {
+  buildCreativeDirectionPrompt,
+  CREATIVE_STRATEGY_INSTRUCTIONS,
+} from './scene-creative-direction.js'
 import type {
   ResearchOutput,
+  SceneCreativeDirection,
+  SceneCreativeStrategy,
   ScenePlan,
   ScenePlanEntry,
   ScenePlanRunOptions,
@@ -1146,6 +1152,7 @@ export async function generatePromptsForScenes(
     detail_level?: number
     style_prompt?: string
     custom_instructions?: string
+    creative_direction?: Partial<SceneCreativeDirection>
     neighbor_context_back?: number
     neighbor_context_forward?: number
     apiKeys: { anthropic_api_key: string; openai_api_key: string; kie_api_key: string }
@@ -1232,6 +1239,8 @@ export async function generatePromptsForScenes(
             detail_level: ctx.detail_level,
             style_prompt: ctx.style_prompt,
             custom_instructions: ctx.custom_instructions,
+            creative_direction: ctx.creative_direction,
+            creative_strategy: scene.creative_strategy,
             apiKeys: ctx.apiKeys,
             slug: ctx.slug,
             prev_visual_prompts: prevPrompts,
@@ -1320,6 +1329,8 @@ export async function generateVisualPromptOnly(opts: {
   detail_level?: number
   style_prompt?: string
   custom_instructions?: string
+  creative_direction?: Partial<SceneCreativeDirection>
+  creative_strategy?: SceneCreativeStrategy
   apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
   slug?: string
   /**
@@ -1353,6 +1364,15 @@ export async function generateVisualPromptOnly(opts: {
   }
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
     sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
+  }
+  if (opts.creative_direction) {
+    sysParts.push(buildCreativeDirectionPrompt(opts.creative_direction))
+  }
+  if (opts.creative_strategy) {
+    sysParts.push(
+      `ASSIGNED VISUAL STRATEGY - ${opts.creative_strategy}: ${CREATIVE_STRATEGY_INSTRUCTIONS[opts.creative_strategy]} `
+      + 'Follow this strategy for this scene. Do not print the strategy name or explain your choice.',
+    )
   }
   // v1.0.291 — when neighbor context is provided, add a continuity
   // instruction so the model knows to flow from what came before and set

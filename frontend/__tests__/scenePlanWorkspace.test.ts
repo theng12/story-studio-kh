@@ -33,4 +33,14 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /@media \(max-width: 900px\)/)
     assert.match(scenePlan, /\.scene-workflow-grid \{ grid-template-columns: 1fr; \}/)
   })
+
+  test('adds one-pass creative direction without restoring a second scene planner', () => {
+    assert.match(scenePlan, />Visual interpretation</)
+    assert.match(scenePlan, /one strategy is assigned to each scene before existing prompt packs run/)
+    assert.match(scenePlan, /creative_direction: creativeDirectionPayload\.value/)
+    assert.match(scenePlan, /snapshot: \(\) => \(\{[\s\S]*creative_direction: creativeDirectionPayload\.value/)
+    assert.match(scenePlan, /delete activeData\.creative_direction/)
+    assert.match(scenePlan, /class="scene-strategy-badge"/)
+    assert.match(scenePlan, /CREATIVE_PROFILES/)
+  })
 })

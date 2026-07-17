@@ -41,7 +41,14 @@ import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
 } from '../services/scene-prompt-integrity.js'
-import type { Job, ScenePlan } from '../models/types.js'
+import {
+  assignCreativeStrategies,
+  buildCreativeDirectionPrompt,
+  buildStrategyGlossary,
+  CREATIVE_PROFILES,
+  normalizeCreativeDirection,
+} from '../services/scene-creative-direction.js'
+import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
 
 /**
  * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
@@ -149,6 +156,9 @@ interface ScenePlanRunParams {
   prompt_pack_size?: 'auto' | 5 | 10 | 20 | 30
   /** Auto uses 4K output for local/free cloud and 8K for paid cloud. */
   prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192
+  /** Single-pass visual interpretation controls. Strategies are assigned
+   * locally across the full episode before existing prompt packs are sent. */
+  creative_direction?: Partial<SceneCreativeDirection>
 }
 
 export function parseDirectPackResults(
@@ -444,6 +454,27 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       plan.timeline_built_at = plan.generated_at
     }
     const isMotion = stage === 'motion'
+    // Creative interpretation is selected once per plan, then assigned across
+    // the full episode before any packs leave this Mac. This keeps variety
+    // stable across Hub batches without introducing a second LLM pass.
+    const creativeDirection = !isMotion
+      ? normalizeCreativeDirection(plan.creative_direction || params.creative_direction)
+      : plan.creative_direction
+    if (!isMotion) {
+      plan.creative_direction = assignCreativeStrategies(
+        plan.scenes,
+        creativeDirection,
+        `${job.project_slug}:${episode_id}`,
+        true,
+      )
+      await writeJsonAtomic(outPath, plan)
+      const profile = plan.creative_direction.profile === 'custom'
+        ? 'Custom'
+        : CREATIVE_PROFILES[plan.creative_direction.profile].label
+      job.output_lines.push(
+        `Creative direction: ${profile} (${plan.creative_direction.intensity}/4) - strategies assigned across ${plan.scenes.length} scene(s) before packing.`,
+      )
+    }
     const duplicateVisualIds = new Set(inspectScenePromptIntegrity(plan.scenes).duplicate_ids)
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
@@ -496,11 +527,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         end_sec: scene.end_sec,
         narration: scene.transcript_segment,
         visual_prompt: isMotion ? scene.visual_prompt : undefined,
+        creative_strategy: !isMotion ? scene.creative_strategy : undefined,
         introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
       }))
       const task = isMotion
         ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
-        : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Keep recurring subjects, wardrobe, locations, and visual style continuous.'
+        : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
       packs.push({
         pack_id: `${stage}-${String(offset / promptPackSize + 1).padStart(4, '0')}`,
         scene_ids: group.map(({ scene }) => scene.id),
@@ -513,6 +545,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             role: 'user',
             content: [
               effectiveStyle ? `STYLE BIBLE:\n${effectiveStyle}` : '',
+              !isMotion && creativeDirection ? buildCreativeDirectionPrompt(creativeDirection) : '',
+              !isMotion && creativeDirection ? `STRATEGY GLOSSARY:\n${buildStrategyGlossary(group.map(({ scene }) => scene.creative_strategy).filter((strategy): strategy is SceneCreativeStrategy => !!strategy))}` : '',
               params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
               !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
               researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
@@ -524,7 +558,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         params: {
-          temperature: isMotion ? 0.35 : 0.5,
+          temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
           max_tokens: isMotion ? (promptPackSize > 10 ? 4096 : 2048) : visualMaxTokens,
         },
       })
@@ -712,6 +746,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         await generatePromptsForScenes(plan.scenes, indices, {
           model, detail_level: 4, style_prompt: effectiveStyle,
           custom_instructions: params.custom_instructions, apiKeys,
+          creative_direction: creativeDirection,
           slug: job.project_slug, should_cancel: () => isCancelled(job.job_id),
           onResult: async (index, prompt) => persistPrompt(plan.scenes[index]!.id, prompt),
         })
@@ -775,12 +810,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       params.style_prompt, paths.episode_dir,
       () => job.output_lines.push('Using the episode Style Bible to keep the rewrite on-style.'),
     )
+    const creativeDirectionForRewrite = assignCreativeStrategies(
+      existing.scenes,
+      existing.creative_direction || params.creative_direction,
+      `${job.project_slug}:${episode_id}`,
+      true,
+    )
+    existing.creative_direction = creativeDirectionForRewrite
     const newPrompt = await generateVisualPromptOnly({
       transcript_segment: target.transcript_segment,
       model,
       detail_level: params.detail_level,
       style_prompt: stylePromptForRewrite,
       custom_instructions: params.custom_instructions,
+      creative_direction: creativeDirectionForRewrite,
+      creative_strategy: target.creative_strategy,
       apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },
       slug: job.project_slug,
     })
@@ -846,11 +890,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       params.style_prompt, paths.episode_dir,
       () => job.output_lines.push('Using the episode Style Bible to keep the rewrites on-style.'),
     )
+    const creativeDirectionForRepair = assignCreativeStrategies(
+      existing.scenes,
+      existing.creative_direction || params.creative_direction,
+      `${job.project_slug}:${episode_id}`,
+      true,
+    )
+    existing.creative_direction = creativeDirectionForRepair
+    // Checkpoints read the plan back from disk for every completed scene. Save
+    // the creative snapshot first so a partial repair cannot lose its strategy.
+    await writeJsonAtomic(outPath, existing)
     const failed = await generatePromptsForScenes(existing.scenes, targetIndices, {
       model,
       detail_level: params.detail_level,
       style_prompt: stylePromptForRewrite,
       custom_instructions: params.custom_instructions,
+      creative_direction: creativeDirectionForRepair,
       neighbor_context_back: params.neighbor_context_back,
       neighbor_context_forward: params.neighbor_context_forward,
       apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },

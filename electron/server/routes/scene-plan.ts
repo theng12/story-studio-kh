@@ -27,12 +27,18 @@ import {
   reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
 import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
+import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
+
+function parseCreativeDirection(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  return normalizeCreativeDirection(value as Record<string, unknown>)
+}
 
 async function invalidateScenePlanStatus(slug: string, episodeId: string): Promise<void> {
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
@@ -132,6 +138,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     ? body.model_cost_tier : undefined
   const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
+  const creativeDirection = parseCreativeDirection(body.creative_direction)
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -165,6 +172,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       model_cost_tier: modelCostTier,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
+      creative_direction: creativeDirection,
     },
   })
   res.status(201).json(job)
@@ -204,6 +212,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     : undefined
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  const creativeDirection = parseCreativeDirection(body.creative_direction)
 
   // Shares the scene_plan_run lane — only one job per episode at a time.
   // The frontend bulk-regen loop polls for completion before queuing the next.
@@ -223,6 +232,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
+      creative_direction: creativeDirection,
     },
   })
   res.status(201).json(job)
@@ -251,6 +261,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
     : undefined
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  const creativeDirection = parseCreativeDirection(body.creative_direction)
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
@@ -268,6 +279,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
+      creative_direction: creativeDirection,
     },
   })
   res.status(201).json(job)

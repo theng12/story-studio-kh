@@ -3129,6 +3129,37 @@ export interface ContinuityConfig {
  */
 export type SceneType = 'character' | 'event' | 'environment' | 'map' | 'artifact'
 
+/** How Scene Plan interprets narration before writing image prompts. Art style
+ * remains owned by the Character Sheet; this controls what visual idea is used. */
+export type SceneCreativeProfile = 'narrative' | 'balanced' | 'editorial' | 'spiritual' | 'abstract' | 'custom'
+
+/** A concrete visual-thinking approach assigned to one scene. Assignments are
+ * made across the whole episode before prompt packs are submitted, preventing
+ * adjacent scenes from repeatedly using the same metaphor or composition. */
+export type SceneCreativeStrategy =
+  | 'literal-narrative'
+  | 'documentary'
+  | 'editorial-metaphor'
+  | 'symbolic'
+  | 'poetic-environment'
+  | 'character-psychology'
+  | 'spiritual-allegory'
+  | 'surreal'
+  | 'conceptual-collage'
+  | 'minimal-graphic'
+
+export interface SceneCreativeDirection {
+  profile: SceneCreativeProfile
+  /** 1 = restrained, 4 = experimental. Profile boundaries still apply. */
+  intensity: 1 | 2 | 3 | 4
+  /** Used by the Custom profile; other profiles retain this for later reuse. */
+  strategies: SceneCreativeStrategy[]
+  /** Optional positive and negative channel-level creative guidance. */
+  recurring_motifs?: string
+  avoid_cliches?: string
+  custom_direction?: string
+}
+
 export interface ScenePlanEntry {
   /** Stable id for UI editing — survives reorder / split / merge. */
   id: string
@@ -3209,6 +3240,9 @@ export interface ScenePlanEntry {
   /** v1.0.336 — true when the user hand-set `scene_type` in Scene Review; a
    *  re-plan / re-classify keeps their choice instead of overwriting it. */
   scene_type_locked?: boolean
+  /** Creative interpretation assigned before the visual-prompt pass. This is
+   * independent of scene_type and is retained by missing-prompt repairs. */
+  creative_strategy?: SceneCreativeStrategy
 }
 
 export interface ScenePlan {
@@ -3243,6 +3277,9 @@ export interface ScenePlan {
   /** Last durable Hub Chat batch IDs, useful for support and recovery. */
   visual_prompt_batch_id?: string
   motion_prompt_batch_id?: string
+  /** Exact creative setup used by the visual-prompt pass. Stored with the plan
+   * so retries remain reproducible even after the active preset changes. */
+  creative_direction?: SceneCreativeDirection
 }
 
 /** Options passed to the scene planner. */
