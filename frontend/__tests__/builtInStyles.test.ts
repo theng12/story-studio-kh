@@ -10,6 +10,9 @@ describe('built-in style gallery', () => {
     assert.equal(new Set(BUILT_IN_STYLES.map(style => style.id)).size, BUILT_IN_STYLES.length)
 
     for (const style of BUILT_IN_STYLES) {
+      assert.ok(['Digital', 'Explainer', 'Illustration', 'Realistic'].includes(style.category), `${style.name} category`)
+      assert.ok(style.tags.length >= 3, `${style.name} has searchable tags`)
+      assert.equal(new Set(style.tags).size, style.tags.length, `${style.name} tags are unique`)
       assert.match(style.preview_image, /^\/builtin-style-previews\/.+\.webp$/, `${style.name} preview`)
 
       const previewPath = resolve(process.cwd(), 'public', style.preview_image.replace(/^\//, ''))

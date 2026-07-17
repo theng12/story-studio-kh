@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.635 — 2026-07-17
+
+**The art-style library now scales cleanly from twelve looks to hundreds.**
+
+- Replaced long inline style galleries with one compact selected-style card and a focused Style Library modal shared by Character Sheet, Thumbnail Prompts, and project Settings.
+- Added full-text search, broad visual categories, persistent favorites, recent choices, truthful lazy-loaded previews, and responsive browsing without expanding the workspace vertically.
+- Kept bundled previews free and offline while retaining the existing on-demand preview renderer as a repair path if a shipped asset is unavailable.
+- Added a strict built-in style-pack specification and ready-to-paste session handoff template so future styles use one schema, one catalog, honest preview assets, and the same validation rules.
+
+---
+
 ## v1.0.634 — 2026-07-17
 
 **Local Studio fleets now run at full live capacity without weakening cloud safeguards.**

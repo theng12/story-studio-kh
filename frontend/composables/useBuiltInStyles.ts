@@ -5,9 +5,10 @@
 // (applied at render to every prompt) plus a `negative_prompt`. These ship with
 // the app so a user can pick one instead of writing art direction by hand.
 //
-// Used by both the Character Sheet and the Scene Plan via <StylePicker>, so the
-// SAME look + the SAME gallery appear wherever the style is set. Custom looks
-// are still savable through the existing Continuity page preset.
+// Used by Character Sheet, Thumbnail Prompts, and project Settings through the
+// shared style-library components, so the same look appears wherever style is
+// selected. Scene Plan consumes the Character Sheet choice rather than owning
+// another style selector.
 //
 // Every shipped style owns a real generated preview so the gallery accurately
 // demonstrates the selected look without spending credits or relying on a
@@ -20,6 +21,10 @@ export interface BuiltInStyle {
   builtin: true
   /** One-line description shown under the name. */
   blurb: string
+  /** Broad library grouping used by the scalable style browser. */
+  category: 'Digital' | 'Explainer' | 'Illustration' | 'Realistic'
+  /** Search aliases. Keep these short and visual rather than channel-specific. */
+  tags: string[]
   data: {
     /** The look, appended to every scene at render (continuity.json style_bible). */
     style_bible: string
@@ -36,6 +41,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'MS Paint Fantasy',
     builtin: true,
     blurb: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
+    category: 'Digital',
+    tags: ['retro', 'fantasy', 'rough', 'flat color', 'old web'],
     data: {
       style_bible:
         'crude MS Paint fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
@@ -49,6 +56,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Pixel Art Story',
     builtin: true,
     blurb: 'Readable retro RPG pixel art with strong silhouettes and playful adventure framing.',
+    category: 'Digital',
+    tags: ['pixel', 'retro', 'rpg', 'game', 'fantasy'],
     data: {
       style_bible:
         '16-bit pixel art fantasy, retro RPG aesthetic, pixel-defined edges, restricted retro palette, clean sprite-like forms, readable silhouettes, tileable background logic, playful scene staging, side-scrolling adventure energy, simple dramatic lighting translated into pixel clusters',
@@ -63,6 +72,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Sepia Ink & Wash',
     builtin: true,
     blurb: 'Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expedition journal.',
+    category: 'Illustration',
+    tags: ['historical', 'ink', 'watercolor', 'sepia', 'journal'],
     data: {
       style_bible:
         'line-and-wash illustration, fine pen-and-ink linework over loose watercolor washes, heavily desaturated muted palette, sepia browns and charcoal greys with cold blue-grey shadows, warm lamplight accents, dim atmospheric lighting, low contrast, aged foxed paper texture, granulated watercolor, subtle crosshatching in the shadows, painterly editorial illustration, somber contemplative historical mood, soft vignette at the edges, early-20th-century documentary feel',
@@ -76,6 +87,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Watercolor Storybook',
     builtin: true,
     blurb: 'Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy.',
+    category: 'Illustration',
+    tags: ['watercolor', 'storybook', 'children', 'cozy', 'painted'],
     data: {
       style_bible:
         'soft watercolor storybook illustration, gentle layered washes, visible paper grain, warm inviting palette, rounded friendly shapes, light pencil underdrawing, soft diffuse lighting, whimsical cozy mood, hand-painted picture-book aesthetic, delicate colour bleeds, airy negative space',
@@ -89,6 +102,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Prehistoric Stick Cartoon',
     builtin: true,
     blurb: 'Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.',
+    category: 'Explainer',
+    tags: ['history', 'cartoon', 'stick figure', 'educational', 'prehistoric'],
     data: {
       style_bible:
         'simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, YouTube explainer thumbnail energy',
@@ -102,6 +117,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Cinematic Photoreal',
     builtin: true,
     blurb: 'Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still.',
+    category: 'Realistic',
+    tags: ['cinematic', 'photo', 'film', 'dramatic', 'realistic'],
     data: {
       style_bible:
         'cinematic photorealistic still, shallow depth of field, soft bokeh, golden-hour key light with cool fill, filmic colour grade, gentle film grain, naturalistic skin and materials, anamorphic framing, volumetric atmosphere, high dynamic range, prestige-drama mood',
@@ -115,6 +132,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Studio Catalog Realism',
     builtin: true,
     blurb: 'Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scenes.',
+    category: 'Realistic',
+    tags: ['studio', 'catalog', 'diorama', 'product', 'miniature'],
     data: {
       style_bible:
         'clean studio catalog photography, carefully staged physical miniature diorama aesthetic, neutral charcoal textured sweep, soft large-source overhead lighting, natural soft-edged shadows, accurate restrained color, crisp tactile materials, centered product-documentation composition, high depth of field, minimal styling, subtle commercial polish, honest documentary clarity, full subject visible with generous breathing room',
@@ -128,6 +147,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Flat Vector Explainer',
     builtin: true,
     blurb: 'Clean flat-vector infographic look — bold shapes, limited palette, crisp and modern.',
+    category: 'Explainer',
+    tags: ['vector', 'infographic', 'flat', 'modern', 'educational'],
     data: {
       style_bible:
         'clean flat vector illustration, bold simple geometric shapes, limited modern palette of three to four colours, no gradients, crisp even line weights, generous negative space, friendly explainer-video aesthetic, balanced flat lighting, clear readable silhouettes, minimal detail',
@@ -141,6 +162,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Whiteboard Doodle Explainer',
     builtin: true,
     blurb: 'Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame.',
+    category: 'Explainer',
+    tags: ['whiteboard', 'doodle', 'stick figure', 'marker', 'educational'],
     data: {
       style_bible:
         'simple hand-drawn whiteboard-doodle illustration, thick black marker outlines, smooth rounded shapes, clean vector-like lines, minimal detail, high readability at small sizes, looks quickly sketched on a whiteboard, stick-figure humans with circle heads and simple line bodies, highly expressive faces with big eyes and raised eyebrows showing clear emotion, everyday objects simplified into symbolic icons that can be anthropomorphised with faces and personality for visual metaphor, pure white background, one main idea per image, a large central character or object, generous empty space, no realistic perspective or complex environment, arrows and circles and lines to direct attention, simple icons as visual shortcuts, mostly black-and-white line art with limited flat colour accents reserved for important elements only (blue for important or science or earth, yellow for energy or success or discovery, red for danger or problem, green for nature or growth), no realistic lighting, no cinematic shadows, optional big bold uppercase handwritten marker lettering at the top with only a few words',
@@ -154,6 +177,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Minimal Stick-Figure Explainer',
     builtin: true,
     blurb: 'Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.',
+    category: 'Explainer',
+    tags: ['stick figure', 'minimal', 'editorial', 'white space', 'diagram'],
     data: {
       style_bible:
         'polished minimalist 2D stick-figure editorial explainer, smooth thick black outlines with consistent line weight, round white faces with simple highly expressive eyes eyebrows and mouths, clean line bodies and limbs, icon-like props and visual metaphors, pure white background, generous negative space, one instantly readable idea per frame, simple diagram-like staging, sparse environmental cues, mostly black-and-white artwork with restrained flat muted color accents, red for urgency or emphasis, warm yellow for discovery or success, subdued blue and green for context, subtle light-gray grounding shadows only, crisp professional YouTube explainer illustration, clear at thumbnail size, no texture and no realistic lighting',
@@ -167,6 +192,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Oil Painting Classical',
     builtin: true,
     blurb: 'Old-master oil painting — rich impasto, chiaroscuro lighting, museum-canvas depth.',
+    category: 'Illustration',
+    tags: ['oil', 'classical', 'old master', 'museum', 'baroque'],
     data: {
       style_bible:
         'classical oil painting, old-master technique, visible impasto brushwork, rich layered glazes, deep chiaroscuro lighting, warm earthen palette with deep shadows, canvas texture, dramatic single light source, baroque atmosphere, painterly edges, museum-quality depth',
@@ -180,6 +207,8 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     name: 'Anime Cel',
     builtin: true,
     blurb: 'Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid.',
+    category: 'Digital',
+    tags: ['anime', 'cel shading', 'line art', 'vivid', 'character'],
     data: {
       style_bible:
         'modern anime cel-shaded illustration, clean confident lineart, flat cel shading with crisp shadow shapes, vivid but harmonious palette, expressive faces, soft rim light, detailed painted backgrounds, dynamic composition, key-visual quality, subtle gradient skies',

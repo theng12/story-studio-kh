@@ -1,36 +1,24 @@
 <template>
   <div class="psl">
-    <div v-if="showBuiltInStarters" class="psl-builtins card">
-      <div class="psl-saved-head">
-        <label>Start from a built-in style</label>
-        <span class="text-muted text-xs">{{ BUILT_IN_STYLES.length }} built-in looks</span>
+    <div v-if="showBuiltInStarters" class="psl-builtins-launch card">
+      <div>
+        <span class="psl-library-kicker">Built-in library</span>
+        <label>Start from a shipped style</label>
+        <p class="text-muted text-xs mt-1">
+          Browse {{ BUILT_IN_STYLES.length }} searchable looks in a focused library instead of expanding every card on this page.
+        </p>
       </div>
-      <div class="psl-builtins-grid">
-        <article v-for="style in BUILT_IN_STYLES" :key="style.id" class="psl-builtin-card">
-          <div class="psl-builtin-top">
-            <div>
-              <h4>{{ style.name }}</h4>
-              <p class="text-muted text-xs mt-1">{{ style.blurb }}</p>
-            </div>
-            <span class="psl-sample-chip">Built-in</span>
-          </div>
-          <button
-            v-if="style.preview_image"
-            type="button"
-            class="psl-image-button"
-            title="Open large preview"
-            @click="openLightbox([{ url: style.preview_image, label: style.name }], 0)"
-          >
-            <img :src="style.preview_image" :alt="style.name" class="psl-builtin-img" />
-            <span class="psl-zoom-hint">View larger</span>
-          </button>
-          <div class="psl-preset-actions">
-            <button class="btn btn-ghost btn-sm" @click="loadBuiltInStyle(style)">Load into editor</button>
-            <button v-if="showApply" class="btn btn-ghost btn-sm" @click="applyBuiltInStyle(style)">Apply</button>
-          </div>
-        </article>
-      </div>
+      <button type="button" class="btn btn-primary" @click="builtInLibraryOpen = true">Browse Style Library</button>
     </div>
+
+    <BuiltInStyleLibraryModal
+      :visible="builtInLibraryOpen"
+      :project-slug="projectSlug"
+      :image-models="imageModels"
+      action-label="Load into editor"
+      @close="builtInLibraryOpen = false"
+      @select="loadBuiltInStyle"
+    />
 
     <div class="psl-head">
       <div>
@@ -336,6 +324,7 @@ const editingPresetId = ref<string | null>(null)
 const editorOriginLabel = ref<string | null>(null)
 const lightboxImages = ref<LightboxImage[]>([])
 const lightboxIndex = ref(0)
+const builtInLibraryOpen = ref(false)
 
 const modelOptions = computed(() =>
   Object.keys(props.imageModels || {}).map(id => ({ value: id, label: id })),
@@ -608,10 +597,6 @@ function loadBuiltInStyle(style: BuiltInStyle): void {
   liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)
 }
 
-function applyBuiltInStyle(style: BuiltInStyle): void {
-  emit('apply', { style_bible: style.data.style_bible, negative_prompt: style.data.negative_prompt || '' })
-}
-
 async function deletePreset(preset: PresetEntry): Promise<void> {
   const ok = await ask({
     title: `Delete style "${preset.name}"?`,
@@ -641,7 +626,6 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 .psl-saved-head,
 .psl-preset-top,
 .psl-sample-head,
-.psl-builtin-top,
 .psl-editor-state {
   display: flex;
   justify-content: space-between;
@@ -662,9 +646,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 .psl-preview-model { width: min(360px, 72vw); }
 .psl-editor,
 .psl-empty,
-.psl-preset-card,
-.psl-builtins,
-.psl-builtin-card {
+.psl-preset-card {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -681,31 +663,32 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   color: var(--text-muted);
 }
 .psl-samples-grid,
-.psl-preset-grid,
-.psl-builtins-grid {
+.psl-preset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
-.psl-builtin-card {
+.psl-builtins-launch {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background:
-    radial-gradient(circle at top right, rgba(240, 198, 116, 0.12), transparent 34%),
-    var(--bg-primary);
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--surface-accent), var(--bg-secondary));
 }
-.psl-builtin-card h4 {
-  margin: 0;
+.psl-builtins-launch label {
+  display: block;
+  margin-top: 2px;
   font-size: 14px;
 }
-.psl-builtin-img {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
+.psl-library-kicker {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
 }
 .psl-state-pill {
   display: inline-flex;
@@ -913,5 +896,11 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   margin: 0;
   padding: 10px 20px 16px;
   text-align: center;
+}
+@media (max-width: 720px) {
+  .psl-builtins-launch {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

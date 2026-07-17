@@ -22,6 +22,7 @@ describe('Character Sheet workspace', () => {
     assert.match(characterSheet, /:show-custom-styles="false"/)
     assert.match(stylePicker, /v-if="showCustomStyles !== false"/)
     assert.match(stylePicker, /showCustomStyles\?: boolean/)
+    assert.match(characterSheet, /:active-style-bible="config\.style_bible"/)
   })
 
   test('filters retired recipe and composition fields from saved configs and presets', () => {
