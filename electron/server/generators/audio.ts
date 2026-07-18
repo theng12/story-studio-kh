@@ -487,7 +487,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // Per-job override (Audio page form). Used primarily for voice-cloning
   // engines like VoxCPM2 where the cloned voice drifts after a certain
   // duration — smaller chunks keep each chunk within the model's coherence
-  // window. Validated 50-3000 at the contract layer.
+  // window. Validated 50-5000 at the contract layer.
   const reqAny = req as any
   const overrideCap: number | undefined = typeof reqAny.max_chunk_chars === 'number' && reqAny.max_chunk_chars > 0
     ? reqAny.max_chunk_chars

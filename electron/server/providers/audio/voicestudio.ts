@@ -36,6 +36,10 @@ import {
 import { parseHubVoiceId } from '../../services/voicestudio-voice-pool.js'
 import type { AudioProvider, AudioGenerationRequest, AudioGenerationResult } from '../types.js'
 
+/** A 5,000-character Qwen Base dispatch can legitimately take longer than
+ * Studio Hub's generic 10-minute batch window on the 1.7B model. */
+export const VOICESTUDIO_HUB_TTS_TIMEOUT_MS = 30 * 60_000
+
 /**
  * Stream a Studio Hub artifact to a file (with progress). The Hub proxy is the
  * only valid download path in Hub mode: it authenticates to the selected worker
@@ -179,7 +183,10 @@ export async function generateTtsToFile(
         modality: 'voice', model: repo, label: 'storystudio-kh', routing: 'pool',
         items: [{ prompt: text, params: voiceParams as Record<string, any> }],
       })
-      const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: opts.isCancelled })
+      const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, {
+        isCancelled: opts.isCancelled,
+        timeoutMs: VOICESTUDIO_HUB_TTS_TIMEOUT_MS,
+      })
       const item = status.items?.[0]
       if (!item || item.state !== 'done' || !item.artifact_url) {
         throw new Error(

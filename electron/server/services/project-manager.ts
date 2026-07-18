@@ -882,6 +882,10 @@ const QWEN3_AUDIO_MODEL_IDS = new Set([
   'voicestudio-qwen3-tts-base-0.6b',
   'voicestudio-qwen3-tts-base-1.7b',
 ])
+const QWEN3_BASE_AUDIO_MODEL_IDS = new Set([
+  'voicestudio-qwen3-tts-base-0.6b',
+  'voicestudio-qwen3-tts-base-1.7b',
+])
 
 /** Heal the former built-in Qwen cap without replacing deliberate user limits. */
 export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
@@ -891,7 +895,9 @@ export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
   for (const modelId of QWEN3_AUDIO_MODEL_IDS) {
     const savedCap = saved?.[modelId]?.tts_soft_max_chars
     const currentDefault = DEFAULT_AUDIO_MODELS[modelId]?.tts_soft_max_chars
-    if (savedCap === QWEN3_RETIRED_CHAR_CAP && currentDefault) {
+    const isRetiredBuiltInCap = savedCap === QWEN3_RETIRED_CHAR_CAP
+      || (QWEN3_BASE_AUDIO_MODEL_IDS.has(modelId) && savedCap === 3000)
+    if (isRetiredBuiltInCap && currentDefault) {
       merged[modelId] = {
         ...merged[modelId],
         tts_soft_max_chars: currentDefault,

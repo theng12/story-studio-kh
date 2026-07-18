@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.638 — 2026-07-18
+
+**Qwen3 Base voice cloning now dispatches longer narration pieces without losing its corrected pacing.**
+
+- Raised Story Studio's per-dispatch chunk size from 3,000 to 5,000 characters for both Qwen3 Base cloning models; CustomVoice remains at its separately audited 3,000-character limit.
+- Preserved Voice Studio's sentence-safe internal synthesis chunks, so the larger outer request never returns to the old accelerating long-context render.
+- Migrated projects still carrying the former built-in 3,000-character Base value while preserving deliberately customized chunk sizes.
+- Extended Studio Hub monitoring for Voice TTS from the generic 10-minute window to 30 minutes so slower 1.7B cloning jobs are not cancelled while legitimately rendering a 5,000-character piece.
+
+---
+
 ## v1.0.637 — 2026-07-18
 
 **Remote Render Studio transfers now survive reconnects without resending an episode.**

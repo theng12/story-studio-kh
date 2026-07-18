@@ -380,9 +380,10 @@ export const GenerateAudioSchema = z.object({
    * Chatterbox) where the cloned voice drifts after a certain audio
    * duration — smaller chunks keep each TTS call within the model's
    * coherence window because each chunk gets fresh reference injection.
-   * Bounds 50-3000 chars (~3-180 seconds at typical narration pace).
+   * Bounds 50-5000 chars. Qwen3 Base can safely use the upper bound because
+   * Voice Studio performs its own sentence-safe synthesis passes internally.
    */
-  max_chunk_chars: z.number().int().min(50).max(3000).optional(),
+  max_chunk_chars: z.number().int().min(50).max(5000).optional(),
   /**
    * Fish Audio S2-Pro only: when true, the generator swaps each section's text
    * for its saved "expressive script" (inline [tag] markup) before chunking.
