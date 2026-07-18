@@ -7,6 +7,14 @@ const sceneReviewSource = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/scene-review.vue', import.meta.url)),
   'utf8',
 )
+const motionReviewSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url)),
+  'utf8',
+)
+const videoAssemblySource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url)),
+  'utf8',
+)
 
 describe('Scene Review image preview', () => {
   test('the full thumbnail cell opens the preview for mouse and keyboard users', () => {
@@ -23,5 +31,20 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /<Teleport to="body">[\s\S]*class="sr-lightbox"/)
     assert.match(sceneReviewSource, /\.sr-lightbox\s*{[\s\S]*z-index:\s*10000;/)
     assert.match(sceneReviewSource, /role="dialog"[\s\S]*aria-modal="true"/)
+  })
+
+  test('a fully approved episode offers direct, episode-specific next steps', () => {
+    assert.match(sceneReviewSource, /v-if="stats\.all_approved && episodeId"[\s\S]*Motion Review \(optional\)/)
+    assert.match(sceneReviewSource, /:to="motionReviewLink"/)
+    assert.match(sceneReviewSource, /:to="videoAssemblyLink"/)
+    assert.match(sceneReviewSource, /const motionReviewLink = computed\(\(\) => `\/projects\/\$\{slug\.value\}\/motion-review\?episode_id=\$\{encodeURIComponent\(episodeId\.value\)\}`\)/)
+    assert.match(sceneReviewSource, /const videoAssemblyLink = computed\(\(\) => `\/projects\/\$\{slug\.value\}\/video-assembly\?episode_id=\$\{encodeURIComponent\(episodeId\.value\)\}`\)/)
+  })
+
+  test('Motion Review and Video Assembly restore the handed-off episode', () => {
+    assert.match(motionReviewSource, /const initialEpisodeId = typeof route\.query\.episode_id === 'string'/)
+    assert.match(motionReviewSource, /const episodeId = ref\(initialEpisodeId\)/)
+    assert.match(videoAssemblySource, /const initialEpisodeId = typeof route\.query\.episode_id === 'string'/)
+    assert.match(videoAssemblySource, /const episodeId = ref\(initialEpisodeId\)/)
   })
 })

@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.640 — 2026-07-18
+
+**Scene Review now hands a verified episode straight into its next workspace.**
+
+- Once every scene image is approved, Scene Review offers direct episode-specific actions for optional Motion Review and Video Assembly.
+- The selected episode travels with each action, so neither destination makes you select the episode again.
+
+---
+
 ## v1.0.639 — 2026-07-18
 
 **Dashboard readiness cards now keep a deliberate visual boundary from the project header.**

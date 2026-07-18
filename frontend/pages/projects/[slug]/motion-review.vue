@@ -200,7 +200,12 @@ interface MotionStats {
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string'
+  ? route.query.episode_id
+  : typeof route.query.episode === 'string'
+    ? route.query.episode
+    : ''
+const episodeId = ref(initialEpisodeId)
 const { config } = useProject()
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()

@@ -97,6 +97,15 @@
         <span :style="{ width: `${stats.total_scenes ? (stats.approved / stats.total_scenes) * 100 : 0}%` }" />
       </div>
 
+      <div v-if="stats.all_approved && episodeId" class="sr-greenlight-actions" aria-label="Continue this approved episode">
+        <NuxtLink :to="motionReviewLink" class="btn btn-sm btn-secondary">
+          Motion Review (optional) →
+        </NuxtLink>
+        <NuxtLink :to="videoAssemblyLink" class="btn btn-sm btn-primary">
+          Open Video Assembly →
+        </NuxtLink>
+      </div>
+
       <div class="sr-control-section">
         <div class="sr-section-heading">
           <div><span>01</span><strong>Render settings</strong></div>
@@ -704,7 +713,14 @@ async function setAnimateMinSeconds(v: number) {
   }
 }
 
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string'
+  ? route.query.episode_id
+  : typeof route.query.episode === 'string'
+    ? route.query.episode
+    : ''
+const episodeId = ref(initialEpisodeId)
+const motionReviewLink = computed(() => `/projects/${slug.value}/motion-review?episode_id=${encodeURIComponent(episodeId.value)}`)
+const videoAssemblyLink = computed(() => `/projects/${slug.value}/video-assembly?episode_id=${encodeURIComponent(episodeId.value)}`)
 
 interface ReviewScene {
   id: string
@@ -1843,6 +1859,8 @@ watch(episodeId, () => {
 .sr-status-orb.ready strong { color: var(--review-green); }
 .sr-progress-track { height: 4px; margin: 0 22px 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
 .sr-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--review-gold), var(--review-green)); transition: width .35s ease; }
+.sr-greenlight-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 22px 2px; }
+.sr-greenlight-actions .btn { min-height: 36px; }
 .sr-control-section { padding: 17px 22px; border-top: 1px solid var(--border); }
 .sr-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
 .sr-section-heading > div { display: flex; align-items: center; gap: 9px; }

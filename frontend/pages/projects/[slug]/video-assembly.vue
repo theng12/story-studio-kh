@@ -2422,7 +2422,12 @@ const currentStep = ref(1)
 const maxStepReached = ref(1)
 
 // --------------- Step 1: Assets ---------------
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string'
+  ? route.query.episode_id
+  : typeof route.query.episode === 'string'
+    ? route.query.episode
+    : ''
+const episodeId = ref(initialEpisodeId)
 const selectedEpisode = ref<any>(null)
 
 // v1.0.307 — keep Generate disabled for the WHOLE queued render, not just the
