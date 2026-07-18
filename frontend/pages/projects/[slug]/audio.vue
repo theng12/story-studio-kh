@@ -179,12 +179,12 @@
           </NuxtLink>
         </div>
         <p class="text-muted text-xs hint-line">
-          The script is split at sentence boundaries within this cap, then the
-          per-chunk audio files are re-stitched. Suggested per provider:
+          Story Studio splits at sentence boundaries within this outer cap.
+          Suggested per provider:
           ElevenLabs / GenAIPro / fal ≈ 3,000–4,800;
           Kokoro 3,000+;
-          VoxCPM2 500–600 (cloned voice drifts after ~30s);
-          Chatterbox 1,000.
+          Qwen3 Base, VoxCPM2, and Chatterbox 15,000 (Voice Studio safely
+          splits, verifies, and joins their smaller internal sections).
         </p>
       </div>
 

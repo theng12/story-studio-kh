@@ -157,15 +157,11 @@ export interface VoiceStudioEngine {
 }
 
 export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
-  // VoxCPM2 default chunk cap dropped from 1000 → 500 (~30s of audio).
-  // VoxCPM2 is autoregressive-clone TTS; the cloned voice drifts toward the
-  // model's generic distribution after the reference signal fades from
-  // attention (~10-30s window depending on model + reference quality).
-  // Each chunk is a separate API call with fresh reference injection, so
-  // smaller chunks keep clone fidelity tight. User-tunable per-job via the
-  // Audio page's "Max chunk size" field — that override takes precedence
-  // over this default.
-  { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 500,  voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
+  // Voice Studio owns VoxCPM's short, sentence-safe synthesis windows and
+  // reinjects the original reference for each one. Story Studio can therefore
+  // dispatch a full 15,000-character narration unit without exposing the
+  // engine's practical ~400-character clone-quality window here.
+  { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 15000, voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
   // v1.0.323 — all three Kokoro variants surfaced as separate model entries.
   // Up to v1.0.322 Story Studio only exposed one Kokoro option whose repo got
   // swapped each release (hexgrad → bf16 → 4-bit) as we learned which
@@ -219,18 +215,20 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   // unrelated built-in speaker that also happens to be named Aiden.
   // Qwen Base cloning now performs its own sentence-safe ~360-character
   // synthesis passes inside Voice Studio, then joins them before returning.
-  // A 5000-character outer dispatch therefore remains paced while giving
-  // Story Studio useful fleet/recovery granularity. CustomVoice does not use
+  // A 15,000-character outer dispatch therefore remains paced while giving
+  // Story Studio simple chapter-scale requests. CustomVoice does not use
   // that clone-specific path and retains its audited 3000-character cap.
   { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts',            label: 'Qwen3-TTS 1.7B CustomVoice — built-in speakers (MLX)', repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit', softMaxChars: 3000, voiceField: 'preset_speaker',   availabilityKey: 'qwen3' },
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-0.6b',  label: 'Qwen3-TTS 0.6B Base — voice cloning (MLX)',             repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit',        softMaxChars: 5000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
-  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-1.7b',  label: 'Qwen3-TTS 1.7B Base — quality voice cloning (MLX)',     repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit',        softMaxChars: 5000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-0.6b',  label: 'Qwen3-TTS 0.6B Base — voice cloning (MLX)',             repo: 'mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit',        softMaxChars: 15000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
+  { family: 'qwen3-tts',      modelId: 'voicestudio-qwen3-tts-base-1.7b',  label: 'Qwen3-TTS 1.7B Base — quality voice cloning (MLX)',     repo: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit',        softMaxChars: 15000, voiceField: 'voice_library_id', availabilityKey: 'qwen3' },
   { family: 'bark',           modelId: 'voicestudio-bark',           label: 'Bark',              repo: 'suno/bark',                 softMaxChars: 1000, voiceField: 'bark_voice_preset', availabilityKey: 'bark' },
   // chatterbox-mlx: voiceField correct ('voice_library_id'); repo pinned to a
   // real catalog variant — bare 'mlx-community/Chatterbox' is not in the
   // catalog. chatterbox-4bit is the newer v1.2.1 build (smaller/faster than
   // the older chatterbox-mlx-4bit).
-  { family: 'chatterbox-mlx', modelId: 'voicestudio-chatterbox-mlx', label: 'Chatterbox MLX',    repo: 'mlx-community/chatterbox-4bit', softMaxChars: 1000, voiceField: 'voice_library_id',  availabilityKey: 'chatterbox' },
+  // Voice Studio internally renders Chatterbox at sentence-safe 500-character
+  // windows (400 for Turbo), verifies every WAV, and returns one joined file.
+  { family: 'chatterbox-mlx', modelId: 'voicestudio-chatterbox-mlx', label: 'Chatterbox MLX',    repo: 'mlx-community/chatterbox-4bit', softMaxChars: 15000, voiceField: 'voice_library_id',  availabilityKey: 'chatterbox' },
 ]
 
 /** Catalog lookups — by Story Studio model id or by engine family. */

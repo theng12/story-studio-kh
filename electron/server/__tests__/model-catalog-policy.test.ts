@@ -34,22 +34,28 @@ describe('model catalog ownership', () => {
     assert.equal('is_custom' in merged.built_in, false)
   })
 
-  test('heals retired Qwen defaults without replacing deliberate user limits', () => {
+  test('heals retired internally chunked defaults without replacing deliberate limits', () => {
     const defaults: Record<string, Record<string, any>> = {
       'voicestudio-qwen3-tts': { tts_soft_max_chars: 2000 },
-      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 5000 },
-      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 5000 },
+      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 15000 },
+      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 15000 },
+      'voicestudio-chatterbox-mlx': { tts_soft_max_chars: 15000 },
+      'voicestudio-voxcpm-mlx': { tts_soft_max_chars: 15000 },
     }
     const saved: Record<string, Record<string, any>> = {
       'voicestudio-qwen3-tts': { tts_soft_max_chars: 3000 },
-      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 3000 },
+      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 5000 },
       'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 2400 },
+      'voicestudio-chatterbox-mlx': { tts_soft_max_chars: 1000 },
+      'voicestudio-voxcpm-mlx': { tts_soft_max_chars: 500 },
     }
 
     const merged = migrateRetiredAudioDefaults(mergeCatalog(defaults, saved), saved)
 
     assert.equal(merged['voicestudio-qwen3-tts'].tts_soft_max_chars, 3000)
-    assert.equal(merged['voicestudio-qwen3-tts-base-0.6b'].tts_soft_max_chars, 5000)
+    assert.equal(merged['voicestudio-qwen3-tts-base-0.6b'].tts_soft_max_chars, 15000)
     assert.equal(merged['voicestudio-qwen3-tts-base-1.7b'].tts_soft_max_chars, 2400)
+    assert.equal(merged['voicestudio-chatterbox-mlx'].tts_soft_max_chars, 15000)
+    assert.equal(merged['voicestudio-voxcpm-mlx'].tts_soft_max_chars, 15000)
   })
 })

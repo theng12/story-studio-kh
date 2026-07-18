@@ -84,17 +84,19 @@ describe('Voice Studio Qwen3 clone routing', () => {
     }
   })
 
-  test('uses Voice Studio audited Qwen long-form chunk guidance', () => {
-    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-0.6b')?.softMaxChars, 5000)
-    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-1.7b')?.softMaxChars, 5000)
+  test('uses Voice Studio internal chunking for chapter-scale clone dispatches', () => {
+    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-0.6b')?.softMaxChars, 15000)
+    assert.equal(engineForModelId('voicestudio-qwen3-tts-base-1.7b')?.softMaxChars, 15000)
+    assert.equal(engineForModelId('voicestudio-chatterbox-mlx')?.softMaxChars, 15000)
+    assert.equal(engineForModelId('voicestudio-voxcpm-mlx')?.softMaxChars, 15000)
     assert.equal(engineForModelId('voicestudio-qwen3-tts')?.softMaxChars, 3000)
-    assert.equal(VOICESTUDIO_HUB_TTS_TIMEOUT_MS, 30 * 60_000)
+    assert.equal(VOICESTUDIO_HUB_TTS_TIMEOUT_MS, 2 * 60 * 60_000)
   })
 
-  test('accepts a 5,000-character per-job dispatch override but rejects larger values', () => {
+  test('accepts a 15,000-character per-job dispatch override but rejects larger values', () => {
     const base = { episode_id: 'EP0001', model: 'voicestudio-qwen3-tts-base-0.6b' }
-    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 5000 }).success, true)
-    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 5001 }).success, false)
+    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 15000 }).success, true)
+    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 15001 }).success, false)
   })
 
   test('classifies Qwen voice mode by exact model rather than shared family', () => {

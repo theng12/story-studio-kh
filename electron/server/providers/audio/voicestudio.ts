@@ -36,9 +36,10 @@ import {
 import { parseHubVoiceId } from '../../services/voicestudio-voice-pool.js'
 import type { AudioProvider, AudioGenerationRequest, AudioGenerationResult } from '../types.js'
 
-/** A 5,000-character Qwen Base dispatch can legitimately take longer than
- * Studio Hub's generic 10-minute batch window on the 1.7B model. */
-export const VOICESTUDIO_HUB_TTS_TIMEOUT_MS = 30 * 60_000
+/** A 15,000-character local TTS dispatch can legitimately take well over the
+ * generic batch window, especially on Qwen 1.7B. This only governs monitoring;
+ * it does not hold a worker slot or weaken terminal failure reporting. */
+export const VOICESTUDIO_HUB_TTS_TIMEOUT_MS = 2 * 60 * 60_000
 
 /**
  * Stream a Studio Hub artifact to a file (with progress). The Hub proxy is the

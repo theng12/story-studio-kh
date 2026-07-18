@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.641 — 2026-07-19
+
+**Voice Studio clone engines now accept one consistent chapter-scale request.**
+
+- Raised Story Studio's outer dispatch cap to 15,000 characters for Qwen3 Base,
+  Chatterbox, and VoxCPM2; Qwen CustomVoice keeps its audited 3,000-character
+  cap because it does not use the clone-specific internal renderer.
+- Moved engine-quality splitting behind Voice Studio's API: Story Studio sends
+  a large sentence-safe unit, while Voice Studio renders and verifies each
+  smaller engine-specific section before returning one joined WAV.
+- Migrated former built-in Qwen Base, Chatterbox, and VoxCPM2 caps to the new
+  defaults while preserving any nonstandard value the user set deliberately.
+- Extended Studio Hub TTS monitoring to two hours for legitimate 15,000-character
+  local jobs without changing terminal failure handling.
+
+---
+
 ## v1.0.640 — 2026-07-18
 
 **Scene Review now hands a verified episode straight into its next workspace.**

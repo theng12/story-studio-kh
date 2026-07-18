@@ -376,14 +376,11 @@ export const GenerateAudioSchema = z.object({
   /**
    * Per-job override for the chunk-size cap. When set, overrides the
    * audio_models[model].tts_soft_max_chars default for THIS job only.
-   * Used primarily for Voice Studio voice-cloning engines (VoxCPM2,
-   * Chatterbox) where the cloned voice drifts after a certain audio
-   * duration — smaller chunks keep each TTS call within the model's
-   * coherence window because each chunk gets fresh reference injection.
-   * Bounds 50-5000 chars. Qwen3 Base can safely use the upper bound because
-   * Voice Studio performs its own sentence-safe synthesis passes internally.
+   * Voice Studio clone engines can accept a chapter-scale outer request and
+   * perform their own smaller sentence-safe synthesis passes internally.
+   * Bounds 50-15000 chars.
    */
-  max_chunk_chars: z.number().int().min(50).max(5000).optional(),
+  max_chunk_chars: z.number().int().min(50).max(15000).optional(),
   /**
    * Fish Audio S2-Pro only: when true, the generator swaps each section's text
    * for its saved "expressive script" (inline [tag] markup) before chunking.

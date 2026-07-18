@@ -467,27 +467,21 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(`Cast: ${projectCharacters.length} character(s), ${withVoices} with voice IDs`)
   }
 
-  // [per-model chunk-size cap] v1.0.155+ — ElevenLabs comfortably handles
-  // ~4800-char chunks (chunker's default). Local MLX TTS models have
-  // much tighter soft caps (VoxCPM2: 600, F5-TTS: 400, etc., per the
-  // modal's own /api/catalog). Read the cap off
+  // [per-model chunk-size cap] v1.0.155+ — cloud providers keep their audited
+  // request limits. Voice Studio engines that own stable internal chunking
+  // can receive a chapter-scale outer request. Read the cap off
   // AudioModelConfig.tts_soft_max_chars when set; the chunker falls
   // back to 4800 when the field is undefined (every cloud model today).
-  // Story Studio's chunker splits at sentence boundaries within this
-  // cap; ffmpeg concatenates the per-chunk WAVs in the usual
-  // section-merge step — same code path that already handles
-  // ElevenLabs's smaller cloud chunks. The result: VoxCPM2-driven
-  // sections come out cleanly stitched at sentence boundaries instead
-  // of mlx-audio's arbitrary internal cuts.
+  // Story Studio's chunker still splits at sentence boundaries within this
+  // outer cap. Voice Studio then owns the smaller engine-specific sections
+  // and returns one verified WAV for each dispatch.
   const modelEntry = config.audio_models?.[req.model] as any
   const modelDefaultCap: number | undefined =
     typeof modelEntry?.tts_soft_max_chars === 'number' && modelEntry.tts_soft_max_chars > 0
       ? modelEntry.tts_soft_max_chars
       : undefined
-  // Per-job override (Audio page form). Used primarily for voice-cloning
-  // engines like VoxCPM2 where the cloned voice drifts after a certain
-  // duration — smaller chunks keep each chunk within the model's coherence
-  // window. Validated 50-5000 at the contract layer.
+  // Per-job override for callers that need finer recovery granularity.
+  // Validated 50-15000 at the contract layer.
   const reqAny = req as any
   const overrideCap: number | undefined = typeof reqAny.max_chunk_chars === 'number' && reqAny.max_chunk_chars > 0
     ? reqAny.max_chunk_chars

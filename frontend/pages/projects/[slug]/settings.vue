@@ -128,7 +128,7 @@
           <tr>
             <th>Model</th>
             <th>$/1K chars</th>
-            <th title="Max characters per TTS API call. The script is split at sentence boundaries within this cap, then re-stitched. Cloud providers (ElevenLabs ≈ 4800, GenAIPro/fal as their proxies allow) have generous caps; local MLX engines need smaller chunks (VoxCPM2 ≈ 600, Chatterbox ≈ 1000). Leave blank to use the chunker default (~4800).">
+            <th title="Max characters per outer TTS dispatch. Cloud providers keep their own limits. Qwen Base, Chatterbox, and VoxCPM2 can use 15,000 because Voice Studio performs stable sentence-safe synthesis internally. Leave blank to use the chunker default (~4,800).">
               Max chunk chars
             </th>
           </tr>
@@ -140,21 +140,19 @@
               <input v-model.number="model.cost_per_1k_chars" type="number" step="0.01" min="0" class="input input-sm" />
             </td>
             <td>
-              <!-- v1.0.313 — per-model chunk-size cap. Drives how the generator
-                   splits long sections into per-API-call chunks. Cloud providers
-                   take generous values (3000-5000); most local MLX engines need
-                   500-1000, while Qwen3 Base safely dispatches at 5000 because
-                   Voice Studio chunks it internally. Bound to AudioModelConfig.tts_soft_max_chars; backend
+              <!-- v1.0.313 — per-model outer dispatch cap. Cloud providers keep
+                   their audited request sizes; Voice Studio engines with verified
+                   internal chunking can accept 15,000 characters. Bound to AudioModelConfig.tts_soft_max_chars; backend
                    already reads it (generators/audio.ts modelEntry.tts_soft_max_chars). -->
               <input
                 v-model.number="model.tts_soft_max_chars"
                 type="number"
                 step="50"
                 min="0"
-                max="10000"
+                max="15000"
                 class="input input-sm"
                 placeholder="auto"
-                title="Maximum characters per TTS dispatch. Leave blank to use the chunker default. Suggested: 4800 for ElevenLabs / GenAIPro / fal; 500-600 for VoxCPM2; 1000 for Chatterbox; 5000 for Qwen3 Base cloning."
+                title="Maximum characters per outer TTS dispatch. Suggested: 4,800 for ElevenLabs / GenAIPro / fal; 15,000 for Qwen3 Base cloning, Chatterbox, and VoxCPM2 because Voice Studio chunks those internally."
               />
             </td>
           </tr>

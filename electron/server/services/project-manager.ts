@@ -876,28 +876,28 @@ export function mergeCatalog<T extends Record<string, any>>(
   return out
 }
 
-const QWEN3_RETIRED_CHAR_CAP = 2000
-const QWEN3_AUDIO_MODEL_IDS = new Set([
-  'voicestudio-qwen3-tts',
-  'voicestudio-qwen3-tts-base-0.6b',
-  'voicestudio-qwen3-tts-base-1.7b',
-])
-const QWEN3_BASE_AUDIO_MODEL_IDS = new Set([
-  'voicestudio-qwen3-tts-base-0.6b',
-  'voicestudio-qwen3-tts-base-1.7b',
-])
+const RETIRED_AUDIO_CHAR_CAPS: Readonly<Record<string, ReadonlySet<number>>> = {
+  // CustomVoice does not use Voice Studio's clone-specific splitter. Only
+  // migrate its former built-in 2,000 value to the current 3,000 default.
+  'voicestudio-qwen3-tts': new Set([2000]),
+  // Voice Studio now owns stable internal splitting for these clone engines.
+  // Heal every value that Story Studio previously shipped as a built-in while
+  // preserving any other deliberately customized cap.
+  'voicestudio-qwen3-tts-base-0.6b': new Set([2000, 3000, 5000]),
+  'voicestudio-qwen3-tts-base-1.7b': new Set([2000, 3000, 5000]),
+  'voicestudio-chatterbox-mlx': new Set([500, 1000]),
+  'voicestudio-voxcpm-mlx': new Set([500, 800, 1000]),
+}
 
-/** Heal the former built-in Qwen cap without replacing deliberate user limits. */
+/** Heal former built-in local TTS caps without replacing deliberate limits. */
 export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
   merged: Record<string, T>,
   saved: Record<string, T> | null | undefined,
 ): Record<string, T> {
-  for (const modelId of QWEN3_AUDIO_MODEL_IDS) {
+  for (const [modelId, retiredCaps] of Object.entries(RETIRED_AUDIO_CHAR_CAPS)) {
     const savedCap = saved?.[modelId]?.tts_soft_max_chars
     const currentDefault = DEFAULT_AUDIO_MODELS[modelId]?.tts_soft_max_chars
-    const isRetiredBuiltInCap = savedCap === QWEN3_RETIRED_CHAR_CAP
-      || (QWEN3_BASE_AUDIO_MODEL_IDS.has(modelId) && savedCap === 3000)
-    if (isRetiredBuiltInCap && currentDefault) {
+    if (typeof savedCap === 'number' && retiredCaps.has(savedCap) && currentDefault) {
       merged[modelId] = {
         ...merged[modelId],
         tts_soft_max_chars: currentDefault,
