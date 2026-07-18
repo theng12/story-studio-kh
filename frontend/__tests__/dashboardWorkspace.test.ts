@@ -50,5 +50,6 @@ describe('project dashboard workspace', () => {
     assert.match(dashboard, /dashboard-metric-detail/)
     assert.match(dashboard, /repeat\(auto-fit, minmax\(220px, 1fr\)\)/)
     assert.match(dashboard, /overflow-wrap: anywhere/)
+    assert.match(dashboard, /\.dashboard-metrics[\s\S]*margin-top: var\(--workspace-section-gap\)/)
   })
 })

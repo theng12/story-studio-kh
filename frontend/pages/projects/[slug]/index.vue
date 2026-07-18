@@ -558,6 +558,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+  /* Keep the metric cards clear of the hero border at every workspace width. */
+  margin-top: var(--workspace-section-gap);
 }
 
 .dashboard-metric {

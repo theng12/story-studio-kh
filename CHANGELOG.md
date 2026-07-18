@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.639 — 2026-07-18
+
+**Dashboard readiness cards now keep a deliberate visual boundary from the project header.**
+
+- Restored the shared workspace section gap between the command-center hero and the Needs work, Ready to render, Final videos, and Idea library cards.
+- Added a regression check for the dashboard spacing contract so future dashboard changes cannot collapse the cards back onto the hero border.
+
+---
+
 ## v1.0.638 — 2026-07-18
 
 **Qwen3 Base voice cloning now dispatches longer narration pieces without losing its corrected pacing.**
