@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.637 — 2026-07-18
+
+**Remote Render Studio transfers now survive reconnects without resending an episode.**
+
+- A remote Video Assembly job checkpoints its accepted Studio Hub batch immediately, so a monitoring disconnect reconnects to that same batch instead of creating a duplicate render.
+- Remote render assets are now reused by checksum when the Hub already retains the exact source file; valid narration, scenes, overlays, titles, music, and subtitle inputs are never retransferred merely because monitoring was interrupted.
+- Remote Video Assembly no longer enters the generic local auto-retry loop. A new remote render is only created through manual Retry after the existing Hub batch reaches a terminal failure.
+- Hardened Hub polling when an HTTP response body is interrupted mid-read: monitoring retries the same accepted batch and never silently switches transport.
+
+---
+
 ## v1.0.636 — 2026-07-17
 
 **Scene Plan now supports intentional visual interpretation without adding another generation pass.**

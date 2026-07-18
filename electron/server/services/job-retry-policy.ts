@@ -52,7 +52,6 @@ export function isLocalAudioModel(model: string): boolean {
 
 const ALWAYS_LOCAL_TYPES = new Set<JobType>([
   'audio_merge',
-  'video_assembly',
   'broll_select',
   'broll_normalize',
   'broll_assemble',
@@ -96,6 +95,12 @@ export function resolveJobAutoRetryPolicy(
   const params = job.params || {}
   if (params.auto_retry === false) {
     return { ...MANUAL_ONLY, reason: 'Automatic retry was disabled for this job.' }
+  }
+
+  if (job.type === 'video_assembly') {
+    return params.render_target === 'local'
+      ? localPolicy('Local video assembly can retry without provider charges.')
+      : { ...MANUAL_ONLY, reason: 'Remote Render Studio batches reconnect to their accepted Hub job; a new remote render is only started by manual Retry after a terminal failure.' }
   }
 
   if (ALWAYS_LOCAL_TYPES.has(job.type)) {

@@ -442,6 +442,16 @@ async function persistJob(job: Job): Promise<void> {
   })
 }
 
+/**
+ * Persist a durable checkpoint while a long-running executor is still active.
+ * Remote batches use this immediately after Hub acceptance, so a monitoring
+ * disconnect can reconnect to the existing work instead of submitting it again.
+ */
+export async function checkpointJobState(job: Job): Promise<void> {
+  await persistJob(job)
+  emitUpdate(job)
+}
+
 // ── Lazy load persisted jobs on first access ────────────────────────────────
 
 async function loadPersistedJobs(projectSlug: string): Promise<void> {

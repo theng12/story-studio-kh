@@ -409,6 +409,33 @@ export async function hubSubmitJob(
   return { batch_id: j.batch_id, items: j.items ?? body.items.length }
 }
 
+/** Fetch one accepted batch without waiting. Used to reconnect a persisted
+ * remote render after Story Studio loses its monitoring connection. */
+export async function hubGetBatchStatus(
+  hubUrl: string,
+  token: string | undefined,
+  batchId: string,
+): Promise<HubBatchStatus> {
+  let response: Response
+  try {
+    response = await fetch(`${hubApiBase(hubUrl)}/jobs/${encodeURIComponent(batchId)}`, {
+      headers: { Accept: 'application/json', ...hubHeaders(token) },
+      signal: AbortSignal.timeout(30_000),
+    })
+  } catch (error: any) {
+    throw new Error(`Can't reconnect to Studio Hub batch ${batchId}: ${error?.message || error}`)
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Studio Hub batch ${batchId} lookup failed (${response.status}): ${detail.slice(0, 300)}`)
+  }
+  try {
+    return await response.json() as HubBatchStatus
+  } catch (error: any) {
+    throw new Error(`Studio Hub returned an unreadable status for batch ${batchId}: ${error?.message || error}`)
+  }
+}
+
 /**
  * Poll a batch until every item is terminal (queued + running == 0). Returns
  * the final status. Cancels the batch on isCancelled. A connection error while
@@ -465,8 +492,24 @@ export async function hubPollBatch(
       }
       throw new Error(`Studio Hub poll failed (${resp.status}): ${t.slice(0, 300)}`)
     }
+    let s: HubBatchStatus
+    try {
+      s = await resp.json() as HubBatchStatus
+    } catch (error: any) {
+      consecutivePollFailures += 1
+      if (consecutivePollFailures < 6) {
+        await sleepCancellable(
+          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+          opts.isCancelled,
+        )
+        continue
+      }
+      throw new Error(
+        `Studio Hub accepted batch ${batchId}, but the monitoring response could not be read after 6 attempts: ${error?.message || error}. ` +
+        'No alternate render was started because the Hub batch may still be running.',
+      )
+    }
     consecutivePollFailures = 0
-    const s = await resp.json() as HubBatchStatus
     try { opts.onProgress?.(s) } catch { /* never let UI plumbing kill polling */ }
     if (opts.onItemDone) {
       for (const it of s.items || []) {
@@ -724,6 +767,48 @@ export interface HubRenderAsset {
   bytes: number
   sha256: string
   url: string
+  /** True when the Hub already retained the exact immutable source file. */
+  reused?: boolean
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const crypto = await import('crypto')
+  const digest = crypto.createHash('sha256')
+  const input = createReadStream(filePath)
+  for await (const chunk of input) digest.update(chunk as Buffer)
+  return digest.digest('hex')
+}
+
+/** Read a retained, content-addressed render asset without uploading it again. */
+export async function hubFindRenderAsset(
+  hubUrl: string,
+  workerHubUrl: string,
+  token: string | undefined,
+  sha256: string,
+  extension: string,
+): Promise<HubRenderAsset | null> {
+  let resp: Response
+  try {
+    resp = await fetch(
+      `${hubApiBase(hubUrl)}/render-assets/by-sha/${encodeURIComponent(sha256)}?extension=${encodeURIComponent(extension)}`,
+      { headers: hubHeaders(token), signal: AbortSignal.timeout(30_000) },
+    )
+  } catch (error: any) {
+    throw new Error(`Can't check retained render assets on Studio Hub: ${error?.message || error}`)
+  }
+  if (resp.status === 404) return null
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub render-asset lookup failed (${resp.status}): ${detail.slice(0, 300)}`)
+  }
+  const value = await resp.json() as { asset_id: string; bytes: number; sha256: string; path: string }
+  return {
+    assetId: value.asset_id,
+    bytes: value.bytes,
+    sha256: value.sha256,
+    url: `${trimHubUrl(workerHubUrl)}${value.path}`,
+    reused: true,
+  }
 }
 
 /** Resolve an address a different Mac can use when Story Studio uses localhost. */
@@ -751,6 +836,7 @@ export async function hubUploadRenderAsset(
   workerHubUrl: string,
   token: string | undefined,
   filePath: string,
+  expectedSha256?: string,
 ): Promise<HubRenderAsset> {
   const stat = await fsp.stat(filePath)
   const body = Readable.toWeb(createReadStream(filePath))
@@ -763,6 +849,7 @@ export async function hubUploadRenderAsset(
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(stat.size),
         'X-File-Name': path.basename(filePath),
+        ...(expectedSha256 ? { 'X-Content-SHA256': expectedSha256 } : {}),
       },
       body: body as any,
       duplex: 'half',
@@ -782,6 +869,24 @@ export async function hubUploadRenderAsset(
     sha256: value.sha256,
     url: `${trimHubUrl(workerHubUrl)}${value.path}`,
   }
+}
+
+/** Upload only when the Hub does not already retain the exact asset content. */
+export async function hubEnsureRenderAsset(
+  hubUrl: string,
+  workerHubUrl: string,
+  token: string | undefined,
+  filePath: string,
+): Promise<HubRenderAsset> {
+  const expectedSha256 = await sha256File(filePath)
+  const extension = path.extname(filePath).toLowerCase()
+  const retained = await hubFindRenderAsset(hubUrl, workerHubUrl, token, expectedSha256, extension)
+  if (retained) return retained
+  const uploaded = await hubUploadRenderAsset(hubUrl, workerHubUrl, token, filePath, expectedSha256)
+  if (uploaded.sha256 !== expectedSha256) {
+    throw new Error(`Studio Hub returned a checksum that does not match ${path.basename(filePath)}.`)
+  }
+  return uploaded
 }
 
 export async function hubDeleteRenderAsset(

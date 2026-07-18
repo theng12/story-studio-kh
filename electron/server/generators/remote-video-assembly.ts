@@ -17,14 +17,14 @@ import { getTransition } from '../models/transitions.js'
 import {
   getHubBackend,
   hubApiBase,
-  hubDeleteRenderAsset,
   hubDownloadRenderResult,
+  hubEnsureRenderAsset,
+  hubGetBatchStatus,
   hubHealth,
   hubHeaders,
   hubPollBatch,
   hubStudios,
   hubSubmitJob,
-  hubUploadRenderAsset,
   hubWorkerReachableUrl,
 } from '../lib/studiohub-client.js'
 import type {
@@ -38,7 +38,7 @@ import type {
 } from '../models/types.js'
 import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { getRenderWorkersEnabled } from '../services/app-settings.js'
-import { isCancelled } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled } from '../services/job-queue.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { ensureExternalFinalVideoDir, externalRootIsReachable } from '../services/external-video-store.js'
@@ -421,15 +421,33 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
   }
 
   const workerHubUrl = await hubWorkerReachableUrl(backend.hubUrl, backend.hubToken)
-  const uploadedIds: string[] = []
+  const savedRemote = (job.params as any).remote_render
+  let reconnectingBatchId = typeof savedRemote?.batch_id === 'string' ? savedRemote.batch_id : ''
+  if (reconnectingBatchId) {
+    const existing = await hubGetBatchStatus(backend.hubUrl, backend.hubToken, reconnectingBatchId)
+    const item = existing.items?.[0]
+    const activeOrDone = (existing.queued || 0) + (existing.running || 0) > 0 ||
+      item?.state === 'queued' || item?.state === 'running' || item?.state === 'done'
+    if (activeOrDone) {
+      job.output_lines.push(`Render Studio: reconnecting to accepted batch ${reconnectingBatchId}; retained render assets will not be rechecked or resubmitted.`)
+    } else {
+      job.output_lines.push(`Render Studio: previous batch ${reconnectingBatchId} ended ${item?.state || 'without a result'}; manual Retry is creating one new batch while retaining reusable assets.`)
+      delete (job.params as any).remote_render
+      await checkpointJobState(job)
+      reconnectingBatchId = ''
+    }
+  }
   const assets: RecipeAsset[] = []
   const assetByPath = new Map<string, string>()
   const addAsset = async (filePath: string, preferredId: string): Promise<string> => {
     const existing = assetByPath.get(filePath)
     if (existing) return existing
-    const uploaded = await hubUploadRenderAsset(
+    if (reconnectingBatchId) {
+      assetByPath.set(filePath, preferredId)
+      return preferredId
+    }
+    const uploaded = await hubEnsureRenderAsset(
       backend.hubUrl, workerHubUrl, backend.hubToken, filePath)
-    uploadedIds.push(uploaded.assetId)
     assets.push({
       id: preferredId,
       url: uploaded.url,
@@ -438,13 +456,11 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
       extension: path.extname(filePath).toLowerCase(),
     })
     assetByPath.set(filePath, preferredId)
-    job.output_lines.push(`Transferred ${assets.length} render asset(s)...`)
+    job.output_lines.push(`${uploaded.reused ? 'Reused' : 'Transferred'} ${assets.length} render asset(s)...`)
     return preferredId
   }
 
-  let submitted = false
-  let terminal = false
-  try {
+  {
     const narrationId = await addAsset(audioPath, 'narration')
     const subtitleId = subtitlesOn ? await addAsset(subtitlePath, 'subtitles') : ''
     const musicIds = await Promise.all(musicPaths.map((musicPath, index) => addAsset(musicPath, `music-${index}`)))
@@ -931,20 +947,33 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     finalArgs.push('{{output}}')
     steps.push({ tool: 'ffmpeg', args: finalArgs })
 
-    job.output_lines.push(`Render Studio: queued ${plan.scenes.length} scenes (${width}x${height} @ ${fps}fps).`)
-    const submittedJob = await hubSubmitJob(backend.hubUrl, backend.hubToken, {
-      modality: 'render', model: 'episode-assembly-v1', label: `story-video-assembly:${episodeId}`,
-      routing: 'remote',
-      items: [{ prompt: episodeId, params: {
-        workflow: 'video_assembly',
-        recipe: { version: 1, output_extension: renderFormat, assets, files: [...recipeFiles, { name: 'scenes.txt', content: concat }], steps },
-      } }],
-    })
-    submitted = true
+    let batchId = reconnectingBatchId
+    if (!batchId) {
+      job.output_lines.push(`Render Studio: queued ${plan.scenes.length} scenes (${width}x${height} @ ${fps}fps).`)
+      const submittedJob = await hubSubmitJob(backend.hubUrl, backend.hubToken, {
+        modality: 'render', model: 'episode-assembly-v1', label: `story-video-assembly:${episodeId}`,
+        routing: 'remote',
+        items: [{ prompt: episodeId, params: {
+          workflow: 'video_assembly',
+          recipe: { version: 1, output_extension: renderFormat, assets, files: [...recipeFiles, { name: 'scenes.txt', content: concat }], steps },
+        } }],
+      })
+      batchId = submittedJob.batch_id
+      ;(job.params as any).remote_render = {
+        batch_id: batchId,
+        submitted_at: new Date().toISOString(),
+        hub_url: backend.hubUrl,
+        asset_count: assets.length,
+        asset_bytes: assets.reduce((total, asset) => total + asset.bytes, 0),
+      }
+      // This checkpoint is the boundary that prevents a monitoring outage from
+      // becoming a second 200 MB+ asset transfer and duplicate remote render.
+      await checkpointJobState(job)
+    }
     const progressLine = job.output_lines.push(
-      `Studio Hub: remote render batch ${submittedJob.batch_id} accepted; waiting for a remote Render Studio worker.`,
+      `Studio Hub: remote render batch ${batchId} accepted; waiting for a remote Render Studio worker.`,
     ) - 1
-    const status = await hubPollBatch(backend.hubUrl, backend.hubToken, submittedJob.batch_id, {
+    const status = await hubPollBatch(backend.hubUrl, backend.hubToken, batchId, {
       timeoutMs: 12 * 60 * 60_000,
       isCancelled: () => isCancelled(job.job_id),
       onProgress: value => {
@@ -954,13 +983,12 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
           const worker = item.machine || (item.studio?.includes('@') ? item.studio.split('@')[1] : item.studio) || 'remote worker'
           const pct = typeof item.progress === 'number' ? Math.round(Math.max(0, Math.min(1, item.progress)) * 100) : null
           if (pct != null) job.progress = Math.max(1, Math.min(99, pct))
-          job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} via Studio Hub (batch ${submittedJob.batch_id}).`
+          job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} via Studio Hub (batch ${batchId}).`
         } else if (item.state === 'queued') {
-          job.output_lines[progressLine] = `Studio Hub: batch ${submittedJob.batch_id} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
+          job.output_lines[progressLine] = `Studio Hub: batch ${batchId} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
         }
       },
     })
-    terminal = true
     const result = status.items?.[0]
     if (!result || result.state !== 'done' || !result.sha256) {
       throw new Error(result?.error || 'Render Studio did not return a completed video.')
@@ -971,10 +999,10 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     if (reach.ok) finalDir = await ensureExternalFinalVideoDir(job.project_slug, episodeId, params.title || '') || finalDir
     await fs.mkdir(finalDir, { recursive: true })
     const outPath = path.join(finalDir, `${episodeId.toUpperCase()}_final_video.${renderFormat}`)
-    const proxyUrl = `${hubApiBase(backend.hubUrl)}/jobs/${submittedJob.batch_id}/items/0/artifact`
+    const proxyUrl = `${hubApiBase(backend.hubUrl)}/jobs/${batchId}/items/0/artifact`
     await hubDownloadRenderResult(proxyUrl, backend.hubToken, outPath, result.sha256)
     await validateMainCopy(outPath, totalDuration)
-    const ack = await fetch(`${hubApiBase(backend.hubUrl)}/jobs/${submittedJob.batch_id}/items/0/ack`, {
+    const ack = await fetch(`${hubApiBase(backend.hubUrl)}/jobs/${batchId}/items/0/ack`, {
       method: 'POST', headers: hubHeaders(backend.hubToken), signal: AbortSignal.timeout(30_000),
     })
     if (!ack.ok) throw new Error(`Main copy verified, but worker receipt acknowledgement failed (${ack.status}).`)
@@ -985,11 +1013,5 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
     job.progress = 100
     job.output_lines.push(`Done via Render Studio on ${worker} -> ${path.basename(outPath)} (${(stat.size / 1024 / 1024).toFixed(1)} MB, ${result.encoder || 'verified encoder'})`)
     return true
-  } finally {
-    // Assets are safe to remove from Hub only after a terminal worker result.
-    // Before submission, no worker can reference them, so cleanup is safe too.
-    if (!submitted || terminal) {
-      await Promise.all(uploadedIds.map(id => hubDeleteRenderAsset(backend.hubUrl, backend.hubToken, id)))
-    }
   }
 }

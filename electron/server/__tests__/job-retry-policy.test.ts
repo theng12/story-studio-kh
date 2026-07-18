@@ -33,10 +33,11 @@ describe('local auto-retry policy', () => {
     assert.equal(policy('outline_only', { model: 'deepseek-v4-flash' }).eligible, false)
   })
 
-  test('retries deterministic timeline and local assembly work', () => {
+  test('retries deterministic timeline and explicitly local assembly work', () => {
     assert.equal(policy('scene_plan_run', { stage: 'timeline' }).eligible, true)
     assert.equal(policy('audio_merge').eligible, true)
-    assert.equal(policy('video_assembly').eligible, true)
+    assert.equal(policy('video_assembly', { render_target: 'local' }).eligible, true)
+    assert.equal(policy('video_assembly', { render_target: 'remote' }).eligible, false)
     assert.equal(policy('broll_normalize').eligible, true)
   })
 
