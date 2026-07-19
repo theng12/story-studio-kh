@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.652 — 2026-07-20
+
+**GenStudio narration now uses its restart-safe durable queue.**
+
+- Submits each GenStudio TTS section to the asynchronous job API, receives its provider task ID immediately, and polls the durable status instead of holding one synthesis request open for hours.
+- Allows GenStudio to resume accepted work after an API restart or temporary Studio Hub disconnect without Story Studio resending completed narration.
+- Preserves every verified chapter MP3 and keeps Retry scoped to genuinely missing sections.
+
+---
+
 ## v1.0.651 — 2026-07-20
 
 **GenStudio audio jobs now recover promptly from stalled requests and transient authentication restoration.**

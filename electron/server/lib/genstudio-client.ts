@@ -439,7 +439,7 @@ export async function generateTtsToFile(
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const submission = buildGenStudioSubmission(request)
   const submitted = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}/v1/audio/speech`,
+    `${apiBase(baseUrl)}/v1/audio/jobs`,
     {
       method: 'POST',
       headers: {

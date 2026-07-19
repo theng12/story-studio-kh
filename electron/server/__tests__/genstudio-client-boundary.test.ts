@@ -91,7 +91,7 @@ test('transient GenStudio authentication restoration retries the idempotent subm
   let attempts = 0
   try {
     globalThis.fetch = async (input, init) => {
-      assert.match(String(input), /\/v1\/audio\/speech$/)
+      assert.match(String(input), /\/v1\/audio\/jobs$/)
       assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-tts-/)
       attempts++
       if (attempts < 3) {
