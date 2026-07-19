@@ -1,4 +1,4 @@
-export const VOICE_PROVIDER_IDS = ['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio'] as const
+export const VOICE_PROVIDER_IDS = ['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'] as const
 export type VoiceProviderId = typeof VOICE_PROVIDER_IDS[number]
 
 export interface NormalizedVoicePreset {

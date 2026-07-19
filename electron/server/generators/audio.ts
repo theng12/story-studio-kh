@@ -18,6 +18,7 @@ import { generateTtsToUrl as generateTtsKie } from '../lib/kie-tts-client.js'
 // Chatterbox-mlx is reachable through Voice Studio's family list now.
 import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
+import { generateTtsToFile as generateTtsGenStudio } from '../lib/genstudio-client.js'
 import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
 // v1.0.378+ — Fish Audio (direct cloud TTS; streams bytes inline like ElevenLabs).
 import { generateTtsToFile as generateTtsFishaudio } from '../lib/fishaudio-client.js'
@@ -46,7 +47,7 @@ import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
 import { voiceSupportsProvider } from '../services/voice-presets.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -63,6 +64,7 @@ function resolveAudioProvider(
     if (modelId.startsWith('eleven_')) return 'elevenlabs'
     if (modelId.startsWith('genaipro-')) return 'genaipro'
     if (modelId.startsWith('voicestudio-')) return 'voicestudio'
+    if (modelId.startsWith('genstudio-')) return 'genstudio'
     if (modelId.startsWith('macos-')) return 'macos'
     if (modelId.startsWith('fishaudio-')) return 'fishaudio'
     if (modelId.startsWith('kie-')) return 'kie'
@@ -219,6 +221,7 @@ export async function generateAudio(job: Job): Promise<void> {
   const providerLabel = providerId === 'elevenlabs' ? 'ElevenLabs (direct)'
     : providerId === 'genaipro' ? 'GenAIPro'
     : providerId === 'voicestudio' ? 'Voice Studio (Local)'
+    : providerId === 'genstudio' ? 'GenStudio KH'
     : providerId === 'macos' ? 'macOS say (Local)'
     : providerId === 'fishaudio' ? 'Fish Audio'
     : providerId === 'kie' ? 'ElevenLabs (kie.ai)'
@@ -885,6 +888,17 @@ export async function generateAudio(job: Job): Promise<void> {
           voiceId: effectiveVoice,
           speed: req.speed,
         }, { signal: controller.signal })
+      } else if (providerId === 'genstudio') {
+        // Parallel migration route: this client knows only GenStudio's
+        // API-key contract. It does not inspect, contact, or fall back to the
+        // local Studio Hub/direct Voice Studio route.
+        await generateTtsGenStudio(apiKey, task.outputPath, {
+          text: task.chunkText,
+          voiceId: effectiveVoice,
+          signal: controller.signal,
+          isCancelled,
+          onProgress: makeChunkCb(),
+        })
       } else if (providerId === 'voicestudio') {
         // v1.0.149+ — Voice Studio KH writes the WAV straight to the
         // output path via its async job pipeline (POST → poll → download).

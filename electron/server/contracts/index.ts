@@ -234,7 +234,7 @@ export interface SafeProjectConfigResponse {
   voice_presets: Array<{
     name: string
     voice_id: string
-    providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio'>
+    providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio' | 'genstudio'>
   }>
   style_presets?: Array<{
     id: string

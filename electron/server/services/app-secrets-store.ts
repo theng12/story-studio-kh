@@ -46,6 +46,10 @@ export const SECRET_PROVIDERS = [
   'deepseek',
   'openrouter',
   'genaipro',
+  // GenStudio KH uses a scoped bearer API key. It is intentionally separate
+  // from the local Studio Hub token: Story Studio must never send Hub access
+  // credentials to a cloud-facing service.
+  'genstudio',
   'elevenlabs',
   // v1.0.378+ — Fish Audio (direct cloud TTS, ~$0.015/1k chars; cheapest
   // cloud option). Voices are picked by reference_id (incl. cloned voices),

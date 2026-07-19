@@ -29,3 +29,11 @@ test('provider filter rejects a saved voice with the wrong label', () => {
   assert.equal(voiceSupportsProvider(voice, 'fishaudio'), true)
   assert.equal(voiceSupportsProvider(voice, 'genaipro'), false)
 })
+
+test('frontend retains the dedicated GenStudio voice label', () => {
+  const voice = normalizeSavedVoice({
+    name: 'Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'],
+  })!
+  assert.equal(voiceSupportsProvider(voice, 'genstudio'), true)
+  assert.equal(voiceSupportsProvider(voice, 'elevenlabs'), false)
+})

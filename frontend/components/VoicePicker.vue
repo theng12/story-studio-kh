@@ -179,7 +179,7 @@ const { get, put } = useApi()
 const { success, error: showError, info } = useToast()
 const router = useRouter()
 
-const CLOUD_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio'])
+const CLOUD_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'])
 const VOICEPACK_MODEL_IDS = new Set(['voicestudio-kokoro', 'voicestudio-qwen3-tts', 'voicestudio-bark'])
 type Scope = 'cloud' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin' | 'all'
 

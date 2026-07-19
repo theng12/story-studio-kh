@@ -487,7 +487,7 @@ const currentAudioProvider = computed<string>(() => {
   return resolveAudioProvider(form.model, entry || {})
 })
 
-const CLOUD_VOICE_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio'])
+const CLOUD_VOICE_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'])
 const currentAudioProviderLabel = computed(() => {
   const provider = currentAudioProvider.value
   return CLOUD_VOICE_PROVIDERS.has(provider)

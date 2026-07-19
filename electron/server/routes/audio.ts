@@ -37,7 +37,7 @@ const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when 
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
@@ -45,6 +45,7 @@ function resolveAudioProvider(
   if (modelId.startsWith('genaipro-')) return 'genaipro'
   // v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, local Tailscale).
   if (modelId.startsWith('voicestudio-')) return 'voicestudio'
+  if (modelId.startsWith('genstudio-')) return 'genstudio'
   // v1.0.329+ — macOS built-in `say` (local, free).
   if (modelId.startsWith('macos-')) return 'macos'
   // v1.0.378+ — Fish Audio (direct cloud TTS).
@@ -72,6 +73,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       const label = providerId === 'elevenlabs' ? 'ElevenLabs'
         : providerId === 'genaipro' ? 'GenAIPro'
           : providerId === 'fishaudio' ? 'Fish Audio'
+            : providerId === 'genstudio' ? 'GenStudio KH'
             : providerId === 'kie' ? 'kie.ai'
               : 'fal.ai'
       return res.status(400).json({
@@ -92,6 +94,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       const label = providerId === 'elevenlabs' ? 'ElevenLabs'
         : providerId === 'genaipro' ? 'GenAIPro'
           : providerId === 'fishaudio' ? 'Fish Audio'
+            : providerId === 'genstudio' ? 'GenStudio KH'
             : providerId === 'kie' ? 'kie.ai'
               : 'fal.ai'
       return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
@@ -162,6 +165,12 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({ detail: 'No Fish Audio API key configured. Add one in Settings → API Keys.' })
     }
+  } else if (providerId === 'genstudio') {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    apiKey = await getApiKey('genstudio')
+    if (!apiKey) {
+      return res.status(400).json({ detail: 'No GenStudio KH API key configured. Add one in Settings → API Keys.' })
+    }
   } else if (providerId === 'kie') {
     // kie.ai ElevenLabs gateway — key in the app-secrets store (same as images).
     const { getApiKey } = await import('../services/app-secrets-store.js')
@@ -229,6 +238,25 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
       await fs.rm(filePath, { force: true }).catch(() => {})
       const dataUrl = `data:audio/wav;base64,${buf.toString('base64')}`
       return res.json({ audio_url: dataUrl })
+    }
+
+    if (providerId === 'genstudio') {
+      const fs = await import('fs/promises')
+      const os = await import('os')
+      const path = await import('path')
+      const { randomUUID } = await import('crypto')
+      const { generateTtsToFile } = await import('../lib/genstudio-client.js')
+      const tempPath = path.join(os.tmpdir(), `genstudio-preview-${randomUUID()}.mp3`)
+      try {
+        await generateTtsToFile(apiKey, tempPath, {
+          text: sample,
+          voiceId: resolvedVoiceId,
+        })
+        const buf = await fs.readFile(tempPath)
+        return res.json({ audio_url: `data:audio/mpeg;base64,${buf.toString('base64')}` })
+      } finally {
+        await fs.rm(tempPath, { force: true }).catch(() => {})
+      }
     }
 
     if (providerId === 'elevenlabs') {

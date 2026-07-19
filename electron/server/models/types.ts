@@ -1460,7 +1460,7 @@ export interface AudioModelConfig {
    * if missing, the audio generator falls back to prefix-based detection
    * (`genaipro-*` → genaipro, `eleven_*` → elevenlabs, else fal).
    */
-  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
+  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
   /**
    * v1.0.155+ — soft per-call character cap for chunking. The TTS
    * chunker (lib/text-chunker.ts) splits narration sections into
@@ -1491,7 +1491,7 @@ export interface VideoModelConfig {
 export interface VoicePreset {
   name: string
   voice_id: string
-  providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio'>
+  providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio' | 'genstudio'>
 }
 
 /**

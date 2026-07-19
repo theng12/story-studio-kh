@@ -4,6 +4,7 @@ export const VOICE_PROVIDER_OPTIONS = [
   { id: 'genaipro', label: 'GenAIPro' },
   { id: 'kie', label: 'kie.ai' },
   { id: 'fishaudio', label: 'Fish Audio' },
+  { id: 'genstudio', label: 'GenStudio KH' },
 ] as const
 
 export type VoiceProviderId = typeof VOICE_PROVIDER_OPTIONS[number]['id']

@@ -21,6 +21,7 @@ import {
   getScriptConcurrency, setScriptConcurrency,
   SCRIPT_CONCURRENCY_DEFAULT, SCRIPT_CONCURRENCY_MIN, SCRIPT_CONCURRENCY_MAX,
   getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
+  getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
   getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
 import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub } from '../lib/studiohub-client.js'
@@ -435,6 +436,29 @@ router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
   }
 })
 
+// Kept distinct from the local Studio Hub URL: this is the externally-facing
+// GenStudio API boundary used during the parallel Story Studio migration.
+router.get('/app-settings/genstudio', async (_req, res) => {
+  try {
+    res.json({ url: await getGenStudioUrl(), default_url: DEFAULT_GENSTUDIO_URL })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load GenStudio API setting'))
+  }
+})
+
+router.put('/app-settings/genstudio', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+  if (url && !/^https?:\/\//i.test(url)) {
+    return res.status(400).json({ detail: 'url must start with http:// or https://' })
+  }
+  try {
+    await setGenStudioUrl(url)
+    res.json({ url: await getGenStudioUrl(), default_url: DEFAULT_GENSTUDIO_URL })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save GenStudio API setting'))
+  }
+})
+
 // ── Server mode (headless web UI) ──────────────────────────────────────────
 //
 // All four routes are gated by requireSession in server mode (loopback bypass
@@ -596,6 +620,24 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
     return res.status(400).json({ valid: false, reachable: false, message: 'No API key configured' })
   }
   try {
+    if (providerId === 'genstudio') {
+      const baseUrl = await getGenStudioUrl()
+      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/jobs/story-studio-key-probe`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (response.status === 401) {
+        return res.json({ valid: false, reachable: true, message: 'Invalid GenStudio API key (401).' })
+      }
+      if (response.status === 404) {
+        return res.json({ valid: true, reachable: true, message: 'Key works with the configured GenStudio API.' })
+      }
+      return res.json({
+        valid: false,
+        reachable: true,
+        message: `GenStudio API returned HTTP ${response.status}. Check the API URL and Release 1A staging setup.`,
+      })
+    }
     const result = await testApiKey(providerId, apiKey)
     res.json(result)
   } catch (e: any) {

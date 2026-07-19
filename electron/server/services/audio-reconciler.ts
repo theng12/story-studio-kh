@@ -122,6 +122,7 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
           : model.startsWith('kie-') ? 'kie'
           : model.startsWith('fishaudio-') ? 'fishaudio'
           : model.startsWith('voicestudio-') ? 'voicestudio'
+          : model.startsWith('genstudio-') ? 'genstudio'
           : model.startsWith('macos-') ? 'macos'
           : 'fal')
     }
@@ -323,7 +324,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
   // (kie/fal keep no text-searchable history; streaming providers have no task
   // at all) → report a clear regenerate note instead of misleadingly probing
   // GenAIPro's history.
-  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'macos'])
+  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'genstudio', 'macos'])
   const regenReason = (): string => {
     if (STREAMING.has(status.provider)) {
       return `Made with a streaming provider (${status.provider}) — no re-fetchable task exists. Regenerate (Skip existing remakes only the missing ones).`

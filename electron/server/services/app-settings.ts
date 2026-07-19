@@ -459,6 +459,8 @@ export const LOCAL_BACKEND_KEY = 'local_backend'
 export const HUB_URL_KEY = 'hub_url'
 export const RENDER_WORKERS_ENABLED_KEY = 'render_workers_enabled'
 export const DEFAULT_HUB_URL = 'http://127.0.0.1:47873'
+export const GENSTUDIO_URL_KEY = 'genstudio_url'
+export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8000'
 export type LocalBackend = 'direct' | 'hub'
 
 export async function getLocalBackend(): Promise<LocalBackend> {
@@ -479,6 +481,22 @@ export async function setHubUrl(url: string): Promise<void> {
   const cleaned = typeof url === 'string' ? url.trim() : ''
   // Empty → clear override (falls back to DEFAULT_HUB_URL on read).
   await setAppSetting(HUB_URL_KEY, cleaned)
+}
+
+/**
+ * GenStudio is intentionally configured separately from the local Hub. During
+ * the parallel migration the loopback development API is the default; a later
+ * production rollout can set the public HTTPS endpoint without changing any
+ * Story Studio generation code.
+ */
+export async function getGenStudioUrl(): Promise<string> {
+  const v = await getAppSetting(GENSTUDIO_URL_KEY)
+  return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_GENSTUDIO_URL
+}
+
+export async function setGenStudioUrl(url: string): Promise<void> {
+  const cleaned = typeof url === 'string' ? url.trim() : ''
+  await setAppSetting(GENSTUDIO_URL_KEY, cleaned)
 }
 
 export async function getRenderWorkersEnabled(): Promise<boolean> {

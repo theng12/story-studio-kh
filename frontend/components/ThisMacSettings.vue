@@ -14,6 +14,7 @@
     <nav class="tms-jump-nav" aria-label="App settings sections">
       <a href="#appearance-settings">Appearance</a>
       <a href="#server-mode-settings">Server mode</a>
+      <a href="#genstudio-settings">GenStudio</a>
       <a href="#api-key-settings">API connections</a>
     </nav>
 
@@ -63,6 +64,35 @@
 
     <section id="server-mode-settings" class="tms-section server-section">
       <ServerModeSettingsPanel />
+    </section>
+
+    <section id="genstudio-settings" class="tms-section genstudio-section">
+      <div class="tms-section-copy">
+        <span class="tms-section-kicker">Parallel migration</span>
+        <h4>GenStudio KH API</h4>
+        <p>
+          Optional staged route for the GenStudio Qwen3 voices. It uses the GenStudio API key below;
+          your existing direct Studio Hub and Voice Studio routes remain unchanged.
+        </p>
+      </div>
+      <div class="genstudio-controls">
+        <label class="sr-only" for="genstudio-api-url">GenStudio API URL</label>
+        <input
+          id="genstudio-api-url"
+          v-model="genstudioUrl"
+          class="input"
+          type="url"
+          placeholder="https://api.genstudiokh.com"
+          autocomplete="url"
+          spellcheck="false"
+          @keyup.enter="saveGenStudioUrl"
+        />
+        <button class="btn btn-primary btn-sm" :disabled="genstudioSaving" @click="saveGenStudioUrl">
+          {{ genstudioSaving ? 'Saving…' : 'Save URL' }}
+        </button>
+        <p v-if="genstudioResult" :class="['genstudio-result', genstudioResult.kind]">{{ genstudioResult.message }}</p>
+        <p v-else class="genstudio-default">Default for local qualification: {{ genstudioDefaultUrl }}</p>
+      </div>
     </section>
 
     <section id="api-key-settings" class="tms-section api-section">
@@ -224,6 +254,10 @@ const drafts = reactive<Record<string, string>>({})
 const busy = reactive<Record<string, '' | 'saving' | 'testing' | 'clearing'>>({})
 const results = reactive<Record<string, { kind: 'ok' | 'warn' | 'err'; message: string } | null>>({})
 const activeProviderCategory = ref<ApiProviderCategory>('llm')
+const genstudioUrl = ref('')
+const genstudioDefaultUrl = ref('')
+const genstudioSaving = ref(false)
+const genstudioResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 
 const byId = computed(() => {
   const out: Record<string, ProviderRow> = {}
@@ -258,10 +292,32 @@ function selectAdjacentProviderCategory(current: ApiProviderCategory, direction:
 async function load() {
   loading.value = true
   try {
-    const res = await get<{ providers: ProviderRow[] }>('/app-settings/api-keys')
+    const [res, genstudio] = await Promise.all([
+      get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
+      get<{ url: string; default_url: string }>('/app-settings/genstudio'),
+    ])
     providers.value = res.providers
+    genstudioUrl.value = genstudio.url
+    genstudioDefaultUrl.value = genstudio.default_url
   } finally {
     loading.value = false
+  }
+}
+
+async function saveGenStudioUrl() {
+  genstudioSaving.value = true
+  genstudioResult.value = null
+  try {
+    const result = await put<{ url: string; default_url: string }>('/app-settings/genstudio', {
+      url: genstudioUrl.value.trim(),
+    })
+    genstudioUrl.value = result.url
+    genstudioDefaultUrl.value = result.default_url
+    genstudioResult.value = { kind: 'ok', message: 'GenStudio API URL saved.' }
+  } catch (e: any) {
+    genstudioResult.value = { kind: 'err', message: e?.data?.detail || e?.message || 'Could not save the GenStudio API URL.' }
+  } finally {
+    genstudioSaving.value = false
   }
 }
 
@@ -419,6 +475,17 @@ async function onTest(providerId: string) {
 .theme-resolved { font-size: 10px; opacity: 0.78; text-transform: capitalize; }
 
 .server-section { padding: 16px; }
+.genstudio-section {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  align-items: center;
+  gap: 20px;
+}
+.genstudio-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.genstudio-result, .genstudio-default { grid-column: 1 / -1; margin: 0; font-size: 11px; }
+.genstudio-default { color: var(--text-muted); }
+.genstudio-result.ok { color: var(--success); }
+.genstudio-result.err { color: var(--danger); }
 .api-section-head {
   display: flex;
   align-items: center;
