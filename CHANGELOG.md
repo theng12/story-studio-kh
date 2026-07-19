@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.644 — 2026-07-19
+
+**GenStudio KH is now available as a separate, opt-in TTS route for qualification.**
+
+- Added a dedicated GenStudio API URL and scoped API-key setting that never reuses Studio Hub credentials or worker addresses.
+- Added the Ryan and Aiden English standard voices through the `genstudio-qwen3-standard` model option.
+- Kept existing Direct and Studio Hub voice routes fully operational and unchanged; GenStudio is used only when its model is selected.
+- Made GenStudio failures explicit with no silent fallback to local workers, preventing duplicate generation and ambiguous credit handling.
+
+---
+
 ## v1.0.643 — 2026-07-19
 
 **Cloud prompt batching is now fully configurable per Scene Plan preset.**
