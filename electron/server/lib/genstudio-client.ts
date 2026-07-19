@@ -16,7 +16,6 @@ import { runFfmpeg } from './ffmpeg-utils.js'
 
 const POLL_INTERVAL_MS = 1_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
-const GENSTUDIO_VOICE_IDS = new Set(['voice_qwen3_ryan', 'voice_qwen3_aiden'])
 
 interface GenStudioJob {
   id: string
@@ -31,6 +30,15 @@ export interface GenStudioTtsRequest {
   signal?: AbortSignal
   isCancelled?: () => boolean
   onProgress?: (received: number, total?: number) => void
+}
+
+export interface GenStudioVoice {
+  id: string
+  display_name: string
+  language?: string
+  description?: string
+  provider?: string
+  generation_enabled?: boolean
 }
 
 function apiBase(url: string): string {
@@ -55,6 +63,24 @@ async function readJson(response: Response): Promise<any> {
     throw new Error(`GenStudio KH request failed: ${detail}`)
   }
   return body
+}
+
+/** Fetch the account-visible catalog so callers never need to know voice IDs. */
+export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/voices`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    language: typeof value?.language === 'string' ? value.language : undefined,
+    description: typeof value?.description === 'string' ? value.description : undefined,
+    provider: typeof value?.provider === 'string' ? value.provider : undefined,
+    generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
+  })).filter((voice: GenStudioVoice) => voice.id && voice.display_name)
 }
 
 async function waitForJob(
@@ -87,9 +113,7 @@ export async function generateTtsToFile(
   request: GenStudioTtsRequest,
 ): Promise<void> {
   const voiceId = request.voiceId?.trim() || ''
-  if (!GENSTUDIO_VOICE_IDS.has(voiceId)) {
-    throw new Error('GenStudio KH Release 1A requires the Ryan or Aiden standard voice.')
-  }
+  if (!voiceId) throw new Error('Select a GenStudio KH voice before generating audio.')
   const baseUrl = await getGenStudioUrl()
   const idempotencyKey = `story-${randomUUID()}`
   const submitted = await readJson(await fetch(`${apiBase(baseUrl)}/v1/audio/speech`, {

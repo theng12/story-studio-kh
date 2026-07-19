@@ -15,7 +15,7 @@
           <span>{{ scopeDescription }}</span>
         </div>
         <button
-          v-if="scopeFamily === 'cloud'"
+          v-if="scopeFamily === 'cloud' && activeProvider !== 'genstudio'"
           type="button"
           class="btn btn-sm btn-secondary"
           @click="addOpen = !addOpen"
@@ -39,12 +39,12 @@
       <div class="vp-toolbar">
         <input v-model="search" type="search" class="input input-sm vp-search" placeholder="Search saved voices…" autofocus />
         <button
-          v-if="scopeFamily === 'local'"
+          v-if="scopeFamily === 'local' || activeProvider === 'genstudio'"
           type="button"
           class="btn btn-sm btn-secondary"
-          :disabled="localLoading"
-          @click="loadLocalVoices"
-        >{{ localLoading ? 'Loading…' : 'Refresh' }}</button>
+          :disabled="voiceListLoading"
+          @click="refreshVoices"
+        >{{ voiceListLoading ? 'Loading…' : 'Refresh' }}</button>
       </div>
 
       <div class="vp-list">
@@ -89,6 +89,12 @@
           />
         </section>
 
+        <div v-if="activeProvider === 'genstudio' && cloudError" class="vp-warning">
+          {{ cloudError }}
+          <a href="#" @click.prevent="goToGenStudioSettings">Check GenStudio settings</a>
+        </div>
+        <div v-else-if="activeProvider === 'genstudio' && cloudLoading" class="vp-empty">Loading voices from GenStudio KH…</div>
+
         <section v-if="scopeFamily === 'local'" class="vp-section vp-section-local">
           <div class="vp-section-heading">
             <h4>{{ localSectionTitle }}</h4>
@@ -121,8 +127,8 @@
         </section>
 
         <div v-if="showCloudEmpty" class="vp-empty">
-          <strong>No voices labelled for {{ activeProviderLabel }}.</strong>
-          <span>Add one here or update provider labels in Settings → Voices.</span>
+          <strong>{{ activeProvider === 'genstudio' ? 'No voices were returned by GenStudio KH.' : `No voices labelled for ${activeProviderLabel}.` }}</strong>
+          <span>{{ activeProvider === 'genstudio' ? 'Refresh the catalog or check the API URL and key in This Mac settings.' : 'Add one here or update provider labels in Settings → Voices.' }}</span>
         </div>
       </div>
     </div>
@@ -132,6 +138,7 @@
 
 <script setup lang="ts">
 import {
+  mergeDiscoveredVoices,
   normalizeSavedVoices,
   voiceProviderLabel,
   voiceSupportsProvider,
@@ -149,6 +156,11 @@ interface VoiceStudioVoice {
   available_everywhere?: boolean
   endpoint_count?: number
   voice_kind?: 'voicestudio-pooled' | 'studiohub-shared'
+}
+
+interface GenStudioVoiceCatalogEntry {
+  id: string
+  display_name: string
 }
 
 const props = withDefaults(defineProps<{
@@ -197,10 +209,14 @@ const activeProvider = computed<VoiceProviderId | null>(() =>
   CLOUD_PROVIDERS.has(props.audioModelProvider) ? props.audioModelProvider as VoiceProviderId : null)
 const activeProviderLabel = computed(() => activeProvider.value ? voiceProviderLabel(activeProvider.value) : 'saved cloud')
 const savedVoices = computed(() => normalizeSavedVoices(props.customVoices))
+const discoveredCloudVoices = ref<GenStudioVoiceCatalogEntry[]>([])
+const mergedCloudVoices = computed(() => activeProvider.value
+  ? mergeDiscoveredVoices(savedVoices.value, discoveredCloudVoices.value, activeProvider.value)
+  : savedVoices.value)
 const compatibleCloudVoices = computed(() => {
   const voices = activeProvider.value
-    ? savedVoices.value.filter(voice => voiceSupportsProvider(voice, activeProvider.value!))
-    : savedVoices.value
+    ? mergedCloudVoices.value.filter(voice => voiceSupportsProvider(voice, activeProvider.value!))
+    : mergedCloudVoices.value
   const q = search.value.trim().toLowerCase()
   return q ? voices.filter(voice => `${voice.name} ${voice.voice_id}`.toLowerCase().includes(q)) : voices
 })
@@ -225,8 +241,12 @@ const localVoices = ref<VoiceStudioVoice[]>([])
 const localLoading = ref(false)
 const localError = ref('')
 const voiceStudioBaseUrl = ref('')
+const cloudLoading = ref(false)
+const cloudError = ref('')
+const cloudAttempted = ref(false)
+const voiceListLoading = computed(() => localLoading.value || cloudLoading.value)
 
-const currentSavedVoice = computed(() => savedVoices.value.find(voice => voice.voice_id === props.modelValue) || null)
+const currentSavedVoice = computed(() => mergedCloudVoices.value.find(voice => voice.voice_id === props.modelValue) || null)
 const currentLocalVoice = computed(() => {
   if (!props.modelValue) return null
   if (props.modelValue.startsWith('hubvoice:')) {
@@ -243,7 +263,9 @@ const currentVoiceName = computed(() => currentSavedVoice.value?.name || current
 const currentVoiceProviderLabel = computed(() => currentSavedVoice.value && activeProvider.value ? activeProviderLabel.value : '')
 const scopeTitle = computed(() => scopeFamily.value === 'cloud' ? `${activeProviderLabel.value} voice library` : localSectionTitle.value)
 const scopeDescription = computed(() => scopeFamily.value === 'cloud'
-  ? 'Only voices labelled as compatible with this provider are shown.'
+  ? activeProvider.value === 'genstudio'
+    ? 'This list is fetched securely from your GenStudio KH account.'
+    : 'Only voices labelled as compatible with this provider are shown.'
   : 'This list comes from the selected local voice engine.')
 const localSectionTitle = computed(() => {
   if (isMacosScope.value) return 'macOS built-in voices'
@@ -254,7 +276,10 @@ const filteredLocalVoices = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? localVoices.value.filter(voice => `${voice.name} ${voice.language || ''}`.toLowerCase().includes(q)) : localVoices.value
 })
-const showCloudEmpty = computed(() => scopeFamily.value === 'cloud' && !compatibleCloudVoices.value.length)
+const showCloudEmpty = computed(() => scopeFamily.value === 'cloud'
+  && !compatibleCloudVoices.value.length
+  && !cloudLoading.value
+  && !cloudError.value)
 
 function hasValidSlug() {
   return !!props.projectSlug && props.projectSlug !== 'undefined'
@@ -305,6 +330,33 @@ async function loadLocalVoices() {
     localLoading.value = false
     reconcileSelection()
   }
+}
+
+async function loadCloudVoices() {
+  if (activeProvider.value !== 'genstudio') {
+    discoveredCloudVoices.value = []
+    cloudError.value = ''
+    cloudAttempted.value = false
+    return
+  }
+  cloudLoading.value = true
+  cloudError.value = ''
+  cloudAttempted.value = true
+  try {
+    const data = await get<{ voices: GenStudioVoiceCatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
+    discoveredCloudVoices.value = Array.isArray(data.voices) ? data.voices : []
+  } catch (error: any) {
+    discoveredCloudVoices.value = []
+    cloudError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice catalog is unavailable.'
+  } finally {
+    cloudLoading.value = false
+    reconcileSelection()
+  }
+}
+
+function refreshVoices() {
+  if (scopeFamily.value === 'local') void loadLocalVoices()
+  else void loadCloudVoices()
 }
 
 async function saveNewVoice() {
@@ -364,7 +416,9 @@ function reconcileSelection() {
   if (!props.modelValue) return
   if (scopeFamily.value === 'cloud') {
     if (!props.customVoicesLoaded || !activeProvider.value) return
-    const compatible = savedVoices.value.some(voice =>
+    if (activeProvider.value === 'genstudio'
+      && (!cloudAttempted.value || cloudLoading.value || !!cloudError.value)) return
+    const compatible = mergedCloudVoices.value.some(voice =>
       voice.voice_id === props.modelValue && voiceSupportsProvider(voice, activeProvider.value!))
     if (!compatible) {
       emit('update:modelValue', null)
@@ -384,6 +438,7 @@ function toggle() {
   if (!expanded.value) return
   void loadFavourites()
   if (scopeFamily.value === 'local' && !localVoices.value.length) void loadLocalVoices()
+  if (activeProvider.value === 'genstudio') void loadCloudVoices()
 }
 function openVoiceStudioWeb() {
   if (!voiceStudioBaseUrl.value) {
@@ -396,6 +451,10 @@ function goToLocalModelsSettings() {
   expanded.value = false
   void router.push(`/projects/${props.projectSlug}/settings#local-tts`)
 }
+function goToGenStudioSettings() {
+  expanded.value = false
+  void router.push(`/projects/${props.projectSlug}/settings#genstudio-settings`)
+}
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') expanded.value = false
 }
@@ -407,6 +466,7 @@ function onClickOutside(event: MouseEvent) {
 onMounted(() => {
   void loadFavourites()
   void loadLocalVoices()
+  void loadCloudVoices()
   window.addEventListener('keydown', onKey)
   document.addEventListener('click', onClickOutside)
 })
@@ -418,6 +478,7 @@ watch(() => [props.audioModelId, props.audioModelProvider], () => {
   addOpen.value = false
   search.value = ''
   void loadLocalVoices()
+  void loadCloudVoices()
   reconcileSelection()
 })
 watch(() => [props.customVoices, props.customVoicesLoaded], reconcileSelection, { deep: true })

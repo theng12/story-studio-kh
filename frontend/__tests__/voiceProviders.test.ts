@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  mergeDiscoveredVoices,
   normalizeSavedVoice,
   normalizeSavedVoices,
   voiceSupportsProvider,
@@ -36,4 +37,17 @@ test('frontend retains the dedicated GenStudio voice label', () => {
   })!
   assert.equal(voiceSupportsProvider(voice, 'genstudio'), true)
   assert.equal(voiceSupportsProvider(voice, 'elevenlabs'), false)
+})
+
+test('discovered GenStudio voices merge without replacing saved names', () => {
+  assert.deepEqual(mergeDiscoveredVoices([
+    { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
+  ], [
+    { id: 'voice_qwen3_ryan', display_name: 'Ryan' },
+    { id: 'voice_qwen3_aiden', display_name: 'Aiden' },
+    { id: '', display_name: 'Invalid' },
+  ], 'genstudio'), [
+    { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
+    { name: 'Aiden', voice_id: 'voice_qwen3_aiden', providers: ['genstudio'] },
+  ])
 })

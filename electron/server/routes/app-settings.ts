@@ -28,6 +28,7 @@ import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub }
 import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { listVoices as listGenStudioVoices } from '../lib/genstudio-client.js'
 
 export const router = Router()
 
@@ -459,6 +460,18 @@ router.put('/app-settings/genstudio', async (req, res) => {
   }
 })
 
+router.get('/app-settings/genstudio/voices', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey.trim()) {
+      return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
+    }
+    res.json({ voices: await listGenStudioVoices(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH voice catalog'))
+  }
+})
+
 // ── Server mode (headless web UI) ──────────────────────────────────────────
 //
 // All four routes are gated by requireSession in server mode (loopback bypass
@@ -622,12 +635,28 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
   try {
     if (providerId === 'genstudio') {
       const baseUrl = await getGenStudioUrl()
-      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/jobs/story-studio-key-probe`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      const root = baseUrl.replace(/\/+$/, '')
+      const headers = { Authorization: `Bearer ${apiKey}` }
+      const catalogResponse = await fetch(`${root}/v1/voices`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (catalogResponse.status === 401) {
+        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is invalid or is missing voices:read.' })
+      }
+      if (!catalogResponse.ok) {
+        return res.json({
+          valid: false,
+          reachable: true,
+          message: `GenStudio voice catalog returned HTTP ${catalogResponse.status}. Check the API URL and key.`,
+        })
+      }
+      const response = await fetch(`${root}/v1/jobs/story-studio-key-probe`, {
+        headers,
         signal: AbortSignal.timeout(8_000),
       })
       if (response.status === 401) {
-        return res.json({ valid: false, reachable: true, message: 'Invalid GenStudio API key (401).' })
+        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is invalid or is missing tts:generate.' })
       }
       if (response.status === 404) {
         return res.json({ valid: true, reachable: true, message: 'Key works with the configured GenStudio API.' })

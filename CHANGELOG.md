@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.645 — 2026-07-19
+
+**GenStudio voices now appear automatically—no voice IDs to copy or remember.**
+
+- Story Studio securely fetches the live voice catalog from the configured GenStudio KH API whenever the GenStudio model is selected.
+- Catalog voices merge with existing saved voices without overwriting custom names or creating duplicate entries.
+- Added loading, refresh, empty, and connection-error states directly in the voice picker, with a shortcut back to GenStudio settings when attention is needed.
+- Kept Direct and Studio Hub voice libraries separate and unchanged while allowing future GenStudio voices to appear without a Story Studio code update.
+
+---
+
 ## v1.0.644 — 2026-07-19
 
 **GenStudio KH is now available as a separate, opt-in TTS route for qualification.**

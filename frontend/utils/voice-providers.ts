@@ -59,6 +59,24 @@ export function normalizeSavedVoices(value: unknown): SavedVoice[] {
   return [...byId.values()]
 }
 
+export function mergeDiscoveredVoices(
+  saved: unknown,
+  discovered: unknown,
+  provider: VoiceProviderId,
+): SavedVoice[] {
+  const catalogVoices = Array.isArray(discovered)
+    ? discovered.flatMap((value): SavedVoice[] => {
+      if (!value || typeof value !== 'object') return []
+      const entry = value as Record<string, unknown>
+      const id = typeof entry.id === 'string' ? entry.id.trim() : ''
+      const name = typeof entry.display_name === 'string' ? entry.display_name.trim() : ''
+      return id && name ? [{ name, voice_id: id, providers: [provider] }] : []
+    })
+    : []
+  // Saved entries come first so a user's chosen display name wins on duplicate IDs.
+  return normalizeSavedVoices([...normalizeSavedVoices(saved), ...catalogVoices])
+}
+
 export function voiceSupportsProvider(voice: SavedVoice, provider: string): boolean {
   return voice.providers.includes(provider as VoiceProviderId)
 }
