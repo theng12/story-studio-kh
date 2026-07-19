@@ -31,7 +31,6 @@ const vsFirst = (stored: string | null | undefined): string => parseEndpoints(st
 // nothing. `?refresh=1` (sent by the picker's refresh button) bypasses.
 const vsVoicesCache = new TtlCache<object>(60_000)        // pool/voicepack voices — users add clips occasionally
 const vsModelsCache = new TtlCache<object>(60_000)        // available engines on the modal
-const vsTranscribeCache = new TtlCache<object>(60_000)    // whisper availability
 const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when user installs voices in System Settings
 
 /** Pick the TTS provider for a model id, mirroring generators/audio.ts. */
@@ -1049,69 +1048,6 @@ router.get('/voicestudio/models', async (req, res) => {
   } catch (e: any) {
     // Non-fatal — report not-ok so the frontend keeps the static list.
     res.json({ configured: false, ok: false, models: [], error: e?.message || 'probe failed' })
-  }
-})
-
-// v1.0.217+ — Whisper STT availability proxy. The Subtitles tab calls this to
-// learn which Whisper models the modal has cached + ready, so it can gate the
-// "Transcribe (local)" action and offer the right model. Non-fatal on a
-// missing URL / offline modal (the tab falls back to OpenAI).
-router.get('/voicestudio/transcribe-availability', async (req, res) => {
-  try {
-    // v1.0.520 — probe the WHOLE pool, not just endpoints[0]. Transcription is
-    // available when ANY configured Mac is online + model-cached, which is
-    // exactly what the job path (runOnTranscribePool) uses. The old code gated
-    // the "Transcribe (local)" button on the first-listed Mac's health, so it
-    // wrongly disabled the feature whenever that one Mac was offline even
-    // though other online Macs could run it.
-    const { pooledTranscribeAvailability } = await import('../lib/voicestudio-client.js')
-    const { getHubBackend, hubTranscription } = await import('../lib/studiohub-client.js')
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const hub = await getHubBackend()
-    if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
-      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, req.query.refresh === '1')
-      res.json({ ...inventory, configured: true, source: 'hub' })
-      return
-    }
-    const stored = await getApiKey('voicestudio')
-    const r = await swrFetch(vsTranscribeCache, `vs-transcribe-pool:${stored || ''}`, async () => {
-      const avail = await pooledTranscribeAvailability(stored)
-      return { ...avail, configured: avail.endpoint_count > 0 }
-    }, { forceRefresh: req.query.refresh === '1' })
-    res.json({ ...r.value, stale: r.stale || undefined })
-  } catch (e: any) {
-    res.json({ available: false, configured: false, models: [], error: e?.message || 'probe failed' })
-  }
-})
-
-// v1.0.217+ — Trigger a one-time Whisper model download on the modal (reuses
-// the generic download manager the TTS models use). Returns immediately; the
-// Subtitles tab polls /voicestudio/transcribe-availability for `cached: true`.
-router.post('/voicestudio/download-model', async (req, res) => {
-  try {
-    const repo = typeof req.body?.repo === 'string' ? req.body.repo.trim() : ''
-    if (!repo) return res.status(400).json({ detail: 'repo is required' })
-    const { downloadTranscribeModel, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
-    const { getHubBackend, hubTranscription, hubBroadcastDownload } = await import('../lib/studiohub-client.js')
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const hub = await getHubBackend()
-    if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
-      const inventory = await hubTranscription(hub.hubUrl, hub.hubToken, true)
-      const model = inventory.models.find(m => m.repo === repo)
-      const studios = [...new Set((model?.machines || []).map(m => m.studio).filter(Boolean))]
-      if (!studios.length) throw new Error(`Studio Hub has no Voice Studio target for ${repo}`)
-      const result = await hubBroadcastDownload(hub.hubUrl, hub.hubToken, repo, studios)
-      res.json({ ok: true, source: 'hub', ...result })
-      return
-    }
-    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!baseUrl) return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models.' })
-    const r = await downloadTranscribeModel(baseUrl, repo)
-    res.json({ ok: true, ...r })
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not start model download'))
   }
 })
 

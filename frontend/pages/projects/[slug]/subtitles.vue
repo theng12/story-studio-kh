@@ -1,11 +1,9 @@
 <!--
-  Subtitles workshop (v1.0.216+, local-transcribe v1.0.217+).
+  Subtitles workshop.
 
   Dedicated home for CREATING an episode's subtitles, between Audio Assembly
-  and Scene Plan (needs the chapter audio). Two transcription engines — the
-  user PICKS (no silent default):
-    - Voice Studio (local)  → the modal's free Whisper STT (/api/transcribe).
-    - OpenAI Whisper (paid)  → always-available fallback.
+  and Scene Plan (needs the chapter audio). GenStudio KH is the sole AI
+  transcription boundary and publishes the selectable model catalog.
   Plus non-transcribe methods (from-chapters, import). All write per-chapter
   SRTs ({code}_{slug}.srt) into the episode's "09 Subtitles Output" folder,
   which Scene Plan stitches and Video Assembly burns in.
@@ -92,91 +90,42 @@
       <WorkspaceSection
         eyebrow="Create"
         title="Transcribe chapter audio"
-        description="Choose a local or cloud engine. Completed chapter files are preserved, so retries only need to fill missing sections."
+        description="GenStudio KH securely routes every transcription. Completed chapter files are preserved, so retries fill only missing sections."
       >
-
-        <!-- Engine chooser — no default; the user picks. -->
-        <div class="sub-engine-grid mt-2">
-          <button
-            type="button"
-            class="sub-engine-card"
-            :class="{ active: engine === 'voicestudio' }"
-            @click="engine = 'voicestudio'"
-          >
-            <div class="sub-engine-head">
-              <strong>Voice Studio (local)</strong>
-              <span class="sub-engine-tag free">free</span>
-            </div>
-            <p class="sub-engine-desc">Runs Whisper on your own Mac via the Voice Studio modal. No API cost, private, no rate limits. Near-perfect on your clean TTS narration.</p>
-          </button>
-          <button
-            type="button"
-            class="sub-engine-card"
-            :class="{ active: engine === 'openai' }"
-            @click="engine = 'openai'"
-          >
-            <div class="sub-engine-head">
-              <strong>OpenAI Whisper</strong>
-              <span class="sub-engine-tag paid">paid</span>
-            </div>
-            <p class="sub-engine-desc">OpenAI's hosted Whisper API (~$0.006/min). The always-available fallback when the local modal is off.</p>
-          </button>
-        </div>
-
-        <!-- Voice Studio engine details -->
-        <div v-if="engine === 'voicestudio'" class="sub-engine-detail mt-2">
-          <div v-if="vsAvailLoading" class="text-muted text-sm">
-            <LoadingSpinner size="sm" /> Checking Voice Studio…
+        <div class="sub-engine-card active mt-2">
+          <div class="sub-engine-head">
+            <strong>GenStudio KH</strong>
+            <span class="sub-engine-tag free">single route</span>
           </div>
-          <template v-else-if="!vsAvail?.available">
-            <p class="validation-msg text-sm">
-              ⚠ Voice Studio transcription isn't reachable.
-              <span v-if="!vsAvail?.configured">Set the URL in
-                <NuxtLink :to="`/projects/${slug}/settings#local-tts`" class="inline-link">Settings → This Mac → Local Models</NuxtLink>.</span>
-              <span v-else>Start the modal (Pinokio → Start) and update it to v1.4.0+, then</span>
-              <a href="#" class="inline-link" @click.prevent="loadVsAvailability">re-check</a>.
-            </p>
-          </template>
-          <template v-else>
-            <div class="form-group">
-              <label>Whisper model <span class="text-muted text-xs">· on {{ vsAvail.device || 'mps' }}</span></label>
-              <ModelMenu
-                v-model="vsModel"
-                :options="whisperModelOptions"
-                media-type="transcription"
-                title="Choose a Whisper model"
-                placeholder="Pick a transcription model…"
-                search-placeholder="Search Whisper models…"
-                aria-label="Whisper model options"
-              />
-            </div>
-            <div v-if="selectedVsModel && !selectedVsModel.cached" class="sub-download mt-1">
-              <p class="validation-msg text-sm" style="margin:0;">
-                "{{ selectedVsModel.label || selectedVsModel.repo }}" isn't downloaded on the modal yet
-                ({{ selectedVsModel.size_gb || '?' }} GB).
-              </p>
-              <button class="btn btn-sm btn-secondary mt-1" :disabled="downloadingModel" @click="downloadModel">
-                {{ downloadingModel ? 'Downloading… (re-checking)' : 'Download model' }}
-              </button>
-            </div>
-          </template>
+          <p class="sub-engine-desc">Story Studio uploads privately to GenStudio. GenStudio handles Studio Hub, worker selection, durable recovery, and the final SRT.</p>
         </div>
 
-        <!-- OpenAI engine details -->
-        <div v-else-if="engine === 'openai'" class="sub-engine-detail mt-2">
-          <p v-if="status && !status.has_openai_key" class="validation-msg text-sm">
-            OpenAI API key not set — add one under
-            <NuxtLink :to="`/projects/${slug}/settings#api-keys`" class="inline-link">Settings → API Keys</NuxtLink>,
-            or use the Voice Studio engine.
+        <div class="sub-engine-detail mt-2">
+          <div v-if="genstudioModelsLoading" class="text-muted text-sm">
+            <LoadingSpinner size="sm" /> Loading GenStudio models…
+          </div>
+          <p v-else-if="genstudioModelsError" class="validation-msg text-sm">
+            ⚠ {{ genstudioModelsError }}
+            <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" class="inline-link">Open GenStudio settings</NuxtLink>
+            or <a href="#" class="inline-link" @click.prevent="loadGenstudioModels">retry</a>.
           </p>
-          <p v-else class="text-muted text-sm">Uses your OpenAI key. ~$0.006 per minute of audio.</p>
+          <div v-else class="form-group">
+            <label>Transcription model <span class="text-muted text-xs">· published by GenStudio KH</span></label>
+            <ModelMenu
+              v-model="genstudioModel"
+              :options="genstudioModelOptions"
+              media-type="transcription"
+              title="Choose a GenStudio transcription model"
+              placeholder="Pick a transcription model…"
+              search-placeholder="Search GenStudio models…"
+              aria-label="GenStudio transcription model options"
+            />
+          </div>
         </div>
 
-        <p v-else class="text-muted text-sm mt-2">Choose an engine above to enable transcription.</p>
-
-        <label v-if="engine" class="flex items-center gap-1 mt-2 text-sm">
+        <label class="flex items-center gap-1 mt-2 text-sm">
           <input type="checkbox" v-model="force" />
-          Re-run for chapters that already have an SRT{{ engine === 'openai' ? ' (charges Whisper again)' : '' }}
+          Re-run chapters that already have a verified SRT
         </label>
 
         <div class="mt-2">
@@ -332,7 +281,6 @@ interface SubtitleStatus {
   has_libass: boolean
   has_merged_audio: boolean
   has_chapter_audio: boolean
-  has_openai_key: boolean
   existing_srts: ExistingSrt[]
   completion?: {
     complete: boolean
@@ -346,8 +294,6 @@ interface SubtitleStatus {
   current_merge_gap_s: number | null
 }
 interface SectionRow { label: string; slug: string }
-interface VsModel { repo: string; label?: string; size_gb?: number; recommended?: boolean; cached?: boolean; note?: string }
-interface VsAvailability { available: boolean; configured?: boolean; device?: string; default_model?: string; models?: VsModel[]; error?: string }
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -361,16 +307,16 @@ const status = ref<SubtitleStatus | null>(null)
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
 
-// Engine choice — NO default; the user picks. Persisted per project.
-const engine = ref<'' | 'voicestudio' | 'openai'>('')
 const force = ref(false)
 const transcribing = ref(false)
-
-// Voice Studio transcribe availability + model selection.
-const vsAvail = ref<VsAvailability | null>(null)
-const vsAvailLoading = ref(false)
-const vsModel = ref<string>('')
-const downloadingModel = ref(false)
+const {
+  modelId: genstudioModel,
+  options: genstudioModelOptions,
+  loading: genstudioModelsLoading,
+  error: genstudioModelsError,
+  ready: genstudioModelReady,
+  load: loadGenstudioModels,
+} = useGenStudioTranscriptionModels()
 
 // Non-transcribe methods.
 const fromChaptersBusy = ref(false)
@@ -452,22 +398,6 @@ const coverage = computed(() => {
 })
 const coveragePct = computed(() => coverage.value.total ? Math.round((coverage.value.done / coverage.value.total) * 100) : 0)
 
-const selectedVsModel = computed<VsModel | undefined>(() =>
-  (vsAvail.value?.models || []).find(m => m.repo === vsModel.value),
-)
-const whisperModelOptions = computed(() => (vsAvail.value?.models || []).map(model => ({
-  id: model.repo,
-  label: model.label || model.repo,
-  group: 'Voice Studio · local',
-  provider: 'Voice Studio',
-  meta: [model.size_gb ? `${model.size_gb} GB` : '', model.cached ? 'Downloaded' : 'Not downloaded'].filter(Boolean).join(' · '),
-  description: model.note || '',
-  badges: [
-    ...(model.recommended ? [{ label: 'recommended', tone: 'info' as const }] : []),
-    { label: model.cached ? 'ready' : 'download', tone: model.cached ? 'local' as const : 'warning' as const },
-  ],
-})))
-
 const transcribeJobActive = computed(() =>
   (jobs.value as any[]).some(j =>
     j.type === 'subtitles_transcribe' && j.episode_id === episodeId.value &&
@@ -475,25 +405,20 @@ const transcribeJobActive = computed(() =>
   ),
 )
 
-const transcribeLabel = computed(() =>
-  engine.value === 'voicestudio' ? 'Transcribe (local)' :
-  engine.value === 'openai' ? 'Transcribe (OpenAI)' : 'Transcribe',
-)
+const transcribeLabel = computed(() => 'Transcribe (GenStudio)')
 
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio) return false
   if (transcribing.value || transcribeJobActive.value) return false
-  if (engine.value === 'openai') return !!status.value?.has_openai_key
-  if (engine.value === 'voicestudio') return !!vsAvail.value?.available && !!selectedVsModel.value?.cached
-  return false
+  return genstudioModelReady.value
 })
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
-  if (!engine.value) return 'Choose a transcription engine'
-  if (engine.value === 'openai' && !status.value?.has_openai_key) return 'Add an OpenAI API key in Settings'
-  if (engine.value === 'voicestudio' && !vsAvail.value?.available) return 'Voice Studio not reachable'
-  if (engine.value === 'voicestudio' && !selectedVsModel.value?.cached) return 'Download the Whisper model first'
+  if (genstudioModelsLoading.value) return 'Loading GenStudio transcription models'
+  if (genstudioModelsError.value) return genstudioModelsError.value
+  if (!genstudioModel.value) return 'GenStudio KH did not publish a transcription model'
+  if (!genstudioModelReady.value) return 'The selected GenStudio transcription model has no ready workers'
   return ''
 })
 
@@ -572,62 +497,14 @@ async function stitchSubtitles(): Promise<void> {
   }
 }
 
-async function loadVsAvailability(): Promise<void> {
-  vsAvailLoading.value = true
-  try {
-    const a = await get<VsAvailability>('/voicestudio/transcribe-availability')
-    vsAvail.value = a
-    // Resolve the selected model. Prefer a model that's actually DOWNLOADED so
-    // the user can transcribe immediately with what they have; only fall back
-    // to the (possibly un-cached) default — which makes the UI prompt a
-    // download — when nothing is cached. Keeps the user's persisted choice if
-    // it's still a known model.
-    const models = a.models || []
-    const cached = new Set(models.filter(m => m.cached).map(m => m.repo))
-    const pick =
-      (vsModel.value && models.some(m => m.repo === vsModel.value)) ? vsModel.value :
-      (a.default_model && cached.has(a.default_model)) ? a.default_model! :
-      (models.find(m => m.recommended && m.cached)?.repo) ||
-      (models.find(m => m.cached)?.repo) ||
-      (a.default_model && models.some(m => m.repo === a.default_model) ? a.default_model! : '') ||
-      (models.find(m => m.recommended)?.repo) ||
-      (models[0]?.repo) || ''
-    if (pick) vsModel.value = pick
-  } catch {
-    vsAvail.value = { available: false }
-  } finally {
-    vsAvailLoading.value = false
-  }
-}
-
-async function downloadModel(): Promise<void> {
-  if (downloadingModel.value || !vsModel.value) return
-  downloadingModel.value = true
-  try {
-    await post('/voicestudio/download-model', { repo: vsModel.value })
-    showInfo('Model download started on Voice Studio — this can take a few minutes. Re-checking…')
-    // Poll availability until the model reports cached (cap ~10 min).
-    const deadline = Date.now() + 10 * 60_000
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 4000))
-      await loadVsAvailability()
-      if (selectedVsModel.value?.cached) { success('Model downloaded — ready to transcribe.'); break }
-    }
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not start model download')
-  } finally {
-    downloadingModel.value = false
-  }
-}
-
 async function transcribe(): Promise<void> {
   if (!canTranscribe.value) return
   transcribing.value = true
   try {
     await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, {
       per_chapter: true,
-      engine: engine.value,
-      model: engine.value === 'voicestudio' ? vsModel.value : undefined,
+      engine: 'genstudio',
+      model: genstudioModel.value,
       language: 'en',
       force: force.value,
     })
@@ -706,30 +583,25 @@ async function deleteSrt(filename: string): Promise<void> {
 }
 
 // ── Presets ─────────────────────────────────────────────────────────────────
-// Engine + model + re-run flag are saved as named presets via the top bar,
+// GenStudio model + re-run flag are saved as named presets via the top bar,
 // same pattern as the other generator tabs — so the user's pick persists and
 // is shareable, instead of a hidden per-machine localStorage value. Distinct
 // configKey from Video Assembly's 'subtitles' (subtitle-STYLE) presets.
-const subtitlesPresets = usePresets<{ engine?: string; vsModel?: string; force?: boolean }>({
+const subtitlesPresets = usePresets<{ model?: string; force?: boolean }>({
   slug: slug.value,
   configKey: 'subtitles_generator',
-  snapshot: () => ({ engine: engine.value, vsModel: vsModel.value, force: force.value }),
+  snapshot: () => ({ model: genstudioModel.value, force: force.value }),
   apply: (d) => {
-    if (d?.engine === 'voicestudio' || d?.engine === 'openai') engine.value = d.engine
-    if (typeof d?.vsModel === 'string' && d.vsModel) vsModel.value = d.vsModel
+    if (typeof d?.model === 'string' && d.model) genstudioModel.value = d.model
     if (typeof d?.force === 'boolean') force.value = d.force
   },
 })
 
-// Fetch local availability when the user switches to the Voice Studio engine.
-watch(engine, (v) => { if (v === 'voicestudio' && !vsAvail.value) void loadVsAvailability() })
-
 onMounted(async () => {
-  // Auto-applies the active preset (sets engine / model / re-run) if saved.
+  // Auto-apply the model/re-run preset, then heal retired model IDs against the
+  // authoritative GenStudio catalog.
   await subtitlesPresets.load()
-  // Prefetch local availability so the engine card is ready; keeps a
-  // preset-applied model when it's known to the modal, else picks a cached one.
-  if (!vsAvail.value) await loadVsAvailability()
+  await loadGenstudioModels()
 })
 </script>
 

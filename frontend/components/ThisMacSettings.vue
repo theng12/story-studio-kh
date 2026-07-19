@@ -68,11 +68,11 @@
 
     <section id="genstudio-settings" class="tms-section genstudio-section">
       <div class="tms-section-copy">
-        <span class="tms-section-kicker">Parallel migration</span>
+        <span class="tms-section-kicker">Studio API boundary</span>
         <h4>GenStudio KH API</h4>
         <p>
-          Optional staged route for the GenStudio Qwen3 voices. It uses the GenStudio API key below;
-          your existing direct Studio Hub and Voice Studio routes remain unchanged.
+          Story Studio's route for Qwen3 voices and all AI transcription. Use one GenStudio key
+          with voice scopes plus <code>audio:transcribe</code>; Studio Hub and worker credentials stay private behind GenStudio.
         </p>
       </div>
       <div class="genstudio-controls">

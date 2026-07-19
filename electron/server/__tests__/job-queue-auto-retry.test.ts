@@ -26,21 +26,15 @@ before(async () => {
 after(async () => { await cleanup() })
 
 describe('queue-owned local retries', () => {
-  test('local subtitles retry partial work and chain only after recovery', async () => {
-    const project = await pm.createProject({ name: 'Local Subtitle Retry' })
+  test('GenStudio subtitles preserve partial evidence without automatic resubmission', async () => {
+    const project = await pm.createProject({ name: 'GenStudio Subtitle Recovery' })
     let attempts = 0
-    let partialWasPreserved = false
     let chained = 0
 
     jq.registerExecutor('subtitles_transcribe', async (job) => {
       attempts++
-      if (attempts === 1) {
-        partialWasPreserved = true
-        job.result = { complete: false, missing_sections: ['Chapter_10'] }
-        return
-      }
-      assert.equal(partialWasPreserved, true)
-      job.result = { complete: true, missing_sections: [] }
+      job.result = { complete: false, missing_sections: ['Chapter_10'] }
+      throw new Error('GenStudio terminal failure')
     })
     jq.registerExecutor('audio_merge', async () => { chained++ })
 
@@ -50,7 +44,7 @@ describe('queue-owned local retries', () => {
       episode_id: 'EP0036',
       title: 'Local subtitles',
       params: {
-        engine: 'voicestudio',
+        engine: 'genstudio',
         per_chapter: true,
         pipeline_chain: [{
           type: 'audio_merge',
@@ -62,23 +56,22 @@ describe('queue-owned local retries', () => {
 
     const settled = await waitFor(() => {
       const job = jq.getJob(queued.job_id)
-      return job?.status === 'done' ? job : undefined
+      return job?.status === 'error' ? job : undefined
     })
-    await waitFor(() => chained === 1 ? chained : undefined)
 
-    assert.equal(attempts, 2)
-    assert.equal(chained, 1)
-    assert.equal(settled.auto_retry?.eligible, true)
-    assert.equal(settled.auto_retry?.attempt, 2)
-    assert.match(settled.output_lines.join('\n'), /Local auto-retry attempt 2\/3/)
+    assert.equal(attempts, 1)
+    assert.equal(chained, 0)
+    assert.equal(settled.auto_retry?.eligible, false)
+    assert.deepEqual((settled.result as any)?.missing_sections, ['Chapter_10'])
+    assert.match(settled.output_lines.join('\n'), /Automatic retry not used/)
   })
 
-  test('OpenAI subtitles fail once without automatic resubmission', async () => {
-    const project = await pm.createProject({ name: 'Cloud Subtitle No Retry' })
+  test('legacy OpenAI subtitle settings cannot restore automatic provider retries', async () => {
+    const project = await pm.createProject({ name: 'Retired Subtitle Route' })
     let attempts = 0
     jq.registerExecutor('subtitles_transcribe', async () => {
       attempts++
-      throw new Error('OpenAI request failed')
+      throw new Error('Legacy setting awaiting GenStudio migration')
     })
 
     const queued = jq.enqueue({

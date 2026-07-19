@@ -49,3 +49,32 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     'voice_qwen3_aiden',
   ])
 })
+
+test('GenStudio transcription discovery uses the same scoped boundary key', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_test_story_catalog' })
+    .expect(200)
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), 'http://127.0.0.1:8000/v1/transcription/models')
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
+    return new Response(JSON.stringify([
+      {
+        id: 'mlx-community/whisper-large-v3-turbo',
+        display_name: 'Whisper large-v3 turbo',
+        provider: 'Whisper MLX',
+        language: 'multilingual',
+        available: true,
+        available_workers: 10,
+        qualification_only: true,
+      },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const response = await request(app).get('/api/app-settings/genstudio/transcription-models')
+  assert.equal(response.status, 200)
+  assert.deepEqual(response.body.models.map((model: any) => model.id), [
+    'mlx-community/whisper-large-v3-turbo',
+  ])
+})

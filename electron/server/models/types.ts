@@ -2568,7 +2568,7 @@ export interface VideoFrameConfig {
 // (libass). Three sources feed a single on-disk SRT:
 //   - 'chapters'  : derived from chapter audio file durations + their labels
 //   - 'upload'    : user picked an external .srt / .vtt via FilePicker
-//   - 'whisper'   : transcribed from the merged audio via OpenAI Whisper
+//   - 'whisper'   : transcribed from merged audio through GenStudio KH
 export type VideoSubtitleSource = 'chapters' | 'upload' | 'whisper'
 
 export interface VideoSubtitleStyle {

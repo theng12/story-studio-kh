@@ -28,7 +28,10 @@ import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub }
 import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { listVoices as listGenStudioVoices } from '../lib/genstudio-client.js'
+import {
+  listTranscriptionModels as listGenStudioTranscriptionModels,
+  listVoices as listGenStudioVoices,
+} from '../lib/genstudio-client.js'
 
 export const router = Router()
 
@@ -469,6 +472,21 @@ router.get('/app-settings/genstudio/voices', async (_req, res) => {
     res.json({ voices: await listGenStudioVoices(apiKey) })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH voice catalog'))
+  }
+})
+
+router.get('/app-settings/genstudio/transcription-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey.trim()) {
+      return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
+    }
+    res.json({ models: await listGenStudioTranscriptionModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(
+      e,
+      'Could not load GenStudio KH transcription models. Ensure the saved key includes audio:transcribe.',
+    ))
   }
 })
 

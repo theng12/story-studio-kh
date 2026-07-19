@@ -3,8 +3,9 @@
  *
  * This module knows only the public GenStudio API contract. It has no Studio
  * Hub URL, token, worker list, or direct Voice Studio connection. Keeping that
- * boundary here lets the existing direct/Hub provider remain fully operational
- * while GenStudio is qualified in parallel.
+ * boundary here keeps Story Studio's local Studio Hub token and Voice Studio
+ * endpoints out of every GenStudio request. Direct/Hub TTS remains a separate
+ * legacy route; AI transcription does not.
  */
 
 import fs from 'fs/promises'
@@ -19,6 +20,12 @@ const POLL_INTERVAL_MS = 1_000
 const NETWORK_RETRY_ATTEMPTS = 4
 export const GENSTUDIO_MAX_TTS_CHARACTERS = 15_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
+export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
+
+interface GenStudioOperationContext {
+  signal?: AbortSignal
+  isCancelled?: () => boolean
+}
 
 interface GenStudioJob {
   id: string
@@ -27,13 +34,38 @@ interface GenStudioJob {
   audio_url?: string | null
 }
 
-export interface GenStudioTtsRequest {
+export interface GenStudioTtsRequest extends GenStudioOperationContext {
   text: string
   voiceId?: string
   speed: number
-  signal?: AbortSignal
-  isCancelled?: () => boolean
   onProgress?: (received: number, total?: number) => void
+}
+
+export interface GenStudioTranscriptionModel {
+  id: string
+  display_name: string
+  provider: string
+  language: string
+  available: boolean
+  available_workers: number
+  qualification_only: boolean
+}
+
+interface GenStudioTranscriptionJob {
+  id: string
+  state: GenStudioJob['state']
+  model_id: string
+  failure_code?: string | null
+  srt_url?: string | null
+}
+
+export interface GenStudioTranscriptionRequest extends GenStudioOperationContext {
+  audioPath: string
+  modelId: string
+  storyJobId: string
+  language?: string
+  wordTimestamps?: boolean
+  onState?: (state: GenStudioTranscriptionJob['state']) => void
 }
 
 export interface GenStudioSubmission {
@@ -64,9 +96,12 @@ function apiBase(url: string): string {
 }
 
 function requestUrl(baseUrl: string, value: string): string {
-  return value.startsWith('http://') || value.startsWith('https://')
-    ? value
-    : `${apiBase(baseUrl)}${value.startsWith('/') ? '' : '/'}${value}`
+  const base = new URL(`${apiBase(baseUrl)}/`)
+  const resolved = new URL(value, base)
+  if (resolved.origin !== base.origin) {
+    throw new Error('GenStudio KH returned an artifact URL outside its API origin')
+  }
+  return resolved.toString()
 }
 
 function authorization(apiKey: string): Record<string, string> {
@@ -116,7 +151,7 @@ function combinedSignal(signal: AbortSignal | undefined, deadline: number): Abor
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
 }
 
-async function retryDelay(attempt: number, request: GenStudioTtsRequest, deadline: number): Promise<void> {
+async function retryDelay(attempt: number, request: GenStudioOperationContext, deadline: number): Promise<void> {
   if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
   if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
   await new Promise(resolve => setTimeout(resolve, Math.min(4_000, 500 * (2 ** (attempt - 1)))))
@@ -125,7 +160,7 @@ async function retryDelay(attempt: number, request: GenStudioTtsRequest, deadlin
 async function requestJsonWithRetry(
   url: string,
   init: RequestInit,
-  request: GenStudioTtsRequest,
+  request: GenStudioOperationContext,
   deadline: number,
 ): Promise<any> {
   let lastError: unknown
@@ -183,6 +218,176 @@ export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
     provider: typeof value?.provider === 'string' ? value.provider : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
+}
+
+/** Fetch the account-visible transcription catalog from the GenStudio boundary. */
+export async function listTranscriptionModels(
+  apiKey: string,
+): Promise<GenStudioTranscriptionModel[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/transcription/models`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) {
+    throw new Error('GenStudio KH returned an invalid transcription model catalog')
+  }
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    provider: typeof value?.provider === 'string' ? value.provider.trim() : 'GenStudio KH',
+    language: typeof value?.language === 'string' ? value.language.trim() : 'multilingual',
+    available: value?.available === true,
+    available_workers: Number.isInteger(value?.available_workers)
+      ? Math.max(0, value.available_workers)
+      : 0,
+    qualification_only: value?.qualification_only !== false,
+  })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
+}
+
+function transcriptionMediaType(filename: string): string {
+  switch (path.extname(filename).toLowerCase()) {
+    case '.wav': return 'audio/wav'
+    case '.mp3': return 'audio/mpeg'
+    case '.m4a': return 'audio/mp4'
+    case '.aac': return 'audio/aac'
+    case '.flac': return 'audio/flac'
+    case '.ogg': return 'audio/ogg'
+    case '.opus': return 'audio/opus'
+    case '.webm': return 'audio/webm'
+    case '.mp4': return 'video/mp4'
+    case '.mov': return 'video/quicktime'
+    default: return 'application/octet-stream'
+  }
+}
+
+export function buildGenStudioTranscriptionIdempotencyKey(input: {
+  storyJobId: string
+  fileSha256: string
+  modelId: string
+  language?: string
+  wordTimestamps?: boolean
+}): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    story_job_id: input.storyJobId,
+    file_sha256: input.fileSha256,
+    model_id: input.modelId,
+    language: input.language || null,
+    word_timestamps: input.wordTimestamps === true,
+  })).digest('hex')
+  return `story-stt-${digest.slice(0, 48)}`
+}
+
+async function waitForTranscriptionJob(
+  baseUrl: string,
+  apiKey: string,
+  submitted: GenStudioTranscriptionJob,
+  request: GenStudioTranscriptionRequest,
+  deadline: number,
+): Promise<GenStudioTranscriptionJob> {
+  let current = submitted
+  request.onState?.(current.state)
+  while (current.state !== 'succeeded' && current.state !== 'failed') {
+    if (request.isCancelled?.()) throw new Error('Cancelled by user')
+    if (Date.now() >= deadline) {
+      throw new Error('GenStudio KH transcription timed out while waiting for completion')
+    }
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/transcriptions/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioTranscriptionJob
+    request.onState?.(current.state)
+  }
+  if (current.state === 'failed') {
+    throw new Error(
+      `GenStudio KH transcription failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
+      'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.',
+    )
+  }
+  return current
+}
+
+/** Submit private audio to GenStudio, poll its durable job, and return verified SRT text. */
+export async function transcribeWithGenStudio(
+  apiKey: string,
+  request: GenStudioTranscriptionRequest,
+): Promise<{ srt: string; jobId: string; modelId: string }> {
+  const modelId = request.modelId.trim()
+  if (!modelId) throw new Error('Select a GenStudio KH transcription model.')
+  if (!request.storyJobId.trim()) throw new Error('Story Studio transcription job ID is required.')
+  const file = await fs.readFile(request.audioPath)
+  if (!file.length) throw new Error('Transcription audio is empty.')
+  if (file.length > GENSTUDIO_MAX_TRANSCRIPTION_BYTES) {
+    throw new Error('GenStudio KH transcription input exceeds the 100 MiB qualification limit.')
+  }
+  const fileSha256 = createHash('sha256').update(file).digest('hex')
+  const idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
+    storyJobId: request.storyJobId,
+    fileSha256,
+    modelId,
+    language: request.language,
+    wordTimestamps: request.wordTimestamps,
+  })
+  const body = new FormData()
+  body.set(
+    'file',
+    new Blob([new Uint8Array(file)], { type: transcriptionMediaType(request.audioPath) }),
+    path.basename(request.audioPath),
+  )
+  body.set('model', modelId)
+  if (request.language) body.set('language', request.language)
+  body.set('word_timestamps', String(request.wordTimestamps === true))
+
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const submitted = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/audio/transcriptions`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Idempotency-Key': idempotencyKey,
+      },
+      body,
+    },
+    request,
+    deadline,
+  ) as GenStudioTranscriptionJob
+  const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
+  if (!completed.srt_url) {
+    throw new Error('GenStudio KH transcription completed without an SRT download URL')
+  }
+
+  let lastError: unknown
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(requestUrl(baseUrl, completed.srt_url), {
+        headers: authorization(apiKey),
+        signal: combinedSignal(request.signal, deadline),
+      })
+      if (!response.ok) {
+        const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
+        if (!retryableStatus(response.status)) throw error
+        lastError = error
+      } else {
+        const srt = await response.text()
+        if (!srt.trim()) throw new Error('GenStudio KH returned an empty SRT artifact')
+        return { srt, jobId: completed.id, modelId: completed.model_id }
+      }
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      lastError = error
+      if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
+        && !error.message.includes('fetch failed')) throw error
+    }
+    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('GenStudio KH SRT download failed after reconnect attempts')
 }
 
 async function waitForJob(

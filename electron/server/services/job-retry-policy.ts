@@ -108,9 +108,10 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (job.type === 'subtitles_transcribe') {
-    return value(params, 'engine') === 'voicestudio'
-      ? localPolicy('Voice Studio transcription is local and preserves completed chapter SRT files.')
-      : MANUAL_ONLY
+    return {
+      ...MANUAL_ONLY,
+      reason: 'GenStudio owns durable submission and recovery; a new provider job is started only by manual Retry after terminal failure.',
+    }
   }
 
   if (job.type === 'audio') {

@@ -24,6 +24,7 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
 import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
 
 export const router = Router()
@@ -948,34 +949,46 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
   }
 })
 
-/** Queue a Whisper transcription job. Returns the job id so the UI can
+/** Queue a GenStudio transcription job. Returns the job id so the UI can
  *  poll /jobs/:id for progress. */
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
 
-  // v1.0.217+ — engine-aware gating. 'voicestudio' = the local modal's free
-  // Whisper STT (no OpenAI key needed); 'openai' = the paid fallback.
-  const engine = req.body?.engine === 'voicestudio' ? 'voicestudio' : 'openai'
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  if (engine === 'openai') {
-    const config = await pm.getConfig(slug)
-    const appKey = await getApiKey('openai').catch(() => '')
-    if (!appKey && !(config as any)?.openai_api_key) {
-      return res.status(400).json({ detail: 'OpenAI API key not configured. Add one in Settings → API Keys, or pick the Voice Studio engine.' })
-    }
-    setSubtitleTranscribeConcurrency(1)
-  } else {
-    const { DEFAULT_VOICESTUDIO_BASE_URL, readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
-    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!baseUrl) {
-      return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models, or pick the OpenAI engine.' })
-    }
-    const readyEndpoints = await readyTranscribeBackendCount(baseUrl, req.body?.model).catch(() => 1)
-    // One Whisper inference per Mac. With 2-3 model-ready Voice Studio URLs,
-    // different episode transcription jobs can run together; one URL stays
-    // serial so we don't pile multiple long STT requests onto the same modal.
-    setSubtitleTranscribeConcurrency(Math.max(1, Math.min(50, readyEndpoints || 1)))
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey.trim()) {
+    return res.status(400).json({
+      detail: 'GenStudio KH API key not configured. Save a key with audio:transcribe in Settings → This Mac → API Keys.',
+    })
   }
+  let models
+  try {
+    models = await listGenStudioTranscriptionModels(apiKey)
+  } catch (error) {
+    return res.status(502).json(humanizeBackendError(
+      error,
+      'Could not load GenStudio KH transcription models. Ensure the key includes audio:transcribe.',
+    ))
+  }
+  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+  const selectedModel = requestedModel
+    ? models.find(model => model.id === requestedModel)
+    : models.find(model => model.available) || models[0]
+  if (!selectedModel) {
+    return res.status(400).json({
+      detail: requestedModel
+        ? `GenStudio KH does not publish transcription model "${requestedModel}".`
+        : 'GenStudio KH did not publish a transcription model.',
+    })
+  }
+  if (!selectedModel.available) {
+    return res.status(503).json({
+      detail: `GenStudio KH transcription model "${selectedModel.display_name}" has no ready workers.`,
+    })
+  }
+  // One Story subtitle job at a time; each job may upload several chapters in
+  // parallel while GenStudio owns fleet scheduling and backpressure.
+  setSubtitleTranscribeConcurrency(1)
 
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
     return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
@@ -989,18 +1002,15 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     params: {
       episode_id: episodeId,
       language: req.body?.language,
-      // Whisper model id. For openai: undefined → 'whisper-1'. For voicestudio:
-      // a Whisper repo → resolved to the modal's default_model when absent.
-      model: req.body?.model,
+      model: selectedModel.id,
       audio_path: req.body?.audio_path,
       // When true, re-run even if the SRT exists. Default false: the generator
-      // skips when the SRT is already on disk to avoid re-billing/recompute.
+      // skips when the SRT is already on disk to avoid recompute.
       force: req.body?.force === true,
       // v1.0.216+ — per-chapter mode: transcribe each chapter's clean
       // narration into {code}_{slug}.srt (what Scene Plan's stitcher consumes).
       per_chapter: req.body?.per_chapter === true,
-      // v1.0.217+ — transcription engine ('voicestudio' local | 'openai').
-      engine,
+      engine: 'genstudio',
     },
   })
   res.status(201).json(job)

@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.650 — 2026-07-19
+
+**GenStudio KH is now Story Studio's single AI transcription route.**
+
+- Removed the direct OpenAI Whisper client and Story Studio's direct Voice Studio/Studio Hub transcription routes, with no silent fallback when GenStudio is unavailable.
+- Added GenStudio's live transcription catalog and model dropdown to both the Subtitles workspace and B-Roll subtitle workflow.
+- Uploads audio with a stable retry identity, polls GenStudio's durable job, and downloads the private SRT through the same scoped API boundary.
+- Preserves verified chapter SRT files, rejects empty results, and reports partial or terminal failures so manual Retry fills only missing work.
+- Automatically heals retired OpenAI and direct Voice Studio transcription presets/jobs onto GenStudio; the saved GenStudio key must include `audio:transcribe`.
+- OpenAI remains available for Story Studio features unrelated to transcription.
+
+---
+
 ## v1.0.649 — 2026-07-19
 
 **Studio Hub image batches now recover themselves after disconnects, crashes, and power cuts.**

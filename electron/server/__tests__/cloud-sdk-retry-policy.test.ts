@@ -11,7 +11,6 @@ const PAID_SDK_SOURCES = [
   'providers/text/openrouter.ts',
   'providers/text/deepseek.ts',
   'services/research/perplexity.ts',
-  'lib/whisper-client.ts',
   'lib/image-edit-client.ts',
   'lib/vision-client.ts',
 ]

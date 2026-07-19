@@ -29,7 +29,7 @@ export const API_PROVIDER_META: ApiProviderMeta[] = [
   { id: 'openrouter', name: 'OpenRouter', category: 'llm', helpText: 'OpenAI-compatible gateway for multiple text models.', placeholder: 'sk-or-…', affiliateUrl: 'https://openrouter.ai/keys' },
   { id: 'perplexity', name: 'Perplexity', category: 'llm', helpText: 'Optional live-web research source.', placeholder: 'pplx-…', affiliateUrl: 'https://www.perplexity.ai/settings/api' },
   { id: 'elevenlabs', name: 'ElevenLabs', category: 'audio', helpText: 'Cloud voice synthesis for narration.', placeholder: 'xi-…' },
-  { id: 'genstudio', name: 'GenStudio KH', category: 'audio', helpText: 'Staged API route for Qwen3 English standard voices. This does not use your Studio Hub token.', placeholder: 'gsk_…' },
+  { id: 'genstudio', name: 'GenStudio KH', category: 'audio', helpText: 'Qwen3 voice and transcription boundary. Include audio:transcribe; this never exposes your Studio Hub token.', placeholder: 'gsk_…' },
   { id: 'fishaudio', name: 'Fish Audio', category: 'audio', helpText: 'Cloud voice synthesis and cloned voices.', placeholder: '…', affiliateUrl: 'https://fish.audio/go-api/' },
   { id: 'fal', name: 'Fal.ai', category: 'image', helpText: 'Flux image generation, LoRA, and voice-cloning tools.', placeholder: 'fal-…' },
   { id: 'genaipro', name: 'GenAI Pro', category: 'video', helpText: 'Veo video generation with additional audio services.', placeholder: '…' },

@@ -1517,21 +1517,16 @@ async function retryJob(job: RJob) {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clips-batch`,
       params: job.params,
     },
-    // Whisper transcription uses a non-`/generate` URL because the endpoint
-    // lives under /video-editor. The episode id is a path param, not a body
-    // field. We MUST forward `engine` and `per_chapter` too: without them the
-    // backend route defaults engine→'openai' and per_chapter→false, so
-    // retrying a Voice Studio per-chapter job silently became an OpenAI
-    // merged-audio job — and since the model stayed a Voice Studio Whisper repo
-    // (e.g. mlx-community/whisper-tiny), OpenAI rejected it with
-    // "400 invalid model ID". Forward force as well so a retry of a "re-run"
-    // job still overwrites instead of skipping the existing SRT.
+    // Transcription uses a non-`/generate` URL because the endpoint lives
+    // under /video-editor. Always heal old jobs onto the one GenStudio route;
+    // preserve the remaining request identity so manual Retry fills only the
+    // work that is still missing.
     subtitles_transcribe: {
       url: `/projects/${projectSlug}/video-editor/subtitles/transcribe/${job.episode_id}`,
       params: {
         language: job.params?.language,
         model: job.params?.model,
-        engine: job.params?.engine,
+        engine: 'genstudio',
         per_chapter: job.params?.per_chapter,
         force: job.params?.force,
       },

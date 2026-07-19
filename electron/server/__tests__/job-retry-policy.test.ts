@@ -8,8 +8,12 @@ function policy(type: JobType, params: Record<string, any> = {}) {
 }
 
 describe('local auto-retry policy', () => {
-  test('retries Voice Studio subtitles but never OpenAI Whisper', () => {
-    assert.equal(policy('subtitles_transcribe', { engine: 'voicestudio' }).eligible, true)
+  test('leaves GenStudio durable recovery to GenStudio and never duplicates provider work', () => {
+    assert.equal(policy('subtitles_transcribe', { engine: 'genstudio' }).eligible, false)
+    assert.match(policy('subtitles_transcribe', { engine: 'genstudio' }).reason, /GenStudio owns durable/)
+    // Queued pre-migration values are also manual-only while the generator
+    // heals them onto GenStudio.
+    assert.equal(policy('subtitles_transcribe', { engine: 'voicestudio' }).eligible, false)
     assert.equal(policy('subtitles_transcribe', { engine: 'openai' }).eligible, false)
     assert.equal(policy('subtitles_transcribe', {}).eligible, false)
   })
@@ -64,10 +68,10 @@ describe('local auto-retry policy', () => {
     }).eligible, false)
   })
 
-  test('uses two bounded retries and honours an explicit disable', () => {
-    const local = policy('subtitles_transcribe', { engine: 'voicestudio' })
+  test('uses two bounded retries for local work and honours an explicit disable', () => {
+    const local = policy('audio', { model: 'macos-say' })
     assert.equal(local.max_attempts, 3)
     assert.deepEqual(local.delays_ms, [2_000, 8_000])
-    assert.equal(policy('subtitles_transcribe', { engine: 'voicestudio', auto_retry: false }).eligible, false)
+    assert.equal(policy('audio', { model: 'macos-say', auto_retry: false }).eligible, false)
   })
 })

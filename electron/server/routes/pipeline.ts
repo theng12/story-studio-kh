@@ -704,15 +704,14 @@ export function resolveStepParams(
   }
   // ── v1.0.363 audio-paced format steps ──────────────────────────────────
   if (step === 'subtitles') {
-    // subtitles_generator preset: { engine?, vsModel?, force? } (subtitles.vue).
-    // Batch always transcribes per-chapter (audio-paced flow); the VoiceStudio
-    // engine takes a model id, OpenAI/whisper doesn't.
-    const engine = data.engine === 'voicestudio' ? 'voicestudio' : 'openai'
+    // GenStudio is the sole transcription boundary. Old engine/vsModel preset
+    // fields are intentionally ignored so legacy presets heal to the current
+    // published catalog instead of reaching a retired provider directly.
     return {
       episode_id: episodeId,
       per_chapter: true,
-      engine,
-      model: engine === 'voicestudio' ? (data.vsModel || undefined) : undefined,
+      engine: 'genstudio',
+      model: data.model || undefined,
       language: 'en',
       force: data.force === true,
     }

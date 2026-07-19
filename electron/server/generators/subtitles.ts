@@ -1,10 +1,10 @@
 /**
  * Subtitle generation jobs.
  *
- * Today there's exactly one async job: `subtitles_transcribe`, which hits
- * OpenAI Whisper on the episode's merged audio and writes an SRT into the
- * episode's subtitles folder. Chapter-derived and user-uploaded SRTs are
- * synchronous and handled inside their route (no job queue needed).
+ * `subtitles_transcribe` uses GenStudio KH as Story Studio's sole AI
+ * transcription boundary. GenStudio owns Studio Hub routing, VoiceStudio
+ * workers, durable polling, and private artifacts. Chapter-derived and
+ * user-uploaded SRTs remain synchronous local operations.
  */
 
 import fs from 'fs/promises'
@@ -12,12 +12,14 @@ import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { scanEpisodeAssets } from './video.js'
-import { transcribeToSrt } from '../lib/whisper-client.js'
+import {
+  listTranscriptionModels,
+  transcribeWithGenStudio,
+} from '../lib/genstudio-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
 import type { Job } from '../models/types.js'
@@ -28,10 +30,8 @@ export interface TranscribeSubtitlesRequest {
   language?: string
   model?: string
   /**
-   * When true, re-run Whisper even if the SRT already exists. Default false:
-   * a previously-transcribed episode/chapter is silently skipped to avoid
-   * re-billing the paid Whisper API. Surface in the UI as a "Re-run
-   * transcription" checkbox so the user consciously opts into the cost.
+   * When true, re-run transcription even if the SRT already exists. Default
+   * false so verified chapter work is preserved across retries.
    */
   force?: boolean
   /**
@@ -44,15 +44,50 @@ export interface TranscribeSubtitlesRequest {
    */
   per_chapter?: boolean
   /**
-   * v1.0.217+ — which transcription engine to use:
-   *   - 'voicestudio' → the local Voice Studio modal's Whisper STT (free; for
-   *     `model` pass a Whisper repo, defaulting to the modal's default_model).
-   *   - 'openai'      → the paid OpenAI Whisper API (the always-available
-   *     fallback). Default when unset, for backward compat.
-   * The user picks per the Subtitles tab; there is no silent auto-default to
-   * either in the UI.
+   * New work always uses GenStudio. Retired values remain accepted only so a
+   * queued pre-migration job can heal onto the published GenStudio model.
    */
-  engine?: 'openai' | 'voicestudio'
+  engine?: 'genstudio' | 'openai' | 'voicestudio'
+}
+
+async function resolveGenStudioTranscription(
+  job: Job,
+  req: TranscribeSubtitlesRequest,
+): Promise<{ apiKey: string; modelId: string }> {
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey.trim()) {
+    throw new Error(
+      'GenStudio KH API key not configured. Save a key with audio:transcribe in Settings → This Mac → API Keys.',
+    )
+  }
+  let models: Awaited<ReturnType<typeof listTranscriptionModels>>
+  try {
+    models = await listTranscriptionModels(apiKey)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `${message}. Ensure the saved GenStudio KH key includes audio:transcribe.`,
+    )
+  }
+  const requestedModel = req.engine === 'genstudio' ? req.model?.trim() : ''
+  const selected = requestedModel
+    ? models.find(model => model.id === requestedModel)
+    : models.find(model => model.available) || models[0]
+  if (requestedModel && !selected) {
+    throw new Error(`GenStudio KH no longer publishes transcription model "${requestedModel}".`)
+  }
+  if (!selected) throw new Error('GenStudio KH did not publish a transcription model.')
+  if (!selected.available) {
+    throw new Error(`GenStudio KH transcription model "${selected.display_name}" has no ready workers.`)
+  }
+  if (req.engine && req.engine !== 'genstudio') {
+    job.output_lines.push(
+      `Legacy ${req.engine} transcription setting retired — healed to GenStudio KH.`,
+    )
+  }
+  job.output_lines.push(`Engine: GenStudio KH · ${selected.display_name}`)
+  return { apiKey, modelId: selected.id }
 }
 
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
@@ -61,7 +96,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const code = episode_id.toUpperCase()
 
   job.progress = 0
-  job.output_lines.push(`Starting Whisper transcription for ${code}`)
+  job.output_lines.push(`Starting GenStudio transcription for ${code}`)
 
   // v1.0.216+ — Per-chapter mode (audio-paced pipeline). Routed before the
   // merged-audio path: transcribe each chapter's clean narration into
@@ -70,11 +105,8 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     return await transcribePerChapter(job, project_slug, episode_id, req)
   }
 
-  // Cost-saver: if {code}_whisper.srt already exists with content, skip the
-  // (paid) Whisper API call. Whisper has no manifest/recovery flow because
-  // the API is one-shot (no task_id), so the only protection against
-  // double-billing is this existence check. The user can pass force=true
-  // (UI: "Re-run transcription") to consciously opt into the cost.
+  // Preserve already-verified work. GenStudio has its own durable idempotency,
+  // while this file guard prevents an unnecessary new Story job entirely.
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   if (!req.force && await fileExistsWithContent(outPath)) {
@@ -92,13 +124,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project not found')
 
-  // v1.0.393 — honour the chosen engine on the merged-audio path too. This used
-  // to ALWAYS call OpenAI, so a Voice Studio job that ran here (or a retry of
-  // one) silently billed OpenAI — or failed "400 invalid model ID" when it
-  // forwarded the local Whisper repo. Now 'voicestudio' transcribes the merged
-  // file on the same local Mac pool the per-chapter path uses; OpenAI is only
-  // touched when the user explicitly picked the OpenAI engine.
-  const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
+  const genstudio = await resolveGenStudioTranscription(job, req)
 
   // Resolve the audio source: explicit override wins; otherwise we use the
   // first merged-audio file the scanner surfaces. Rejecting the chapter
@@ -116,64 +142,37 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const sourceAudio: string = audioPath
   job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
 
-  // Whisper is a single long HTTP call (30-90 s on a merged sleep-story).
-  // Without cancel propagation, clicking Cancel would mark the job cancelled
-  // but the request would still complete (and still bill, on OpenAI). We poll
-  // `isCancelled` every 500 ms and fire the AbortController — the client unwinds
-  // the in-flight fetch and the transcribe call rejects with an AbortError,
-  // which the queue runner classifies as `cancelled` (not `error`) because the
-  // cancelled set is populated before we abort.
+  // Cancellation aborts upload, durable polling, or private SRT download.
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
 
   try {
-    let srtRaw: string
-    if (engine === 'voicestudio') {
-      // Uses the explicitly selected local route: Studio Hub fleet assignment
-      // or the Direct URL pool. Never switches transports or falls back to OpenAI.
-      const { getApiKey } = await import('../services/app-secrets-store.js')
-      const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
-        await import('../lib/voicestudio-client.js')
-      const { getHubBackend } = await import('../lib/studiohub-client.js')
-      const vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-      const routing = await getHubBackend()
-      job.output_lines.push(
-        `Engine: ${routing.mode === 'hub' ? 'Studio Hub voice fleet' : 'Direct Voice Studio URL pool'} · ` +
-        `${req.model || 'default Whisper model'}`,
-      )
-      job.progress = Math.max(job.progress ?? 0, 10)
-      const result = await transcribeViaConfiguredBackend(vsStoredUrl, sourceAudio, {
-        model: req.model,
-        language: req.language || 'en',
-        signal: controller.signal,
-      })
-      srtRaw = result.srt
-      job.progress = Math.max(job.progress ?? 0, 90)
-    } else {
-      const apiKey = await resolveApiKeyForProviderId(project_slug, 'openai', {
-        model: req.model || 'whisper',
-        jobId: job.job_id,
-      })
-      if (!apiKey) throw new Error('OpenAI API key not configured — add it in Settings → API Keys')
-      job.output_lines.push('Engine: OpenAI Whisper API')
-      srtRaw = await transcribeToSrt({
-        apiKey,
-        audioPath: sourceAudio,
-        language: req.language,
-        model: req.model,
-        signal: controller.signal,
-        onProgress: (phase, pct) => {
-          job.progress = Math.max(job.progress ?? 0, pct)
-          job.output_lines.push(`Whisper: ${phase} (${pct}%)`)
-        },
-      })
-    }
+    const result = await transcribeWithGenStudio(genstudio.apiKey, {
+      audioPath: sourceAudio,
+      modelId: genstudio.modelId,
+      storyJobId: `${job.job_id}:merged`,
+      language: req.language || 'en',
+      signal: controller.signal,
+      isCancelled: () => jq.isCancelled(job.job_id),
+      onState: (state) => {
+        const progressByState: Record<string, number> = {
+          accepted: 10,
+          reserved: 15,
+          dispatched: 25,
+          running: 55,
+          reconciling: 55,
+          validating: 85,
+          succeeded: 95,
+        }
+        job.progress = Math.max(job.progress ?? 0, progressByState[state] || 10)
+      },
+    })
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
-    return await finalizeTranscript(job, project_slug, episode_id, srtRaw)
+    return await finalizeTranscript(job, project_slug, episode_id, result.srt)
   } finally {
     clearInterval(cancelWatcher)
   }
@@ -196,35 +195,7 @@ async function transcribePerChapter(
   const config = await pm.getConfig(projectSlug)
   if (!config) throw new Error('Project not found')
 
-  // v1.0.217+ — resolve the chosen engine up front. 'voicestudio' uses the
-  // local modal's free Whisper STT; 'openai' is the separately selected paid engine.
-  const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
-  const { transcribeViaConfiguredBackend, DEFAULT_VOICESTUDIO_BASE_URL } =
-    await import('../lib/voicestudio-client.js')
-  let apiKey = ''            // OpenAI key (openai engine)
-  let vsStoredUrl = ''       // Voice Studio modal URL list (voicestudio engine)
-  let vsModel = req.model    // requested Whisper repo (voicestudio engine)
-
-  if (engine === 'voicestudio') {
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { getHubBackend } = await import('../lib/studiohub-client.js')
-    // v1.0.348 — keep the URL list intact. The per-chapter call below uses
-    // the shared least-busy transcription dispatcher, so separate episode jobs
-    // can run on separate Macs instead of every job choosing endpoint #1.
-    vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    const routing = await getHubBackend()
-    job.output_lines.push(
-      `Engine: ${routing.mode === 'hub' ? 'Studio Hub voice fleet' : 'Direct Voice Studio URL pool'} · ` +
-      `${vsModel || 'default Whisper model'}`,
-    )
-  } else {
-    apiKey = await resolveApiKeyForProviderId(projectSlug, 'openai', {
-      model: req.model || 'whisper',
-      jobId: job.job_id,
-    })
-    if (!apiKey) throw new Error('OpenAI API key not configured — add it in Settings → API Keys')
-    job.output_lines.push('Engine: OpenAI Whisper API')
-  }
+  const genstudio = await resolveGenStudioTranscription(job, req)
 
   // Resolve the audio dir via the reconciler (it knows the 07-folder contract),
   // then scan that dir DIRECTLY for chapter MP3s.
@@ -291,34 +262,19 @@ async function transcribePerChapter(
   let done = 0
   let totalCues = 0
   let generatedSections = 0
-  // v1.0.393 — per-chapter failure isolation. A chapter whose transcription
-  // exhausts the Voice Studio pool's failover (e.g. a Mac slept mid-request and
-  // the pool was momentarily empty) used to THROW out of the worker, rejecting
-  // the whole `Promise.all` and discarding every chapter that already
-  // succeeded. We now record the failure and keep going — mirroring the
-  // zero-cue / missing-audio skip paths — so good chapters are written and the
-  // user can re-run to fill in just the stragglers (existing SRTs are skipped).
+  // Preserve successful chapters when another GenStudio job fails. Completion
+  // verification below names every missing section so Retry fills only gaps.
   const failures: Array<{ slug: string; error: string }> = []
 
-  // Cloud Whisper honours Settings → Cloud generation limits. Local Voice
-  // Studio always fans chapters across every model-ready Mac; a cloud tuning
-  // choice must never leave free local capacity idle.
+  // Story controls upload concurrency; GenStudio alone owns worker capacity
+  // and fleet routing behind its API boundary.
   const { getConfig } = await import('../services/project-manager.js')
   const subConfig = await getConfig(projectSlug)
   const rawConc = (subConfig as any)?.subtitle_concurrency
-  let concurrency: number
-  if (engine === 'voicestudio') {
-    const { readyTranscribeBackendCount } = await import('../lib/voicestudio-client.js')
-    const n = await readyTranscribeBackendCount(vsStoredUrl, vsModel).catch(() => 1)
-    concurrency = Math.max(1, Math.min(50, n || 1))
-  } else {
-    concurrency = rawConc === 'auto'
-      ? 3
-      : Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
-  }
-  const routingNote = engine === 'voicestudio'
-    ? ` (local fleet — ${concurrency} model-ready Mac${concurrency === 1 ? '' : 's'}; cloud limit bypassed)`
-    : (rawConc === 'auto' ? ' (cloud default)' : '')
+  const concurrency = rawConc === 'auto'
+    ? 3
+    : Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
+  const routingNote = rawConc === 'auto' ? ' (GenStudio default)' : ''
   job.output_lines.push(
     `Transcribing ${sections.length} chapter(s)` +
     (concurrency > 1 ? ` — up to ${concurrency} at a time${routingNote}` : ` (sequential${routingNote})`) + '…',
@@ -367,24 +323,15 @@ async function transcribePerChapter(
 
     job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
     try {
-      let srtRaw: string
-      if (engine === 'voicestudio') {
-        const result = await transcribeViaConfiguredBackend(vsStoredUrl, audioPath, {
-          model: vsModel,
-          language: req.language || 'en',
-          signal: controller.signal,
-        })
-        srtRaw = result.srt
-      } else {
-        srtRaw = await transcribeToSrt({
-          apiKey,
-          audioPath,
-          language: req.language,
-          model: req.model,
-          signal: controller.signal,
-        })
-      }
-      const { srt, cues, warnings } = normalizeSrtOrVtt(srtRaw)
+      const result = await transcribeWithGenStudio(genstudio.apiKey, {
+        audioPath,
+        modelId: genstudio.modelId,
+        storyJobId: `${job.job_id}:${sec.slug}`,
+        language: req.language || 'en',
+        signal: controller.signal,
+        isCancelled: () => jq.isCancelled(job.job_id),
+      })
+      const { srt, cues, warnings } = normalizeSrtOrVtt(result.srt)
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
       if (cues === 0) {
         job.output_lines.push(`  ⚠ ${sec.slug}: zero cues — skipped`)
@@ -539,7 +486,7 @@ async function finalizeTranscript(
 ): Promise<void> {
   const code = episodeId.toUpperCase()
 
-  // Whisper already returns SRT, but run it through the normalizer to
+  // GenStudio already returns SRT, but run it through the normalizer to
   // harden against odd trailing whitespace and strip VTT-style timestamps
   // if the model ever returns them.
   const { srt, cues, warnings } = normalizeSrtOrVtt(srtRaw)

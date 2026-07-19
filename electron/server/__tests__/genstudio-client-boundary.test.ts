@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 import { DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS } from '../models/defaults.js'
 import { normalizeVoicePresets, voiceSupportsProvider } from '../services/voice-presets.js'
 import {
+  buildGenStudioTranscriptionIdempotencyKey,
   buildGenStudioSubmission,
   catalogHasVoice,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
   splitGenStudioApiRequests,
+  transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 
 test('GenStudio standard voices are an explicit, bounded TTS route', () => {
@@ -88,6 +93,135 @@ test('GenStudio client cannot bypass its API boundary to contact Studio Hub', ()
   assert.equal(source.includes('getHubBackend'), false)
   assert.equal(source.includes('hubSubmitJob'), false)
   assert.match(source, /No direct Studio Hub fallback was attempted/)
+  assert.match(source, /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/)
+})
+
+test('GenStudio transcription retries keep one identity while manual jobs stay distinct', () => {
+  const input = {
+    storyJobId: 'story-job-1',
+    fileSha256: 'a'.repeat(64),
+    modelId: 'mlx-community/whisper-large-v3-turbo',
+    language: 'en',
+    wordTimestamps: false,
+  }
+  const first = buildGenStudioTranscriptionIdempotencyKey(input)
+  assert.equal(first, buildGenStudioTranscriptionIdempotencyKey(input))
+  assert.notEqual(first, buildGenStudioTranscriptionIdempotencyKey({
+    ...input,
+    storyJobId: 'story-job-2',
+  }))
+  assert.match(first, /^story-stt-[a-f0-9]{48}$/)
+})
+
+test('Story transcription has no direct OpenAI, Studio Hub, or Voice Studio route', () => {
+  const generator = readFileSync(new URL('../generators/subtitles.ts', import.meta.url), 'utf8')
+  const audioRoutes = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
+  const pipeline = readFileSync(new URL('../routes/pipeline.ts', import.meta.url), 'utf8')
+  const voiceStudioClient = readFileSync(new URL('../lib/voicestudio-client.ts', import.meta.url), 'utf8')
+  assert.match(generator, /transcribeWithGenStudio/)
+  assert.doesNotMatch(generator, /transcribeToSrt/)
+  assert.doesNotMatch(generator, /transcribeViaConfiguredBackend/)
+  assert.doesNotMatch(audioRoutes, /router\.get\('\/voicestudio\/transcribe-availability'/)
+  assert.doesNotMatch(audioRoutes, /router\.post\('\/voicestudio\/download-model'/)
+  assert.doesNotMatch(voiceStudioClient, /\/api\/transcribe/)
+  assert.match(pipeline, /engine: 'genstudio'/)
+})
+
+test('GenStudio transcription uploads the selected model and verifies private SRT output', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-'))
+  const audioPath = path.join(dir, 'chapter.wav')
+  await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
+  const originalFetch = globalThis.fetch
+  let submittedModel = ''
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/audio/transcriptions')) {
+        const body = init?.body as FormData
+        submittedModel = String(body.get('model'))
+        assert.equal(init?.method, 'POST')
+        assert.equal((init?.headers as Record<string, string>)?.Authorization, 'Bearer scoped-key')
+        assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-stt-/)
+        return Response.json({
+          id: 'job_transcription_ok',
+          state: 'succeeded',
+          model_id: submittedModel,
+          srt_url: '/v1/transcriptions/job_transcription_ok/srt',
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/transcriptions/job_transcription_ok/srt')) {
+        assert.equal((init?.headers as Record<string, string>)?.Authorization, 'Bearer scoped-key')
+        return new Response('1\n00:00:00,000 --> 00:00:01,000\nHello.\n')
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await transcribeWithGenStudio('scoped-key', {
+      audioPath,
+      modelId: 'mlx-community/whisper-large-v3-turbo',
+      storyJobId: 'story-job-success',
+      language: 'en',
+    })
+    assert.equal(submittedModel, 'mlx-community/whisper-large-v3-turbo')
+    assert.equal(result.jobId, 'job_transcription_ok')
+    assert.match(result.srt, /Hello\./)
+  } finally {
+    globalThis.fetch = originalFetch
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('terminal GenStudio failure never falls back and empty artifacts never count as complete', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-failure-'))
+  const audioPath = path.join(dir, 'chapter.wav')
+  await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/audio/transcriptions')) {
+        return Response.json({
+          id: 'job_transcription_failed',
+          state: 'failed',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          failure_code: 'worker_failed',
+        }, { status: 202 })
+      }
+      throw new Error(`Unexpected fallback request: ${url}`)
+    }
+    await assert.rejects(
+      transcribeWithGenStudio('scoped-key', {
+        audioPath,
+        modelId: 'mlx-community/whisper-large-v3-turbo',
+        storyJobId: 'story-job-failure',
+      }),
+      /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/,
+    )
+
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/audio/transcriptions')) {
+        return Response.json({
+          id: 'job_transcription_empty',
+          state: 'succeeded',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          srt_url: '/v1/transcriptions/job_transcription_empty/srt',
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/transcriptions/job_transcription_empty/srt')) return new Response('   ')
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    await assert.rejects(
+      transcribeWithGenStudio('scoped-key', {
+        audioPath,
+        modelId: 'mlx-community/whisper-large-v3-turbo',
+        storyJobId: 'story-job-empty',
+      }),
+      /empty SRT artifact/,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    await fs.rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('GenStudio catalog membership accepts only enabled live voice IDs', () => {

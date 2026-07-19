@@ -68,3 +68,21 @@ test('Audio Generator shows the GenStudio 15,000-character request boundary', ()
   assert.match(audioPage, /GenStudio request boundary/)
   assert.doesNotMatch(audioPage, /GenStudio[^\n]{0,120}30[- ]?second/i)
 })
+
+test('all Story Studio transcription UI uses the GenStudio model catalog only', () => {
+  const subtitles = readFileSync(
+    new URL('../pages/projects/[slug]/subtitles.vue', import.meta.url),
+    'utf8',
+  )
+  const broll = readFileSync(
+    new URL('../pages/projects/[slug]/broll.vue', import.meta.url),
+    'utf8',
+  )
+  for (const source of [subtitles, broll]) {
+    assert.match(source, /useGenStudioTranscriptionModels/)
+    assert.match(source, /engine: 'genstudio'/)
+    assert.doesNotMatch(source, /OpenAI Whisper/)
+    assert.doesNotMatch(source, /voicestudio\/transcribe-availability/)
+    assert.doesNotMatch(source, /voicestudio\/download-model/)
+  }
+})
