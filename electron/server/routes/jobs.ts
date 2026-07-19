@@ -261,6 +261,36 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   res.json(job)
 })
 
+// Read-only Studio Hub image recovery. Re-enqueues the original generator with
+// its accepted batch checkpoint and a hard `hub_repair_only` guard. The
+// generator may poll/download successful artifacts, but the provider refuses
+// to POST a replacement batch in this mode.
+router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (req, res) => {
+  const original = jq.getJob(req.params.jobId)
+  if (!original || original.project_slug !== req.params.slug) {
+    return res.status(404).json({ detail: 'Job not found' })
+  }
+  if (original.status !== 'error' && original.status !== 'cancelled') {
+    return res.status(409).json({ detail: 'Only failed or cancelled Hub image jobs can be repaired.' })
+  }
+  const checkpoint = (original.params as any)?.hub_image_recovery
+  const repairableTypes = new Set(['scene_images_batch', 'continuity_render', 'image_pool_generate'])
+  if (!repairableTypes.has(original.type) || !checkpoint?.batch_id) {
+    return res.status(409).json({
+      detail: 'No accepted Studio Hub image batch is saved for this job. Use Retry; a prepared idempotency key will safely resolve an uncertain submission.',
+    })
+  }
+  const params = { ...original.params, hub_repair_only: true, hub_repair_source_job_id: original.job_id }
+  const job = jq.enqueue({
+    project_slug: original.project_slug,
+    type: original.type,
+    episode_id: original.episode_id,
+    title: `Repair Hub images — ${original.title || original.episode_id}`,
+    params,
+  })
+  res.status(202).json({ ok: true, job_id: job.job_id, job })
+})
+
 // Queue-level Retry fallback. Specialized generator pages may still use their
 // own healing endpoints, but every registered job type remains recoverable
 // even when a newer executor has not yet been added to a frontend map.

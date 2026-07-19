@@ -300,7 +300,7 @@
                  combined button caused duplicate provider tasks when
                  users clicked it repeatedly to "make it work". -->
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type) && !job.auto_retry?.eligible"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && (!job.auto_retry?.eligible || hasHubImageCheckpoint(job))"
               class="btn btn-xs btn-primary"
               @click="repairJobOnly(job)"
               title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
@@ -481,7 +481,7 @@
             <div class="job-actions">
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type) && !job.auto_retry?.eligible"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && (!job.auto_retry?.eligible || hasHubImageCheckpoint(job))"
                 class="btn btn-xs btn-primary"
                 @click="repairJobOnly(job)"
                 title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
@@ -712,7 +712,7 @@ const interruptedJobs = computed(() =>
 // metadata / etc.) stay visible — the user can Retry them individually
 // after reviewing whether they want to spend money to re-run.
 const interruptedJobsRepairable = computed(() =>
-  interruptedJobs.value.filter((j: RJob) => jobCanBeRepaired(j.type))
+  interruptedJobs.value.filter((j: RJob) => jobCanBeRepaired(j))
 )
 async function repairAllInterrupted() {
   // v1.0.114 — fan out to repairJobOnly instead of retryJob. Same
@@ -752,7 +752,7 @@ async function repairAllInterrupted() {
 // finished" one-click. Genuinely-missing items stay failed for a later Retry.
 const repairingAllFailed = ref(false)
 const repairableFailedJobs = computed(() =>
-  jobs.value.filter((j: RJob) => (j.status === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j.type))
+  jobs.value.filter((j: RJob) => (j.status === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
 )
 async function repairAllFailed() {
   const snapshot = [...repairableFailedJobs.value]
@@ -1296,8 +1296,16 @@ const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; b
   },
 }
 
-function jobCanBeRepaired(jobType: string): boolean {
-  return jobType in REPAIR_ENDPOINTS
+function hasHubImageCheckpoint(job: Pick<RJob, 'type' | 'params'>): boolean {
+  const checkpoint = (job.params as any)?.hub_image_recovery
+  return ['scene_images_batch', 'continuity_render', 'image_pool_generate'].includes(job.type)
+    && typeof checkpoint?.batch_id === 'string'
+    && checkpoint.batch_id.length > 0
+}
+
+function jobCanBeRepaired(jobOrType: Pick<RJob, 'type' | 'params'> | string): boolean {
+  if (typeof jobOrType === 'string') return jobOrType in REPAIR_ENDPOINTS
+  return hasHubImageCheckpoint(jobOrType) || jobOrType.type in REPAIR_ENDPOINTS
 }
 
 // v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
@@ -1308,6 +1316,9 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'FREE LOCAL RETRY — The automatic attempts are exhausted or this run was stopped. Starts another bounded local retry cycle and keeps verified files already on disk. No paid API request is made.'
   }
   const jobType = job.type
+  if (hasHubImageCheckpoint(job as RJob)) {
+    return 'SAFE HUB RECOVERY — Repair reconnects to the accepted Studio Hub batch and downloads completed images without submitting anything new. Retry reuses the saved idempotency identity, then submits only verified-missing images if the old batch is terminal.'
+  }
   if (jobType === 'scene_plan_run') {
     return 'SMART RETRY — Keeps every prompt already verified on disk and requests only missing or duplicated stable scene IDs. Paid cloud models make one manual request per remaining pack; local models use bounded free retries.'
   }
@@ -1321,7 +1332,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     }
     return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
-  if (jobCanBeRepaired(jobType)) {
+  if (jobCanBeRepaired(job)) {
     return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
   }
   return 'CHARGES MAY APPLY — Deletes this failed job and re-submits it. Re-runs the whole step (this job type has no partial/repair path).'
@@ -1367,7 +1378,14 @@ function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {
  * missing).
  */
 async function repairJobOnly(job: RJob) {
-  const template = REPAIR_ENDPOINTS[job.type]
+  const hubRepair = hasHubImageCheckpoint(job)
+  const template = hubRepair
+    ? {
+        url: (projectSlug: string) => `/projects/${projectSlug}/jobs/${encodeURIComponent(job.job_id)}/repair-hub-image`,
+        body: {},
+        mode: 'queued' as const,
+      }
+    : REPAIR_ENDPOINTS[job.type]
   if (!template) {
     showError(`This job type doesn't support repair. Use Retry to re-submit instead.`)
     return
@@ -1396,7 +1414,8 @@ async function repairJobOnly(job: RJob) {
     }>(url, body)
 
     if (template.mode === 'queued' && resp?.job_id) {
-      await waitForJobTerminal(resp.job_id, 10 * 60_000, projectSlug)
+      const terminal = await waitForJobTerminal(resp.job_id, 10 * 60_000, projectSlug)
+      if (terminal?.result && typeof terminal.result === 'object') Object.assign(resp, terminal.result)
     }
 
     // Sync repair returns a useful summary; queued repair returns nothing
@@ -1586,7 +1605,7 @@ async function retryJob(job: RJob) {
  * so the caller's catch surfaces it as a non-fatal warning and continues
  * to the retry.
  */
-async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug: string): Promise<void> {
+async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug: string): Promise<any | null> {
   const POLL_INTERVAL_MS = 2000
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -1596,11 +1615,11 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug:
     } catch (e: any) {
       // 404 = job already cleared (rare — would mean another tab's
       // "Clear finished" ran during the wait). Treat as terminal.
-      if (e?.response?.status === 404) return
+      if (e?.response?.status === 404) return null
       throw e
     }
-    if (!job) return
-    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return
+    if (!job) return null
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return job
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
   throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s — proceeding with retry anyway.`)

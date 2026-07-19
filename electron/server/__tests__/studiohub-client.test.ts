@@ -191,6 +191,28 @@ describe('Hub shared voice inventory', () => {
 })
 
 describe('hubSubmitJob strict transport contract', () => {
+  test('forwards the stable clientRequestId and reports an idempotent replay', async () => {
+    const originalFetch = globalThis.fetch
+    let submitted: any
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      submitted = JSON.parse(String(init?.body || '{}'))
+      return new Response(JSON.stringify({ batch_id: 'existing-batch', items: 1, replayed: true }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+    try {
+      const result = await hubSubmitJob('http://hub:47873', undefined, {
+        modality: 'image', model: 'x/y', clientRequestId: 'story-stable-123',
+        items: [{ prompt: 'p' }],
+      })
+      assert.equal(submitted.clientRequestId, 'story-stable-123')
+      assert.equal(result.batch_id, 'existing-batch')
+      assert.equal(result.replayed, true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   // A DOWN Hub must throw a clearly classified connection error. Providers
   // report it and keep the configured Hub route; they do not switch to Direct.
   test('a dead Hub throws a classified connection error', async () => {

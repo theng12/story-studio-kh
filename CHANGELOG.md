@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.649 — 2026-07-19
+
+**Studio Hub image batches now recover themselves after disconnects, crashes, and power cuts.**
+
+- Saves a stable idempotency key before submitting fleet-wide image work and checkpoints the accepted Studio Hub batch ID before polling begins.
+- Reconnects accepted scene-image, independent continuity, and image-pool batches automatically at app startup without waiting for the Jobs page to open.
+- Keeps every verified image from partial batches and gives only conclusively missing targets a fresh batch identity on bounded Retry, preventing duplicate fleet work.
+- Adds a safe Hub-aware Repair action that can only poll and download artifacts from an existing batch; it is technically blocked from submitting replacement generation.
+- Shows whether recovered artifacts are complete or whether a deliberate Retry is still required.
+
+---
+
 ## v1.0.648 — 2026-07-19
 
 **Channel Character reference images now serve reliably from the shared library.**

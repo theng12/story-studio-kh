@@ -25,7 +25,7 @@ import {
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
 import { runOnPool } from '../../lib/endpoint-pool.js'
-import { getHubBackend, hubSubmitJob, hubPollBatch, hubBatchArtifactUrl, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem } from '../../lib/studiohub-client.js'
+import { getHubBackend, hubSubmitJob, hubPollBatch, hubBatchArtifactUrl, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem, type HubBatchStatus } from '../../lib/studiohub-client.js'
 import { promises as fsp } from 'fs'
 
 /**
@@ -188,32 +188,53 @@ export async function renderImageBatchViaHub(
     label?: string
     isCancelled?: () => boolean
     onItemDone?: (index: number, result: HubBatchItemOutcome) => void | Promise<void>
+    recovery?: {
+      clientRequestId: string
+      batchId?: string
+      repairOnly?: boolean
+      onAccepted?: (batchId: string, replayed: boolean) => void | Promise<void>
+      onFinished?: (status: HubBatchStatus) => void | Promise<void>
+    }
   } = {},
-): Promise<void> {
-  if (!requests.length) return
+): Promise<HubBatchStatus> {
+  if (!requests.length) throw new Error('Studio Hub image batch requires at least one item')
   const hub = await getHubBackend()
   if (hub.mode !== 'hub' || !hub.hubUrl) throw new Error('Studio Hub is not the active backend')
   const repo = repoForModelId(requests[0]!.modelId)
   if (!repo) throw new Error(`Studio Hub batch received unknown model id '${requests[0]!.modelId}'.`)
-  const items: HubJobItem[] = []
-  for (const r of requests) items.push(await buildHubImageItem(r, hub))
-  const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
-    modality: 'image', model: repo, label: opts.label || 'storystudio-kh', routing: 'pool', items,
-  })
-  await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, {
+  let batchId = opts.recovery?.batchId
+  if (!batchId) {
+    if (opts.recovery?.repairOnly) {
+      throw new Error('Repair is read-only and no accepted Studio Hub batch_id is available.')
+    }
+    const items: HubJobItem[] = []
+    for (const r of requests) items.push(await buildHubImageItem(r, hub))
+    const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+      modality: 'image', model: repo, label: opts.label || 'storystudio-kh', routing: 'pool',
+      clientRequestId: opts.recovery?.clientRequestId,
+      items,
+    })
+    batchId = sub.batch_id
+    // This callback is deliberately awaited before polling. The accepted id
+    // must reach jobs.json before any later crash/disconnect can lose it.
+    await opts.recovery?.onAccepted?.(batchId, sub.replayed)
+  }
+  const status = await hubPollBatch(hub.hubUrl, hub.hubToken, batchId, {
     isCancelled: opts.isCancelled,
     // Generous ceiling — the Hub owns the queue; poll just needs to outlast it.
     timeoutMs: Math.max(20 * 60_000, requests.length * 45_000),
     onItemDone: async (it) => {
       await opts.onItemDone?.(it.index, {
         url: it.state === 'done' && it.artifact_url
-          ? hubBatchArtifactUrl(hub.hubUrl, sub.batch_id, it.index)
+          ? hubBatchArtifactUrl(hub.hubUrl, batchId, it.index)
           : undefined,
-        taskId: it.asset_id || sub.batch_id,
+        taskId: it.asset_id || batchId,
         error: it.state === 'done' ? undefined : (it.error || it.state),
       })
     },
   })
+  await opts.recovery?.onFinished?.(status)
+  return status
 }
 
 const imagestudioImageProvider: ImageProvider = {

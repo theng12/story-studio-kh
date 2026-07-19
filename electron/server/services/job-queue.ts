@@ -458,6 +458,7 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
   if (loadedProjects.has(projectSlug)) return
   loadedProjects.add(projectSlug)
   const p = jobsPath(projectSlug)
+  const resumedTypes = new Set<JobType>()
   try {
     if (existsSync(p)) {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
@@ -472,9 +473,26 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
           // See __tests__/job-queue-stale-running-persist.test.ts.
           let mutated = false
           if (j.status === 'running' || j.status === 'queued') {
-            j.status = 'error'
-            j.error = 'Interrupted by app restart'
-            j.finished_at = j.finished_at || new Date().toISOString()
+            const checkpoint = j.params?.hub_image_recovery
+            const recoverableHubImage = !!checkpoint
+              && checkpoint.version === 1
+              && (checkpoint.state === 'prepared' || checkpoint.state === 'accepted')
+              && ['scene_images_batch', 'continuity_render', 'image_pool_generate'].includes(j.type)
+              && !!queues[j.type as JobType]?.executor
+            if (recoverableHubImage) {
+              j.status = 'queued'
+              j.started_at = null
+              j.finished_at = null
+              j.error = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
+              queues[j.type as JobType].pending.push(j)
+              resumedTypes.add(j.type as JobType)
+            } else {
+              j.status = 'error'
+              j.error = 'Interrupted by app restart'
+              j.finished_at = j.finished_at || new Date().toISOString()
+            }
             mutated = true
           }
           jobs.set(j.job_id, j)
@@ -492,7 +510,23 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
         }
       }
     }
+    for (const type of resumedTypes) pump(type)
   } catch { /* ignore corrupt file */ }
+}
+
+/**
+ * Eager boot scan for accepted Hub image work. Ordinary job history is loaded
+ * lazily per project, but recovery cannot depend on somebody opening the Jobs
+ * page after a power cut. Executors call this once after every queue lane has
+ * been registered; loadPersistedJobs then requeues only checkpoints that can
+ * safely reconnect without duplicating generation.
+ */
+export async function resumeInterruptedHubImageJobsAtBoot(): Promise<void> {
+  const { listProjects } = await import('./project-manager.js')
+  const projects = await listProjects()
+  for (const project of projects as Array<{ slug?: string }>) {
+    if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
+  }
 }
 
 // ── Queue processing ────────────────────────────────────────────────────────

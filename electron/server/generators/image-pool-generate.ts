@@ -28,6 +28,14 @@ import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
+import {
+  acceptHubImageRecovery,
+  completeHubImageRecovery,
+  finishHubImageRecoveryPoll,
+  getReconnectableHubImageRecovery,
+  prepareHubImageRecovery,
+  type HubImageRecoveryCheckpoint,
+} from '../services/hub-image-recovery.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
@@ -38,6 +46,8 @@ interface ImagePoolGenerateParams {
   variants?: number
   /** Durable identity retained by manual/local retries. */
   run_id?: string
+  /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
+  hub_repair_only?: boolean
 }
 
 export async function generateImagePoolImages(job: Job): Promise<void> {
@@ -119,9 +129,16 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const initialReady = new Set<string>()
   for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
   let remaining = items.filter(item => !initialReady.has(item.filename))
+  const logicalRecoveryId = `image-pool:${poolId}:${runId}`
+  const repairOnly = params.hub_repair_only === true
+  const savedRecovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
+  if (savedRecovery && (savedRecovery.state === 'prepared' || savedRecovery.state === 'accepted' || repairOnly)) {
+    const savedIds = new Set(savedRecovery.target_ids)
+    remaining = items.filter(item => savedIds.has(item.filename))
+  }
   let made = 0
   let failed = 0
-  let processed = initialReady.size
+  let processed = items.length - remaining.length
   const successfulFiles = new Set(initialReady)
   const failedFiles = new Set<string>()
 
@@ -147,17 +164,42 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   // (no references). Hub mode is strict; failure preserves verified files and
   // stops instead of switching transports.
   let batchDone = false
+  let batchRecovery: HubImageRecoveryCheckpoint | null = null
   const hub = await getHubBackend()
+  if (repairOnly && (hub.mode !== 'hub' || !hub.hubUrl || providerId !== 'imagestudio')) {
+    throw new Error('Studio Hub image Repair is read-only and requires the saved Hub backend to be active.')
+  }
   if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && remaining.length > 0) {
     try {
       const batchItems = [...remaining]
       const reqs: ImageGenerationRequest[] = batchItems.map(item => ({
         prompt: item.prompt, apiKey, aspectRatio, modelId: model, providerParams,
       } as ImageGenerationRequest))
-      job.output_lines.push(`Studio Hub batch — ${reqs.length} image(s) as ONE render; the Hub distributes across the fleet.`)
+      batchRecovery = await prepareHubImageRecovery(job, {
+        logicalId: logicalRecoveryId,
+        targetIds: batchItems.map(item => item.filename),
+        hubUrl: hub.hubUrl,
+        requestIdentity: reqs,
+        repairOnly,
+      })
+      job.output_lines.push(batchRecovery.batch_id
+        ? `Studio Hub recovery — reconnecting batch ${batchRecovery.batch_id} for ${reqs.length} image(s).`
+        : `Studio Hub batch — ${reqs.length} image(s) as ONE idempotent render; the Hub distributes across the fleet.`)
       await renderImageBatchViaHub(reqs, {
         label: `storystudio:pool/${pool.name}`,
         isCancelled: () => jq.isCancelled(job.job_id),
+        recovery: {
+          clientRequestId: batchRecovery.client_request_id,
+          batchId: batchRecovery.batch_id,
+          repairOnly,
+          onAccepted: async (batchId, replayed) => {
+            await acceptHubImageRecovery(job, batchRecovery!, batchId)
+            job.output_lines.push(replayed
+              ? `Studio Hub safely replayed the saved request as existing batch ${batchId}.`
+              : `Studio Hub accepted batch ${batchId}; recovery checkpoint saved.`)
+          },
+          onFinished: status => finishHubImageRecoveryPoll(job, batchRecovery!, status),
+        },
         onItemDone: async (index, result) => {
           const item = batchItems[index]
           if (!item) return
@@ -221,6 +263,21 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const missing: string[] = []
   for (const item of items) if (!await isUsable(item.filename)) missing.push(item.filename)
   for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)
+  if (batchRecovery && missing.length === 0) await completeHubImageRecovery(job, batchRecovery)
+  if (repairOnly) {
+    job.result = {
+      repair_only: true,
+      total_expected: items.length,
+      recovered: items.length - missing.length,
+      still_missing: missing.length,
+    }
+    job.output_lines.push(
+      missing.length === 0
+        ? `Repair complete — all ${items.length} Hub image artifact(s) are verified on disk.`
+        : `Repair recovered every available Hub artifact; ${missing.length} image(s) still need a deliberate Retry.`,
+    )
+    return
+  }
   requireJobCompletion(job, {
     label: 'Image pool generation', expected: total, completed: total - missing.length,
     missing,

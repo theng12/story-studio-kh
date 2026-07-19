@@ -284,6 +284,9 @@ export interface HubSubmitBody {
   /** 'pool' (Hub picks a capable studio) | 'remote' (never Hub Mac) | 'studio:<id>'. */
   routing?: string
   sharedParams?: Record<string, any>
+  /** Stable caller identity. Studio Hub replays the original batch when the
+   * same id + request body is submitted after an ambiguous network failure. */
+  clientRequestId?: string
   items: HubJobItem[]
 }
 
@@ -386,7 +389,7 @@ export async function hubSubmitJob(
   hubUrl: string,
   token: string | undefined,
   body: HubSubmitBody,
-): Promise<{ batch_id: string; items: number }> {
+): Promise<{ batch_id: string; items: number; replayed: boolean }> {
   let resp: Response
   try {
     resp = await fetch(`${hubApiBase(hubUrl)}/jobs`, {
@@ -402,11 +405,11 @@ export async function hubSubmitJob(
     const t = await resp.text().catch(() => '')
     throw new Error(`Studio Hub submit failed (${resp.status}): ${t.slice(0, 300)}`)
   }
-  const j = await resp.json().catch(() => ({})) as { batch_id?: string; items?: number }
+  const j = await resp.json().catch(() => ({})) as { batch_id?: string; items?: number; replayed?: boolean }
   if (!j?.batch_id) {
     throw new Error(`Studio Hub submit returned no batch_id: ${JSON.stringify(j).slice(0, 200)}`)
   }
-  return { batch_id: j.batch_id, items: j.items ?? body.items.length }
+  return { batch_id: j.batch_id, items: j.items ?? body.items.length, replayed: j.replayed === true }
 }
 
 /** Fetch one accepted batch without waiting. Used to reconnect a persisted

@@ -7,7 +7,7 @@
  * grep across app.ts.
  */
 
-import { registerExecutor, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
+import { registerExecutor, resumeInterruptedHubImageJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
 import { getScriptConcurrency } from '../services/app-settings.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
@@ -163,5 +163,10 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     void getScriptConcurrency()
       .then(setLlmConcurrency)
       .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
+    // Do not wait for a UI visit after a crash: accepted image batches resume
+    // as soon as all executors are registered. The scan is read-mostly and
+    // only queues jobs with a durable prepared/accepted Hub checkpoint.
+    void resumeInterruptedHubImageJobsAtBoot()
+      .catch(e => console.warn('[boot] failed to resume Studio Hub image jobs:', e?.message))
   }
 }

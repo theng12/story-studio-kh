@@ -41,6 +41,14 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
+import {
+  acceptHubImageRecovery,
+  completeHubImageRecovery,
+  finishHubImageRecoveryPoll,
+  getReconnectableHubImageRecovery,
+  prepareHubImageRecovery,
+  type HubImageRecoveryCheckpoint,
+} from '../services/hub-image-recovery.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -94,6 +102,8 @@ interface ContinuityRenderParams {
    *  Scene Review preset's `render_scale` instead of explicit px. Resolved to
    *  width/height here when explicit px aren't supplied. Cloud providers ignore. */
   render_scale?: number
+  /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
+  hub_repair_only?: boolean
 }
 
 interface ContinuityCfg {
@@ -502,7 +512,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // Explicit manual selections overwrite their chosen images. Missing-only
     // selections are durable repair scopes: retries re-check disk and submit
     // only IDs that still lack a verified image.
-    const toRender = selectIndependentRenderScenes(scenes, {
+    const logicalRecoveryId = `continuity-independent:${slug}:${episode_id.toUpperCase()}`
+    const repairOnly = params.hub_repair_only === true
+    const savedRecovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
+    let toRender = selectIndependentRenderScenes(scenes, {
       sceneIds: params.scene_ids,
       missingOnly: params.missing_only,
       singleIndex,
@@ -510,6 +523,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       fromIndex,
       hasRenderedImage,
     })
+    if (savedRecovery && (savedRecovery.state === 'prepared' || savedRecovery.state === 'accepted' || repairOnly)) {
+      const savedIds = new Set(savedRecovery.target_ids)
+      toRender = scenes.filter(scene => savedIds.has(scene.id))
+    }
     skipped = scenes.length - toRender.length
 
     job.output_lines.push(
@@ -543,7 +560,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // Results stream back per scene as they finish (poll-based, no webhook).
     // Hub mode is strict; failures preserve checkpoints and stop the job.
     let renderedViaBatch = false
+    let batchRecovery: HubImageRecoveryCheckpoint | null = null
     const hubBackend = await getHubBackend()
+    if (repairOnly && (hubBackend.mode !== 'hub' || !hubBackend.hubUrl || providerId !== 'imagestudio')) {
+      throw new Error('Studio Hub image Repair is read-only and requires the saved Hub backend to be active.')
+    }
     if (hubBackend.mode === 'hub' && hubBackend.hubUrl && providerId === 'imagestudio' && toRender.length) {
       try {
         const batchReqs = toRender.map((scene) => {
@@ -558,12 +579,33 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             } as ImageGenerationRequest,
           }
         })
+        batchRecovery = await prepareHubImageRecovery(job, {
+          logicalId: logicalRecoveryId,
+          targetIds: batchReqs.map(item => item.scene.id),
+          hubUrl: hubBackend.hubUrl,
+          requestIdentity: batchReqs.map(item => item.req),
+          repairOnly,
+        })
         for (const b of batchReqs) inFlight.add(b.scene.scene_index)
         await pushStatus()
-        job.output_lines.push(`Studio Hub batch — submitting ${batchReqs.length} scene(s) as ONE render; the Hub distributes them across the fleet.`)
+        job.output_lines.push(batchRecovery.batch_id
+          ? `Studio Hub recovery — reconnecting batch ${batchRecovery.batch_id} for ${batchReqs.length} scene(s).`
+          : `Studio Hub batch — submitting ${batchReqs.length} scene(s) as ONE idempotent render; the Hub distributes them across the fleet.`)
         await renderImageBatchViaHub(batchReqs.map((b) => b.req), {
           label: `storystudio:${slug}/${episode_id.toUpperCase()}`,
           isCancelled: () => jq.isCancelled(job.job_id),
+          recovery: {
+            clientRequestId: batchRecovery.client_request_id,
+            batchId: batchRecovery.batch_id,
+            repairOnly,
+            onAccepted: async (batchId, replayed) => {
+              await acceptHubImageRecovery(job, batchRecovery!, batchId)
+              job.output_lines.push(replayed
+                ? `Studio Hub safely replayed the saved request as existing batch ${batchId}.`
+                : `Studio Hub accepted batch ${batchId}; recovery checkpoint saved.`)
+            },
+            onFinished: status => finishHubImageRecoveryPoll(job, batchRecovery!, status),
+          },
           onItemDone: async (index, result) => {
             const b = batchReqs[index]
             if (!b) return
@@ -732,6 +774,21 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // The scope is already narrowed to failed IDs. Do not let an older image
       // suppress a failed explicit re-render on the next attempt.
       job.params.missing_only = false
+    }
+    if (batchRecovery && unresolved.size === 0) await completeHubImageRecovery(job, batchRecovery)
+    if (repairOnly) {
+      job.result = {
+        repair_only: true,
+        total_expected: toRender.length,
+        recovered: toRender.length - unresolved.size,
+        still_missing: unresolved.size,
+      }
+      job.output_lines.push(
+        unresolved.size === 0
+          ? `Repair complete — all ${toRender.length} Hub image artifact(s) are verified on disk.`
+          : `Repair recovered every available Hub artifact; ${unresolved.size} scene(s) still need a deliberate Retry.`,
+      )
+      return
     }
     requireJobCompletion(job, {
       label: 'Continuity scene rendering', expected: toRender.length,
