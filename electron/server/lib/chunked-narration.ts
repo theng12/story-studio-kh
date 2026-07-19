@@ -45,7 +45,7 @@ import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
-import { callAi, callAiWithRetry, sanitizeJsonControlChars } from './ai-client.js'
+import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
@@ -719,7 +719,7 @@ function narrativeOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): st
   const fieldHint = compact
     ? `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook" }`
     : `Each entry: { "n": <int>, "title": "...", "synopsis": "~30 words", "key_beats": ["beat 1", "beat 2", "beat 3"] }`
-  return `Plan the ${t.singular.toLowerCase()} structure for an episode I'm about to write. Output ONLY a JSON array of ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
+  return `Plan the ${t.singular.toLowerCase()} structure for an episode I'm about to write. Output ONLY one JSON object with a "chapters" array containing exactly ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
@@ -740,7 +740,7 @@ COMMIT TO SPECIFICS at outline time. When the pacing arc above asks for a SPECIF
   - GOOD: "Center on the 1971 D.B. Cooper hijacking — money never recovered."
 Specific commitments at outline time let the user review and swap items before chapter expansion (which is expensive). If any avoidance list is in effect for this channel (see the additional rules above), respect it AT OUTLINE TIME — pick a fresh item now, don't defer the choice to expansion.
 
-Output: [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ]`
+Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }`
 }
 
 function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): string {
@@ -752,7 +752,7 @@ function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): str
   const fieldHint = compact
     ? `Each entry: { "n": <int>, "topic_title": "...", "hook_line": "1-line hook" }`
     : `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook", "key_facts": ["fact 1", "fact 2", "fact 3"] }`
-  return `Plan a listicle / explainer episode. Output ONLY a JSON array of ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
+  return `Plan a listicle / explainer episode. Output ONLY one JSON object with a "chapters" array containing exactly ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
@@ -763,7 +763,7 @@ ${fieldHint}
 
 Each ${t.singular.toLowerCase()} must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). ${t.Plural} should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
 
-Output: [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ]`
+Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }`
 }
 
 // ── Narrative expansion (sequential batches with transition glue) ──────────
@@ -1317,22 +1317,21 @@ async function callForJsonArray(
   const effectiveRetries = isLocalTextModel(model) ? retries : 0
   for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
     if (ctx.signal?.aborted) throw new Error('Cancelled by user')
-    const raw = await callAiWithRetry(model, system, user, apiKeys, false, ctx)
-    let text = raw.trim()
-    if (text.startsWith('```')) {
-      text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n').trim()
-    }
-    const start = text.indexOf('[')
-    const end = text.lastIndexOf(']')
-    if (start === -1 || end === -1) {
-      lastErr = 'No JSON array in response'
-      continue
-    }
+    const raw = await callAiWithRetry(model, system, user, apiKeys, false, {
+      ...ctx,
+      jsonMode: true,
+      disableReasoning: true,
+      temperature: 0.25,
+    })
     try {
-      const json = sanitizeJsonControlChars(text.slice(start, end + 1))
-      const parsed = JSON.parse(json)
-      if (Array.isArray(parsed)) return parsed
-      lastErr = 'JSON value is not an array'
+      const parsed = parseStructuredJson(raw)
+      const chapters = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray((parsed as any)?.chapters)
+          ? (parsed as any).chapters
+          : null
+      if (chapters) return chapters
+      lastErr = 'JSON object has no chapters array'
     } catch (e: any) {
       lastErr = e?.message || String(e)
     }

@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.642 — 2026-07-19
+
+**Cloud writing is now stricter about structured output, while local subtitle recovery avoids unhealthy fleet workers.**
+
+- Outline, scene-prompt, and thumbnail-prompt requests now require provider JSON mode with reasoning disabled, then accept only safely recoverable JSON formatting. Truncated or malformed output still fails loudly rather than inventing prompts.
+- Successful visual-prompt packs remain checkpointed; a manual cloud Retry continues with only the missing scene IDs and never repeats verified prompts.
+- Local Whisper retries now bypass and temporarily quarantine a Voice Studio that disconnects, refresh stale availability data, and report the workers attempted if all recovery attempts fail.
+
+---
+
 ## v1.0.641 — 2026-07-19
 
 **Voice Studio clone engines now accept one consistent chapter-scale request.**

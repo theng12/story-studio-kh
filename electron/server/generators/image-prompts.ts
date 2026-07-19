@@ -16,7 +16,7 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, parseStructuredJson } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
@@ -180,14 +180,8 @@ async function readStoryContext(slug: string, episode_id: string, title: string)
  * Used by both the single-call and chunked paths.
  */
 function parseImagePromptsJson(raw: string): { scenes?: any[]; thumbnails?: any[] } {
-  let text = raw.trim()
-  if (text.startsWith('```')) {
-    text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
-  }
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end < 0) throw new Error('LLM returned no JSON object')
-  const obj = JSON.parse(text.slice(start, end + 1))
+  const obj = parseStructuredJson(raw) as Record<string, unknown>
+  if (!obj || Array.isArray(obj)) throw new Error('LLM returned no JSON object')
   return {
     scenes: Array.isArray(obj.scenes) ? obj.scenes : [],
     thumbnails: Array.isArray(obj.thumbnails) ? obj.thumbnails : [],
@@ -764,7 +758,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
             if (jq.isCancelled(job.job_id)) { aborted = true; return }
             try {
               const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
-                { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+                {
+                  slug: project_slug, jobId: job.job_id, signal: controller.signal,
+                  jsonMode: true, disableReasoning: true, temperature: 0.35,
+                })
               const obj = parseImagePromptsJson(raw)
               // v1.0.86+: don't filter by `s.number` matching the requested
               // from..to range — LLMs frequently renumber every batch 1..N.
@@ -838,14 +835,20 @@ export async function generateImagePrompts(job: Job): Promise<void> {
           .replace(/Generate exactly \d+ scene prompts\./, '')
           + `\n\nIMPORTANT: This response must contain ONLY thumbnails (the "scenes" array MUST be empty).`
         const raw = await callAi(model, '', thumbsOnlyPrompt, aiCreds(config), false,
-          { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+          {
+            slug: project_slug, jobId: job.job_id, signal: controller.signal,
+            jsonMode: true, disableReasoning: true, temperature: 0.35,
+          })
         const obj = parseImagePromptsJson(raw)
         thumbnails = obj.thumbnails || []
       }
     } else {
       job.output_lines.push(`Calling ${model} (mode=${mode}, scenes=${sceneCount}, thumbs=${thumbs})…`)
       const raw = await callAi(model, '', prompt, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        {
+          slug: project_slug, jobId: job.job_id, signal: controller.signal,
+          jsonMode: true, disableReasoning: true, temperature: 0.35,
+        })
       const parsed = parseImagePromptsJson(raw)
       scenes = parsed.scenes || []
       thumbnails = parsed.thumbnails || []

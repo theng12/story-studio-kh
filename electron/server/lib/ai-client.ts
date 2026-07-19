@@ -162,6 +162,36 @@ export function sanitizeJsonControlChars(s: string): string {
 }
 
 /**
+ * Parse structured LLM output without ever treating a partial response as
+ * complete. JSON mode can still arrive wrapped in a fence or with a harmless
+ * trailing comma, so accept only those presentation defects and leave every
+ * truncated or otherwise malformed response for the caller's completion audit.
+ */
+export function parseStructuredJson(raw: string): unknown {
+  const text = raw.trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+  const objectStart = text.indexOf('{')
+  const arrayStart = text.indexOf('[')
+  const starts = [objectStart, arrayStart].filter(index => index >= 0)
+  if (!starts.length) throw new Error('LLM returned no JSON value')
+  const start = Math.min(...starts)
+  const end = text[start] === '{' ? text.lastIndexOf('}') : text.lastIndexOf(']')
+  if (end < start) throw new Error('LLM returned incomplete JSON')
+  const candidate = sanitizeJsonControlChars(text.slice(start, end + 1))
+  try {
+    return JSON.parse(candidate)
+  } catch (firstError) {
+    // Never invent data or close an incomplete structure. This only repairs
+    // the common `{"key": "value",}` / `["value",]` model formatting slip.
+    const repaired = candidate.replace(/,\s*([}\]])/g, '$1')
+    if (repaired === candidate) throw firstError
+    return JSON.parse(repaired)
+  }
+}
+
+/**
  * callAi with bounded retries for LOCAL Chat Studio inference only. Cloud and
  * cloud-proxied models are one-shot because another completion may consume
  * quota or create a duplicate billable request. Non-connection errors are
