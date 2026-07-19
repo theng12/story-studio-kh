@@ -10,5 +10,6 @@ test('character reference images are served through the main API router', () => 
   assert.match(routesIndex, /characterLibraryRouter/)
   assert.match(routesIndex, /app\.use\('\/api', characterLibraryRouter\)/)
   assert.match(characterRoutes, /\/character-library\/:id\/reference-image\/:filename/)
-  assert.match(characterRoutes, /res\.sendFile\(file\)/)
+  assert.match(characterRoutes, /await readFile\(file\)/)
+  assert.match(characterRoutes, /res\.type\(req\.params\.filename\)\.send\(image\)/)
 })

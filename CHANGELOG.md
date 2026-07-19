@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.648 — 2026-07-19
+
+**Channel Character reference images now serve reliably from the shared library.**
+
+- Replaced the packaged Express file sender that could return a generic 404 for an existing valid character image.
+- The reference preview route now reads and returns the verified image bytes directly, while retaining clear missing-file errors and the editor's retry state.
+
+---
+
 ## v1.0.647 — 2026-07-19
 
 **GenStudio now supports long-form Story Studio narration without crossing architecture boundaries.**

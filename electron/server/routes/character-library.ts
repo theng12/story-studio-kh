@@ -21,6 +21,7 @@
 
 import { Router } from 'express'
 import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
 import * as cl from '../services/character-library.js'
 import * as migration from '../services/character-migration.js'
 
@@ -116,8 +117,14 @@ router.get('/character-library/:id/reference-image/:filename', async (req, res) 
     }
     const file = `${cl.libraryCharacterDir(req.params.id)}/${req.params.filename}`
     if (!existsSync(file)) return res.status(404).json({ detail: 'Reference image file missing on disk' })
-    res.sendFile(file)
+    // Express sendFile can turn an otherwise readable external-library file
+    // into a generic 404 in packaged builds. Reading the verified file here
+    // keeps the response deterministic and preserves the actual image bytes.
+    const image = await readFile(file)
+    res.set('Cache-Control', 'private, max-age=3600')
+    res.type(req.params.filename).send(image)
   } catch (e: any) {
+    if (e?.code === 'ENOENT') return res.status(404).json({ detail: 'Reference image file missing on disk' })
     res.status(500).json({ detail: e.message })
   }
 })
