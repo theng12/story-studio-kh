@@ -110,7 +110,7 @@
         </div>
         <span class="text-muted text-xs">
           <template v-if="currentAudioProvider === 'genstudio'">
-            Voices are fetched securely from your live <strong>GenStudio KH</strong> catalog.
+            Voices are fetched securely from your live <strong>GenStudio KH</strong> catalog. Each request supports up to <strong>15,000 characters</strong>; VoiceStudio handles its own internal chunks and returns one completed result.
           </template>
           <template v-else>
             Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
@@ -168,7 +168,7 @@
            (which was the v1.0.313 bug — a hidden local-only override leaking
            into cloud runs). Cloud + local both surface it the same way now. -->
       <div v-if="form.model" class="form-group mb-2">
-        <label>Chunk size <span class="field-hint">— characters per TTS call</span></label>
+        <label>{{ currentAudioProvider === 'genstudio' ? 'GenStudio request boundary' : 'Chunk size' }} <span class="field-hint">— characters per TTS call</span></label>
         <div class="chunk-display" :title="chunkSizeTooltip">
           <span class="chunk-value">
             <template v-if="resolvedChunkCap">
@@ -544,7 +544,9 @@ function formatChunkSeconds(chars: number): string {
   return s ? `${m}m ${s}s` : `${m} min`
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
-  ? `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
+  ? currentAudioProvider.value === 'genstudio'
+    ? `GenStudio accepts one logical request up to ${resolvedChunkCap.value.toLocaleString()} characters. Story Studio splits only above this public API boundary; VoiceStudio handles smaller internal model chunks, joining, and final speed.`
+    : `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
   : 'No per-model cap set — the chunker uses its ~4,800-char default. Set a value in Settings → Audio Models to make the chunk size explicit.')
 
 // v1.0.207+ — voice/model compatibility reconciliation now lives inside

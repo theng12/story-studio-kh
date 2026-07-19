@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.647 — 2026-07-19
+
+**GenStudio now supports long-form Story Studio narration without crossing architecture boundaries.**
+
+- Raised the GenStudio request boundary from the retired 375-character qualification cap to 15,000 characters and automatically heals that old value in existing project settings.
+- Sends narration up to 15,000 characters as one GenStudio API request, with Story Studio splitting only above the public API boundary while VoiceStudio remains responsible for internal model chunking and joining.
+- Forwards the selected speed through both full generation and voice previews, then treats GenStudio's completed WAV as already speed-processed to prevent double-speed audio.
+- Added deterministic idempotency across reconnect retries, transient submit/poll/download recovery, and a four-hour long-job timeout while preserving the existing direct Studio Hub/VoiceStudio route unchanged.
+- Updated Audio Generator guidance to show the 15,000-character GenStudio boundary and removed the retired generated-audio duration restriction.
+- Channel Character reference images now fail visibly with a clear retry control instead of a broken preview icon, and this build includes the shared-library image route used by the roster and editor.
+
+---
+
 ## v1.0.646 — 2026-07-19
 
 **GenStudio voices fetched from the live catalog can now generate audio.**

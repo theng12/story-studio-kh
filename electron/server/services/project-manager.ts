@@ -877,6 +877,9 @@ export function mergeCatalog<T extends Record<string, any>>(
 }
 
 const RETIRED_AUDIO_CHAR_CAPS: Readonly<Record<string, ReadonlySet<number>>> = {
+  // GenStudio retired its qualification-only ~30-second/375-character cap.
+  // Heal existing projects to the public 15,000-character API boundary.
+  'genstudio-qwen3-standard': new Set([375]),
   // CustomVoice does not use Voice Studio's clone-specific splitter. Only
   // migrate its former built-in 2,000 value to the current 3,000 default.
   'voicestudio-qwen3-tts': new Set([2000]),

@@ -156,13 +156,13 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
 export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   // GenStudio KH is a separate API route, deliberately not a Studio Hub alias.
   // It is opt-in: existing Voice Studio direct/Hub project settings are not
-  // changed by this catalog row. Release 1A accepts English standard voices
-  // only and enforces a maximum 30-second result per API job.
+  // changed by this catalog row. GenStudio accepts one logical TTS request of
+  // up to 15,000 characters; VoiceStudio owns internal chunk/join/speed work.
   'genstudio-qwen3-standard': {
     label: 'Qwen3 Standard Voices [GenStudio KH · staging]',
     cost_per_1k_chars: 0,
     provider: 'genstudio',
-    tts_soft_max_chars: 375,
+    tts_soft_max_chars: 15000,
   },
   // Direct ElevenLabs (official API; prefix `eleven_` signals that backend).
   // Pricing is indicative — ElevenLabs charges per character against your plan

@@ -1462,18 +1462,10 @@ export interface AudioModelConfig {
    */
   provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
   /**
-   * v1.0.155+ — soft per-call character cap for chunking. The TTS
-   * chunker (lib/text-chunker.ts) splits narration sections into
-   * chunks of at most this many characters before submitting each to
-   * the provider; ffmpeg then concatenates the per-chunk WAVs into one
-   * section file. ElevenLabs / fal / GenAIPro models leave this unset
-   * and use the chunker's default (4800, headroom under the 5000-char
-   * per-call ceiling). Local MLX models on Pinokio Voice Studio have
-   * much tighter caps reported in the modal's own `/api/catalog`
-   * (VoxCPM2: 600, F5-TTS: 400, etc.); set this field to the
-   * per-model number with a small safety buffer (e.g. 500 for VoxCPM2)
-   * so Story Studio controls the seam boundaries (sentence-level)
-   * instead of relying on mlx-audio's internal arbitrary-cut splitter.
+   * Soft outer provider-request boundary. Story Studio splits only when a
+   * provider's public API limit requires it. GenStudio and clone-capable
+   * VoiceStudio models accept chapter-scale outer requests; VoiceStudio owns
+   * their smaller model-sized chunks, joins, and final speed processing.
    */
   tts_soft_max_chars?: number
 }

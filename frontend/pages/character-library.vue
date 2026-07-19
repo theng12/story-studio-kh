@@ -52,8 +52,17 @@
     <div v-else class="character-grid">
       <article v-for="character in filteredCharacters" :key="character.id" class="character-tile">
         <button class="portrait" type="button" @click="openEdit(character)">
-          <img v-if="firstReference(character)" :src="referenceUrl(character, firstReference(character)!)" :alt="character.name" />
-          <span v-else>{{ initials(character.name) }}</span>
+          <img
+            v-if="firstReference(character) && !referencePreviewFailed(character, firstReference(character)!)"
+            :src="referenceUrl(character, firstReference(character)!)"
+            :alt="`${character.name} reference image`"
+            @error="markReferencePreviewFailed(character, firstReference(character)!)"
+            @load="markReferencePreviewLoaded(character, firstReference(character)!)"
+          />
+          <span v-else class="portrait-fallback">
+            <strong>{{ initials(character.name) }}</strong>
+            <small v-if="firstReference(character)">Preview unavailable</small>
+          </span>
         </button>
         <div class="character-copy">
           <div class="character-heading">
@@ -116,7 +125,19 @@
               </label>
               <div v-if="editing?.references?.images?.length" class="reference-strip">
                 <div v-for="filename in editing.references.images" :key="filename" class="reference-card">
-                  <img :src="referenceUrl(editing, filename)" :alt="filename" />
+                  <img
+                    v-if="!referencePreviewFailed(editing, filename)"
+                    :src="referenceUrl(editing, filename)"
+                    :alt="filename"
+                    @error="markReferencePreviewFailed(editing, filename)"
+                    @load="markReferencePreviewLoaded(editing, filename)"
+                  />
+                  <div v-else class="reference-preview-error">
+                    <strong>Preview unavailable</strong>
+                    <span>{{ filename }}</span>
+                    <button type="button" class="btn btn-sm btn-secondary" @click="retryReferencePreview(editing, filename)">Retry preview</button>
+                  </div>
+                  <small class="reference-filename">{{ filename }}</small>
                   <button type="button" class="btn btn-sm btn-secondary" :disabled="describingFrom === filename" @click="describeFromImage(filename)">
                     {{ describingFrom === filename ? 'Describing…' : 'Describe image' }}
                   </button>
@@ -256,6 +277,7 @@ async function load() {
     ])
     characters.value = records
     channels.value = projects
+    referencePreviewStates.value = {}
   } catch (e: any) {
     loadError.value = e?.data?.detail || e?.message || 'Unknown loading error'
   } finally {
@@ -408,8 +430,41 @@ function firstReference(character: Character): string | undefined {
   return character.references?.images?.[0]
 }
 
+const referencePreviewStates = ref<Record<string, 'failed' | 'loaded'>>({})
+const referencePreviewVersion = ref(0)
+
+function referencePreviewKey(character: Character, filename: string): string {
+  return `${character.id}:${filename}`
+}
+
+function referencePreviewFailed(character: Character, filename: string): boolean {
+  return referencePreviewStates.value[referencePreviewKey(character, filename)] === 'failed'
+}
+
+function markReferencePreviewFailed(character: Character, filename: string) {
+  referencePreviewStates.value = {
+    ...referencePreviewStates.value,
+    [referencePreviewKey(character, filename)]: 'failed',
+  }
+}
+
+function markReferencePreviewLoaded(character: Character, filename: string) {
+  const key = referencePreviewKey(character, filename)
+  if (referencePreviewStates.value[key] === 'loaded') return
+  referencePreviewStates.value = { ...referencePreviewStates.value, [key]: 'loaded' }
+}
+
+function retryReferencePreview(character: Character, filename: string) {
+  const key = referencePreviewKey(character, filename)
+  const next = { ...referencePreviewStates.value }
+  delete next[key]
+  referencePreviewStates.value = next
+  referencePreviewVersion.value += 1
+}
+
 function referenceUrl(character: Character, filename: string): string {
-  return `/api/character-library/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}`
+  const path = `/api/character-library/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}`
+  return referencePreviewVersion.value ? `${path}?preview=${referencePreviewVersion.value}` : path
 }
 
 interface VisionModelOption { id: string; provider: string; has_key: boolean; label: string }
@@ -483,7 +538,7 @@ function initials(name: string): string {
 .character-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); gap: 14px; }
 .character-tile { display: grid; grid-template-columns: 122px 1fr; min-height: 190px; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(145deg, var(--bg-secondary), var(--bg-primary)); box-shadow: 0 14px 35px rgba(0,0,0,.12); }
 .portrait { border: 0; border-right: 1px solid var(--border); background: radial-gradient(circle at 30% 20%, rgba(245,193,88,.24), transparent 45%), #111722; color: var(--accent); font: 700 34px Georgia, serif; cursor: pointer; overflow: hidden; }
-.portrait img { width: 100%; height: 100%; object-fit: cover; }.character-copy { padding: 18px; min-width: 0; }
+.portrait img { width: 100%; height: 100%; object-fit: cover; }.portrait-fallback { width: 100%; height: 100%; display: grid; place-content: center; gap: 8px; padding: 12px; text-align: center; }.portrait-fallback strong { font: 700 34px Georgia, serif; }.portrait-fallback small { color: var(--text-muted); font: 600 9px/1.3 inherit; letter-spacing: .08em; text-transform: uppercase; }.character-copy { padding: 18px; min-width: 0; }
 .character-heading { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }.character-heading h2 { margin: 3px 0 0; font-size: 19px; }
 .character-kicker { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }.character-copy p { color: var(--text-muted); line-height: 1.55; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .channel-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }.channel-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(245,193,88,.3); border-radius: 999px; padding: 4px 8px; font-size: 10px; color: var(--text); background: rgba(245,193,88,.07); }.channel-chip.is-muted { color: var(--text-muted); border-color: var(--border); }.voice-dot { color: #63d995; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
@@ -492,6 +547,6 @@ function initials(name: string): string {
 .editor-header, .editor-footer { display: flex; align-items: center; gap: 10px; padding: 18px 22px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }.editor-header { justify-content: space-between; }.editor-header h2 { margin: 3px 0 0; }.editor-footer { border-top: 1px solid var(--border); border-bottom: 0; }.editor-spacer { flex: 1; }
 .editor-scroll { overflow-y: auto; padding: 4px 22px 22px; }.editor-section { display: grid; grid-template-columns: 46px 1fr; gap: 14px; padding: 24px 0; border-bottom: 1px solid var(--border); }.editor-section:last-child { border-bottom: 0; }.section-number { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: rgba(245,193,88,.11); font: 700 11px monospace; }.section-body h3 { margin: 3px 0 5px; }.section-help, .form-group small { color: var(--text-muted); font-size: 11px; line-height: 1.5; }.field-grid, .voice-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12px; }.file-input { padding: 8px; }
 .channel-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; }.channel-option { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--bg-secondary); }.channel-option.selected { border-color: var(--accent); background: rgba(245,193,88,.08); }.channel-option span, .channel-option small { display: block; }.channel-option small { color: var(--text-muted); margin-top: 2px; }
-.voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }.voice-profile-title div span { display: block; color: var(--text-muted); font-size: 10px; margin-top: 2px; }.profile-state { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }.profile-state.ready { color: #63d995; }.voice-picker-field :deep(.voice-picker) { width: 100%; }.reference-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }.reference-card { display: flex; flex-direction: column; gap: 6px; }.reference-strip img { width: 100px; height: 100px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }.vision-control { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; }.vision-control label { font-size: 12px; color: var(--text-muted); }
+.voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }.voice-profile-title div span { display: block; color: var(--text-muted); font-size: 10px; margin-top: 2px; }.profile-state { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }.profile-state.ready { color: #63d995; }.voice-picker-field :deep(.voice-picker) { width: 100%; }.reference-strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }.reference-card { width: 132px; display: flex; flex-direction: column; gap: 6px; }.reference-strip img, .reference-preview-error { width: 132px; height: 132px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }.reference-preview-error { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 12px; background: rgba(231, 103, 103, .08); color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }.reference-preview-error strong { color: #f08f8f; font-size: 11px; }.reference-filename { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.vision-control { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; }.vision-control label { font-size: 12px; color: var(--text-muted); }
 @media (max-width: 760px) { .roster-toolbar, .field-grid, .voice-fields { grid-template-columns: 1fr; }.character-grid { grid-template-columns: 1fr; }.character-tile { grid-template-columns: 90px 1fr; }.editor-backdrop { padding: 8px; }.editor-section { grid-template-columns: 1fr; } }
 </style>

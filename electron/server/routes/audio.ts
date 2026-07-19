@@ -258,6 +258,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
         await generateTtsToFile(apiKey, tempPath, {
           text: sample,
           voiceId: resolvedVoiceId,
+          speed: typeof speed === 'number' ? speed : 1,
         })
         const buf = await fs.readFile(tempPath)
         return res.json({ audio_url: `data:audio/mpeg;base64,${buf.toString('base64')}` })

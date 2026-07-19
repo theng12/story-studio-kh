@@ -61,3 +61,10 @@ test('Audio generation receives the live GenStudio catalog from VoicePicker', ()
   assert.match(audioPage, /@catalog-updated="onVoiceCatalogUpdated"/)
   assert.match(audioPage, /\.\.\.discoveredProviderVoices\.value/)
 })
+
+test('Audio Generator shows the GenStudio 15,000-character request boundary', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(audioPage, /Each request supports up to <strong>15,000 characters<\/strong>/)
+  assert.match(audioPage, /GenStudio request boundary/)
+  assert.doesNotMatch(audioPage, /GenStudio[^\n]{0,120}30[- ]?second/i)
+})

@@ -18,7 +18,10 @@ import { generateTtsToUrl as generateTtsKie } from '../lib/kie-tts-client.js'
 // Chatterbox-mlx is reachable through Voice Studio's family list now.
 import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
-import { generateTtsToFile as generateTtsGenStudio } from '../lib/genstudio-client.js'
+import {
+  generateTtsToFile as generateTtsGenStudio,
+  splitGenStudioApiRequests,
+} from '../lib/genstudio-client.js'
 import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
 // v1.0.378+ — Fish Audio (direct cloud TTS; streams bytes inline like ElevenLabs).
 import { generateTtsToFile as generateTtsFishaudio } from '../lib/fishaudio-client.js'
@@ -512,7 +515,11 @@ export async function generateAudio(job: Job): Promise<void> {
     // Decide whether this section needs per-speaker routing. Returns null
     // when no characters have voice IDs OR the section has no speaker tags
     // — both fall through to the existing single-voice path unchanged.
-    const plan = planRoutedSegments(section.text, projectCharacters, req.voice)
+    // A GenStudio request has one customer-selected voice. Do not reinterpret
+    // speaker tags into model-level subrequests on this opt-in route.
+    const plan = providerId === 'genstudio'
+      ? null
+      : planRoutedSegments(section.text, projectCharacters, req.voice)
 
     if (plan && plan.multiVoice) {
       // ── Routed path: each segment becomes its own task with the segment's
@@ -552,7 +559,9 @@ export async function generateAudio(job: Job): Promise<void> {
       continue
     }
 
-    const chunks = chunkText(section.text, ttsChunkCap)
+    const chunks = providerId === 'genstudio'
+      ? splitGenStudioApiRequests(section.text)
+      : chunkText(section.text, ttsChunkCap)
     job.output_lines.push(
       `${section.label} (${section.text.length.toLocaleString()} chars${chunks.length > 1 ? `, ${chunks.length} parts` : ''})`,
     )
@@ -897,6 +906,7 @@ export async function generateAudio(job: Job): Promise<void> {
         await generateTtsGenStudio(apiKey, task.outputPath, {
           text: task.chunkText,
           voiceId: effectiveVoice,
+          speed: req.speed ?? 1,
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
