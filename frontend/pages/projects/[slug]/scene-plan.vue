@@ -156,18 +156,22 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Scenes per pack</label>
-              <select v-model="form.prompt_pack_size" class="select">
+              <label>{{ selectedModelCostTier === 'paid' ? 'Scenes per cloud pack' : 'Scenes per pack' }}</label>
+              <select v-model="promptPackPickerValue" class="select">
                 <option value="auto">Auto · {{ automaticPromptPackSize }} scenes</option>
-                <option :value="5">5 scenes</option>
-                <option :value="10">10 scenes</option>
-                <option :value="20" :disabled="selectedModelCostTier !== 'paid'">20 · paid cloud</option>
-                <option :value="30" :disabled="selectedModelCostTier !== 'paid'">30 · paid cloud max</option>
+                <option v-for="size in PROMPT_PACK_PRESETS" :key="size" :value="String(size)" :disabled="size > 10 && selectedModelCostTier !== 'paid'">
+                  {{ size }} scenes{{ size > 10 ? ' · cloud' : '' }}
+                </option>
+                <option value="custom">Custom…</option>
               </select>
+              <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
+                <input v-model.number="customPromptPackSize" class="input" type="number" min="1" max="50" step="1" @change="applyCustomPromptPackSize" />
+                <span class="text-xs text-muted">1–50 scenes</span>
+              </div>
             </div>
           </div>
           <p class="scene-setting-help">
-            {{ effectivePromptPackSize }} scenes · {{ effectivePromptTokenBudget.toLocaleString() }} tokens per {{ selectedModelTierLabel }} pack. Local and free-cloud models cap at 10 scenes.
+            {{ effectivePromptPackSize }} scenes · {{ effectivePromptTokenBudget.toLocaleString() }} tokens per {{ selectedModelTierLabel }} pack. Local and free-cloud models cap at 10 scenes; paid-cloud presets and custom packs allow up to 50.
             The output budget is separate from the model's larger input/context window; supported cloud providers use JSON mode without paid reasoning for these packs.
           </p>
         </div>
@@ -1112,9 +1116,12 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
 }
 
 type PromptCostTier = 'local' | 'free' | 'paid'
-type PromptPackSetting = 'auto' | 5 | 10 | 20 | 30
+type PromptPackSetting = 'auto' | number
 type PromptTokenSetting = 'auto' | 4096 | 6144 | 8192
 interface SelectedModelMeta { id: string; cost_tier?: PromptCostTier }
+const PROMPT_PACK_PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 50] as const
+const PROMPT_PACK_MIN = 1
+const PROMPT_PACK_MAX = 50
 
 const selectedModelMeta = ref<SelectedModelMeta | null>(null)
 
@@ -1139,12 +1146,40 @@ const form = ref({
   // the Character Sheet continuity Style Bible.
   custom_instructions: '',
 })
+const customPromptPackSize = ref(12)
+function normalizePromptPackSetting(value: unknown): PromptPackSetting {
+  if (value === 'auto' || value == null || value === '') return 'auto'
+  const size = Math.round(Number(value))
+  return Number.isInteger(Number(value)) && size >= PROMPT_PACK_MIN && size <= PROMPT_PACK_MAX ? size : 'auto'
+}
+function setPromptPackSetting(value: unknown): void {
+  const normalized = normalizePromptPackSetting(value)
+  form.value.prompt_pack_size = normalized
+  if (normalized !== 'auto' && !PROMPT_PACK_PRESETS.includes(normalized as typeof PROMPT_PACK_PRESETS[number])) {
+    customPromptPackSize.value = normalized
+  }
+}
+const promptPackPickerValue = computed<string>({
+  get: () => {
+    const value = normalizePromptPackSetting(form.value.prompt_pack_size)
+    if (value === 'auto') return 'auto'
+    return PROMPT_PACK_PRESETS.includes(value as typeof PROMPT_PACK_PRESETS[number]) ? String(value) : 'custom'
+  },
+  set: (value) => {
+    if (value === 'custom') {
+      setPromptPackSetting(customPromptPackSize.value)
+      return
+    }
+    setPromptPackSetting(value)
+  },
+})
+function applyCustomPromptPackSize(): void {
+  setPromptPackSetting(customPromptPackSize.value)
+}
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
-if (!['auto', 5, 10, 20, 30].includes(form.value.prompt_pack_size)) {
-  form.value.prompt_pack_size = 'auto'
-}
+setPromptPackSetting(form.value.prompt_pack_size)
 if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
   form.value.prompt_max_tokens = 'auto'
 }
@@ -1193,11 +1228,11 @@ const selectedModelCostTier = computed<PromptCostTier>(() => {
 })
 const selectedModelTierLabel = computed(() => selectedModelCostTier.value === 'local'
   ? 'local' : selectedModelCostTier.value === 'free' ? 'free-cloud' : 'paid-cloud')
-const automaticPromptPackSize = computed<10 | 20>(() => selectedModelCostTier.value === 'paid' ? 20 : 10)
-const effectivePromptPackSize = computed<5 | 10 | 20 | 30>(() => {
+const automaticPromptPackSize = computed<number>(() => selectedModelCostTier.value === 'paid' ? 20 : 10)
+const effectivePromptPackSize = computed<number>(() => {
   const requested = form.value.prompt_pack_size === 'auto'
     ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
-  return Math.min(requested, selectedModelCostTier.value === 'paid' ? 30 : 10) as 5 | 10 | 20 | 30
+  return Math.min(Math.max(PROMPT_PACK_MIN, requested), selectedModelCostTier.value === 'paid' ? PROMPT_PACK_MAX : 10)
 })
 const automaticTokenBudget = computed<4096 | 8192>(() => selectedModelCostTier.value === 'paid' ? 8192 : 4096)
 const effectivePromptTokenBudget = computed<4096 | 6144 | 8192>(() => {
@@ -1919,9 +1954,7 @@ const planPresets = usePresets<any>({
       openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
       openingPresetControlsActive.value = true
     }
-    if (!['auto', 5, 10, 20, 30].includes(form.value.prompt_pack_size)) {
-      form.value.prompt_pack_size = 'auto'
-    }
+    setPromptPackSetting(form.value.prompt_pack_size)
     if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
       form.value.prompt_max_tokens = 'auto'
     }
@@ -1988,6 +2021,13 @@ onMounted(() => { void planPresets.load() })
   font-weight: 600;
 }
 .scene-inline-field .input { width: 90px; }
+.scene-pack-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.scene-pack-custom .input { width: 88px; }
 .scene-compact-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

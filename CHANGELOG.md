@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.643 — 2026-07-19
+
+**Cloud prompt batching is now fully configurable per Scene Plan preset.**
+
+- Choose cloud prompt packs of 1, 3, 5, 10, 15, 20, 25, 30, or 50 scenes, or enter a custom whole-number pack size from 1 through 50.
+- The selected value is saved with the Scene Plan preset and flows unchanged into Pipeline runs. Local and free-cloud workers still visibly enforce their safe 10-scene maximum.
+
+---
+
 ## v1.0.642 — 2026-07-19
 
 **Cloud writing is now stricter about structured output, while local subtitle recovery avoids unhealthy fleet workers.**

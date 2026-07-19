@@ -23,6 +23,8 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(resolveScenePromptPackSize('local', 30), 10)
     assert.equal(resolveScenePromptPackSize('free', 20), 10)
     assert.equal(resolveScenePromptPackSize('paid', 30), 30)
+    assert.equal(resolveScenePromptPackSize('paid', 50), 50)
+    assert.equal(resolveScenePromptPackSize('paid', 12), 12)
   })
 
   test('uses adaptive output budgets and protects larger paid packs', () => {
@@ -33,8 +35,17 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(resolveScenePromptTokenBudget('paid', 6144, 10), 6144)
   })
 
+  test('accepts every supported cloud preset and safe custom values', () => {
+    for (const size of [1, 3, 5, 10, 15, 20, 25, 30, 50]) {
+      assert.equal(parseScenePromptPackSetting(size), size)
+    }
+    assert.equal(parseScenePromptPackSetting('12'), 12)
+  })
+
   test('invalid persisted settings self-heal to auto', () => {
     assert.equal(parseScenePromptPackSetting(100), 'auto')
+    assert.equal(parseScenePromptPackSetting(0), 'auto')
+    assert.equal(parseScenePromptPackSetting(7.5), 'auto')
     assert.equal(parseScenePromptPackSetting('20'), 20)
     assert.equal(parseScenePromptTokenSetting(32000), 'auto')
     assert.equal(parseScenePromptTokenSetting('8192'), 8192)

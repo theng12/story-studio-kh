@@ -30,6 +30,7 @@ import {
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
   type ScenePromptCostTier,
+  type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
@@ -152,8 +153,9 @@ interface ScenePlanRunParams {
   /** Catalog tier used by adaptive prompt packs. The model id still wins when
    *  it unambiguously identifies a local or direct-cloud model. */
   model_cost_tier?: ScenePromptCostTier
-  /** Auto uses 10 scenes for local/free cloud and 20 for paid cloud. */
-  prompt_pack_size?: 'auto' | 5 | 10 | 20 | 30
+  /** Auto uses 10 scenes for local/free cloud and 20 for paid cloud.
+   * Explicit cloud packs accept any whole number from 1 through 50. */
+  prompt_pack_size?: ScenePromptPackSetting
   /** Auto uses 4K output for local/free cloud and 8K for paid cloud. */
   prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192
   /** Single-pass visual interpretation controls. Strategies are assigned

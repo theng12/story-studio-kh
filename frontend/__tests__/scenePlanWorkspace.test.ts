@@ -21,7 +21,11 @@ describe('Scene Plan workspace', () => {
 
   test('keeps prompt batching and motion controls visible', () => {
     assert.match(scenePlan, /class="scene-workflow-grid/)
-    assert.match(scenePlan, />Scenes per pack</)
+    assert.match(scenePlan, /Scenes per cloud pack/)
+    assert.match(scenePlan, /PROMPT_PACK_PRESETS = \[1, 3, 5, 10, 15, 20, 25, 30, 50\]/)
+    assert.match(scenePlan, /value="custom"/)
+    assert.match(scenePlan, /customPromptPackSize/)
+    assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
     assert.doesNotMatch(scenePlan, /<details[^>]*advanced-panel/)
     assert.match(scenePlan, /class="scene-motion-controls"/)
     assert.match(scenePlan, /:disabled="!form\.generate_motion_prompts"/)
