@@ -14,6 +14,7 @@ import type { AudioModelConfig } from '../models/types.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { voiceSupportsProvider } from '../services/voice-presets.js'
 import { getVoicePresetsGlobal } from '../services/app-settings.js'
+import { catalogHasVoice, listVoices as listGenStudioVoices } from '../lib/genstudio-client.js'
 
 export const router = Router()
 
@@ -67,13 +68,39 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   // no key — URL alone is the enable). v1.0.150 dropped the standalone
   // Chatterbox provider entirely (rolled into Voice Studio's family list).
   const providerId = resolveAudioProvider(req.body.model, config.audio_models)
-  if (!['voicestudio', 'macos'].includes(providerId)) {
+  let apiKey = ''
+  if (providerId !== 'voicestudio' && providerId !== 'macos') {
+    apiKey = await resolveApiKeyForProviderId(slug, providerId, {
+      model: req.body.model,
+    }) || ''
+    if (!apiKey) {
+      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
+        : providerId === 'genaipro' ? 'GenAIPro'
+          : providerId === 'fishaudio' ? 'Fish Audio'
+            : providerId === 'genstudio' ? 'GenStudio KH'
+              : providerId === 'kie' ? 'kie.ai'
+                : 'fal.ai'
+      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
+    }
+  }
+
+  if (providerId === 'genstudio') {
+    try {
+      const catalog = await listGenStudioVoices(apiKey)
+      if (!catalogHasVoice(catalog, req.body.voice)) {
+        return res.status(400).json({
+          detail: 'The selected voice is not available in your GenStudio KH catalog. Refresh the voice picker and choose an available voice.',
+        })
+      }
+    } catch (error: any) {
+      return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
+    }
+  } else if (!['voicestudio', 'macos'].includes(providerId)) {
     const savedVoices = await getVoicePresetsGlobal()
     if (!voiceSupportsProvider(savedVoices, req.body.voice, providerId)) {
       const label = providerId === 'elevenlabs' ? 'ElevenLabs'
         : providerId === 'genaipro' ? 'GenAIPro'
           : providerId === 'fishaudio' ? 'Fish Audio'
-            : providerId === 'genstudio' ? 'GenStudio KH'
             : providerId === 'kie' ? 'kie.ai'
               : 'fal.ai'
       return res.status(400).json({
@@ -81,26 +108,6 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       })
     }
   }
-  if (providerId === 'voicestudio') {
-    // v1.0.149+ — no per-project enable flag; the modal URL is app-level
-    // (set in App Settings → Local Models). If the URL is missing OR the
-    // modal is offline we fail fast at generation time with a clear error
-    // from the client rather than refusing the queue request here.
-  } else if (providerId !== 'macos') {
-    const apiKey = await resolveApiKeyForProviderId(slug, providerId, {
-      model: req.body.model,
-    })
-    if (!apiKey) {
-      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-        : providerId === 'genaipro' ? 'GenAIPro'
-          : providerId === 'fishaudio' ? 'Fish Audio'
-            : providerId === 'genstudio' ? 'GenStudio KH'
-            : providerId === 'kie' ? 'kie.ai'
-              : 'fal.ai'
-      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
-    }
-  }
-
   if (jq.isDuplicate(slug, req.body.episode_id, 'audio')) {
     return res.status(409).json({ detail: `Audio generation already queued/running for ${req.body.episode_id}` })
   }

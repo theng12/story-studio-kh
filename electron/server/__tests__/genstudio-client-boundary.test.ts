@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS } from '../models/defaults.js'
 import { normalizeVoicePresets, voiceSupportsProvider } from '../services/voice-presets.js'
+import { catalogHasVoice } from '../lib/genstudio-client.js'
 
 test('GenStudio standard voices are an explicit, bounded TTS route', () => {
   assert.deepEqual(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], {
@@ -22,4 +23,15 @@ test('GenStudio client cannot bypass its API boundary to contact Studio Hub', ()
   assert.equal(source.includes('getHubBackend'), false)
   assert.equal(source.includes('hubSubmitJob'), false)
   assert.match(source, /No direct Studio Hub fallback was attempted/)
+})
+
+test('GenStudio catalog membership accepts only enabled live voice IDs', () => {
+  const voices = [
+    { id: 'voice_live', display_name: 'Live', generation_enabled: true },
+    { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
+  ]
+  assert.equal(catalogHasVoice(voices, 'voice_live'), true)
+  assert.equal(catalogHasVoice(voices, ' voice_live '), true)
+  assert.equal(catalogHasVoice(voices, 'voice_disabled'), false)
+  assert.equal(catalogHasVoice(voices, 'voice_missing'), false)
 })

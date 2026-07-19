@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   mergeDiscoveredVoices,
@@ -50,4 +51,13 @@ test('discovered GenStudio voices merge without replacing saved names', () => {
     { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
     { name: 'Aiden', voice_id: 'voice_qwen3_aiden', providers: ['genstudio'] },
   ])
+})
+
+test('Audio generation receives the live GenStudio catalog from VoicePicker', () => {
+  const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(picker, /'catalog-updated': \[voices: SavedVoice\[\]\]/)
+  assert.match(picker, /emit\('catalog-updated', mergeDiscoveredVoices/)
+  assert.match(audioPage, /@catalog-updated="onVoiceCatalogUpdated"/)
+  assert.match(audioPage, /\.\.\.discoveredProviderVoices\.value/)
 })

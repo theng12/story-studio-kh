@@ -38,6 +38,7 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     return new Response(JSON.stringify([
       { id: 'voice_qwen3_ryan', display_name: 'Ryan', language: 'en' },
       { id: 'voice_qwen3_aiden', display_name: 'Aiden', language: 'en' },
+      { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
     ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 

@@ -227,7 +227,9 @@ export async function generateAudio(job: Job): Promise<void> {
     : providerId === 'kie' ? 'ElevenLabs (kie.ai)'
     : 'fal.ai'
 
-  if (!['voicestudio', 'macos'].includes(providerId)) {
+  // GenStudio catalog membership is verified against the live API before the
+  // job is queued. Do not re-check it against Story's optional saved labels.
+  if (!['voicestudio', 'genstudio', 'macos'].includes(providerId)) {
     const savedVoices = await getVoicePresetsGlobal()
     if (!voiceSupportsProvider(savedVoices, req.voice, providerId)) {
       throw new Error(

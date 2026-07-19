@@ -96,6 +96,7 @@
             class="voice-picker-flex"
             @preview="previewVoiceId"
             @voice-saved="refreshConfig(slug)"
+            @catalog-updated="onVoiceCatalogUpdated"
           />
           <button
             v-if="previewAudio"
@@ -108,8 +109,13 @@
           </button>
         </div>
         <span class="text-muted text-xs">
-          Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
-          <NuxtLink :to="`/projects/${slug}/settings#voices`">Settings → Voices</NuxtLink>.
+          <template v-if="currentAudioProvider === 'genstudio'">
+            Voices are fetched securely from your live <strong>GenStudio KH</strong> catalog.
+          </template>
+          <template v-else>
+            Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
+            <NuxtLink :to="`/projects/${slug}/settings#voices`">Settings → Voices</NuxtLink>.
+          </template>
           <template v-if="isFish"> Speed maps to Fish prosody; Stability and Similarity do not apply.</template>
         </span>
       </div>
@@ -344,6 +350,7 @@ import {
   normalizeSavedVoices,
   voiceProviderLabel,
   voiceSupportsProvider,
+  type SavedVoice,
   type VoiceProviderId,
 } from '~/utils/voice-providers'
 
@@ -488,6 +495,10 @@ const currentAudioProvider = computed<string>(() => {
 })
 
 const CLOUD_VOICE_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'])
+const discoveredProviderVoices = ref<SavedVoice[]>([])
+function onVoiceCatalogUpdated(voices: SavedVoice[]) {
+  discoveredProviderVoices.value = voices
+}
 const currentAudioProviderLabel = computed(() => {
   const provider = currentAudioProvider.value
   return CLOUD_VOICE_PROVIDERS.has(provider)
@@ -498,7 +509,10 @@ const selectedVoiceCompatible = computed(() => {
   if (!form.voice) return false
   const provider = currentAudioProvider.value
   if (!CLOUD_VOICE_PROVIDERS.has(provider)) return true
-  return normalizeSavedVoices(config.value?.voice_presets || []).some(voice =>
+  return normalizeSavedVoices([
+    ...(config.value?.voice_presets || []),
+    ...discoveredProviderVoices.value,
+  ]).some(voice =>
     voice.voice_id === form.voice && voiceSupportsProvider(voice, provider))
 })
 

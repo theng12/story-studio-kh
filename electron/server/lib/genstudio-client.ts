@@ -41,6 +41,11 @@ export interface GenStudioVoice {
   generation_enabled?: boolean
 }
 
+export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
+  if (typeof voiceId !== 'string' || !voiceId.trim()) return false
+  return voices.some(voice => voice.id === voiceId.trim() && voice.generation_enabled !== false)
+}
+
 function apiBase(url: string): string {
   return url.trim().replace(/\/+$/, '')
 }
@@ -80,7 +85,7 @@ export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
     description: typeof value?.description === 'string' ? value.description : undefined,
     provider: typeof value?.provider === 'string' ? value.provider : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
-  })).filter((voice: GenStudioVoice) => voice.id && voice.display_name)
+  })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
 }
 
 async function waitForJob(

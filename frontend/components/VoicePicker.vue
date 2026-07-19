@@ -185,6 +185,7 @@ const emit = defineEmits<{
   'update:modelValue': [voiceId: string | null]
   preview: [voiceId: string]
   'voice-saved': [voice: SavedVoice]
+  'catalog-updated': [voices: SavedVoice[]]
 }>()
 
 const { get, put } = useApi()
@@ -260,7 +261,11 @@ const currentLocalVoice = computed(() => {
   return localVoices.value.find(voice => voice.id === props.modelValue) || null
 })
 const currentVoiceName = computed(() => currentSavedVoice.value?.name || currentLocalVoice.value?.name || (props.modelValue ? props.modelValue : ''))
-const currentVoiceProviderLabel = computed(() => currentSavedVoice.value && activeProvider.value ? activeProviderLabel.value : '')
+const currentVoiceProviderLabel = computed(() => currentSavedVoice.value
+  && activeProvider.value
+  && voiceSupportsProvider(currentSavedVoice.value, activeProvider.value)
+  ? activeProviderLabel.value
+  : '')
 const scopeTitle = computed(() => scopeFamily.value === 'cloud' ? `${activeProviderLabel.value} voice library` : localSectionTitle.value)
 const scopeDescription = computed(() => scopeFamily.value === 'cloud'
   ? activeProvider.value === 'genstudio'
@@ -335,6 +340,7 @@ async function loadLocalVoices() {
 async function loadCloudVoices() {
   if (activeProvider.value !== 'genstudio') {
     discoveredCloudVoices.value = []
+    emit('catalog-updated', [])
     cloudError.value = ''
     cloudAttempted.value = false
     return
@@ -345,8 +351,10 @@ async function loadCloudVoices() {
   try {
     const data = await get<{ voices: GenStudioVoiceCatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
     discoveredCloudVoices.value = Array.isArray(data.voices) ? data.voices : []
+    emit('catalog-updated', mergeDiscoveredVoices([], discoveredCloudVoices.value, 'genstudio'))
   } catch (error: any) {
     discoveredCloudVoices.value = []
+    emit('catalog-updated', [])
     cloudError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice catalog is unavailable.'
   } finally {
     cloudLoading.value = false

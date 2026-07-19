@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.646 — 2026-07-19
+
+**GenStudio voices fetched from the live catalog can now generate audio.**
+
+- Fixed the Audio Generator incorrectly blocking Ryan, Aiden, and future live GenStudio voices as “not labelled” after they were selected from the GenStudio picker.
+- Made the live GenStudio voice catalog authoritative across the picker, Generate controls, and backend queue validation instead of relying on Story Studio's older saved-voice labels.
+- Re-checks a selected GenStudio voice against the API immediately before queuing, so removed or generation-disabled voices fail safely with a clear refresh message.
+- Prevented incompatible local Studio Hub voice IDs from displaying a misleading GenStudio badge; they remain on the existing direct route until GenStudio publishes them in its catalog.
+
+---
+
 ## v1.0.645 — 2026-07-19
 
 **GenStudio voices now appear automatically—no voice IDs to copy or remember.**
