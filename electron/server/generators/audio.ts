@@ -910,6 +910,11 @@ export async function generateAudio(job: Job): Promise<void> {
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
+          onJobAccepted: (providerJobId) => {
+            job.output_lines.push(
+              `  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`,
+            )
+          },
         })
       } else if (providerId === 'voicestudio') {
         // v1.0.149+ — Voice Studio KH writes the WAV straight to the

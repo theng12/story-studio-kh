@@ -20,6 +20,8 @@ const POLL_INTERVAL_MS = 1_000
 const NETWORK_RETRY_ATTEMPTS = 4
 export const GENSTUDIO_MAX_TTS_CHARACTERS = 15_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
+export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
+export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
 interface GenStudioOperationContext {
@@ -39,6 +41,7 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   voiceId?: string
   speed: number
   onProgress?: (received: number, total?: number) => void
+  onJobAccepted?: (jobId: string) => void
 }
 
 export interface GenStudioTranscriptionModel {
@@ -142,11 +145,19 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
 }
 
 function retryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500
+  // GenStudio can briefly answer 401 while its local API session is being
+  // restored after a restart. Retrying is safe because every submit carries
+  // a stable Idempotency-Key; a genuinely invalid key still fails after the
+  // bounded reconnect attempts without creating duplicate provider work.
+  return status === 401 || status === 408 || status === 425 || status === 429 || status >= 500
 }
 
-function combinedSignal(signal: AbortSignal | undefined, deadline: number): AbortSignal {
-  const remaining = Math.max(1, deadline - Date.now())
+export function operationSignal(
+  signal: AbortSignal | undefined,
+  deadline: number,
+  operationTimeoutMs: number,
+): AbortSignal {
+  const remaining = Math.max(1, Math.min(operationTimeoutMs, deadline - Date.now()))
   const timeoutSignal = AbortSignal.timeout(remaining)
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
 }
@@ -167,7 +178,10 @@ async function requestJsonWithRetry(
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     try {
-      const response = await fetch(url, { ...init, signal: combinedSignal(request.signal, deadline) })
+      const response = await fetch(url, {
+        ...init,
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+      })
       const raw = await response.text()
       let body: any = {}
       if (raw) {
@@ -366,7 +380,7 @@ export async function transcribeWithGenStudio(
     try {
       const response = await fetch(requestUrl(baseUrl, completed.srt_url), {
         headers: authorization(apiKey),
-        signal: combinedSignal(request.signal, deadline),
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
       })
       if (!response.ok) {
         const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
@@ -438,6 +452,7 @@ export async function generateTtsToFile(
     request,
     deadline,
   ) as GenStudioJob
+  request.onJobAccepted?.(submitted.id)
   const completed = await waitForJob(baseUrl, apiKey, submitted, request, deadline)
   if (!completed.audio_url) throw new Error('GenStudio KH job completed without an audio download URL')
 
@@ -449,7 +464,7 @@ export async function generateTtsToFile(
       try {
         const audioResponse = await fetch(requestUrl(baseUrl, completed.audio_url), {
           headers: authorization(apiKey),
-          signal: combinedSignal(request.signal, deadline),
+          signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
         })
         if (!audioResponse.ok) {
           const error = new Error(`GenStudio KH audio download failed (HTTP ${audioResponse.status})`)

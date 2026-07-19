@@ -10,8 +10,12 @@ import {
   buildGenStudioTranscriptionIdempotencyKey,
   buildGenStudioSubmission,
   catalogHasVoice,
+  generateTtsToFile,
+  GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
+  GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
+  operationSignal,
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
@@ -72,6 +76,45 @@ test('GenStudio JSON carries speed and retries reuse the same idempotency key', 
 
 test('GenStudio long jobs are not constrained by a short client timeout', () => {
   assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS, 4 * 60 * 60_000)
+  assert.equal(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, 30_000)
+  assert.equal(GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS, 5 * 60_000)
+})
+
+test('individual GenStudio requests time out before the durable job deadline', async () => {
+  const signal = operationSignal(undefined, Date.now() + 60_000, 5)
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(signal.aborted, true)
+})
+
+test('transient GenStudio authentication restoration retries the idempotent submit', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.match(String(input), /\/v1\/audio\/speech$/)
+      assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-tts-/)
+      attempts++
+      if (attempts < 3) {
+        return Response.json({ detail: 'authentication required' }, { status: 401 })
+      }
+      return Response.json({
+        id: 'job_auth_recovered',
+        state: 'failed',
+        failure_code: 'test_terminal_failure',
+      }, { status: 202 })
+    }
+    await assert.rejects(
+      generateTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-auth-retry.mp3'), {
+        text: 'A safe idempotent retry.',
+        voiceId: 'voice_live',
+        speed: 1,
+      }),
+      /test_terminal_failure/,
+    )
+    assert.equal(attempts, 3)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('GenStudio result handling converts format without applying speed twice', () => {

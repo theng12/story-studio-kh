@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.651 — 2026-07-20
+
+**GenStudio audio jobs now recover promptly from stalled requests and transient authentication restoration.**
+
+- Gives each GenStudio submit, status poll, and private artifact transfer its own bounded timeout instead of allowing one disconnected request to occupy the full four-hour generation window.
+- Safely retries transient `authentication required` responses with the same deterministic idempotency key, preventing duplicate synthesis or charges.
+- Records the accepted GenStudio task ID beside each audio section so a future provider-side stall can be identified and reconciled precisely.
+- Preserves every verified MP3 and keeps Audio Generator Retry limited to missing sections.
+
+---
+
 ## v1.0.650 — 2026-07-19
 
 **GenStudio KH is now Story Studio's single AI transcription route.**
