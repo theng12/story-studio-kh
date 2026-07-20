@@ -17,6 +17,23 @@ const videoAssemblySource = readFileSync(
 )
 
 describe('Scene Review image preview', () => {
+  test('render controls use balanced model columns and one GenStudio quality control', () => {
+    assert.match(sceneReviewSource, /class="sr-model-grid"[\s\S]*Image model[\s\S]*Rewrite LLM/)
+    assert.match(sceneReviewSource, /\.sr-model-grid\s*{[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/)
+    assert.match(sceneReviewSource, /id="sr-gen-quality"[\s\S]*Custom steps…/)
+    assert.match(sceneReviewSource, /v-if="form\.image_quality === 'custom'"[\s\S]*for="sr-gen-steps">Custom steps/)
+    assert.doesNotMatch(sceneReviewSource, /\.sr-llm-pick\s*{\s*display:\s*inline-flex/)
+  })
+
+  test('resolution ownership is explicit instead of inventing cloud pixel controls', () => {
+    assert.match(sceneReviewSource, /v-if="isLocalModel"[\s\S]*for="sr-size">Resolution/)
+    assert.match(sceneReviewSource, /id="sr-gen-size"[\s\S]*selectedGenStudioSizes/)
+    assert.match(sceneReviewSource, /Managed by GenStudio/)
+    assert.match(sceneReviewSource, /pixel sizes not published/)
+    assert.match(sceneReviewSource, /genstudio_size: form\.value\.genstudio_size/)
+    assert.match(sceneReviewSource, /width: selectedGenStudioSize\.value\.width, height: selectedGenStudioSize\.value\.height/)
+  })
+
   test('generated-image auto approval is opt-in, preset-saved, and sent through every render action', () => {
     assert.match(sceneReviewSource, /const autoApproveGenerated = ref\(false\)/)
     assert.match(sceneReviewSource, /auto_approve_generated: autoApproveGenerated\.value/)

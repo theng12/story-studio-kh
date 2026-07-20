@@ -32,6 +32,8 @@ const genstudioImageProvider: ImageProvider = {
       modelId: request.modelId,
       aspectRatio: request.aspectRatio || '16:9',
       steps: Number.isInteger(request.steps) ? request.steps! : defaultSteps,
+      width: request.width,
+      height: request.height,
       seed: request.seed,
       requestIdentity: request.idempotencyIdentity,
       isCancelled: request.isCancelled,

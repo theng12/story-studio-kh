@@ -17,6 +17,7 @@ import {
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
+  listImageModels,
   operationSignal,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
@@ -191,7 +192,46 @@ test('GenStudio image idempotency keeps network retries stable but separates del
     ...input,
     requestIdentity: 'story-job-2:scene-0001',
   }))
+  assert.notEqual(first, buildGenStudioImageIdempotencyKey({
+    ...input,
+    width: 1152,
+    height: 864,
+  }))
+  assert.equal(first, buildGenStudioImageIdempotencyKey({
+    ...input,
+    width: 1152,
+  }))
   assert.match(first, /^story-image-[a-f0-9]{44}$/)
+})
+
+test('GenStudio image catalog preserves only valid provider-published pixel sizes', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/image\/models$/)
+      return Response.json([{
+          id: 'genstudio-image-fast-v1',
+          display_name: 'GenStudio Image Fast',
+          aspect_ratios: ['16:9', '4:3'],
+          default_aspect_ratio: '16:9',
+          default_steps: 4,
+          min_steps: 2,
+          max_steps: 8,
+          sizes: [
+            { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
+            { aspect_ratio: '4:3', width: 1024, height: 768 },
+            { aspect_ratio: '16:9', width: 0, height: 768 },
+          ],
+        }])
+    }
+    const models = await listImageModels('scoped-key')
+    assert.deepEqual(models[0]?.sizes, [
+      { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
+      { aspect_ratio: '4:3', width: 1024, height: 768, label: undefined, default: false },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('GenStudio image generation sends catalog controls and returns a verified private PNG', async () => {
@@ -209,6 +249,8 @@ test('GenStudio image generation sends catalog controls and returns a verified p
           model_id: 'genstudio-image-fast-v1',
           aspect_ratio: '4:3',
           steps: 6,
+          width: 1152,
+          height: 864,
           seed: 77,
         })
         assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-image-/)
@@ -226,6 +268,8 @@ test('GenStudio image generation sends catalog controls and returns a verified p
       modelId: 'genstudio-image-fast-v1',
       aspectRatio: '4:3',
       steps: 6,
+      width: 1152,
+      height: 864,
       seed: 77,
       requestIdentity: 'story-job:thumb-1',
       onJobAccepted: jobId => { accepted = jobId },

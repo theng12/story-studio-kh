@@ -1,3 +1,11 @@
+export interface GenStudioImageSize {
+  aspect_ratio: string
+  width: number
+  height: number
+  label?: string
+  default?: boolean
+}
+
 export interface GenStudioImageModelInfo {
   id: string
   display_name: string
@@ -9,6 +17,7 @@ export interface GenStudioImageModelInfo {
   default_steps: number
   min_steps: number
   max_steps: number
+  sizes?: GenStudioImageSize[]
 }
 
 const catalog = ref<GenStudioImageModelInfo[]>([])

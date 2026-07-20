@@ -111,6 +111,27 @@
           <div><span>01</span><strong>Render settings</strong></div>
           <small>Controls used for missing images and re-renders</small>
         </div>
+        <div class="sr-model-grid">
+          <div class="sr-model-field">
+            <div class="sr-field-heading">
+              <label class="sr-ratio-label">Image model</label>
+              <small>Creates missing images and re-renders</small>
+            </div>
+            <ImageModelPicker
+              v-model="form.model"
+              :project-slug="slug"
+              :image-models="config?.image_models || {}"
+              :image-mode="promptOnly ? 'text2img' : (isContinuity ? 'img2img' : 'text2img')"
+              default-label="Pick an image model…"
+            />
+          </div>
+          <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). -->
+          <div class="sr-model-field sr-llm-pick" title="Used only when you choose Rewrite with AI. It does not generate images.">
+            <ModelSelector v-model="textModel" :project-slug="slug" label="Rewrite LLM" />
+            <small>Only used for optional prompt rewrites</small>
+          </div>
+        </div>
+
         <div class="sr-settings-grid">
           <!-- v1.0.240 — aspect-ratio control. Scenes default to 16:9 (the video
                frame), but the box is now selectable + the thumbnails below
@@ -149,62 +170,61 @@
               <option value="prompt">Prompt only (text2img)</option>
             </select>
           </div>
-          <!-- v1.0.261 — render-size tier for LOCAL Image Studio models. Smaller
-               = far less GPU memory (fewer OOM crashes), faster, smaller files.
-               Hidden for cloud models (they use the aspect string, not pixels). -->
+          <!-- Exact pixel sizes are currently published by Image Studio only. -->
           <div v-if="isLocalModel" class="sr-ratio-pick" title="Output resolution for the local model. Smaller cuts GPU/VAE memory (fewer out-of-memory crashes), renders faster, and writes smaller files. Cloud models ignore this and use the aspect ratio. Shows the exact pixels sent.">
-            <label class="sr-ratio-label" for="sr-size">Size</label>
+            <label class="sr-ratio-label" for="sr-size">Resolution</label>
             <select id="sr-size" v-model.number="form.render_scale" class="select sr-ratio-select sr-size-select">
               <option v-for="rs in renderSizes" :key="rs.value" :value="rs.value">
                 {{ rs.label }} — {{ dimsLabel(rs.value) }}
               </option>
             </select>
           </div>
-          <div class="sr-model-pick">
-            <ImageModelPicker
-              v-model="form.model"
-              :project-slug="slug"
-              :image-models="config?.image_models || {}"
-              :image-mode="promptOnly ? 'text2img' : (isContinuity ? 'img2img' : 'text2img')"
-              default-label="Pick an image model…"
-            />
+          <div v-else-if="selectedGenStudioSizes.length" class="sr-ratio-pick" title="Pixel dimensions published by the selected GenStudio model for this aspect ratio.">
+            <label class="sr-ratio-label" for="sr-gen-size">Resolution</label>
+            <select id="sr-gen-size" v-model="form.genstudio_size" class="select sr-ratio-select sr-size-select">
+              <option v-for="size in selectedGenStudioSizes" :key="genStudioSizeKey(size)" :value="genStudioSizeKey(size)">
+                {{ size.label || `${size.width}×${size.height}` }} · {{ size.width }}×{{ size.height }}
+              </option>
+            </select>
+          </div>
+          <div v-else-if="form.model" class="sr-ratio-pick" title="This provider currently publishes aspect ratios but not selectable output pixel dimensions.">
+            <span class="sr-ratio-label">Resolution</span>
+            <div class="sr-static-control">
+              <strong>{{ selectedGenStudioModel ? 'Managed by GenStudio' : 'Managed by provider' }}</strong>
+              <small>Uses {{ form.aspect_ratio }} · pixel sizes not published</small>
+            </div>
           </div>
           <template v-if="selectedGenStudioModel">
-            <div class="sr-ratio-pick" title="A friendly quality label mapped to GenStudio's real inference-step control. Higher steps can add detail but take longer.">
-              <label class="sr-ratio-label" for="sr-gen-quality">Quality</label>
+            <div class="sr-ratio-pick" title="One quality control mapped to GenStudio's real inference steps. Higher settings can add detail but take longer.">
+              <label class="sr-ratio-label" for="sr-gen-quality">Generation quality</label>
               <select id="sr-gen-quality" v-model="form.image_quality" class="select sr-ratio-select" @change="applyGenStudioQuality">
                 <option value="draft">Draft · {{ genStudioQualitySteps.draft }} steps</option>
                 <option value="balanced">Balanced · {{ genStudioQualitySteps.balanced }} steps</option>
                 <option value="detailed">Detailed · {{ genStudioQualitySteps.detailed }} steps</option>
                 <option value="maximum">Maximum · {{ genStudioQualitySteps.maximum }} steps</option>
-                <option value="custom">Custom</option>
+                <option value="custom">Custom steps…</option>
               </select>
             </div>
-            <div class="sr-ratio-pick" title="Exact inference steps published by the selected GenStudio model.">
-              <label class="sr-ratio-label" for="sr-gen-steps">Steps</label>
-              <input id="sr-gen-steps" v-model.number="form.image_steps" class="input sr-number-input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="form.image_quality = 'custom'">
+            <div v-if="form.image_quality === 'custom'" class="sr-ratio-pick" title="Exact inference steps published by the selected GenStudio model.">
+              <label class="sr-ratio-label" for="sr-gen-steps">Custom steps</label>
+              <input id="sr-gen-steps" v-model.number="form.image_steps" class="input sr-number-input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps">
             </div>
             <div class="sr-ratio-pick" title="Optional reproducible seed. Leave blank for a fresh random composition per scene.">
               <label class="sr-ratio-label" for="sr-gen-seed">Seed</label>
               <input id="sr-gen-seed" v-model="form.seed" class="input sr-number-input" type="number" min="0" max="2147483647" placeholder="Random">
             </div>
           </template>
-          <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). Was
-               auto-picked silently; now you choose it. -->
-          <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
-            <ModelSelector v-model="textModel" :project-slug="slug" label="Rewrite LLM" />
-          </div>
-          <label
-            class="sr-auto-approve"
-            title="Approve each generated image only after Story Studio verifies and registers the saved file. Manual uploads still require review."
-          >
-            <input v-model="autoApproveGenerated" type="checkbox">
-            <span>
-              <strong>Auto-approve generated images</strong>
-              <small>Default off · saved with this Scene Review preset</small>
-            </span>
-          </label>
         </div>
+        <label
+          class="sr-auto-approve"
+          title="Approve each generated image only after Story Studio verifies and registers the saved file. Manual uploads still require review."
+        >
+          <input v-model="autoApproveGenerated" type="checkbox">
+          <span>
+            <strong>Auto-approve generated images</strong>
+            <small>Default off · saved with this Scene Review preset</small>
+          </span>
+        </label>
       </div>
 
       <div class="sr-control-section sr-action-section">
@@ -860,6 +880,7 @@ const form = ref({
   render_scale: 100 as number,
   image_quality: 'balanced' as 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom',
   image_steps: 4,
+  genstudio_size: '',
   seed: '' as string | number,
 })
 // v1.0.259 — remember the render settings per-Mac across reloads (an active
@@ -883,6 +904,7 @@ const srPresets = usePresets<{
   render_scale?: number
   image_quality?: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
   image_steps?: number
+  genstudio_size?: string
   seed?: string | number
   auto_approve_generated?: boolean
 }>({
@@ -897,6 +919,7 @@ const srPresets = usePresets<{
     render_scale: form.value.render_scale,
     image_quality: form.value.image_quality,
     image_steps: form.value.image_steps,
+    genstudio_size: form.value.genstudio_size,
     seed: form.value.seed,
     auto_approve_generated: autoApproveGenerated.value,
   }),
@@ -918,6 +941,15 @@ const defaultAspectRatios = [
 ]
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const selectedGenStudioModel = computed(() => genStudioImageModels.value.find(model => model.id === form.value.model))
+const selectedGenStudioSizes = computed(() => (
+  selectedGenStudioModel.value?.sizes || []
+).filter(size => size.aspect_ratio === form.value.aspect_ratio))
+function genStudioSizeKey(size: { width: number; height: number }): string {
+  return `${size.width}x${size.height}`
+}
+const selectedGenStudioSize = computed(() => selectedGenStudioSizes.value.find(
+  size => genStudioSizeKey(size) === form.value.genstudio_size,
+))
 const aspectRatios = computed(() => {
   const ratios = selectedGenStudioModel.value?.aspect_ratios
   if (!ratios?.length) return defaultAspectRatios
@@ -945,11 +977,20 @@ const genStudioImageBody = computed(() => selectedGenStudioModel.value ? {
     selectedGenStudioModel.value.max_steps,
     Math.max(selectedGenStudioModel.value.min_steps, Number(form.value.image_steps) || selectedGenStudioModel.value.default_steps),
   ),
+  ...(selectedGenStudioSize.value
+    ? { width: selectedGenStudioSize.value.width, height: selectedGenStudioSize.value.height }
+    : {}),
   ...(form.value.seed === '' ? {} : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
 } : {})
-watch(selectedGenStudioModel, (model) => {
+watch([selectedGenStudioModel, () => form.value.aspect_ratio], ([model]) => {
   if (!model) return
   if (!model.aspect_ratios.includes(form.value.aspect_ratio)) form.value.aspect_ratio = model.default_aspect_ratio
+  const sizes = (model.sizes || []).filter(size => size.aspect_ratio === form.value.aspect_ratio)
+  if (sizes.length && !sizes.some(size => genStudioSizeKey(size) === form.value.genstudio_size)) {
+    form.value.genstudio_size = genStudioSizeKey(sizes.find(size => size.default) || sizes[0]!)
+  } else if (!sizes.length) {
+    form.value.genstudio_size = ''
+  }
   if (form.value.image_steps < model.min_steps || form.value.image_steps > model.max_steps) {
     form.value.image_steps = model.default_steps
     form.value.image_quality = 'balanced'
@@ -1964,26 +2005,65 @@ watch(episodeId, () => {
 .sr-section-heading span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--review-gold) 13%, var(--bg-tertiary)); color: var(--review-gold); font-size: 9px; font-weight: 800; }
 .sr-section-heading strong { font-size: 13px; }
 .sr-section-heading small { color: var(--text-muted); font-size: 11px; }
+.sr-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sr-model-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+}
+.sr-field-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
+.sr-field-heading small, .sr-model-field > small { color: var(--text-muted); font-size: 10px; }
+.sr-llm-pick :deep(.form-group) { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 7px; margin: 0; }
+.sr-llm-pick :deep(.form-group > label) {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
 .sr-settings-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
   align-items: end;
 }
 .sr-actions-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .sr-actions-grid .btn { min-height: 34px; border-radius: 8px; }
 
-.sr-model-pick { min-width: 0; grid-column: span 2; }
-
-.sr-ratio-pick, .sr-llm-pick { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
-.sr-llm-pick { grid-column: span 2; }
+.sr-ratio-pick { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
+.sr-static-control {
+  display: flex;
+  min-height: 42px;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+.sr-static-control strong { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.sr-static-control small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .sr-auto-approve {
   display: flex;
   min-width: 0;
-  grid-column: span 2;
+  width: fit-content;
+  max-width: 100%;
   align-items: center;
   gap: 10px;
   min-height: 48px;
+  margin-top: 12px;
   padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -2103,10 +2183,6 @@ watch(episodeId, () => {
 }
 .btn-warn:hover { background: color-mix(in srgb, #e0843a 38%, transparent); }
 
-/* v1.0.360 — Rewrite-LLM picker in the toolbar. */
-.sr-llm-pick { display: inline-flex; align-items: center; gap: 6px; }
-.sr-llm-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.sr-llm-select { font-size: 12px; max-width: 220px; }
 .sr-lb-prompt { display: flex; flex-direction: column; gap: 4px; }
 .sr-lb-prompt-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 .sr-lb-prompt-input {
@@ -2399,10 +2475,11 @@ watch(episodeId, () => {
 @media (max-width: 1220px) {
   .review-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
   .review-command-bar :deep(.generate-region) { justify-content: flex-start; }
-  .sr-settings-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+  .sr-settings-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
 }
 @media (max-width: 900px) {
   .review-hero-route { display: none; }
+  .sr-model-grid, .sr-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-scene-row { grid-template-columns: 150px minmax(0, 1fr); }
   .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 150px; }
   .review-actions-cell { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
@@ -2412,8 +2489,7 @@ watch(episodeId, () => {
   .review-command-bar :deep(.top-action-bar) { padding: 12px; }
   .sr-greenlight-head, .sr-section-heading { align-items: flex-start; flex-direction: column; }
   .sr-status-orb { width: 100%; min-height: 48px; }
-  .sr-settings-grid { grid-template-columns: 1fr; }
-  .sr-model-pick, .sr-llm-pick, .sr-auto-approve { grid-column: auto; }
+  .sr-model-grid, .sr-settings-grid { grid-template-columns: 1fr; }
   .review-scene-row { grid-template-columns: 1fr; }
   .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 100%; }
   .back-to-top { right: 16px; bottom: 16px; }

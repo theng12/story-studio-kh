@@ -70,6 +70,13 @@ export interface GenStudioImageModel {
   default_steps: number
   min_steps: number
   max_steps: number
+  sizes?: Array<{
+    aspect_ratio: string
+    width: number
+    height: number
+    label?: string
+    default?: boolean
+  }>
 }
 
 interface GenStudioImageJob {
@@ -91,6 +98,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   modelId: string
   aspectRatio: string
   steps: number
+  width?: number
+  height?: number
   seed?: number
   /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
   requestIdentity?: string
@@ -333,6 +342,19 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
     default_steps: Number.isInteger(value?.default_steps) ? value.default_steps : 4,
     min_steps: Number.isInteger(value?.min_steps) ? value.min_steps : 2,
     max_steps: Number.isInteger(value?.max_steps) ? value.max_steps : 8,
+    sizes: Array.isArray(value?.sizes)
+      ? value.sizes.filter((size: any) => (
+          typeof size?.aspect_ratio === 'string' && size.aspect_ratio.trim().length > 0
+          && Number.isInteger(size?.width) && size.width > 0
+          && Number.isInteger(size?.height) && size.height > 0
+        )).map((size: any) => ({
+          aspect_ratio: size.aspect_ratio.trim(),
+          width: size.width,
+          height: size.height,
+          label: typeof size.label === 'string' ? size.label.trim() : undefined,
+          default: size.default === true,
+        }))
+      : undefined,
   })).filter((model: GenStudioImageModel) => model.id && model.display_name)
 }
 
@@ -341,14 +363,20 @@ export function buildGenStudioImageIdempotencyKey(input: {
   modelId: string
   aspectRatio: string
   steps: number
+  width?: number
+  height?: number
   seed?: number
   requestIdentity?: string
 }): string {
+  const hasDimensions = Number.isInteger(input.width) && input.width! > 0
+    && Number.isInteger(input.height) && input.height! > 0
   const digest = createHash('sha256').update(JSON.stringify({
     prompt: input.prompt.trim(),
     model_id: input.modelId.trim(),
     aspect_ratio: input.aspectRatio,
     steps: input.steps,
+    width: hasDimensions ? input.width : null,
+    height: hasDimensions ? input.height : null,
     seed: input.seed ?? null,
     request_identity: input.requestIdentity || null,
   })).digest('hex')
@@ -452,11 +480,16 @@ export async function generateImageWithGenStudio(
   if (!Number.isInteger(request.steps) || request.steps < 1 || request.steps > 100) {
     throw new Error('GenStudio KH image steps must be a whole number supported by the selected model.')
   }
+  const hasDimensions = Number.isInteger(request.width) && request.width! > 0
+    && Number.isInteger(request.height) && request.height! > 0
   const body = {
     prompt,
     model_id: modelId,
     aspect_ratio: request.aspectRatio,
     steps: request.steps,
+    ...(hasDimensions
+      ? { width: request.width, height: request.height }
+      : {}),
     ...(request.seed === undefined ? {} : { seed: request.seed }),
   }
   const idempotencyKey = buildGenStudioImageIdempotencyKey({
@@ -464,6 +497,8 @@ export async function generateImageWithGenStudio(
     modelId,
     aspectRatio: request.aspectRatio,
     steps: request.steps,
+    width: request.width,
+    height: request.height,
     seed: request.seed,
     requestIdentity: request.requestIdentity || randomUUID(),
   })

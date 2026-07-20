@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.664 — 2026-07-20
+
+**Scene Review render controls are compact, aligned, and capability-aware.**
+
+- Gives the image model and Rewrite LLM equal-width, full-size selectors and removes the stale toolbar styling that collapsed the LLM control.
+- Reorganizes render settings into a responsive parameter grid with clearer spacing, labels, and ownership hints across desktop and narrow layouts.
+- Replaces duplicate GenStudio quality and step controls with one friendly quality selector, revealing exact custom steps only when requested.
+- Shows exact local Image Studio pixel dimensions while clearly labeling GenStudio resolution as provider-managed until its live model catalog publishes selectable sizes.
+- Accepts provider-published GenStudio size options, saves the selected resolution with Scene Review presets, and includes the verified width and height in generation requests and idempotency identities.
+- Adds regression coverage for selector alignment, responsive controls, quality deduplication, resolution transparency, catalog validation, and dimension-safe requests.
+
 ## v1.0.663 — 2026-07-20
 
 **Corrupt still images can no longer derail a long video render.**
