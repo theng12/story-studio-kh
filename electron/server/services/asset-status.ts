@@ -44,6 +44,7 @@ import { inspectSubtitleCompletion } from './subtitle-completion.js'
 import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
+import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -943,8 +944,10 @@ export async function computeEpisodeStatus(
           && promptIntegrity.complete
           && subtitleIntegrity.complete
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
-        // Scene Review done = plan exists AND every scene has a generated image
-        // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
+        // Scene Review done = the plan is complete, every scene has a generated
+        // image ON DISK, AND every scene is explicitly approved. Rendering is
+        // not approval: even one unapproved scene must remain in Pending.
+        // v1.0.519 — detect images by FILE EXISTENCE (`<scene_id>.png` in the
         // named or legacy scene-images folder), which is exactly how the Scene
         // Review page and unified Video Assembly already resolve scene images.
         // Previously this keyed off the plan's `image_path` field, which is only
@@ -963,7 +966,11 @@ export async function computeEpisodeStatus(
           }
           return typeof s?.image_path === 'string' && await fileHasContent(s.image_path)
         }))
-        status.scene_review = status.scene_plan && imageReady.every(Boolean)
+        status.scene_review = inspectSceneReviewCompletion(
+          scenes,
+          imageReady,
+          status.scene_plan,
+        ).complete
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
         const motionReady = await Promise.all(scenes.map(async (s: any) => {
           if (s?.motion_choice === 'still') return true

@@ -35,9 +35,9 @@ import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
-// v9 — generated prompts and final videos now require authoritative completion
-// evidence; discard cached true values produced by loose file-presence guesses.
-export const SCHEMA_VERSION = 9 as const
+// v10 — Scene Review now requires explicit approval for every planned scene;
+// discard cached true values that were based on image presence alone.
+export const SCHEMA_VERSION = 10 as const
 const MAX_ENTRIES = 1000
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000

@@ -39,6 +39,7 @@ import {
   assertSubtitleTimelineComplete,
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
+import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import type { ImageModelConfig, JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -109,6 +110,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const legacyUnmappedImages = (await fs.readdir(namedDir).catch(() => [] as string[]))
       .filter(filename => legacyNumberedPattern.test(filename)).length
     const scenes: ReviewSceneAugmented[] = []
+    const imageReady: boolean[] = []
     let approvedCount = 0
     let withImageCount = 0
     let withClipCount = 0
@@ -116,6 +118,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     for (const s of plan.scenes) {
       const filename = `${s.id}.png`
       const exists = existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))
+      imageReady.push(exists)
       if (exists) withImageCount++
       if (s.approved) approvedCount++
       // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
@@ -201,6 +204,12 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const cfg = await pm.getConfig(slug).catch(() => null)
     const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
 
+    const reviewCompletion = inspectSceneReviewCompletion(
+      plan.scenes,
+      imageReady,
+      promptIntegrity.complete && subtitleIntegrity.complete,
+    )
+
     res.json({
       scene_plan: {
         schema_version: plan.schema_version,
@@ -220,10 +229,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         total_scenes: plan.scenes.length,
         approved: approvedCount,
         with_image: withImageCount,
-        all_approved: plan.scenes.length > 0
-          && approvedCount === plan.scenes.length
-          && promptIntegrity.complete
-          && subtitleIntegrity.complete,
+        all_approved: reviewCompletion.complete,
         with_clip: withClipCount,
         motion_reviewed: motionReviewedCount,
         all_motion_reviewed: plan.scenes.length > 0 && motionReviewedCount === plan.scenes.length,
@@ -871,14 +877,28 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
     }
 
     await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
-    const approvedCount = plan.scenes.filter(s => s.approved).length
+    const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    const imageReady = plan.scenes.map(s =>
+      existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`)),
+    )
+    const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
+    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
+    const reviewCompletion = inspectSceneReviewCompletion(
+      plan.scenes,
+      imageReady,
+      promptIntegrity.complete && subtitleIntegrity.complete,
+    )
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, episodeId)
     res.json({
       ok: true,
       changed,
       stats: {
         total_scenes: plan.scenes.length,
-        approved: approvedCount,
-        all_approved: plan.scenes.length > 0 && approvedCount === plan.scenes.length,
+        approved: reviewCompletion.approved,
+        with_image: reviewCompletion.withImage,
+        all_approved: reviewCompletion.complete,
       },
     })
   } catch (e: any) {

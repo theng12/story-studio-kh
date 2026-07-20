@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.653 — 2026-07-20
+
+**Scene Review now stays pending until every scene is explicitly approved.**
+
+- Requires a complete Scene Plan, every exact scene image on disk, and an explicit approval for every planned scene before Scene Review reports done.
+- Uses the same completion rule in episode selectors, Pipeline, Production Board, and the Scene Review workspace.
+- Invalidates cached episode status immediately after approving or resetting scenes so pending lists refresh without retaining a stale done state.
+
+---
+
 ## v1.0.652 — 2026-07-20
 
 **GenStudio narration now uses its restart-safe durable queue.**

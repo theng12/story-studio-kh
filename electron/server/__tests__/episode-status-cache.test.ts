@@ -363,7 +363,7 @@ describe('episode-status-cache', () => {
   // (<scene_id>.png in the "05 Scene Images" folder), not only by the plan's
   // `image_path` field. Images produced OUTSIDE the app (e.g. a browser
   // extension) land on disk with the right name but leave image_path empty;
-  // the episode must still read as done. Mirrors the Scene Review page +
+  // approved scenes must still read as done. Mirrors the Scene Review page +
   // unified assembler, which already detects by file existence.
   test('scene_review: external images (empty image_path) count when <scene_id>.png exists on disk', async () => {
     const { epDir } = await makeProject()
@@ -375,7 +375,10 @@ describe('episode-status-cache', () => {
     await fs.mkdir(scenePromptsDir, { recursive: true })
     // A plan whose scenes have NO image_path — exactly the external-generation case.
     await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
-      scenes: [{ id: 's1', visual_prompt: 'a' }, { id: 's2', visual_prompt: 'b' }],
+      scenes: [
+        { id: 's1', visual_prompt: 'a', approved: true },
+        { id: 's2', visual_prompt: 'b', approved: true },
+      ],
     }))
     await writeVerifiedSubtitleTimeline(epDir)
     await fs.mkdir(imagesDir, { recursive: true })
@@ -385,6 +388,29 @@ describe('episode-status-cache', () => {
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
     assert.equal(status.scene_plan, true, 'scene_plan.json present with content')
     assert.equal(status.scene_review, true, 'both scene images exist on disk → scene review done')
+  })
+
+  test('scene_review: remains pending when every image exists but any scene is unapproved', async () => {
+    const { epDir } = await makeProject()
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    const imagesDir = path.join(epDir, `${CODE} - 05 Scene Images`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.rm(imagesDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        { id: 's1', visual_prompt: 'first unique visual', approved: true },
+        { id: 's2', visual_prompt: 'second unique visual', approved: false },
+      ],
+    }))
+    await writeVerifiedSubtitleTimeline(epDir)
+    await fs.mkdir(imagesDir, { recursive: true })
+    await fs.writeFile(path.join(imagesDir, 's1.png'), 'png-bytes')
+    await fs.writeFile(path.join(imagesDir, 's2.png'), 'png-bytes')
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.scene_plan, true)
+    assert.equal(status.scene_review, false, 'one unapproved scene keeps Scene Review pending')
   })
 
   test('scene_review: pending when a scene has neither image_path nor a file on disk', async () => {
