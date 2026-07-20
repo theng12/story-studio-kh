@@ -7,7 +7,7 @@
  * grep across app.ts.
  */
 
-import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubImageJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
+import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
 import { getScriptConcurrency } from '../services/app-settings.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
@@ -161,7 +161,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // (a few ms), and the PUT route applies live changes without a restart.
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()
-      .then(() => resumeInterruptedHubImageJobsAtBoot())
+      .then(() => resumeInterruptedHubJobsAtBoot())
       .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
     void getScriptConcurrency()
       .then(setLlmConcurrency)

@@ -509,13 +509,21 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
               && (checkpoint.state === 'prepared' || checkpoint.state === 'accepted')
               && ['scene_images_batch', 'continuity_render', 'image_pool_generate'].includes(j.type)
               && !!queues[j.type as JobType]?.executor
-            if (recoverableHubImage) {
+            const remoteRender = j.params?.remote_render
+            const recoverableHubRender = j.type === 'video_assembly'
+              && usesRemoteRender(j)
+              && typeof remoteRender?.batch_id === 'string'
+              && remoteRender.batch_id.trim().length > 0
+              && !!queues[j.type as JobType]?.executor
+            if (recoverableHubImage || recoverableHubRender) {
               j.status = 'queued'
               j.started_at = null
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
+              j.output_lines.push(recoverableHubRender
+                ? '↻ Story Studio restarted — reconnecting the original Studio Hub render batch automatically; no duplicate render will be submitted.'
+                : '↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -548,13 +556,13 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 }
 
 /**
- * Eager boot scan for accepted Hub image work. Ordinary job history is loaded
+ * Eager boot scan for accepted Hub image and remote-render work. Ordinary job history is loaded
  * lazily per project, but recovery cannot depend on somebody opening the Jobs
  * page after a power cut. Executors call this once after every queue lane has
  * been registered; loadPersistedJobs then requeues only checkpoints that can
  * safely reconnect without duplicating generation.
  */
-export async function resumeInterruptedHubImageJobsAtBoot(): Promise<void> {
+export async function resumeInterruptedHubJobsAtBoot(): Promise<void> {
   const { listProjects } = await import('./project-manager.js')
   const projects = await listProjects()
   for (const project of projects as Array<{ slug?: string }>) {

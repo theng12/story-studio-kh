@@ -49,9 +49,16 @@ describe('startup recovery for accepted Studio Hub images', () => {
     while (Date.now() < deadline && jq.getJob('hub-interrupted')?.status !== 'done') {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
+    let persistedStatus = ''
+    while (Date.now() < deadline && persistedStatus !== 'done') {
+      const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf-8'))
+      persistedStatus = persisted.jobs.find((item: any) => item.job_id === 'hub-interrupted')?.status || ''
+      if (persistedStatus !== 'done') await new Promise(resolve => setTimeout(resolve, 10))
+    }
     const resumed = jq.getJob('hub-interrupted')!
     assert.equal(executions, 1)
     assert.equal(resumed.status, 'done')
+    assert.equal(persistedStatus, 'done')
     assert.match(resumed.output_lines.join('\n'), /reconnecting the saved Studio Hub image batch/i)
   })
 })

@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.657 — 2026-07-20
+
+**Remote renders now stay attached to their original Studio Hub batch through connection recovery.**
+
+- Treats the Hub's transport-retry backoff as active work instead of prematurely marking the Story job failed when queued and running momentarily read zero.
+- Keeps reconnecting an already accepted batch through prolonged monitoring outages without submitting an alternate render or moving work to another computer.
+- Automatically reconnects persisted remote-render batch IDs after a Story Studio restart, preserving the Hub's retained assets and worker result.
+- Shows a concise reconnecting-original-batch status in job output and adds regression coverage for retry backoff, repeated monitor failures, and restart recovery.
+
+---
+
 ## v1.0.656 — 2026-07-20
 
 **GenStudio image generation is now available throughout Story Studio.**

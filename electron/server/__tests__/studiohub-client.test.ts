@@ -106,6 +106,60 @@ describe('Hub item persistence callbacks', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('waits while the Hub holds an accepted batch in transport-retry backoff', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) {
+        return new Response(JSON.stringify({
+          id: 'batch-retrying', queued: 0, retrying: 1, running: 0,
+          done: 0, error: 0, finished_at: null,
+          items: [{ index: 0, state: 'queued', error: 'connection failure 1/8; recovering automatically' }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({
+        id: 'batch-retrying', queued: 0, retrying: 0, running: 0,
+        done: 1, error: 0, finished_at: Date.now() / 1000,
+        items: [{ index: 0, state: 'done', sha256: 'verified' }],
+      }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await hubPollBatch('http://hub:47873', undefined, 'batch-retrying', {
+        reconnectDelayMs: 1,
+      })
+      assert.equal(result.done, 1)
+      assert.equal(calls, 2)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('keeps reconnecting the same accepted batch after more than six monitor failures', async () => {
+    const originalFetch = globalThis.fetch
+    const requested: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input))
+      if (requested.length <= 7) throw new Error('temporary network loss')
+      return new Response(JSON.stringify({
+        id: 'batch-durable', queued: 0, retrying: 0, running: 0,
+        done: 1, error: 0, finished_at: Date.now() / 1000,
+        items: [{ index: 0, state: 'done', sha256: 'verified' }],
+      }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await hubPollBatch('http://hub:47873', undefined, 'batch-durable', {
+        reconnectDelayMs: 1,
+      })
+      assert.equal(result.done, 1)
+      assert.equal(requested.length, 8)
+      assert.equal(new Set(requested).size, 1)
+      assert.match(requested[0], /\/jobs\/batch-durable$/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
 
 describe('hubHeaders', () => {

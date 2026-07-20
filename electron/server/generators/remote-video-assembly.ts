@@ -985,7 +985,14 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
           if (pct != null) job.progress = Math.max(1, Math.min(99, pct))
           job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} via Studio Hub (batch ${batchId}).`
         } else if (item.state === 'queued') {
-          job.output_lines[progressLine] = `Studio Hub: batch ${batchId} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
+          if ((value.retrying || 0) > 0) {
+            const retryAt = typeof value.next_retry_at === 'number'
+              ? ` Retry scheduled for ${new Date(value.next_retry_at * 1000).toLocaleTimeString()}.`
+              : ''
+            job.output_lines[progressLine] = `Render Studio connection interrupted; Studio Hub is reconnecting original batch ${batchId}.${retryAt} No duplicate render was submitted.`
+          } else {
+            job.output_lines[progressLine] = `Studio Hub: batch ${batchId} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
+          }
         }
       },
     })

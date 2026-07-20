@@ -312,10 +312,16 @@ export interface HubBatchStatus {
   id: string
   total?: number
   queued?: number
+  /** Queued items held in the Hub's automatic transport-recovery backoff. */
+  retrying?: number
+  next_retry_at?: number | null
   running?: number
   done?: number
   error?: number
   cancelled?: boolean
+  /** Hub-owned terminal marker. A present null value means finalization is
+   * still pending even when every visible activity counter is momentarily 0. */
+  finished_at?: number | null
   /** The Hub route used for this batch, including remote-only final renders. */
   routing?: string
   governor_note?: string
@@ -440,9 +446,11 @@ export async function hubGetBatchStatus(
 }
 
 /**
- * Poll a batch until every item is terminal (queued + running == 0). Returns
- * the final status. Cancels the batch on isCancelled. A connection error while
- * polling is retried against the same accepted Hub batch to avoid duplicates.
+ * Poll a batch until every item is terminal. Hub transport retries are exposed
+ * separately from ordinary queued items, so both counters must be treated as
+ * active. Returns the final status and cancels the batch on isCancelled. A
+ * connection error while polling is retried against the same accepted Hub
+ * batch until the overall monitoring deadline to avoid duplicate work.
  */
 export async function hubPollBatch(
   hubUrl: string,
@@ -469,23 +477,17 @@ export async function hubPollBatch(
         headers: { Accept: 'application/json', ...hubHeaders(token) },
         signal: AbortSignal.timeout(15_000),
       })
-    } catch (e: any) {
+    } catch {
       consecutivePollFailures += 1
-      if (consecutivePollFailures < 6) {
-        await sleepCancellable(
-          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
-          opts.isCancelled,
-        )
-        continue
-      }
-      throw new Error(
-        `Studio Hub accepted batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
-        'No alternate transport was started because the Hub batch may still be running.',
+      await sleepCancellable(
+        opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+        opts.isCancelled,
       )
+      continue
     }
     if (!resp.ok) {
       const t = await resp.text().catch(() => '')
-      if (resp.status >= 500 && consecutivePollFailures < 5) {
+      if (resp.status >= 500) {
         consecutivePollFailures += 1
         await sleepCancellable(
           opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
@@ -498,19 +500,13 @@ export async function hubPollBatch(
     let s: HubBatchStatus
     try {
       s = await resp.json() as HubBatchStatus
-    } catch (error: any) {
+    } catch {
       consecutivePollFailures += 1
-      if (consecutivePollFailures < 6) {
-        await sleepCancellable(
-          opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
-          opts.isCancelled,
-        )
-        continue
-      }
-      throw new Error(
-        `Studio Hub accepted batch ${batchId}, but the monitoring response could not be read after 6 attempts: ${error?.message || error}. ` +
-        'No alternate render was started because the Hub batch may still be running.',
+      await sleepCancellable(
+        opts.reconnectDelayMs ?? Math.min(20_000, consecutivePollFailures * 3_000),
+        opts.isCancelled,
       )
+      continue
     }
     consecutivePollFailures = 0
     try { opts.onProgress?.(s) } catch { /* never let UI plumbing kill polling */ }
@@ -539,7 +535,10 @@ export async function hubPollBatch(
         }
       }
     }
-    if ((s.queued || 0) + (s.running || 0) === 0) return s
+    const active = (s.queued || 0) + (s.retrying || 0) + (s.running || 0) > 0
+    const hubFinalizationPending = Object.prototype.hasOwnProperty.call(s, 'finished_at')
+      && s.finished_at == null
+    if (!active && !hubFinalizationPending) return s
     const sleepMs = polls < 6 ? 2_000 : polls < 18 ? 4_000 : 8_000
     await sleepCancellable(sleepMs, opts.isCancelled)
     polls += 1
