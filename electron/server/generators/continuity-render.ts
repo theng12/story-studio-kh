@@ -92,6 +92,8 @@ interface ContinuityRenderParams {
    *  rides entirely on the prompt (detail level + Style Bible + character
    *  text), so dial those in. */
   prompt_only?: boolean
+  /** Approve each image only after its verified media checkpoint succeeds. */
+  auto_approve_generated?: boolean
   /** v1.0.261 — explicit output pixel size (local Image Studio models only).
    *  When set, overrides the aspect-ratio preset so the user can render at a
    *  smaller resolution — far less VAE/GPU memory (fewer OOM crashes) + faster.
@@ -434,7 +436,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   let planChain: Promise<void> = Promise.resolve()
   const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
     const operation = planChain.catch(() => {}).then(async () => {
-      await checkpointSceneImage(planPath, sceneId, outPath, renderedPrompt)
+      await checkpointSceneImage(planPath, sceneId, outPath, renderedPrompt, params.auto_approve_generated === true)
     })
     planChain = operation.catch(() => {})
     return operation
@@ -913,7 +915,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }
     await downloadImage(result.urls[0]!, outPath)
 
-    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
+    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
     successfulSceneIds.add(scene.id)
 
     // Only character scenes seed the guide-continuity chain; cutaways don't,

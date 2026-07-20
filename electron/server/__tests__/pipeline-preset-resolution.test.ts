@@ -13,6 +13,26 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { findActivePreset, resolveStepParams } from '../routes/pipeline.js'
 
+describe('resolveStepParams — Scene Review approval automation', () => {
+  test('old presets keep generated-image approval off', () => {
+    const params = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-old',
+      name: 'Old scene review preset',
+      data: { model: 'image-model', aspect_ratio: '16:9' },
+    })
+    assert.equal(params.auto_approve_generated, false)
+  })
+
+  test('explicit preset choice enables verified generated-image approval', () => {
+    const params = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-auto',
+      name: 'Auto approval preset',
+      data: { model: 'image-model', auto_approve_generated: true },
+    })
+    assert.equal(params.auto_approve_generated, true)
+  })
+})
+
 describe('findActivePreset — script-only / introduction-only', () => {
   test('script params preserve the preset POV and narrator style', () => {
     const params = resolveStepParams(

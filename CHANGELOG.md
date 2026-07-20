@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.662 — 2026-07-20
+
+**Scene Review can safely approve generated images automatically.**
+
+- Adds an opt-in **Auto-approve generated images** control that defaults off and is saved with each Scene Review preset.
+- Carries the preset choice through single-scene generation, provider recovery, missing-image batches, continuity renders, selected re-renders, automatic retries, and Pipeline runs.
+- Applies approval only after the exact generated image is verified as a usable file and atomically registered to its stable scene; missing, empty, failed, and manually uploaded images remain blocked for review.
+- Adds regression coverage for legacy preset defaults, Pipeline preset propagation, verified auto-approval, and rejection of invalid outputs.
+
 ## v1.0.661 — 2026-07-20
 
 **Pipeline episode filters now stay synchronized with every active production stage.**

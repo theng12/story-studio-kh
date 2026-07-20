@@ -111,6 +111,7 @@ export async function checkpointSceneImage(
   sceneId: string,
   imagePath: string,
   renderedPrompt: string,
+  autoApproveGenerated = false,
 ): Promise<ScenePlan> {
   await assertUsableFile(imagePath, `Image for ${sceneId}`)
   return withLock(planPath, async () => {
@@ -122,7 +123,9 @@ export async function checkpointSceneImage(
     scene.rendered_prompt = renderedPrompt
     scene.image_version = new Date().toISOString()
     scene.motion_choice = 'pending'
-    scene.approved = false
+    // Approval is applied only after the exact output file passed the usable
+    // media check above and the matching scene still exists in the fresh plan.
+    scene.approved = autoApproveGenerated === true
     await writeJsonAtomic(planPath, plan)
     return plan
   })

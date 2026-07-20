@@ -759,6 +759,7 @@ export function resolveStepParams(
       // Studio models resolve this to explicit px in continuity-render; cloud
       // models ignore it and use the aspect ratio.
       render_scale: typeof data.render_scale === 'number' ? data.render_scale : undefined,
+      auto_approve_generated: data.auto_approve_generated === true,
     }
   }
   if (step === 'motion_review') {

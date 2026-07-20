@@ -103,6 +103,7 @@ interface SceneImageGenerateParams {
   height?: number
   image_steps?: number
   seed?: number
+  auto_approve_generated?: boolean
 }
 
 export async function generateSceneImageJob(job: Job): Promise<void> {
@@ -209,7 +210,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)
   job.progress = 90
 
-  await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt)
+  await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
 
   job.output_dir = outDir
   job.progress = 100

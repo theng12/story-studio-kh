@@ -194,6 +194,16 @@
           <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
             <ModelSelector v-model="textModel" :project-slug="slug" label="Rewrite LLM" />
           </div>
+          <label
+            class="sr-auto-approve"
+            title="Approve each generated image only after Story Studio verifies and registers the saved file. Manual uploads still require review."
+          >
+            <input v-model="autoApproveGenerated" type="checkbox">
+            <span>
+              <strong>Auto-approve generated images</strong>
+              <small>Default off · saved with this Scene Review preset</small>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -857,6 +867,9 @@ const form = ref({
 // removed model).
 useRememberedForm('scene-review', slug, form)
 const promptOnly = computed(() => isContinuity.value && form.value.render_mode === 'prompt')
+// Safety-sensitive and intentionally separate from remembered form state:
+// this turns on only when the user applies a preset that explicitly saved it.
+const autoApproveGenerated = ref(false)
 
 // v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
 // parallel pool size and AUTO-APPLIES the last-used preset on load (default
@@ -871,6 +884,7 @@ const srPresets = usePresets<{
   image_quality?: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
   image_steps?: number
   seed?: string | number
+  auto_approve_generated?: boolean
 }>({
   slug: slug.value,
   configKey: 'scene_review',
@@ -884,8 +898,12 @@ const srPresets = usePresets<{
     image_quality: form.value.image_quality,
     image_steps: form.value.image_steps,
     seed: form.value.seed,
+    auto_approve_generated: autoApproveGenerated.value,
   }),
-  apply: (data) => { Object.assign(form.value, data) },
+  apply: (data) => {
+    Object.assign(form.value, data)
+    autoApproveGenerated.value = data.auto_approve_generated === true
+  },
 })
 
 // Aspect-ratio choices for scene renders. 16:9 is the default video frame;
@@ -1402,6 +1420,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         single_scene_id: scene.id,
         force: !!scene.image_filename,
         prompt_only: promptOnly.value,
+        auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
         ...localSizeBody.value,
       })
@@ -1411,6 +1430,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         scene_id: scene.id,
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
+        auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
         ...localSizeBody.value,
       })
@@ -1435,6 +1455,7 @@ async function repairOne(scene: ReviewScene): Promise<void> {
       model: form.value.model,
       aspect_ratio: form.value.aspect_ratio,
       prompt_only: promptOnly.value,
+      auto_approve_generated: autoApproveGenerated.value,
       ...genStudioImageBody.value,
       ...localSizeBody.value,
     })
@@ -1537,6 +1558,7 @@ async function generateAllMissing(): Promise<void> {
         independent: true,
         concurrency: form.value.concurrency,
         prompt_only: promptOnly.value,
+        auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
         ...localSizeBody.value,
       },
@@ -1594,6 +1616,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       scene_ids: selection,
       concurrency: (opts.independent || selection) ? form.value.concurrency : undefined,
       prompt_only: promptOnly.value,
+      auto_approve_generated: autoApproveGenerated.value,
       ...genStudioImageBody.value,
       ...localSizeBody.value,
     })
@@ -1954,6 +1977,23 @@ watch(episodeId, () => {
 
 .sr-ratio-pick, .sr-llm-pick { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
 .sr-llm-pick { grid-column: span 2; }
+.sr-auto-approve {
+  display: flex;
+  min-width: 0;
+  grid-column: span 2;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--review-gold) 5%, var(--bg-tertiary));
+  cursor: pointer;
+}
+.sr-auto-approve input { flex: 0 0 auto; }
+.sr-auto-approve span { display: grid; gap: 3px; min-width: 0; }
+.sr-auto-approve strong { color: var(--text-primary); font-size: 12px; }
+.sr-auto-approve small { color: var(--text-muted); font-size: 10px; }
 .sr-ratio-label {
   color: var(--text-muted);
   font-size: 10px;
@@ -2373,7 +2413,7 @@ watch(episodeId, () => {
   .sr-greenlight-head, .sr-section-heading { align-items: flex-start; flex-direction: column; }
   .sr-status-orb { width: 100%; min-height: 48px; }
   .sr-settings-grid { grid-template-columns: 1fr; }
-  .sr-model-pick, .sr-llm-pick { grid-column: auto; }
+  .sr-model-pick, .sr-llm-pick, .sr-auto-approve { grid-column: auto; }
   .review-scene-row { grid-template-columns: 1fr; }
   .review-thumb-cell, .review-thumb, .review-thumb-empty { width: 100%; }
   .back-to-top { right: 16px; bottom: 16px; }

@@ -23,8 +23,8 @@ async function fixture(): Promise<{ dir: string; planPath: string }> {
     planned_in_windows: 0,
     planning_stage: 'visual',
     scenes: [
-      { id: 'scene-1', scene_index: 1, start_sec: 0, end_sec: 5, transcript_segment: 'One', visual_prompt: 'Prompt one' },
-      { id: 'scene-2', scene_index: 2, start_sec: 5, end_sec: 10, transcript_segment: 'Two', visual_prompt: 'Prompt two' },
+      { id: 'scene-1', scene_index: 1, start_sec: 0, end_sec: 5, transcript_segment: 'One', visual_prompt: 'Prompt one', approved: false },
+      { id: 'scene-2', scene_index: 2, start_sec: 5, end_sec: 10, transcript_segment: 'Two', visual_prompt: 'Prompt two', approved: false },
     ],
   }
   await fs.writeFile(planPath, JSON.stringify(plan), 'utf-8')
@@ -50,15 +50,30 @@ describe('scene media checkpoints', () => {
     const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     assert.equal(saved.scenes[0]?.image_path, image1)
     assert.equal(saved.scenes[1]?.image_path, image2)
+    assert.equal(saved.scenes[0]?.approved, false)
+    assert.equal(saved.scenes[1]?.approved, false)
+  })
+
+  it('auto-approves only after a non-empty generated image is verified and registered', async () => {
+    const { dir, planPath } = await fixture()
+    const image = path.join(dir, 'scene-1.png')
+    await fs.writeFile(image, 'verified-image')
+
+    await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', true)
+
+    const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    assert.equal(saved.scenes[0]?.image_path, image)
+    assert.equal(saved.scenes[0]?.approved, true)
   })
 
   it('rejects an empty media file without changing the plan', async () => {
     const { dir, planPath } = await fixture()
     const empty = path.join(dir, 'empty.png')
     await fs.writeFile(empty, '')
-    await assert.rejects(checkpointSceneImage(planPath, 'scene-1', empty, 'Prompt one'), /usable file/)
+    await assert.rejects(checkpointSceneImage(planPath, 'scene-1', empty, 'Prompt one', true), /usable file/)
     const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     assert.equal(saved.scenes[0]?.image_path, undefined)
+    assert.equal(saved.scenes[0]?.approved, false)
   })
 
   it('fails loudly when a paid result no longer has a matching scene', async () => {

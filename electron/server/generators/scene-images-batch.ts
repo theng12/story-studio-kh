@@ -46,6 +46,7 @@ interface SceneImagesBatchParams {
   height?: number
   image_steps?: number
   seed?: number
+  auto_approve_generated?: boolean
   /** Specific scenes to render; when omitted, every scene missing an image. */
   scene_ids?: string[]
   /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
@@ -144,7 +145,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const saveScene = async (scene: ScenePlanEntry, url: string): Promise<void> => {
     const outPath = path.join(outDir, `${scene.id}.png`)
     await downloadImage(url, outPath)
-    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt)
+    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
     successfulSceneIds.add(scene.id)
     failedSceneIds.delete(scene.id)
   }

@@ -41,6 +41,7 @@ import {
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
+import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -281,6 +282,7 @@ function enqueueContinuityRender(
         ? 'auto'
         : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
       prompt_only: body.prompt_only === true,
+      auto_approve_generated: body.auto_approve_generated === true,
     },
   })
 }
@@ -316,6 +318,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
         height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
         image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
         seed: Number.isInteger(body.seed) ? body.seed : undefined,
+        auto_approve_generated: body.auto_approve_generated === true,
       },
     })
     res.status(201).json(job)
@@ -610,6 +613,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
           : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
         // v1.0.254 — prompt-only (text2img): send no reference images at all.
         prompt_only: body.prompt_only === true,
+        auto_approve_generated: body.auto_approve_generated === true,
       },
     })
   } catch (e: any) {
@@ -676,9 +680,13 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
     if (recovered?.urls?.length) {
       await fs.mkdir(outDir, { recursive: true })
       await downloadImage(recovered.urls[0]!, outPath)
-      scene.image_path = outPath
-      scene.approved = false
-      await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      await checkpointSceneImage(
+        planPath,
+        sceneId,
+        outPath,
+        scene.visual_prompt || '',
+        body.auto_approve_generated === true,
+      )
       return res.json({
         ok: true,
         recovered: true,
