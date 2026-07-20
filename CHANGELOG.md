@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.661 — 2026-07-20
+
+**Pipeline episode filters now stay synchronized with every active production stage.**
+
+- Replaces the outdated hand-maintained missing-step menu with required and optional filters generated from the same active stage metadata as Pipeline cards and episode status pills.
+- Adds live missing counts for Thumbnails, Subtitles, Character Sheet, Scene Plan, Scene Review, optional Research and Motion Clips, and the unified Final Video stage.
+- Keeps optional Research available in narrated-scenes projects and automatically removes stale filters when a future format no longer exposes their stage.
+- Adds regression coverage that prevents new Pipeline stages from silently being omitted from the episode filter menu.
+
 ## v1.0.660 — 2026-07-20
 
 **GenStudio narration and transcription can now recover the same durable provider job after interruption.**

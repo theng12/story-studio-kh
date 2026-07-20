@@ -47,4 +47,21 @@ describe('Pipeline stage selection', () => {
     assert.ok(episodeListCss, 'episode-list styles are missing')
     assert.doesNotMatch(episodeListCss, /max-height|overflow-y:\s*auto/)
   })
+
+  test('derives every missing-stage filter from the active Pipeline stages', () => {
+    assert.match(pipeline, /v-for="step in requiredFilterSteps"/)
+    assert.match(pipeline, /v-for="step in optionalFilterSteps"/)
+    assert.match(pipeline, /requiredFilterSteps = computed\(\(\) => visibleSteps\.value\.filter\(step => !step\.optional\)\)/)
+    assert.match(pipeline, /optionalFilterSteps = computed\(\(\) => visibleSteps\.value\.filter\(step => step\.optional\)\)/)
+    assert.match(pipeline, /const ids = visibleSteps\.value\.map\(step => step\.id\)/)
+    assert.match(pipeline, /`missing-step:\$\{stepId\}`/)
+    assert.doesNotMatch(pipeline, /FILTER_MODE_TO_STEP/)
+    assert.doesNotMatch(pipeline, /<option value="missing-(?:script|audio|metadata|video)/)
+  })
+
+  test('keeps optional Research in the narrated-scenes Pipeline chain', () => {
+    const narratedChain = pipeline.match(/const CHAIN_NARRATED_SCENES: ChainSpec = \[([\s\S]*?)\n\]/)?.[1] || ''
+    assert.match(narratedChain, /'research'/)
+    assert.match(pipeline, /id: 'research',[^\n]*optional: true/)
+  })
 })

@@ -260,14 +260,19 @@
               <option value="all">All episodes ({{ episodes.length }})</option>
               <option value="missing-only">Missing any core component ({{ pendingEpisodesCount }})</option>
             </optgroup>
-            <optgroup label="Missing a specific step">
-              <option value="missing-script">Missing script ({{ missingCountByStep['script-only'] }})</option>
-              <option value="missing-introduction">Missing introduction ({{ missingCountByStep['introduction-only'] }})</option>
-              <option value="missing-image-prompts">Missing thumbnail prompts ({{ missingCountByStep['image_prompts'] }})</option>
-              <option value="missing-audio">Missing audio ({{ missingCountByStep['audio'] }})</option>
-              <option value="missing-audio-merge">Missing merged audio ({{ missingCountByStep['audio_merge'] }})</option>
-              <option value="missing-metadata">Missing metadata ({{ missingCountByStep['metadata'] }})</option>
-              <option value="missing-video-assembly">Missing final video ({{ missingCountByStep['video_assembly'] }})</option>
+            <optgroup label="Missing a required stage">
+              <option
+                v-for="step in requiredFilterSteps"
+                :key="`required-${step.id}`"
+                :value="filterModeForStep(step.id)"
+              >Missing {{ stepFilterLabel(step) }} ({{ missingCountByStep[step.id] ?? 0 }})</option>
+            </optgroup>
+            <optgroup v-if="optionalFilterSteps.length" label="Missing an optional stage">
+              <option
+                v-for="step in optionalFilterSteps"
+                :key="`optional-${step.id}`"
+                :value="filterModeForStep(step.id)"
+              >Missing {{ stepFilterLabel(step) }} ({{ missingCountByStep[step.id] ?? 0 }})</option>
             </optgroup>
           </select>
           <span
@@ -455,7 +460,7 @@
 
       <div v-if="episodes.length" class="selection-summary mt-2 text-muted text-sm">
         <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · queued jobs = {{ selectedEpisodes.size * checkedStepCount }}
-        <template v-if="filterMode === 'missing-only' || sortKey !== 'code-asc'">
+        <template v-if="filterMode !== 'all' || sortKey !== 'code-asc'">
           · showing <strong>{{ sortedFilteredEpisodes.length }}</strong> after filter/sort
         </template>
       </div>
@@ -553,9 +558,8 @@ const isTimestampDriven = computed(() => visualSource.value === 'timestamp-drive
 // but inserts a Character Sheet node and renders scenes sequentially.
 const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
 // v1.0.300 — narrated-scenes: transcript-driven scene plan for STORY/fiction
-// (sleep stories). Same audio-paced flow as timestamp-driven but WITHOUT the
-// Research node (fiction has nothing to fact-check) and WITHOUT a Character
-// Sheet (no img2img lock).
+// (sleep stories). It keeps Research available as an explicit optional stage
+// and exposes Character Sheet for channels that want a reusable visual anchor.
 const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
 watch(slug, () => {
   void loadVisualSource()
@@ -702,6 +706,7 @@ const CHAIN_CONTINUITY: ChainSpec = [
 // (scenes are NOT hard-locked to the sheet via img2img), but the chain order
 // is identical.
 const CHAIN_NARRATED_SCENES: ChainSpec = [
+  'research',
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
@@ -1022,26 +1027,35 @@ type SortKey = 'code-asc' | 'code-desc' | 'title' | 'missing-desc' | 'missing-as
 type FilterMode =
   | 'all'
   | 'missing-only'
-  | 'missing-script'
-  | 'missing-introduction'
-  | 'missing-image-prompts'
-  | 'missing-audio'
-  | 'missing-audio-merge'
-  | 'missing-metadata'
-  | 'missing-video-assembly'
+  | `missing-step:${StepId}`
 
-// Map filter modes to the underlying step id. Used by both the filter
-// predicate and the per-mode count badge so labels and filtering stay
-// aligned without a second lookup table.
-const FILTER_MODE_TO_STEP: Partial<Record<FilterMode, StepId>> = {
-  'missing-script': 'script-only',
-  'missing-introduction': 'introduction-only',
-  'missing-image-prompts': 'image_prompts',
-  'missing-audio': 'audio',
-  'missing-audio-merge': 'audio_merge',
-  'missing-metadata': 'metadata',
-  'missing-video-assembly': 'video_assembly',
+function filterModeForStep(stepId: StepId): FilterMode {
+  return `missing-step:${stepId}`
 }
+
+function stepFilterLabel(step: StepMeta): string {
+  return step.label
+    .replace(/\s*\(optional[^)]*\)/i, '')
+    .replace(/\s*\(render\)/i, '')
+}
+
+// The filter menu is generated from the same active stage collection as the
+// tiles and episode status pills. Adding a future Pipeline stage therefore
+// adds its missing-work filter automatically, without another hand-maintained
+// dropdown map.
+const requiredFilterSteps = computed(() => visibleSteps.value.filter(step => !step.optional))
+const optionalFilterSteps = computed(() => visibleSteps.value.filter(step => step.optional))
+const filteredStepId = computed<StepId | null>(() => {
+  if (!filterMode.value.startsWith('missing-step:')) return null
+  const candidate = filterMode.value.slice('missing-step:'.length) as StepId
+  return visibleSteps.value.some(step => step.id === candidate) ? candidate : null
+})
+
+watch(visibleSteps, () => {
+  if (filterMode.value.startsWith('missing-step:') && !filteredStepId.value) {
+    filterMode.value = 'all'
+  }
+})
 
 const sortKey = ref<SortKey>('code-asc')
 const filterMode = ref<FilterMode>('all')
@@ -1096,7 +1110,7 @@ function compareEpisodeCodes(a: string, b: string): number {
 
 const sortedFilteredEpisodes = computed<Episode[]>(() => {
   let filtered: Episode[]
-  const targetStep = FILTER_MODE_TO_STEP[filterMode.value]
+  const targetStep = filteredStepId.value
   if (targetStep) {
     filtered = episodes.value.filter(ep => !isStepDoneForEpisode(targetStep, ep.status))
   } else if (filterMode.value === 'missing-only') {
@@ -1148,13 +1162,9 @@ const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingC
 
 // Per-step missing counts — drives the count badges in the filter dropdown
 // so users see "(4)" next to e.g. "Missing audio" before selecting it.
-const missingCountByStep = computed<Record<StepId, number>>(() => {
-  const ids: StepId[] = [
-    'script-only', 'introduction-only', 'image_prompts', 'thumb_images',
-    'audio', 'audio_merge', 'metadata',
-    'video_assembly',
-  ]
-  const counts = {} as Record<StepId, number>
+const missingCountByStep = computed<Partial<Record<StepId, number>>>(() => {
+  const ids = visibleSteps.value.map(step => step.id)
+  const counts: Partial<Record<StepId, number>> = {}
   for (const id of ids) counts[id] = 0
   for (const ep of episodes.value) {
     for (const id of ids) {
