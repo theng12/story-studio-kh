@@ -367,33 +367,56 @@
           <button class="btn btn-sm btn-primary" :disabled="saving || !dirty" @click="savePlan">
             {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
           </button>
-          <button
-            v-if="overlongSceneCount"
-            class="btn btn-sm btn-secondary"
-            :disabled="repairingLongScenes || !!dirty || !subtitleTimelineComplete"
-            :title="!subtitleTimelineComplete
-              ? 'Transcribe and stitch every missing subtitle chapter first'
-              : dirty ? 'Save your edits first' : 'Split only abnormal long scenes against the current subtitle cues. No LLM; unaffected prompts and images are preserved.'"
-            @click="repairLongScenes"
-          >
-            {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} long scene${overlongSceneCount === 1 ? '' : 's'}` }}
-          </button>
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="repairingCoverage || !!dirty"
-            :title="dirty ? 'Save your edits first' : 'Close gaps between scenes and extend the last scene to the real audio end, so every second of narration has a scene'"
-            @click="repairCoverage"
-          >
-            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
-          </button>
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="reconciling || !!dirty"
-            :title="dirty ? 'Save your edits first' : 'Re-anchor every scene’s timing to the CURRENT subtitles (use after re-generating audio / re-stitching). Keeps all scene images; fixes a plan that drifted out of sync.'"
-            @click="reconcileTimings"
-          >
-            {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
-          </button>
+          <Popover v-if="overlongSceneCount" placement="top">
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="repairingLongScenes || !!dirty || !subtitleTimelineComplete"
+              :title="!subtitleTimelineComplete
+                ? 'Transcribe and stitch every missing subtitle chapter first'
+                : dirty ? 'Save your edits first' : 'Split abnormal long scenes against current subtitle cues; then generate only the new pending prompts.'"
+              @click="repairLongScenes"
+            >
+              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} long scene${overlongSceneCount === 1 ? '' : 's'}` }}
+            </button>
+            <template #content>
+              <div class="popover-title">Repair long scenes</div>
+              <p><strong>Use when:</strong> one or more scenes are over 20 seconds, especially a 100–300 second hold caused by an older plan that skipped narration.</p>
+              <p><strong>What it does:</strong> splits only those ranges against the verified subtitle cues. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
+              <p><strong>Next:</strong> run Visual prompts → All pending, then generate the new missing images in Scene Review.</p>
+            </template>
+          </Popover>
+          <Popover placement="top">
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="repairingCoverage || !!dirty"
+              :title="dirty ? 'Save your edits first' : 'Restore narration ranges with no scene; large narrated gaps become cue-aligned pending scenes, not one frozen hold.'"
+              @click="repairCoverage"
+            >
+              {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
+            </button>
+            <template #content>
+              <div class="popover-title">Repair coverage</div>
+              <p><strong>Use when:</strong> Scene Plan or Video Assembly reports uncovered narration before, between, or after scenes.</p>
+              <p><strong>What it does:</strong> closes small timing gaps and restores larger narrated ranges as cue-aligned scenes. Newly restored scenes remain pending instead of repeating one image.</p>
+              <p><strong>Next:</strong> generate any pending visual prompts and images. It is not needed when the only problem is timing drift.</p>
+            </template>
+          </Popover>
+          <Popover placement="top">
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="reconciling || !!dirty"
+              :title="dirty ? 'Save your edits first' : 'Re-anchor existing scenes to current subtitles after audio or subtitle timing changed; preserves scene assets.'"
+              @click="reconcileTimings"
+            >
+              {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
+            </button>
+            <template #content>
+              <div class="popover-title">Reconcile timings</div>
+              <p><strong>Use when:</strong> audio was regenerated or subtitles were re-stitched and otherwise correct scenes now appear too early or too late.</p>
+              <p><strong>What it does:</strong> text-matches each existing scene back to the current subtitles while preserving its ID, prompt, image, and approval.</p>
+              <p><strong>Do not use for:</strong> a single long scene or missing prompts. Use the matching repair action instead.</p>
+            </template>
+          </Popover>
           <button
             class="btn btn-sm btn-danger"
             :disabled="deleting"
@@ -1766,9 +1789,8 @@ async function repairLongScenes(): Promise<void> {
   }
 }
 
-// v1.0.522 — heal the plan to full audio coverage (close inter-scene gaps,
-// extend the last scene to the ffprobed audio end). Both assemblers refuse
-// to render when >2s of narration has no scene; this is the one-click fix.
+// Heal full audio coverage from the verified subtitle cues. Large narrated
+// gaps become new pending scenes instead of one extended frozen image.
 const repairingCoverage = ref(false)
 async function repairCoverage(): Promise<void> {
   if (!episodeId.value || repairingCoverage.value) return
@@ -1779,6 +1801,8 @@ async function repairCoverage(): Promise<void> {
       audio_duration_sec: number
       changes: string[]
       coverage_after: { uncoveredTotalSec: number }
+      repaired_long_scene_count: number
+      added_scene_count: number
     }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/repair-coverage`, {})
     if (r.changes?.length) {
       success(`Coverage repaired — plan now covers ${r.audio_duration_sec.toFixed(1)}s of audio. ${r.changes.join(' ')}`)

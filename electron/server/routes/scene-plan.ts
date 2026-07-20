@@ -23,7 +23,7 @@ import {
   computePlanCoverage,
   inspectScenePlanCoverage,
   repairOverlongScenesDeterministically,
-  repairPlanCoverage,
+  repairPlanCoverageWithSubtitleCues,
   reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
 import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
@@ -324,11 +324,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
 })
 
 // ── POST /scene-plan/:ep/repair-coverage ──────────────────────────────
-// v1.0.522 — heal an existing plan to FULL audio coverage: close internal
-// gaps by holding each preceding scene, extend the last scene to the real
-// (ffprobed) audio end, pull a ≤2s lead-in head to 0. Starts never move.
-// Both assemblers hard-fail when >2s of narration is uncovered; this is the
-// one-click fix the error message points at. Returns a before/after summary.
+// Heal an existing plan to FULL audio coverage. Small silent gaps may hold the
+// preceding image, but narrated ranges are restored as cue-aligned scenes so a
+// missing chapter can never become one 100–300 second frozen image.
 router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req, res) => {
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
@@ -356,18 +354,59 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     const audioDur = (await getAudioDuration(audioPath)) || 0
     if (audioDur <= 0) return res.status(400).json({ detail: `Could not read the audio duration of ${path.basename(audioPath)}.` })
 
-    const { scenes: repaired, changes, coverageBefore } = repairPlanCoverage(plan.scenes, audioDur)
-    plan.scenes = repaired
+    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedMetaPath = `${stitchedPath}.json`
+    if (!existsSync(stitchedPath) || !existsSync(stitchedMetaPath)) {
+      return res.status(400).json({
+        detail: 'Stitch a complete subtitle timeline first. Coverage repair uses its cues to avoid creating a long frozen scene.',
+      })
+    }
+    const stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
+    const incomplete = Array.from(new Set([
+      ...findIncompleteSubtitleSections(stitchedMeta?.sections),
+      ...(Array.isArray(stitchedMeta?.missing_sections) ? stitchedMeta.missing_sections : []),
+    ]))
+    if (incomplete.length) {
+      return res.status(400).json({
+        detail: `Transcribe the missing subtitle chapters first: ${incomplete.join(', ')}. Stitch again, then repair coverage.`,
+      })
+    }
+    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
+
+    let minSec = 3
+    let maxSec = 12
+    const continuityPath = path.join(paths.episode_dir, 'continuity.json')
+    if (existsSync(continuityPath)) {
+      const continuity = JSON.parse(await fs.readFile(continuityPath, 'utf-8')).pacing
+      const configuredMin = Number(continuity?.min_sec)
+      const configuredMax = Number(continuity?.max_sec)
+      if (Number.isFinite(configuredMin) && Number.isFinite(configuredMax) && configuredMax >= configuredMin) {
+        minSec = configuredMin
+        maxSec = configuredMax
+      }
+    }
+
+    const repaired = repairPlanCoverageWithSubtitleCues({
+      scenes: plan.scenes,
+      cues,
+      audioDurationSec: audioDur,
+      threshold_sec: 20,
+      min_sec: minSec,
+      max_sec: maxSec,
+    })
+    plan.scenes = repaired.scenes
     plan.total_duration_sec = audioDur
     await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
     await invalidateScenePlanStatus(slug, episodeId)
-    const coverageAfter = computePlanCoverage(plan.scenes, audioDur)
     res.json({
       ok: true,
       audio_duration_sec: audioDur,
-      changes,
-      coverage_before: coverageBefore,
-      coverage_after: coverageAfter,
+      changes: repaired.changes,
+      coverage_before: repaired.coverageBefore,
+      coverage_after: repaired.coverageAfter,
+      repaired_long_scene_count: repaired.repairedLongSceneCount,
+      added_scene_count: repaired.addedSceneCount,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to repair plan coverage'))

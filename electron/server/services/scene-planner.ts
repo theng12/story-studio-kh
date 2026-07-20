@@ -1130,6 +1130,55 @@ export function repairOverlongScenesDeterministically(opts: {
   }
 }
 
+export interface CueAwareCoverageRepairResult {
+  scenes: ScenePlanEntry[]
+  changes: string[]
+  coverageBefore: PlanCoverage
+  coverageAfter: PlanCoverage
+  repairedLongSceneCount: number
+  addedSceneCount: number
+}
+
+/**
+ * Heal missing timeline coverage without turning a missing narrated range into
+ * one frozen image. The basic coverage repair first makes the range explicit;
+ * complete subtitle cues then divide every abnormal hold into deterministic
+ * scene-sized parts. Existing assets stay on the first part and only newly
+ * restored parts become pending.
+ */
+export function repairPlanCoverageWithSubtitleCues(opts: {
+  scenes: ScenePlanEntry[]
+  cues: SrtCue[]
+  audioDurationSec: number
+  threshold_sec?: number
+  min_sec?: number
+  max_sec?: number
+}): CueAwareCoverageRepairResult {
+  const coverageRepair = repairPlanCoverage(opts.scenes, opts.audioDurationSec)
+  const longRepair = repairOverlongScenesDeterministically({
+    scenes: coverageRepair.scenes,
+    cues: opts.cues,
+    threshold_sec: opts.threshold_sec,
+    min_sec: opts.min_sec,
+    max_sec: opts.max_sec,
+  })
+  const changes = [...coverageRepair.changes]
+  if (longRepair.repairedCount) {
+    changes.push(
+      `Restored ${longRepair.addedCount} cue-aligned scene(s) inside ` +
+      `${longRepair.repairedCount} abnormal long narrated range(s); new scenes need visual prompts and images.`,
+    )
+  }
+  return {
+    scenes: longRepair.scenes,
+    changes,
+    coverageBefore: coverageRepair.coverageBefore,
+    coverageAfter: computePlanCoverage(longRepair.scenes, opts.audioDurationSec),
+    repairedLongSceneCount: longRepair.repairedCount,
+    addedSceneCount: longRepair.addedCount,
+  }
+}
+
 /**
  * v1.0.458 — shared per-scene visual-prompt generator. Fans the work out
  * across the LM Studio endpoint pool (concurrency = pool size) and RETRIES

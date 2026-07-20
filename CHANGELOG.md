@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.655 — 2026-07-20
+
+**Scene Plan repairs no longer turn a skipped chapter into one frozen image.**
+
+- Makes Coverage Repair use the complete stitched subtitle cues to restore large narrated gaps as scene-sized pending ranges instead of stretching the preceding scene for 100–300 seconds.
+- Preserves every unaffected scene, prompt, image, and approval while requiring visual prompts and images only for newly restored ranges.
+- Adds hover and keyboard-focus guidance to Repair long scenes, Repair coverage, and Reconcile timings, including when to use each action and what to do next.
+- Verifies the repair against the real DK0038 failure shape and adds regression coverage for skipped narrated chapters.
+
+---
+
 ## v1.0.654 — 2026-07-20
 
 **Story jobs can now pause safely without abandoning accepted GenStudio work.**

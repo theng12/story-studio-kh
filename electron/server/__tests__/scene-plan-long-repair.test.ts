@@ -1,6 +1,9 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { repairOverlongScenesDeterministically } from '../services/scene-planner.js'
+import {
+  repairOverlongScenesDeterministically,
+  repairPlanCoverageWithSubtitleCues,
+} from '../services/scene-planner.js'
 import type { ScenePlanEntry } from '../models/types.js'
 
 describe('deterministic long-scene repair', () => {
@@ -72,5 +75,54 @@ describe('deterministic long-scene repair', () => {
     })
     assert.equal(result.repairedCount, 0)
     assert.deepEqual(result.scenes, [scene])
+  })
+
+  test('coverage repair restores a skipped narrated chapter instead of creating one frozen hold', () => {
+    const scenes: ScenePlanEntry[] = [
+      {
+        id: 'before', scene_index: 1, start_sec: 0, end_sec: 8,
+        transcript_segment: 'Before', visual_prompt: 'Existing prompt',
+        image_path: '/images/before.png', approved: true,
+      },
+      {
+        id: 'after', scene_index: 2, start_sec: 48, end_sec: 56,
+        transcript_segment: 'After', visual_prompt: 'After prompt',
+        image_path: '/images/after.png', approved: true,
+      },
+    ]
+    const cues = [
+      { index: 1, start_sec: 0, end_sec: 8, text: 'Before' },
+      { index: 2, start_sec: 8, end_sec: 16, text: 'Restored one' },
+      { index: 3, start_sec: 16, end_sec: 24, text: 'Restored two' },
+      { index: 4, start_sec: 24, end_sec: 32, text: 'Restored three' },
+      { index: 5, start_sec: 32, end_sec: 40, text: 'Restored four' },
+      { index: 6, start_sec: 40, end_sec: 48, text: 'Restored five' },
+      { index: 7, start_sec: 48, end_sec: 56, text: 'After' },
+    ]
+
+    const result = repairPlanCoverageWithSubtitleCues({
+      scenes,
+      cues,
+      audioDurationSec: 56,
+      threshold_sec: 20,
+      min_sec: 3,
+      max_sec: 10,
+    })
+
+    assert.equal(result.coverageBefore.internalGapTotalSec, 40)
+    assert.equal(result.coverageAfter.uncoveredTotalSec, 0)
+    assert.equal(result.repairedLongSceneCount, 1)
+    assert.equal(result.addedSceneCount, 5)
+    assert.ok(result.scenes.every(scene => scene.end_sec - scene.start_sec <= 10))
+    assert.equal(result.scenes[0]?.id, 'before')
+    assert.equal(result.scenes[0]?.image_path, '/images/before.png')
+    assert.equal(result.scenes.at(-1)?.id, 'after')
+    assert.equal(result.scenes.at(-1)?.image_path, '/images/after.png')
+    for (const restored of result.scenes.slice(1, -1)) {
+      assert.equal(restored.visual_prompt, '')
+      assert.equal(restored.image_path, undefined)
+      assert.equal(restored.approved, false)
+    }
+    assert.ok(result.changes.some(change => /cue-aligned scene/.test(change)))
   })
 })
