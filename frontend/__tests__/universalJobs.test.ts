@@ -38,4 +38,15 @@ describe('universal Jobs workspace', () => {
     assert.match(composable, /addEventListener\('update'/)
     assert.match(composable, /addEventListener\('cleared'/)
   })
+
+  test('shows determinate upload percentage and transfer telemetry', () => {
+    assert.match(page, /<ProgressBar/)
+    assert.match(page, /:progress="jobProgress\(job\) \?\? undefined"/)
+    assert.match(page, /:bytes-done="job\.bytes_done"/)
+    assert.match(page, /:bytes-total="job\.bytes_total"/)
+    assert.match(page, /:speed-bps="job\.speed_bps"/)
+    assert.match(page, /:eta-seconds="job\.eta_seconds"/)
+    assert.match(page, /Uploading video to YouTube/)
+    assert.match(page, /Applying thumbnail and metadata/)
+  })
 })

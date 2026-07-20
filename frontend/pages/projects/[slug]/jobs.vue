@@ -405,8 +405,17 @@
         <!-- Row 3: Running progress / Summary -->
         <div v-if="job.status === 'running' && job.output_lines?.length" class="job-live-output">
           <div class="progress-row">
-            <div class="progress-bar"><div class="progress-fill" /></div>
-            <span v-if="progressCounter(job)" class="progress-counter">{{ progressCounter(job) }}</span>
+            <ProgressBar
+              :indeterminate="jobProgress(job) == null"
+              :progress="jobProgress(job) ?? undefined"
+              :bytes-done="job.bytes_done"
+              :bytes-total="job.bytes_total"
+              :speed-bps="job.speed_bps"
+              :eta-seconds="job.eta_seconds"
+              :label="job.type === 'youtube_upload' ? youtubeProgressLabel(job) : undefined"
+              :label-title="job.type === 'youtube_upload' ? youtubeProgressHelp : undefined"
+            />
+            <span v-if="jobProgress(job) == null && progressCounter(job)" class="progress-counter">{{ progressCounter(job) }}</span>
           </div>
           <div class="output-scroll" ref="outputScrollRefs">
             <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
@@ -419,7 +428,16 @@
              is alive and the UI is listening. Disappears on the first line. -->
         <div v-else-if="job.status === 'running'" class="job-live-output">
           <div class="progress-row">
-            <div class="progress-bar"><div class="progress-fill" /></div>
+            <ProgressBar
+              :indeterminate="jobProgress(job) == null"
+              :progress="jobProgress(job) ?? undefined"
+              :bytes-done="job.bytes_done"
+              :bytes-total="job.bytes_total"
+              :speed-bps="job.speed_bps"
+              :eta-seconds="job.eta_seconds"
+              :label="job.type === 'youtube_upload' ? youtubeProgressLabel(job) : undefined"
+              :label-title="job.type === 'youtube_upload' ? youtubeProgressHelp : undefined"
+            />
           </div>
           <div class="output-scroll output-starting">
             <code class="starting-placeholder">
@@ -1101,6 +1119,24 @@ function formatTime(iso: string): string {
 function firstErrorLine(err: string): string {
   const line = (err || '').split('\n').map(l => l.trim()).find(l => l.length > 0) || ''
   return line.length > 240 ? line.slice(0, 237) + '…' : line
+}
+
+function jobProgress(job: RJob): number | null {
+  if (job.progress == null) return null
+  const value = Number(job.progress)
+  if (!Number.isFinite(value)) return null
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+const youtubeProgressHelp = 'Overall YouTube job progress. Video bytes account for the first 85%; thumbnail, metadata, playlist, and the durable upload record complete the remaining work.'
+
+function youtubeProgressLabel(job: RJob): string {
+  const progress = jobProgress(job) ?? 0
+  if (job.bytes_total && (job.bytes_done ?? 0) < job.bytes_total) return 'Uploading video to YouTube'
+  if (progress < 85) return 'Preparing resumable YouTube upload'
+  if (progress < 95) return 'Applying thumbnail and metadata'
+  if (progress < 100) return 'Saving YouTube upload record'
+  return 'YouTube upload complete'
 }
 
 /**
@@ -2125,16 +2161,10 @@ async function clearFinished() {
   font-size: 11px; color: var(--accent);
 }
 .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.progress-bar { flex: 1; height: 3px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: progressIndeterminate 1.5s ease-in-out infinite; }
+.progress-row > :first-child { flex: 1; min-width: 0; }
 .progress-counter {
   font-size: 11px; font-family: 'SF Mono', Monaco, monospace;
   color: var(--accent); font-weight: 600; white-space: nowrap;
-}
-@keyframes progressIndeterminate {
-  0% { width: 0%; margin-left: 0; }
-  50% { width: 60%; margin-left: 20%; }
-  100% { width: 0%; margin-left: 100%; }
 }
 
 /* Summary for done jobs */

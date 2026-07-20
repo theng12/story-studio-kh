@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.658 — 2026-07-20
+
+**YouTube upload jobs now show measurable live progress.**
+
+- Replaces the Jobs page's generic animated upload bar with the uploader's real overall completion percentage.
+- Shows transferred bytes, total size, rolling upload speed, and estimated time remaining while the resumable upload is moving.
+- Labels the video-transfer, thumbnail/metadata, and durable-record phases separately so the final 15% is clear instead of appearing stalled.
+- Uses the same progress presentation in both Project Jobs and the universal All Jobs view.
+
+---
+
 ## v1.0.657 — 2026-07-20
 
 **Remote renders now stay attached to their original Studio Hub batch through connection recovery.**
