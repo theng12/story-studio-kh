@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.665 — 2026-07-20
+
+**Scene Review approvals leave the pending queue immediately.**
+
+- Publishes the server-confirmed Scene Review completion state into the shared episode cache as soon as a single or bulk approval succeeds.
+- Reconciles that instant feedback through the mutation-safe episode refresh, preventing an older in-flight response from restoring stale pending status.
+- Keeps the approved episode open for the greenlight actions while ensuring every other mounted selector and board receives the same completion state.
+- Adds regression coverage for both approval paths and the stale-response race that previously delayed the pending-list update.
+
 ## v1.0.664 — 2026-07-20
 
 **Scene Review render controls are compact, aligned, and capability-aware.**

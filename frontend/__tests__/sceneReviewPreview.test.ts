@@ -69,6 +69,17 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /const videoAssemblyLink = computed\(\(\) => `\/projects\/\$\{slug\.value\}\/video-assembly\?episode_id=\$\{encodeURIComponent\(episodeId\.value\)\}`\)/)
   })
 
+  test('approval publishes completion to the shared pending list immediately', () => {
+    assert.match(sceneReviewSource, /const \{ updateEpisode: updateCachedEpisode, revalidateAfterMutation \} = useEpisodes\(slug\)/)
+    assert.match(sceneReviewSource, /function publishReviewCompletion\(episodeCode: string, reviewStats: ReviewStats\)/)
+    assert.match(sceneReviewSource, /updateCachedEpisode\(episodeCode,[\s\S]*scene_review: reviewStats\.all_approved/)
+    assert.match(sceneReviewSource, /void revalidateAfterMutation\(\)\.catch/)
+    assert.ok(
+      (sceneReviewSource.match(/publishReviewCompletion\(episodeId\.value, r\.stats\)/g) || []).length >= 2,
+      'single and bulk approval must both synchronize the pending episode list',
+    )
+  })
+
   test('Motion Review and Video Assembly restore the handed-off episode', () => {
     assert.match(motionReviewSource, /const initialEpisodeId = typeof route\.query\.episode_id === 'string'/)
     assert.match(motionReviewSource, /const episodeId = ref\(initialEpisodeId\)/)

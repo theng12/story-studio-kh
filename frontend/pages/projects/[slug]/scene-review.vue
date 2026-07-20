@@ -743,6 +743,7 @@ const { config } = useProject()
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
+const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
 
 // v1.0.475 — per-project duration floor for bulk animation (config-backed). The
 // backend (generate-missing-clips) reads config.animate_min_seconds; the GET
@@ -1807,6 +1808,29 @@ async function pollUntilAllPresent(ep: string): Promise<void> {
   }
 }
 
+/**
+ * Approval is persisted in scene_plan.json, while Pending-only selectors read
+ * the shared episode-status cache. Publish the server-confirmed result first
+ * so every mounted selector updates synchronously, then reconcile with the
+ * authoritative episode endpoint without blocking the approval interaction.
+ */
+function publishReviewCompletion(episodeCode: string, reviewStats: ReviewStats): void {
+  updateCachedEpisode(episodeCode, episode => ({
+    ...episode,
+    status: {
+      ...episode.status,
+      scene_review: reviewStats.all_approved,
+    },
+  }))
+  void revalidateAfterMutation().catch((e: any) => {
+    showError(
+      e?.data?.detail
+      || e?.message
+      || `Approval was saved for ${episodeCode}, but the pending list could not be refreshed.`,
+    )
+  })
+}
+
 async function approveOne(scene: ReviewScene, approved: boolean): Promise<void> {
   approvingId.value = scene.id
   try {
@@ -1815,7 +1839,10 @@ async function approveOne(scene: ReviewScene, approved: boolean): Promise<void> 
       { scene_id: scene.id, approved },
     )
     scene.approved = approved
-    if (r.stats) stats.value = r.stats
+    if (r.stats) {
+      stats.value = r.stats
+      publishReviewCompletion(episodeId.value, r.stats)
+    }
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to update approval')
   } finally {
@@ -1829,6 +1856,8 @@ async function approveAll(approved: boolean): Promise<void> {
       `/projects/${slug.value}/scene-review/${episodeId.value}/approve`,
       { all: approved },
     )
+    stats.value = r.stats
+    publishReviewCompletion(episodeId.value, r.stats)
     success(`${approved ? 'Approved' : 'Reset'} ${r.changed} scene${r.changed === 1 ? '' : 's'}`)
     await loadReview()
   } catch (e: any) {
