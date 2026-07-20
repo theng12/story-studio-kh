@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { assertDecodableImage } from '../lib/image-validation.js'
 import type { ScenePlan } from '../models/types.js'
 
 export interface SceneImageCompletionAudit {
@@ -45,18 +46,25 @@ export async function auditSceneImageCompletion(
       ...(typeof scene.image_path === 'string' && scene.image_path.trim() ? [scene.image_path] : []),
     ]
     let foundEmpty = false
+    let foundCorrupt = false
     let foundUsable = false
     for (const candidate of [...new Set(candidates)]) {
       const stat = await fs.stat(candidate).catch(() => null)
       if (!stat?.isFile()) continue
       if (stat.size > 0) {
-        foundUsable = true
-        break
+        try {
+          await assertDecodableImage(candidate, `Image for ${sceneId}`)
+          foundUsable = true
+          break
+        } catch {
+          foundCorrupt = true
+        }
       }
       foundEmpty = true
     }
     if (!foundUsable) {
-      if (foundEmpty) invalid.push(`${sceneId} (empty image)`)
+      if (foundCorrupt) invalid.push(`${sceneId} (corrupt image)`)
+      else if (foundEmpty) invalid.push(`${sceneId} (empty image)`)
       else missing.push(sceneId)
     }
   }
@@ -114,6 +122,7 @@ export async function checkpointSceneImage(
   autoApproveGenerated = false,
 ): Promise<ScenePlan> {
   await assertUsableFile(imagePath, `Image for ${sceneId}`)
+  await assertDecodableImage(imagePath, `Image for ${sceneId}`)
   return withLock(planPath, async () => {
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const scene = plan.scenes.find(item => item.id === sceneId)

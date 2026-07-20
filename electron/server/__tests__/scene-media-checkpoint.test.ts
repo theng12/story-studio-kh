@@ -8,6 +8,14 @@ import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneCli
 import type { ScenePlan } from '../models/types.js'
 
 const tempDirs: string[] = []
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+)
+
+async function writeValidImage(filePath: string): Promise<void> {
+  await fs.writeFile(filePath, ONE_PIXEL_PNG)
+}
 
 async function fixture(): Promise<{ dir: string; planPath: string }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'scene-media-checkpoint-'))
@@ -40,7 +48,7 @@ describe('scene media checkpoints', () => {
     const { dir, planPath } = await fixture()
     const image1 = path.join(dir, 'scene-1.png')
     const image2 = path.join(dir, 'scene-2.png')
-    await Promise.all([fs.writeFile(image1, 'image-one'), fs.writeFile(image2, 'image-two')])
+    await Promise.all([writeValidImage(image1), writeValidImage(image2)])
 
     await Promise.all([
       checkpointSceneImage(planPath, 'scene-1', image1, 'Prompt one'),
@@ -57,7 +65,7 @@ describe('scene media checkpoints', () => {
   it('auto-approves only after a non-empty generated image is verified and registered', async () => {
     const { dir, planPath } = await fixture()
     const image = path.join(dir, 'scene-1.png')
-    await fs.writeFile(image, 'verified-image')
+    await writeValidImage(image)
 
     await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', true)
 
@@ -76,10 +84,20 @@ describe('scene media checkpoints', () => {
     assert.equal(saved.scenes[0]?.approved, false)
   })
 
+  it('rejects a non-empty truncated image without changing the plan', async () => {
+    const { dir, planPath } = await fixture()
+    const corrupt = path.join(dir, 'corrupt.png')
+    await fs.writeFile(corrupt, ONE_PIXEL_PNG.subarray(0, 40))
+    await assert.rejects(checkpointSceneImage(planPath, 'scene-1', corrupt, 'Prompt one', true), /corrupt or incomplete/)
+    const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    assert.equal(saved.scenes[0]?.image_path, undefined)
+    assert.equal(saved.scenes[0]?.approved, false)
+  })
+
   it('fails loudly when a paid result no longer has a matching scene', async () => {
     const { dir, planPath } = await fixture()
     const image = path.join(dir, 'orphan.png')
-    await fs.writeFile(image, 'image')
+    await writeValidImage(image)
     await assert.rejects(checkpointSceneImage(planPath, 'missing', image, 'Prompt'), /disappeared/)
   })
 
@@ -99,7 +117,7 @@ describe('scene media checkpoints', () => {
     const { dir, planPath } = await fixture()
     const canonicalDir = path.join(dir, 'images')
     await fs.mkdir(canonicalDir)
-    await fs.writeFile(path.join(canonicalDir, 'scene-1.png'), 'image-one')
+    await writeValidImage(path.join(canonicalDir, 'scene-1.png'))
     await fs.writeFile(path.join(canonicalDir, 'scene-2.png'), '')
 
     const audit = await auditSceneImageCompletion(

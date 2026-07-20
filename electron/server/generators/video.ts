@@ -23,6 +23,7 @@ import { resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.j
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
+import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
@@ -2213,6 +2214,28 @@ async function prepareSceneClips(
     animationOpts?.randomizeMode || 'off',
     animationOpts?.seed,
   )
+
+  // Validate every still before starting any expensive clip encoding. A
+  // truncated provider download can have a valid PNG header and non-zero size
+  // yet emit zero frames in FFmpeg. Reporting the stable scene id here avoids
+  // discovering one bad asset after dozens of clips have already rendered.
+  const stills = scenes
+    .map((scene, index) => ({ scene, index }))
+    .filter(({ scene }) => !/\.(mp4|mov|webm|mkv|m4v)$/i.test(scene.image_path || ''))
+  if (stills.length) {
+    job.output_lines.push(`Preflight: validating ${stills.length} still image(s) before encoding…`)
+    for (const { scene, index } of stills) {
+      try {
+        await assertDecodableImage(scene.image_path, `Scene ${index + 1} image`)
+      } catch (error: any) {
+        const stableId = (scene as any).plan_scene_id || `scene ${index + 1}`
+        throw new Error(
+          `Scene ${index + 1}/${scenes.length} (${stableId}) failed image preflight: ${error?.message || error}`,
+        )
+      }
+    }
+    job.output_lines.push(`Preflight: all ${stills.length} still image(s) decoded successfully.`)
+  }
 
   // v1.0.515 — scenes render through a small parallel pool instead of a strict
   // serial loop. Each clip's ffmpeg (zoompan) is effectively single-threaded,

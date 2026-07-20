@@ -20,11 +20,12 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync, statSync } from 'fs'
+import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { getHubBackend } from '../lib/studiohub-client.js'
 import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
@@ -341,14 +342,25 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // folder, so an episode that hasn't been consolidated yet isn't needlessly
   // re-rendered from scratch (it already has its images, just in the old place).
   const legacySceneDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-  const hasUsableFile = (filePath: string): boolean => {
-    try {
-      const stat = statSync(filePath)
-      return stat.isFile() && stat.size > 0
-    } catch { return false }
+  // Resume only from images that fully decode. A non-empty but truncated file
+  // must re-enter the missing-scene scope; otherwise every Retry keeps
+  // skipping the same corrupt asset and Video Assembly fails later.
+  const usableRenderedIds = new Set<string>()
+  for (const scene of scenes) {
+    const candidates = [
+      path.join(outDir, `${scene.id}.png`),
+      path.join(legacySceneDir, `${scene.id}.png`),
+    ]
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue
+      if (await isDecodableImage(candidate)) {
+        usableRenderedIds.add(scene.id)
+        break
+      }
+      job.output_lines.push(`Scene ${scene.scene_index} (${scene.id}) has a corrupt image; it will be regenerated.`)
+    }
   }
-  const hasRenderedImage = (id: string): boolean =>
-    hasUsableFile(path.join(outDir, `${id}.png`)) || hasUsableFile(path.join(legacySceneDir, `${id}.png`))
+  const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
 
   const aspectRatio = params.aspect_ratio || '16:9'
   // v1.0.261 — explicit render size (local Image Studio only). When provided,

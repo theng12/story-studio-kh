@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.663 — 2026-07-20
+
+**Corrupt still images can no longer derail a long video render.**
+
+- Fully decodes downloaded scene images before atomically promoting them, rejecting truncated non-empty responses without overwriting a valid existing asset.
+- Treats malformed scene images as incomplete during generation checkpoints and verified completion audits, so Retry regenerates only the affected stable scene IDs.
+- Preflights every still image before Video Assembly starts encoding temporary clips and reports the exact scene number, stable ID, and repair action immediately.
+- Makes continuity rendering re-enter corrupt existing images into its missing-scene repair scope instead of repeatedly skipping them as completed files.
+- Adds regression coverage for valid image promotion, truncated downloads, corrupt checkpoint rejection, and preservation of prior valid files.
+
 ## v1.0.662 — 2026-07-20
 
 **Scene Review can safely approve generated images automatically.**

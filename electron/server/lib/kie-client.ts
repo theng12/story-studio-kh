@@ -11,6 +11,7 @@ import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { studioFetch } from './studio-auth.js'
 import { getHubBackend, hubHeaders } from './studiohub-client.js'
+import { assertDecodableImage, clearImageValidationCache } from './image-validation.js'
 import { sleepCancellable } from './http-retry.js'
 import { redactSecrets } from './redact-secrets.js'
 import type { ImageModelConfig } from '../models/types.js'
@@ -425,7 +426,14 @@ export async function downloadImage(
     const buf = Buffer.from(b64, 'base64')
     if (!buf.length) throw new Error('Download failed: empty data: URL')
     await fs.writeFile(tempPath, buf, { flag: 'wx' })
-    await fs.rename(tempPath, savePath)
+    try {
+      await assertDecodableImage(tempPath, 'Downloaded image')
+      await fs.rename(tempPath, savePath)
+      clearImageValidationCache(savePath)
+    } catch (error) {
+      await fs.rm(tempPath, { force: true }).catch(() => {})
+      throw error
+    }
     try { onProgress?.(buf.length, buf.length) } catch { /* ignore UI plumbing */ }
     return
   }
@@ -469,7 +477,18 @@ export async function downloadImage(
     await fs.rm(tempPath, { force: true }).catch(() => {})
     throw new Error('Image download wrote 0 bytes')
   }
+  if (total !== undefined && received !== total) {
+    await fs.rm(tempPath, { force: true }).catch(() => {})
+    throw new Error(`Image download was truncated: received ${received} of ${total} bytes`)
+  }
+  try {
+    await assertDecodableImage(tempPath, 'Downloaded image')
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {})
+    throw error
+  }
   await fs.rename(tempPath, savePath)
+  clearImageValidationCache(savePath)
 }
 
 function sleep(ms: number): Promise<void> {
