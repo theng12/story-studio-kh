@@ -21,6 +21,9 @@ import '../providers/image/openai-image.js'
 // billed on the user's OpenRouter credit. txt2img + img2img via chat-completions
 // with modalities:["image","text"].
 import '../providers/image/openrouter-image.js'
+// GenStudio KH owns its live catalog, durable task queue, fleet dispatch, and
+// private artifacts. Story Studio discovers it instead of duplicating models.
+import '../providers/image/genstudio.js'
 import '../providers/audio/fal.js'
 import '../providers/audio/genaipro.js'
 // v1.0.149+ — Voice Studio KH (Pinokio-launched FastAPI wrapper around

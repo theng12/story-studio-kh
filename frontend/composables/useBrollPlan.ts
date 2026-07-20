@@ -34,6 +34,14 @@ export interface GenerateResult {
   resolve_skipped_reason?: string
 }
 
+export interface AiImageControls {
+  ai_fallback?: boolean
+  image_model?: string
+  image_aspect_ratio?: string
+  image_steps?: number
+  image_seed?: number
+}
+
 export function useBrollPlan() {
   const { get, post, put, del } = useApi()
   const base = (slug: string, code: string) =>
@@ -44,9 +52,9 @@ export function useBrollPlan() {
     savePlan: (slug: string, code: string, plan: BrollPlan) =>
       put<{ ok: boolean; plan: BrollPlan }>(`${base(slug, code)}/broll-plan`, plan),
     deletePlan: (slug: string, code: string) => del(`${base(slug, code)}/broll-plan`),
-    generate: (slug: string, code: string, body: { model: string; broll_style?: string; style_hint?: string; target_beat_sec?: number; resolve?: boolean; ai_fallback?: boolean; image_model?: string }) =>
+    generate: (slug: string, code: string, body: { model: string; broll_style?: string; style_hint?: string; target_beat_sec?: number; resolve?: boolean } & AiImageControls) =>
       post<GenerateResult>(`${base(slug, code)}/broll-plan/generate`, body),
-    resolve: (slug: string, code: string, plan?: BrollPlan, opts?: { ai_fallback?: boolean; image_model?: string }) =>
+    resolve: (slug: string, code: string, plan?: BrollPlan, opts?: AiImageControls) =>
       post<GenerateResult>(`${base(slug, code)}/broll-plan/resolve`, { ...(plan ?? {}), ...(opts ?? {}) }),
     assemble: (slug: string, code: string) =>
       post<{ ok: boolean; job: any; beats: number }>(`${base(slug, code)}/broll-plan/assemble`, {}),

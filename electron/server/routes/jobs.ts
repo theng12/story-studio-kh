@@ -402,6 +402,8 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       const isLocalImage = model.startsWith('imagestudio:')
         || model.startsWith('imagestudio-')
         || (modelConfig as any)?.provider === 'imagestudio'
+      const isGenStudioImage = model.startsWith('genstudio-image-')
+      const isFreeImage = isLocalImage || isGenStudioImage
       // v1.0.234 — direct/token-billed image providers (OpenAI Images API,
       // OpenRouter Gemini): billed on the user's own provider account by tokens,
       // not kie credits. Don't show a kie-credit figure.
@@ -418,7 +420,7 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
         ? (tiers.find(t => t.id === requestedTier)
             ?? tiers.find(t => t.id === (modelConfig as any)?.default_tier))
         : undefined
-      const creditsPerImage = (isLocalImage || isOpenAiImage) ? 0 : (tierEntry?.credits ?? modelConfig?.credits_per_image ?? 1)
+      const creditsPerImage = (isFreeImage || isOpenAiImage) ? 0 : (tierEntry?.credits ?? modelConfig?.credits_per_image ?? 1)
       const wantThumbs = type === 'thumb_images'
       const wantBoth = type === 'images'
 
@@ -444,14 +446,14 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       estimate.estimated_duration = formatDuration(durationSec)
       const kind = wantBoth ? 'image(s) (scenes + thumbnails)' : wantThumbs ? 'thumbnail(s)' : 'scene(s)'
       const tierSuffix = tierEntry ? ` · ${tierEntry.label}` : ''
-      estimate.details = isLocalImage
-        ? `${promptCount} ${kind} · Free — local Image Studio model (no per-image cost)`
+      estimate.details = isFreeImage
+        ? `${promptCount} ${kind} · Free — ${isGenStudioImage ? 'GenStudio qualification fleet' : 'local Image Studio model'} (no per-image cost)`
         : isOpenAiImage
           ? `${promptCount} ${kind} · billed on your ${directBillLabel} account (token-based — see the ${directBillLabel} dashboard)`
           : `${promptCount} ${kind} × ${creditsPerImage} credit${creditsPerImage > 1 ? 's' : ''} (${modelConfig?.label || model}${tierSuffix})`
 
       // Include current kie balance (kie cloud models only — local/OpenAI have none).
-      if (!isLocalImage && !isOpenAiImage) {
+      if (!isFreeImage && !isOpenAiImage) {
         try {
           const { getKieCredits } = await import('../services/utils.js')
           const bal = await getKieCredits(config.kie_api_key)

@@ -29,6 +29,7 @@ import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
+  listImageModels as listGenStudioImageModels,
   listTranscriptionModels as listGenStudioTranscriptionModels,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
@@ -490,6 +491,21 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
   }
 })
 
+router.get('/app-settings/genstudio/image-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey.trim()) {
+      return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
+    }
+    res.json({ models: await listGenStudioImageModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(
+      e,
+      'Could not load GenStudio KH image models. Ensure the saved key includes images:generate.',
+    ))
+  }
+})
+
 // ── Server mode (headless web UI) ──────────────────────────────────────────
 //
 // All four routes are gated by requireSession in server mode (loopback bypass
@@ -669,6 +685,20 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           message: `GenStudio voice catalog returned HTTP ${catalogResponse.status}. Check the API URL and key.`,
         })
       }
+      const imageCatalogResponse = await fetch(`${root}/v1/image/models`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (imageCatalogResponse.status === 401 || imageCatalogResponse.status === 403) {
+        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is missing images:generate.' })
+      }
+      if (!imageCatalogResponse.ok) {
+        return res.json({
+          valid: false,
+          reachable: true,
+          message: `GenStudio image catalog returned HTTP ${imageCatalogResponse.status}. Check the API URL and key.`,
+        })
+      }
       const response = await fetch(`${root}/v1/jobs/story-studio-key-probe`, {
         headers,
         signal: AbortSignal.timeout(8_000),
@@ -677,7 +707,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is invalid or is missing tts:generate.' })
       }
       if (response.status === 404) {
-        return res.json({ valid: true, reachable: true, message: 'Key works with the configured GenStudio API.' })
+        return res.json({ valid: true, reachable: true, message: 'Key works for GenStudio voices, TTS, transcription, and images.' })
       }
       return res.json({
         valid: false,

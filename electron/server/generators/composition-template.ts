@@ -23,6 +23,7 @@ import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
 
@@ -51,20 +52,7 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   // Resolve the configured image model + its provider (mirrors scene-image.ts).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    // Local Image Studio models (`imagestudio:<repo>`) are dynamic and not in
-    // config.image_models; synthesize a minimal config so they work here too.
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   const providerId = (modelConfig as any).provider || 'kie'
@@ -93,12 +81,23 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   job.progress = 10
 
   const aspectRatio = params.aspect_ratio || '16:9'
+  const outDir = path.join(paths.episode_dir, 'img2img-references')
+  await fs.mkdir(outDir, { recursive: true })
+  const outPath = path.join(outDir, COMPOSITION_FILENAME)
   const result = await imageProvider.generateImage({
     prompt,
     apiKey,
     aspectRatio,
     modelId: model,
     providerParams,
+    onJobAccepted: async (taskId) => {
+      await recordTask(outDir, COMPOSITION_FILENAME, {
+        provider: imageProvider.meta.providerId || imageProvider.meta.id,
+        task_id: taskId,
+        submitted_at: new Date().toISOString(),
+        input_hash: hashInput(prompt),
+      })
+    },
   })
 
   job.progress = 70
@@ -106,9 +105,6 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     throw new Error(`${imageProvider.meta.name} returned no image for the composition template.`)
   }
 
-  const outDir = path.join(paths.episode_dir, 'img2img-references')
-  await fs.mkdir(outDir, { recursive: true })
-  const outPath = path.join(outDir, COMPOSITION_FILENAME)
   if (result.taskId) {
     await recordTask(outDir, COMPOSITION_FILENAME, {
       provider: imageProvider.meta.providerId || imageProvider.meta.id,

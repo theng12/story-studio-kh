@@ -40,6 +40,7 @@ import { pollExistingFalAudio } from './fal-client.js'
 import { fetchKieAudioUrlByTaskId } from './kie-tts-client.js'
 import { sleepCancellable } from './http-retry.js'
 import type { ImageModelConfig } from '../models/types.js'
+import { recoverImageWithGenStudio } from './genstudio-client.js'
 
 export interface RecoveryResult {
   urls: string[]
@@ -67,8 +68,16 @@ export async function tryRecoverImageFromManifest(
   isCancelled?: () => boolean,
 ): Promise<RecoveryResult | null> {
   if (!entry || !entry.task_id) return null
-  if (entry.provider !== 'kie' && entry.provider !== 'kie-image') return null
   if (!apiKey) return null
+  if (entry.provider === 'genstudio-image' || entry.provider === 'genstudio') {
+    try {
+      const result = await recoverImageWithGenStudio(apiKey, entry.task_id, { isCancelled })
+      return { urls: [result.url], taskId: result.jobId, provider: entry.provider }
+    } catch {
+      return null
+    }
+  }
+  if (entry.provider !== 'kie' && entry.provider !== 'kie-image') return null
   try {
     // pollForImageUrls already handles pending→success polling and throws
     // on provider failure / expired. Reuse it directly.

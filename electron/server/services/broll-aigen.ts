@@ -19,23 +19,13 @@ import * as bp from '../services/broll-pool-manager.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import type { ImageModelConfig } from '../models/types.js'
 import type { BrollBeat } from './broll-plan.js'
+import { resolveImageModelConfig } from './image-model-resolver.js'
 
 /** Resolve the project's image provider + key for `model` (mirrors image-pool-generate). */
 async function resolveImageGen(slug: string, model: string) {
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   const providerId = (modelConfig as any).provider || 'kie'
   const imageProvider = registry.getImageProvider(providerId)
@@ -84,6 +74,7 @@ export async function aiGenFallbackForBeat(
   pool: bp.BrollPool,
   brollStyle: string,
   model: string,
+  controls: { aspectRatio?: string; imageSteps?: number; seed?: number } = {},
 ): Promise<string | null> {
   const gen = await resolveImageGen(slug, model).catch(() => null)
   if (!gen) return null
@@ -91,8 +82,14 @@ export async function aiGenFallbackForBeat(
   let urls: string[] = []
   try {
     const result = await gen.imageProvider.generateImage({
-      prompt, apiKey: gen.apiKey, aspectRatio: '16:9', modelId: gen.model,
-      providerParams: gen.providerParams, isCancelled: () => false,
+      prompt,
+      apiKey: gen.apiKey,
+      aspectRatio: controls.aspectRatio || '16:9',
+      modelId: gen.model,
+      providerParams: gen.providerParams,
+      steps: controls.imageSteps,
+      seed: controls.seed,
+      isCancelled: () => false,
     })
     urls = result.urls || []
   } catch { return null }

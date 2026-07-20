@@ -47,6 +47,32 @@
           <label class="sbr-lbl">Image model</label>
           <ImageModelPicker v-model="imageModel" :project-slug="slug" />
         </div>
+        <template v-if="selectedGenStudioModel">
+          <div class="sbr-aigen-field sbr-compact-field">
+            <label class="sbr-lbl">Ratio</label>
+            <select v-model="imageAspectRatio" class="select">
+              <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
+            </select>
+          </div>
+          <div class="sbr-aigen-field sbr-compact-field">
+            <label class="sbr-lbl">Quality</label>
+            <select v-model="imageQuality" class="select" @change="applyImageQuality">
+              <option value="draft">Draft</option>
+              <option value="balanced">Balanced</option>
+              <option value="detailed">Detailed</option>
+              <option value="maximum">Maximum</option>
+              <option value="custom">Custom steps</option>
+            </select>
+          </div>
+          <div class="sbr-aigen-field sbr-compact-field">
+            <label class="sbr-lbl">Steps</label>
+            <input v-model.number="imageSteps" class="input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="imageQuality = 'custom'" />
+          </div>
+          <div class="sbr-aigen-field sbr-seed-field">
+            <label class="sbr-lbl">Seed (optional)</label>
+            <input v-model.number="imageSeed" class="input" type="number" min="0" max="2147483647" placeholder="Random" />
+          </div>
+        </template>
       </div>
     </div>
 
@@ -116,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useBrollPlan, type BrollPlan, type BrollBeat, type BrollCandidate, type GenerateResult } from '../composables/useBrollPlan.js'
 
 const props = defineProps<{ slug: string; episodeCode: string }>()
@@ -129,6 +155,34 @@ const styleHint = ref('')
 const resolveNow = ref(true)
 const aiFallback = ref(false)
 const imageModel = ref('')
+const imageAspectRatio = ref('16:9')
+const imageQuality = ref<'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'>('balanced')
+const imageSteps = ref(4)
+const imageSeed = ref<number | ''>('')
+const { models: genStudioModels, refresh: refreshGenStudioModels } = useGenStudioImageModels()
+const selectedGenStudioModel = computed(() => genStudioModels.value.find(item => item.id === imageModel.value))
+const qualitySteps = computed(() => {
+  const item = selectedGenStudioModel.value
+  return item ? {
+    draft: item.min_steps,
+    balanced: item.default_steps,
+    detailed: Math.min(item.max_steps, item.default_steps + 2),
+    maximum: item.max_steps,
+  } : { draft: 2, balanced: 4, detailed: 6, maximum: 8 }
+})
+function applyImageQuality() {
+  if (imageQuality.value !== 'custom') imageSteps.value = qualitySteps.value[imageQuality.value]
+}
+function aiImageControls() {
+  if (!aiFallback.value) return { ai_fallback: false }
+  return {
+    ai_fallback: true,
+    image_model: imageModel.value,
+    image_aspect_ratio: selectedGenStudioModel.value ? imageAspectRatio.value : undefined,
+    image_steps: selectedGenStudioModel.value ? imageSteps.value : undefined,
+    image_seed: selectedGenStudioModel.value && typeof imageSeed.value === 'number' ? imageSeed.value : undefined,
+  }
+}
 const loading = ref(false)
 const busy = ref<'' | 'gen' | 'res' | 'asm'>('')
 const busyBeat = ref('')
@@ -176,7 +230,7 @@ async function generate() {
     const r = await api.generate(props.slug, props.episodeCode, {
       model: model.value, style_hint: styleHint.value || undefined, target_beat_sec: beatSec.value, resolve: resolveNow.value,
       broll_style: plan.broll_style || undefined,
-      ai_fallback: aiFallback.value, image_model: aiFallback.value ? imageModel.value : undefined,
+      ...aiImageControls(),
     })
     applyPlan(r.plan)
     setMsg(`Directed ${r.beat_count} beat(s).${resolveNote(r)}`, 'ok')
@@ -189,7 +243,7 @@ async function resolve() {
   message.value = ''
   try {
     const r = await api.resolve(props.slug, props.episodeCode, { ...plan } as BrollPlan, {
-      ai_fallback: aiFallback.value, image_model: aiFallback.value ? imageModel.value : undefined,
+      ...aiImageControls(),
     })
     applyPlan(r.plan)
     setMsg(`${r.matched} beat(s) have a clip.${resolveNote(r)}`, 'ok')
@@ -267,6 +321,14 @@ async function clearPlan() {
 }
 
 watch(() => props.episodeCode, load, { immediate: true })
+watch([imageModel, () => genStudioModels.value.length], () => {
+  const item = selectedGenStudioModel.value
+  if (!item) return
+  if (!item.aspect_ratios.includes(imageAspectRatio.value)) imageAspectRatio.value = item.default_aspect_ratio
+  imageSteps.value = Math.max(item.min_steps, Math.min(item.max_steps, Number(imageSteps.value) || item.default_steps))
+  if (imageQuality.value !== 'custom') applyImageQuality()
+})
+onMounted(() => { void refreshGenStudioModels() })
 </script>
 
 <style scoped>
@@ -283,6 +345,8 @@ watch(() => props.episodeCode, load, { immediate: true })
 .sbr-aigen { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border, #2a2a2a); }
 .sbr-aigen-fields { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .sbr-aigen-field { flex: 1; min-width: 220px; }
+.sbr-compact-field { flex: 0 1 150px; min-width: 130px; }
+.sbr-seed-field { flex: 0 1 180px; min-width: 160px; }
 .sbr-msg { font-size: 13px; margin-top: 8px; }
 .sbr-msg.ok { color: var(--accent, #6ab0f3); }
 .sbr-msg.err { color: var(--danger, #e06c75); }

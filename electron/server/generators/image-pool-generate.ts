@@ -27,7 +27,8 @@ import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { hashInput, recordTask } from '../services/task-manifest.js'
+import { hashInput, readManifest, recordTask } from '../services/task-manifest.js'
+import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import {
   acceptHubImageRecovery,
   completeHubImageRecovery,
@@ -36,12 +37,15 @@ import {
   prepareHubImageRecovery,
   type HubImageRecoveryCheckpoint,
 } from '../services/hub-image-recovery.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
   prompts: string[]
   model: string
   aspect_ratio?: string
+  image_steps?: number
+  seed?: number
   /** Images to generate per prompt (1–4). Default 1. */
   variants?: number
   /** Durable identity retained by manual/local retries. */
@@ -74,18 +78,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   // including the synthesized config for dynamic local Image Studio models).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   const providerId = (modelConfig as any).provider || 'kie'
@@ -234,14 +227,40 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
 
   if (!batchDone) for (const item of remaining) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-      try {
-        const result = await imageProvider.generateImage({
+    try {
+      const manifest = await readManifest(pool.folder_path)
+      const recovered = await tryRecoverImageFromManifest(
+        manifest.tasks[item.filename] || null,
+        apiKey,
+        modelConfig,
+        () => jq.isCancelled(job.job_id),
+      )
+      if (recovered?.urls[0]) {
+        await saveResult(item, { url: recovered.urls[0], taskId: recovered.taskId })
+        made++
+        job.output_lines.push(`✓ ${successfulFiles.size}/${total} — recovered accepted task ${recovered.taskId.slice(0, 12)}…`)
+        processed++
+        job.progress = Math.round((processed / total) * 90)
+        continue
+      }
+      const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
           aspectRatio,
           modelId: model,
-          providerParams,
+        providerParams,
+        steps: params.image_steps,
+        seed: params.seed,
+        idempotencyIdentity: `${logicalRecoveryId}:${item.filename}`,
           isCancelled: () => jq.isCancelled(job.job_id),
+          onJobAccepted: async (taskId) => {
+            await recordTask(pool.folder_path, item.filename, {
+              provider: imageProvider.meta.providerId || imageProvider.meta.id,
+              task_id: taskId,
+              submitted_at: new Date().toISOString(),
+              input_hash: hashInput(item.prompt),
+            })
+          },
         })
         if (!result.urls.length) throw new Error('provider returned no image')
         await saveResult(item, { url: result.urls[0], taskId: result.taskId })

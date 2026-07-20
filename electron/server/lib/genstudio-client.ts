@@ -54,6 +54,45 @@ export interface GenStudioTranscriptionModel {
   qualification_only: boolean
 }
 
+export interface GenStudioImageModel {
+  id: string
+  display_name: string
+  description?: string
+  available: boolean
+  qualification_only: boolean
+  aspect_ratios: string[]
+  default_aspect_ratio: string
+  default_steps: number
+  min_steps: number
+  max_steps: number
+}
+
+interface GenStudioImageJob {
+  id: string
+  state: GenStudioJob['state']
+  model_id: string
+  prompt: string
+  width: number
+  height: number
+  aspect_ratio: string
+  steps: number
+  seed?: number | null
+  failure_code?: string | null
+  image_url?: string | null
+}
+
+export interface GenStudioImageRequest extends GenStudioOperationContext {
+  prompt: string
+  modelId: string
+  aspectRatio: string
+  steps: number
+  seed?: number
+  /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
+  requestIdentity?: string
+  onState?: (state: GenStudioJob['state']) => void
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+}
+
 interface GenStudioTranscriptionJob {
   id: string
   state: GenStudioJob['state']
@@ -258,6 +297,185 @@ export async function listTranscriptionModels(
       : 0,
     qualification_only: value?.qualification_only !== false,
   })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
+}
+
+/** Fetch the account-visible image catalog owned by GenStudio. */
+export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/image/models`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    available: value?.available === true,
+    qualification_only: value?.qualification_only !== false,
+    aspect_ratios: Array.isArray(value?.aspect_ratios)
+      ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
+      : [],
+    default_aspect_ratio: typeof value?.default_aspect_ratio === 'string'
+      ? value.default_aspect_ratio.trim()
+      : '16:9',
+    default_steps: Number.isInteger(value?.default_steps) ? value.default_steps : 4,
+    min_steps: Number.isInteger(value?.min_steps) ? value.min_steps : 2,
+    max_steps: Number.isInteger(value?.max_steps) ? value.max_steps : 8,
+  })).filter((model: GenStudioImageModel) => model.id && model.display_name)
+}
+
+export function buildGenStudioImageIdempotencyKey(input: {
+  prompt: string
+  modelId: string
+  aspectRatio: string
+  steps: number
+  seed?: number
+  requestIdentity?: string
+}): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    prompt: input.prompt.trim(),
+    model_id: input.modelId.trim(),
+    aspect_ratio: input.aspectRatio,
+    steps: input.steps,
+    seed: input.seed ?? null,
+    request_identity: input.requestIdentity || null,
+  })).digest('hex')
+  return `story-image-${digest.slice(0, 44)}`
+}
+
+async function waitForImageJob(
+  baseUrl: string,
+  apiKey: string,
+  submitted: GenStudioImageJob,
+  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void },
+  deadline: number,
+): Promise<GenStudioImageJob> {
+  let current = submitted
+  request.onState?.(current.state)
+  while (current.state !== 'succeeded' && current.state !== 'failed') {
+    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (Date.now() >= deadline) throw new Error('GenStudio KH image job timed out while waiting for completion')
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/images/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioImageJob
+    request.onState?.(current.state)
+  }
+  if (current.state === 'failed') {
+    throw new Error(`GenStudio KH image generation failed${current.failure_code ? ` (${current.failure_code})` : ''}.`)
+  }
+  return current
+}
+
+async function downloadImageArtifact(
+  baseUrl: string,
+  apiKey: string,
+  completed: GenStudioImageJob,
+  request: GenStudioOperationContext,
+  deadline: number,
+): Promise<string> {
+  if (!completed.image_url) throw new Error('GenStudio KH image completed without an image download URL')
+  let lastError: unknown
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(requestUrl(baseUrl, completed.image_url), {
+        headers: authorization(apiKey),
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        const error = new Error(`GenStudio KH image download failed (HTTP ${response.status})`)
+        if (!retryableStatus(response.status)) throw error
+        lastError = error
+      } else {
+        const bytes = Buffer.from(await response.arrayBuffer())
+        if (bytes.length < 24 || bytes.subarray(1, 4).toString('ascii') !== 'PNG') {
+          throw new Error('GenStudio KH returned an invalid PNG artifact')
+        }
+        return `data:image/png;base64,${bytes.toString('base64')}`
+      }
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      lastError = error
+      if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
+        && !error.message.includes('fetch failed')) throw error
+    }
+    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+  }
+  throw lastError instanceof Error ? lastError : new Error('GenStudio KH image download failed')
+}
+
+/** Reconnect to an already accepted image task. Never submits new work. */
+export async function recoverImageWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
+): Promise<{ url: string; jobId: string; modelId: string }> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const initial = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/images/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioImageJob
+  const completed = await waitForImageJob(baseUrl, apiKey, initial, request, deadline)
+  const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
+  return { url, jobId: completed.id, modelId: completed.model_id }
+}
+
+/** Submit one durable GenStudio image task and return its verified private PNG. */
+export async function generateImageWithGenStudio(
+  apiKey: string,
+  request: GenStudioImageRequest,
+): Promise<{ url: string; jobId: string; modelId: string }> {
+  const prompt = request.prompt.trim()
+  const modelId = request.modelId.trim()
+  if (prompt.length < 3 || prompt.length > 4_000) {
+    throw new Error('GenStudio KH image prompts must contain 3 to 4,000 characters.')
+  }
+  if (!modelId) throw new Error('Select a GenStudio KH image model.')
+  if (!Number.isInteger(request.steps) || request.steps < 1 || request.steps > 100) {
+    throw new Error('GenStudio KH image steps must be a whole number supported by the selected model.')
+  }
+  const body = {
+    prompt,
+    model_id: modelId,
+    aspect_ratio: request.aspectRatio,
+    steps: request.steps,
+    ...(request.seed === undefined ? {} : { seed: request.seed }),
+  }
+  const idempotencyKey = buildGenStudioImageIdempotencyKey({
+    prompt,
+    modelId,
+    aspectRatio: request.aspectRatio,
+    steps: request.steps,
+    seed: request.seed,
+    requestIdentity: request.requestIdentity || randomUUID(),
+  })
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const submitted = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/images/generations`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(body),
+    },
+    request,
+    deadline,
+  ) as GenStudioImageJob
+  await request.onJobAccepted?.(submitted.id, idempotencyKey)
+  const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
+  const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
+  return { url, jobId: completed.id, modelId: completed.model_id }
 }
 
 function transcriptionMediaType(filename: string): string {

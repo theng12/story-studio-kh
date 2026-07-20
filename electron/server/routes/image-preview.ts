@@ -33,6 +33,7 @@ import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
 import type { ImageModelConfig } from '../models/types.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 
 export const router = Router()
 
@@ -100,6 +101,8 @@ const PreviewImageSchema = z.object({
    *  Flat-priced models ignore this; we still include it in the cache
    *  key so a user toggling tier on a tiered model gets a fresh render. */
   tier: z.string().optional(),
+  image_steps: z.number().int().min(1).max(100).optional(),
+  seed: z.number().int().min(0).max(2147483647).optional(),
 })
 
 router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), async (req, res) => {
@@ -111,10 +114,12 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   const modelName = req.body.model as string
   const aspectRatio = req.body.aspect_ratio as string
   const tier = (req.body.tier as string | undefined) || ''
+  const steps = req.body.image_steps as number | undefined
+  const seed = req.body.seed as number | undefined
 
   // Cache lookup first — the whole point of the feature is "free for
   // re-use". Hit short-circuits the provider entirely.
-  const cached = await getCached({ prompt, modelId: modelName, aspectRatio, tier })
+  const cached = await getCached({ prompt, modelId: modelName, aspectRatio, tier, steps, seed })
   if (cached) {
     return res.json({
       hash: cached.hash,
@@ -131,7 +136,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
-  const modelConfig: ImageModelConfig | undefined = (config.image_models || {})[modelName]
+  const modelConfig = resolveImageModelConfig(config, modelName)
   if (!modelConfig) {
     return res.status(400).json({ detail: `Unknown image model: ${modelName}` })
   }
@@ -162,6 +167,8 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
       aspectRatio,
       modelId: modelName,
       providerParams,
+      steps,
+      seed,
     })
     urls = result.urls || []
   } catch (e: any) {
@@ -171,15 +178,20 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
 
   let imageBytes: Buffer
   try {
-    const dl = await fetch(urls[0]!, { signal: AbortSignal.timeout(120000) })
-    if (!dl.ok) throw new Error(`Download failed: ${dl.status}`)
-    imageBytes = Buffer.from(await dl.arrayBuffer())
+    const source = urls[0]!
+    if (source.startsWith('data:')) {
+      imageBytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64')
+    } else {
+      const dl = await fetch(source, { signal: AbortSignal.timeout(120000) })
+      if (!dl.ok) throw new Error(`Download failed: ${dl.status}`)
+      imageBytes = Buffer.from(await dl.arrayBuffer())
+    }
     if (imageBytes.length === 0) throw new Error('Downloaded zero bytes')
   } catch (e: any) {
     return res.status(502).json({ detail: `Failed to download generated preview: ${e?.message || e}` })
   }
 
-  const saved = await savePreview({ prompt, modelId: modelName, aspectRatio, tier, imageBytes })
+  const saved = await savePreview({ prompt, modelId: modelName, aspectRatio, tier, steps, seed, imageBytes })
   res.json({
     hash: saved.hash,
     url: `/api/image-preview-cache/${saved.hash}`,

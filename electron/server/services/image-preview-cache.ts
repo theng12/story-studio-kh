@@ -78,10 +78,12 @@ export function hashPreviewKey(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  steps?: number
+  seed?: number
 }): string {
   const norm = opts.prompt.replace(/\s+/g, ' ').trim()
   const tier = opts.tier || ''
-  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}`
+  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${opts.steps ?? ''}|${opts.seed ?? ''}`
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
 
@@ -120,6 +122,8 @@ export async function getCached(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  steps?: number
+  seed?: number
 }): Promise<CachedPreview | null> {
   const hash = hashPreviewKey(opts)
   const idx = await readIndex()
@@ -151,6 +155,8 @@ export async function savePreview(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  steps?: number
+  seed?: number
   imageBytes: Buffer
 }): Promise<CachedPreview> {
   const hash = hashPreviewKey(opts)

@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.656 — 2026-07-20
+
+**GenStudio image generation is now available throughout Story Studio.**
+
+- Discovers GenStudio's live image-model catalog and exposes its supported aspect ratios in the shared image-model picker.
+- Adds friendly Draft, Balanced, Detailed, and Maximum quality choices backed by each model's real inference-step range, plus exact step and optional seed controls.
+- Carries the same controls through thumbnails, Scene Review, style previews, Image Pool, and scripted B-Roll while preserving separate scene and thumbnail presets.
+- Checkpoints accepted GenStudio image task IDs, reclaims completed files after interruptions, and lets Repair recover provider output without paying for or submitting the same image twice.
+- Verifies model resolution, request payloads, private image downloads, durable recovery, and preview-cache isolation with regression coverage.
+
+---
+
 ## v1.0.655 — 2026-07-20
 
 **Scene Plan repairs no longer turn a skipped chapter into one frozen image.**

@@ -137,6 +137,32 @@
             <input type="number" min="1" max="4" step="1" class="input ip-num" v-model.number="genVariants" />
           </label>
         </div>
+        <div v-if="selectedGenStudioModel" class="ip-genstudio-controls mt-2">
+          <label class="ip-inline-label">
+            Ratio
+            <select v-model="genAspectRatio" class="select">
+              <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
+            </select>
+          </label>
+          <label class="ip-inline-label">
+            Quality
+            <select v-model="genQuality" class="select" @change="applyGenStudioQuality">
+              <option value="draft">Draft</option>
+              <option value="balanced">Balanced</option>
+              <option value="detailed">Detailed</option>
+              <option value="maximum">Maximum</option>
+              <option value="custom">Custom steps</option>
+            </select>
+          </label>
+          <label class="ip-inline-label">
+            Steps
+            <input v-model.number="genSteps" class="input ip-num" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="genQuality = 'custom'" />
+          </label>
+          <label class="ip-inline-label">
+            Seed
+            <input v-model.number="genSeed" class="input ip-seed" type="number" min="0" max="2147483647" placeholder="Random" />
+          </label>
+        </div>
         <div class="ip-actions mt-3">
           <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">
             {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
@@ -177,12 +203,41 @@ const showGrow = ref(false)
 const genPrompts = ref('')
 const genModel = ref('')
 const genVariants = ref<number>(1)
+const genAspectRatio = ref('16:9')
+const genQuality = ref<'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'>('balanced')
+const genSteps = ref(4)
+const genSeed = ref<number | ''>('')
 const generating = ref(false)
 const suggestTopic = ref('')
 const suggestCount = ref<number>(10)
 const suggestModel = ref('')
 const suggesting = ref(false)
 const promptLines = computed(() => genPrompts.value.split('\n').map(l => l.trim()).filter(Boolean))
+const { models: genStudioModels, refresh: refreshGenStudioModels } = useGenStudioImageModels()
+const selectedGenStudioModel = computed(() => genStudioModels.value.find(model => model.id === genModel.value))
+const genStudioQualitySteps = computed(() => {
+  const model = selectedGenStudioModel.value
+  if (!model) return { draft: 2, balanced: 4, detailed: 6, maximum: 8 }
+  return {
+    draft: model.min_steps,
+    balanced: model.default_steps,
+    detailed: Math.min(model.max_steps, model.default_steps + 2),
+    maximum: model.max_steps,
+  }
+})
+
+function applyGenStudioQuality(): void {
+  if (genQuality.value === 'custom') return
+  genSteps.value = genStudioQualitySteps.value[genQuality.value]
+}
+
+watch([genModel, () => genStudioModels.value.length], () => {
+  const model = selectedGenStudioModel.value
+  if (!model) return
+  if (!model.aspect_ratios.includes(genAspectRatio.value)) genAspectRatio.value = model.default_aspect_ratio
+  genSteps.value = Math.max(model.min_steps, Math.min(model.max_steps, Number(genSteps.value) || model.default_steps))
+  if (genQuality.value !== 'custom') applyGenStudioQuality()
+})
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
 const selectedPool = computed(() => imagePools.value.find((p: any) => p.id === poolId.value) || null)
@@ -267,7 +322,9 @@ async function generateIntoPool(): Promise<void> {
       pool_id: poolId.value,
       prompts: promptLines.value,
       model: genModel.value,
-      aspect_ratio: '16:9',
+      aspect_ratio: selectedGenStudioModel.value ? genAspectRatio.value : '16:9',
+      image_steps: selectedGenStudioModel.value ? genSteps.value : undefined,
+      seed: selectedGenStudioModel.value && typeof genSeed.value === 'number' ? genSeed.value : undefined,
       variants: genVariants.value,
     })
     success(`Queued generation of ${promptLines.value.length * genVariants.value} image(s) → watch the Jobs panel.`)
@@ -282,6 +339,7 @@ async function generateIntoPool(): Promise<void> {
 watch(episodeId, () => { lastLoad.value = null })
 
 onMounted(async () => {
+  void refreshGenStudioModels()
   await broll.loadPools().catch(() => {})
   // Default the pool from the saved project subscription, else the first image pool.
   const saved = (config?.value as any)?.image_pool_id
@@ -307,4 +365,7 @@ onMounted(async () => {
 .ip-topic { flex: 1 1 280px; min-width: 200px; }
 .ip-prompts { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; resize: vertical; }
 .ip-model-pick { min-width: 220px; max-width: 340px; flex: 0 1 300px; }
+.ip-genstudio-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.ip-genstudio-controls .select { min-width: 120px; }
+.ip-seed { width: 150px; }
 </style>

@@ -169,6 +169,26 @@
               default-label="Pick an image model…"
             />
           </div>
+          <template v-if="selectedGenStudioModel">
+            <div class="sr-ratio-pick" title="A friendly quality label mapped to GenStudio's real inference-step control. Higher steps can add detail but take longer.">
+              <label class="sr-ratio-label" for="sr-gen-quality">Quality</label>
+              <select id="sr-gen-quality" v-model="form.image_quality" class="select sr-ratio-select" @change="applyGenStudioQuality">
+                <option value="draft">Draft · {{ genStudioQualitySteps.draft }} steps</option>
+                <option value="balanced">Balanced · {{ genStudioQualitySteps.balanced }} steps</option>
+                <option value="detailed">Detailed · {{ genStudioQualitySteps.detailed }} steps</option>
+                <option value="maximum">Maximum · {{ genStudioQualitySteps.maximum }} steps</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="sr-ratio-pick" title="Exact inference steps published by the selected GenStudio model.">
+              <label class="sr-ratio-label" for="sr-gen-steps">Steps</label>
+              <input id="sr-gen-steps" v-model.number="form.image_steps" class="input sr-number-input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="form.image_quality = 'custom'">
+            </div>
+            <div class="sr-ratio-pick" title="Optional reproducible seed. Leave blank for a fresh random composition per scene.">
+              <label class="sr-ratio-label" for="sr-gen-seed">Seed</label>
+              <input id="sr-gen-seed" v-model="form.seed" class="input sr-number-input" type="number" min="0" max="2147483647" placeholder="Random">
+            </div>
+          </template>
           <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). Was
                auto-picked silently; now you choose it. -->
           <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
@@ -828,6 +848,9 @@ const form = ref({
   // smaller files. Cloud models ignore it (they use the aspect string). 100 =
   // the historical full size, so existing behaviour is unchanged by default.
   render_scale: 100 as number,
+  image_quality: 'balanced' as 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom',
+  image_steps: 4,
+  seed: '' as string | number,
 })
 // v1.0.259 — remember the render settings per-Mac across reloads (an active
 // render preset still auto-applies on top; the model picker self-heals a
@@ -845,6 +868,9 @@ const srPresets = usePresets<{
   concurrency: string
   render_mode?: 'refs' | 'prompt'
   render_scale?: number
+  image_quality?: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
+  image_steps?: number
+  seed?: string | number
 }>({
   slug: slug.value,
   configKey: 'scene_review',
@@ -855,6 +881,9 @@ const srPresets = usePresets<{
     concurrency: form.value.concurrency,
     render_mode: form.value.render_mode,
     render_scale: form.value.render_scale,
+    image_quality: form.value.image_quality,
+    image_steps: form.value.image_steps,
+    seed: form.value.seed,
   }),
   apply: (data) => { Object.assign(form.value, data) },
 })
@@ -862,13 +891,52 @@ const srPresets = usePresets<{
 // Aspect-ratio choices for scene renders. 16:9 is the default video frame;
 // the rest are offered for non-standard cuts. The picked value is sent to
 // every generate/continuity endpoint and drives the live thumbnail shape.
-const aspectRatios = [
+const defaultAspectRatios = [
   { value: '16:9', label: 'Landscape (YouTube)' },
   { value: '21:9', label: 'Ultrawide' },
   { value: '4:3',  label: 'Standard' },
   { value: '1:1',  label: 'Square' },
   { value: '9:16', label: 'Portrait' },
 ]
+const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
+const selectedGenStudioModel = computed(() => genStudioImageModels.value.find(model => model.id === form.value.model))
+const aspectRatios = computed(() => {
+  const ratios = selectedGenStudioModel.value?.aspect_ratios
+  if (!ratios?.length) return defaultAspectRatios
+  const labels = Object.fromEntries(defaultAspectRatios.map(item => [item.value, item.label]))
+  return ratios.map(value => ({ value, label: labels[value] || 'Supported by GenStudio' }))
+})
+const genStudioQualitySteps = computed(() => {
+  const model = selectedGenStudioModel.value
+  const min = model?.min_steps ?? 2
+  const max = model?.max_steps ?? 8
+  const balanced = Math.min(max, Math.max(min, model?.default_steps ?? 4))
+  return {
+    draft: min,
+    balanced,
+    detailed: Math.min(max, Math.max(balanced, balanced + 2)),
+    maximum: max,
+  }
+})
+function applyGenStudioQuality(): void {
+  const quality = form.value.image_quality
+  if (quality !== 'custom') form.value.image_steps = genStudioQualitySteps.value[quality]
+}
+const genStudioImageBody = computed(() => selectedGenStudioModel.value ? {
+  image_steps: Math.min(
+    selectedGenStudioModel.value.max_steps,
+    Math.max(selectedGenStudioModel.value.min_steps, Number(form.value.image_steps) || selectedGenStudioModel.value.default_steps),
+  ),
+  ...(form.value.seed === '' ? {} : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
+} : {})
+watch(selectedGenStudioModel, (model) => {
+  if (!model) return
+  if (!model.aspect_ratios.includes(form.value.aspect_ratio)) form.value.aspect_ratio = model.default_aspect_ratio
+  if (form.value.image_steps < model.min_steps || form.value.image_steps > model.max_steps) {
+    form.value.image_steps = model.default_steps
+    form.value.image_quality = 'balanced'
+  }
+})
 // CSS aspect-ratio string ("16:9" → "16 / 9") so the thumbnail boxes re-shape
 // to whatever ratio is selected — making the enforced frame visible.
 const thumbAspect = computed(() => form.value.aspect_ratio.replace(':', ' / '))
@@ -1334,6 +1402,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         single_scene_id: scene.id,
         force: !!scene.image_filename,
         prompt_only: promptOnly.value,
+        ...genStudioImageBody.value,
         ...localSizeBody.value,
       })
       success(`${scene.image_filename ? 'Regeneration' : 'Generation'} queued for scene ${scene.scene_index} — it'll update above.`)
@@ -1342,6 +1411,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         scene_id: scene.id,
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
+        ...genStudioImageBody.value,
         ...localSizeBody.value,
       })
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
@@ -1365,6 +1435,7 @@ async function repairOne(scene: ReviewScene): Promise<void> {
       model: form.value.model,
       aspect_ratio: form.value.aspect_ratio,
       prompt_only: promptOnly.value,
+      ...genStudioImageBody.value,
       ...localSizeBody.value,
     })
     if (r.recovered) {
@@ -1466,6 +1537,7 @@ async function generateAllMissing(): Promise<void> {
         independent: true,
         concurrency: form.value.concurrency,
         prompt_only: promptOnly.value,
+        ...genStudioImageBody.value,
         ...localSizeBody.value,
       },
     )
@@ -1522,6 +1594,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       scene_ids: selection,
       concurrency: (opts.independent || selection) ? form.value.concurrency : undefined,
       prompt_only: promptOnly.value,
+      ...genStudioImageBody.value,
       ...localSizeBody.value,
     })
     success(selection
@@ -1720,6 +1793,7 @@ function scrollToTop(): void {
 
 onMounted(() => {
   void loadContinuityFlag()
+  void refreshGenStudioImageModels()
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
   const el = getScrollContainer()

@@ -7,7 +7,7 @@
  * ONE sample image of that style against a fixed neutral baseline scene
  * and persist the PNG keyed by every input that affects the output:
  *
- *   sha256(style + '|' + model_id + '|' + aspect_ratio + '|' + tier)
+ *   sha256(style + model + aspect + tier + variant + steps + seed)
  *
  * Re-clicking the same combo is free; switching any input invalidates and
  * triggers a fresh render. Stored in userData (per-machine, not iCloud-
@@ -38,6 +38,8 @@ interface IndexEntry {
   aspect_ratio: string
   tier: string
   variant_id: string
+  image_steps?: number
+  seed?: number
   created_at: string
   filename: string
   size_bytes: number
@@ -88,11 +90,15 @@ export function hashStylePreviewKey(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
+  imageSteps?: number
+  seed?: number
 }): string {
   const norm = opts.styleTag.replace(/\s+/g, ' ').trim().toLowerCase()
   const tier = opts.tier || ''
   const variantId = opts.variantId || 'default'
-  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${variantId}`
+  const imageSteps = opts.imageSteps ?? ''
+  const seed = opts.seed ?? ''
+  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${variantId}|${imageSteps}|${seed}`
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
 
@@ -121,6 +127,8 @@ export interface CachedStylePreview {
   aspect_ratio: string
   tier: string
   variant_id: string
+  image_steps?: number
+  seed?: number
   created_at: string
   filename: string
   abs_path: string
@@ -133,6 +141,8 @@ export async function getCachedStylePreview(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
+  imageSteps?: number
+  seed?: number
 }): Promise<CachedStylePreview | null> {
   const hash = hashStylePreviewKey(opts)
   const idx = await readIndex()
@@ -151,6 +161,8 @@ export async function getCachedStylePreview(opts: {
     aspect_ratio: entry.aspect_ratio,
     tier: entry.tier,
     variant_id: entry.variant_id || 'default',
+    image_steps: entry.image_steps,
+    seed: entry.seed,
     created_at: entry.created_at,
     filename: entry.filename,
     abs_path: abs,
@@ -164,6 +176,8 @@ export async function saveStylePreview(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
+  imageSteps?: number
+  seed?: number
   imageBytes: Buffer
 }): Promise<CachedStylePreview> {
   const hash = hashStylePreviewKey(opts)
@@ -181,6 +195,8 @@ export async function saveStylePreview(opts: {
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
     variant_id: opts.variantId || 'default',
+    image_steps: opts.imageSteps,
+    seed: opts.seed,
     created_at: now,
     filename,
     size_bytes: opts.imageBytes.length,
@@ -193,6 +209,8 @@ export async function saveStylePreview(opts: {
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
     variant_id: opts.variantId || 'default',
+    image_steps: opts.imageSteps,
+    seed: opts.seed,
     created_at: now,
     filename,
     abs_path: abs,

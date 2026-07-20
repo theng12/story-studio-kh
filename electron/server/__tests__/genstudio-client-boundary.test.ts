@@ -8,18 +8,26 @@ import { DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS } from '../models/defaults.
 import { normalizeVoicePresets, voiceSupportsProvider } from '../services/voice-presets.js'
 import {
   buildGenStudioTranscriptionIdempotencyKey,
+  buildGenStudioImageIdempotencyKey,
   buildGenStudioSubmission,
   catalogHasVoice,
   generateTtsToFile,
+  generateImageWithGenStudio,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
   operationSignal,
+  recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
+
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+)
 
 test('GenStudio standard voices are an explicit, bounded TTS route', () => {
   assert.deepEqual(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], {
@@ -155,6 +163,95 @@ test('GenStudio transcription retries keep one identity while manual jobs stay d
     storyJobId: 'story-job-2',
   }))
   assert.match(first, /^story-stt-[a-f0-9]{48}$/)
+})
+
+test('GenStudio image idempotency keeps network retries stable but separates deliberate renders', () => {
+  const input = {
+    prompt: 'A moonlit Cambodian temple reflected in still water.',
+    modelId: 'genstudio-image-fast-v1',
+    aspectRatio: '16:9',
+    steps: 4,
+    seed: 42,
+    requestIdentity: 'story-job-1:scene-0001',
+  }
+  const first = buildGenStudioImageIdempotencyKey(input)
+  assert.equal(first, buildGenStudioImageIdempotencyKey(input))
+  assert.notEqual(first, buildGenStudioImageIdempotencyKey({
+    ...input,
+    requestIdentity: 'story-job-2:scene-0001',
+  }))
+  assert.match(first, /^story-image-[a-f0-9]{44}$/)
+})
+
+test('GenStudio image generation sends catalog controls and returns a verified private PNG', async () => {
+  const originalFetch = globalThis.fetch
+  let accepted = ''
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/images/generations')) {
+        posts++
+        const body = JSON.parse(String(init?.body || '{}'))
+        assert.deepEqual(body, {
+          prompt: 'A textured paper collage of hope and renewal.',
+          model_id: 'genstudio-image-fast-v1',
+          aspect_ratio: '4:3',
+          steps: 6,
+          seed: 77,
+        })
+        assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-image-/)
+        return Response.json({
+          id: 'image_job_ok', state: 'succeeded', model_id: body.model_id,
+          prompt: body.prompt, width: 1024, height: 768, aspect_ratio: body.aspect_ratio,
+          steps: body.steps, seed: body.seed, image_url: '/v1/images/image_job_ok/file',
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/images/image_job_ok/file')) return new Response(ONE_PIXEL_PNG)
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await generateImageWithGenStudio('scoped-key', {
+      prompt: 'A textured paper collage of hope and renewal.',
+      modelId: 'genstudio-image-fast-v1',
+      aspectRatio: '4:3',
+      steps: 6,
+      seed: 77,
+      requestIdentity: 'story-job:thumb-1',
+      onJobAccepted: jobId => { accepted = jobId },
+    })
+    assert.equal(posts, 1)
+    assert.equal(accepted, 'image_job_ok')
+    assert.equal(result.jobId, 'image_job_ok')
+    assert.match(result.url, /^data:image\/png;base64,/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('accepted GenStudio image jobs can be reclaimed without a second submit', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') posts++
+      if (url.endsWith('/v1/images/image_existing')) {
+        return Response.json({
+          id: 'image_existing', state: 'succeeded', model_id: 'genstudio-image-fast-v1',
+          prompt: 'Recovered', width: 1024, height: 1024, aspect_ratio: '1:1', steps: 4,
+          image_url: '/v1/images/image_existing/file',
+        })
+      }
+      if (url.endsWith('/v1/images/image_existing/file')) return new Response(ONE_PIXEL_PNG)
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await recoverImageWithGenStudio('scoped-key', 'image_existing')
+    assert.equal(posts, 0)
+    assert.equal(result.jobId, 'image_existing')
+    assert.match(result.url, /^data:image\/png;base64,/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('Story transcription has no direct OpenAI, Studio Hub, or Voice Studio route', () => {

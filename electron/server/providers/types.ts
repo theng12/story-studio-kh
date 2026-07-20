@@ -61,6 +61,17 @@ export interface ImageGenerationRequest {
    */
   width?: number
   height?: number
+  /** Exact inference-step count for providers that publish this control. */
+  steps?: number
+  /** Optional deterministic seed. Omit to let the provider randomize. */
+  seed?: number
+  idempotencyIdentity?: string
+  /**
+   * Durable providers call this as soon as upstream accepts the task, before
+   * polling or downloading. The caller can then recover the same paid/free
+   * task after a restart instead of submitting it again.
+   */
+  onJobAccepted?: (taskId: string, idempotencyKey: string) => void | Promise<void>
   /** Probe for user cancel — provider should honour it in poll loops so an
    *  aborted batch stops burning provider calls per in-flight request. */
   isCancelled?: () => boolean

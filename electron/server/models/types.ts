@@ -2032,6 +2032,10 @@ export interface GenerateImagesRequest {
    */
   width?: number
   height?: number
+  /** Provider-published inference-step control (GenStudio currently 2-8). */
+  image_steps?: number
+  /** Optional deterministic image seed. */
+  seed?: number
   /**
    * v1.0.416+ — optional extra guidance appended to the THUMBNAIL prompt at
    * render time (Thumbnail Generator tab). Lets the user nudge a render

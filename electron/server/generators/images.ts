@@ -30,6 +30,7 @@ import {
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
 import fs from 'fs/promises'
 
@@ -218,24 +219,9 @@ export async function generateImages(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
   const modelName = req.model || 'grok-imagine'
-  let modelConfig: ImageModelConfig = config.image_models[modelName]
-  if (!modelConfig) {
-    // v1.0.205+ — Image Studio models are surfaced dynamically from the
-    // modal's live catalog (id = `imagestudio:<repo>`), so they don't live
-    // in the persisted per-project catalog. Synthesize a minimal config so
-    // they generate like any registered local model. The provider resolves
-    // the repo + endpoint (txt2img/img2img/edit) from the id + capabilities.
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(modelName)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, modelName)
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
+  const resolvedModelConfig: ImageModelConfig = modelConfig
 
   // Resolve provider (backward-compat: infer 'kie' if provider field missing)
   const providerId = (modelConfig as any).provider || 'kie'
@@ -672,7 +658,7 @@ export async function generateImages(job: Job): Promise<void> {
     if (!force) {
       const recovered = await tryRecoverImageFromManifest(
         sceneManifest.tasks[`${stem}_v1.png`] || null,
-        apiKey, modelConfig,
+        apiKey, resolvedModelConfig,
         () => jq.isCancelled(job.job_id),
       )
       if (recovered) {
@@ -697,8 +683,18 @@ export async function generateImages(job: Job): Promise<void> {
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
         width: renderWidth, height: renderHeight,
+        steps: req.image_steps,
+        seed: req.seed,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
+        onJobAccepted: async (taskId) => {
+          await recordTask(bgDir, `${stem}_v1.png`, {
+            provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
+            task_id: taskId,
+            submitted_at: new Date().toISOString(),
+            input_hash: hashInput(finalPrompt),
+          })
+        },
       })
       const urls = result.urls
       if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
@@ -748,7 +744,7 @@ export async function generateImages(job: Job): Promise<void> {
     if (!force) {
       const recovered = await tryRecoverImageFromManifest(
         thumbManifest.tasks[`${stem}_v1.png`] || null,
-        apiKey, modelConfig,
+        apiKey, resolvedModelConfig,
         () => jq.isCancelled(job.job_id),
       )
       if (recovered) {
@@ -797,8 +793,18 @@ export async function generateImages(job: Job): Promise<void> {
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams: thumbProviderParams,
         width: renderWidth, height: renderHeight,
+        steps: req.image_steps,
+        seed: req.seed,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
+        onJobAccepted: async (taskId) => {
+          await recordTask(thumbDir, `${stem}_v1.png`, {
+            provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
+            task_id: taskId,
+            submitted_at: new Date().toISOString(),
+            input_hash: hashInput(finalPrompt),
+          })
+        },
       })
       const urls = result.urls
       if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)

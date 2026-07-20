@@ -36,6 +36,8 @@ import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { recordTask, hashInput } from '../services/task-manifest.js'
 
 /** Legacy flat folder at the episode root where continuity / scene-review
  *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
@@ -99,6 +101,8 @@ interface SceneImageGenerateParams {
    *  size. Cloud providers ignore these. */
   width?: number
   height?: number
+  image_steps?: number
+  seed?: number
 }
 
 export async function generateSceneImageJob(job: Job): Promise<void> {
@@ -127,21 +131,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // Resolve the configured image model + its provider.
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    // v1.0.258 — local Image Studio models (`imagestudio:<repo>`) are dynamic
-    // and not in config.image_models; synthesize a minimal config (mirrors
-    // images.ts / continuity-render) so per-scene text2img works locally too.
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   const providerId = (modelConfig as any).provider || 'kie'
@@ -179,6 +169,9 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   if (renderWidth && renderHeight) {
     job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models).`)
   }
+  const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  await fs.mkdir(outDir, { recursive: true })
+  const outPath = path.join(outDir, `${scene_id}.png`)
   const result = await imageProvider.generateImage({
     prompt: scene.visual_prompt,
     apiKey,
@@ -187,6 +180,17 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     providerParams,
     width: renderWidth,
     height: renderHeight,
+    steps: params.image_steps,
+    seed: params.seed,
+    isCancelled: () => false,
+    onJobAccepted: async (taskId) => {
+      await recordTask(outDir, `${scene_id}.png`, {
+        provider: imageProvider.meta.providerId || imageProvider.meta.id,
+        task_id: taskId,
+        submitted_at: new Date().toISOString(),
+        input_hash: hashInput(scene.visual_prompt),
+      })
+    },
   })
 
   job.progress = 70
@@ -200,9 +204,6 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // v1.0.457 — write into the unified named "NN Scene Images" folder (not the
   // legacy flat scene_images/), so there's one scene-image location per episode
   // and it migrates to the external media root with everything else.
-  const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
-  await fs.mkdir(outDir, { recursive: true })
-  const outPath = path.join(outDir, `${scene_id}.png`)
   await downloadImage(url, outPath)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)

@@ -126,7 +126,10 @@ export interface ResolveBeatsResult {
  */
 export async function resolveBeats(
   plan: BrollPlan,
-  opts: { poolId?: string; aiFallback?: { slug: string; model: string } } = {},
+  opts: {
+    poolId?: string
+    aiFallback?: { slug: string; model: string; aspectRatio?: string; imageSteps?: number; seed?: number }
+  } = {},
 ): Promise<ResolveBeatsResult> {
   const pool = await pickVideoPool(opts.poolId)
   if (!pool) {
@@ -176,7 +179,18 @@ export async function resolveBeats(
     for (const beat of plan.beats) {
       if (beat.clip) continue
       if (!(beat.queries.length || beat.line)) continue
-      const filename = await aiGenFallbackForBeat(opts.aiFallback.slug, beat, pool, plan.broll_style, opts.aiFallback.model)
+      const filename = await aiGenFallbackForBeat(
+        opts.aiFallback.slug,
+        beat,
+        pool,
+        plan.broll_style,
+        opts.aiFallback.model,
+        {
+          aspectRatio: opts.aiFallback.aspectRatio,
+          imageSteps: opts.aiFallback.imageSteps,
+          seed: opts.aiFallback.seed,
+        },
+      )
       if (filename) {
         beat.source = 'ai-gen'
         beat.pool_id = pool.id

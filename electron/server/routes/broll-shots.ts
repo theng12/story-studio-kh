@@ -43,10 +43,22 @@ async function collectApiKeys() {
 /** Build the AI-gen fallback option from a request body (opt-in + needs an image model).
  *  The model string is validated downstream against config.image_models (a bad
  *  model just yields null per-beat, never an error). */
-function aiFallbackFrom(body: any, slug: string): { slug: string; model: string } | undefined {
+function aiFallbackFrom(body: any, slug: string): {
+  slug: string
+  model: string
+  aspectRatio?: string
+  imageSteps?: number
+  seed?: number
+} | undefined {
   if (body?.ai_fallback !== true) return undefined
   const model = typeof body.image_model === 'string' ? body.image_model.trim() : ''
-  return model ? { slug, model } : undefined
+  return model ? {
+    slug,
+    model,
+    aspectRatio: typeof body.image_aspect_ratio === 'string' ? body.image_aspect_ratio : undefined,
+    imageSteps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
+    seed: Number.isInteger(body.image_seed) ? body.image_seed : undefined,
+  } : undefined
 }
 
 async function resolveTitle(slug: string, code: string): Promise<string> {

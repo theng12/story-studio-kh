@@ -166,6 +166,34 @@
             </option>
           </select>
         </div>
+        <div v-if="activeGenStudioModel" class="form-group">
+          <label>GenStudio quality</label>
+          <select v-model="activeForm.image_quality" class="select" @change="applyGenStudioQuality">
+            <option value="draft">Draft · {{ genStudioQualitySteps.draft }} steps</option>
+            <option value="balanced">Balanced · {{ genStudioQualitySteps.balanced }} steps</option>
+            <option value="detailed">Detailed · {{ genStudioQualitySteps.detailed }} steps</option>
+            <option value="maximum">Maximum · {{ genStudioQualitySteps.maximum }} steps</option>
+            <option value="custom">Custom · exact steps below</option>
+          </select>
+          <p class="text-muted text-xs mt-1">Quality maps to the model's real inference-step range.</p>
+        </div>
+        <div v-if="activeGenStudioModel" class="form-group">
+          <label>Image steps</label>
+          <input
+            v-model.number="activeForm.image_steps"
+            class="input"
+            type="number"
+            :min="activeGenStudioModel.min_steps"
+            :max="activeGenStudioModel.max_steps"
+            @input="activeForm.image_quality = 'custom'"
+          />
+          <p class="text-muted text-xs mt-1">Allowed: {{ activeGenStudioModel.min_steps }}–{{ activeGenStudioModel.max_steps }} steps.</p>
+        </div>
+        <div v-if="activeGenStudioModel" class="form-group">
+          <label>Seed <span class="text-muted text-xs">optional</span></label>
+          <input v-model.number="activeForm.seed" class="input" type="number" min="0" max="2147483647" placeholder="Random" />
+          <p class="text-muted text-xs mt-1">Reuse a seed for repeatable composition; leave blank for a fresh variation.</p>
+        </div>
         <!-- v1.0.478 — Quality tier resolved against the model's own size menu
              (Image Studio /imagestudio/models). Works for local AND cloud models
              that advertise `sizes`, so cloud can use its full higher-res range. -->
@@ -282,6 +310,8 @@
       :model="activeForm.model"
       :aspect-ratio="activeForm.aspect_ratio"
       :tier="activeForm.tier"
+      :image-steps="activeForm.image_steps"
+      :seed="typeof activeForm.seed === 'number' ? activeForm.seed : null"
       :model-label="modelLabelForStylePreview"
       :episode-id="form.episode_id || ''"
       :episode-title="selectedEpisode?.title || ''"
@@ -308,6 +338,8 @@
       :generation-mode="form.thumbnail.generation_mode"
       :image-mode="form.thumbnail.image_mode"
       :tier="form.thumbnail.tier"
+      :image-steps="form.thumbnail.image_steps"
+      :seed="form.thumbnail.seed"
       :reference-sources="form.thumbnail.reference_sources"
       :reference-strength="form.thumbnail.reference_strength"
       :render-width="thumbnailRenderSize?.width"
@@ -329,6 +361,8 @@
       :generation-mode="form.scene.generation_mode"
       :image-mode="form.scene.image_mode"
       :tier="form.scene.tier"
+      :image-steps="form.scene.image_steps"
+      :seed="form.scene.seed"
       :reference-sources="form.scene.reference_sources"
       :reference-strength="form.scene.reference_strength"
       :render-width="sceneRenderSize?.width"
@@ -728,6 +762,10 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { config } = useProject()
+const {
+  models: genStudioImageModels,
+  refresh: refreshGenStudioImageModels,
+} = useGenStudioImageModels()
 
 // All image models currently go via kie.ai. Grouping future-proofs the
 // dropdown for when a second provider is added.
@@ -791,6 +829,9 @@ type ImagesSubForm = {
   // (Image Studio). 'highest' = largest size for the AR (ultra→high→max),
   // 'balanced' = middle/default, 'fast' = smallest. Portable across models.
   render_tier: 'highest' | 'balanced' | 'fast'
+  image_quality: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
+  image_steps: number
+  seed: number | null
 }
 const defaultSubForm = (): ImagesSubForm => ({
   model: 'grok-imagine',
@@ -828,6 +869,9 @@ const defaultSubForm = (): ImagesSubForm => ({
   // v1.0.478 — model-menu quality tier. Balanced = a sensible default (e.g. 1080p
   // for 16:9 on cloud models); only used when the model reports `sizes`.
   render_tier: 'balanced',
+  image_quality: 'balanced',
+  image_steps: 4,
+  seed: null,
 })
 const form = reactive({
   episode_id: '',
@@ -958,12 +1002,32 @@ const modelTierLabel = computed(() => {
 // Declared here (above the model watcher, which fires immediately during setup)
 // so it's initialized before modelArs() reads it. Populated onMounted.
 const isCatalog = ref<Map<string, IsModel>>(new Map())
+const activeGenStudioModel = computed(() =>
+  genStudioImageModels.value.find(model => model.id === activeForm.value.model) || null,
+)
+const genStudioQualitySteps = computed(() => {
+  const model = activeGenStudioModel.value
+  const min = model?.min_steps ?? 2
+  const balanced = model?.default_steps ?? 4
+  const max = model?.max_steps ?? 8
+  return {
+    draft: min,
+    balanced,
+    detailed: Math.min(max, balanced + 2),
+    maximum: max,
+  }
+})
+function applyGenStudioQuality() {
+  const quality = activeForm.value.image_quality
+  if (quality === 'custom') return
+  activeForm.value.image_steps = genStudioQualitySteps.value[quality]
+}
 
 // When the active model changes, snap the tier selection back to the new
 // model's default_tier (or first tier, or empty). Without this, switching
 // from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
 // would leave activeForm.value.tier='1k', which isn't a valid ideogram tier.
-watch(() => activeForm.value.model, () => {
+watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
   const m = config.value?.image_models?.[activeForm.value.model] as any
   const tiers = Array.isArray(m?.tiers) ? m.tiers : []
   if (!tiers.length) {
@@ -981,6 +1045,18 @@ watch(() => activeForm.value.model, () => {
     activeForm.value.aspect_ratio = (info?.default_aspect_ratio && ars.includes(info.default_aspect_ratio))
       ? info.default_aspect_ratio
       : ars[0]!
+  }
+  const genStudio = activeGenStudioModel.value
+  if (genStudio) {
+    const supported = genStudio.aspect_ratios || []
+    if (supported.length && !supported.includes(activeForm.value.aspect_ratio)) {
+      activeForm.value.aspect_ratio = supported.includes(genStudio.default_aspect_ratio)
+        ? genStudio.default_aspect_ratio
+        : supported[0]!
+    }
+    const steps = Number(activeForm.value.image_steps || genStudio.default_steps)
+    activeForm.value.image_steps = Math.max(genStudio.min_steps, Math.min(genStudio.max_steps, steps))
+    if (activeForm.value.image_quality !== 'custom') applyGenStudioQuality()
   }
 }, { immediate: true })
 
@@ -1044,6 +1120,7 @@ onMounted(async () => {
   await Promise.all([
     thumbnailGeneratorPresets.load(),
     loadImageStudioCatalog(),
+    refreshGenStudioImageModels(),
   ])
 })
 
@@ -1164,6 +1241,10 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
       model: activeForm.value.model,
       aspect_ratio: activeForm.value.aspect_ratio,
       tier: activeForm.value.tier || undefined,
+      ...(activeGenStudioModel.value ? {
+        image_steps: activeForm.value.image_steps,
+        ...(typeof activeForm.value.seed === 'number' ? { seed: activeForm.value.seed } : {}),
+      } : {}),
     })
     previewState[key] = {
       loading: false,
@@ -1223,6 +1304,9 @@ function selectImageMode(m: ImageMode) {
 const ep2imgTitle = computed(() => selectedEpisode.value?.title || '')
 
 const aspectRatios = computed(() => {
+  if (activeGenStudioModel.value?.aspect_ratios?.length) {
+    return activeGenStudioModel.value.aspect_ratios.map(v => ({ value: v, label: AR_LABELS[v] || v }))
+  }
   // v1.0.478 — when the selected model advertises a `sizes` menu, its ARs win.
   const fromModel = modelArs(activeForm.value.model)
   if (fromModel) return fromModel.map(v => ({ value: v, label: AR_LABELS[v] || v }))
@@ -1297,6 +1381,8 @@ function modelSizes(modelId: string | undefined): IsSize[] | null {
 }
 /** Distinct aspect ratios the model supports (menu order), or null when no menu. */
 function modelArs(modelId: string | undefined): string[] | null {
+  const genStudio = genStudioImageModels.value.find(model => model.id === modelId)
+  if (genStudio?.aspect_ratios?.length) return [...genStudio.aspect_ratios]
   const sizes = modelSizes(modelId)
   if (!sizes) return null
   const out: string[] = []
@@ -1856,6 +1942,15 @@ function generationParams(forceOverride?: boolean, includeSpecific = true) {
   // ignore the field server-side, but sending it would clutter the request
   // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
+  if (activeGenStudioModel.value) {
+    params.image_steps = Math.max(
+      activeGenStudioModel.value.min_steps,
+      Math.min(activeGenStudioModel.value.max_steps, Number(activeForm.value.image_steps || activeGenStudioModel.value.default_steps)),
+    )
+    if (typeof activeForm.value.seed === 'number' && Number.isFinite(activeForm.value.seed)) {
+      params.seed = Math.max(0, Math.min(2147483647, Math.trunc(activeForm.value.seed)))
+    }
+  }
 
   // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
   // model's own size menu when it has one (local OR cloud → full higher-res),

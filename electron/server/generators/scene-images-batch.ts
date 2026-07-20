@@ -35,6 +35,8 @@ import {
   getReconnectableHubImageRecovery,
   prepareHubImageRecovery,
 } from '../services/hub-image-recovery.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { hashInput, recordTask } from '../services/task-manifest.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -42,6 +44,8 @@ interface SceneImagesBatchParams {
   aspect_ratio?: string
   width?: number
   height?: number
+  image_steps?: number
+  seed?: number
   /** Specific scenes to render; when omitted, every scene missing an image. */
   scene_ids?: string[]
   /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
@@ -93,18 +97,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   // Resolve the configured image model + provider (mirrors scene-image.ts).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   const providerId = (modelConfig as any).provider || 'kie'
@@ -131,6 +124,17 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     prompt: scene.visual_prompt!,
     apiKey, aspectRatio, modelId: model, providerParams,
     width: renderWidth, height: renderHeight,
+    steps: params.image_steps,
+    seed: params.seed,
+    idempotencyIdentity: `${job.job_id}:${scene.id}`,
+    onJobAccepted: async (taskId) => {
+      await recordTask(outDir, `${scene.id}.png`, {
+        provider: imageProvider.meta.providerId || imageProvider.meta.id,
+        task_id: taskId,
+        submitted_at: new Date().toISOString(),
+        input_hash: hashInput(scene.visual_prompt!),
+      })
+    },
     isCancelled: () => jq.isCancelled(job.job_id),
   } as ImageGenerationRequest)
 

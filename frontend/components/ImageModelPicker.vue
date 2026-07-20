@@ -56,6 +56,7 @@
           <strong>Local</strong> models (💻 Image Studio KH) are free
           (Apple Silicon compute) but require the Pinokio modal running
           + Tailscale connected.
+          <strong>GenStudio</strong> uses your GenStudio fleet and durable task queue.
           <template v-if="imageMode === 'img2img'">
             <br>
             <span class="imp-hint-ref">
@@ -104,6 +105,46 @@
       </div>
 
       <div class="imp-list">
+        <div v-if="genStudioModels.length || genStudioLoading || genStudioError" class="imp-section">
+          <div class="imp-section-heading imp-vs-heading">
+            <span>GenStudio KH ({{ filteredGenStudioModels.length }})</span>
+            <button
+              type="button"
+              class="imp-vs-refresh"
+              :disabled="genStudioLoading"
+              title="Refresh GenStudio's live image catalog"
+              @click.stop="refreshGenStudio(true)"
+            >{{ genStudioLoading ? '…' : '⟳' }}</button>
+          </div>
+          <div v-if="genStudioError" class="imp-vs-error">
+            {{ genStudioError }}
+          </div>
+          <div
+            v-for="m in filteredGenStudioModels"
+            :key="'genstudio-' + m.id"
+            class="imp-row"
+            :class="{ selected: modelValue === m.id, incompatible: !m.available || imageMode === 'img2img' }"
+            :title="imageMode === 'img2img' ? 'GenStudio currently accepts prompt-only image generation; switch the page mode to Prompt only.' : m.bestFor"
+          >
+            <button
+              type="button"
+              class="imp-select"
+              :disabled="!m.available || imageMode === 'img2img'"
+              @click="select(m.id)"
+            >
+              <span class="imp-row-name">
+                <span class="imp-prov prov-genstudio">GenStudio</span>
+                {{ m.label }}
+              </span>
+              <span class="imp-row-meta">
+                <span class="imp-chip imp-cost free">qualification</span>
+                <span class="imp-chip subtle">{{ m.capChips?.join(' · ') }}</span>
+                <span v-if="imageMode === 'img2img'" class="imp-chip warn">prompt only</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
         <!-- ☁︎ Cloud section — each row is tagged with its real provider. -->
         <div v-if="filteredCloudModels.length" class="imp-section">
           <div class="imp-section-heading">
@@ -195,7 +236,7 @@
         </div>
 
         <div
-          v-if="!filteredCloudModels.length && !filteredLocalModels.length && !localCatalogLoading"
+          v-if="!filteredCloudModels.length && !filteredLocalModels.length && !filteredGenStudioModels.length && !localCatalogLoading && !genStudioLoading"
           class="imp-empty"
         >
           No models match. Clear the search / filter, or
@@ -286,6 +327,12 @@ const localCatalog = ref<ImageStudioModelInfo[]>([])
 const localCatalogLoading = ref(false)
 const localCatalogError = ref('')
 const imagestudioBaseUrl = ref('')
+const {
+  models: genStudioCatalog,
+  loading: genStudioLoading,
+  error: genStudioError,
+  refresh: refreshGenStudio,
+} = useGenStudioImageModels()
 
 const currentId = computed(() => props.modelValue)
 const currentModel = computed(() => props.imageModels?.[currentId.value])
@@ -293,10 +340,12 @@ const currentModel = computed(() => props.imageModels?.[currentId.value])
 const currentLabel = computed(() => {
   if (currentModel.value?.label) return currentModel.value.label
   const live = localCatalog.value.find(m => m.id === currentId.value)
-  return live?.label || currentId.value || props.defaultLabel
+  const genStudio = genStudioCatalog.value.find(m => m.id === currentId.value)
+  return live?.label || genStudio?.display_name || currentId.value || props.defaultLabel
 })
 const currentSource = computed<'cloud' | 'local' | ''>(() => {
   if (currentId.value?.startsWith('imagestudio:') || currentModel.value?.provider === 'imagestudio') return 'local'
+  if (currentId.value?.startsWith('genstudio-image-')) return 'cloud'
   if (currentModel.value) return 'cloud'
   return ''
 })
@@ -304,6 +353,7 @@ const currentSource = computed<'cloud' | 'local' | ''>(() => {
 const currentProviderName = computed(() => {
   if (currentModel.value?.provider) return providerLabel(currentModel.value.provider)
   if (currentId.value?.startsWith('imagestudio:')) return 'Image Studio'
+  if (currentId.value?.startsWith('genstudio-image-')) return 'GenStudio'
   if (currentModel.value) return 'kie.ai'
   return ''
 })
@@ -331,7 +381,10 @@ function costChipFor(m: ImageModelEntry): string {
   return `${m.credits_per_image} cr · ${formatUsd(m.credits_per_image)}`
 }
 
-const currentCostChip = computed(() => currentModel.value ? costChipFor(currentModel.value) : '')
+const currentCostChip = computed(() => {
+  if (currentId.value?.startsWith('genstudio-image-')) return 'qualification'
+  return currentModel.value ? costChipFor(currentModel.value) : ''
+})
 
 interface DisplayRow {
   id: string
@@ -365,6 +418,7 @@ function providerLabel(provider?: string): string {
     case 'openrouter-image': return 'OpenRouter'
     case 'kie': case undefined: case '': return 'kie.ai'
     case 'imagestudio': return 'Image Studio'
+    case 'genstudio-image': return 'GenStudio'
     default: return provider!
   }
 }
@@ -436,6 +490,21 @@ const localModels = computed<DisplayRow[]>(() => {
     })
 })
 
+const genStudioModels = computed<DisplayRow[]>(() => genStudioCatalog.value.map(model => ({
+  id: model.id,
+  label: model.display_name,
+  costChip: 'qualification',
+  supportsRefs: false,
+  tiered: false,
+  supportsImgImg: false,
+  supportsTxt2img: true,
+  available: model.available,
+  unavailableReason: model.available ? '' : 'No compatible GenStudio image worker is available',
+  providerName: 'GenStudio',
+  bestFor: model.description,
+  capChips: [`${model.min_steps}-${model.max_steps} steps`, model.aspect_ratios.join(', ')],
+})))
+
 /** Filters: search + capability + img2img mode (handled at the row level via dim). */
 function applyFilters(rows: DisplayRow[]): DisplayRow[] {
   const q = search.value.trim().toLowerCase()
@@ -461,6 +530,7 @@ function applyFilters(rows: DisplayRow[]): DisplayRow[] {
 
 const filteredCloudModels = computed(() => applyFilters(cloudModels.value))
 const filteredLocalModels = computed(() => applyFilters(localModels.value))
+const filteredGenStudioModels = computed(() => applyFilters(genStudioModels.value))
 
 async function loadLocalCatalog() {
   localCatalogLoading.value = true
@@ -498,6 +568,7 @@ function toggle() {
   if (expanded.value && !localCatalog.value.length && !localCatalogLoading.value && !localCatalogError.value) {
     void loadLocalCatalog()
   }
+  if (expanded.value) void refreshGenStudio()
 }
 
 function clearFilters() {
@@ -542,6 +613,7 @@ onMounted(() => {
   // Best-effort prefetch so the local section is populated by the time
   // the user opens the panel. Silently no-ops if the modal is offline.
   void loadLocalCatalog()
+  void refreshGenStudio()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)

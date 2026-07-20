@@ -238,6 +238,8 @@ const props = defineProps<{
   model: string
   aspectRatio: string
   tier?: string
+  imageSteps?: number
+  seed?: number | null
   /** Friendly model label for the blurb — falls back to model id when absent. */
   modelLabel?: string
   /** Currently-selected episode code on the page (empty when no episode
@@ -478,7 +480,14 @@ function onZoomKeydown(e: KeyboardEvent) {
 }
 
 function currentSignature(): string {
-  return `${styleText.value.trim().toLowerCase()}|${props.model}|${props.aspectRatio}|${props.tier || ''}`
+  return [
+    styleText.value.trim().toLowerCase(),
+    props.model,
+    props.aspectRatio,
+    props.tier || '',
+    props.imageSteps ?? '',
+    props.seed ?? '',
+  ].join('|')
 }
 
 async function generate(): Promise<void> {
@@ -496,6 +505,8 @@ async function generate(): Promise<void> {
       model: props.model,
       aspect_ratio: props.aspectRatio,
       tier: props.tier || undefined,
+      image_steps: props.imageSteps,
+      seed: props.seed ?? undefined,
     })
     state.value = {
       loading: false,
@@ -527,6 +538,8 @@ watch([
   () => props.model,
   () => props.aspectRatio,
   () => props.tier,
+  () => props.imageSteps,
+  () => props.seed,
 ], () => {
   if (state.value.signature_at_render &&
       state.value.signature_at_render !== currentSignature()) {

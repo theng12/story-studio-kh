@@ -30,6 +30,7 @@ import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { registry } from '../providers/registry.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import {
   assertScenePromptsRenderable,
   clearLegacyPlannerFallbackReasons,
@@ -40,7 +41,7 @@ import {
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import type { ImageModelConfig, JobType, ScenePlan } from '../models/types.js'
+import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
 
@@ -266,6 +267,8 @@ function enqueueContinuityRender(
       aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
       width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
       height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+      image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
+      seed: Number.isInteger(body.seed) ? body.seed : undefined,
       force: body.force === true,
       from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
       single_scene_id: singleSceneId,
@@ -311,6 +314,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
         width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
         height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+        image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
+        seed: Number.isInteger(body.seed) ? body.seed : undefined,
       },
     })
     res.status(201).json(job)
@@ -657,7 +662,9 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
     }
 
     const config = await pm.getConfig(slug)
-    const modelConfig = (config?.image_models?.[model] || { poll: '/jobs/recordInfo' }) as ImageModelConfig
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+    const modelConfig = resolveImageModelConfig(config, model)
+    if (!modelConfig) return res.status(400).json({ detail: `Unknown image model: ${model}` })
     const providerId = (modelConfig as any).provider || 'kie'
     const imageProvider = registry.getImageProvider(providerId)
     const apiKey = imageProvider

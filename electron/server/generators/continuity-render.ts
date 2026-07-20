@@ -41,6 +41,7 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import {
   acceptHubImageRecovery,
   completeHubImageRecovery,
@@ -102,6 +103,9 @@ interface ContinuityRenderParams {
    *  Scene Review preset's `render_scale` instead of explicit px. Resolved to
    *  width/height here when explicit px aren't supplied. Cloud providers ignore. */
   render_scale?: number
+  /** Provider-published inference steps and optional reproducible seed. */
+  image_steps?: number
+  seed?: number
   /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
   hub_repair_only?: boolean
 }
@@ -184,23 +188,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // Resolve model + provider (mirrors the per-scene generator).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
-  if (!modelConfig) {
-    // v1.0.258 — local Image Studio models come from the modal's LIVE catalog
-    // (id = `imagestudio:<repo>`) and aren't persisted in config.image_models,
-    // so the lookup misses. Synthesize a minimal config (mirrors images.ts) so
-    // continuity render works with local models too. The provider resolves the
-    // repo + txt2img/img2img/edit endpoint from the id + capabilities.
-    const { repoForModelId } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(model)
-    if (repo) {
-      modelConfig = {
-        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
-        endpoint: '', poll: '', type: 'local', api_model: repo,
-        provider: 'imagestudio', supports_reference_images: true,
-      } as any
-    }
-  }
+  const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   const providerId = (modelConfig as any).provider || 'kie'
   const imageProvider = registry.getImageProvider(providerId)
@@ -681,8 +669,18 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               providerParams: sref.params,
               width: renderWidth,
               height: renderHeight,
+              steps: params.image_steps,
+              seed: params.seed,
               referenceImagePaths: sref.refPaths.length ? sref.refPaths : undefined,
               isCancelled: () => jq.isCancelled(job.job_id),
+              onJobAccepted: async (taskId) => {
+                await recordTask(outDir, `${scene.id}.png`, {
+                  provider: imageProvider.meta.providerId || imageProvider.meta.id,
+                  task_id: taskId,
+                  submitted_at: new Date().toISOString(),
+                  input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
+                })
+              },
             }))
             if (!result.urls.length) throw new Error('provider returned no image')
             if (result.taskId) {
@@ -889,8 +887,18 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       providerParams: sceneParams,
       width: renderWidth,
       height: renderHeight,
+      steps: params.image_steps,
+      seed: params.seed,
       referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
       isCancelled: () => jq.isCancelled(job.job_id),
+      onJobAccepted: async (taskId) => {
+        await recordTask(outDir, `${scene.id}.png`, {
+          provider: imageProvider.meta.providerId || imageProvider.meta.id,
+          task_id: taskId,
+          submitted_at: new Date().toISOString(),
+          input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
+        })
+      },
     }))
     if (!result.urls.length) {
       throw new Error(`${imageProvider.meta.name} returned no image for scene ${scene.scene_index} (${scene.id}).`)

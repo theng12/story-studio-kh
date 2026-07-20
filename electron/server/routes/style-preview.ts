@@ -29,6 +29,7 @@ import {
 } from '../services/style-preview-cache.js'
 import type { ImageModelConfig } from '../models/types.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
+import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 
 export const router = Router()
 
@@ -52,6 +53,8 @@ const StylePreviewSchema = z.object({
   /** Tier id for variable-priced models (nano-banana high/low etc.). */
   tier: z.string().optional(),
   variant_id: z.enum(['landscape', 'character', 'interior', 'action', 'closeup']).optional(),
+  image_steps: z.number().int().min(1).max(100).optional(),
+  seed: z.number().int().min(0).max(2147483647).optional(),
   /** Explicit reroll: bypass the free cache hit and ask the provider for new pixels. */
   force: z.boolean().optional(),
 })
@@ -68,11 +71,15 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const tier = (req.body.tier as string | undefined) || ''
   const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'landscape')
   const force = req.body.force === true
+  const imageSteps = req.body.image_steps as number | undefined
+  const seed = req.body.seed as number | undefined
 
   // Cache lookup short-circuits the provider entirely on hit.
   const cached = force
     ? null
-    : await getCachedStylePreview({ styleTag, modelId: modelName, aspectRatio, tier, variantId })
+    : await getCachedStylePreview({
+      styleTag, modelId: modelName, aspectRatio, tier, variantId, imageSteps, seed,
+    })
   if (cached) {
     return res.json({
       hash: cached.hash,
@@ -90,7 +97,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
-  const modelConfig: ImageModelConfig | undefined = (config.image_models || {})[modelName]
+  const modelConfig = resolveImageModelConfig(config, modelName)
   if (!modelConfig) {
     return res.status(400).json({ detail: `Unknown image model: ${modelName}` })
   }
@@ -118,7 +125,13 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   let urls: string[]
   try {
     const result = await imageProvider.generateImage({
-      prompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+      prompt,
+      apiKey,
+      aspectRatio,
+      modelId: modelName,
+      providerParams,
+      steps: imageSteps,
+      seed,
     })
     urls = result.urls || []
   } catch (e: any) {
@@ -128,16 +141,28 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
 
   let imageBytes: Buffer
   try {
-    const dl = await fetch(urls[0]!, { signal: AbortSignal.timeout(120000) })
-    if (!dl.ok) throw new Error(`Download failed: ${dl.status}`)
-    imageBytes = Buffer.from(await dl.arrayBuffer())
+    const source = urls[0]!
+    if (source.startsWith('data:')) {
+      imageBytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64')
+    } else {
+      const dl = await fetch(source, { signal: AbortSignal.timeout(120000) })
+      if (!dl.ok) throw new Error(`Download failed: ${dl.status}`)
+      imageBytes = Buffer.from(await dl.arrayBuffer())
+    }
     if (imageBytes.length === 0) throw new Error('Downloaded zero bytes')
   } catch (e: any) {
     return res.status(502).json({ detail: `Failed to download generated preview: ${e?.message || e}` })
   }
 
   const saved = await saveStylePreview({
-    styleTag, modelId: modelName, aspectRatio, tier, variantId, imageBytes,
+    styleTag,
+    modelId: modelName,
+    aspectRatio,
+    tier,
+    variantId,
+    imageSteps,
+    seed,
+    imageBytes,
   })
   res.json({
     hash: saved.hash,

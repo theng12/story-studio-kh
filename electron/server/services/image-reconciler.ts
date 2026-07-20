@@ -39,6 +39,8 @@ import { readManifest, type TaskManifestEntry } from './task-manifest.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 import * as pm from '../services/project-manager.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
+import { recoverImageWithGenStudio } from '../lib/genstudio-client.js'
+import { getApiKey } from './app-secrets-store.js'
 
 export interface ImageReconcileOutcome {
   filename: string
@@ -112,7 +114,7 @@ function buildExpected(
 async function recoverOne(
   expected: ExpectedImage,
   entry: TaskManifestEntry | null,
-  apiKey: string,
+  apiKeys: { kie: string; genstudio: string },
   modelConfig: ImageModelConfig,
 ): Promise<ImageReconcileOutcome> {
   if (!entry) {
@@ -123,10 +125,36 @@ async function recoverOne(
     }
   }
 
-  // Currently only kie.ai is wired for image generation. When other
-  // providers come online, add their branches here. Falling through with
-  // an explicit error is better than silently calling kie's endpoint
-  // with another provider's task id (which would return junk).
+  if (entry.provider === 'genstudio-image' || entry.provider === 'genstudio') {
+    if (!apiKeys.genstudio) {
+      return {
+        filename: expected.filename,
+        status: 'error',
+        reason: 'The saved GenStudio API key is unavailable.',
+        task_id: entry.task_id,
+        provider: entry.provider,
+      }
+    }
+    try {
+      const recovered = await recoverImageWithGenStudio(apiKeys.genstudio, entry.task_id)
+      await downloadImage(recovered.url, expected.fullPath)
+      return {
+        filename: expected.filename,
+        status: 'recovered',
+        task_id: entry.task_id,
+        provider: entry.provider,
+      }
+    } catch (error: any) {
+      return {
+        filename: expected.filename,
+        status: 'error',
+        reason: error?.message || 'GenStudio image recovery failed.',
+        task_id: entry.task_id,
+        provider: entry.provider,
+      }
+    }
+  }
+
   if (entry.provider !== 'kie' && entry.provider !== 'kie-image') {
     return {
       filename: expected.filename,
@@ -137,7 +165,16 @@ async function recoverOne(
     }
   }
 
-  const lookup = await fetchImageUrlsByTaskId(entry.task_id, apiKey, modelConfig)
+  if (!apiKeys.kie) {
+    return {
+      filename: expected.filename,
+      status: 'error',
+      reason: 'The saved kie.ai API key is unavailable.',
+      task_id: entry.task_id,
+      provider: entry.provider,
+    }
+  }
+  const lookup = await fetchImageUrlsByTaskId(entry.task_id, apiKeys.kie, modelConfig)
   switch (lookup.status) {
     case 'success': {
       const urls = lookup.urls
@@ -286,8 +323,10 @@ export async function reconcileImages(
   // user repaired with the same provider they used to generate; if a
   // future provider switch happens mid-episode, we'll need to dispatch
   // by `entry.provider` rather than picking one model up-front.
-  const apiKey: string = (config as any).kie_api_key || ''
-  if (!apiKey) throw new Error('No kie.ai API key configured — repair needs the same provider that generated the images.')
+  const apiKeys = {
+    kie: await getApiKey('kie'),
+    genstudio: await getApiKey('genstudio'),
+  }
   const imageModels: Record<string, ImageModelConfig> = (config as any).image_models || {}
   // Pick any kie model config; the poll path is the only field we need
   // and it's the same across most kie image models. If repair fails for
@@ -320,7 +359,7 @@ export async function reconcileImages(
         continue
       }
       const entry = manifest.tasks[e.filename] || null
-      const outcome = await recoverOne(e, entry, apiKey, modelConfig)
+      const outcome = await recoverOne(e, entry, apiKeys, modelConfig)
       out.push(outcome)
       if (outcome.status === 'recovered') {
         result.recovered++
