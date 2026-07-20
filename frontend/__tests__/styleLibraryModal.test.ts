@@ -10,6 +10,9 @@ function source(path: string): string {
 const modal = source('../components/BuiltInStyleLibraryModal.vue')
 const picker = source('../components/StylePicker.vue')
 const projectLibrary = source('../components/ProjectStyleLibrary.vue')
+const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
+const imagePrompts = source('../pages/projects/[slug]/image-prompts.vue')
+const settings = source('../pages/projects/[slug]/settings.vue')
 
 describe('scalable built-in style library', () => {
   test('uses one searchable modal with categories, favorites, recents, and lazy previews', () => {
@@ -33,5 +36,11 @@ describe('scalable built-in style library', () => {
     assert.match(projectLibrary, /Browse Style Library/)
     assert.doesNotMatch(projectLibrary, /v-for="style in BUILT_IN_STYLES"/)
   })
-})
 
+  test('keeps every project style surface on the shared built-in catalog', () => {
+    assert.match(characterSheet, /<StylePicker/)
+    assert.match(imagePrompts, /import \{ BUILT_IN_STYLES \}/)
+    assert.match(imagePrompts, /<StylePicker/)
+    assert.match(settings, /import \{ BUILT_IN_STYLES \}/)
+  })
+})

@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.659 — 2026-07-20
+
+**Hand-Drawn Cartoon Explainer joins the shared visual-style library.**
+
+- Adds a casual educational-cartoon look with rounded mascots, slightly uneven ink outlines, muted flat colors, familiar props, and lightly staged interiors.
+- Ships an original generated 16:9 gallery preview based on the supplied visual references without depending on generated captions.
+- Makes the style available through the shared Character Sheet, Image Prompts, project Settings, and style-library flows with regression coverage for its prompt contract and preview asset.
+- Records a reusable visual-style addition workflow for future reference-driven presets.
+
+---
+
 ## v1.0.658 — 2026-07-20
 
 **YouTube upload jobs now show measurable live progress.**
