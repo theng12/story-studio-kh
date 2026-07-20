@@ -3,7 +3,7 @@ import { useApi } from './useApi.js'
 import type { Job, JobStats } from './useJobs.js'
 import type { JobListResponse } from '@shared/contracts'
 
-const EMPTY_STATS: JobStats = { running: 0, queued: 0, done: 0, error: 0, total: 0 }
+const EMPTY_STATS: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
 const jobs = ref<Job[]>([])
 const stats = ref<JobStats>({ ...EMPTY_STATS })
 
@@ -16,6 +16,7 @@ function recomputeStats() {
   for (const job of jobs.value) {
     if (job.status === 'running') next.running++
     else if (job.status === 'queued') next.queued++
+    else if (job.status === 'paused') next.paused++
     else if (job.status === 'done') next.done++
     else if (job.status === 'error') next.error++
     next.total++

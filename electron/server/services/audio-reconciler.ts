@@ -27,6 +27,7 @@ import { fetchKieAudioUrlByTaskId } from '../lib/kie-tts-client.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
 import { readManifest } from './task-manifest.js'
+import { recoverTtsToFile as recoverGenStudioTtsToFile } from '../lib/genstudio-client.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 
 export interface ExpectedChunk {
@@ -273,7 +274,18 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     // Resolve the completed result URL from the recording provider.
     let url: string | null = null
     try {
-      if (entry.provider === 'genaipro') {
+      if (entry.provider === 'genstudio') {
+        const key = await providerKey('genstudio')
+        if (!key) { fail(filename, entry.task_id, 'No GenStudio KH API key — add one in Settings → API Keys'); continue }
+        await recoverGenStudioTtsToFile(key, chunk.fullPath, entry.task_id, {
+          text: chunk.text,
+          speed: 1,
+        })
+        recovered++
+        outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
+        logs.push(`✓ ${filename}: reclaimed from GenStudio (task ${entry.task_id.slice(0, 12)}…)`)
+        continue
+      } else if (entry.provider === 'genaipro') {
         const key = await providerKey('genaipro')
         if (!key) { fail(filename, entry.task_id, 'No GenAIPro API key — add one in Settings → API Keys'); continue }
         const task = await getTaskById(key, entry.task_id)
@@ -324,7 +336,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
   // (kie/fal keep no text-searchable history; streaming providers have no task
   // at all) → report a clear regenerate note instead of misleadingly probing
   // GenAIPro's history.
-  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'genstudio', 'macos'])
+  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'macos'])
   const regenReason = (): string => {
     if (STREAMING.has(status.provider)) {
       return `Made with a streaming provider (${status.provider}) — no re-fetchable task exists. Regenerate (Skip existing remakes only the missing ones).`

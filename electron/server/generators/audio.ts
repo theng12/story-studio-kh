@@ -20,6 +20,7 @@ import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
 import {
   generateTtsToFile as generateTtsGenStudio,
+  recoverTtsToFile as recoverTtsGenStudio,
   splitGenStudioApiRequests,
 } from '../lib/genstudio-client.js'
 import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
@@ -903,19 +904,38 @@ export async function generateAudio(job: Job): Promise<void> {
         // Parallel migration route: this client knows only GenStudio's
         // API-key contract. It does not inspect, contact, or fall back to the
         // local Studio Hub/direct Voice Studio route.
-        await generateTtsGenStudio(apiKey, task.outputPath, {
+        const chunkFilename = path.basename(task.outputPath)
+        const manifestEntry = audioManifest.tasks[chunkFilename]
+        const request = {
           text: task.chunkText,
           voiceId: effectiveVoice,
           speed: req.speed ?? 1,
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
-          onJobAccepted: (providerJobId) => {
+          onJobAccepted: async (providerJobId: string, idempotencyKey: string) => {
+            await recordTask(audioDir, chunkFilename, {
+              provider: 'genstudio',
+              task_id: providerJobId,
+              submitted_at: new Date().toISOString(),
+              input_hash: hashInput(task.chunkText),
+              idempotency_key: idempotencyKey,
+              operation: 'tts',
+              last_state: 'accepted',
+            })
             job.output_lines.push(
               `  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`,
             )
           },
-        })
+        }
+        if (manifestEntry?.provider === 'genstudio'
+          && manifestEntry.task_id
+          && manifestEntry.input_hash === hashInput(task.chunkText)) {
+          job.output_lines.push(`  Reclaiming accepted GenStudio task ${manifestEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+          await recoverTtsGenStudio(apiKey, task.outputPath, manifestEntry.task_id, request)
+        } else {
+          await generateTtsGenStudio(apiKey, task.outputPath, request)
+        }
       } else if (providerId === 'voicestudio') {
         // v1.0.149+ — Voice Studio KH writes the WAV straight to the
         // output path via its async job pipeline (POST → poll → download).
@@ -1113,6 +1133,7 @@ export async function generateAudio(job: Job): Promise<void> {
     }
     while (cursor < tasks.length) {
       if (isCancelled()) return
+      if (jq.isPauseRequested(job.job_id)) return
       const i = cursor++
       // Server-died short-circuit. processTask sets the flag below
       // when it catches a network-layer failure that came AFTER a
@@ -1170,6 +1191,7 @@ export async function generateAudio(job: Job): Promise<void> {
   } finally {
     clearInterval(cancelWatcher)
   }
+  jq.throwIfPauseRequested(job.job_id)
 
   // v1.0.294 — emit per-endpoint latency summary into the Jobs panel.
   // Empty for cloud providers (latencyStats is null) and for single-call

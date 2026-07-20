@@ -16,6 +16,7 @@ const label = computed(() => {
   const labels: Record<string, string> = {
     running: 'Running',
     queued: 'Queued',
+    paused: 'Paused',
     done: 'Done',
     error: 'Error',
     cancelled: 'Cancelled',

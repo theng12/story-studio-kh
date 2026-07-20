@@ -29,7 +29,7 @@ interface GenStudioOperationContext {
   isCancelled?: () => boolean
 }
 
-interface GenStudioJob {
+export interface GenStudioJob {
   id: string
   state: 'accepted' | 'reserved' | 'dispatched' | 'running' | 'validating' | 'succeeded' | 'failed' | 'reconciling'
   failure_code?: string | null
@@ -41,7 +41,7 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   voiceId?: string
   speed: number
   onProgress?: (received: number, total?: number) => void
-  onJobAccepted?: (jobId: string) => void
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
 }
 
 export interface GenStudioTranscriptionModel {
@@ -69,6 +69,7 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
   language?: string
   wordTimestamps?: boolean
   onState?: (state: GenStudioTranscriptionJob['state']) => void
+  onJobAccepted?: (jobId: string, idempotencyKey: string, fileSha256: string) => void | Promise<void>
 }
 
 export interface GenStudioSubmission {
@@ -296,7 +297,7 @@ async function waitForTranscriptionJob(
   baseUrl: string,
   apiKey: string,
   submitted: GenStudioTranscriptionJob,
-  request: GenStudioTranscriptionRequest,
+  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void },
   deadline: number,
 ): Promise<GenStudioTranscriptionJob> {
   let current = submitted
@@ -322,6 +323,64 @@ async function waitForTranscriptionJob(
     )
   }
   return current
+}
+
+async function downloadTranscriptionArtifact(
+  baseUrl: string,
+  apiKey: string,
+  completed: GenStudioTranscriptionJob,
+  request: GenStudioOperationContext,
+  deadline: number,
+): Promise<string> {
+  if (!completed.srt_url) {
+    throw new Error('GenStudio KH transcription completed without an SRT download URL')
+  }
+  let lastError: unknown
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(requestUrl(baseUrl, completed.srt_url), {
+        headers: authorization(apiKey),
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
+        if (!retryableStatus(response.status)) throw error
+        lastError = error
+      } else {
+        const srt = await response.text()
+        if (!srt.trim()) throw new Error('GenStudio KH returned an empty SRT artifact')
+        return srt
+      }
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      lastError = error
+      if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
+        && !error.message.includes('fetch failed')) throw error
+    }
+    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('GenStudio KH SRT download failed after reconnect attempts')
+}
+
+/** Reconnect to an already accepted transcription. Never submits new work. */
+export async function recoverTranscriptionWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void },
+): Promise<{ srt: string; jobId: string; modelId: string }> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const initial = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/transcriptions/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioTranscriptionJob
+  const completed = await waitForTranscriptionJob(baseUrl, apiKey, initial, request, deadline)
+  const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
+  return { srt, jobId: completed.id, modelId: completed.model_id }
 }
 
 /** Submit private audio to GenStudio, poll its durable job, and return verified SRT text. */
@@ -370,38 +429,10 @@ export async function transcribeWithGenStudio(
     request,
     deadline,
   ) as GenStudioTranscriptionJob
+  await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
   const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
-  if (!completed.srt_url) {
-    throw new Error('GenStudio KH transcription completed without an SRT download URL')
-  }
-
-  let lastError: unknown
-  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
-    try {
-      const response = await fetch(requestUrl(baseUrl, completed.srt_url), {
-        headers: authorization(apiKey),
-        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
-      })
-      if (!response.ok) {
-        const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
-        if (!retryableStatus(response.status)) throw error
-        lastError = error
-      } else {
-        const srt = await response.text()
-        if (!srt.trim()) throw new Error('GenStudio KH returned an empty SRT artifact')
-        return { srt, jobId: completed.id, modelId: completed.model_id }
-      }
-    } catch (error) {
-      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-      lastError = error
-      if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
-        && !error.message.includes('fetch failed')) throw error
-    }
-    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('GenStudio KH SRT download failed after reconnect attempts')
+  const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
+  return { srt, jobId: completed.id, modelId: completed.model_id }
 }
 
 async function waitForJob(
@@ -429,30 +460,14 @@ async function waitForJob(
   return current
 }
 
-/** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
-export async function generateTtsToFile(
+async function completeTtsJobToFile(
+  baseUrl: string,
   apiKey: string,
   outPath: string,
+  submitted: GenStudioJob,
   request: GenStudioTtsRequest,
+  deadline: number,
 ): Promise<void> {
-  const baseUrl = await getGenStudioUrl()
-  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const submission = buildGenStudioSubmission(request)
-  const submitted = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}/v1/audio/jobs`,
-    {
-      method: 'POST',
-      headers: {
-        ...authorization(apiKey),
-        'Content-Type': 'application/json',
-        'Idempotency-Key': submission.idempotencyKey,
-      },
-      body: JSON.stringify(submission.body),
-    },
-    request,
-    deadline,
-  ) as GenStudioJob
-  request.onJobAccepted?.(submitted.id)
   const completed = await waitForJob(baseUrl, apiKey, submitted, request, deadline)
   if (!completed.audio_url) throw new Error('GenStudio KH job completed without an audio download URL')
 
@@ -502,10 +517,53 @@ export async function generateTtsToFile(
     }
     if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    // Conversion only. VoiceStudio already joined internal chunks and applied
-    // final speed before this completed WAV crossed the GenStudio boundary.
     await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '192k', outPath])
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
   }
+}
+
+/** Reconnect to an already accepted TTS task. Never submits new work. */
+export async function recoverTtsToFile(
+  apiKey: string,
+  outPath: string,
+  jobId: string,
+  request: GenStudioTtsRequest,
+): Promise<void> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const current = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/jobs/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioJob
+  await completeTtsJobToFile(baseUrl, apiKey, outPath, current, request, deadline)
+}
+
+/** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
+export async function generateTtsToFile(
+  apiKey: string,
+  outPath: string,
+  request: GenStudioTtsRequest,
+): Promise<void> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const submission = buildGenStudioSubmission(request)
+  const submitted = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/audio/jobs`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        'Idempotency-Key': submission.idempotencyKey,
+      },
+      body: JSON.stringify(submission.body),
+    },
+    request,
+    deadline,
+  ) as GenStudioJob
+  await request.onJobAccepted?.(submitted.id, submission.idempotencyKey)
+  await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
 }

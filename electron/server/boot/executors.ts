@@ -7,7 +7,7 @@
  * grep across app.ts.
  */
 
-import { registerExecutor, resumeInterruptedHubImageJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
+import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubImageJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
 import { getScriptConcurrency } from '../services/app-settings.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
@@ -160,13 +160,13 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // queue. Fire-and-forget: the queue defaults to 3 until this resolves
   // (a few ms), and the PUT route applies live changes without a restart.
   if (options.loadSettings !== false) {
+    void initializeQueuePauseState()
+      .then(() => resumeInterruptedHubImageJobsAtBoot())
+      .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
     void getScriptConcurrency()
       .then(setLlmConcurrency)
       .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
-    // Do not wait for a UI visit after a crash: accepted image batches resume
-    // as soon as all executors are registered. The scan is read-mostly and
-    // only queues jobs with a durable prepared/accepted Hub checkpoint.
-    void resumeInterruptedHubImageJobsAtBoot()
-      .catch(e => console.warn('[boot] failed to resume Studio Hub image jobs:', e?.message))
+    // The durable recovery scan is chained after queue-hold restoration above,
+    // so a user-paused queue cannot race and start work during app boot.
   }
 }

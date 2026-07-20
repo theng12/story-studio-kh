@@ -16,6 +16,7 @@ import {
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
   operationSignal,
+  recoverTranscriptionWithGenStudio,
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
@@ -210,6 +211,35 @@ test('GenStudio transcription uploads the selected model and verifies private SR
   } finally {
     globalThis.fetch = originalFetch
     await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('accepted transcription IDs can be reclaimed without a second submit', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') posts++
+      if (url.endsWith('/v1/transcriptions/stt_existing')) {
+        return Response.json({
+          id: 'stt_existing',
+          state: 'succeeded',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          srt_url: '/v1/transcriptions/stt_existing/srt',
+        })
+      }
+      if (url.endsWith('/v1/transcriptions/stt_existing/srt')) {
+        return new Response('1\n00:00:00,000 --> 00:00:01,000\nRecovered.\n')
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await recoverTranscriptionWithGenStudio('scoped-key', 'stt_existing', {})
+    assert.equal(posts, 0)
+    assert.equal(result.jobId, 'stt_existing')
+    assert.match(result.srt, /Recovered\./)
+  } finally {
+    globalThis.fetch = originalFetch
   }
 })
 

@@ -71,7 +71,7 @@ function jobLabel(job: Job): string {
   return JOB_TYPE_LABELS[job.type] || job.type
 }
 
-const EMPTY_STATS: JobStats = { running: 0, queued: 0, done: 0, error: 0, total: 0 }
+const EMPTY_STATS: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
 
 const jobs = ref<Job[]>([])
 const stats = ref<JobStats>({ ...EMPTY_STATS })
@@ -110,6 +110,7 @@ function recomputeStats(): JobStats {
   for (const j of jobs.value) {
     if (j.status === 'running') s.running++
     else if (j.status === 'queued') s.queued++
+    else if (j.status === 'paused') s.paused++
     else if (j.status === 'done') s.done++
     else if (j.status === 'error') s.error++
     s.total++

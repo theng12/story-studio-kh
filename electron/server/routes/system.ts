@@ -19,7 +19,7 @@ import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { setQueuePaused, isQueuePaused } from '../services/job-queue.js'
+import { initializeQueuePauseState, setQueuePaused, isQueuePaused } from '../services/job-queue.js'
 import {
   listNamedRoots,
   setNamedRoot,
@@ -405,17 +405,18 @@ router.post('/system/reveal-folder', async (req, res) => {
 
 // ── Queue pause (network-aware) ────────────────────────────────────────────
 
-router.get('/system/queue/status', (_req, res) => {
+router.get('/system/queue/status', async (_req, res) => {
+  await initializeQueuePauseState()
   res.json({ paused: isQueuePaused() })
 })
 
-router.post('/system/queue/pause', (_req, res) => {
-  setQueuePaused(true)
+router.post('/system/queue/pause', async (_req, res) => {
+  await setQueuePaused(true)
   res.json({ paused: true })
 })
 
-router.post('/system/queue/resume', (_req, res) => {
-  setQueuePaused(false)
+router.post('/system/queue/resume', async (_req, res) => {
+  await setQueuePaused(false)
   res.json({ paused: false })
 })
 

@@ -9,6 +9,7 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import { createHash } from 'crypto'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -18,10 +19,13 @@ import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { scanEpisodeAssets } from './video.js'
 import {
   listTranscriptionModels,
+  recoverTranscriptionWithGenStudio,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
+import { readManifest, recordTask } from '../services/task-manifest.js'
+import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
 import type { Job } from '../models/types.js'
 
 export interface TranscribeSubtitlesRequest {
@@ -48,6 +52,11 @@ export interface TranscribeSubtitlesRequest {
    * queued pre-migration job can heal onto the published GenStudio model.
    */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
+}
+
+async function hashTranscriptionAudio(audioPath: string): Promise<string> {
+  const audio = await fs.readFile(audioPath)
+  return `sha256:${createHash('sha256').update(audio).digest('hex')}`
 }
 
 async function resolveGenStudioTranscription(
@@ -141,6 +150,8 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   // `const` so TS keeps the string narrowing inside the async closures below.
   const sourceAudio: string = audioPath
   job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
+  const manifest = await readManifest(outDir)
+  const manifestKey = path.basename(outPath)
 
   // Cancellation aborts upload, durable polling, or private SRT download.
   const controller = new AbortController()
@@ -149,7 +160,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
-    const result = await transcribeWithGenStudio(genstudio.apiKey, {
+    const transcriptionRequest: GenStudioTranscriptionRequest = {
       audioPath: sourceAudio,
       modelId: genstudio.modelId,
       storyJobId: `${job.job_id}:merged`,
@@ -168,7 +179,26 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
         }
         job.progress = Math.max(job.progress ?? 0, progressByState[state] || 10)
       },
-    })
+      onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
+        await recordTask(outDir, manifestKey, {
+          provider: 'genstudio',
+          task_id: providerJobId,
+          submitted_at: new Date().toISOString(),
+          input_hash: `sha256:${fileSha256}`,
+          idempotency_key: idempotencyKey,
+          operation: 'transcription',
+          last_state: 'accepted',
+        })
+        job.output_lines.push(`GenStudio task: merged -> ${providerJobId}`)
+      },
+    }
+    const savedTask = manifest.tasks[manifestKey]
+    const currentInputHash = await hashTranscriptionAudio(sourceAudio)
+    const result = savedTask?.provider === 'genstudio'
+      && savedTask.task_id
+      && savedTask.input_hash === currentInputHash
+      ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, savedTask.task_id, transcriptionRequest)
+      : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
@@ -248,6 +278,7 @@ async function transcribePerChapter(
 
   const outDir = await resolveSubtitlesDir(projectSlug, code)
   await fs.mkdir(outDir, { recursive: true })
+  const transcriptionManifest = await readManifest(outDir)
 
   const { runFfmpeg, formatConcatFileLine } = await import('../lib/ffmpeg-utils.js')
   const os = await import('os')
@@ -323,14 +354,34 @@ async function transcribePerChapter(
 
     job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
     try {
-      const result = await transcribeWithGenStudio(genstudio.apiKey, {
+      const manifestKey = path.basename(outPath)
+      const transcriptionRequest: GenStudioTranscriptionRequest = {
         audioPath,
         modelId: genstudio.modelId,
         storyJobId: `${job.job_id}:${sec.slug}`,
         language: req.language || 'en',
         signal: controller.signal,
         isCancelled: () => jq.isCancelled(job.job_id),
-      })
+        onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
+          await recordTask(outDir, manifestKey, {
+            provider: 'genstudio',
+            task_id: providerJobId,
+            submitted_at: new Date().toISOString(),
+            input_hash: `sha256:${fileSha256}`,
+            idempotency_key: idempotencyKey,
+            operation: 'transcription',
+            last_state: 'accepted',
+          })
+          job.output_lines.push(`  GenStudio task: ${sec.slug} -> ${providerJobId}`)
+        },
+      }
+      const savedTask = transcriptionManifest.tasks[manifestKey]
+      const currentInputHash = await hashTranscriptionAudio(audioPath)
+      const result = savedTask?.provider === 'genstudio'
+        && savedTask.task_id
+        && savedTask.input_hash === currentInputHash
+        ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, savedTask.task_id, transcriptionRequest)
+        : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
       const { srt, cues, warnings } = normalizeSrtOrVtt(result.srt)
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
       if (cues === 0) {
@@ -357,6 +408,7 @@ async function transcribePerChapter(
     const worker = async (): Promise<void> => {
       while (true) {
         if (jq.isCancelled(job.job_id)) return
+        if (jq.isPauseRequested(job.job_id)) return
         const i = nextIdx++
         if (i >= sections.length) return
         const sec = sections[i]!
@@ -376,6 +428,7 @@ async function transcribePerChapter(
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, sections.length) }, () => worker()))
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+    jq.throwIfPauseRequested(job.job_id)
   } finally {
     clearInterval(cancelWatcher)
   }

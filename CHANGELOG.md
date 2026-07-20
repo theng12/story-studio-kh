@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.654 — 2026-07-20
+
+**Story jobs can now pause safely without abandoning accepted GenStudio work.**
+
+- Adds persistent Pause and Resume controls for individual jobs and the full Story queue; queued work stays local and is never submitted while held.
+- Lets running GenStudio narration and transcription finish only their already accepted items, checkpoint task IDs and artifacts, then pause before claiming more work.
+- Resumes the same Story job ID, reclaims accepted GenStudio results without a second provider submission, and generates only outputs still verified missing.
+- Keeps manual pauses separate from global queue holds so Resume Queue cannot unexpectedly restart work paused by hand.
+- Persists the global queue hold across app restarts and restores durable queued work without losing its original job record.
+
+---
+
 ## v1.0.653 — 2026-07-20
 
 **Scene Review now stays pending until every scene is explicitly approved.**

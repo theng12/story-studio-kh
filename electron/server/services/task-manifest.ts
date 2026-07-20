@@ -47,6 +47,11 @@ export interface TaskManifestEntry {
   //              useful as a debugging breadcrumb for any provider.
   poll_path?: string
   result_url?: string
+  /** Stable Story-to-provider identity used to replay an ambiguous submit
+   * without creating a second provider task. */
+  idempotency_key?: string
+  operation?: 'tts' | 'transcription' | 'image' | 'video'
+  last_state?: string
 }
 
 export interface Manifest {

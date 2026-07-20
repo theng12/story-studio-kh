@@ -16,10 +16,18 @@
           <div class="workspace-metrics" aria-label="Job queue summary">
             <span class="workspace-metric" data-tone="info"><strong>{{ stats.running }}</strong> running</span>
             <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> queued</span>
+            <span v-if="stats.paused" class="workspace-metric" data-tone="warning"><strong>{{ stats.paused }}</strong> paused</span>
             <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> errors</span>
           </div>
           <div class="jobs-hero-actions">
+            <button
+              v-if="!queuePaused"
+              class="btn btn-sm btn-secondary"
+              :disabled="changingQueueState"
+              @click="pauseQueue"
+              title="Hold every queued Story job before submission. Running GenStudio jobs stop claiming new items after accepted work is saved."
+            >Pause queue</button>
             <NuxtLink
               v-if="!isUniversal"
               :to="`/projects/${slug}/board?repair=1`"
@@ -40,11 +48,10 @@
       </template>
     </WorkspaceHero>
 
-    <!-- v1.0.190 — paused-queue banner. The queue only pauses when the local
-         job engine is unreachable; without this, a parked "Queued" job looks
-         broken with no explanation. Offers a one-click Resume + re-probe. -->
+    <!-- Durable Story-side queue hold. Queued work has not been submitted;
+         accepted GenStudio items checkpoint before their job pauses. -->
     <WorkspaceNotice v-if="queuePaused" tone="warning" title="Job queue is paused">
-      The app engine is not reachable and {{ stats.queued }} job{{ stats.queued === 1 ? '' : 's' }} are waiting.
+      New Story jobs are held before submission. Running GenStudio jobs finish saving already accepted items, then pause safely.
       <template #actions>
         <button class="btn btn-sm btn-primary" :disabled="resumingQueue" @click="resumeQueue">
           {{ resumingQueue ? 'Resuming…' : 'Resume now' }}
@@ -287,9 +294,28 @@
           <div class="job-actions">
             <button
               v-if="job.status === 'queued' || job.status === 'running'"
+              class="btn btn-xs btn-secondary"
+              :disabled="job.pause_requested"
+              @click="pauseJob(job)"
+              :title="job.status === 'queued' ? 'Pause before any provider submission.' : 'Stop claiming new items; already accepted GenStudio work will finish and save first.'"
+            >
+              {{ job.pause_requested ? 'Pausing…' : 'Pause' }}
+            </button>
+            <button
+              v-if="job.status === 'paused'"
+              class="btn btn-xs btn-primary"
+              @click="resumeJob(job)"
+              title="Verify saved output and accepted task IDs, then continue only missing work."
+            >Resume</button>
+            <button
+              v-if="job.status === 'queued' || job.status === 'running' || job.status === 'paused'"
               class="btn btn-xs btn-danger"
               @click="cancelJob(job)"
-              :title="job.status === 'running' ? 'Stops local polling. In-flight provider tasks may still complete and bill — use the Repair button afterward to recover them for free.' : 'Removes from queue before any submit happens. No charge.'"
+              :title="job.status === 'running'
+                ? 'Stops local polling. In-flight provider tasks may still complete and bill — use Repair afterward to recover them.'
+                : job.status === 'paused'
+                  ? 'Cancel this paused Story job. Already accepted provider work is not deleted and can still be recovered.'
+                  : 'Removes from queue before any submit happens. No charge.'"
             >
               {{ job.status === 'running' ? 'Stop' : 'Cancel' }}
             </button>
@@ -648,12 +674,12 @@ const repairOutcome = ref<Record<string, { text: string; kind: string }>>({})
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
-// v1.0.190 — surface a paused job queue so a stuck "Queued" job is never a
-// mystery again. The queue pauses only when the local job engine is
-// unreachable; the banner this drives offers a manual Resume + a re-probe.
+// Surface the durable Story-side queue hold and keep its status synchronized
+// across project and universal Jobs views.
 const net = useNetworkStatus()
 const queuePaused = ref(false)
 const resumingQueue = ref(false)
+const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
 
 async function checkQueuePaused(): Promise<void> {
@@ -674,6 +700,19 @@ async function resumeQueue(): Promise<void> {
     showError(e?.data?.detail || 'Failed to resume the queue')
   } finally {
     resumingQueue.value = false
+  }
+}
+
+async function pauseQueue(): Promise<void> {
+  changingQueueState.value = true
+  try {
+    await post('/system/queue/pause', {})
+    await checkQueuePaused()
+    success('Queue paused. Waiting jobs will not be submitted.')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to pause the queue')
+  } finally {
+    changingQueueState.value = false
   }
 }
 
@@ -990,7 +1029,7 @@ const sortedJobs = computed(() => {
       return (getJobDurationMs(a) - getJobDurationMs(b)) * dir
     }
     if (sortKey.value === 'status') {
-      const order: Record<string, number> = { running: 0, queued: 1, error: 2, done: 3, cancelled: 4 }
+      const order: Record<string, number> = { running: 0, paused: 1, queued: 2, error: 3, done: 4, cancelled: 5 }
       return ((order[a.status] ?? 5) - (order[b.status] ?? 5)) * dir
     }
     const aVal = (a as any)[sortKey.value] || ''
@@ -1005,18 +1044,18 @@ const PAGE_SIZE = 10
 const currentPage = ref(1)
 
 const activeJobs = computed(() => {
-  const list = sortedJobs.value.filter(j => j.status === 'running' || j.status === 'queued')
+  const list = sortedJobs.value.filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused')
   // Pin running ahead of queued regardless of the user's sort-column pick.
   // The chosen sort still governs order WITHIN each group (stable sort
   // preserves sortedJobs's relative order for ties). This keeps the Active
   // section reading top-to-bottom as "what's executing now" → "what's next".
   return list.slice().sort((a, b) => {
-    const rank = (s: string) => s === 'running' ? 0 : 1
+    const rank = (s: string) => s === 'running' ? 0 : s === 'paused' ? 1 : 2
     return rank(a.status) - rank(b.status)
   })
 })
 const historyJobs = computed(() =>
-  sortedJobs.value.filter(j => j.status !== 'running' && j.status !== 'queued')
+  sortedJobs.value.filter(j => j.status !== 'running' && j.status !== 'queued' && j.status !== 'paused')
 )
 const historyTotalPages = computed(() =>
   Math.max(1, Math.ceil(historyJobs.value.length / PAGE_SIZE))
@@ -1239,6 +1278,26 @@ async function cancelJob(job: RJob) {
       success(job.status === 'queued' ? 'Job cancelled (no charge)' : 'Job stopped')
     }
   } catch (e: any) { showError(e.data?.detail || 'Failed to cancel job') }
+}
+
+async function pauseJob(job: RJob) {
+  try {
+    await post(`${jobQueuePath(job)}/pause`, {})
+    success(job.status === 'queued'
+      ? 'Job paused before submission.'
+      : 'Pause requested. Accepted work will finish saving; no new item will be submitted.')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to pause job')
+  }
+}
+
+async function resumeJob(job: RJob) {
+  try {
+    await post(`${jobQueuePath(job)}/resume`, {})
+    success('Job resumed. Saved and accepted work will be reclaimed first.')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to resume job')
+  }
 }
 
 function jobProjectSlug(job: Pick<RJob, 'project_slug'>): string {
@@ -1942,6 +2001,7 @@ async function clearFinished() {
 .job-card.status-error { border-left: 3px solid var(--error); }
 .job-card.status-done { border-left: 3px solid #22c55e; }
 .job-card.status-queued { border-left: 3px solid var(--text-muted); }
+.job-card.status-paused { border-left: 3px solid #f5c35b; }
 .job-card.status-cancelled { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 
 .job-row-main {

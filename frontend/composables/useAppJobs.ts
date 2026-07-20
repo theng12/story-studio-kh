@@ -17,7 +17,9 @@ interface Job {
   project_slug: string
   episode_id?: string
   title?: string
-  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  status: 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
+  pause_requested?: boolean
+  pause_origin?: 'manual' | 'queue'
   params?: any
   output_lines?: string[]
   output_dir?: string

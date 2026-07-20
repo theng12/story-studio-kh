@@ -402,7 +402,9 @@ export interface JobEnqueuedResponse {
   type: string
   episode_id: string
   title: string
-  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  status: 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
+  pause_requested?: boolean
+  pause_origin?: 'manual' | 'queue'
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -457,6 +459,7 @@ export interface JobListResponse {
   stats: {
     running: number
     queued: number
+    paused: number
     done: number
     error: number
     total: number

@@ -17,6 +17,7 @@ function summarizeJobs(jobsList: Job[]) {
   return {
     running: jobsList.filter(job => job.status === 'running').length,
     queued: jobsList.filter(job => job.status === 'queued').length,
+    paused: jobsList.filter(job => job.status === 'paused').length,
     done: jobsList.filter(job => job.status === 'done').length,
     error: jobsList.filter(job => job.status === 'error').length,
     total: jobsList.length,
@@ -151,6 +152,18 @@ router.post('/jobs/all/:jobId/retry', (req, res) => {
   const existing = jq.getJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId)
+  res.status(202).json({ ok: true, job })
+})
+
+router.post('/jobs/all/:jobId/pause', async (req, res) => {
+  const job = await jq.pauseJob(req.params.jobId)
+  if (!job) return res.status(409).json({ detail: 'Only queued, running, or paused jobs can be paused.' })
+  res.json({ ok: true, job })
+})
+
+router.post('/jobs/all/:jobId/resume', async (req, res) => {
+  const job = await jq.resumeJob(req.params.jobId)
+  if (!job) return res.status(409).json({ detail: 'Only paused jobs can be resumed.' })
   res.status(202).json({ ok: true, job })
 })
 
@@ -296,6 +309,22 @@ router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (req, res) => {
 // even when a newer executor has not yet been added to a frontend map.
 router.post('/projects/:slug/jobs/:jobId/retry', (req, res) => {
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId)
+  res.status(202).json({ ok: true, job })
+})
+
+router.post('/projects/:slug/jobs/:jobId/pause', async (req, res) => {
+  const existing = jq.getJob(req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  const job = await jq.pauseJob(req.params.jobId)
+  if (!job) return res.status(409).json({ detail: 'Only queued, running, or paused jobs can be paused.' })
+  res.json({ ok: true, job })
+})
+
+router.post('/projects/:slug/jobs/:jobId/resume', async (req, res) => {
+  const existing = jq.getJob(req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  const job = await jq.resumeJob(req.params.jobId)
+  if (!job) return res.status(409).json({ detail: 'Only paused jobs can be resumed.' })
   res.status(202).json({ ok: true, job })
 })
 

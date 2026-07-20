@@ -493,3 +493,120 @@ describe('recordAccountUsed()', () => {
     })
   })
 })
+
+describe('cooperative pause and resume', () => {
+  test('queued work pauses before submit and resumes as the same durable job', async () => {
+    const proj = await pm.createProject({ name: 'JQ Pause Queued' })
+    let release!: () => void
+    const blocker = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('broll_fetch', async job => {
+      if (job.episode_id === 'HOLD') await blocker
+    })
+    jq.enqueue({ project_slug: proj.slug, type: 'broll_fetch', episode_id: 'HOLD', title: 'hold', params: {} })
+    const waiting = jq.enqueue({ project_slug: proj.slug, type: 'broll_fetch', episode_id: 'EP001', title: 'waiting', params: {} })
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    const paused = await jq.pauseJob(waiting.job_id)
+    assert.equal(paused?.status, 'paused')
+    assert.equal(jq.isDuplicate(proj.slug, 'EP001', 'broll_fetch'), true)
+
+    const resumed = await jq.resumeJob(waiting.job_id)
+    assert.equal(resumed?.job_id, waiting.job_id)
+    assert.equal(resumed?.status, 'queued')
+    release()
+
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(waiting.job_id)?.status !== 'done') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(waiting.job_id)?.status, 'done')
+  })
+
+  test('running work finishes its safe boundary, becomes paused, then resumes in place', async () => {
+    const proj = await pm.createProject({ name: 'JQ Pause Running' })
+    let runs = 0
+    let release!: () => void
+    const boundary = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('broll_autotag', async runningJob => {
+      if (runningJob.episode_id !== 'EP002') return
+      runs++
+      if (runs === 1) await boundary
+    })
+    const job = jq.enqueue({ project_slug: proj.slug, type: 'broll_autotag', episode_id: 'EP002', title: 'running', params: {} })
+    const runningDeadline = Date.now() + 2_000
+    while (Date.now() < runningDeadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'running')
+    const requested = await jq.pauseJob(job.job_id)
+    assert.equal(requested?.pause_origin, 'manual')
+    release()
+
+    const pauseDeadline = Date.now() + 2_000
+    while (Date.now() < pauseDeadline && jq.getJob(job.job_id)?.status !== 'paused') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+    assert.equal(jq.getJob(job.job_id)?.finished_at, null)
+
+    await jq.resumeJob(job.job_id)
+    const doneDeadline = Date.now() + 2_000
+    while (Date.now() < doneDeadline && jq.getJob(job.job_id)?.status !== 'done') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'done')
+    assert.ok(runs >= 1)
+  })
+
+  test('global Resume restarts queue-held jobs without restarting manually paused jobs', async () => {
+    const proj = await pm.createProject({ name: 'JQ Global Hold' })
+    let release!: () => void
+    let globalRuns = 0
+    const boundary = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('broll_autotag', async job => {
+      if (job.episode_id === 'GLOBAL') {
+        globalRuns++
+        if (globalRuns === 1) await boundary
+      }
+      if (job.episode_id === 'MANUAL') await boundary
+    })
+    const globallyHeld = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'broll_autotag',
+      episode_id: 'GLOBAL',
+      title: 'global',
+      params: { provider: 'genstudio' },
+    })
+    const manuallyHeld = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'broll_autotag',
+      episode_id: 'MANUAL',
+      title: 'manual',
+      params: {},
+    })
+    const runningDeadline = Date.now() + 2_000
+    while (Date.now() < runningDeadline && jq.getJob(globallyHeld.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(globallyHeld.job_id)?.status, 'running')
+    await jq.pauseJob(manuallyHeld.job_id)
+    await jq.setQueuePaused(true)
+    release()
+
+    const pauseDeadline = Date.now() + 2_000
+    while (Date.now() < pauseDeadline && jq.getJob(globallyHeld.job_id)?.status !== 'paused') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(globallyHeld.job_id)?.pause_origin, 'queue')
+    assert.equal(jq.getJob(manuallyHeld.job_id)?.pause_origin, 'manual')
+
+    await jq.setQueuePaused(false)
+    const doneDeadline = Date.now() + 2_000
+    while (Date.now() < doneDeadline && jq.getJob(globallyHeld.job_id)?.status !== 'done') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(globallyHeld.job_id)?.status, 'done')
+    assert.equal(jq.getJob(manuallyHeld.job_id)?.status, 'paused')
+    jq.cancelJob(manuallyHeld.job_id)
+  })
+})

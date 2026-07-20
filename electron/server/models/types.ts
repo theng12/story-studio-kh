@@ -1835,7 +1835,7 @@ export const JOB_TYPES = [
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]
-export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+export type JobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
 
 /**
  * Snapshot of an account as it was at resolution time. Labels are captured
@@ -1853,6 +1853,12 @@ export interface Job {
   episode_id: string
   title: string
   status: JobStatus
+  /** Cooperative Story-side pause. Running provider requests already accepted
+   * upstream finish and checkpoint their artifact; no new item is submitted. */
+  pause_requested?: boolean
+  /** Distinguishes a user-paused job from one paused by the global queue hold.
+   * Global Resume may restart only `queue` jobs; `manual` jobs stay paused. */
+  pause_origin?: 'manual' | 'queue'
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -1907,6 +1913,7 @@ export interface Job {
 export interface JobStats {
   running: number
   queued: number
+  paused: number
   done: number
   error: number
   total: number

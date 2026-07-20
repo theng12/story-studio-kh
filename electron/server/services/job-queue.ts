@@ -18,6 +18,7 @@ import type { Job, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
+import { getAppSetting, setAppSetting } from './app-settings.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -187,11 +188,30 @@ const MAX_PERSISTED = 100
 
 const jobs = new Map<string, Job>()
 const cancelled = new Set<string>()
+const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
 
-// Global pause flag. When set, pump() will not dequeue the next job.
-// Used by the network-status composable to hold jobs during connectivity loss.
+// Durable Story-side queue hold. When set, pump() will not dequeue the next
+// job. The Jobs workspace controls it explicitly; provider jobs already
+// accepted upstream are allowed to checkpoint before becoming paused.
 let queuePaused = false
+let queuePauseLoaded = false
+const QUEUE_PAUSED_KEY = 'job_queue_paused'
+
+export class JobPausedError extends Error {
+  constructor() {
+    super('Paused by user')
+    this.name = 'JobPausedError'
+  }
+}
+
+export function isPauseRequested(jobId: string): boolean {
+  return pauseRequested.has(jobId)
+}
+
+export function throwIfPauseRequested(jobId: string): void {
+  if (isPauseRequested(jobId)) throw new JobPausedError()
+}
 
 // Simple async FIFO queues
 type JobExecutor = (job: Job) => Promise<void>
@@ -464,15 +484,25 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
       for (const j of data.jobs || []) {
         if (!jobs.has(j.job_id)) {
-          // Mark any previously-running/queued jobs as interrupted.
-          // Persist the mutation so the on-disk record matches what the
-          // in-memory map says — without this, jobs.json keeps reporting
-          // the stale 'running'/'queued' status forever, and any
-          // out-of-process tool inspecting the file (or a future restart
-          // of this same process) sees a contradictory state.
-          // See __tests__/job-queue-stale-running-persist.test.ts.
+          // Durable queued jobs keep their identity and rejoin their lane.
+          // Previously-running jobs need a provider checkpoint to recover;
+          // otherwise they become a loud interrupted error. Persist every
+          // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = false
-          if (j.status === 'running' || j.status === 'queued') {
+          if (j.status === 'queued') {
+            const queue = queues[j.type as JobType]
+            if (queue?.executor) {
+              j.started_at = null
+              j.finished_at = null
+              queue.pending.push(j)
+              resumedTypes.add(j.type as JobType)
+            } else {
+              j.status = 'error'
+              j.error = 'Interrupted by app restart'
+              j.finished_at = j.finished_at || new Date().toISOString()
+            }
+            mutated = true
+          } else if (j.status === 'running') {
             const checkpoint = j.params?.hub_image_recovery
             const recoverableHubImage = !!checkpoint
               && checkpoint.version === 1
@@ -493,6 +523,9 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
               j.error = 'Interrupted by app restart'
               j.finished_at = j.finished_at || new Date().toISOString()
             }
+            mutated = true
+          } else if (j.status === 'paused') {
+            j.pause_requested = false
             mutated = true
           }
           jobs.set(j.job_id, j)
@@ -670,6 +703,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       max_attempts: retryPolicy.max_attempts,
     }
     job.status = 'running'
+    job.pause_requested = false
     job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
@@ -699,17 +733,20 @@ async function runJob(type: JobType, job: Job): Promise<void> {
 
         try {
           if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
+          throwIfPauseRequested(job.job_id)
           // Run the executor inside a per-job AsyncLocalStorage context so any
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
           // assembly would keep running until it finished or hit an error.
           await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+          throwIfPauseRequested(job.job_id)
           assertJobDidNotDeclareIncomplete(job)
           completed = true
           break
         } catch (error) {
           finalError = error
           if (cancelled.has(job.job_id)) throw error
+          if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
           if (!retryPolicy.eligible || attempt >= retryPolicy.max_attempts) break
 
           const delayMs = retryPolicy.delays_ms[attempt - 1] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
@@ -803,6 +840,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // probe — either way, the user's intent is "cancelled", not "error".
       if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
+      } else if (e instanceof JobPausedError || pauseRequested.has(job.job_id)) {
+        job.status = 'paused'
+        job.pause_requested = false
+        job.error = null
+        job.output_lines.push('Paused safely. Accepted provider work was allowed to finish and save; Resume will submit only work still missing on disk.')
+        pauseRequested.delete(job.job_id)
       } else {
         job.status = 'error'
         job.error = e.message
@@ -810,7 +853,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
-    job.finished_at = new Date().toISOString()
+    job.finished_at = job.status === 'paused' ? null : new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
@@ -835,12 +878,38 @@ export function registerExecutor(type: JobType, executor: JobExecutor): void {
   queues[type].executor = executor
 }
 
-export function setQueuePaused(paused: boolean): void {
+export async function initializeQueuePauseState(): Promise<void> {
+  if (queuePauseLoaded) return
+  queuePauseLoaded = true
+  queuePaused = (await getAppSetting(QUEUE_PAUSED_KEY).catch(() => false)) === true
+}
+
+export async function setQueuePaused(paused: boolean): Promise<void> {
   const wasPaused = queuePaused
   queuePaused = paused
+  queuePauseLoaded = true
+  await setAppSetting(QUEUE_PAUSED_KEY, paused)
+  if (paused) {
+    // The global hold prevents every queued item from being submitted. For
+    // GenStudio-backed work already running, request a cooperative safe-point
+    // pause: accepted items finish downloading, but workers claim no new item.
+    const pausable = [...jobs.values()].filter(job =>
+      job.status === 'running' && (
+        job.type === 'subtitles_transcribe'
+        || job.params?.provider === 'genstudio'
+        || String(job.params?.model || '').startsWith('genstudio-')
+      ),
+    )
+    await Promise.all(pausable.map(job => pauseJob(job.job_id, 'queue')))
+  }
   if (wasPaused && !paused) {
-    // Resuming — kick every type's queue so any pending jobs pick up. pump()
-    // is a no-op when the type's slot/group budget is already full.
+    // Resume only jobs paused by this global hold. A job the user paused
+    // explicitly stays paused until its own Resume button is used.
+    const heldJobs = [...jobs.values()].filter(job =>
+      job.status === 'paused' && job.pause_origin === 'queue',
+    )
+    for (const job of heldJobs) await resumeJob(job.job_id)
+    // Kick every type so queued jobs that never started while held can run.
     for (const type of Object.keys(queues) as JobType[]) {
       pump(type)
     }
@@ -849,6 +918,52 @@ export function setQueuePaused(paused: boolean): void {
 
 export function isQueuePaused(): boolean {
   return queuePaused
+}
+
+/** Pause one job without cancelling provider work. Queued work is removed
+ * before submit; running work observes the request at its next safe boundary. */
+export async function pauseJob(jobId: string, origin: 'manual' | 'queue' = 'manual'): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job) return null
+  if (job.status === 'queued') {
+    const q = queues[job.type]
+    q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
+    job.status = 'paused'
+    job.pause_requested = false
+    job.pause_origin = origin
+    job.finished_at = null
+    job.output_lines.push('Paused before submission. No provider work was started.')
+  } else if (job.status === 'running') {
+    pauseRequested.add(jobId)
+    job.pause_requested = true
+    job.pause_origin = origin
+    job.output_lines.push('Pause requested. No new items will be submitted; already accepted work will finish checkpointing first.')
+  } else if (job.status !== 'paused') {
+    return null
+  }
+  await persistJob(job)
+  emitUpdate(job)
+  return safeJob(job)
+}
+
+/** Resume the same durable job record. Executors audit disk/manifests first,
+ * so accepted or completed items are reclaimed rather than resubmitted. */
+export async function resumeJob(jobId: string): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'paused') return null
+  pauseRequested.delete(jobId)
+  job.pause_requested = false
+  job.pause_origin = undefined
+  job.status = 'queued'
+  job.started_at = null
+  job.finished_at = null
+  job.error = null
+  job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
+  queues[job.type].pending.push(job)
+  await persistJob(job)
+  emitUpdate(job)
+  pump(job.type)
+  return safeJob(job)
 }
 
 /**
@@ -866,7 +981,7 @@ export function isDuplicate(
 ): boolean {
   for (const job of jobs.values()) {
     if (job.project_slug === projectSlug && job.episode_id === episodeId
-        && job.type === jobType && (job.status === 'queued' || job.status === 'running')) {
+        && job.type === jobType && (job.status === 'queued' || job.status === 'running' || job.status === 'paused')) {
       if (paramsMatch && !paramsMatch(job.params || {})) continue
       return true
     }
@@ -1112,7 +1227,7 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
     }
   }
 
-  const order: Record<string, number> = { running: 0, queued: 1, done: 2, cancelled: 3, error: 3 }
+  const order: Record<string, number> = { running: 0, paused: 1, queued: 2, done: 3, cancelled: 4, error: 4 }
   projectJobs.sort((a, b) => (order[a.status] ?? 4) - (order[b.status] ?? 4))
   return projectJobs
 }
@@ -1191,9 +1306,16 @@ export function cancelJob(jobId: string): boolean {
   if (!job) return false
 
   // If queued, cancel it
-  if (job.status === 'queued') {
+  if (job.status === 'queued' || job.status === 'paused') {
     cancelled.add(jobId)
+    pauseRequested.delete(jobId)
+    if (job.status === 'queued') {
+      const q = queues[job.type]
+      q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
+    }
     job.status = 'cancelled'
+    job.pause_requested = false
+    job.pause_origin = undefined
     job.finished_at = new Date().toISOString()
     persistJob(job).catch(() => {})
     emitUpdate(job)
@@ -1260,6 +1382,7 @@ export function getQueueStats(projectSlug?: string): JobStats {
   return {
     running: jobList.filter(j => j.status === 'running').length,
     queued: jobList.filter(j => j.status === 'queued').length,
+    paused: jobList.filter(j => j.status === 'paused').length,
     done: jobList.filter(j => j.status === 'done').length,
     error: jobList.filter(j => j.status === 'error').length,
     total: jobList.length,
