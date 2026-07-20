@@ -18,7 +18,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { recordTask, readManifest } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, readManifest } from '../services/task-manifest.js'
 
 test('recordTask: 50 concurrent writes against the same dir all persist', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'task-manifest-race-'))
@@ -76,6 +76,26 @@ test('recordTask: never throws when the asset dir is unwritable (best-effort con
       console.warn = origWarn
     }
     assert.ok(warned, 'recordTask should log a warning when the write fails')
+  } finally {
+    await fs.rm(collidingFile, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('recordTaskStrict: aborts a durable provider boundary when identity cannot persist', async () => {
+  const collidingFile = await fs.mkdtemp(path.join(os.tmpdir(), 'task-manifest-strict-'))
+  await fs.rm(collidingFile, { recursive: true, force: true })
+  await fs.writeFile(collidingFile, 'I am a file, not a directory')
+  try {
+    await assert.rejects(
+      recordTaskStrict(collidingFile, 'chapter.mp3', {
+        provider: 'genstudio',
+        task_id: '',
+        submitted_at: 'ts',
+        idempotency_key: 'story-tts-stable',
+        operation: 'tts',
+        last_state: 'prepared',
+      }),
+    )
   } finally {
     await fs.rm(collidingFile, { recursive: true, force: true }).catch(() => {})
   }

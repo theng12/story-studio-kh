@@ -20,6 +20,7 @@ import {
   operationSignal,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
+  recoverTtsToFile,
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
@@ -148,9 +149,19 @@ test('GenStudio client cannot bypass its API boundary to contact Studio Hub', ()
   assert.match(source, /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/)
 })
 
-test('GenStudio transcription retries keep one identity while manual jobs stay distinct', () => {
+test('GenStudio credentials remain in the app secret store and never enter recovery diagnostics', () => {
+  const secrets = readFileSync(new URL('../services/app-secrets-store.ts', import.meta.url), 'utf8')
+  const settings = readFileSync(new URL('../routes/app-settings.ts', import.meta.url), 'utf8')
+  const recovery = readFileSync(new URL('../services/genstudio-recovery.ts', import.meta.url), 'utf8')
+  assert.match(secrets, /'genstudio'/)
+  assert.match(secrets, /mode 0600/)
+  assert.match(settings, /getApiKey\('genstudio'\)/)
+  assert.doesNotMatch(recovery, /apiKey|api_key|Authorization|Bearer|hub_url|hub_token|worker_address/)
+})
+
+test('GenStudio transcription retries and new Story queue jobs keep one logical asset identity', () => {
   const input = {
-    storyJobId: 'story-job-1',
+    requestIdentity: 'project:EP0001:transcription:EP0001_Chapter_01.srt',
     fileSha256: 'a'.repeat(64),
     modelId: 'mlx-community/whisper-large-v3-turbo',
     language: 'en',
@@ -160,7 +171,7 @@ test('GenStudio transcription retries keep one identity while manual jobs stay d
   assert.equal(first, buildGenStudioTranscriptionIdempotencyKey(input))
   assert.notEqual(first, buildGenStudioTranscriptionIdempotencyKey({
     ...input,
-    storyJobId: 'story-job-2',
+    requestIdentity: 'project:EP0001:transcription:EP0001_Chapter_02.srt',
   }))
   assert.match(first, /^story-stt-[a-f0-9]{48}$/)
 })
@@ -299,7 +310,7 @@ test('GenStudio transcription uploads the selected model and verifies private SR
     const result = await transcribeWithGenStudio('scoped-key', {
       audioPath,
       modelId: 'mlx-community/whisper-large-v3-turbo',
-      storyJobId: 'story-job-success',
+      requestIdentity: 'project:EP0001:transcription:chapter-success.srt',
       language: 'en',
     })
     assert.equal(submittedModel, 'mlx-community/whisper-large-v3-turbo')
@@ -340,6 +351,88 @@ test('accepted transcription IDs can be reclaimed without a second submit', asyn
   }
 })
 
+test('an accepted transcription survives artifact download failure without a second request', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-download-'))
+  const audioPath = path.join(dir, 'chapter.wav')
+  await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  let artifactReady = false
+  let acceptedJobId = ''
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/audio/transcriptions')) {
+        posts++
+        return Response.json({
+          id: 'stt_download_recovery',
+          state: 'succeeded',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          srt_url: '/v1/transcriptions/stt_download_recovery/srt',
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/transcriptions/stt_download_recovery')) {
+        return Response.json({
+          id: 'stt_download_recovery',
+          state: 'succeeded',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          srt_url: '/v1/transcriptions/stt_download_recovery/srt',
+        })
+      }
+      if (url.endsWith('/v1/transcriptions/stt_download_recovery/srt')) {
+        if (!artifactReady) return new Response('expired', { status: 404 })
+        return new Response('1\n00:00:00,000 --> 00:00:01,000\nRecovered.\n')
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+
+    await assert.rejects(
+      transcribeWithGenStudio('scoped-key', {
+        audioPath,
+        modelId: 'mlx-community/whisper-large-v3-turbo',
+        requestIdentity: 'project:EP0001:transcription:chapter-download.srt',
+        onJobAccepted: jobId => { acceptedJobId = jobId },
+      }),
+      /SRT download failed/,
+    )
+    artifactReady = true
+    const recovered = await recoverTranscriptionWithGenStudio('scoped-key', acceptedJobId, {})
+    assert.equal(posts, 1)
+    assert.equal(recovered.jobId, acceptedJobId)
+    assert.match(recovered.srt, /Recovered/)
+  } finally {
+    globalThis.fetch = originalFetch
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('accepted TTS IDs are polled directly without submitting replacement work', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      if (init?.method === 'POST') posts++
+      const url = String(input)
+      if (url.endsWith('/v1/jobs/tts_existing')) {
+        return Response.json({ id: 'tts_existing', state: 'failed', failure_code: 'test-stop' })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    await assert.rejects(
+      recoverTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-existing.mp3'), 'tts_existing', {
+        text: 'Existing accepted task.',
+        voiceId: 'voice_live',
+        speed: 1,
+        requestIdentity: 'project:EP0001:audio:chapter.mp3',
+      }),
+      /test-stop/,
+    )
+    assert.equal(posts, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('terminal GenStudio failure never falls back and empty artifacts never count as complete', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-failure-'))
   const audioPath = path.join(dir, 'chapter.wav')
@@ -362,7 +455,7 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
       transcribeWithGenStudio('scoped-key', {
         audioPath,
         modelId: 'mlx-community/whisper-large-v3-turbo',
-        storyJobId: 'story-job-failure',
+        requestIdentity: 'project:EP0001:transcription:chapter-failure.srt',
       }),
       /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/,
     )
@@ -384,7 +477,7 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
       transcribeWithGenStudio('scoped-key', {
         audioPath,
         modelId: 'mlx-community/whisper-large-v3-turbo',
-        storyJobId: 'story-job-empty',
+        requestIdentity: 'project:EP0001:transcription:chapter-empty.srt',
       }),
       /empty SRT artifact/,
     )

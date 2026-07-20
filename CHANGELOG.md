@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.660 — 2026-07-20
+
+**GenStudio narration and transcription can now recover the same durable provider job after interruption.**
+
+- Gives every GenStudio TTS chunk and transcription output a stable Story asset identity and checkpoints its idempotency key before any provider submission.
+- Saves accepted GenStudio job IDs beside their expected Story assets and resumes those exact jobs after app restarts, polling failures, or expired download attempts without creating replacement requests.
+- Keeps GenStudio completion tied to its published job state and downloads private audio/SRT output only from same-origin artifact URLs returned by GenStudio.
+- Preserves the existing direct and Studio Hub production routes, explicit model-route selection, and app-level secret storage while keeping provider credentials out of jobs and diagnostics.
+- Adds restart, failed-download, no-second-submit, strict-persistence, credential-boundary, direct-route-separation, and terminal-failure regression coverage.
+
 ## v1.0.659 — 2026-07-20
 
 **Hand-Drawn Cartoon Explainer joins the shared visual-style library.**

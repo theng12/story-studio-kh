@@ -40,8 +40,13 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   text: string
   voiceId?: string
   speed: number
+  /** Stable Story asset identity, such as project + episode + output file. */
+  requestIdentity?: string
+  /** Reuse a key already checkpointed beside the Story asset. */
+  idempotencyKey?: string
   onProgress?: (received: number, total?: number) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+  onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
 }
 
 export interface GenStudioTranscriptionModel {
@@ -104,10 +109,13 @@ interface GenStudioTranscriptionJob {
 export interface GenStudioTranscriptionRequest extends GenStudioOperationContext {
   audioPath: string
   modelId: string
-  storyJobId: string
+  /** Stable Story asset identity; never use a transient queue job ID here. */
+  requestIdentity: string
+  /** Reuse a key already checkpointed beside the Story asset. */
+  idempotencyKey?: string
   language?: string
   wordTimestamps?: boolean
-  onState?: (state: GenStudioTranscriptionJob['state']) => void
+  onState?: (state: GenStudioTranscriptionJob['state'], jobId: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string, fileSha256: string) => void | Promise<void>
 }
 
@@ -180,7 +188,10 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     throw new Error('GenStudio KH speed must be between 0.5 and 2.0.')
   }
   const body = { voice_id: voiceId, text: request.text, speed: request.speed }
-  const digest = createHash('sha256').update(JSON.stringify(body)).digest('hex')
+  const digest = createHash('sha256').update(JSON.stringify({
+    ...body,
+    request_identity: request.requestIdentity?.trim() || null,
+  })).digest('hex')
   return { body, idempotencyKey: `story-tts-${digest.slice(0, 48)}` }
 }
 
@@ -495,14 +506,14 @@ function transcriptionMediaType(filename: string): string {
 }
 
 export function buildGenStudioTranscriptionIdempotencyKey(input: {
-  storyJobId: string
+  requestIdentity: string
   fileSha256: string
   modelId: string
   language?: string
   wordTimestamps?: boolean
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
-    story_job_id: input.storyJobId,
+    request_identity: input.requestIdentity,
     file_sha256: input.fileSha256,
     model_id: input.modelId,
     language: input.language || null,
@@ -515,11 +526,19 @@ async function waitForTranscriptionJob(
   baseUrl: string,
   apiKey: string,
   submitted: GenStudioTranscriptionJob,
-  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void },
+  request: GenStudioOperationContext & {
+    onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+  },
   deadline: number,
 ): Promise<GenStudioTranscriptionJob> {
   let current = submitted
-  request.onState?.(current.state)
+  let reportedState: string | null = null
+  const reportState = async (): Promise<void> => {
+    if (reportedState === current.state) return
+    reportedState = current.state
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
   while (current.state !== 'succeeded' && current.state !== 'failed') {
     if (request.isCancelled?.()) throw new Error('Cancelled by user')
     if (Date.now() >= deadline) {
@@ -532,7 +551,7 @@ async function waitForTranscriptionJob(
       request,
       deadline,
     ) as GenStudioTranscriptionJob
-    request.onState?.(current.state)
+    await reportState()
   }
   if (current.state === 'failed') {
     throw new Error(
@@ -586,7 +605,9 @@ async function downloadTranscriptionArtifact(
 export async function recoverTranscriptionWithGenStudio(
   apiKey: string,
   jobId: string,
-  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void },
+  request: GenStudioOperationContext & {
+    onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+  },
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -608,15 +629,15 @@ export async function transcribeWithGenStudio(
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
   const modelId = request.modelId.trim()
   if (!modelId) throw new Error('Select a GenStudio KH transcription model.')
-  if (!request.storyJobId.trim()) throw new Error('Story Studio transcription job ID is required.')
+  if (!request.requestIdentity.trim()) throw new Error('Stable Story Studio transcription asset identity is required.')
   const file = await fs.readFile(request.audioPath)
   if (!file.length) throw new Error('Transcription audio is empty.')
   if (file.length > GENSTUDIO_MAX_TRANSCRIPTION_BYTES) {
     throw new Error('GenStudio KH transcription input exceeds the 100 MiB qualification limit.')
   }
   const fileSha256 = createHash('sha256').update(file).digest('hex')
-  const idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
-    storyJobId: request.storyJobId,
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioTranscriptionIdempotencyKey({
+    requestIdentity: request.requestIdentity,
     fileSha256,
     modelId,
     language: request.language,
@@ -661,9 +682,15 @@ async function waitForJob(
   deadline: number,
 ): Promise<GenStudioJob> {
   let current = job
+  let reportedState: string | null = null
+  const reportState = async (): Promise<void> => {
+    if (reportedState === current.state) return
+    reportedState = current.state
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
   while (current.state !== 'succeeded' && current.state !== 'failed') {
     if (request.isCancelled?.()) throw new Error('Cancelled by user')
-    if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/jobs/${encodeURIComponent(current.id)}`,
@@ -671,6 +698,7 @@ async function waitForJob(
       request,
       deadline,
     ) as GenStudioJob
+    await reportState()
   }
   if (current.state === 'failed') {
     throw new Error(`GenStudio KH generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No direct Studio Hub fallback was attempted.`)
@@ -768,6 +796,7 @@ export async function generateTtsToFile(
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const submission = buildGenStudioSubmission(request)
+  const idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
   const submitted = await requestJsonWithRetry(
     `${apiBase(baseUrl)}/v1/audio/jobs`,
     {
@@ -775,13 +804,13 @@ export async function generateTtsToFile(
       headers: {
         ...authorization(apiKey),
         'Content-Type': 'application/json',
-        'Idempotency-Key': submission.idempotencyKey,
+        'Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify(submission.body),
     },
     request,
     deadline,
   ) as GenStudioJob
-  await request.onJobAccepted?.(submitted.id, submission.idempotencyKey)
+  await request.onJobAccepted?.(submitted.id, idempotencyKey)
   await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
 }

@@ -515,15 +515,32 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
               && typeof remoteRender?.batch_id === 'string'
               && remoteRender.batch_id.trim().length > 0
               && !!queues[j.type as JobType]?.executor
-            if (recoverableHubImage || recoverableHubRender) {
+            const genStudioRecovery = j.params?.genstudio_recovery
+            const genStudioAssets = genStudioRecovery?.version === 1
+              && genStudioRecovery?.route === 'genstudio'
+              && genStudioRecovery?.assets
+              && typeof genStudioRecovery.assets === 'object'
+              ? Object.values(genStudioRecovery.assets) as Array<Record<string, unknown>>
+              : []
+            const recoverableGenStudio = ['audio', 'subtitles_transcribe'].includes(j.type)
+              && !!queues[j.type as JobType]?.executor
+              && genStudioAssets.some(asset => (
+                (asset?.operation === 'tts' || asset?.operation === 'transcription')
+                && typeof asset?.idempotency_key === 'string'
+                && asset.idempotency_key.startsWith('story-')
+                && asset?.state !== 'failed'
+              ))
+            if (recoverableHubImage || recoverableHubRender || recoverableGenStudio) {
               j.status = 'queued'
               j.started_at = null
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push(recoverableHubRender
-                ? '↻ Story Studio restarted — reconnecting the original Studio Hub render batch automatically; no duplicate render will be submitted.'
-                : '↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
+              j.output_lines.push(recoverableGenStudio
+                ? '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.'
+                : recoverableHubRender
+                  ? '↻ Story Studio restarted — reconnecting the original Studio Hub render batch automatically; no duplicate render will be submitted.'
+                  : '↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -556,7 +573,8 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 }
 
 /**
- * Eager boot scan for accepted Hub image and remote-render work. Ordinary job history is loaded
+ * Eager boot scan for accepted Hub image, remote-render, and checkpointed
+ * GenStudio work. Ordinary job history is loaded
  * lazily per project, but recovery cannot depend on somebody opening the Jobs
  * page after a power cut. Executors call this once after every queue lane has
  * been registered; loadPersistedJobs then requeues only checkpoints that can

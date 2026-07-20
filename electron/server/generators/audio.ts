@@ -19,6 +19,7 @@ import { generateTtsToUrl as generateTtsKie } from '../lib/kie-tts-client.js'
 import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
 import {
+  buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
   recoverTtsToFile as recoverTtsGenStudio,
   splitGenStudioApiRequests,
@@ -35,7 +36,8 @@ import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, t
 import { newLatencyStats, recordCall as recordLatency, summarize as summarizeLatency } from '../lib/endpoint-latency-stats.js'
 import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
@@ -906,33 +908,97 @@ export async function generateAudio(job: Job): Promise<void> {
         // local Studio Hub/direct Voice Studio route.
         const chunkFilename = path.basename(task.outputPath)
         const manifestEntry = audioManifest.tasks[chunkFilename]
+        const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
+        const inputHash = hashInput(JSON.stringify({
+          requestIdentity,
+          text: task.chunkText,
+          voiceId: effectiveVoice || '',
+          speed: req.speed ?? 1,
+        }))
+        const legacyTextHash = hashInput(task.chunkText)
+        const reusableEntry = manifestEntry?.provider === 'genstudio'
+          && (manifestEntry.input_hash === inputHash
+            || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
+          ? manifestEntry
+          : null
+        const prepared = buildGenStudioSubmission({
+          text: task.chunkText,
+          voiceId: effectiveVoice,
+          speed: req.speed ?? 1,
+          requestIdentity,
+        })
+        const idempotencyKey = reusableEntry?.idempotency_key || prepared.idempotencyKey
+        const submittedAt = reusableEntry?.submitted_at || new Date().toISOString()
+
+        // This strict checkpoint happens before POST. If disk persistence is
+        // unavailable, abort without submitting rather than risk paid work
+        // whose identity Story Studio cannot reclaim after a restart.
+        await recordTaskStrict(audioDir, chunkFilename, {
+          provider: 'genstudio',
+          task_id: reusableEntry?.task_id || '',
+          submitted_at: submittedAt,
+          input_hash: inputHash,
+          idempotency_key: idempotencyKey,
+          operation: 'tts',
+          last_state: reusableEntry?.last_state || 'prepared',
+        })
+        await checkpointGenStudioAsset(job, chunkFilename, {
+          operation: 'tts',
+          idempotency_key: idempotencyKey,
+          ...(reusableEntry?.task_id ? { job_id: reusableEntry.task_id } : {}),
+          state: (reusableEntry?.last_state || 'prepared') as GenStudioRecoveryState,
+        })
+        job.output_lines.push(`  GenStudio request: ${task.sectionLabel} -> ${idempotencyKey}`)
         const request = {
           text: task.chunkText,
           voiceId: effectiveVoice,
           speed: req.speed ?? 1,
+          requestIdentity,
+          idempotencyKey,
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
           onJobAccepted: async (providerJobId: string, idempotencyKey: string) => {
-            await recordTask(audioDir, chunkFilename, {
+            await recordTaskStrict(audioDir, chunkFilename, {
               provider: 'genstudio',
               task_id: providerJobId,
-              submitted_at: new Date().toISOString(),
-              input_hash: hashInput(task.chunkText),
+              submitted_at: submittedAt,
+              input_hash: inputHash,
               idempotency_key: idempotencyKey,
               operation: 'tts',
               last_state: 'accepted',
+            })
+            await checkpointGenStudioAsset(job, chunkFilename, {
+              operation: 'tts',
+              idempotency_key: idempotencyKey,
+              job_id: providerJobId,
+              state: 'accepted',
             })
             job.output_lines.push(
               `  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`,
             )
           },
+          onState: async (state: GenStudioRecoveryState, providerJobId: string) => {
+            await recordTaskStrict(audioDir, chunkFilename, {
+              provider: 'genstudio',
+              task_id: providerJobId,
+              submitted_at: submittedAt,
+              input_hash: inputHash,
+              idempotency_key: idempotencyKey,
+              operation: 'tts',
+              last_state: state,
+            })
+            await checkpointGenStudioAsset(job, chunkFilename, {
+              operation: 'tts',
+              idempotency_key: idempotencyKey,
+              job_id: providerJobId,
+              state,
+            })
+          },
         }
-        if (manifestEntry?.provider === 'genstudio'
-          && manifestEntry.task_id
-          && manifestEntry.input_hash === hashInput(task.chunkText)) {
-          job.output_lines.push(`  Reclaiming accepted GenStudio task ${manifestEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
-          await recoverTtsGenStudio(apiKey, task.outputPath, manifestEntry.task_id, request)
+        if (reusableEntry?.task_id) {
+          job.output_lines.push(`  Reclaiming accepted GenStudio task ${reusableEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+          await recoverTtsGenStudio(apiKey, task.outputPath, reusableEntry.task_id, request)
         } else {
           await generateTtsGenStudio(apiKey, task.outputPath, request)
         }

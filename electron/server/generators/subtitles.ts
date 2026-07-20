@@ -18,13 +18,15 @@ import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { scanEpisodeAssets } from './video.js'
 import {
+  buildGenStudioTranscriptionIdempotencyKey,
   listTranscriptionModels,
   recoverTranscriptionWithGenStudio,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
-import { readManifest, recordTask } from '../services/task-manifest.js'
+import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
+import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
 import type { Job } from '../models/types.js'
 
@@ -160,14 +162,54 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
+    const savedTask = manifest.tasks[manifestKey]
+    const currentAudioHash = await hashTranscriptionAudio(sourceAudio)
+    const currentInputHash = hashInput(JSON.stringify({
+      requestIdentity: `${project_slug}:${code}:transcription:${manifestKey}`,
+      audioHash: currentAudioHash,
+      modelId: genstudio.modelId,
+      language: req.language || 'en',
+      wordTimestamps: false,
+    }))
+    const reusableTask = savedTask?.provider === 'genstudio'
+      && (savedTask.input_hash === currentInputHash
+        || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
+      ? savedTask
+      : null
+    const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
+    const idempotencyKey = reusableTask?.idempotency_key
+      || buildGenStudioTranscriptionIdempotencyKey({
+        requestIdentity,
+        fileSha256: currentAudioHash.slice('sha256:'.length),
+        modelId: genstudio.modelId,
+        language: req.language || 'en',
+      })
+    const submittedAt = reusableTask?.submitted_at || new Date().toISOString()
+    await recordTaskStrict(outDir, manifestKey, {
+      provider: 'genstudio',
+      task_id: reusableTask?.task_id || '',
+      submitted_at: submittedAt,
+      input_hash: currentInputHash,
+      idempotency_key: idempotencyKey,
+      operation: 'transcription',
+      last_state: reusableTask?.last_state || 'prepared',
+    })
+    await checkpointGenStudioAsset(job, manifestKey, {
+      operation: 'transcription',
+      idempotency_key: idempotencyKey,
+      ...(reusableTask?.task_id ? { job_id: reusableTask.task_id } : {}),
+      state: (reusableTask?.last_state || 'prepared') as GenStudioRecoveryState,
+    })
+    job.output_lines.push(`GenStudio request: merged -> ${idempotencyKey}`)
     const transcriptionRequest: GenStudioTranscriptionRequest = {
       audioPath: sourceAudio,
       modelId: genstudio.modelId,
-      storyJobId: `${job.job_id}:merged`,
+      requestIdentity,
+      idempotencyKey,
       language: req.language || 'en',
       signal: controller.signal,
       isCancelled: () => jq.isCancelled(job.job_id),
-      onState: (state) => {
+      onState: async (state, providerJobId) => {
         const progressByState: Record<string, number> = {
           accepted: 10,
           reserved: 15,
@@ -178,26 +220,43 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           succeeded: 95,
         }
         job.progress = Math.max(job.progress ?? 0, progressByState[state] || 10)
-      },
-      onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
-        await recordTask(outDir, manifestKey, {
+        await recordTaskStrict(outDir, manifestKey, {
           provider: 'genstudio',
           task_id: providerJobId,
-          submitted_at: new Date().toISOString(),
-          input_hash: `sha256:${fileSha256}`,
+          submitted_at: submittedAt,
+          input_hash: currentInputHash,
+          idempotency_key: idempotencyKey,
+          operation: 'transcription',
+          last_state: state,
+        })
+        await checkpointGenStudioAsset(job, manifestKey, {
+          operation: 'transcription',
+          idempotency_key: idempotencyKey,
+          job_id: providerJobId,
+          state: state as GenStudioRecoveryState,
+        })
+      },
+      onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
+        await recordTaskStrict(outDir, manifestKey, {
+          provider: 'genstudio',
+          task_id: providerJobId,
+          submitted_at: submittedAt,
+          input_hash: currentInputHash,
           idempotency_key: idempotencyKey,
           operation: 'transcription',
           last_state: 'accepted',
         })
+        await checkpointGenStudioAsset(job, manifestKey, {
+          operation: 'transcription',
+          idempotency_key: idempotencyKey,
+          job_id: providerJobId,
+          state: 'accepted',
+        })
         job.output_lines.push(`GenStudio task: merged -> ${providerJobId}`)
       },
     }
-    const savedTask = manifest.tasks[manifestKey]
-    const currentInputHash = await hashTranscriptionAudio(sourceAudio)
-    const result = savedTask?.provider === 'genstudio'
-      && savedTask.task_id
-      && savedTask.input_hash === currentInputHash
-      ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, savedTask.task_id, transcriptionRequest)
+    const result = reusableTask?.task_id
+      ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, reusableTask.task_id, transcriptionRequest)
       : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
@@ -355,32 +414,93 @@ async function transcribePerChapter(
     job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
     try {
       const manifestKey = path.basename(outPath)
+      const savedTask = transcriptionManifest.tasks[manifestKey]
+      const currentAudioHash = await hashTranscriptionAudio(audioPath)
+      const currentInputHash = hashInput(JSON.stringify({
+        requestIdentity: `${projectSlug}:${code}:transcription:${manifestKey}`,
+        audioHash: currentAudioHash,
+        modelId: genstudio.modelId,
+        language: req.language || 'en',
+        wordTimestamps: false,
+      }))
+      const reusableTask = savedTask?.provider === 'genstudio'
+        && (savedTask.input_hash === currentInputHash
+          || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
+        ? savedTask
+        : null
+      const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
+      const idempotencyKey = reusableTask?.idempotency_key
+        || buildGenStudioTranscriptionIdempotencyKey({
+          requestIdentity,
+          fileSha256: currentAudioHash.slice('sha256:'.length),
+          modelId: genstudio.modelId,
+          language: req.language || 'en',
+        })
+      const submittedAt = reusableTask?.submitted_at || new Date().toISOString()
+
+      await recordTaskStrict(outDir, manifestKey, {
+        provider: 'genstudio',
+        task_id: reusableTask?.task_id || '',
+        submitted_at: submittedAt,
+        input_hash: currentInputHash,
+        idempotency_key: idempotencyKey,
+        operation: 'transcription',
+        last_state: reusableTask?.last_state || 'prepared',
+      })
+      await checkpointGenStudioAsset(job, manifestKey, {
+        operation: 'transcription',
+        idempotency_key: idempotencyKey,
+        ...(reusableTask?.task_id ? { job_id: reusableTask.task_id } : {}),
+        state: (reusableTask?.last_state || 'prepared') as GenStudioRecoveryState,
+      })
+      job.output_lines.push(`  GenStudio request: ${sec.slug} -> ${idempotencyKey}`)
+
       const transcriptionRequest: GenStudioTranscriptionRequest = {
         audioPath,
         modelId: genstudio.modelId,
-        storyJobId: `${job.job_id}:${sec.slug}`,
+        requestIdentity,
+        idempotencyKey,
         language: req.language || 'en',
         signal: controller.signal,
         isCancelled: () => jq.isCancelled(job.job_id),
-        onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
-          await recordTask(outDir, manifestKey, {
+        onState: async (state, providerJobId) => {
+          await recordTaskStrict(outDir, manifestKey, {
             provider: 'genstudio',
             task_id: providerJobId,
-            submitted_at: new Date().toISOString(),
-            input_hash: `sha256:${fileSha256}`,
+            submitted_at: submittedAt,
+            input_hash: currentInputHash,
+            idempotency_key: idempotencyKey,
+            operation: 'transcription',
+            last_state: state,
+          })
+          await checkpointGenStudioAsset(job, manifestKey, {
+            operation: 'transcription',
+            idempotency_key: idempotencyKey,
+            job_id: providerJobId,
+            state: state as GenStudioRecoveryState,
+          })
+        },
+        onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
+          await recordTaskStrict(outDir, manifestKey, {
+            provider: 'genstudio',
+            task_id: providerJobId,
+            submitted_at: submittedAt,
+            input_hash: currentInputHash,
             idempotency_key: idempotencyKey,
             operation: 'transcription',
             last_state: 'accepted',
           })
+          await checkpointGenStudioAsset(job, manifestKey, {
+            operation: 'transcription',
+            idempotency_key: idempotencyKey,
+            job_id: providerJobId,
+            state: 'accepted',
+          })
           job.output_lines.push(`  GenStudio task: ${sec.slug} -> ${providerJobId}`)
         },
       }
-      const savedTask = transcriptionManifest.tasks[manifestKey]
-      const currentInputHash = await hashTranscriptionAudio(audioPath)
-      const result = savedTask?.provider === 'genstudio'
-        && savedTask.task_id
-        && savedTask.input_hash === currentInputHash
-        ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, savedTask.task_id, transcriptionRequest)
+      const result = reusableTask?.task_id
+        ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, reusableTask.task_id, transcriptionRequest)
         : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
       const { srt, cues, warnings } = normalizeSrtOrVtt(result.srt)
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)

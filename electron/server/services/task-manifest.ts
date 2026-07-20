@@ -14,9 +14,9 @@
  * types have different naming. One manifest per subfolder keeps the schema
  * flat and prevents cross-contamination.
  *
- * Best-effort: every write is wrapped — failures never propagate into the
- * caller's generation flow. A missing sidecar is just a missed chance at
- * deterministic recovery, not a broken generation.
+ * Most writes are best-effort. Paid/durable provider boundaries use the
+ * strict writer before submission so a missing sidecar can never turn an
+ * uncertain request into duplicate provider work.
  */
 
 import { existsSync } from 'fs'
@@ -98,6 +98,40 @@ export async function readManifest(assetDir: string): Promise<Manifest> {
  */
 const writeChains = new Map<string, Promise<void>>()
 
+async function writeTaskEntry(
+  assetDir: string,
+  filename: string,
+  entry: TaskManifestEntry,
+  strict: boolean,
+): Promise<void> {
+  const key = path.resolve(assetDir)
+  const previous = writeChains.get(key) ?? Promise.resolve()
+  const operation = previous.then(async () => {
+    await fs.mkdir(assetDir, { recursive: true })
+    const m = await readManifest(assetDir)
+    m.tasks[filename] = entry
+    await writeJsonAtomic(manifestPath(assetDir), m)
+  })
+  // Keep a non-rejecting tail in the chain so one failed write cannot block
+  // later assets in the same folder. Strict callers still await `operation`
+  // and receive the original persistence error before provider submission.
+  const tail = operation.catch(() => {})
+  writeChains.set(key, tail)
+  void tail.finally(() => {
+    if (writeChains.get(key) === tail) writeChains.delete(key)
+  })
+
+  if (strict) {
+    await operation
+    return
+  }
+  try {
+    await operation
+  } catch (e: any) {
+    console.warn(`[task-manifest] could not record ${filename}:`, e.message)
+  }
+}
+
 /**
  * Record a task-id for a given output filename. Never throws — if the
  * manifest can't be written, we log and continue so generation flows
@@ -108,27 +142,20 @@ export async function recordTask(
   filename: string,
   entry: TaskManifestEntry,
 ): Promise<void> {
-  const key = path.resolve(assetDir)
-  const previous = writeChains.get(key) ?? Promise.resolve()
-  const next = previous.then(async () => {
-    try {
-      await fs.mkdir(assetDir, { recursive: true })
-      const m = await readManifest(assetDir)
-      m.tasks[filename] = entry
-      await writeJsonAtomic(manifestPath(assetDir), m)
-    } catch (e: any) {
-      console.warn(`[task-manifest] could not record ${filename}:`, e.message)
-    }
-  })
-  writeChains.set(key, next)
-  // Drop the chain reference once this write settles AND it's still the
-  // tail. Keeps the Map bounded; later recordTask calls start a fresh chain.
-  void next.then(() => {
-    if (writeChains.get(key) === next) writeChains.delete(key)
-  }, () => {
-    if (writeChains.get(key) === next) writeChains.delete(key)
-  })
-  return next
+  await writeTaskEntry(assetDir, filename, entry, false)
+}
+
+/**
+ * Durable variant for provider boundaries where losing the request identity
+ * could duplicate paid work. A failed write aborts before submission instead
+ * of silently degrading recovery guarantees.
+ */
+export async function recordTaskStrict(
+  assetDir: string,
+  filename: string,
+  entry: TaskManifestEntry,
+): Promise<void> {
+  await writeTaskEntry(assetDir, filename, entry, true)
 }
 
 export function getTaskEntry(manifest: Manifest, filename: string): TaskManifestEntry | null {
