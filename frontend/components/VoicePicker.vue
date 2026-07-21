@@ -161,6 +161,11 @@ interface VoiceStudioVoice {
 interface GenStudioVoiceCatalogEntry {
   id: string
   display_name: string
+  engine_id?: string
+  engine_name?: string
+  model_revision_id?: string
+  model_family?: string
+  voice_tier?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -211,8 +216,25 @@ const activeProvider = computed<VoiceProviderId | null>(() =>
 const activeProviderLabel = computed(() => activeProvider.value ? voiceProviderLabel(activeProvider.value) : 'saved cloud')
 const savedVoices = computed(() => normalizeSavedVoices(props.customVoices))
 const discoveredCloudVoices = ref<GenStudioVoiceCatalogEntry[]>([])
+const filteredDiscoveredCloudVoices = computed(() => {
+  if (activeProvider.value !== 'genstudio') return discoveredCloudVoices.value
+  const selected = props.audioModelId === 'genstudio-qwen3-standard'
+    ? 'genstudio-standard-v1'
+    : props.audioModelId
+  if (!selected) return discoveredCloudVoices.value
+  return discoveredCloudVoices.value.filter((voice) => {
+    const published = [voice.engine_id, voice.model_family].filter(Boolean)
+    return published.length === 0 || published.includes(selected)
+  })
+})
 const mergedCloudVoices = computed(() => activeProvider.value
-  ? mergeDiscoveredVoices(savedVoices.value, discoveredCloudVoices.value, activeProvider.value)
+  ? mergeDiscoveredVoices(
+      activeProvider.value === 'genstudio'
+        ? savedVoices.value.filter(saved => filteredDiscoveredCloudVoices.value.some(voice => voice.id === saved.voice_id))
+        : savedVoices.value,
+      filteredDiscoveredCloudVoices.value,
+      activeProvider.value,
+    )
   : savedVoices.value)
 const compatibleCloudVoices = computed(() => {
   const voices = activeProvider.value
@@ -351,7 +373,7 @@ async function loadCloudVoices() {
   try {
     const data = await get<{ voices: GenStudioVoiceCatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
     discoveredCloudVoices.value = Array.isArray(data.voices) ? data.voices : []
-    emit('catalog-updated', mergeDiscoveredVoices([], discoveredCloudVoices.value, 'genstudio'))
+    emit('catalog-updated', mergeDiscoveredVoices([], filteredDiscoveredCloudVoices.value, 'genstudio'))
   } catch (error: any) {
     discoveredCloudVoices.value = []
     emit('catalog-updated', [])

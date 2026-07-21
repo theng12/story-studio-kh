@@ -7,9 +7,11 @@ import test from 'node:test'
 import { DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS } from '../models/defaults.js'
 import { normalizeVoicePresets, voiceSupportsProvider } from '../services/voice-presets.js'
 import {
+  buildGenStudioChatIdempotencyKey,
   buildGenStudioTranscriptionIdempotencyKey,
   buildGenStudioImageIdempotencyKey,
   buildGenStudioSubmission,
+  callChatWithGenStudio,
   catalogHasVoice,
   generateTtsToFile,
   generateImageWithGenStudio,
@@ -18,6 +20,9 @@ import {
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_MAX_TTS_CHARACTERS,
   listImageModels,
+  listChatModels,
+  listModelCapabilities,
+  listVideoModels,
   operationSignal,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
@@ -33,7 +38,7 @@ const ONE_PIXEL_PNG = Buffer.from(
 
 test('GenStudio standard voices are an explicit, bounded TTS route', () => {
   assert.deepEqual(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], {
-    label: 'Qwen3 Standard Voices [GenStudio KH · staging]',
+    label: 'Qwen3 Standard Voices [GenStudio KH]',
     cost_per_1k_chars: 0,
     provider: 'genstudio',
     tts_soft_max_chars: 15000,
@@ -83,6 +88,147 @@ test('GenStudio JSON carries speed and retries reuse the same idempotency key', 
     first.idempotencyKey,
     buildGenStudioSubmission({ ...request, speed: 1 }).idempotencyKey,
   )
+})
+
+test('GenStudio chat retries keep one logical request identity', () => {
+  const request = {
+    modelId: 'genstudio-chat-local-v1',
+    system: 'Return verified JSON.',
+    userMessage: 'Create one metadata record.',
+    temperature: 0.2,
+    maxOutputTokens: 4_096,
+    requestIdentity: 'boundful:EP0001:metadata',
+  }
+  const first = buildGenStudioChatIdempotencyKey(request)
+  assert.equal(first, buildGenStudioChatIdempotencyKey(request))
+  assert.notEqual(first, buildGenStudioChatIdempotencyKey({
+    ...request,
+    requestIdentity: 'boundful:EP0002:metadata',
+  }))
+  assert.match(first, /^story-chat-[a-f0-9]{47}$/)
+})
+
+test('GenStudio chat submits and completes through only the durable public job API', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      assert.equal(url, 'http://127.0.0.1:8000/v1/chat/responses')
+      assert.equal(init?.method, 'POST')
+      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
+      assert.match((init?.headers as Record<string, string>)['Idempotency-Key'] || '', /^story-chat-/)
+      assert.deepEqual(JSON.parse(String(init?.body)), {
+        model_id: 'genstudio-chat-local-v1',
+        input: [
+          { role: 'system', content: 'Write concise prose.' },
+          { role: 'user', content: 'Describe a quiet forest.' },
+        ],
+        temperature: 0.4,
+        top_p: 1,
+        max_output_tokens: 2_048,
+      })
+      posts++
+      return Response.json({
+        id: 'chat_story_1',
+        state: 'succeeded',
+        model_id: 'genstudio-chat-local-v1',
+        output_text: 'A quiet forest rests beneath silver rain.',
+      }, { status: 202 })
+    }
+    const accepted: string[] = []
+    const result = await callChatWithGenStudio('scoped-key', {
+      modelId: 'genstudio-chat-local-v1',
+      system: 'Write concise prose.',
+      userMessage: 'Describe a quiet forest.',
+      temperature: 0.4,
+      requestIdentity: 'dozing-knight:DK0001:scene-0001',
+      onJobAccepted: jobId => { accepted.push(jobId) },
+    })
+    assert.equal(posts, 1)
+    assert.deepEqual(accepted, ['chat_story_1'])
+    assert.deepEqual(result, {
+      text: 'A quiet forest rests beneath silver rain.',
+      jobId: 'chat_story_1',
+      modelId: 'genstudio-chat-local-v1',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio chat terminal failure never falls back to a direct provider', async () => {
+  const originalFetch = globalThis.fetch
+  let requests = 0
+  try {
+    globalThis.fetch = async (input) => {
+      requests++
+      assert.match(String(input), /\/v1\/chat\/responses$/)
+      return Response.json({
+        id: 'chat_failed',
+        state: 'failed',
+        model_id: 'genstudio-chat-local-v1',
+        failure_code: 'provider_unavailable',
+      }, { status: 202 })
+    }
+    await assert.rejects(
+      callChatWithGenStudio('scoped-key', {
+        modelId: 'genstudio-chat-local-v1',
+        system: '',
+        userMessage: 'Do not fall back.',
+      }),
+      /No direct provider or Studio Hub fallback was attempted/,
+    )
+    assert.equal(requests, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio publishes normalized capability, chat, and video catalogs', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
+      const url = String(input)
+      if (url.endsWith('/v1/models')) {
+        return Response.json([
+          {
+            id: 'voice-v1', revision: 'voice-r1', display_name: 'Voice V1', modality: 'audio',
+            operation: 'voice.tts', availability: 'available', qualification_only: false,
+            pricing_unit: 'characters', limits: { max_characters: 15_000 }, controls: { speed: true },
+          },
+          { id: 'invalid', display_name: 'Invalid', modality: 'other', operation: 'unknown' },
+        ])
+      }
+      if (url.endsWith('/v1/chat/models')) {
+        return Response.json([{
+          id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
+          max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
+        }])
+      }
+      if (url.endsWith('/v1/video/models')) {
+        return Response.json([{
+          id: 'video-v1', display_name: 'Video V1', available: false,
+          qualification_only: true, coming_soon: true, modes: ['image-to-video'],
+        }])
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const [capabilities, chat, video] = await Promise.all([
+      listModelCapabilities('scoped-key'),
+      listChatModels('scoped-key'),
+      listVideoModels('scoped-key'),
+    ])
+    assert.equal(capabilities.length, 1)
+    assert.equal(capabilities[0]?.operation, 'voice.tts')
+    assert.equal(chat[0]?.max_output_tokens, 32_768)
+    assert.equal(chat[0]?.available, true)
+    assert.deepEqual(video[0]?.modes, ['image-to-video'])
+    assert.equal(video[0]?.coming_soon, true)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('GenStudio long jobs are not constrained by a short client timeout', () => {

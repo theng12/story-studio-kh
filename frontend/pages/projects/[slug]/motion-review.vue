@@ -228,6 +228,7 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
+const { videoModels: genStudioVideoModels, refresh: refreshGenStudioMediaModels } = useGenStudioMediaModels()
 const cacheBuster = ref(Date.now())
 const motionPresets = usePresets({
   slug: slug.value,
@@ -237,7 +238,8 @@ const motionPresets = usePresets({
   apply: (data: any) => { if (typeof data?.model === 'string') videoModel.value = data.model },
 })
 
-const i2vModels = computed(() => Object.entries((config.value as any)?.video_models || {})
+const i2vModels = computed(() => {
+  const configured = Object.entries((config.value as any)?.video_models || {})
   .filter(([, model]: [string, any]) => Array.isArray(model?.modes) && model.modes.includes('frames'))
   .map(([id, model]: [string, any]) => {
     const provider = String(model.provider || model.provider_id || 'Video Studio')
@@ -249,16 +251,37 @@ const i2vModels = computed(() => Object.entries((config.value as any)?.video_mod
       provider,
       meta: credits > 0 ? `${credits} credits per clip` : 'Image-to-video',
       description: model.description || model.hint || '',
+      disabled: false,
+      disabledReason: undefined,
       badges: [{ label: credits > 0 ? 'paid' : 'I2V', tone: credits > 0 ? 'paid' as const : 'info' as const }],
     }
-  }))
+  })
+  const discovered = genStudioVideoModels.value
+    .filter(model => model.modes.includes('image-to-video'))
+    .map(model => ({
+      id: `genstudio-video:${model.id}`,
+      label: model.display_name,
+      group: 'GenStudio KH',
+      provider: 'GenStudio KH',
+      meta: 'Image-to-video',
+      description: model.description || '',
+      disabled: true,
+      disabledReason: model.available
+        ? 'GenStudio KH has not published its durable video polling and private download contract yet.'
+        : 'This video model is not available in GenStudio KH yet.',
+      badges: [{ label: model.coming_soon ? 'coming soon' : 'not ready', tone: 'warning' as const }],
+    }))
+  return [...configured, ...discovered]
+})
 watch(i2vModels, (models) => {
-  if (!videoModel.value && models.length) videoModel.value = models[0]!.id
+  const ready = models.find(model => !model.disabled)
+  if (!videoModel.value && ready) videoModel.value = ready.id
 }, { immediate: true })
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const canGenerate = computed(() => !!episodeId.value && !!videoModel.value && scenes.value.some(scene =>
-  scene.approved && scene.image_filename && scene.motion_prompt && (!scene.clip_exists || scene.clip_stale),
+  !i2vModels.value.find(model => model.id === videoModel.value)?.disabled
+    && scene.approved && scene.image_filename && scene.motion_prompt && (!scene.clip_exists || scene.clip_stale),
 ))
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
@@ -405,6 +428,7 @@ function scrollToTop(): void {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
+  void refreshGenStudioMediaModels()
   refreshTimer = setInterval(() => {
     if (clipJobsActive.value && !loading.value) void loadReview()
   }, 3000)

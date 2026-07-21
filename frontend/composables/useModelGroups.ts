@@ -19,7 +19,7 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   genaipro: 'GenAIPro (ElevenLabs)',
   // v1.0.378+ — Fish Audio (direct cloud TTS; cheapest cloud option).
   fishaudio: 'Fish Audio',
-  genstudio: 'GenStudio KH (staging API)',
+  genstudio: 'GenStudio KH',
   // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper,
   // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
   // entry (chatterbox-mlx is reachable through Voice Studio's family list).

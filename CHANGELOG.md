@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.666 — 2026-07-21
+
+**GenStudio now owns live model discovery and durable LLM jobs across Story Studio.**
+
+- Audits and preserves the existing durable GenStudio TTS, transcription, and image routes, including stable idempotency, restart-safe polling, private expiring artifact downloads, and secure API-key storage.
+- Discovers GenStudio voice, transcription, image, chat, and video catalogs at runtime without copying provider credentials, worker addresses, or model inventories into Story Studio projects.
+- Adds a durable GenStudio LLM provider that submits each logical request once, polls the same GenStudio job through completion, retains safe job diagnostics, and never silently falls back to direct providers or Studio Hub after an uncertain result.
+- Matches GenStudio voice choices to their live engine and model family so incompatible cloned voices cannot be selected for the active TTS model.
+- Surfaces GenStudio image-to-video models in Motion Review while keeping them clearly unavailable until GenStudio publishes its durable source-image, polling, and private asset-download contract; text-to-video remains unsupported.
+- Keeps the explicit Direct / Studio Hub route intact and updates setup guidance for GenStudio's current catalog and generation scopes.
+- Adds regression coverage for catalog normalization, authenticated inventory routes, stable LLM identities, durable polling, terminal failures, and provider-owned UI boundaries.
+
 ## v1.0.665 — 2026-07-20
 
 **Scene Review approvals leave the pending queue immediately.**

@@ -143,7 +143,69 @@ export interface GenStudioVoice {
   language?: string
   description?: string
   provider?: string
+  engine_id?: string
+  engine_name?: string
+  model_revision_id?: string
+  model_family?: string
+  voice_tier?: string
   generation_enabled?: boolean
+}
+
+export interface GenStudioModelCapability {
+  id: string
+  revision: string
+  display_name: string
+  description?: string
+  modality: 'audio' | 'image' | 'text' | 'video'
+  operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'video.generation'
+  availability: 'available' | 'unavailable' | 'unknown'
+  qualification_only: boolean
+  pricing_unit?: string
+  limits: Record<string, unknown>
+  controls: Record<string, unknown>
+}
+
+export interface GenStudioChatModel {
+  id: string
+  display_name: string
+  description?: string
+  available: boolean
+  qualification_only: boolean
+  max_output_tokens: number
+  controls: string[]
+  activation_blockers: string[]
+}
+
+export interface GenStudioVideoModel {
+  id: string
+  display_name: string
+  description?: string
+  available: boolean
+  qualification_only: boolean
+  coming_soon: boolean
+  modes: string[]
+}
+
+interface GenStudioChatJob {
+  id: string
+  state: GenStudioJob['state']
+  model_id: string
+  output_text?: string | null
+  failure_code?: string | null
+  routing_status_code?: string | null
+}
+
+export interface GenStudioChatRequest extends GenStudioOperationContext {
+  modelId: string
+  system: string
+  userMessage: string
+  temperature?: number
+  topP?: number
+  maxOutputTokens?: number
+  requestIdentity?: string
+  idempotencyKey?: string
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+  onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
 }
 
 export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
@@ -290,8 +352,160 @@ export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
     language: typeof value?.language === 'string' ? value.language : undefined,
     description: typeof value?.description === 'string' ? value.description : undefined,
     provider: typeof value?.provider === 'string' ? value.provider : undefined,
+    engine_id: typeof value?.engine_id === 'string' ? value.engine_id.trim() : undefined,
+    engine_name: typeof value?.engine_name === 'string' ? value.engine_name.trim() : undefined,
+    model_revision_id: typeof value?.model_revision_id === 'string' ? value.model_revision_id.trim() : undefined,
+    model_family: typeof value?.model_family === 'string' ? value.model_family.trim() : undefined,
+    voice_tier: typeof value?.voice_tier === 'string' ? value.voice_tier.trim() : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
+}
+
+/** Fetch GenStudio's provider-owned capability registry without copying it into project config. */
+export async function listModelCapabilities(apiKey: string): Promise<GenStudioModelCapability[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/models`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid capability catalog')
+  const modalities = new Set(['audio', 'image', 'text', 'video'])
+  const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
+  const availability = new Set(['available', 'unavailable', 'unknown'])
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    revision: typeof value?.revision === 'string' ? value.revision.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    modality: value?.modality,
+    operation: value?.operation,
+    availability: availability.has(value?.availability) ? value.availability : 'unknown',
+    qualification_only: value?.qualification_only !== false,
+    pricing_unit: typeof value?.pricing_unit === 'string' ? value.pricing_unit.trim() : undefined,
+    limits: value?.limits && typeof value.limits === 'object' ? value.limits : {},
+    controls: value?.controls && typeof value.controls === 'object' ? value.controls : {},
+  })).filter((model: GenStudioModelCapability) => (
+    !!model.id && !!model.display_name && modalities.has(model.modality) && operations.has(model.operation)
+  ))
+}
+
+export async function listChatModels(apiKey: string): Promise<GenStudioChatModel[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/chat/models`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    available: value?.available === true,
+    qualification_only: value?.qualification_only !== false,
+    max_output_tokens: Number.isInteger(value?.max_output_tokens)
+      ? Math.max(1, Math.min(32_768, value.max_output_tokens))
+      : 2_048,
+    controls: Array.isArray(value?.controls) ? value.controls.filter((item: unknown) => typeof item === 'string') : [],
+    activation_blockers: Array.isArray(value?.activation_blockers)
+      ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
+      : [],
+  })).filter((model: GenStudioChatModel) => model.id && model.display_name)
+}
+
+export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/video/models`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  }))
+  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
+  return payload.map((value: any) => ({
+    id: typeof value?.id === 'string' ? value.id.trim() : '',
+    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    available: value?.available === true,
+    qualification_only: value?.qualification_only !== false,
+    coming_soon: value?.coming_soon !== false,
+    modes: Array.isArray(value?.modes) ? value.modes.filter((item: unknown) => typeof item === 'string') : [],
+  })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
+}
+
+export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    model_id: request.modelId.trim(),
+    system: request.system,
+    user_message: request.userMessage,
+    temperature: request.temperature ?? 0.7,
+    top_p: request.topP ?? 1,
+    max_output_tokens: request.maxOutputTokens ?? 2_048,
+    request_identity: request.requestIdentity?.trim() || null,
+  })).digest('hex')
+  return `story-chat-${digest.slice(0, 47)}`
+}
+
+/** Submit once, then poll only GenStudio's durable chat job state. */
+export async function callChatWithGenStudio(
+  apiKey: string,
+  request: GenStudioChatRequest,
+): Promise<{ text: string; jobId: string; modelId: string }> {
+  const modelId = request.modelId.trim()
+  if (!modelId) throw new Error('Select a GenStudio KH chat model.')
+  if (!request.userMessage.trim()) throw new Error('GenStudio KH chat input cannot be empty.')
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioChatIdempotencyKey(request)
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const submitted = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/chat/responses`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        model_id: modelId,
+        input: [
+          ...(request.system.trim() ? [{ role: 'system', content: request.system }] : []),
+          { role: 'user', content: request.userMessage },
+        ],
+        temperature: request.temperature ?? 0.7,
+        top_p: request.topP ?? 1,
+        max_output_tokens: Math.max(1, Math.min(32_768, request.maxOutputTokens ?? 2_048)),
+      }),
+    },
+    request,
+    deadline,
+  ) as GenStudioChatJob
+  await request.onJobAccepted?.(submitted.id, idempotencyKey)
+  let current = submitted
+  let reportedState = ''
+  while (true) {
+    if (reportedState !== current.state) {
+      reportedState = current.state
+      await request.onState?.(current.state, current.id)
+    }
+    if (current.state === 'failed') {
+      throw new Error(
+        `GenStudio KH chat generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
+        'No direct provider or Studio Hub fallback was attempted.',
+      )
+    }
+    if (current.state === 'succeeded') break
+    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (Date.now() >= deadline) throw new Error('GenStudio KH chat job timed out while waiting for completion')
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/chat/responses/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioChatJob
+  }
+  if (typeof current.output_text !== 'string' || !current.output_text.trim()) {
+    throw new Error('GenStudio KH chat job succeeded without usable output text')
+  }
+  return { text: current.output_text, jobId: current.id, modelId: current.model_id }
 }
 
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */

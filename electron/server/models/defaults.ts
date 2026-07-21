@@ -159,7 +159,7 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   // changed by this catalog row. GenStudio accepts one logical TTS request of
   // up to 15,000 characters; VoiceStudio owns internal chunk/join/speed work.
   'genstudio-qwen3-standard': {
-    label: 'Qwen3 Standard Voices [GenStudio KH · staging]',
+    label: 'Qwen3 Standard Voices [GenStudio KH]',
     cost_per_1k_chars: 0,
     provider: 'genstudio',
     tts_soft_max_chars: 15000,

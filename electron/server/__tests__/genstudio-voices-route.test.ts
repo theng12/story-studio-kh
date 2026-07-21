@@ -36,7 +36,11 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     assert.equal(String(input), 'http://127.0.0.1:8000/v1/voices')
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
     return new Response(JSON.stringify([
-      { id: 'voice_qwen3_ryan', display_name: 'Ryan', language: 'en' },
+      {
+        id: 'voice_qwen3_ryan', display_name: 'Ryan', language: 'en',
+        engine_id: 'genstudio-standard-v1', engine_name: 'Qwen3 TTS',
+        model_revision_id: 'qwen-r1', model_family: 'qwen3', voice_tier: 'standard',
+      },
       { id: 'voice_qwen3_aiden', display_name: 'Aiden', language: 'en' },
       { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
     ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -48,6 +52,61 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     'voice_qwen3_ryan',
     'voice_qwen3_aiden',
   ])
+  assert.equal(response.body.voices[0].engine_id, 'genstudio-standard-v1')
+  assert.equal(response.body.voices[0].model_family, 'qwen3')
+})
+
+test('GenStudio media and LLM discovery use provider-owned live catalogs', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_test_story_catalog' })
+    .expect(200)
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
+    const url = String(input)
+    if (url.endsWith('/v1/models')) {
+      return Response.json([
+        {
+          id: 'voice-v1', revision: 'r1', display_name: 'Voice V1', modality: 'audio',
+          operation: 'voice.tts', availability: 'available', qualification_only: false,
+          pricing_unit: 'characters', limits: { max_characters: 15_000 }, controls: {},
+        },
+        {
+          id: 'image-v1', revision: 'r1', display_name: 'Image V1', modality: 'image',
+          operation: 'image.generation', availability: 'available', qualification_only: false,
+          limits: {}, controls: {},
+        },
+      ])
+    }
+    if (url.endsWith('/v1/chat/models')) {
+      return Response.json([{
+        id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
+        max_output_tokens: 8_192, controls: ['temperature'], activation_blockers: [],
+      }])
+    }
+    if (url.endsWith('/v1/video/models')) {
+      return Response.json([{
+        id: 'video-v1', display_name: 'Video V1', available: false,
+        qualification_only: true, coming_soon: true, modes: ['image-to-video'],
+      }])
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }
+
+  const capabilities = await request(app).get('/api/app-settings/genstudio/models').expect(200)
+  assert.equal(capabilities.body.models.length, 2)
+
+  const voice = await request(app).get('/api/app-settings/genstudio/voice-models').expect(200)
+  assert.deepEqual(voice.body.models.map((model: any) => model.id), ['voice-v1'])
+  assert.equal(voice.body.models[0].limits.max_characters, 15_000)
+
+  const chat = await request(app).get('/api/app-settings/genstudio/chat-models').expect(200)
+  assert.deepEqual(chat.body.models.map((model: any) => model.id), ['chat-v1'])
+
+  const video = await request(app).get('/api/app-settings/genstudio/video-models').expect(200)
+  assert.deepEqual(video.body.models.map((model: any) => model.id), ['video-v1'])
+  assert.equal(video.body.models[0].available, false)
 })
 
 test('GenStudio transcription discovery uses the same scoped boundary key', async () => {

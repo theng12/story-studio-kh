@@ -41,6 +41,7 @@ import '../providers/video/videostudio.js'
 import '../providers/text/openai.js'
 import '../providers/text/deepseek.js'
 import '../providers/text/openrouter.js'
+import '../providers/text/genstudio.js'
 // Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM server, self-
 // healing). Sibling of Image/Voice Studio: the apiKey slot carries the base
 // URL, models surface dynamically from the running server's /v1/models.

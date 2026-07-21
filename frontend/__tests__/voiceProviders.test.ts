@@ -86,3 +86,22 @@ test('all Story Studio transcription UI uses the GenStudio model catalog only', 
     assert.doesNotMatch(source, /voicestudio\/download-model/)
   }
 })
+
+test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video selectors', () => {
+  const mediaModels = readFileSync(new URL('../composables/useGenStudioMediaModels.ts', import.meta.url), 'utf8')
+  const imageModels = readFileSync(new URL('../composables/useGenStudioImageModels.ts', import.meta.url), 'utf8')
+  const modelSelector = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
+  const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
+  const providerGroups = readFileSync(new URL('../utils/api-provider-groups.ts', import.meta.url), 'utf8')
+
+  assert.match(mediaModels, /\/app-settings\/genstudio\/voice-models/)
+  assert.match(mediaModels, /\/app-settings\/genstudio\/video-models/)
+  assert.match(mediaModels, /Promise\.allSettled/)
+  assert.match(imageModels, /\/app-settings\/genstudio\/image-models/)
+  assert.match(modelSelector, /get\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
+  assert.match(motionReview, /genstudio-video:\$\{model\.id\}/)
+  assert.match(motionReview, /durable video polling and private download contract/)
+  assert.match(providerGroups, /category: 'mix'/)
+  assert.match(providerGroups, /chat:generate/)
+  assert.doesNotMatch(providerGroups, /Qwen3 voice and transcription boundary/)
+})

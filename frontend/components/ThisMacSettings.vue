@@ -71,8 +71,10 @@
         <span class="tms-section-kicker">Studio API boundary</span>
         <h4>GenStudio KH API</h4>
         <p>
-          Story Studio's route for Qwen3 voices, AI transcription, and fleet image generation. Use one GenStudio key
-          with voice scopes, <code>audio:transcribe</code>, and <code>images:generate</code>; Studio Hub and worker credentials stay private behind GenStudio.
+          Story Studio's managed route for voice, transcription, image, and LLM models. Use one GenStudio key with
+          <code>models:read</code>, <code>voices:read</code>, <code>tts:generate</code>, <code>audio:transcribe</code>,
+          <code>images:generate</code>, and <code>chat:generate</code>. Add <code>videos:generate</code> when GenStudio
+          publishes its durable video job and private-download API. Studio Hub and worker credentials always stay behind GenStudio.
         </p>
       </div>
       <div class="genstudio-controls">

@@ -360,6 +360,34 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
+const {
+  voiceModels: genStudioVoiceModels,
+  refresh: refreshGenStudioMediaModels,
+} = useGenStudioMediaModels()
+
+function genStudioCharacterLimit(model: any): number {
+  const limits = model?.limits || {}
+  const candidates = [limits.max_characters, limits.max_text_characters, limits.max_chars]
+  const value = candidates.map(Number).find(number => Number.isFinite(number) && number > 0)
+  return value ? Math.round(value) : 15_000
+}
+
+const runtimeAudioModels = computed<Record<string, any>>(() => {
+  const models = { ...((config.value?.audio_models || {}) as Record<string, any>) }
+  for (const model of genStudioVoiceModels.value) {
+    models[model.id] = {
+      label: `${model.display_name} [GenStudio KH]`,
+      description: model.description || 'Voice model published by GenStudio KH.',
+      provider: 'genstudio',
+      cost_per_1k_chars: 0,
+      tts_soft_max_chars: genStudioCharacterLimit(model),
+      available: model.available,
+      qualification_only: model.qualification_only,
+      pricing_unit: model.pricing_unit,
+    }
+  }
+  return models
+})
 
 // v1.0.203+ — which Voice Studio engines the live modal can actually run.
 // Every voicestudio-* model is registered in the catalog so generation +
@@ -382,7 +410,7 @@ async function loadVoicestudioModels() {
 // OK probe; otherwise everything shows (never strand the user with an
 // empty/short dropdown because the modal blipped).
 const visibleAudioModels = computed<Record<string, any>>(() => {
-  const all = (config.value?.audio_models || {}) as Record<string, any>
+  const all = runtimeAudioModels.value
   const probe = vsAvailable.value
   // Show everything when the probe isn't definitive (not run / modal offline)
   // OR when it reports ZERO ready engines. v1.0.275 — the empty case used to
@@ -412,9 +440,16 @@ const audioModelOptions = computed(() => audioModelGroups.value.flatMap(group =>
       label: data.label || id,
       group: group.label,
       provider: group.label,
-      meta: isPaid ? `$${data.cost_per_1k_chars}/1K characters` : 'Free · local processing',
+      meta: resolveAudioProvider(id, data) === 'genstudio'
+        ? (data.pricing_unit || 'GenStudio account credits')
+        : isPaid ? `$${data.cost_per_1k_chars}/1K characters` : 'Free · local processing',
       description: data.description || data.hint || '',
-      badges: [{ label: isPaid ? 'paid' : 'local', tone: isPaid ? 'paid' as const : 'local' as const }],
+      disabled: data.available === false,
+      disabledReason: data.available === false ? 'This voice model is not currently available in GenStudio KH.' : undefined,
+      badges: [{
+        label: resolveAudioProvider(id, data) === 'genstudio' ? 'GenStudio' : isPaid ? 'paid' : 'local',
+        tone: resolveAudioProvider(id, data) === 'genstudio' ? 'info' as const : isPaid ? 'paid' as const : 'local' as const,
+      }],
     }
   }),
 ))
@@ -490,7 +525,7 @@ useRememberedForm('audio', slug, form, {
 // the placeholder comment above where this used to live (line ~250).
 const currentAudioProvider = computed<string>(() => {
   if (!form.model) return ''
-  const entry = config.value?.audio_models?.[form.model] as any
+  const entry = visibleAudioModels.value[form.model] as any
   return resolveAudioProvider(form.model, entry || {})
 })
 
@@ -531,7 +566,7 @@ watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_
 // form so the user knows exactly what's about to be sent to the TTS API.
 const resolvedChunkCap = computed<number | null>(() => {
   if (!form.model) return null
-  const entry = config.value?.audio_models?.[form.model] as any
+  const entry = visibleAudioModels.value[form.model] as any
   const cap = Number(entry?.tts_soft_max_chars)
   return Number.isFinite(cap) && cap > 0 ? Math.round(cap) : null
 })
@@ -678,6 +713,7 @@ onMounted(async () => {
   await applyAudioFormatDefaultsIfNoPreset()
   await audioPresets.load()
   void loadVoicestudioModels()
+  void refreshGenStudioMediaModels()
 })
 
 // Effective section list = what the AudioChapterSelector says to actually

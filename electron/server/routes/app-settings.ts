@@ -29,8 +29,11 @@ import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
+  listModelCapabilities as listGenStudioCapabilities,
+  listChatModels as listGenStudioChatModels,
   listImageModels as listGenStudioImageModels,
   listTranscriptionModels as listGenStudioTranscriptionModels,
+  listVideoModels as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
 
@@ -473,6 +476,58 @@ router.get('/app-settings/genstudio/voices', async (_req, res) => {
     res.json({ voices: await listGenStudioVoices(apiKey) })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH voice catalog'))
+  }
+})
+
+router.get('/app-settings/genstudio/models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    res.json({ models: await listGenStudioCapabilities(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH capability catalog'))
+  }
+})
+
+router.get('/app-settings/genstudio/voice-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    const models = (await listGenStudioCapabilities(apiKey))
+      .filter(model => model.operation === 'voice.tts')
+      .map(model => ({
+        id: model.id,
+        display_name: model.display_name,
+        description: model.description,
+        available: model.availability === 'available',
+        qualification_only: model.qualification_only,
+        pricing_unit: model.pricing_unit,
+        limits: model.limits,
+        controls: model.controls,
+      }))
+    res.json({ models })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH voice models'))
+  }
+})
+
+router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    res.json({ models: await listGenStudioChatModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH chat models'))
+  }
+})
+
+router.get('/app-settings/genstudio/video-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    res.json({ models: await listGenStudioVideoModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH video models'))
   }
 })
 

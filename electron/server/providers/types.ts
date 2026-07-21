@@ -171,6 +171,8 @@ export interface TextGenerationRequest {
   disableReasoning?: boolean
   /** Optional sampling temperature for callers that need stable structured output. */
   temperature?: number
+  /** Stable Story-side identity used by durable boundaries for idempotent submission. */
+  requestIdentity?: string
   /** Provider response details used to explain truncation and token consumption. */
   onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /** Abort signal passed through to the SDK — streaming providers tear down

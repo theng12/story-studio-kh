@@ -5,6 +5,7 @@ import { createRequire } from 'module'
 import * as pm from '../services/project-manager.js'
 import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance, getFishCredit, getDeepseekBalance, testApiKey } from '../services/utils.js'
 import { MODEL_LABELS, SUPPORTED_MODELS, KNOWN_UNAVAILABLE_REASONS } from '../models/types.js'
+import { listChatModels as listGenStudioChatModels } from '../lib/genstudio-client.js'
 import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
@@ -179,11 +180,12 @@ router.get('/models', async (req, res) => {
 
   // App-level secrets — present regardless of project context.
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  const [appOpenai, appKie, appDeepseek, appOpenrouter] = await Promise.all([
+  const [appOpenai, appKie, appDeepseek, appOpenrouter, appGenstudio] = await Promise.all([
     getApiKey('openai').catch(() => ''),
     getApiKey('kie').catch(() => ''),
     getApiKey('deepseek').catch(() => ''),
     getApiKey('openrouter').catch(() => ''),
+    getApiKey('genstudio').catch(() => ''),
   ])
 
   // Per-project fallback for backwards compat (only openai/kie are stored
@@ -203,6 +205,7 @@ router.get('/models', async (req, res) => {
     kie: !!(appKie || cfgKie),
     deepseek: !!appDeepseek,
     openrouter: !!appOpenrouter,
+    genstudio: !!appGenstudio,
   }
 
   // v1.0.283 — vision-capable model detection. We can't query a "capabilities"
@@ -339,6 +342,30 @@ router.get('/models', async (req, res) => {
         })
     }
   } catch { /* server off / unreachable — surface nothing, don't block */ }
+
+  // GenStudio owns this catalog. Keep its public ids namespaced so they cannot
+  // collide with direct providers, and retain unavailable entries as disabled
+  // choices so activation blockers are visible before the API is enabled.
+  if (appGenstudio) {
+    try {
+      const entries = await listGenStudioChatModels(appGenstudio)
+      for (const entry of entries) {
+        const blockers = entry.activation_blockers.filter(Boolean)
+        models.push({
+          id: `genstudio-chat:${entry.id}`,
+          label: `${entry.display_name} [GenStudio KH]`,
+          provider: 'genstudio',
+          available: entry.available,
+          disabled_reason: entry.available
+            ? null
+            : (blockers.join(' ') || 'This model is not available in GenStudio KH yet.'),
+          hint: [entry.description, entry.qualification_only ? 'Qualification catalog.' : ''].filter(Boolean).join(' '),
+          supports_vision: false,
+          cost_tier: 'paid',
+        })
+      }
+    } catch { /* GenStudio catalog failure must not hide direct/Hub models. */ }
+  }
 
   res.json(models)
 })

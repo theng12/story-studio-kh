@@ -44,6 +44,8 @@ export interface CallAiContext {
   disableReasoning?: boolean
   /** Sampling temperature forwarded to providers that support it. */
   temperature?: number
+  /** Stable logical request identity for durable provider submissions. */
+  requestIdentity?: string
   /** Receives provider finish reason and token usage without changing callAi's return type. */
   onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /**
@@ -132,6 +134,7 @@ export async function callAi(
     jsonMode: ctx.jsonMode,
     disableReasoning: ctx.disableReasoning,
     temperature: ctx.temperature,
+    requestIdentity: ctx.requestIdentity || [ctx.slug, ctx.jobId].filter(Boolean).join(':') || undefined,
     onDiagnostics: ctx.onDiagnostics,
     images: ctx.images,
   })
@@ -233,7 +236,7 @@ export async function hasAnyTextProviderKey(
 ): Promise<boolean> {
   if (config?.openai_api_key || config?.kie_api_key) return true
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  for (const p of ['openai', 'kie', 'deepseek', 'openrouter']) {
+  for (const p of ['openai', 'kie', 'deepseek', 'openrouter', 'genstudio']) {
     if (await getApiKey(p).catch(() => '')) return true
   }
   return false
