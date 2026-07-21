@@ -910,12 +910,32 @@ export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
   return merged
 }
 
+/**
+ * Remove the retired per-job TTS chunk override from every saved Audio
+ * Generator preset shape. Older releases stored it under `data.form`, while
+ * imported presets can carry it at the root, so this deliberately walks the
+ * complete preset tree. Current model limits remain in `audio_models`.
+ */
+export function sanitizeAudioGeneratorPresets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeAudioGeneratorPresets)
+  if (!value || typeof value !== 'object') return value
+  const clean: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'max_chunk_chars') continue
+    clean[key] = sanitizeAudioGeneratorPresets(child)
+  }
+  return clean
+}
+
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
   const configPath = path.join(projectDir, 'config.json')
   if (!existsSync(configPath)) return null
   const raw = await readJson(configPath)
+  if (Array.isArray(raw.audio_generator_presets)) {
+    raw.audio_generator_presets = sanitizeAudioGeneratorPresets(raw.audio_generator_presets)
+  }
 
   // Merge defaults into each catalog so new default entries (e.g. new
   // ElevenLabs models) surface in existing projects without forcing
@@ -1152,6 +1172,9 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
+    if (Array.isArray(data.audio_generator_presets)) {
+      data.audio_generator_presets = sanitizeAudioGeneratorPresets(data.audio_generator_presets)
+    }
     // Retired custom-model storage. Any normal settings save permanently
     // prunes it from this project's config without requiring a bulk migration.
     delete data.models
@@ -1169,7 +1192,9 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
     for (const key of Object.keys(req)) {
       if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
-        (data as any)[key] = (req as any)[key]
+        (data as any)[key] = key === 'audio_generator_presets'
+          ? sanitizeAudioGeneratorPresets((req as any)[key])
+          : (req as any)[key]
       }
     }
     if ((req as any).video_models) {

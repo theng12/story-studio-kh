@@ -93,10 +93,13 @@ describe('Voice Studio Qwen3 clone routing', () => {
     assert.equal(VOICESTUDIO_HUB_TTS_TIMEOUT_MS, 2 * 60 * 60_000)
   })
 
-  test('accepts a 15,000-character per-job dispatch override but rejects larger values', () => {
+  test('discards retired per-job chunk overrides at the request boundary', () => {
     const base = { episode_id: 'EP0001', model: 'voicestudio-qwen3-tts-base-0.6b' }
-    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 15000 }).success, true)
-    assert.equal(GenerateAudioSchema.safeParse({ ...base, max_chunk_chars: 15001 }).success, false)
+    for (const max_chunk_chars of [50, 15000, 15001]) {
+      const parsed = GenerateAudioSchema.safeParse({ ...base, max_chunk_chars })
+      assert.equal(parsed.success, true, 'legacy clients remain compatible')
+      if (parsed.success) assert.equal('max_chunk_chars' in parsed.data, false)
+    }
   })
 
   test('classifies Qwen voice mode by exact model rather than shared family', () => {

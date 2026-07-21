@@ -196,7 +196,13 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   async function persist() {
     // A mutation is also the safe migration point for legacy records: clean
     // the full list before writing, including entries owned by other types.
-    allPresets.value = allPresets.value.map(normalizePreset)
+    allPresets.value = allPresets.value.map((preset) => {
+      const normalized = normalizePreset(preset)
+      return {
+        ...normalized,
+        data: stripKeysDeep(normalized.data, excludeKeys),
+      }
+    })
     await put(`/projects/${opts.slug}/settings/config`, {
       [presetsKey]: allPresets.value,
       [activeKey]: activeId.value,

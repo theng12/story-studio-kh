@@ -552,7 +552,8 @@ export function resolveStepParams(
     }
   }
   if (step === 'audio') {
-    const form = data.form || {}
+    const form = { ...(data.form || {}) }
+    delete form.max_chunk_chars
     const { sections: _sections, generation_mode: generationMode, ...rest } = form
     const hasGenerationMode = ['skip', 'regenerate', 'new_version'].includes(generationMode)
     return {

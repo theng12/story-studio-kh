@@ -478,7 +478,7 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(`Cast: ${projectCharacters.length} character(s), ${withVoices} with voice IDs`)
   }
 
-  // [per-model chunk-size cap] v1.0.155+ — cloud providers keep their audited
+  // [per-model chunk-size cap] — cloud providers keep their audited
   // request limits. Voice Studio engines that own stable internal chunking
   // can receive a chapter-scale outer request. Read the cap off
   // AudioModelConfig.tts_soft_max_chars when set; the chunker falls
@@ -491,19 +491,8 @@ export async function generateAudio(job: Job): Promise<void> {
     typeof modelEntry?.tts_soft_max_chars === 'number' && modelEntry.tts_soft_max_chars > 0
       ? modelEntry.tts_soft_max_chars
       : undefined
-  // Per-job override for callers that need finer recovery granularity.
-  // Validated 50-15000 at the contract layer.
-  const reqAny = req as any
-  const overrideCap: number | undefined = typeof reqAny.max_chunk_chars === 'number' && reqAny.max_chunk_chars > 0
-    ? reqAny.max_chunk_chars
-    : undefined
-  const ttsChunkCap: number | undefined = overrideCap ?? modelDefaultCap
-  if (overrideCap) {
-    job.output_lines.push(
-      `Chunk cap for ${req.model}: ${overrideCap} chars per submit ` +
-      `(per-job override from the Audio page; default would have been ${modelDefaultCap ?? 'unset'}).`,
-    )
-  } else if (ttsChunkCap) {
+  const ttsChunkCap: number | undefined = modelDefaultCap
+  if (ttsChunkCap) {
     job.output_lines.push(
       `Chunk cap for ${req.model}: ${ttsChunkCap} chars per submit ` +
       `(model-specific; see AudioModelConfig.tts_soft_max_chars).`,

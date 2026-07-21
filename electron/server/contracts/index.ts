@@ -376,14 +376,6 @@ export const GenerateAudioSchema = z.object({
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
   /**
-   * Per-job override for the chunk-size cap. When set, overrides the
-   * audio_models[model].tts_soft_max_chars default for THIS job only.
-   * Voice Studio clone engines can accept a chapter-scale outer request and
-   * perform their own smaller sentence-safe synthesis passes internally.
-   * Bounds 50-15000 chars.
-   */
-  max_chunk_chars: z.number().int().min(50).max(15000).optional(),
-  /**
    * Fish Audio S2-Pro only: when true, the generator swaps each section's text
    * for its saved "expressive script" (inline [tag] markup) before chunking.
    * Ignored by every other provider/model.
@@ -394,7 +386,14 @@ export const GenerateAudioSchema = z.object({
   /** Fish Audio S2-Pro only: insert [short pause]/[long pause] tags at sentence
    *  + paragraph boundaries so plain narration stops rushing through periods. */
   fish_autopace: z.boolean().optional(),
-}).passthrough()
+}).passthrough().transform((value) => {
+  // Retired request/preset field. Accept old clients without breaking their
+  // jobs, but discard the override before it reaches a queue or provider.
+  // TTS splitting is owned exclusively by the active model inventory.
+  const current = { ...value }
+  delete current.max_chunk_chars
+  return current
+})
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 
 /** Response from `POST /projects/:slug/generate/{script,images,audio}`. */

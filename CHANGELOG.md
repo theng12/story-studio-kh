@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.667 — 2026-07-21
+
+**Voice generation now follows one current model limit, never stale preset chunking.**
+
+- Removes the retired per-job `max_chunk_chars` field from Audio Generator state, saved presets, Pipeline requests, and TTS execution.
+- Cleans the legacy field from every nested Audio Generator preset when presets are read or saved, while preserving model, voice, delivery, and expression settings.
+- Keeps older app clients compatible by accepting and discarding their obsolete override instead of allowing it to change generation behavior.
+- Makes `audio_models[model].tts_soft_max_chars` the sole Story Studio source for provider-aware voice splitting; GenStudio continues to own its server-side synthesis behavior.
+- Preserves Audio Assembly's separate inter-part silence setting because it controls audible timing after generation rather than provider request chunking.
+- Adds regression coverage for old preset migration, Pipeline sanitization, request-boundary compatibility, and current model-limit ownership.
+
 ## v1.0.666 — 2026-07-21
 
 **GenStudio now owns live model discovery and durable LLM jobs across Story Studio.**

@@ -1,6 +1,10 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeCatalog, migrateRetiredAudioDefaults } from '../services/project-manager.js'
+import {
+  mergeCatalog,
+  migrateRetiredAudioDefaults,
+  sanitizeAudioGeneratorPresets,
+} from '../services/project-manager.js'
 
 describe('model catalog ownership', () => {
   test('keeps built-in user pricing but drops project-added model entries', () => {
@@ -60,5 +64,29 @@ describe('model catalog ownership', () => {
     assert.equal(merged['voicestudio-qwen3-tts-base-1.7b'].tts_soft_max_chars, 2400)
     assert.equal(merged['voicestudio-chatterbox-mlx'].tts_soft_max_chars, 15000)
     assert.equal(merged['voicestudio-voxcpm-mlx'].tts_soft_max_chars, 15000)
+  })
+
+  test('removes legacy TTS chunk overrides from every saved preset shape', () => {
+    const presets = [{
+      id: 'voice-1',
+      max_chunk_chars: 600,
+      data: {
+        form: {
+          model: 'voicestudio-qwen3-tts',
+          voice: 'Aiden',
+          max_chunk_chars: 500,
+        },
+      },
+    }]
+
+    assert.deepEqual(sanitizeAudioGeneratorPresets(presets), [{
+      id: 'voice-1',
+      data: {
+        form: {
+          model: 'voicestudio-qwen3-tts',
+          voice: 'Aiden',
+        },
+      },
+    }])
   })
 })

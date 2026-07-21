@@ -482,14 +482,6 @@ const form = reactive({
   speed: 0.93,
   stability: 1.0,
   similarity: 1.0,
-  // v1.0.314 — the per-job chunk override field is gone. The chunk cap is
-  // configured per-model in Settings → Audio Models (tts_soft_max_chars) and
-  // surfaced read-only on this page so it can't be tweaked here. Kept as a
-  // null field so legacy presets / remembered-form entries that still carry
-  // it don't crash — it just never gets a value into payload (always stripped
-  // at submit). Safe to remove this line once no v1.0.313-or-older presets
-  // remain in the wild.
-  max_chunk_chars: null as number | null,
   // Unified Generation Mode (M6). Submit translates this into the backend's
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
   // default behaviour (force=false, no_overwrite=false).
@@ -511,9 +503,6 @@ const form = reactive({
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  // v1.0.314 — max_chunk_chars removed from the allowlist. It's no longer
-  // user-settable on this page (per-model cap lives in Settings), so there's
-  // nothing to remember.
   include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
 })
 
@@ -676,7 +665,7 @@ const audioPresets = usePresets<any>({
   // Section selection belongs to the current episode, never to a reusable
   // voice/model preset. This also strips stale `sections` from old presets
   // before apply, so the selector can auto-pick every missing section.
-  excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections'],
+  excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections', 'max_chunk_chars'],
 })
 
 /**
@@ -904,13 +893,6 @@ async function queueAudio(sectionOverride?: string) {
   const no_overwrite = form.generation_mode === 'new_version'
   const { generation_mode: _gm, ...rest } = form
   const payload: any = { ...rest, sections, force, no_overwrite }
-  // v1.0.314 — always strip max_chunk_chars from the payload. The Audio
-  // Generator no longer exposes the per-job override — the cap is set per
-  // model in Settings → Audio Models. A legacy preset or remembered form may
-  // still carry the field; stripping it unconditionally means the backend
-  // falls back to the per-model cap (or the chunker default) in every case.
-  delete payload.max_chunk_chars
-
   if (!sectionOverride && form.episode_id && effectiveSections.value.length === 0 && form.sections) {
     // User selected items but every one was filtered out as already-generated.
     showError('Every selected section already has audio. Switch Generation Mode to "Regenerate" or "New version" to overwrite, or pick different sections.')

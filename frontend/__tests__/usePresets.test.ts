@@ -120,7 +120,14 @@ describe('usePresets.load()', () => {
       audio_generator_presets: [{
         id: 'audio-1',
         name: 'Voice preset',
-        data: { form: { model: 'tts-model', voice: 'voice-1', sections: 'Chapter_01,Chapter_02' } },
+        data: {
+          form: {
+            model: 'tts-model',
+            voice: 'voice-1',
+            sections: 'Chapter_01,Chapter_02',
+            max_chunk_chars: 500,
+          },
+        },
       }],
       audio_generator_last_preset: 'audio-1',
     }
@@ -130,13 +137,18 @@ describe('usePresets.load()', () => {
       configKey: 'audio_generator',
       snapshot: () => ({ form: { ...form } }),
       apply: data => Object.assign(form, data.form),
-      excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections'],
+      excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections', 'max_chunk_chars'],
     })
 
     await presets.load()
     assert.equal(form.model, 'tts-model')
     assert.equal(form.voice, 'voice-1')
     assert.equal(form.sections, 'Introduction', 'legacy preset cannot overwrite the episode selection')
+    assert.equal('max_chunk_chars' in form, false, 'legacy preset cannot restore retired TTS chunking')
+
+    await presets.overwrite()
+    const stored = configStore['audio-project'].audio_generator_presets[0]
+    assert.equal('max_chunk_chars' in stored.data.form, false, 'next preset save permanently removes the retired field')
   })
 })
 

@@ -217,6 +217,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
         model: 'genaipro-flash-v2.5',
         voice: 'voice-1',
         sections: 'Chapter_01,Chapter_02',
+        max_chunk_chars: 500,
         generation_mode: 'skip',
       },
     })
@@ -225,6 +226,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.force, false)
     assert.equal(params.no_overwrite, false)
     assert.equal('generation_mode' in params, false)
+    assert.equal('max_chunk_chars' in params, false, 'legacy presets cannot override the active model limit')
   })
 
   test('video_assembly bundle preset flattens to generator-shape request', () => {
