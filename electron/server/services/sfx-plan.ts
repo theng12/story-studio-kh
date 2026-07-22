@@ -25,7 +25,10 @@ import { findSubfolder } from '../lib/folder-resolver.js'
 
 export const SFX_PLAN_SIDECAR = 'sfx_plan.json'
 
-/** How a cue's clip was sourced. `''` = not yet resolved. */
+/**
+ * How a cue's clip was sourced. Legacy external values remain readable so old
+ * sidecars still assemble, but new automatic external sourcing is disabled.
+ */
 export type SfxSource = '' | 'pool' | 'freesound' | 'elevenlabs'
 
 /** Lifecycle of a single cue. */

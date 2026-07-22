@@ -402,6 +402,16 @@
           </span>
         </div>
 
+        <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
+          <span class="meta-label">GenStudio:</span>
+          <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote)">
+            {{ remote.operation }} · <strong>{{ remote.state }}</strong>
+            <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
+            <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
+            <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
+          </span>
+        </div>
+
         <!-- Row 3: Running progress / Summary -->
         <div v-if="job.status === 'running' && job.output_lines?.length" class="job-live-output">
           <div class="progress-row">
@@ -570,6 +580,16 @@
             </span>
           </div>
 
+          <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
+            <span class="meta-label">GenStudio:</span>
+            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote)">
+              {{ remote.operation }} · <strong>{{ remote.state }}</strong>
+              <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
+              <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
+              <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
+            </span>
+          </div>
+
           <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
             <span class="summary-icon">&#10003;</span>
             <span>{{ getSummaryLine(job) }}</span>
@@ -682,6 +702,16 @@ function hasAccountsUsed(job: RJob): boolean {
 
 function providerDisplay(providerId: string): string {
   return PROVIDER_DISPLAY[providerId] || providerId
+}
+
+function genStudioJobTitle(remote: NonNullable<RJob['genstudio_jobs']>[number]): string {
+  return [
+    `Remote job: ${remote.id}`,
+    remote.model_id ? `Model: ${remote.model_id}` : '',
+    remote.remaining_credits !== undefined ? `Balance after: ${remote.remaining_credits}` : '',
+    remote.price_version ? `Price version: ${remote.price_version}` : '',
+    remote.failure_code ? `Failure: ${remote.failure_code}` : '',
+  ].filter(Boolean).join(' · ')
 }
 
 const expanded = ref<string | null>(null)

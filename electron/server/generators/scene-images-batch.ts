@@ -14,29 +14,21 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { existsSync, statSync } from 'fs'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveSceneImagesDir } from './scene-image.js'
-import { getHubBackend } from '../lib/studiohub-client.js'
-import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
 import type { ImageGenerationRequest } from '../providers/types.js'
-import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
-import {
-  acceptHubImageRecovery,
-  completeHubImageRecovery,
-  finishHubImageRecoveryPoll,
-  getReconnectableHubImageRecovery,
-  prepareHubImageRecovery,
-} from '../services/hub-image-recovery.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 
 interface SceneImagesBatchParams {
   episode_id: string
@@ -69,19 +61,14 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
 
-  const logicalRecoveryId = `scene-images:${job.project_slug}:${episode_id.toUpperCase()}`
-  const savedRecovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
   const repairOnly = params.hub_repair_only === true
-  // An accepted batch's item indexes belong to the original target list. Keep
-  // that exact list while reconnecting even when some files already reached
-  // disk. A terminal batch is reused only by explicit read-only Repair.
-  const reconnectIds = savedRecovery && (
-    savedRecovery.state === 'prepared' || savedRecovery.state === 'accepted' || repairOnly
-  ) ? savedRecovery.target_ids : null
-  // Which scenes: accepted checkpoint, explicit id list, or every missing image.
-  const idSet = reconnectIds?.length
-    ? new Set(reconnectIds)
-    : Array.isArray(params.scene_ids) && params.scene_ids.length ? new Set(params.scene_ids) : null
+  if (repairOnly) {
+    throw new Error(
+      'Legacy Studio Hub batch repair is retired. No Hub request was made. ' +
+      'Use the image Repair action for a saved GenStudio job, or Retry to submit deliberate new GenStudio work.',
+    )
+  }
+  const idSet = Array.isArray(params.scene_ids) && params.scene_ids.length ? new Set(params.scene_ids) : null
   const targets = plan.scenes.filter((s) => {
     if (idSet) return idSet.has(s.id)
     try {
@@ -101,17 +88,17 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint, poll: modelConfig.poll, type: modelConfig.type,
     api_model: modelConfig.api_model, aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, { model, jobId: job.job_id })
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in App Settings → API Keys.`)
-  }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   const aspectRatio = params.aspect_ratio || '16:9'
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
@@ -123,7 +110,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
 
   const buildReq = (scene: ScenePlanEntry): ImageGenerationRequest => ({
     prompt: scene.visual_prompt!,
-    apiKey, aspectRatio, modelId: model, providerParams,
+    apiKey, aspectRatio, modelId: modelConfig.api_model || model, providerParams,
     width: renderWidth, height: renderHeight,
     steps: params.image_steps,
     seed: params.seed,
@@ -152,79 +139,21 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
 
   job.output_lines.push(`Scene images — ${imageProvider.meta.name} / ${model} · ${total} scene(s)`)
 
-  const hub = await getHubBackend()
-  let batched = false
-  if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio') {
+  for (const scene of targets.filter(item => !successfulSceneIds.has(item.id))) {
+    if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     try {
-      const requests = targets.map(buildReq)
-      const recovery = await prepareHubImageRecovery(job, {
-        logicalId: logicalRecoveryId,
-        targetIds: targets.map(scene => scene.id),
-        hubUrl: hub.hubUrl,
-        requestIdentity: requests,
-        repairOnly,
-      })
-      job.output_lines.push(recovery.batch_id
-        ? `Studio Hub recovery — reconnecting batch ${recovery.batch_id} for ${total} scene(s).`
-        : `Studio Hub batch — submitting ${total} scene(s) as ONE idempotent render; the Hub distributes across the fleet.`)
-      await renderImageBatchViaHub(requests, {
-        label: `storystudio:${job.project_slug}/${episode_id.toUpperCase()}`,
-        isCancelled: () => jq.isCancelled(job.job_id),
-        recovery: {
-          clientRequestId: recovery.client_request_id,
-          batchId: recovery.batch_id,
-          repairOnly,
-          onAccepted: async (batchId, replayed) => {
-            await acceptHubImageRecovery(job, recovery, batchId)
-            job.output_lines.push(replayed
-              ? `Studio Hub safely replayed the saved request as existing batch ${batchId}.`
-              : `Studio Hub accepted batch ${batchId}; recovery checkpoint saved.`)
-          },
-          onFinished: status => finishHubImageRecoveryPoll(job, recovery, status),
-        },
-        onItemDone: async (index, result) => {
-          const scene = targets[index]
-          if (!scene) return
-          if (result.error || !result.url) {
-            failed++
-            failedSceneIds.add(scene.id)
-            job.output_lines.push(`Scene ${scene.scene_index} failed: ${result.error || 'no image'}`)
-          } else {
-            await saveScene(scene, result.url)
-            made++
-            job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
-          }
-          done++
-          job.progress = Math.round((done / total) * 100)
-        },
-      })
-      batched = true
+      const result = await imageProvider.generateImage(buildReq(scene))
+      if (!result.urls.length) throw new Error('GenStudio KH returned no image')
+      await saveScene(scene, result.urls[0]!)
+      made++
+      job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
     } catch (e: any) {
-      job.output_lines.push(
-        `Studio Hub batch failed: ${e?.message || e}. ` +
-        `${successfulSceneIds.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
-      )
-      throw e
-    }
-  }
-
-  if (!batched) {
-    for (const scene of targets.filter(item => !successfulSceneIds.has(item.id))) {
-      if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-      try {
-        const result = await imageProvider.generateImage(buildReq(scene))
-        if (!result.urls.length) throw new Error('provider returned no image')
-        await saveScene(scene, result.urls[0]!)
-        made++
-        job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
-      } catch (e: any) {
-        failed++
-        failedSceneIds.add(scene.id)
-        job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
-      } finally {
-        done++
-        job.progress = Math.round((done / total) * 100)
-      }
+      failed++
+      failedSceneIds.add(scene.id)
+      job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
+    } finally {
+      done++
+      job.progress = Math.round((done / total) * 100)
     }
   }
 
@@ -238,22 +167,6 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   for (const item of invalid) unresolved.add(item.replace(/ \(.+\)$/, ''))
   if (unresolved.size > 0) {
     job.params.scene_ids = targets.filter(scene => unresolved.has(scene.id)).map(scene => scene.id)
-  }
-  const recovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
-  if (unresolved.size === 0 && recovery) await completeHubImageRecovery(job, recovery)
-  if (repairOnly) {
-    job.result = {
-      repair_only: true,
-      total_expected: targets.length,
-      recovered: targets.length - unresolved.size,
-      still_missing: unresolved.size,
-    }
-    job.output_lines.push(
-      unresolved.size === 0
-        ? `Repair complete — all ${targets.length} Hub image artifact(s) are verified on disk.`
-        : `Repair recovered every available Hub artifact; ${unresolved.size} scene(s) still need a deliberate Retry.`,
-    )
-    return
   }
   requireJobCompletion(job, {
     label: 'Scene image generation', expected: targets.length, completed: targets.length - unresolved.size,

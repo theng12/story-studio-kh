@@ -13,6 +13,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import { normalizeServiceBaseUrl } from '../lib/security.js'
 import {
   normalizeVoicePresets,
   type NormalizedVoicePreset,
@@ -495,7 +496,7 @@ export async function getGenStudioUrl(): Promise<string> {
 }
 
 export async function setGenStudioUrl(url: string): Promise<void> {
-  const cleaned = typeof url === 'string' ? url.trim() : ''
+  const cleaned = normalizeServiceBaseUrl(typeof url === 'string' ? url : '', 'GenStudio')
   await setAppSetting(GENSTUDIO_URL_KEY, cleaned)
 }
 

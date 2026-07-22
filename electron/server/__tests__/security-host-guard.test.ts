@@ -9,7 +9,14 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { requireAllowedHost } from '../lib/security.js'
+import {
+  CONTENT_SECURITY_POLICY,
+  UnsafeServiceUrlError,
+  isAllowedApplicationNavigation,
+  isSafeExternalUrl,
+  normalizeServiceBaseUrl,
+  requireAllowedHost,
+} from '../lib/security.js'
 
 /** Minimal Express-shaped req/res stub. */
 function mockReqRes(host: string | undefined) {
@@ -89,5 +96,51 @@ describe('requireAllowedHost — server mode bypass', () => {
       assert.equal(nextCalled, true, `should allow host=${host} in server mode`)
       assert.equal(getStatus(), 0)
     }
+  })
+})
+
+describe('service URL validation', () => {
+  test('accepts HTTPS and private local/Tailscale HTTP addresses', () => {
+    assert.equal(normalizeServiceBaseUrl('https://api.genstudio.example/'), 'https://api.genstudio.example')
+    assert.equal(normalizeServiceBaseUrl('http://127.0.0.1:8000/'), 'http://127.0.0.1:8000')
+    assert.equal(normalizeServiceBaseUrl('http://100.64.10.20:8000/'), 'http://100.64.10.20:8000')
+    assert.equal(normalizeServiceBaseUrl('http://controller.local:8000/'), 'http://controller.local:8000')
+  })
+
+  test('rejects unsafe schemes, public plaintext HTTP, credentials, and query secrets', () => {
+    for (const url of [
+      'file:///tmp/app',
+      'javascript:alert(1)',
+      'http://api.genstudio.example',
+      'https://user:secret@api.genstudio.example',
+      'https://api.genstudio.example?api_key=secret',
+      'https://api.genstudio.example/#token',
+    ]) {
+      assert.throws(() => normalizeServiceBaseUrl(url), UnsafeServiceUrlError, url)
+    }
+  })
+})
+
+describe('Electron navigation boundary', () => {
+  const origins = new Set(['http://127.0.0.1:8000', 'http://localhost:3000'])
+
+  test('allows only credential-free application origins in the main window', () => {
+    assert.equal(isAllowedApplicationNavigation('http://127.0.0.1:8000/projects', origins), true)
+    assert.equal(isAllowedApplicationNavigation('https://example.com', origins), false)
+    assert.equal(isAllowedApplicationNavigation('http://user:secret@127.0.0.1:8000', origins), false)
+  })
+
+  test('opens only credential-free HTTP(S) links externally', () => {
+    assert.equal(isSafeExternalUrl('https://docs.example.com/help'), true)
+    assert.equal(isSafeExternalUrl('mailto:owner@example.com'), false)
+    assert.equal(isSafeExternalUrl('file:///tmp/secret'), false)
+    assert.equal(isSafeExternalUrl('https://user:secret@example.com'), false)
+  })
+
+  test('CSP denies eval, objects, frames, and off-origin form submission', () => {
+    assert.doesNotMatch(CONTENT_SECURITY_POLICY, /unsafe-eval/)
+    assert.match(CONTENT_SECURITY_POLICY, /object-src 'none'/)
+    assert.match(CONTENT_SECURITY_POLICY, /frame-ancestors 'none'/)
+    assert.match(CONTENT_SECURITY_POLICY, /form-action 'self'/)
   })
 })

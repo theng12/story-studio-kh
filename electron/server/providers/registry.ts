@@ -141,6 +141,10 @@ export async function resolveApiKeyForProviderId(
   providerId: string,
   ctx: ResolveContext = {},
 ): Promise<string> {
+  if (providerId === 'genstudio' || providerId === 'genstudio-image' || providerId === 'genstudio-video') {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    return getApiKey('genstudio').catch(() => '')
+  }
   let resolved: Awaited<ReturnType<typeof resolveApiKey>> = null
   try {
     resolved = await resolveApiKey(slug, providerId, ctx.accountId)

@@ -135,6 +135,8 @@ export interface VideoGenerationRequest {
   endImagePath?: string
   /** Provider-specific params */
   providerParams?: Record<string, any>
+  /** Stable Story asset identity used for GenStudio idempotency. */
+  idempotencyIdentity?: string
   /** Probe for user cancel — honoured in poll loops. */
   isCancelled?: () => boolean
 }
@@ -144,6 +146,8 @@ export interface VideoGenerationResult {
   videoUrls: string[]
   /** The Veo/provider task IDs, if any — useful for debugging */
   taskIds?: string[]
+  /** Private GenStudio artifacts require the same scoped key on download. */
+  downloadHeaders?: Record<string, string>
 }
 
 export interface VideoProvider {

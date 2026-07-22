@@ -4,8 +4,8 @@
  *   GET    /projects/:slug/episodes/:code/broll-plan           — read plan
  *   PUT    /projects/:slug/episodes/:code/broll-plan           — save edited plan
  *   DELETE /projects/:slug/episodes/:code/broll-plan           — remove (revert)
- *   POST   /projects/:slug/episodes/:code/broll-plan/generate  — shot director (+optional resolve)
- *   POST   /projects/:slug/episodes/:code/broll-plan/resolve   — search+download picks
+ *   POST   /projects/:slug/episodes/:code/broll-plan/generate  — unavailable boundary
+ *   POST   /projects/:slug/episodes/:code/broll-plan/resolve   — unavailable boundary
  *   POST   /projects/:slug/episodes/:code/broll-plan/assemble  — write selection sidecar + queue render
  */
 import { Router } from 'express'
@@ -13,52 +13,25 @@ import path from 'path'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
-import { getApiKey } from '../services/app-secrets-store.js'
-import { parseSrt } from '../lib/subtitle-builder.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import {
   readPlan, writePlan, resolveBrollPlanPath, deletePlanAt, normalizePlan, emptyPlan,
 } from '../services/broll-plan.js'
-import { runShotDirector, requeryBeat } from '../services/broll-shot-director.js'
-import { resolveBeats, planToSelectionSidecar, searchCandidates, downloadResultToPool, pickVideoPool } from '../services/broll-shot-resolver.js'
-import { scanPoolFolder } from '../lib/broll-indexer.js'
+import { planToSelectionSidecar } from '../services/broll-shot-resolver.js'
 import { saveSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
 
-const IMAGE_MODEL = /^(imagestudio|kie|fal|runware|replicate):/i
-
-async function collectApiKeys() {
-  const [a, o, k] = await Promise.all([
-    getApiKey('anthropic').catch(() => ''),
-    getApiKey('openai').catch(() => ''),
-    getApiKey('kie').catch(() => ''),
-  ])
-  return { anthropic_api_key: a, openai_api_key: o, kie_api_key: k }
+const BROLL_AUTOMATION_UNAVAILABLE = {
+  code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
+  detail: 'Automatic B-Roll direction, provider search, download, and generation are unavailable until GenStudio KH publishes a qualified typed asset-planning route. Existing local pool clips and resolved plans can still be edited and assembled.',
 }
 
-/** Build the AI-gen fallback option from a request body (opt-in + needs an image model).
- *  The model string is validated downstream against config.image_models (a bad
- *  model just yields null per-beat, never an error). */
-function aiFallbackFrom(body: any, slug: string): {
-  slug: string
-  model: string
-  aspectRatio?: string
-  imageSteps?: number
-  seed?: number
-} | undefined {
-  if (body?.ai_fallback !== true) return undefined
-  const model = typeof body.image_model === 'string' ? body.image_model.trim() : ''
-  return model ? {
-    slug,
-    model,
-    aspectRatio: typeof body.image_aspect_ratio === 'string' ? body.image_aspect_ratio : undefined,
-    imageSteps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
-    seed: Number.isInteger(body.image_seed) ? body.image_seed : undefined,
-  } : undefined
+function unavailable(res: any) {
+  return res.status(501).json(BROLL_AUTOMATION_UNAVAILABLE)
 }
 
 async function resolveTitle(slug: string, code: string): Promise<string> {
@@ -106,72 +79,15 @@ router.delete('/projects/:slug/episodes/:code/broll-plan', async (req, res) => {
 // ── Generate (shot director) + optional resolve ──────────────────────────────
 
 router.post('/projects/:slug/episodes/:code/broll-plan/generate', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const code = req.params.code.toUpperCase()
-    const body = req.body || {}
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
-    if (!model) return res.status(400).json({ detail: 'model is required' })
-    if (IMAGE_MODEL.test(model)) {
-      return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model.` })
-    }
-
-    const paths = await resolveEpisodePathsByCode(slug, code)
-    const stitched = path.join(paths.subtitles_dir, `${code}_stitched.srt`)
-    if (!existsSync(stitched)) {
-      return res.status(409).json({ detail: `No stitched subtitles for ${code}. Run the Subtitles step first — the shot director needs the timed narration.` })
-    }
-    const cues = parseSrt(await fs.readFile(stitched, 'utf-8'))
-    if (!cues.length) return res.status(409).json({ detail: 'The stitched subtitle track has no cues.' })
-
-    const apiKeys = await collectApiKeys()
-    let plan = await runShotDirector({
-      cues,
-      model,
-      apiKeys,
-      target_beat_sec: Number(body.target_beat_sec) > 0 ? Number(body.target_beat_sec) : undefined,
-      broll_style: typeof body.broll_style === 'string' ? body.broll_style : undefined,
-      style_hint: typeof body.style_hint === 'string' ? body.style_hint : undefined,
-      slug,
-    })
-
-    let resolveInfo: any = {}
-    if (body.resolve === true) {
-      const r = await resolveBeats(plan, {
-        poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined,
-        aiFallback: aiFallbackFrom(body, slug),
-      })
-      plan = r.plan
-      resolveInfo = { downloaded: r.downloaded, matched: r.matched, aigen: r.aigen, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason }
-    }
-
-    await writePlan(slug, code, paths.episode_dir, plan)
-    res.json({ ok: true, plan, beat_count: plan.beats.length, ...resolveInfo })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Shot director failed'))
-  }
+  void req
+  return unavailable(res)
 })
 
 // ── Resolve (search + download the picks) ────────────────────────────────────
 
 router.post('/projects/:slug/episodes/:code/broll-plan/resolve', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const code = req.params.code.toUpperCase()
-    const body = req.body || {}
-    const paths = await resolveEpisodePathsByCode(slug, code)
-    const current = body && Array.isArray(body.beats)
-      ? normalizePlan(body)
-      : (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
-    const r = await resolveBeats(current, {
-      poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined,
-      aiFallback: aiFallbackFrom(body, slug),
-    })
-    await writePlan(slug, code, paths.episode_dir, r.plan)
-    res.json({ ok: true, plan: r.plan, downloaded: r.downloaded, matched: r.matched, aigen: r.aigen, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'B-Roll resolve failed'))
-  }
+  void req
+  return unavailable(res)
 })
 
 // ── Preview (Phase 3): stream the episode's merged narration audio ───────────
@@ -216,84 +132,18 @@ router.get('/projects/:slug/episodes/:code/narration-audio', async (req, res) =>
 // ── Storyboard (Phase 2): re-query one beat, search alternatives, swap clip ───
 
 router.post('/projects/:slug/episodes/:code/broll-plan/requery-beat', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const code = req.params.code.toUpperCase()
-    const body = req.body || {}
-    const idx = Number(body.beat_index)
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
-    if (!model) return res.status(400).json({ detail: 'model is required' })
-    if (IMAGE_MODEL.test(model)) return res.status(400).json({ detail: `"${model}" is an image model.` })
-
-    const paths = await resolveEpisodePathsByCode(slug, code)
-    const plan = (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
-    const beat = plan.beats[idx]
-    if (!beat) return res.status(404).json({ detail: `Beat ${idx} not found` })
-
-    const apiKeys = await collectApiKeys()
-    const queries = await requeryBeat({
-      line: beat.line, start_sec: beat.start_sec, end_sec: beat.end_sec, model, apiKeys,
-      style_hint: typeof body.style_hint === 'string' ? body.style_hint : undefined, slug,
-    })
-    if (queries.length) beat.queries = queries
-    await writePlan(slug, code, paths.episode_dir, plan)
-    res.json({ ok: true, plan, queries })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Re-query failed'))
-  }
+  void req
+  return unavailable(res)
 })
 
 router.post('/projects/:slug/episodes/:code/broll-plan/search', async (req, res) => {
-  try {
-    const body = req.body || {}
-    const queries = Array.isArray(body.queries) ? body.queries.map((q: any) => String(q)).filter(Boolean) : []
-    if (!queries.length) return res.status(400).json({ detail: 'queries is required' })
-    const found = await searchCandidates(queries, Number(body.limit) > 0 ? Number(body.limit) : 12)
-    // Trim to what the picker needs (thumbnail + ids); keep the full result for swap.
-    const candidates = found.map(f => ({
-      provider: f.provider,
-      source_id: f.result.source_id,
-      source_url: f.result.source_url,
-      thumbnail_url: f.result.thumbnail_url,
-      duration: f.result.duration,
-      result: f.result,
-    }))
-    res.json({ candidates })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Search failed'))
-  }
+  void req
+  return unavailable(res)
 })
 
 router.post('/projects/:slug/episodes/:code/broll-plan/swap-beat', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const code = req.params.code.toUpperCase()
-    const body = req.body || {}
-    const idx = Number(body.beat_index)
-    const provider = body.provider
-    const result = body.result
-    if (!result || !provider) return res.status(400).json({ detail: 'provider and result are required' })
-
-    const paths = await resolveEpisodePathsByCode(slug, code)
-    const plan = (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
-    const beat = plan.beats[idx]
-    if (!beat) return res.status(404).json({ detail: `Beat ${idx} not found` })
-
-    const pool = await pickVideoPool(typeof body.pool_id === 'string' ? body.pool_id : beat.pool_id)
-    if (!pool) return res.status(409).json({ detail: 'No online video pool to download into.' })
-
-    const filename = await downloadResultToPool(pool, result, provider, [beat.queries[0] || beat.line])
-    try { await scanPoolFolder(pool.folder_path, undefined, 'video') } catch { /* index best-effort */ }
-    beat.source = provider
-    beat.pool_id = pool.id
-    beat.clip = filename
-    beat.in_point_sec = 0
-    beat.status = 'user-swapped'
-    await writePlan(slug, code, paths.episode_dir, plan)
-    res.json({ ok: true, plan, filename })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Swap failed'))
-  }
+  void req
+  return unavailable(res)
 })
 
 // ── Assemble: plan → selection sidecar → existing broll_assemble job ──────────

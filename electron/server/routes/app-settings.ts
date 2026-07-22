@@ -10,7 +10,7 @@
 import { Router } from 'express'
 import { getNotifierSettings, setNotifierSettings, DEFAULT_NOTIFIER_SETTINGS } from '../services/job-notifier.js'
 import {
-  listProviderKeys, setApiKey, clearApiKey, SECRET_PROVIDERS, getApiKey,
+  listProviderKeys, setApiKey, clearApiKey, getApiKey,
 } from '../services/app-secrets-store.js'
 import {
   getServerModeSettingsSafe, setServerModeNetworking, setServerModeCredentials,
@@ -35,9 +35,23 @@ import {
   listTranscriptionModels as listGenStudioTranscriptionModels,
   listVideoModels as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
+  getGenStudioAccountSnapshot,
+  GenStudioApiError,
 } from '../lib/genstudio-client.js'
+import { legacyIdsForGenStudioModel } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
+const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
+
+router.use((req, res, next) => {
+  if (req.path === '/app-settings/local-backend' || req.path.startsWith('/app-settings/hub/')) {
+    return res.status(410).json({
+      code: 'GENSTUDIO_ONLY',
+      detail: 'Direct local Studio and Studio Hub controls are retired. GenStudio is the sole generation boundary.',
+    })
+  }
+  next()
+})
 
 // ── LLM-text generation concurrency (Settings → Performance) ───────────────
 // How many text-gen jobs (script outline/expansion, metadata, image prompts,
@@ -407,8 +421,8 @@ router.get('/app-settings/notifications/defaults', (_req, res) => {
 
 router.get('/app-settings/api-keys', async (_req, res) => {
   try {
-    const rows = await listProviderKeys()
-    res.json({ providers: rows, supported: SECRET_PROVIDERS })
+    const rows = (await listProviderKeys()).filter(row => row.providerId === 'genstudio')
+    res.json({ providers: rows, supported: CUSTOMER_SECRET_PROVIDERS })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load API keys'))
   }
@@ -416,8 +430,8 @@ router.get('/app-settings/api-keys', async (_req, res) => {
 
 router.put('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
-  if (!(SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(404).json({ detail: `Unknown provider: ${providerId}` })
+  if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be configured.' })
   }
   const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey : ''
   if (!apiKey.trim()) {
@@ -433,8 +447,8 @@ router.put('/app-settings/api-keys/:providerId', async (req, res) => {
 
 router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
-  if (!(SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(404).json({ detail: `Unknown provider: ${providerId}` })
+  if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be configured.' })
   }
   try {
     await clearApiKey(providerId)
@@ -463,7 +477,8 @@ router.put('/app-settings/genstudio', async (req, res) => {
     await setGenStudioUrl(url)
     res.json({ url: await getGenStudioUrl(), default_url: DEFAULT_GENSTUDIO_URL })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save GenStudio API setting'))
+    res.status(typeof e?.statusCode === 'number' ? e.statusCode : 500)
+      .json(humanizeBackendError(e, 'Failed to save GenStudio API setting'))
   }
 })
 
@@ -504,6 +519,7 @@ router.get('/app-settings/genstudio/voice-models', async (_req, res) => {
         pricing_unit: model.pricing_unit,
         limits: model.limits,
         controls: model.controls,
+        legacy_ids: legacyIdsForGenStudioModel('voice', model.id),
       }))
     res.json({ models })
   } catch (e: any) {
@@ -515,7 +531,11 @@ router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    res.json({ models: await listGenStudioChatModels(apiKey) })
+    const models = (await listGenStudioChatModels(apiKey)).map(model => ({
+      ...model,
+      legacy_ids: legacyIdsForGenStudioModel('chat', model.id),
+    }))
+    res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH chat models'))
   }
@@ -525,7 +545,11 @@ router.get('/app-settings/genstudio/video-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    res.json({ models: await listGenStudioVideoModels(apiKey) })
+    const models = (await listGenStudioVideoModels(apiKey)).map(model => ({
+      ...model,
+      legacy_ids: legacyIdsForGenStudioModel('video', model.id),
+    }))
+    res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH video models'))
   }
@@ -537,7 +561,11 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    res.json({ models: await listGenStudioTranscriptionModels(apiKey) })
+    const models = (await listGenStudioTranscriptionModels(apiKey)).map(model => ({
+      ...model,
+      legacy_ids: legacyIdsForGenStudioModel('transcription', model.id),
+    }))
+    res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
       e,
@@ -552,12 +580,34 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    res.json({ models: await listGenStudioImageModels(apiKey) })
+    const models = (await listGenStudioImageModels(apiKey)).map(model => ({
+      ...model,
+      legacy_ids: legacyIdsForGenStudioModel('image', model.id),
+    }))
+    res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
       e,
       'Could not load GenStudio KH image models. Ensure the saved key includes images:generate.',
     ))
+  }
+})
+
+router.get('/app-settings/genstudio/usage', async (_req, res) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key first.' })
+  try {
+    res.json(await getGenStudioAccountSnapshot(apiKey))
+  } catch (error: any) {
+    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
+      return res.status(503).json({
+        code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
+        detail: 'The saved GenStudio key is invalid or missing usage:read for account balance and settlement history. ' +
+          'Issue or update a scoped key in GenStudio with usage:read, then save and test it again. ' +
+          'Story Studio will not estimate or reconstruct credits locally.',
+      })
+    }
+    res.status(502).json(humanizeBackendError(error, 'Could not load authoritative GenStudio credit data'))
   }
 })
 
@@ -708,8 +758,8 @@ router.put('/app-settings/last-seen-version', async (req, res) => {
 
 router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
   const providerId = req.params.providerId
-  if (!(SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(404).json({ detail: `Unknown provider: ${providerId}` })
+  if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be tested.' })
   }
   // Allow caller to test a key BEFORE saving (req.body.apiKey) or to
   // re-test the currently-stored key (no body).
@@ -731,8 +781,12 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         { path: '/v1/voices', scope: 'voices:read', label: 'voice catalog', expected: 200 },
         { path: '/v1/transcription/models', scope: 'audio:transcribe', label: 'transcription catalog', expected: 200 },
         { path: '/v1/image/models', scope: 'images:generate', label: 'image catalog', expected: 200 },
+        { path: '/v1/videos/models', scope: 'videos:generate', label: 'video catalog', expected: 200 },
         { path: '/v1/jobs/story-studio-key-probe', scope: 'tts:generate', label: 'TTS job access', expected: 404 },
         { path: '/v1/chat/responses/story-studio-key-probe', scope: 'chat:generate', label: 'LLM job access', expected: 404 },
+        { path: '/v1/images/story-studio-key-probe', scope: 'images:generate', label: 'image job access', expected: 404 },
+        { path: '/v1/transcriptions/story-studio-key-probe', scope: 'audio:transcribe', label: 'transcription job access', expected: 404 },
+        { path: '/v1/videos/story-studio-key-probe', scope: 'videos:generate', label: 'video job access', expected: 404 },
       ] as const
       for (const probe of probes) {
         const response = await fetch(`${root}${probe.path}`, {
@@ -754,10 +808,17 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           })
         }
       }
+      const usageProbe = await fetch(`${root}/v1/account/overview`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      })
+      const usageAvailable = usageProbe.status === 200
       return res.json({
         valid: true,
         reachable: true,
-        message: 'Key works for GenStudio model discovery, voices, TTS, transcription, images, and LLM generation.',
+        usage_available: usageAvailable,
+        warning: usageAvailable ? null : 'Generation scopes work, but GenStudio did not accept this key for usage:read. Balance and exact settlement history remain unavailable; Story Studio will not calculate them locally.',
+        message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, and video job access.',
       })
     }
     const result = await testApiKey(providerId, apiKey)

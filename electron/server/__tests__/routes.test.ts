@@ -47,6 +47,20 @@ describe('Health & meta routes', () => {
     assert.ok(typeof res.body.installed === 'boolean')
     assert.ok(['bundled', 'system', 'not-found'].includes(res.body.source))
   })
+
+  test('direct sibling-Studio and Studio Hub control routes are retired', async () => {
+    for (const path of [
+      '/api/imagestudio/base-url',
+      '/api/voicestudio/base-url',
+      '/api/chatstudio/base-url',
+      '/api/videostudio/base-url',
+      '/api/studiohub/status',
+    ]) {
+      const res = await request(app).get(path)
+      assert.equal(res.status, 410, path)
+      assert.equal(res.body.code, 'GENSTUDIO_ONLY', path)
+    }
+  })
 })
 
 describe('Project routes', () => {
@@ -115,12 +129,12 @@ describe('Project settings routes', () => {
     assert.ok(!body.includes('sk-'), 'should not leak API keys in safe config')
   })
 
-  test('PUT /api/projects/:slug/settings/api-keys saves keys', async () => {
+  test('PUT /api/projects/:slug/settings/api-keys is retired by the GenStudio-only boundary', async () => {
     const res = await request(app).put(`/api/projects/${slug}/settings/api-keys`).send({
       openai_api_key: 'sk-test-not-real',
     })
-    assert.equal(res.status, 200)
-    assert.equal(res.body.ok, true)
+    assert.equal(res.status, 410)
+    assert.equal(res.body.code, 'GENSTUDIO_ONLY')
   })
 
   test('PUT /api/projects/:slug/settings/standards saves text', async () => {
@@ -336,15 +350,9 @@ describe('Error handling', () => {
   })
 })
 
-// ── Multi-account settings endpoints (Delivery 2) ─────────────────────────
-// These exercise the CRUD surface added in routes/settings.ts and confirm
-// the GET /settings/config response now carries the masked `accounts` block.
+// ── Retired project-scoped provider/account endpoints ──────────────────────
 
 describe('Account endpoints', () => {
-  // Post-rework: provider keys are app-level and there's exactly one
-  // slot per provider (no real multi-account UI any more). The legacy
-  // /accounts/* routes are kept as a compat shim until callers migrate
-  // to /app-settings/api-keys; these tests pin the shim's behaviour.
   let slug: string
 
   before(async () => {
@@ -352,77 +360,52 @@ describe('Account endpoints', () => {
     slug = res.body.slug
   })
 
-  test('POST /accounts/:providerId stores the (single) key for the provider', async () => {
+  const assertGenStudioOnly = (res: request.Response) => {
+    assert.equal(res.status, 410)
+    assert.equal(res.body.code, 'GENSTUDIO_ONLY')
+    assert.match(res.body.detail, /GenStudio/i)
+  }
+
+  test('GET /settings/accounts is retired', async () => {
+    assertGenStudioOnly(await request(app).get(`/api/projects/${slug}/settings/accounts`))
+  })
+
+  test('POST /settings/accounts/:providerId is retired before CRUD validation', async () => {
     const res = await request(app)
       .post(`/api/projects/${slug}/settings/accounts/openai`)
       .send({ label: 'A', apiKey: 'sk-aaaabbbb1111' })
-    assert.equal(res.status, 201)
-    // The shim always returns the synthetic 'Default' label/id.
-    assert.equal(res.body.id, 'default')
-    assert.equal(res.body.isDefault, true)
-    assert.ok(res.body.keyMasked.includes('…'))
-    assert.ok(!res.body.keyMasked.includes('aaaabbbb'), 'key body must not leak in response')
+    assertGenStudioOnly(res)
+    assert.ok(!JSON.stringify(res.body).includes('aaaabbbb'), 'retired route must not echo the submitted key')
   })
 
-  test('POST /accounts/:providerId rejects unknown provider', async () => {
-    const res = await request(app)
+  test('retired account routes do not revive payload validation or CRUD behavior', async () => {
+    assertGenStudioOnly(await request(app)
+      .post(`/api/projects/${slug}/settings/accounts/openai`)
+      .send({ label: '', apiKey: '' }))
+  })
+
+  test('unknown legacy account providers receive the same closed boundary', async () => {
+    assertGenStudioOnly(await request(app)
       .post(`/api/projects/${slug}/settings/accounts/not-a-provider`)
-      .send({ label: 'X', apiKey: 'y' })
-    assert.equal(res.status, 404)
+      .send({ label: 'X', apiKey: 'y' }))
   })
 
-  test('POST /accounts/:providerId validates input', async () => {
-    const res = await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/openai`)
-      .send({ label: '', apiKey: '' })
-    assert.equal(res.status, 400)
-  })
-
-  test('POST overwrites the existing key for the same provider', async () => {
-    await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/openai`)
-      .send({ label: 'A', apiKey: 'sk-aaaabbbb1111' })
-    const b = await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/openai`)
-      .send({ label: 'B', apiKey: 'sk-bbbb22229999' })
-    assert.equal(b.status, 201)
-    const list = await request(app).get(`/api/projects/${slug}/settings/accounts`)
-    assert.equal(list.body.accounts.openai.length, 1)
-    assert.ok(list.body.accounts.openai[0].keyMasked.includes('9999'),
-      'masked key reflects the latest write')
-  })
-
-  test('PATCH never echoes raw key', async () => {
-    await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/anthropic`)
-      .send({ label: 'L', apiKey: 'sk-cccc3333' })
-    const patched = await request(app)
+  test('PATCH /settings/accounts/:providerId/:accountId is retired', async () => {
+    assertGenStudioOnly(await request(app)
       .patch(`/api/projects/${slug}/settings/accounts/anthropic/default`)
-      .send({ label: 'After' })
-    assert.equal(patched.status, 200)
-    assert.ok(!JSON.stringify(patched.body).includes('sk-cccc3333'), 'raw key must not leak on patch')
+      .send({ label: 'After' }))
   })
 
-  test('DELETE clears the provider key', async () => {
-    await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/anthropic`)
-      .send({ label: 'L', apiKey: 'sk-todelete' })
-    const del = await request(app)
-      .delete(`/api/projects/${slug}/settings/accounts/anthropic/default`)
-    assert.equal(del.status, 200)
-
-    const after = await request(app).get(`/api/projects/${slug}/settings/accounts`)
-    assert.equal(after.body.accounts.anthropic.length, 0, 'provider has no accounts after delete')
+  test('DELETE /settings/accounts/:providerId/:accountId is retired', async () => {
+    assertGenStudioOnly(await request(app)
+      .delete(`/api/projects/${slug}/settings/accounts/anthropic/default`))
   })
 
-  test('GET /settings/config carries masked accounts block', async () => {
-    await request(app)
-      .post(`/api/projects/${slug}/settings/accounts/openai`)
-      .send({ label: 'X', apiKey: 'sk-mask-me-1234' })
+  test('GET /settings/config remains credential-safe for historical account evidence', async () => {
     const res = await request(app).get(`/api/projects/${slug}/settings/config`)
     assert.equal(res.status, 200)
     assert.ok(res.body.accounts, 'accounts field present')
     assert.ok(Array.isArray(res.body.accounts.openai))
-    assert.ok(!JSON.stringify(res.body).includes('sk-mask-me-1234'), 'no raw keys in safe config')
+    assert.doesNotMatch(JSON.stringify(res.body), /sk-[a-z0-9-]+/i, 'no raw keys in safe config')
   })
 })

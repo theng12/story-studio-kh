@@ -29,6 +29,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic, withLock, readJsonOr } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
+import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { getUserDataDir } from './project-manager.js'
 
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
@@ -184,7 +185,10 @@ function normaliseV3(raw: any): AppSecretsV3 {
       // Preserve the `userSet` marker (an explicit Save) so getApiKey's
       // "explicit value wins" rule survives the read/normalise round-trip.
       const userSet = (v as any)?.userSet === true
-      if (apiKey) out.providers[k] = userSet ? { apiKey, userSet: true } : { apiKey }
+      if (apiKey) {
+        registerSecretForRedaction(apiKey)
+        out.providers[k] = userSet ? { apiKey, userSet: true } : { apiKey }
+      }
     }
   }
   return out
@@ -349,6 +353,7 @@ function migrateLegacyDefault(providerId: string, stored: string): string {
 export async function setApiKey(providerId: string, apiKey: string): Promise<void> {
   if (!isKnownProvider(providerId)) throw new Error(`Unknown provider: ${providerId}`)
   const trimmed = apiKey.trim()
+  registerSecretForRedaction(trimmed)
   await writeAppSecrets((v3) => {
     if (!trimmed) {
       delete v3.providers[providerId]

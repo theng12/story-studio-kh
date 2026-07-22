@@ -8,6 +8,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
+import { redactSensitiveValue } from '../lib/redact-secrets.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
@@ -56,6 +57,30 @@ export function trackChild(proc: ChildProcess): void {
   proc.once('close', drop)
   proc.once('exit', drop)
   proc.once('error', drop)
+}
+
+/** Current queue job for deep provider clients; undefined outside an executor. */
+export function currentJobId(): string | undefined {
+  return jobContext.getStore()?.jobId
+}
+
+/**
+ * Persist a GenStudio-owned state/billing snapshot without interpreting it.
+ * This is intentionally additive so old provider evidence stays untouched.
+ */
+export async function recordGenStudioJob(
+  jobId: string,
+  snapshot: NonNullable<Job['genstudio_jobs']>[number],
+): Promise<void> {
+  const job = jobs.get(jobId)
+  if (!job) return
+  const entries = [...(job.genstudio_jobs || [])]
+  const index = entries.findIndex(entry => entry.id === snapshot.id)
+  if (index >= 0) entries[index] = { ...entries[index], ...snapshot }
+  else entries.push(snapshot)
+  job.genstudio_jobs = entries
+  await persistJob(job)
+  emitUpdate(job)
 }
 
 function killChildrenFor(jobId: string): void {
@@ -430,8 +455,11 @@ async function persistProjectSnapshot(projectSlug: string): Promise<void> {
 }
 
 function safeJob(job: Job): Omit<Job, never> {
-  // Return job without internal executor references
-  return { ...job }
+  // Jobs are both renderer-visible diagnostics and durable project records.
+  // Provider adapters should never put credentials in params/output, but this
+  // final boundary is deny-by-default so an accidental future field cannot
+  // leak into jobs.json, SSE, exports, or support screenshots.
+  return redactSensitiveValue(structuredClone(job))
 }
 
 async function persistJob(job: Job): Promise<void> {

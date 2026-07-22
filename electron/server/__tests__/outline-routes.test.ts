@@ -61,11 +61,17 @@ before(async () => {
   assert.equal(proj.status, 201)
   slug = proj.body.slug
 
-  // API key gate. (Direct Anthropic was retired in v1.0.235; use a kie.ai
-  // key — Claude now routes through kie.ai — so the text-key guard passes.)
-  await request(app).put(`/api/projects/${slug}/settings/api-keys`).send({
-    kie_api_key: 'sk-test-not-real',
-  })
+  // Seed the sole generation boundary with inert local test credentials.
+  // Queueing may begin immediately after a 201, so the URL must never point
+  // at a paid or externally reachable provider.
+  const urlResult = await request(app)
+    .put('/api/app-settings/genstudio')
+    .send({ url: 'http://127.0.0.1:9' })
+  assert.equal(urlResult.status, 200)
+  const keyResult = await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_test_outline_routes_not_real' })
+  assert.equal(keyResult.status, 200)
 
   const { resolveEpisodePaths } = await import('../services/utils.js')
   const paths = await resolveEpisodePaths(slug, EPISODE_ID, TITLE)

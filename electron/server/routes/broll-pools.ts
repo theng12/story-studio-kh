@@ -25,8 +25,6 @@ import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { getApiKey } from '../services/app-secrets-store.js'
-import { generateSoundEffectToFile } from '../lib/elevenlabs-client.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
@@ -293,85 +291,11 @@ router.get('/broll-pools/:id/clips/:filename/video', async (req, res) => {
 
 // ── Generate SFX (ElevenLabs sound-generation) ─────────────────────────
 //
-// Generate a sound effect from a text prompt and drop the MP3 into an audio
-// (SFX) pool, then re-scan so it indexes immediately. Synchronous (not a
-// queued job) — generation is a single short API call, and the user wants the
-// clip to appear in the pool right away.
-//
-// Body: { text, duration_seconds?, prompt_influence? }
-
-/** Build a Finder-friendly, collision-resistant filename for a generated SFX:
- *  `sfx-<slug>-<ts>.mp3`. The timestamp keeps repeated prompts distinct. */
-function suggestSfxFilename(prompt: string): string {
-  const slug = prompt
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'sfx'
-  // Compact timestamp (yymmdd-hhmmss) — unique enough for hand-paced clicks.
-  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(2, 15)
-  return `sfx-${slug}-${ts}.mp3`
-}
-
-router.post('/broll-pools/:id/generate-sfx', async (req, res) => {
-  try {
-    const pool = await bp.getPool(req.params.id)
-    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
-    if (bp.poolMedia(pool) !== 'audio') {
-      return res.status(400).json({ detail: 'Generate SFX is only available on audio (SFX) pools.' })
-    }
-    if (!existsSync(pool.folder_path)) {
-      return res.status(409).json({
-        detail: `Pool folder offline — plug in the SSD at ${pool.folder_path} before generating.`,
-        code: 'POOL_OFFLINE',
-      })
-    }
-
-    const text = String(req.body?.text || '').trim()
-    if (!text) return res.status(400).json({ detail: 'text (the sound-effect prompt) is required' })
-    // duration_seconds: optional, clamp to the ElevenLabs-supported 0.5–22 s.
-    const rawDur = req.body?.duration_seconds
-    const durationSeconds = Number.isFinite(rawDur) ? Math.min(Math.max(Number(rawDur), 0.5), 22) : undefined
-    const rawInfluence = req.body?.prompt_influence
-    const promptInfluence = Number.isFinite(rawInfluence) ? Math.min(Math.max(Number(rawInfluence), 0), 1) : undefined
-
-    const apiKey = await getApiKey('elevenlabs')
-    if (!apiKey) {
-      return res.status(400).json({
-        detail: 'ElevenLabs API key not configured. Add it under App Settings → API Keys.',
-        code: 'PROVIDER_NOT_CONFIGURED',
-      })
-    }
-
-    const filename = suggestSfxFilename(text)
-    const destPath = path.join(pool.folder_path, filename)
-    if (existsSync(destPath)) {
-      // Astronomically unlikely given the timestamp, but never clobber.
-      return res.status(409).json({ detail: `Filename collision: ${filename} already exists. Retry.` })
-    }
-
-    await generateSoundEffectToFile(text, apiKey, destPath, { durationSeconds, promptInfluence })
-
-    const stat = await fs.stat(destPath).catch(() => null)
-    if (!stat || stat.size === 0) {
-      await fs.unlink(destPath).catch(() => {})
-      return res.status(502).json({ detail: 'Generation produced no audio — nothing saved.' })
-    }
-
-    // Re-scan (audio media) so the clip lands in the index, then tag it with
-    // the prompt keywords + provenance markers so it's findable.
-    await scanPoolFolder(pool.folder_path, undefined, 'audio')
-    const tags = Array.from(new Set([
-      'generated',
-      'elevenlabs',
-      ...text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2),
-    ])).slice(0, 12)
-    await bp.setClipTags(pool.id, filename, tags).catch(() => {})
-
-    res.status(201).json({ ok: true, filename, bytes: stat.size, tags })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to generate sound effect'))
-  }
+router.post('/broll-pools/:id/generate-sfx', (_req, res) => {
+  res.status(501).json({
+    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
+    detail: 'Sound-effect generation is unavailable until GenStudio KH publishes a qualified SFX endpoint. No direct ElevenLabs request was made.',
+  })
 })
 
 // ── Normalize ──────────────────────────────────────────────────────────
@@ -396,62 +320,22 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
 
 // ── Auto-tag (vision-LLM) ─────────────────────────────────────────────
 
-router.post('/broll-pools/:id/clips/:filename/autotag', async (req, res) => {
-  try {
-    const pool = await bp.getPool(req.params.id)
-    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
-    const job = jq.enqueue({
-      project_slug: '_app_',
-      type: 'broll_autotag' as JobType,
-      episode_id: pool.id,
-      title: `Auto-tag B-Roll · ${req.params.filename}`,
-      params: {
-        pool_id: pool.id,
-        filename: req.params.filename,
-        model: typeof req.body?.model === 'string' ? req.body.model : undefined,
-        replace_tags: !!req.body?.replace_tags,
-      },
-      dedupeParams: (p: any) => p?.filename === req.params.filename,
-    })
-    res.status(201).json(job)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue auto-tag'))
-  }
+router.post('/broll-pools/:id/clips/:filename/autotag', (_req, res) => {
+  res.status(501).json({
+    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
+    detail: 'Visual auto-tagging is unavailable until GenStudio KH publishes a qualified image-input LLM route.',
+  })
 })
 
 // Bulk auto-tag: queue jobs for every clip whose `tags` array is empty
 // (or every clip if force=true). Skips clips that already have at least
 // one tag so re-running the bulk button doesn't burn vision credits on
 // already-curated clips. Caller can force with body.force=true.
-router.post('/broll-pools/:id/autotag-untagged', async (req, res) => {
-  try {
-    const pool = await bp.getPool(req.params.id)
-    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
-    const force = !!req.body?.force
-    const clips = await bp.listClips(pool.id, { includeMissing: false })
-    const targets = clips.filter(c => force ? true : !(c.tags && c.tags.length))
-    let queued = 0
-    for (const c of targets) {
-      if (jq.isDuplicate('_app_', pool.id, 'broll_autotag' as JobType, (p: any) => p?.filename === c.filename)) continue
-      jq.enqueue({
-        project_slug: '_app_',
-        type: 'broll_autotag' as JobType,
-        episode_id: pool.id,
-        title: `Auto-tag B-Roll · ${c.filename}`,
-        params: {
-          pool_id: pool.id,
-          filename: c.filename,
-          model: typeof req.body?.model === 'string' ? req.body.model : undefined,
-          replace_tags: !!req.body?.replace_tags,
-        },
-        dedupeParams: (p: any) => p?.filename === c.filename,
-      })
-      queued += 1
-    }
-    res.status(201).json({ queued, total_targets: targets.length })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue bulk auto-tag'))
-  }
+router.post('/broll-pools/:id/autotag-untagged', (_req, res) => {
+  res.status(501).json({
+    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
+    detail: 'Visual auto-tagging is unavailable until GenStudio KH publishes a qualified image-input LLM route.',
+  })
 })
 
 router.post('/broll-pools/:id/normalize-all', async (req, res) => {

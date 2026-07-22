@@ -1,7 +1,7 @@
 /**
  * SFX resolver — fills a proposed plan's cues with real clips from the SFX
- * pools (the v1.0.481 audio pools). This is step 1 of the resolution chain
- * (pool → Freesound → ElevenLabs); pool-only for now, the others slot in later.
+ * pools (the v1.0.481 audio pools). This is intentionally local-pool-only;
+ * external search and generation must be added as typed GenStudio routes.
  *
  * The matcher is pure (label vs. candidate tags/filename) so it's unit-testable;
  * the pool gathering + path resolution are thin impure adapters over

@@ -16,28 +16,18 @@
 
 import fs from 'fs/promises'
 import path from 'path'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
-import { getHubBackend } from '../lib/studiohub-client.js'
-import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
-import type { ImageGenerationRequest } from '../providers/types.js'
-import type { Job, ImageModelConfig } from '../models/types.js'
+import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, readManifest, recordTask } from '../services/task-manifest.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
-import {
-  acceptHubImageRecovery,
-  completeHubImageRecovery,
-  finishHubImageRecoveryPoll,
-  getReconnectableHubImageRecovery,
-  prepareHubImageRecovery,
-  type HubImageRecoveryCheckpoint,
-} from '../services/hub-image-recovery.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
@@ -81,9 +71,11 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,
     poll: modelConfig.poll,
@@ -91,10 +83,8 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, { model, jobId: job.job_id })
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`)
-  }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   const total = prompts.length * variants
   job.output_lines.push(
@@ -121,14 +111,9 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   }
   const initialReady = new Set<string>()
   for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
-  let remaining = items.filter(item => !initialReady.has(item.filename))
-  const logicalRecoveryId = `image-pool:${poolId}:${runId}`
+  const remaining = items.filter(item => !initialReady.has(item.filename))
+  const generationIdentity = `image-pool:${poolId}:${runId}`
   const repairOnly = params.hub_repair_only === true
-  const savedRecovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
-  if (savedRecovery && (savedRecovery.state === 'prepared' || savedRecovery.state === 'accepted' || repairOnly)) {
-    const savedIds = new Set(savedRecovery.target_ids)
-    remaining = items.filter(item => savedIds.has(item.filename))
-  }
   let made = 0
   let failed = 0
   let processed = items.length - remaining.length
@@ -151,81 +136,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
     failedFiles.delete(item.filename)
   }
 
-  // Studio Hub batch (§6b): in Hub mode, submit ALL images as ONE batch so the
-  // Hub distributes them across the whole fleet — this loop is otherwise SERIAL
-  // (one image at a time), which barely uses the fleet. Pool stills are txt2img
-  // (no references). Hub mode is strict; failure preserves verified files and
-  // stops instead of switching transports.
-  let batchDone = false
-  let batchRecovery: HubImageRecoveryCheckpoint | null = null
-  const hub = await getHubBackend()
-  if (repairOnly && (hub.mode !== 'hub' || !hub.hubUrl || providerId !== 'imagestudio')) {
-    throw new Error('Studio Hub image Repair is read-only and requires the saved Hub backend to be active.')
-  }
-  if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && remaining.length > 0) {
-    try {
-      const batchItems = [...remaining]
-      const reqs: ImageGenerationRequest[] = batchItems.map(item => ({
-        prompt: item.prompt, apiKey, aspectRatio, modelId: model, providerParams,
-      } as ImageGenerationRequest))
-      batchRecovery = await prepareHubImageRecovery(job, {
-        logicalId: logicalRecoveryId,
-        targetIds: batchItems.map(item => item.filename),
-        hubUrl: hub.hubUrl,
-        requestIdentity: reqs,
-        repairOnly,
-      })
-      job.output_lines.push(batchRecovery.batch_id
-        ? `Studio Hub recovery — reconnecting batch ${batchRecovery.batch_id} for ${reqs.length} image(s).`
-        : `Studio Hub batch — ${reqs.length} image(s) as ONE idempotent render; the Hub distributes across the fleet.`)
-      await renderImageBatchViaHub(reqs, {
-        label: `storystudio:pool/${pool.name}`,
-        isCancelled: () => jq.isCancelled(job.job_id),
-        recovery: {
-          clientRequestId: batchRecovery.client_request_id,
-          batchId: batchRecovery.batch_id,
-          repairOnly,
-          onAccepted: async (batchId, replayed) => {
-            await acceptHubImageRecovery(job, batchRecovery!, batchId)
-            job.output_lines.push(replayed
-              ? `Studio Hub safely replayed the saved request as existing batch ${batchId}.`
-              : `Studio Hub accepted batch ${batchId}; recovery checkpoint saved.`)
-          },
-          onFinished: status => finishHubImageRecoveryPoll(job, batchRecovery!, status),
-        },
-        onItemDone: async (index, result) => {
-          const item = batchItems[index]
-          if (!item) return
-          if (result.error || !result.url) {
-            failed++
-            failedFiles.add(item.filename)
-            job.output_lines.push(`✗ image ${index + 1} failed: ${result.error || 'no image'}`)
-          } else {
-            try {
-              await saveResult(item, result)
-              made++
-              job.output_lines.push(`✓ ${successfulFiles.size}/${total}`)
-            } catch (e: any) {
-              failed++
-              failedFiles.add(item.filename)
-              job.output_lines.push(`✗ image ${index + 1} could not be checkpointed: ${e?.message || e}`)
-            }
-          }
-          processed++
-          job.progress = Math.round((processed / total) * 90)
-        },
-      })
-      batchDone = true
-    } catch (e: any) {
-      job.output_lines.push(
-        `Studio Hub batch failed: ${e?.message || e}. ` +
-        `${successfulFiles.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
-      )
-      throw e
-    }
-  }
-
-  if (!batchDone) for (const item of remaining) {
+  for (const item of remaining) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     try {
       const manifest = await readManifest(pool.folder_path)
@@ -243,15 +154,21 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         job.progress = Math.round((processed / total) * 90)
         continue
       }
+      if (repairOnly) {
+        throw new Error(
+          `No accepted GenStudio image job was recorded for ${item.filename}. ` +
+          'Repair is read-only and did not submit replacement work.',
+        )
+      }
       const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
           aspectRatio,
-          modelId: model,
+          modelId: modelConfig.api_model || model,
         providerParams,
         steps: params.image_steps,
         seed: params.seed,
-        idempotencyIdentity: `${logicalRecoveryId}:${item.filename}`,
+        idempotencyIdentity: `${generationIdentity}:${item.filename}`,
           isCancelled: () => jq.isCancelled(job.job_id),
           onJobAccepted: async (taskId) => {
             await recordTask(pool.folder_path, item.filename, {
@@ -282,7 +199,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const missing: string[] = []
   for (const item of items) if (!await isUsable(item.filename)) missing.push(item.filename)
   for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)
-  if (batchRecovery && missing.length === 0) await completeHubImageRecovery(job, batchRecovery)
   if (repairOnly) {
     job.result = {
       repair_only: true,
@@ -292,8 +208,8 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
     }
     job.output_lines.push(
       missing.length === 0
-        ? `Repair complete — all ${items.length} Hub image artifact(s) are verified on disk.`
-        : `Repair recovered every available Hub artifact; ${missing.length} image(s) still need a deliberate Retry.`,
+        ? `Repair complete — all ${items.length} GenStudio image artifact(s) are verified on disk.`
+        : `Repair recovered every available GenStudio artifact; ${missing.length} image(s) still need a deliberate Retry.`,
     )
     return
   }

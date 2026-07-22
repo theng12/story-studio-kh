@@ -41,11 +41,12 @@ let fakeOutlineResponse: string = '[]'
 let fakeExpansionFor: (chapterNumbers: number[]) => string = (ns) =>
   ns.map(n => `## Chapter ${String(n).padStart(2, '0')}: Topic ${n}\n\nLorem ipsum.\n`).join('\n')
 
-const FAKE_MODEL = 'fake-test-outline-split-model'
+const FAKE_MODEL = 'genstudio-chat-test-outline-split-v1'
+const DISPATCH_MODEL = `genstudio-chat:${FAKE_MODEL}`
 
 const fakeProvider: TextProvider = {
-  meta: { id: 'fake-outline-split-provider', name: 'Fake', apiKeyField: 'anthropic_api_key' as any },
-  supportsModel(m: string): boolean { return m === FAKE_MODEL },
+  meta: { id: 'genstudio', name: 'Fake GenStudio', apiKeyField: 'genstudio_api_key' as any },
+  supportsModel(m: string): boolean { return m === DISPATCH_MODEL },
   async callText(req: TextGenerationRequest): Promise<string> {
     if (req.signal?.aborted) throw new Error('Cancelled by user')
     const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
@@ -130,7 +131,7 @@ function makeParams(scriptDir: string, opts: Partial<ChunkedNarrationParams> = {
     systemPrompt: 'sys',
     scriptDir,
     model: FAKE_MODEL,
-    apiKeys: { anthropic_api_key: 'fake' },
+    apiKeys: {},
     ...opts,
   }
 }

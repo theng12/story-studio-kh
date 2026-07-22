@@ -18,6 +18,7 @@ export interface GenStudioImageModelInfo {
   min_steps: number
   max_steps: number
   sizes?: GenStudioImageSize[]
+  legacy_ids?: string[]
 }
 
 const catalog = ref<GenStudioImageModelInfo[]>([])

@@ -36,10 +36,14 @@ describe('shared model menus', () => {
   })
 
   test('floating menus avoid clipped cards and stay inside the viewport', () => {
+    assert.match(modelMenu, /<Teleport to="body">/)
+    assert.match(modelMenu, /:style="panelStyle"/)
+    assert.match(modelMenu, /position:\s*fixed/)
     assert.match(anchoredPanel, /getBoundingClientRect\(\)/)
     assert.match(anchoredPanel, /viewportWidth - width - gutter/)
     assert.match(anchoredPanel, /openAbove = below < 280 && above > below/)
-    assert.match(imagePicker, /<Teleport to="body">/)
+    assert.match(imagePicker, /<ModelMenu/)
+    assert.doesNotMatch(imagePicker, /<Teleport to="body">/)
     assert.match(voicePicker, /<Teleport to="body">/)
   })
 

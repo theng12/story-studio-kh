@@ -1,11 +1,8 @@
 /**
- * Shared prompt builder + JSON parser for the three research adapters
- * (v1.0.142+).
+ * Shared prompt builder + JSON parser for GenStudio Research.
  *
- * Every adapter sends roughly the same prompt structure — only the
- * model + transport differ. Centralised here so we can iterate on
- * prompt quality in one place + the JSON contract stays stable
- * across adapters.
+ * Centralised here so prompt quality and the persisted JSON contract stay
+ * stable while the published GenStudio model changes.
  *
  * Output contract: the LLM must return ONLY a JSON object matching
  * `ResearchJsonContract`. The parser is tolerant of leading prose
@@ -135,9 +132,7 @@ function freshId(): string {
   return `claim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** Shared assembly path: parse the JSON the LLM emitted, dedupe
- *  citations across LLM-supplied + adapter-supplied, write the unified
- *  ResearchOutput. Used by every research adapter (perplexity, llm-only). */
+/** Parse the GenStudio LLM output and write the unified ResearchOutput. */
 export function assembleOutput(
   raw: string,
   liveCitations: ResearchCitation[],

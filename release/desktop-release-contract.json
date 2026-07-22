@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "appId": "com.storystudio.kh",
+  "productName": "Story Studio KH",
+  "executableName": "Story Studio KH",
+  "main": "electron/dist/main.js",
+  "userDataDirectoryName": "Story Studio KH",
+  "platform": "darwin",
+  "architectures": [
+    "arm64"
+  ],
+  "artifactName": "${productName} ${version}-${arch}.${ext}",
+  "requiredResourceMappings": [
+    {
+      "from": "electron/templates",
+      "to": "templates"
+    },
+    {
+      "from": "electron/server/formats",
+      "to": "formats"
+    },
+    {
+      "from": "electron/server/niches",
+      "to": "niches"
+    },
+    {
+      "from": "electron/server/thumbnail-templates",
+      "to": "thumbnail-templates"
+    },
+    {
+      "from": "bundled/ffmpeg",
+      "to": "ffmpeg"
+    },
+    {
+      "from": "bundled/LICENSE-FFMPEG.txt",
+      "to": "LICENSE-FFMPEG.txt"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "CHANGELOG.md"
+    }
+  ],
+  "requiredPackagedResources": [
+    "CHANGELOG.md",
+    "LICENSE-FFMPEG.txt",
+    "ffmpeg/MANIFEST.json",
+    "ffmpeg/ffmpeg",
+    "ffmpeg/ffprobe",
+    "formats/scenes.json",
+    "niches/sleep.json",
+    "templates/blank/config.json",
+    "thumbnail-templates/centered-hero-headline.json"
+  ],
+  "requiredPackageExclusions": [
+    "!**/.env*",
+    "!**/*.map",
+    "!**/*.db",
+    "!**/*.sqlite",
+    "!**/*.sqlite3",
+    "!**/app-secrets.json*",
+    "!**/secrets.json*",
+    "!**/jobs.json",
+    "!**/logs/**",
+    "!**/__tests__/**",
+    "!**/test/**",
+    "!**/tests/**",
+    "!electron/.story-studio-data/**",
+    "!electron/.preview-cache/**",
+    "!electron/.style-previews/**"
+  ],
+  "genStudio": {
+    "settingKey": "genstudio_url",
+    "allowPlainHttpForLoopbackOnly": true,
+    "forbiddenUrlFragments": [
+      "/Users/",
+      "/Developer/",
+      "/pinokio/",
+      "file://"
+    ]
+  }
+}

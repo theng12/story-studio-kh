@@ -10,20 +10,22 @@
 
 import { Router } from 'express'
 import fs from 'fs/promises'
-import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { RESEARCH_ADAPTERS } from '../services/research/index.js'
+import {
+  RESEARCH_ADAPTERS,
+  normalizeResearchSourceProvider,
+} from '../services/research/index.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import type { JobType, ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 
 export const router = Router()
 
 // ── GET /research/sources ─────────────────────────────────────────────
-// Power the Research page's source picker. No project context — adapter
-// status is app-level (depends on which API keys are configured).
+// Compatibility endpoint retained for older Story Studio clients. Research
+// now has one execution route only: the customer's GenStudio LLM catalog.
 router.get('/research/sources', async (_req, res) => {
   try {
     const results = await Promise.all(
@@ -74,19 +76,25 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
-  const sourceProvider = body.source_provider as ResearchSourceProvider | undefined
+  let sourceProvider: ResearchSourceProvider
+  try {
+    // Old presets and queued requests may still say `perplexity`. Treat that
+    // value as a migration alias, never as permission to call Perplexity.
+    sourceProvider = normalizeResearchSourceProvider(body.source_provider)
+  } catch (e: unknown) {
+    return res.status(400).json({
+      detail: e instanceof Error ? e.message : 'Unknown research source',
+    })
+  }
   const topic = typeof body.topic === 'string' ? body.topic.trim() : ''
   const specificQuestions = typeof body.specific_questions === 'string'
     ? body.specific_questions
     : undefined
   const maxSources = typeof body.max_sources === 'number' ? body.max_sources : undefined
   const title = typeof body.title === 'string' ? body.title : ''
-  // v1.0.175 — optional model for the LLM-only adapter (free provider choice).
+  // Optional model from the published GenStudio LLM catalog.
   const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined
 
-  if (!sourceProvider || !(sourceProvider in RESEARCH_ADAPTERS)) {
-    return res.status(400).json({ detail: `Unknown research source: ${sourceProvider}` })
-  }
   if (!topic) {
     return res.status(400).json({ detail: 'topic is required' })
   }

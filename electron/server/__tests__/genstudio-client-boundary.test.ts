@@ -207,10 +207,11 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
         }])
       }
-      if (url.endsWith('/v1/video/models')) {
+      if (url.endsWith('/v1/videos/models')) {
         return Response.json([{
           id: 'video-v1', display_name: 'Video V1', available: false,
-          qualification_only: true, coming_soon: true, modes: ['image-to-video'],
+          modes: ['image-to-video'], aspect_ratios: ['16:9'],
+          variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
         }])
       }
       throw new Error(`Unexpected request: ${url}`)
@@ -225,7 +226,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 32_768)
     assert.equal(chat[0]?.available, true)
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
-    assert.equal(video[0]?.coming_soon, true)
+    assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -243,7 +244,7 @@ test('individual GenStudio requests time out before the durable job deadline', a
   assert.equal(signal.aborted, true)
 })
 
-test('transient GenStudio authentication restoration retries the idempotent submit', async () => {
+test('GenStudio authentication failures are immediate and actionable', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
   try {
@@ -251,14 +252,7 @@ test('transient GenStudio authentication restoration retries the idempotent subm
       assert.match(String(input), /\/v1\/audio\/jobs$/)
       assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-tts-/)
       attempts++
-      if (attempts < 3) {
-        return Response.json({ detail: 'authentication required' }, { status: 401 })
-      }
-      return Response.json({
-        id: 'job_auth_recovered',
-        state: 'failed',
-        failure_code: 'test_terminal_failure',
-      }, { status: 202 })
+      return Response.json({ detail: 'authentication required' }, { status: 401 })
     }
     await assert.rejects(
       generateTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-auth-retry.mp3'), {
@@ -266,9 +260,9 @@ test('transient GenStudio authentication restoration retries the idempotent subm
         voiceId: 'voice_live',
         speed: 1,
       }),
-      /test_terminal_failure/,
+      /rejected the scoped API key.*includes the scope required by this operation/i,
     )
-    assert.equal(attempts, 3)
+    assert.equal(attempts, 1)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -280,11 +274,11 @@ test('GenStudio result handling converts format without applying speed twice', (
   assert.match(source, /runFfmpeg\(\['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '192k', outPath\]\)/)
 })
 
-test('the existing direct VoiceStudio and Studio Hub route remains separate', () => {
+test('Story TTS generation has no direct VoiceStudio or Studio Hub execution route', () => {
   const source = readFileSync(new URL('../generators/audio.ts', import.meta.url), 'utf8')
-  assert.match(source, /else if \(providerId === 'voicestudio'\)/)
-  assert.match(source, /await generateTtsVoiceStudio\(ep, task\.outputPath/)
-  assert.match(source, /const isHubAudioProvider = isVoiceStudioProvider && hubBackend\?\.mode === 'hub'/)
+  assert.doesNotMatch(source, /generateTtsVoiceStudio|studiohub-client|voicestudio-client/)
+  assert.match(source, /return 'genstudio'/)
+  assert.match(source, /Persisted audio_models is historical evidence only/)
 })
 
 test('GenStudio client cannot bypass its API boundary to contact Studio Hub', () => {

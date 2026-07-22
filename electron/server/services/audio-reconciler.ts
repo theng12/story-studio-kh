@@ -1,17 +1,14 @@
 /**
  * Audio reconciler — detect and recover missing TTS chunks.
  *
- * Why this exists: GenAIPro TTS tasks routinely take >5 min per chapter, and
- * until recently the client timed out at 5 min, orphaning the result on
- * GenAIPro's side. GenAIPro keeps task history for only ~1 day, so recovery
- * is time-sensitive.
+ * Recovery is intentionally GenStudio-only. Historical direct-provider
+ * sidecars remain readable evidence but cannot trigger provider requests.
  *
  * Strategy:
  *   1. Replicate the generator's chunk-filename logic to compute what files
  *      SHOULD exist for a given episode (same parser + same 4800-char split).
  *   2. Compare to what's on disk.
- *   3. For each missing chunk, look it up in GenAIPro's task history by
- *      exact input text, download the result URL, write to the expected path.
+ *   3. Reclaim only accepted GenStudio jobs with their durable job id.
  *
  * This is a recovery tool, not a generator — it never creates new TTS tasks.
  */
@@ -21,14 +18,14 @@ import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { chunkText } from '../lib/text-chunker.js'
 import { normalizeForTts } from '../lib/tts-text.js'
-import { listAllLabsTasks, getTaskById, type LabsTask } from '../lib/genaipro-client.js'
-import { downloadAudio, pollExistingFalAudio } from '../lib/fal-client.js'
-import { fetchKieAudioUrlByTaskId } from '../lib/kie-tts-client.js'
-import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
 import { readManifest } from './task-manifest.js'
-import { recoverTtsToFile as recoverGenStudioTtsToFile } from '../lib/genstudio-client.js'
+import {
+  recoverTtsToFile as recoverGenStudioTtsToFile,
+  splitGenStudioApiRequests,
+} from '../lib/genstudio-client.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
+import { getApiKey } from './app-secrets-store.js'
 
 export interface ExpectedChunk {
   filename: string        // e.g. TN0001_Chapter_03_part2.mp3
@@ -46,9 +43,9 @@ export interface AudioStatus {
   expected: ExpectedChunk[]
   present: string[]       // filenames on disk with size > 0
   missing: string[]       // filenames absent OR zero-byte
-  /** Provider that made this episode's audio (from the last audio job's model).
-   *  '' when unknown. Drives which recovery path the reconciler uses for chunks
-   *  that have no sidecar task id. */
+  /** Historical provider classification inferred from the latest audio job.
+   *  It is used only to reproduce legacy chunk filenames while reading status;
+   *  it never selects a recovery client. */
   provider: string
 }
 
@@ -115,8 +112,9 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
       const entry = (config as any)?.audio_models?.[model]
       const cap = entry?.tts_soft_max_chars
       if (typeof cap === 'number' && cap > 0) ttsChunkCap = cap
-      // Resolve the provider that made this episode (catalog field first, then
-      // prefix) — used to pick the right recovery path for no-sidecar chunks.
+      // Preserve the provider classification only so status calculation can
+      // reproduce the old chunk boundaries. Recovery ignores this field and
+      // accepts GenStudio manifest entries only.
       provider = entry?.provider
         || (model.startsWith('eleven_') ? 'elevenlabs'
           : model.startsWith('genaipro-') ? 'genaipro'
@@ -137,7 +135,9 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     // used for recovery matching — match what the generator actually produced.
     const sectionText = normalizeForTts(section.text).text
     const sectionStats = narrationTextStats(sectionText)
-    const chunks = chunkText(sectionText, ttsChunkCap)
+    const chunks = provider === 'genstudio'
+      ? splitGenStudioApiRequests(sectionText)
+      : chunkText(sectionText, ttsChunkCap)
 
     // v1.0.310 — imported / hand-placed whole-chapter override. If the
     // generator WOULD split this section into _part1/_part2… but a single
@@ -204,30 +204,9 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
 }
 
 /**
- * Normalize text for matching against GenAIPro history.
- * Collapses whitespace runs and trims — the server may round-trip text
- * through serialization that normalizes whitespace slightly.
- */
-function normalizeForMatch(t: string): string {
-  return t.trim().replace(/\s+/g, ' ')
-}
-
-/**
- * Attempt to recover every missing chunk for an episode by re-fetching each
- * chunk's completed-but-lost result from the provider that made it. Never
- * creates new tasks (that's what Regenerate is for).
- *
- * Provider coverage:
- *   - task-based cloud gateways record a task id in the sidecar manifest at
- *     submit time, so recovery is deterministic: GenAIPro (getTaskById),
- *     kie.ai (recordInfo by taskId), fal.ai (re-poll the stored status/result
- *     URLs). GenAIPro additionally supports a text-match fallback across its
- *     1-day history for chunks with no sidecar id (legacy losses).
- *   - streaming providers (direct ElevenLabs, Fish Audio, Voice Studio, macOS)
- *     have no server-side task to re-fetch — those chunks can only be
- *     REGENERATED, and are reported as such.
- *
- * Keys are resolved internally per provider from the app-secrets store.
+ * Recover accepted GenStudio work only. Historical sidecars from direct
+ * providers remain readable evidence, but are never contacted: retrying those
+ * assets creates a fresh, idempotent GenStudio request through generateAudio.
  */
 export async function reconcileAudio(slug: string, episodeId: string): Promise<ReconcileResult> {
   const logs: string[] = []
@@ -247,19 +226,10 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     }
   }
 
-  // Load the sidecar manifest first — stored task_ids give us deterministic,
-  // provider-aware recovery. Anything without a stored id falls back to
-  // GenAIPro text-matching (legacy) or a "regenerate" note (streaming provider).
   const manifest = await readManifest(status.audio_dir)
   const expectedByName = new Map(status.expected.map(e => [e.filename, e]))
-  const missingWithoutSidecar: string[] = []
   let recovered = 0
-
-  // Lazily resolve + cache each provider's key the SAME way the generator did
-  // (accounts + app-secrets), so repair finds the key that made the task.
-  const keyCache: Record<string, string> = {}
-  const providerKey = async (p: string): Promise<string> =>
-    (keyCache[p] ??= (await resolveApiKeyForProviderId(slug, p).catch(() => '')) || '')
+  const apiKey = await getApiKey('genstudio').catch(() => '')
 
   const fail = (filename: string, task_id: string | undefined, reason: string) => {
     outcomes.push({ filename, status: 'failed', task_id, reason })
@@ -268,152 +238,37 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
 
   for (const filename of status.missing) {
     const entry = manifest.tasks[filename]
-    if (!entry || !entry.task_id) { missingWithoutSidecar.push(filename); continue }
-    const chunk = expectedByName.get(filename)!
-
-    // Resolve the completed result URL from the recording provider.
-    let url: string | null = null
-    try {
-      if (entry.provider === 'genstudio') {
-        const key = await providerKey('genstudio')
-        if (!key) { fail(filename, entry.task_id, 'No GenStudio KH API key — add one in Settings → API Keys'); continue }
-        await recoverGenStudioTtsToFile(key, chunk.fullPath, entry.task_id, {
-          text: chunk.text,
-          speed: 1,
-        })
-        recovered++
-        outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
-        logs.push(`✓ ${filename}: reclaimed from GenStudio (task ${entry.task_id.slice(0, 12)}…)`)
-        continue
-      } else if (entry.provider === 'genaipro') {
-        const key = await providerKey('genaipro')
-        if (!key) { fail(filename, entry.task_id, 'No GenAIPro API key — add one in Settings → API Keys'); continue }
-        const task = await getTaskById(key, entry.task_id)
-        if (!task) { missingWithoutSidecar.push(filename); continue } // aged out → try text-match
-        if (task.status !== 'completed' || !task.result) {
-          fail(filename, entry.task_id, `GenAIPro task status "${task.status || 'unknown'}" — still running or failed`)
-          continue
-        }
-        url = task.result
-      } else if (entry.provider === 'kie') {
-        const key = await providerKey('kie')
-        if (!key) { fail(filename, entry.task_id, 'No kie.ai API key — add one in Settings → API Keys'); continue }
-        const r = await fetchKieAudioUrlByTaskId(entry.task_id, key)
-        if (r.status !== 'success' || !r.url) {
-          fail(filename, entry.task_id, `kie.ai task not recoverable (${r.message || r.status})`)
-          continue
-        }
-        url = r.url
-      } else if (entry.provider === 'fal') {
-        const key = await providerKey('fal')
-        if (!key) { fail(filename, entry.task_id, 'No fal.ai API key — add one in Settings → API Keys'); continue }
-        url = await pollExistingFalAudio(entry.poll_path || '', entry.result_url || '', key)
-        if (!url) { fail(filename, entry.task_id, 'fal.ai task not recoverable (expired or failed on provider side)'); continue }
-      } else {
-        // Unknown / streaming provider recorded no re-fetchable task.
-        missingWithoutSidecar.push(filename)
-        continue
-      }
-    } catch (e: any) {
-      fail(filename, entry.task_id, `Provider lookup failed: ${e.message}`)
+    if (!entry) {
+      fail(filename, undefined, 'No accepted GenStudio task is recorded. Retry generation; no legacy provider fallback was attempted.')
       continue
     }
-
+    if (entry.provider !== 'genstudio') {
+      fail(
+        filename,
+        entry.task_id,
+        `Legacy ${entry.provider || 'provider'} evidence is read-only. Retry generation through GenStudio; the legacy provider was not contacted.`,
+      )
+      continue
+    }
+    if (!entry.task_id) {
+      fail(filename, undefined, 'The GenStudio request was prepared but has no accepted job id. Retry generation with the same idempotency identity.')
+      continue
+    }
+    if (!apiKey) {
+      fail(filename, entry.task_id, 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.')
+      continue
+    }
+    const chunk = expectedByName.get(filename)!
     try {
-      await downloadAudio(url, chunk.fullPath)
+      await recoverGenStudioTtsToFile(apiKey, chunk.fullPath, entry.task_id, {
+        text: chunk.text,
+        speed: 1,
+      })
       recovered++
       outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
-      logs.push(`✓ ${filename}: recovered from ${entry.provider} (task ${entry.task_id.slice(0, 12)}…)`)
+      logs.push(`✓ ${filename}: reclaimed from GenStudio (task ${entry.task_id.slice(0, 12)}…)`)
     } catch (e: any) {
-      fail(filename, entry.task_id, `Download failed: ${e.message}`)
-    }
-  }
-
-  // Chunks with no re-fetchable task record. The GenAIPro text-match over its
-  // 1-day history is a GenAIPro-ONLY fallback (only GenAIPro exposes a
-  // list-by-input history) — so run it only when this episode was actually made
-  // with GenAIPro. For any other provider, these chunks can't be re-fetched
-  // (kie/fal keep no text-searchable history; streaming providers have no task
-  // at all) → report a clear regenerate note instead of misleadingly probing
-  // GenAIPro's history.
-  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'macos'])
-  const regenReason = (): string => {
-    if (STREAMING.has(status.provider)) {
-      return `Made with a streaming provider (${status.provider}) — no re-fetchable task exists. Regenerate (Skip existing remakes only the missing ones).`
-    }
-    if (status.provider === 'kie' || status.provider === 'fal') {
-      return `No task id recorded for this chunk (generated before task-id recording, or the task failed on ${status.provider}'s side — nothing completed to recover). Regenerate (Skip existing remakes only the missing ones).`
-    }
-    return 'No recoverable task for this chunk — regenerate it (Skip existing remakes only the missing ones).'
-  }
-
-  if (missingWithoutSidecar.length > 0) {
-    const genaiproKey = status.provider === 'genaipro' ? await providerKey('genaipro') : ''
-    if (status.provider !== 'genaipro' || !genaiproKey) {
-      for (const filename of missingWithoutSidecar) {
-        fail(filename, undefined, status.provider === 'genaipro'
-          ? 'No GenAIPro API key — add one in Settings → API Keys.'
-          : regenReason())
-      }
-      const still = status.missing.length - recovered
-      logs.push(`Done: recovered ${recovered}, still missing ${still}.`)
-      return { total_expected: status.expected.length, present_before: status.present.length, recovered, still_missing: still, outcomes, logs }
-    }
-    logs.push(`Text-matching ${missingWithoutSidecar.length} remaining chunk(s) against GenAIPro history…`)
-    let tasks: LabsTask[] = []
-    try {
-      tasks = await listAllLabsTasks(genaiproKey)
-    } catch (e: any) {
-      for (const filename of missingWithoutSidecar) {
-        outcomes.push({
-          filename, status: 'failed',
-          reason: `Could not read GenAIPro history: ${e.message}`,
-        })
-      }
-      logs.push(`✗ GenAIPro history unreachable: ${e.message}`)
-      return {
-        total_expected: status.expected.length,
-        present_before: status.present.length,
-        recovered,
-        still_missing: status.missing.length - recovered,
-        outcomes, logs,
-      }
-    }
-    logs.push(`Found ${tasks.length} task(s) in GenAIPro history.`)
-
-    const byText = new Map<string, LabsTask>()
-    for (const t of tasks) {
-      if (t.status !== 'completed' || !t.result) continue
-      const key = normalizeForMatch(t.input || '')
-      const prev = byText.get(key)
-      if (!prev || (t.created_at || '') > (prev.created_at || '')) {
-        byText.set(key, t)
-      }
-    }
-
-    for (const filename of missingWithoutSidecar) {
-      const chunk = expectedByName.get(filename)!
-      const match = byText.get(normalizeForMatch(chunk.text))
-      if (!match) {
-        outcomes.push({
-          filename, status: 'failed',
-          reason: 'No matching completed task in GenAIPro history (outside 1-day window, different provider, or text mismatch)',
-        })
-        logs.push(`✗ ${filename}: no history match`)
-        continue
-      }
-      try {
-        await downloadAudio(match.result!, chunk.fullPath)
-        recovered++
-        outcomes.push({ filename, status: 'recovered', task_id: match.id })
-        logs.push(`✓ ${filename}: recovered via text-match (task ${match.id.slice(0, 12)}…)`)
-      } catch (e: any) {
-        outcomes.push({
-          filename, status: 'failed', task_id: match.id,
-          reason: `Download failed: ${e.message}`,
-        })
-        logs.push(`✗ ${filename}: download failed — ${e.message}`)
-      }
+      fail(filename, entry.task_id, `GenStudio recovery failed: ${e.message}`)
     }
   }
 

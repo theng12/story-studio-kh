@@ -1,6 +1,6 @@
 /**
  * Image generator — port of generate_images.py.
- * Generates scene and thumbnail images via kie.ai API.
+ * Generates scene and thumbnail images through the GenStudio KH image API.
  */
 
 import { existsSync } from 'fs'
@@ -8,30 +8,24 @@ import path from 'path'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
-import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
+import { resolveSubfolderNames } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder, sleepCancellable } from '../lib/http-retry.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
-import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
-import { getHubBackend, hubCatalog, hubStudios } from '../lib/studiohub-client.js'
-import {
-  resolveGenerationConcurrency,
-  resolveGenerationLaunchStaggerMs,
-  resolvePerformanceConcurrency,
-  type GenerationExecution,
-} from '../lib/performance-settings.js'
+import { resolveGenerationLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import fs from 'fs/promises'
 
 // NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
@@ -41,11 +35,6 @@ import fs from 'fs/promises'
 // generators/image-prompts.ts already carrying the correct (format-aware)
 // title-text directive — or, in composite mode, intentionally text-free for
 // the thumbnail composer. So the render path uses `thumb.prompt` verbatim.
-
-// Mirrors continuity-render.ts: periodically re-probe the local Image Studio
-// pool so the Jobs panel can surface Macs joining/leaving mid-run and the
-// worker count can grow back when a machine comes online.
-const POOL_REPROBE_MS = 20_000
 
 export type ThumbnailReferenceStrength = 'loose' | 'balanced' | 'strong'
 
@@ -223,34 +212,18 @@ export async function generateImages(job: Job): Promise<void> {
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
   const resolvedModelConfig: ImageModelConfig = modelConfig
 
-  // Resolve provider (backward-compat: infer 'kie' if provider field missing)
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${modelName}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
   // Full generation and both preview surfaces share the same tier resolver.
   // This ensures the selected resolution affects the provider payload as well
   // as the credit estimate.
   const providerParams = resolveImageProviderParams(modelConfig, req.tier)
-  const apiKey = await resolveApiKeyForProvider(project_slug, imageProvider.meta, {
-    model: modelName,
-    jobId: job.job_id,
-  })
-  // v1.0.151+ — Image Studio is a local Pinokio modal; the "apiKey"
-  // slot carries its Tailscale base URL. An empty value means the user
-  // hasn't set it yet — the provider falls back to the discovered
-  // tailnet default, which works for the user who set up the modal
-  // and fails-fast with a friendly error otherwise. Skip the
-  // no-key throw so the provider gets to attempt the default.
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`)
-  }
-
-  // Preflight: refuse immediately if the provider balance is clearly zero.
-  // Fast fail-fast — much better UX than discovering the empty balance
-  // after the first provider submit returns "insufficient credits".
-  // Local modals (imagestudio) have no balance — skip the check.
-  if (providerId === 'kie') await assertBalanceAvailable('kie', apiKey)
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   // Find the prompt file for the requested independent pool.
   const mode = req.mode
@@ -499,122 +472,20 @@ export async function generateImages(job: Job): Promise<void> {
   const renderHeight = typeof req.height === 'number' && req.height > 0 ? req.height : undefined
   const force = req.force || false
   const errors: string[] = []
-  // Concurrency: project config → request override → default 5. Clamp 1..10.
-  // v1.0.154+ — local Pinokio modals (imagestudio) can only run one
-  // MLX inference at a time on Apple Silicon. Firing 5 simultaneous
-  // submits just queues 4 of them server-side AND burns 4 local poll
-  // loops that race the same per-job timeout. Clamp to 1 so:
-  //   - the modal queue depth stays at 1
-  //   - each next submit waits for the previous one's poll to finish
-  //   - the per-job timeout only has to cover actual inference time
-  //     (~5 min) rather than queue wait time
-  //   - deep batches (100-200 scenes) drain serially without false
-  //     failures on jobs queued behind a dozen others
-  // Cloud providers (kie.ai) keep the default 5 — their queue scales
-  // horizontally and the per-second-rate-limit concern is the real cap.
+  // GenStudio owns the physical fleet and provider queue. Story Studio limits
+  // only how many account jobs it submits concurrently.
   const configConcurrency = resolvePerformanceConcurrency((config as any).image_concurrency)
   const reqConcurrency = Number((req as any).concurrency) || 0
-  const isStudioProvider = providerId === 'imagestudio'
-  const baseConcurrency = reqConcurrency
+  const concurrency = reqConcurrency
     ? Math.max(1, Math.min(50, reqConcurrency))
     : configConcurrency
-  let dispatcher: Dispatcher | null = null
-  let poolEndpoints: string[] = []
-  let lastHealthyPool = new Set<string>()
-  const imageRouting = isStudioProvider ? await getHubBackend() : null
-  const isHubImageProvider = imageRouting?.mode === 'hub'
-  let isStudioCloud = providerParams.is_cloud === true
-  if (isStudioProvider && providerParams.is_cloud == null) {
-    const { repoForModelId, listAvailableModels } = await import('../lib/imagestudio-client.js')
-    const repo = repoForModelId(modelName)
-    if (repo) {
-      if (isHubImageProvider && imageRouting?.hubUrl) {
-        const rows = await hubCatalog(imageRouting.hubUrl, imageRouting.hubToken, 'image')
-        isStudioCloud = rows.some(row => row?.repo === repo && row?.is_cloud === true)
-      } else {
-        const directUrl = parseEnabledEndpoints(apiKey)[0]
-        if (directUrl) {
-          const inventory = await listAvailableModels(directUrl)
-          isStudioCloud = inventory.models.some(model => model.repo === repo && model.is_cloud === true)
-        }
-      }
-    }
-  }
-  const isLocalImageWork = isStudioProvider && !isStudioCloud
-  const execution: GenerationExecution = isLocalImageWork
-    ? (isHubImageProvider ? 'local-hub' : 'local-direct')
-    : 'cloud'
-  const workloadItemCount = mode === 'scenes' ? scenes.length : thumbnails.length
-  // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
-  // but the user may run a POOL of Macs. The old code hard-clamped local
-  // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a
-  // single box — the "stall" the user saw. Probe the endpoints and parallelise
-  // across the HEALTHY ones: each Mac still runs serially, but different Macs
-  // run concurrently, and the provider's least-busy dispatcher spreads the work.
-  // A single endpoint stays at concurrency 1, exactly as before.
-  let concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount)
-  if (isStudioProvider && !isHubImageProvider) {
-    const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-    poolEndpoints = parseEnabledEndpoints(apiKey)
-    if (poolEndpoints.length <= 1) {
-      concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount, 1)
-    } else {
-      const { healthy, offline } = await healthyEndpoints(poolEndpoints, async (u) => (await imgHealth(u, 4000)).ok)
-      lastHealthyPool = new Set(healthy)
-      dispatcher = createDispatcher(poolEndpoints)
-      for (const u of offline) dispatcher.markDown(u)
-      concurrency = resolveGenerationConcurrency(
-        baseConcurrency,
-        execution,
-        workloadItemCount,
-        Math.max(1, healthy.length),
-      )
-      if (isLocalImageWork) {
-        job.output_lines.push(
-          `Local modal pool: ${healthy.length}/${poolEndpoints.length} endpoint(s) reachable — ` +
-          `using all ${concurrency} available local worker(s); cloud limits do not throttle local work.` +
-          (offline.length
-            ? ` Offline now: ${offline.join(', ')} — they will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online.`
-            : ''),
-        )
-      }
-    }
-  }
-
-  // Studio Hub and Direct URLs are exclusive routes. In Hub mode, never probe
-  // or cap work against the direct endpoint pool: the Hub owns fleet selection.
-  if (isHubImageProvider) {
-    if (!imageRouting?.hubUrl) {
-      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
-    }
-    if (refSources.chain) {
-      concurrency = 1
-      job.output_lines.push('Studio Hub image routing: chain mode is serial so each scene can reference the previous render.')
-    } else {
-      const studios = await hubStudios(imageRouting.hubUrl, imageRouting.hubToken)
-      const upImage = studios.filter((s) => s.modality === 'image' && s.status === 'up').length
-      if (upImage < 1) throw new Error('Studio Hub has no reachable Image Studio workers.')
-      concurrency = resolveGenerationConcurrency(baseConcurrency, execution, workloadItemCount, upImage)
-      if (isLocalImageWork) {
-        job.output_lines.push(
-          `Studio Hub local image routing: up to ${concurrency} scene(s) at once across ` +
-          `${upImage} online Image Studio worker(s); cloud limits do not throttle local work.`,
-        )
-      } else {
-        job.output_lines.push(
-          `Studio Hub cloud image routing: up to ${concurrency} provider request(s) at once across ` +
-          `${upImage} online Image Studio proxy worker(s).`,
-        )
-      }
-    }
-  }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
   // After the spread the rolling pool runs at full concurrency. New projects
   // default to 2000 ms; an explicit 0 still disables it. Clamp 0..20000.
   const launchStaggerMs = resolveGenerationLaunchStaggerMs(
     (config as any).image_launch_stagger_ms,
-    execution,
+    'cloud',
   )
 
   // Read the per-folder task manifests once at the top so we can attempt
@@ -677,15 +548,14 @@ export async function generateImages(job: Job): Promise<void> {
       // Multi-source reference resolution. text2img mode → only character
       // refs (Phase 8 default); img2img mode → master + per-scene + chars
       // + chain depending on the user's reference_sources toggles.
-      const referenceImagePaths = resolveSceneReferenceImages(scene)
       const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
       const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
-        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
-        referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
+        idempotencyIdentity: `${job.job_id}:scene:${scene.number}`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId) => {
           await recordTask(bgDir, `${stem}_v1.png`, {
@@ -768,12 +638,6 @@ export async function generateImages(job: Job): Promise<void> {
       // number bucket, chain mode reads thumb N-1's render. Most users
       // will only set master + chars for thumbnails since chain
       // continuity matters less for a 1-shot title card.
-      const referenceImagePaths = resolveSceneReferenceImages({
-        number: thumb.number, prompt: thumb.prompt,
-      })
-      if (refSources.thumbnail && existsSync(thumbnailRefPath())) {
-        referenceImagePaths.unshift(thumbnailRefPath())
-      }
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
       // v1.0.416 — optional render-time guidance from the generator tab,
       // appended before style keywords so it influences the image without
@@ -791,11 +655,11 @@ export async function generateImages(job: Job): Promise<void> {
         ? { ...providerParams, image_strength: strengthValue }
         : providerParams
       const result = await imageProvider!.generateImage({
-        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams: thumbProviderParams,
+        prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
-        referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
+        idempotencyIdentity: `${job.job_id}:thumbnail:${thumb.number}`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId) => {
           await recordTask(thumbDir, `${stem}_v1.png`, {
@@ -842,13 +706,7 @@ export async function generateImages(job: Job): Promise<void> {
     let active = 0
     let launched = 0
     let settled = false
-    let poolScaler: ReturnType<typeof setInterval> | null = null
-
     const maxWorkers = concurrency
-    const liveNow = () => {
-      if (!isLocalImageWork || !dispatcher || !poolEndpoints.length) return maxWorkers
-      return Math.max(1, Math.min(maxWorkers, dispatcher.liveCount()))
-    }
 
     let resolveAll!: () => void
     const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
@@ -860,11 +718,7 @@ export async function generateImages(job: Job): Promise<void> {
     }
 
     async function next(workerIndex: number): Promise<void> {
-      if (launchStaggerMs > 0 && workerIndex > 0) {
-        try {
-          await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
-        } catch { return /* cancelled mid-stagger */ }
-      }
+      if (launchStaggerMs > 0 && workerIndex > 0) await sleep(workerIndex * launchStaggerMs)
       while (cursor < items.length) {
         if (isCancelled()) return
         const i = cursor++
@@ -884,56 +738,14 @@ export async function generateImages(job: Job): Promise<void> {
 
     const ensureWorkers = () => {
       if (cursor >= items.length || isCancelled()) return
-      const want = Math.min(liveNow(), items.length - cursor + active)
+      const want = Math.min(maxWorkers, items.length - cursor + active)
       while (active < want) spawnWorker()
     }
 
     ensureWorkers()
     maybeFinish()
 
-    if (dispatcher && poolEndpoints.length > 1) {
-      poolScaler = setInterval(() => {
-        if (cursor >= items.length || isCancelled()) return
-        void (async () => {
-          try {
-            const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-            // v1.0.437 — re-read the per-Mac on/off switch every cycle so a Mac
-            // the user disables MID-RENDER is dropped. A reachability probe alone
-            // wouldn't catch it (the Mac is still powered on and answers), so we
-            // probe only the still-enabled endpoints and force the rest DOWN.
-            const enabledNow = new Set(parseEnabledEndpoints(apiKey))
-            const probeEps = poolEndpoints.filter(u => enabledNow.has(u))
-            const disabledNow = poolEndpoints.filter(u => !enabledNow.has(u))
-            const { healthy, offline } = await healthyEndpoints(probeEps, async (u) => (await imgHealth(u, 4000)).ok)
-            const downNow = [...offline, ...disabledNow]
-            const joined = healthy.filter(u => !lastHealthyPool.has(u))
-            const dropped = downNow.filter(u => lastHealthyPool.has(u))
-            const before = dispatcher!.liveCount()
-            for (const u of healthy) dispatcher!.markUp(u)
-            for (const u of downNow) dispatcher!.markDown(u)
-            lastHealthyPool = new Set(healthy)
-            const after = dispatcher!.liveCount()
-            if (joined.length || dropped.length || after !== before) {
-              job.output_lines.push(
-                `Local modal pool update: ${after}/${poolEndpoints.length} online` +
-                (joined.length ? ` — joined: ${joined.join(', ')}` : '') +
-                (dropped.length ? ` — offline: ${dropped.join(', ')}` : '') +
-                `. Active render concurrency now ${Math.min(maxWorkers, after)}.`,
-              )
-            }
-            ensureWorkers()
-          } catch {
-            // Keep the current pool state on transient probe failures.
-          }
-        })()
-      }, POOL_REPROBE_MS)
-    }
-
-    try {
-      await allWorkersDone
-    } finally {
-      if (poolScaler) clearInterval(poolScaler)
-    }
+    await allWorkersDone
   }
 
   // Scene images

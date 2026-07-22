@@ -1,22 +1,32 @@
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { registry } from '../providers/registry.js'
 import { resolveArtifact } from '../lib/episode-artifacts.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateAudioSchema } from '../schemas/index.js'
-import { generateTtsBuffer } from '../lib/elevenlabs-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { getAudioStatus, reconcileAudio } from '../services/audio-reconciler.js'
 import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
-import type { AudioModelConfig } from '../models/types.js'
-import { resolveApiKeyForProviderId } from '../providers/registry.js'
-import { voiceSupportsProvider } from '../services/voice-presets.js'
-import { getVoicePresetsGlobal } from '../services/app-settings.js'
-import { catalogHasVoice, listVoices as listGenStudioVoices } from '../lib/genstudio-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import {
+  catalogHasVoice,
+  listModelCapabilities as listGenStudioCapabilities,
+  listVoices as listGenStudioVoices,
+} from '../lib/genstudio-client.js'
+import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
+
+router.use((req, res, next) => {
+  if (req.path.startsWith('/voicestudio/') || req.path.startsWith('/macos/voices')) {
+    return res.status(410).json({
+      code: 'GENSTUDIO_ONLY',
+      detail: 'Direct local voice endpoints are retired. Voices and TTS models come from GenStudio.',
+    })
+  }
+  next()
+})
 
 // v1.0.255 — the Voice Studio URL setting may hold several endpoints (one per
 // Mac) for the TTS pool; single-endpoint ops (health/voices/availability) use
@@ -33,79 +43,39 @@ const vsVoicesCache = new TtlCache<object>(60_000)        // pool/voicepack voic
 const vsModelsCache = new TtlCache<object>(60_000)        // available engines on the modal
 const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when user installs voices in System Settings
 
-/** Pick the TTS provider for a model id, mirroring generators/audio.ts. */
-function resolveAudioProvider(
-  modelId: string | undefined,
-  audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie' {
-  if (!modelId) return 'fal'
-  const entry = audioModels?.[modelId]
-  if (entry?.provider) return entry.provider
-  if (modelId.startsWith('eleven_')) return 'elevenlabs'
-  if (modelId.startsWith('genaipro-')) return 'genaipro'
-  // v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, local Tailscale).
-  if (modelId.startsWith('voicestudio-')) return 'voicestudio'
-  if (modelId.startsWith('genstudio-')) return 'genstudio'
-  // v1.0.329+ — macOS built-in `say` (local, free).
-  if (modelId.startsWith('macos-')) return 'macos'
-  // v1.0.378+ — Fish Audio (direct cloud TTS).
-  if (modelId.startsWith('fishaudio-')) return 'fishaudio'
-  // kie.ai ElevenLabs gateway (cheapest per-character).
-  if (modelId.startsWith('kie-')) return 'kie'
-  return 'fal'
-}
-
 router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema), async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(400).json({ detail: 'Project config missing.' })
+  const migratedModel = pm.resolveStoryTtsModelId(req.body.model || '')
+  if (!migratedModel) {
+    return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', req.body.model || '(none)') })
+  }
+  req.body.model = migratedModel
 
-  // Pick the TTS provider for the model the user selected and verify the
-  // right key is set. v1.0.149+ added Voice Studio (local Pinokio modal,
-  // no key — URL alone is the enable). v1.0.150 dropped the standalone
-  // Chatterbox provider entirely (rolled into Voice Studio's family list).
-  const providerId = resolveAudioProvider(req.body.model, config.audio_models)
-  let apiKey = ''
-  if (providerId !== 'voicestudio' && providerId !== 'macos') {
-    apiKey = await resolveApiKeyForProviderId(slug, providerId, {
-      model: req.body.model,
-    }) || ''
-    if (!apiKey) {
-      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-        : providerId === 'genaipro' ? 'GenAIPro'
-          : providerId === 'fishaudio' ? 'Fish Audio'
-            : providerId === 'genstudio' ? 'GenStudio KH'
-              : providerId === 'kie' ? 'kie.ai'
-                : 'fal.ai'
-      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
-    }
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    return res.status(400).json({
+      code: 'GENSTUDIO_KEY_REQUIRED',
+      detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+    })
   }
 
-  if (providerId === 'genstudio') {
-    try {
-      const catalog = await listGenStudioVoices(apiKey)
-      if (!catalogHasVoice(catalog, req.body.voice)) {
-        return res.status(400).json({
-          detail: 'The selected voice is not available in your GenStudio KH catalog. Refresh the voice picker and choose an available voice.',
-        })
-      }
-    } catch (error: any) {
-      return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
-    }
-  } else if (!['voicestudio', 'macos'].includes(providerId)) {
-    const savedVoices = await getVoicePresetsGlobal()
-    if (!voiceSupportsProvider(savedVoices, req.body.voice, providerId)) {
-      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-        : providerId === 'genaipro' ? 'GenAIPro'
-          : providerId === 'fishaudio' ? 'Fish Audio'
-            : providerId === 'kie' ? 'kie.ai'
-              : 'fal.ai'
+  try {
+    const [voices, capabilities] = await Promise.all([
+      listGenStudioVoices(apiKey),
+      listGenStudioCapabilities(apiKey),
+    ])
+    if (!catalogHasVoice(voices, req.body.voice)) {
       return res.status(400).json({
-        detail: `The selected voice is not labelled for ${label}. Pick a compatible voice or update it in Settings → Voices.`,
+        detail: 'The selected voice is not available in your GenStudio KH catalog. Refresh the voice picker and choose an available voice.',
       })
     }
+    if (!capabilities.some(model => model.id === migratedModel && model.operation === 'voice.tts' && model.availability === 'available')) {
+      return res.status(409).json({ detail: `The saved TTS model "${req.body.model}" is not currently available in the GenStudio catalog.` })
+    }
+  } catch (error: any) {
+    return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
   }
   if (jq.isDuplicate(slug, req.body.episode_id, 'audio')) {
     return res.status(409).json({ detail: `Audio generation already queued/running for ${req.body.episode_id}` })
@@ -127,189 +97,43 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
  */
 router.post('/projects/:slug/preview-voice', async (req, res) => {
   const { slug } = req.params
-  const { voice_id, model, speed, stability, similarity, text } = req.body
+  const { voice_id, model, speed, text } = req.body
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(400).json({ detail: 'Project config missing.' })
-
-  const providerId = resolveAudioProvider(model, config.audio_models)
-  let apiKey = ''
-  if (providerId === 'voicestudio') {
-    // v1.0.149+ — Voice Studio KH preview. "apiKey" carries the modal URL.
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
-    apiKey = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-  } else {
-    // (other providers handled below)
+  const migratedModel = pm.resolveStoryTtsModelId(model || '')
+  if (!migratedModel) return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', model || '(none)') })
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    return res.status(400).json({
+      code: 'GENSTUDIO_KEY_REQUIRED',
+      detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+    })
   }
-  // v1.0.293 — for pooled clone voices the picker stores `vsname:<name>`
-  // instead of a raw UUID. Resolve the name to whichever endpoint has it,
-  // and pin the preview to that endpoint + use its UUID. We override the
-  // resolved apiKey + voice_id here so the rest of the function below
-  // works unchanged.
-  let resolvedVoiceId: string | undefined = typeof voice_id === 'string' ? voice_id : undefined
-  if (providerId === 'voicestudio' && resolvedVoiceId && resolvedVoiceId.startsWith('vsname:')) {
-    const name = resolvedVoiceId.slice('vsname:'.length)
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { resolveVoicePool, pickEndpointForVoice } = await import('../services/voicestudio-voice-pool.js')
-    const pool = await resolveVoicePool(await getApiKey('voicestudio'))
-    const picked = pickEndpointForVoice(pool, name, apiKey)
-    if (!picked) {
-      return res.status(400).json({
-        detail: `Voice "${name}" not found on any reachable Voice Studio endpoint. Save it in Voice Studio → Voices and retry.`,
-      })
-    }
-    apiKey = picked.endpoint
-    resolvedVoiceId = picked.voiceId
-  }
-  if (providerId === 'fishaudio') {
-    // Fish Audio key lives in the per-machine app-secrets store (same path the
-    // generator resolves), not the legacy per-project config fields.
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    apiKey = await getApiKey('fishaudio')
-    if (!apiKey) {
-      return res.status(400).json({ detail: 'No Fish Audio API key configured. Add one in Settings → API Keys.' })
-    }
-  } else if (providerId === 'genstudio') {
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    apiKey = await getApiKey('genstudio')
-    if (!apiKey) {
-      return res.status(400).json({ detail: 'No GenStudio KH API key configured. Add one in Settings → API Keys.' })
-    }
-  } else if (providerId === 'kie') {
-    // kie.ai ElevenLabs gateway — key in the app-secrets store (same as images).
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    apiKey = await getApiKey('kie')
-    if (!apiKey) {
-      return res.status(400).json({ detail: 'No kie.ai API key configured. Add one in Settings → API Keys.' })
-    }
-  } else if (providerId !== 'voicestudio' && providerId !== 'macos') {
-    apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
-      : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
-      : (config.fal_api_key || '')
-    if (!apiKey) {
-      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-        : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
-      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
-    }
-  }
+  const resolvedVoiceId = typeof voice_id === 'string' ? voice_id.trim() : ''
+  if (!resolvedVoiceId) return res.status(400).json({ detail: 'Select a GenStudio voice before previewing.' })
 
   const sample = typeof text === 'string' && text.trim().length > 0
     ? text.trim().slice(0, 300)
     : 'Welcome to the story. Take a deep breath, settle in, and let your mind drift.'
 
   try {
-    if (providerId === 'macos') {
-      // macOS built-in `say`: render to a temp MP3, inline as a data URL,
-      // delete the file. Same contract as the voicestudio preview.
-      const fs = await import('fs/promises')
-      const provider = registry.getAudioProvider('macos')
-      if (!provider) return res.status(500).json({ detail: 'macOS audio provider not registered' })
-      const result = await provider.generateAudio({
+    const fs = await import('fs/promises')
+    const os = await import('os')
+    const path = await import('path')
+    const { randomUUID } = await import('crypto')
+    const { generateTtsToFile } = await import('../lib/genstudio-client.js')
+    const tempPath = path.join(os.tmpdir(), `genstudio-preview-${randomUUID()}.mp3`)
+    try {
+      await generateTtsToFile(apiKey, tempPath, {
         text: sample,
-        apiKey: '',
-        modelId: model || 'macos-say',
-        voiceId: resolvedVoiceId || undefined,
-        speed,
+        voiceId: resolvedVoiceId,
+        speed: typeof speed === 'number' ? speed : 1,
       })
-      const filePath = result.audioUrl.startsWith('file://')
-        ? new URL(result.audioUrl).pathname
-        : result.audioUrl
-      const buf = await fs.readFile(filePath)
-      await fs.rm(filePath, { force: true }).catch(() => {})
-      const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
-      return res.json({ audio_url: dataUrl })
+      const buf = await fs.readFile(tempPath)
+      return res.json({ audio_url: `data:audio/mpeg;base64,${buf.toString('base64')}` })
+    } finally {
+      await fs.rm(tempPath, { force: true }).catch(() => {})
     }
-
-    if (providerId === 'voicestudio') {
-      // Voice Studio KH (local Pinokio modal): generate to a temp WAV,
-      // inline as a data URL, delete the file. Keeps the preview-voice
-      // contract (return a playable URL) without exposing file:// or
-      // making the browser hit the local modal directly.
-      const fs = await import('fs/promises')
-      const provider = registry.getAudioProvider('voicestudio')
-      if (!provider) return res.status(500).json({ detail: 'voicestudio audio provider not registered' })
-      const result = await provider.generateAudio({
-        text: sample,
-        apiKey,
-        modelId: model || 'voicestudio-voxcpm-mlx',
-        voiceId: resolvedVoiceId || undefined,
-        speed, stability, similarity,
-      })
-      const filePath = result.audioUrl.startsWith('file://')
-        ? new URL(result.audioUrl).pathname
-        : result.audioUrl
-      const buf = await fs.readFile(filePath)
-      await fs.rm(filePath, { force: true }).catch(() => {})
-      const dataUrl = `data:audio/wav;base64,${buf.toString('base64')}`
-      return res.json({ audio_url: dataUrl })
-    }
-
-    if (providerId === 'genstudio') {
-      const fs = await import('fs/promises')
-      const os = await import('os')
-      const path = await import('path')
-      const { randomUUID } = await import('crypto')
-      const { generateTtsToFile } = await import('../lib/genstudio-client.js')
-      const tempPath = path.join(os.tmpdir(), `genstudio-preview-${randomUUID()}.mp3`)
-      try {
-        await generateTtsToFile(apiKey, tempPath, {
-          text: sample,
-          voiceId: resolvedVoiceId,
-          speed: typeof speed === 'number' ? speed : 1,
-        })
-        const buf = await fs.readFile(tempPath)
-        return res.json({ audio_url: `data:audio/mpeg;base64,${buf.toString('base64')}` })
-      } finally {
-        await fs.rm(tempPath, { force: true }).catch(() => {})
-      }
-    }
-
-    if (providerId === 'elevenlabs') {
-      // Direct API returns MP3 bytes inline — we can't get a hosted URL for
-      // them, so encode as a data: URL the browser can play directly.
-      const buf = await generateTtsBuffer(sample, apiKey, {
-        model, voiceId: resolvedVoiceId || undefined, speed, stability, similarity,
-        // Note: ElevenLabs ignores the vsname: prefix because resolvedVoiceId
-        // only gets the prefix-strip treatment when providerId==='voicestudio'.
-        // For ElevenLabs voice_id is the raw catalogue id, unchanged.
-      })
-      const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
-      return res.json({ audio_url: dataUrl })
-    }
-
-    if (providerId === 'fishaudio') {
-      // Fish Audio (direct): MP3 bytes inline → data URL. voice_id is the
-      // Fish reference_id (cloned voice / any fish.audio model id).
-      const { generateTtsBuffer: generateFishBuffer } = await import('../lib/fishaudio-client.js')
-      const buf = await generateFishBuffer(sample, apiKey, {
-        model, voiceId: resolvedVoiceId || undefined, speed,
-      })
-      const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
-      return res.json({ audio_url: dataUrl })
-    }
-
-    if (providerId === 'kie') {
-      // kie.ai returns a hosted audio URL the browser can play directly.
-      const { generateTtsToUrl } = await import('../lib/kie-tts-client.js')
-      const audioUrl = await generateTtsToUrl(sample, apiKey, {
-        model, voiceId: resolvedVoiceId || undefined, speed, stability, similarity,
-      })
-      return res.json({ audio_url: audioUrl })
-    }
-
-    const provider = registry.getAudioProvider(providerId)
-    if (!provider) return res.status(500).json({ detail: `${providerId} audio provider not registered` })
-    const defaultModel = providerId === 'genaipro' ? 'genaipro-multilingual-v2' : 'turbo-v2.5'
-    const result = await provider.generateAudio({
-      text: sample,
-      apiKey,
-      modelId: model || defaultModel,
-      voiceId: resolvedVoiceId || undefined,
-      speed, stability, similarity,
-    })
-    res.json({ audio_url: result.audioUrl })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Voice preview failed'))
   }
@@ -462,8 +286,8 @@ router.put('/projects/:slug/episodes/:code/expression', async (req, res) => {
 
 // ── Audio reconciliation (recover missing chunks) ─────────────────────────
 // Scans expected vs present audio chunks for an episode. `/status` is
-// read-only; `/repair` hits GenAIPro's task-history API to download any
-// chunks whose completed result URL never made it back to disk.
+// read-only; `/repair` can reclaim accepted GenStudio jobs only. Historical
+// direct-provider sidecars remain readable evidence and fail without contact.
 
 router.get('/projects/:slug/episodes/:code/audio-status', async (req, res) => {
   try {
@@ -654,9 +478,8 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
     const config = await pm.getConfig(req.params.slug)
     if (!config) return res.status(400).json({ detail: 'Project config missing' })
 
-    // Provider-aware: the reconciler re-fetches each missing chunk from whatever
-    // task-based gateway made it (GenAIPro / kie.ai / fal.ai), resolving keys
-    // itself. Streaming-provider chunks are reported as "regenerate".
+    // Recovery is deliberately GenStudio-only. Legacy provider evidence is
+    // reported as non-executable and must be regenerated through GenStudio.
     const result = await reconcileAudio(req.params.slug, req.params.code)
     res.json(result)
   } catch (e: any) {

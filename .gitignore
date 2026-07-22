@@ -28,6 +28,15 @@ migrations.json
 logs/
 _trash/
 
+# Credentials and local databases (defense in depth with packaging checks)
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
 # Editor / OS cruft
 .DS_Store
 *.log

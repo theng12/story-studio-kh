@@ -19,7 +19,7 @@ import { existsSync } from 'fs'
 import * as cm from '../services/character-manager.js'
 import * as cl from '../services/character-library.js'
 import * as pm from '../services/project-manager.js'
-import { analyzeStyle, visionKeyAvailable } from '../lib/vision-client.js'
+import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { respondWithError, humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
@@ -192,24 +192,7 @@ router.post('/projects/:slug/characters/:id/describe-from-image', async (req, re
       return res.status(404).json({ detail: `Reference image file missing on disk: ${filename}` })
     }
 
-    // Vision auto-routes (kie.ai Claude → GPT-4o fallback) inside
-    // analyzeStyle; we only confirm SOME vision key exists for a clean 400.
-    if (!(await visionKeyAvailable())) {
-      return res.status(400).json({
-        detail: 'No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys to use "Describe from image".',
-      })
-    }
-
-    const focus = typeof req.body?.focus === 'string' ? req.body.focus.trim() : ''
-    const result = await analyzeStyle({
-      imagePath, focus: focus || null, mode: 'character',
-    })
-    if (result.style_text === 'NO_CLEAR_SUBJECT') {
-      return res.status(422).json({
-        detail: 'The vision model could not identify a clear subject in this image. Try a portrait-style image with a single, clearly-framed subject.',
-      })
-    }
-    res.json({ description: result.style_text, model_used: result.model_used })
+    return res.status(501).json({ code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE', detail: GENSTUDIO_VISION_UNAVAILABLE })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Character description failed'))
   }

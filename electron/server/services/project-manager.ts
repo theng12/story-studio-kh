@@ -17,9 +17,10 @@ import {
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type {
-  CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
+  AudioModelConfig, CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
+import { migrateGenStudioPresetModels, resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
@@ -927,6 +928,44 @@ export function sanitizeAudioGeneratorPresets(value: unknown): unknown {
   return clean
 }
 
+/**
+ * Build the read-only runtime TTS catalog exposed to current Story Studio
+ * code. Historical audio_models remain untouched on disk for audit/import
+ * evidence, but legacy provider ids and forged provider fields never become
+ * executable configuration.
+ */
+export function genStudioOnlyAudioModels(
+  saved: Record<string, AudioModelConfig> | null | undefined,
+): Record<string, AudioModelConfig> {
+  const candidates = mergeCatalog(DEFAULT_AUDIO_MODELS, saved)
+  const current: Record<string, AudioModelConfig> = {}
+  for (const [savedId, entry] of Object.entries(candidates)) {
+    const modelId = resolveStoryTtsModelId(savedId)
+    if (!modelId) continue
+    const existing = current[modelId]
+    current[modelId] = {
+      label: existing?.label || entry.label || 'GenStudio voice model',
+      cost_per_1k_chars: existing?.cost_per_1k_chars ?? entry.cost_per_1k_chars ?? 0,
+      provider: 'genstudio',
+      tts_soft_max_chars: 15_000,
+    }
+  }
+  return current
+}
+
+/** Canonicalize the one formerly public Story-owned GenStudio TTS alias. */
+export function resolveStoryTtsModelId(modelId: string): string | null {
+  const value = modelId.trim()
+  if (value === 'genstudio-qwen3-standard') return 'genstudio-standard-v1'
+  return resolveGenStudioModelId('voice', value)
+}
+
+function migratePresetField(key: string, value: unknown): unknown {
+  return (key.endsWith('_presets') || /_last_preset(_[a-z]+)?$/.test(key))
+    ? migrateGenStudioPresetModels(value)
+    : value
+}
+
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
@@ -934,7 +973,9 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   if (!existsSync(configPath)) return null
   const raw = await readJson(configPath)
   if (Array.isArray(raw.audio_generator_presets)) {
-    raw.audio_generator_presets = sanitizeAudioGeneratorPresets(raw.audio_generator_presets)
+    raw.audio_generator_presets = migrateGenStudioPresetModels(
+      sanitizeAudioGeneratorPresets(raw.audio_generator_presets),
+    )
   }
 
   // Merge defaults into each catalog so new default entries (e.g. new
@@ -953,10 +994,7 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   // tier-aware pricing despite running a tier-aware build.
   raw.image_models = mergeCatalog(DEFAULT_IMAGE_MODELS, raw.image_models)
   const savedAudioModels = raw.audio_models
-  raw.audio_models = migrateRetiredAudioDefaults(
-    mergeCatalog(DEFAULT_AUDIO_MODELS, savedAudioModels),
-    savedAudioModels,
-  )
+  raw.audio_models = genStudioOnlyAudioModels(savedAudioModels)
   raw.video_models = sanitizeVideoCatalog(mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models))
   if (!raw.voice_presets || !raw.voice_presets.length) {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]
@@ -1135,7 +1173,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       key.startsWith('custom_') ||
       key === 'script_custom_styles' ||
       key === 'image_concurrency'
-    if (shouldPassThrough) safe[key] = raw[key]
+    if (shouldPassThrough) safe[key] = migratePresetField(key, raw[key])
   }
 
   return safe
@@ -1173,7 +1211,9 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
     if (Array.isArray(data.audio_generator_presets)) {
-      data.audio_generator_presets = sanitizeAudioGeneratorPresets(data.audio_generator_presets)
+      data.audio_generator_presets = migrateGenStudioPresetModels(
+        sanitizeAudioGeneratorPresets(data.audio_generator_presets),
+      )
     }
     // Retired custom-model storage. Any normal settings save permanently
     // prunes it from this project's config without requiring a bulk migration.
@@ -1182,19 +1222,19 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
       data.image_models = req.image_models
       data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
     }
-    if (req.audio_models) {
-      data.audio_models = req.audio_models
-      data.audio_pricing_last_updated = new Date().toISOString().split('T')[0]
-    }
+    // audio_models is historical evidence only. The request contract strips
+    // it, and this service intentionally never rewrites it into an executable
+    // project-owned TTS route. GenStudio owns the live catalog and pricing.
     // Pass through any extra settings (script_settings, youtube_templates, etc.)
     // Excludes voice_presets / voice_favourites — those went to global above
     // and must not be re-written into the project config.
     const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
     for (const key of Object.keys(req)) {
       if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
-        (data as any)[key] = key === 'audio_generator_presets'
+        const requested = key === 'audio_generator_presets'
           ? sanitizeAudioGeneratorPresets((req as any)[key])
           : (req as any)[key]
+        ;(data as any)[key] = migratePresetField(key, requested)
       }
     }
     if ((req as any).video_models) {

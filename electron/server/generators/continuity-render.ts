@@ -23,34 +23,22 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { isDecodableImage } from '../lib/image-validation.js'
-import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
-import { getHubBackend } from '../lib/studiohub-client.js'
-import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
-import type { ImageGenerationRequest } from '../providers/types.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getCharacter, referenceImagePath } from '../services/character-manager.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
-import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
-import {
-  acceptHubImageRecovery,
-  completeHubImageRecovery,
-  finishHubImageRecoveryPoll,
-  getReconnectableHubImageRecovery,
-  prepareHubImageRecovery,
-  type HubImageRecoveryCheckpoint,
-} from '../services/hub-image-recovery.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -139,11 +127,6 @@ function defaultCfg(): ContinuityCfg {
  *  render; Scene Review reads it to show a "Now rendering" preview panel. */
 export const RENDER_STATUS_FILENAME = '.render_status.json'
 
-// v1.0.341 — how often the parallel renderer re-probes the local Image Studio
-// pool to absorb Macs that came online (or recovered) mid-render. Picked to be
-// responsive without hammering the health endpoints.
-const POOL_REPROBE_MS = 20_000
-
 export async function runContinuityRenderJob(job: Job): Promise<void> {
   const params = job.params as ContinuityRenderParams
   const { episode_id, model } = params
@@ -193,9 +176,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   if (!config) throw new Error('Project config not found')
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
   // v1.0.232 — forward the FULL provider-params set (mirrors generators/images.ts).
   // The previous shape dropped api_model_i2i / refs_field / supports_reference_images,
@@ -222,38 +207,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // ImageStudio) read providerParams.negative_prompt; cloud providers ignore it.
   if (cfg.negative_prompt) (providerParams as any).negative_prompt = cfg.negative_prompt
 
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, { model, jobId: job.job_id })
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → This Mac → API Keys.`)
-  }
-
-  // v1.0.255 — health-checked multi-endpoint pool for local Image Studio (run
-  // images across several Macs). Build a least-busy dispatcher over the ONLINE
-  // endpoints; an offline Mac is skipped, one that drops mid-batch fails over.
-  // Cloud providers keep their single real key (no pool).
-  let dispatcher: Dispatcher | null = null
-  if (providerId === 'imagestudio') {
-    // v1.0.437 — only build the pool over USER-ENABLED endpoints (drops Macs
-    // switched off in Settings); enabled-but-offline ones still rejoin via the
-    // re-probe below when they come online.
-    const eps = parseEnabledEndpoints(apiKey)
-    if (eps.length > 1) {
-      const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u)).ok)
-      // v1.0.341 — build the pool over ALL configured endpoints (not just the
-      // online-at-start snapshot) and pre-mark the offline ones DOWN. The 30s
-      // self-healing TTL + the periodic re-probe below then bring a Mac that
-      // boots (or recovers) mid-render back into rotation — instead of it
-      // sitting idle for the whole job because it missed the start probe.
-      dispatcher = createDispatcher(eps)
-      for (const u of offline) dispatcher.markDown(u)
-      job.output_lines.push(
-        `Image Studio pool: ${healthy.length}/${eps.length} online` +
-        (offline.length ? ` (offline: ${offline.join(', ')} — will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online)` : '') +
-        ` — distributing least-busy; machines that come online mid-render are picked up automatically.`,
-      )
-    }
-  }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   // v1.0.254 — prompt-only (text2img): drop ALL reference images.
   const promptOnly = params.prompt_only === true
@@ -368,20 +323,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // preset; cloud providers ignore it. Smaller = far less GPU memory + faster.
   let renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   let renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
-  // v1.0.381 — when explicit px weren't supplied but a render_scale PERCENT was
-  // (the Pipeline batch carries the preset's scale, not pixels), derive the size
-  // from the aspect preset × scale — but only for local Image Studio, since
-  // cloud providers render from the aspect ratio and ignore px. Matches the
-  // Scene Review page's size picker exactly (shared dimsForAspectScale).
-  if ((renderWidth === undefined || renderHeight === undefined) && providerId === 'imagestudio'
-      && typeof params.render_scale === 'number' && params.render_scale > 0) {
-    const { dimsForAspectScale } = await import('../providers/image/imagestudio.js')
-    const dims = dimsForAspectScale(aspectRatio, params.render_scale)
-    renderWidth = dims.width
-    renderHeight = dims.height
-  }
   if (renderWidth && renderHeight) {
-    job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models; cloud uses ${aspectRatio}).`)
+    job.output_lines.push(`Requested render size: ${renderWidth}×${renderHeight}.`)
   }
   const force = params.force === true
   // v1.0.344 — an explicit scene selection always renders in parallel.
@@ -395,7 +338,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // worker per Mac); falls back to 1 for a single local modal, 3 for cloud.
   // v1.0.391 — ceiling raised 8→50 for large local Image Studio pools.
   const concurrency = params.concurrency === 'auto'
-    ? Math.max(1, Math.min(50, dispatcher ? dispatcher.liveCount() : (providerId === 'imagestudio' ? 1 : 3)))
+    ? 3
     : Math.max(1, Math.min(50, Math.floor(Number(params.concurrency) || 3)))
   if (params.concurrency === 'auto') {
     job.output_lines.push(`Auto concurrency → ×${concurrency} (matched to online server${concurrency === 1 ? '' : 's'}).`)
@@ -485,7 +428,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       }
     }
     if (useStyle) { refs.push(stylePath); descs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    const refPaths = promptOnly ? [] : Array.from(new Set(refs))
+    // GenStudio currently exposes prompt-only image generation. Keep reference
+    // descriptions for the live UI and fold identity into the prompt, but never
+    // send local files around GenStudio to a provider or Studio Hub.
+    const refPaths: string[] = []
     const params = isChar
       ? providerParams
       : { ...providerParams, negative_prompt: [(providerParams as any).negative_prompt, NONCHARACTER_NEGATIVE].filter(Boolean).join(', ') }
@@ -507,17 +453,20 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }
     if (useStyle) { sharedRefs.push(stylePath); sharedRefDescs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
     // v1.0.254 — prompt-only drops every reference image (pure text2img).
-    const sharedRefPaths = promptOnly ? [] : Array.from(new Set(sharedRefs))
-    const endpoint = (sharedRefPaths.length && (providerParams as any).supports_reference_images === true)
-      ? 'image-to-image' : 'text-to-image'
+    const sharedRefPaths: string[] = []
+    const endpoint = 'text-to-image'
 
     // Explicit manual selections overwrite their chosen images. Missing-only
     // selections are durable repair scopes: retries re-check disk and submit
     // only IDs that still lack a verified image.
-    const logicalRecoveryId = `continuity-independent:${slug}:${episode_id.toUpperCase()}`
     const repairOnly = params.hub_repair_only === true
-    const savedRecovery = getReconnectableHubImageRecovery(job, logicalRecoveryId)
-    let toRender = selectIndependentRenderScenes(scenes, {
+    if (repairOnly) {
+      throw new Error(
+        'Legacy Studio Hub batch repair is retired. No Hub request was made. ' +
+        'Use image Repair for a saved GenStudio job, or Retry to create deliberate new GenStudio work.',
+      )
+    }
+    const toRender = selectIndependentRenderScenes(scenes, {
       sceneIds: params.scene_ids,
       missingOnly: params.missing_only,
       singleIndex,
@@ -525,10 +474,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       fromIndex,
       hasRenderedImage,
     })
-    if (savedRecovery && (savedRecovery.state === 'prepared' || savedRecovery.state === 'accepted' || repairOnly)) {
-      const savedIds = new Set(savedRecovery.target_ids)
-      toRender = scenes.filter(scene => savedIds.has(scene.id))
-    }
     skipped = scenes.length - toRender.length
 
     job.output_lines.push(
@@ -555,104 +500,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       updated_at: new Date().toISOString(),
     })
 
-    // Studio Hub batch-per-story (§6b): in Hub mode, submit ALL scenes as ONE
-    // batch so the Hub work-steals them across the WHOLE fleet. The per-scene
-    // worker pool below is bounded by the direct endpoint list, which under-uses
-    // the fleet in Hub mode; a shared reference uploads once (one asset_id).
-    // Results stream back per scene as they finish (poll-based, no webhook).
-    // Hub mode is strict; failures preserve checkpoints and stop the job.
-    let renderedViaBatch = false
-    let batchRecovery: HubImageRecoveryCheckpoint | null = null
-    const hubBackend = await getHubBackend()
-    if (repairOnly && (hubBackend.mode !== 'hub' || !hubBackend.hubUrl || providerId !== 'imagestudio')) {
-      throw new Error('Studio Hub image Repair is read-only and requires the saved Hub backend to be active.')
-    }
-    if (hubBackend.mode === 'hub' && hubBackend.hubUrl && providerId === 'imagestudio' && toRender.length) {
-      try {
-        const batchReqs = toRender.map((scene) => {
-          const sref = buildSceneRefs(scene, null)
-          return {
-            scene, sref,
-            req: {
-              prompt: composePrompt(scene.visual_prompt, sref.includeCharacter),
-              aspectRatio, modelId: model, providerParams: sref.params,
-              width: renderWidth, height: renderHeight,
-              referenceImagePaths: sref.refPaths.length ? sref.refPaths : undefined,
-            } as ImageGenerationRequest,
-          }
-        })
-        batchRecovery = await prepareHubImageRecovery(job, {
-          logicalId: logicalRecoveryId,
-          targetIds: batchReqs.map(item => item.scene.id),
-          hubUrl: hubBackend.hubUrl,
-          requestIdentity: batchReqs.map(item => item.req),
-          repairOnly,
-        })
-        for (const b of batchReqs) inFlight.add(b.scene.scene_index)
-        await pushStatus()
-        job.output_lines.push(batchRecovery.batch_id
-          ? `Studio Hub recovery — reconnecting batch ${batchRecovery.batch_id} for ${batchReqs.length} scene(s).`
-          : `Studio Hub batch — submitting ${batchReqs.length} scene(s) as ONE idempotent render; the Hub distributes them across the fleet.`)
-        await renderImageBatchViaHub(batchReqs.map((b) => b.req), {
-          label: `storystudio:${slug}/${episode_id.toUpperCase()}`,
-          isCancelled: () => jq.isCancelled(job.job_id),
-          recovery: {
-            clientRequestId: batchRecovery.client_request_id,
-            batchId: batchRecovery.batch_id,
-            repairOnly,
-            onAccepted: async (batchId, replayed) => {
-              await acceptHubImageRecovery(job, batchRecovery!, batchId)
-              job.output_lines.push(replayed
-                ? `Studio Hub safely replayed the saved request as existing batch ${batchId}.`
-                : `Studio Hub accepted batch ${batchId}; recovery checkpoint saved.`)
-            },
-            onFinished: status => finishHubImageRecoveryPoll(job, batchRecovery!, status),
-          },
-          onItemDone: async (index, result) => {
-            const b = batchReqs[index]
-            if (!b) return
-            const outPath = path.join(outDir, `${b.scene.id}.png`)
-            if (result.error || !result.url) {
-              failedSceneIds.push(b.scene.id)
-              job.output_lines.push(`Scene ${b.scene.scene_index} failed: ${result.error || 'no image'}`)
-            } else {
-              if (result.taskId) {
-                await recordTask(outDir, `${b.scene.id}.png`, {
-                  provider: imageProvider.meta.providerId || imageProvider.meta.id,
-                  task_id: result.taskId,
-                  submitted_at: new Date().toISOString(),
-                  input_hash: hashInput(b.req.prompt),
-                })
-              }
-              await downloadImage(result.url, outPath)
-              await persistImagePath(b.scene.id, outPath, b.scene.visual_prompt)
-              successfulSceneIds.add(b.scene.id)
-              rendered++
-              job.output_lines.push(`Scene ${b.scene.scene_index}/${scenes.length} (${b.scene.id}) ✓`)
-            }
-            inFlight.delete(b.scene.scene_index)
-            done++
-            job.progress = Math.round((done / Math.max(1, toRender.length)) * 100)
-            await pushStatus()
-          },
-        })
-        renderedViaBatch = true
-      } catch (e: any) {
-        inFlight.clear()
-        done = successfulSceneIds.size
-        job.output_lines.push(
-          `Studio Hub batch failed: ${e?.message || e}. ` +
-          `${successfulSceneIds.size} verified checkpoint(s) were kept; Direct fallback is disabled.`,
-        )
-        await pushStatus()
-        throw e
-      }
-    }
-
     const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
-    if (renderedViaBatch) {
-      await writeStatus({ active: false, updated_at: new Date().toISOString() })
-    } else try {
+    try {
       let idx = 0
       let active = 0
       let finishAll!: () => void
@@ -675,17 +524,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           inFlight.add(scene.scene_index)
           await pushStatus()
           try {
-            const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
+            const result = await imageProvider.generateImage({
               prompt: composePrompt(scene.visual_prompt, sref.includeCharacter),
-              apiKey: ep,
+              apiKey,
               aspectRatio,
-              modelId: model,
+              modelId: modelConfig.api_model || model,
               providerParams: sref.params,
               width: renderWidth,
               height: renderHeight,
               steps: params.image_steps,
               seed: params.seed,
-              referenceImagePaths: sref.refPaths.length ? sref.refPaths : undefined,
+              idempotencyIdentity: `${job.job_id}:${scene.id}`,
               isCancelled: () => jq.isCancelled(job.job_id),
               onJobAccepted: async (taskId) => {
                 await recordTask(outDir, `${scene.id}.png`, {
@@ -695,8 +544,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                   input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
                 })
               },
-            }))
-            if (!result.urls.length) throw new Error('provider returned no image')
+            })
+            if (!result.urls.length) throw new Error('GenStudio KH returned no image')
             if (result.taskId) {
               await recordTask(outDir, `${scene.id}.png`, {
                 provider: imageProvider.meta.providerId || imageProvider.meta.id,
@@ -729,46 +578,16 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // scales the pool UP to the live count — never beyond it, so we keep the
       // "one inference per Mac" guarantee. 'auto' may grow to the full
       // configured pool; an explicit concurrency is a hard cap. No idle Macs.
-      const maxWorkers = params.concurrency === 'auto'
-        ? Math.max(1, Math.min(50, dispatcher ? dispatcher.size : concurrency))
-        : concurrency
-      const liveNow = () => (dispatcher ? Math.max(1, dispatcher.liveCount()) : maxWorkers)
+      const maxWorkers = concurrency
       const ensureWorkers = () => {
         if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
-        const want = Math.min(maxWorkers, liveNow(), fallbackTargets.length - idx + active)
+        const want = Math.min(maxWorkers, fallbackTargets.length - idx + active)
         while (active < want) void worker()
       }
       ensureWorkers()
       maybeFinish()  // nothing to render → resolve immediately
 
-      let poolScaler: ReturnType<typeof setInterval> | null = null
-      if (dispatcher && providerId === 'imagestudio') {
-        poolScaler = setInterval(() => {
-          if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
-          void (async () => {
-            try {
-              const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-              // v1.0.437 — enabled-aware re-probe: only contact still-enabled
-              // endpoints, and force any Mac switched off mid-render DOWN so it
-              // stops receiving work even though it's still reachable.
-              const probeEps = parseEnabledEndpoints(apiKey)
-              const enabledSet = new Set(probeEps)
-              const { healthy, offline } = await healthyEndpoints(probeEps, async (u) => (await imgHealth(u)).ok)
-              const before = dispatcher!.liveCount()
-              for (const u of healthy) dispatcher!.markUp(u)
-              for (const u of offline) dispatcher!.markDown(u)
-              for (const u of parseEndpoints(apiKey)) if (!enabledSet.has(u)) dispatcher!.markDown(u)
-              const after = dispatcher!.liveCount()
-              if (after !== before) {
-                job.output_lines.push(`Pool now ${after}/${probeEps.length} Macs online (enabled + reachable) — adjusting workers.`)
-              }
-              ensureWorkers()
-            } catch { /* transient probe failure — keep the current workers */ }
-          })()
-        }, POOL_REPROBE_MS)
-      }
-
-      try { await allWorkersDone } finally { if (poolScaler) clearInterval(poolScaler) }
+      await allWorkersDone
     } finally {
       await writeStatus({ active: false, updated_at: new Date().toISOString() })
     }
@@ -786,21 +605,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // The scope is already narrowed to failed IDs. Do not let an older image
       // suppress a failed explicit re-render on the next attempt.
       job.params.missing_only = false
-    }
-    if (batchRecovery && unresolved.size === 0) await completeHubImageRecovery(job, batchRecovery)
-    if (repairOnly) {
-      job.result = {
-        repair_only: true,
-        total_expected: toRender.length,
-        recovered: toRender.length - unresolved.size,
-        still_missing: unresolved.size,
-      }
-      job.output_lines.push(
-        unresolved.size === 0
-          ? `Repair complete — all ${toRender.length} Hub image artifact(s) are verified on disk.`
-          : `Repair recovered every available Hub artifact; ${unresolved.size} scene(s) still need a deliberate Retry.`,
-      )
-      return
     }
     requireJobCompletion(job, {
       label: 'Continuity scene rendering', expected: toRender.length,
@@ -877,8 +681,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // a ref-capable model, not on the kie-specific `api_model_i2i` (the OpenAI
     // and OpenRouter providers do image-to-image via /edits / image_url blocks
     // and have no api_model_i2i, so they were mislabelled "text-to-image").
-    const endpoint = (referenceImagePaths.length && (providerParams as any).supports_reference_images === true)
-      ? 'image-to-image' : 'text-to-image'
+    const endpoint = 'text-to-image'
     await writeStatus({
       active: true,
       provider: imageProvider.meta.name,
@@ -893,17 +696,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       updated_at: new Date().toISOString(),
     })
 
-    const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
+    const result = await imageProvider.generateImage({
       prompt: composePrompt(scene.visual_prompt, includeCharacter),
-      apiKey: ep,
+      apiKey,
       aspectRatio,
-      modelId: model,
+      modelId: modelConfig.api_model || model,
       providerParams: sceneParams,
       width: renderWidth,
       height: renderHeight,
       steps: params.image_steps,
       seed: params.seed,
-      referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
+      idempotencyIdentity: `${job.job_id}:${scene.id}`,
       isCancelled: () => jq.isCancelled(job.job_id),
       onJobAccepted: async (taskId) => {
         await recordTask(outDir, `${scene.id}.png`, {
@@ -913,7 +716,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
         })
       },
-    }))
+    })
     if (!result.urls.length) {
       throw new Error(`${imageProvider.meta.name} returned no image for scene ${scene.scene_index} (${scene.id}).`)
     }

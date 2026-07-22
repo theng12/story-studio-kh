@@ -1,11 +1,7 @@
 /**
- * Research adapter contract — common interface for the sources
- * the user can pick on the Research page (v1.0.142+):
- *
- *   - perplexity        — direct Perplexity API, live web search
- *   - llm-only          — any existing text provider (OpenAI /
- *                          Anthropic / kie), prompted to mark
- *                          uncertain claims for manual verify
+ * Research adapter contract. Research now has one execution source:
+ * GenStudio's published LLM catalog. The persisted `llm-only` provider id is
+ * retained strictly for sidecar compatibility.
  *
  * Adapters return the unified ResearchOutput shape so the Research
  * page UI + the script-generator consumer don't branch per source.
@@ -21,15 +17,13 @@ export interface ResearchAdapter {
    *  output. */
   provider: ResearchSourceProvider
 
-  /** True when the necessary key(s) are configured for this adapter.
-   *  Perplexity needs its own key; llm-only needs at least one
-   *  text-provider key. */
+  /** True when the GenStudio API credential is configured. */
   isConfigured(): Promise<boolean>
 
-  /** Human-readable label for the UI source-picker. */
+  /** Human-readable label for compatibility clients. */
   displayName: string
 
-  /** Short helper text for the UI source-picker. */
+  /** Short helper text for compatibility clients. */
   helperText: string
 
   /** Run the research pass. Throws on network / auth / quota failure;

@@ -1,5 +1,15 @@
 # Codex Notes
 
+## Mandatory Release Integrity
+
+- Every shipped Story Studio change—including fixes, reliability work, UI/API
+  behavior, dependency updates, and workflow changes—must increase the version
+  in both `package.json` and `package-lock.json` in the same change set.
+- Add the matching newest-first `## vX.Y.Z` entry to `CHANGELOG.md`; this is the
+  source shown by the in-app **What's New** experience.
+- Run `npm run check:changelog` before finalizing. A release is incomplete if
+  the runtime version, newest changelog entry, and What's New details differ.
+
 ## Built-In Visual Style Workflow
 
 - When a user provides visual references and asks to add a reusable style, use the `story-studio-add-visual-style` skill.

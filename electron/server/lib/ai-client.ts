@@ -17,12 +17,13 @@
  *      unit tests without a real project on disk).
  */
 
-import { registry, resolveApiKeyForProvider, providerIdForMeta } from '../providers/registry.js'
-import { SUPPORTED_MODELS, LEGACY_MODEL_ALIASES } from '../models/types.js'
-import { trackFromText } from '../services/usage-tracker.js'
+import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { isLocalTextModel } from '../services/job-retry-policy.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
+import {
+  resolveGenStudioModelId,
+  unavailableLegacyModelMessage,
+} from '../services/genstudio-model-migration.js'
 
 export interface CallAiContext {
   /** Project slug — enables account-aware key resolution. */
@@ -75,18 +76,14 @@ export async function callAi(
     throw new Error('callAi: model is required')
   }
 
-  // Normalise retired ids (direct Anthropic / kie DeepSeek) to their current
-  // equivalents so projects/jobs with a stale persisted model keep working.
-  // One choke point covers both UI and headless/pipeline callers.
-  model = LEGACY_MODEL_ALIASES[model] ?? model
+  const resolvedModelId = resolveGenStudioModelId('chat', model)
+  if (!resolvedModelId) throw new Error(unavailableLegacyModelMessage('chat', model))
+  model = `genstudio-chat:${resolvedModelId}`
 
   // Find which provider handles this model
   const provider = registry.findTextProviderForModel(model)
-  if (!provider) {
-    // Fallback: check SUPPORTED_MODELS for backward compat
-    const providerName = SUPPORTED_MODELS[model]
-    if (!providerName) throw new Error(`Unsupported model: ${model}`)
-    throw new Error(`No text provider registered for: ${providerName} (model: ${model})`)
+  if (!provider || provider.meta.id !== 'genstudio') {
+    throw new Error(`GenStudio text provider is unavailable for ${model}. No legacy provider fallback was attempted.`)
   }
 
   // Resolve the API key in three tiers, most-specific first:
@@ -100,26 +97,7 @@ export async function callAi(
   //   3. v1.0.177 — read the app-level key store DIRECTLY for whichever
   //      provider this model resolved to. App keys are per-machine + global,
   //      so this works without a slug and covers every registered provider.
-  let apiKey = ''
-  if (ctx.slug) {
-    apiKey = await resolveApiKeyForProvider(ctx.slug, provider.meta, {
-      model,
-      jobId: ctx.jobId,
-      accountId: ctx.accountId,
-    })
-  }
-  if (!apiKey) {
-    const keyField = provider.meta.apiKeyField as keyof typeof apiKeys
-    apiKey = apiKeys[keyField] || ''
-  }
-  if (!apiKey) {
-    // Final fallback: the app-level secrets store, keyed by the provider's
-    // canonical id (kie / fal / google / …). Never throws — returns
-    // '' when unset, so the provider's own "no key" error still fires.
-    try {
-      apiKey = await getApiKey(providerIdForMeta(provider.meta)) || ''
-    } catch { /* fall through to provider's own no-key error */ }
-  }
+  const apiKey = await getApiKey('genstudio').catch(() => '')
 
   const effectiveSystem = system
 
@@ -138,9 +116,6 @@ export async function callAi(
     onDiagnostics: ctx.onDiagnostics,
     images: ctx.images,
   })
-
-  // Track usage
-  trackFromText(model, effectiveSystem + userMsg, result)
 
   return result
 }
@@ -209,7 +184,7 @@ export async function callAiWithRetry(
   ctx: CallAiContext = {},
   maxAttempts = 3,
 ): Promise<string> {
-  const effectiveMaxAttempts = isLocalTextModel(model) ? Math.max(1, maxAttempts) : 1
+  const effectiveMaxAttempts = 1
   let lastErr: unknown
   for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
     if (ctx.signal?.aborted) throw new Error('Aborted')
@@ -232,12 +207,7 @@ export async function callAiWithRetry(
  * isn't falsely blocked. (Direct Anthropic was retired; kie.ai covers Claude.)
  */
 export async function hasAnyTextProviderKey(
-  config?: { openai_api_key?: string; kie_api_key?: string } | null,
+  _config?: { openai_api_key?: string; kie_api_key?: string } | null,
 ): Promise<boolean> {
-  if (config?.openai_api_key || config?.kie_api_key) return true
-  const { getApiKey } = await import('../services/app-secrets-store.js')
-  for (const p of ['openai', 'kie', 'deepseek', 'openrouter', 'genstudio']) {
-    if (await getApiKey(p).catch(() => '')) return true
-  }
-  return false
+  return !!(await getApiKey('genstudio').catch(() => ''))
 }

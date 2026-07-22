@@ -7,42 +7,8 @@
  * import here — do not touch `app.ts`.
  */
 
-import '../providers/image/kie.js'
-// v1.0.338+ — fal.ai cloud image generation/editing (GPT Image 2).
-import '../providers/image/fal-image.js'
-// v1.0.151+ — Image Studio KH (Pinokio FastAPI wrapper, MLX-backed
-// FLUX-family image generation). Sibling of Voice Studio; the user
-// runs them on the same Mac and swaps them in/out via Pinokio.
-import '../providers/image/imagestudio.js'
-// v1.0.234+ — official OpenAI Images API (gpt-image-2), billed on the user's
-// own OpenAI key. txt2img via /generations, img2img via /edits.
-import '../providers/image/openai-image.js'
-// v1.0.236+ — OpenRouter image models (Google Gemini "Nano Banana" flash-image),
-// billed on the user's OpenRouter credit. txt2img + img2img via chat-completions
-// with modalities:["image","text"].
-import '../providers/image/openrouter-image.js'
 // GenStudio KH owns its live catalog, durable task queue, fleet dispatch, and
 // private artifacts. Story Studio discovers it instead of duplicating models.
 import '../providers/image/genstudio.js'
-import '../providers/audio/fal.js'
-import '../providers/audio/genaipro.js'
-// v1.0.149+ — Voice Studio KH (Pinokio-launched FastAPI wrapper around
-// VoxCPM-MLX + 11 other TTS families). Reached over Tailscale.
-// v1.0.150+ — replaces the standalone Chatterbox provider entirely
-// (Chatterbox is now reachable through Voice Studio's chatterbox-mlx
-// family if the user ever wants it back).
-import '../providers/audio/voicestudio.js'
-// v1.0.329+ — macOS built-in `say` voices (local, free, offline). Preview-
-// oriented; no API key.
-import '../providers/audio/macos.js'
-import '../providers/video/fal.js'
-import '../providers/video/kie.js'
-import '../providers/video/videostudio.js'
-import '../providers/text/openai.js'
-import '../providers/text/deepseek.js'
-import '../providers/text/openrouter.js'
 import '../providers/text/genstudio.js'
-// Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM server, self-
-// healing). Sibling of Image/Voice Studio: the apiKey slot carries the base
-// URL, models surface dynamically from the running server's /v1/models.
-import '../providers/text/chatstudio.js'
+import '../providers/video/genstudio.js'

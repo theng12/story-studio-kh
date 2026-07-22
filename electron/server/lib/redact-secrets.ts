@@ -18,6 +18,24 @@
  */
 
 const REDACTED = '[REDACTED]'
+const activeSecrets = new Set<string>()
+
+const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?secret|client[_-]?secret|password|passphrase|bot[_-]?token|hub[_-]?token|genstudio[_-]?api[_-]?key)$/i
+
+/**
+ * Register a runtime secret once it crosses the trusted main-process boundary.
+ *
+ * Crash handlers and generic loggers do not receive the provider key as an
+ * argument, so pattern-only redaction is not enough for arbitrary scoped
+ * tokens. Keeping an in-memory exact-match set lets those final boundaries
+ * scrub every key that has actually been loaded without reading the secrets
+ * file merely for logging.
+ */
+export function registerSecretForRedaction(secret: string | undefined | null): void {
+  if (typeof secret !== 'string') return
+  const trimmed = secret.trim()
+  if (trimmed.length >= 4) activeSecrets.add(trimmed)
+}
 
 /**
  * Replace every non-empty secret occurrence in `text` with `[REDACTED]`.
@@ -34,7 +52,7 @@ const REDACTED = '[REDACTED]'
 export function redactSecrets(text: string, ...secrets: Array<string | undefined | null>): string {
   if (!text) return text
   let out = text
-  for (const secret of secrets) {
+  for (const secret of [...secrets, ...activeSecrets]) {
     if (!secret || typeof secret !== 'string') continue
     // Case-insensitive scan: provider may normalise the key before echoing
     // (lowercased header values are common). Walk the lowercased mirror,
@@ -58,7 +76,51 @@ export function redactSecrets(text: string, ...secrets: Array<string | undefined
   // Defensive: a Bearer header value (Authorization: Bearer XXX) — the
   // token itself is the secret, the literal `Bearer` prefix is fine to keep.
   out = out.replace(/Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g, `Bearer ${REDACTED}`)
+  // fal.ai and a few other APIs use `Authorization: Key <secret>`.
+  out = out.replace(/\bKey\s+[A-Za-z0-9._\-+/=]{8,}/g, `Key ${REDACTED}`)
   // Defensive: any `sk-XXXX` token (OpenAI / Anthropic / kie style).
   out = out.replace(/\bsk-[A-Za-z0-9._\-]{8,}/g, REDACTED)
+  // GenStudio scoped keys use the gsk_* family. Keep this explicit even
+  // though loaded keys are exact-match registered above: it protects error
+  // text produced before the secrets store has been read in this process.
+  out = out.replace(/\bgsk_[A-Za-z0-9._\-]{8,}/gi, REDACTED)
+  // Key/value text and JSON snippets frequently appear in provider errors.
+  // Preserve the field name so diagnostics remain understandable.
+  out = out.replace(
+    /((?:["']?(?:authorization|proxy-authorization|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?secret|client[_-]?secret|password|passphrase|bot[_-]?token|hub[_-]?token|genstudio[_-]?api[_-]?key)["']?)\s*[:=]\s*)(["']?)(?!Bearer\b|Key\b)([^\s,;}"']{4,})(["']?)/gi,
+    `$1$2${REDACTED}$4`,
+  )
+  // Query strings and credential-bearing URLs must never be copied into a
+  // log or renderer-visible diagnostic.
+  out = out.replace(
+    /([?&](?:api[_-]?key|key|token|access[_-]?token|secret|password)=)[^&#\s]+/gi,
+    `$1${REDACTED}`,
+  )
+  out = out.replace(/([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/gi, `$1${REDACTED}@`)
   return out
+}
+
+/** Deep-clone JSON-like diagnostic data while removing secret-bearing keys. */
+export function redactSensitiveValue<T>(value: T, seen = new WeakSet<object>()): T {
+  if (typeof value === 'string') return redactSecrets(value) as T
+  if (value == null || typeof value !== 'object') return value
+  if (Buffer.isBuffer(value)) return '[BINARY]' as T
+  if (value instanceof Date) return value.toISOString() as T
+  if (seen.has(value as object)) return '[CIRCULAR]' as T
+  seen.add(value as object)
+
+  if (Array.isArray(value)) {
+    return value.map(item => redactSensitiveValue(item, seen)) as T
+  }
+
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    if (SENSITIVE_FIELD.test(normalized) || /_api_key$/i.test(normalized)) {
+      out[key] = item ? REDACTED : item
+    } else {
+      out[key] = redactSensitiveValue(item, seen)
+    }
+  }
+  return out as T
 }

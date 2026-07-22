@@ -8,28 +8,28 @@ import {
   voiceSupportsProvider,
 } from '../utils/voice-providers.ts'
 
-test('frontend migrates unlabeled and Fish legacy voices consistently', () => {
+test('frontend preserves legacy voice evidence without granting a removed provider route', () => {
   assert.deepEqual(normalizeSavedVoice({ name: 'Legacy', voice_id: 'legacy' })?.providers,
-    ['elevenlabs', 'fal', 'genaipro', 'kie'])
+    [])
   assert.deepEqual(normalizeSavedVoice({ name: 'Fish', voice_id: 'fish', provider: 'fishaudio' })?.providers,
-    ['fishaudio'])
+    [])
 })
 
-test('frontend merges provider labels for duplicate IDs', () => {
+test('frontend strips removed provider labels from duplicate historical IDs', () => {
   assert.deepEqual(normalizeSavedVoices([
     { name: 'Voice', voice_id: 'id', providers: ['elevenlabs'] },
     { name: 'Duplicate', voice_id: 'id', providers: ['fal', 'fishaudio'] },
   ]), [{
     name: 'Voice',
     voice_id: 'id',
-    providers: ['elevenlabs', 'fal', 'fishaudio'],
+    providers: [],
   }])
 })
 
-test('provider filter rejects a saved voice with the wrong label', () => {
+test('provider filter rejects historical voices with no GenStudio mapping', () => {
   const voice = normalizeSavedVoice({ name: 'Fish', voice_id: 'fish', providers: ['fishaudio'] })!
-  assert.equal(voiceSupportsProvider(voice, 'fishaudio'), true)
-  assert.equal(voiceSupportsProvider(voice, 'genaipro'), false)
+  assert.equal(voiceSupportsProvider(voice, 'fishaudio'), false)
+  assert.equal(voiceSupportsProvider(voice, 'genstudio'), false)
 })
 
 test('frontend retains the dedicated GenStudio voice label', () => {
@@ -98,10 +98,11 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(mediaModels, /\/app-settings\/genstudio\/video-models/)
   assert.match(mediaModels, /Promise\.allSettled/)
   assert.match(imageModels, /\/app-settings\/genstudio\/image-models/)
-  assert.match(modelSelector, /get\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
+  assert.match(modelSelector, /get<LlmModelRow\[]>\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
   assert.match(motionReview, /genstudio-video:\$\{model\.id\}/)
-  assert.match(motionReview, /durable video polling and private download contract/)
+  assert.match(motionReview, /GenStudio owns reservation and settlement/)
+  assert.match(motionReview, /no legacy provider fallback will run/)
   assert.match(providerGroups, /category: 'mix'/)
-  assert.match(providerGroups, /chat:generate/)
-  assert.doesNotMatch(providerGroups, /Qwen3 voice and transcription boundary/)
+  assert.match(providerGroups, /sole catalog, job, and credit boundary/i)
+  assert.doesNotMatch(providerGroups, /openai|anthropic|kie|fal|elevenlabs|studio hub/i)
 })

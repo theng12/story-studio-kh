@@ -168,7 +168,7 @@
         <!-- image → Claude/GPT-4o returns a style-only description that -->
         <!-- populates the textarea above. Re-analyze lets users iterate on -->
         <!-- the focus hint without re-picking the file. -->
-        <div class="style-extract mt-2">
+        <div v-if="visionModels.length" class="style-extract mt-2">
           <div class="style-extract-row">
             <button
               type="button"
@@ -240,14 +240,6 @@
                 Hit Re-analyze to extract the style description.
               </div>
               <div class="flex gap-2 mt-1 flex-wrap">
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-sm"
-                  title="Clean up the reference with AI before re-analysing — useful if it has watermarks or unwanted text."
-                  @click="openReferenceEdit"
-                >
-                  ✨ Edit with AI
-                </button>
                 <button
                   type="button"
                   class="btn btn-ghost btn-sm"
@@ -521,6 +513,7 @@
           <label>Replicate a reference thumbnail <span class="text-muted">(optional)</span></label>
           <div class="flex gap-2 items-center flex-wrap">
             <button
+              v-if="visionModels.length"
               type="button"
               class="btn btn-sm btn-secondary"
               :disabled="extractingThumbRef"
@@ -764,15 +757,6 @@
         </table>
       </div>
     </div>
-
-    <!-- Shared AI image-edit dialog for the reference image. Mounted at -->
-    <!-- the page root; openReferenceEdit() flips the v-model. -->
-    <ImageEditDialog
-      v-model="referenceEditOpen"
-      :project-slug="slug"
-      :image-path="referenceImagePath || ''"
-      @accepted="onReferenceEditAccepted"
-    />
 
   </div>
 </template>
@@ -1531,33 +1515,10 @@ const VISION_CAPABLE = new Set<string>([
   'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-5',
 ])
 
-// Bumped after each accepted AI edit so the <img> re-fetches the file
-// instead of showing the stale cached pre-edit pixels.
-const referenceEditKey = ref(0)
 const referencePreviewUrl = computed(() => {
   if (!referenceImagePath.value) return ''
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}&k=${referenceEditKey.value}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}`
 })
-
-// "✨ Edit with AI" button on the reference-image preview row. Reuses the
-// shared ImageEditDialog (mounted at template root). On accept, the dialog
-// returns the new path; we keep the same path bound here when the user
-// chooses Replace, or swap to the new versioned file otherwise.
-const referenceEditOpen = ref(false)
-function openReferenceEdit() {
-  if (!referenceImagePath.value) return
-  referenceEditOpen.value = true
-}
-function onReferenceEditAccepted(newPath: string) {
-  void (async () => {
-    referenceImagePath.value = await collapseToPortablePath(newPath)
-    referenceEditKey.value++  // bust the preview cache
-    // Clear any stale "Analyzed N min ago" — the image's content changed,
-    // so the previous style extraction no longer describes it.
-    lastAnalyzedAt.value = ''
-    lastAnalysisModel.value = ''
-  })()
-}
 
 const referenceImageName = computed(() => {
   const p = referenceImagePath.value || ''

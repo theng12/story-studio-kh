@@ -20,11 +20,14 @@ export async function downloadVideo(
   url: string,
   destPath: string,
   onProgress?: (bytesReceived: number, totalBytes?: number) => void,
+  headers?: Record<string, string>,
 ): Promise<void> {
   // Studio artifacts may require the shared fleet credential. Cloud CDN URLs
   // tolerate the extra header, so one authenticated fetch path is safe for
   // both Hub/Studio results and existing fal/kie downloads.
-  const resp = await studioFetch(url, { signal: AbortSignal.timeout(300_000) })
+  const resp = headers
+    ? await fetch(url, { headers, signal: AbortSignal.timeout(300_000), redirect: 'follow' })
+    : await studioFetch(url, { signal: AbortSignal.timeout(300_000) })
   if (!resp.ok || !resp.body) throw new Error(`Video download failed: ${resp.status}`)
   await fs.mkdir(path.dirname(destPath), { recursive: true })
   const cl = resp.headers.get('content-length')

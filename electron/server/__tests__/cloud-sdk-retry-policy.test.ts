@@ -10,9 +10,6 @@ const PAID_SDK_SOURCES = [
   'providers/text/openai.ts',
   'providers/text/openrouter.ts',
   'providers/text/deepseek.ts',
-  'services/research/perplexity.ts',
-  'lib/image-edit-client.ts',
-  'lib/vision-client.ts',
 ]
 
 describe('paid SDK retry policy', () => {

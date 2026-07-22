@@ -95,24 +95,6 @@
             >
               ⚡ Normalize all{{ unnormalizedCount ? ` (${unnormalizedCount})` : '' }}
             </button>
-            <!-- Vision model for auto-tagging (both clips + images). -->
-            <ModelMenu
-              v-model="autotagModel"
-              class="autotag-model-select"
-              :options="autotagModelMenuOptions"
-              media-type="llm"
-              title="B-Roll vision model"
-              search-placeholder="Search vision models…"
-              :disabled="autotagModelsLoading || !usableAutotagModels.length"
-            />
-            <button
-              class="btn btn-sm btn-secondary"
-              :disabled="!selectedPool.online || autotagging || !untaggedCount"
-              :title="!selectedPool.online ? 'Pool offline' : !untaggedCount ? 'Every clip/image already has at least one tag' : `Queue vision auto-tag jobs for the ${untaggedCount} item(s) with no tags yet, using ${autotagModel}.`"
-              @click="runAutotagUntagged"
-            >
-              ✨ Auto-tag untagged{{ untaggedCount ? ` (${untaggedCount})` : '' }}
-            </button>
             <button
               class="btn btn-sm btn-secondary"
               :disabled="!selectedPool.online || !clips.length"
@@ -133,10 +115,8 @@
           </div>
         </div>
 
-        <!-- v1.0.122+ — Tab nav for the selected pool. Three views:
-             Clips (the existing grid + scan/normalize/autotag controls),
-             Fetch (search Pexels/Pixabay + queue downloads into THIS pool),
-             Asset Log (every clip's source + license + fetched_at). -->
+        <!-- Local pool workflow: indexed files, manual import guidance, and
+             historical provenance retained for existing assets. -->
         <div class="form-tabs mt-2">
           <button
             type="button"
@@ -151,8 +131,7 @@
             :class="['form-tab', { active: poolTab === 'fetch' }]"
             @click="poolTab = 'fetch'"
           >
-            🔎 {{ isAudioPool ? 'Fetch / Generate' : 'Fetch' }}
-            <span class="text-muted text-xs ml-1">{{ isAudioPool ? '(Freesound · ElevenLabs)' : '(Pexels · Pixabay)' }}</span>
+            ＋ Add files
           </button>
           <button
             type="button"
@@ -283,15 +262,6 @@
                   ⚡ Normalize
                 </button>
                 <button
-                  v-if="!isAudioPool"
-                  class="btn btn-ghost btn-sm"
-                  :disabled="!selectedPool.online"
-                  :title="'Vision-LLM tag suggestion from this clip thumbnail. Unioned with existing tags. ~$0.002 per call.'"
-                  @click="autotagOne(clip.filename)"
-                >
-                  ✨ Auto-tag
-                </button>
-                <button
                   class="btn btn-ghost btn-sm"
                   :disabled="!selectedPool.online"
                   :title="'Rename this clip on disk. The sidecar entry + .broll-normalized/ variant follow automatically. Keep the file extension (e.g. .mp4) intact.'"
@@ -329,174 +299,15 @@
 
         </div><!-- /Clips tab -->
 
-        <!-- ── Fetch tab ──────────────────────────────────────────────── -->
+        <!-- ── Manual import tab ─────────────────────────────────────── -->
         <div v-show="poolTab === 'fetch'">
-
-          <!-- Audio pools: generate a sound effect from a text prompt via
-               ElevenLabs. Saves the MP3 into the pool folder + re-scans. -->
-          <div v-if="isAudioPool" class="sfx-gen">
-            <div class="sfx-gen-title">🎛 Generate a sound effect <span class="text-muted text-xs">· ElevenLabs</span></div>
-            <div class="sfx-gen-row">
-              <input
-                v-model="sfxPrompt"
-                class="input sfx-gen-prompt"
-                placeholder="e.g. distant thunder rumble, glass shatter, retro coin pickup…"
-                :disabled="sfxGenerating"
-                @keydown.enter="generateSfx"
-              />
-              <input
-                v-model.number="sfxDuration"
-                type="number"
-                min="0.5"
-                max="22"
-                step="0.5"
-                class="input sfx-gen-duration"
-                title="Optional length in seconds (0.5–22). Leave blank to let ElevenLabs pick."
-                placeholder="auto"
-                :disabled="sfxGenerating"
-              />
-              <button
-                class="btn btn-primary"
-                :disabled="!sfxPrompt.trim() || sfxGenerating || !selectedPool?.online"
-                :title="!selectedPool?.online ? 'Pool offline — plug in the SSD first' : 'Generate via ElevenLabs and add to this pool'"
-                @click="generateSfx"
-              >
-                <LoadingSpinner v-if="sfxGenerating" size="sm" />
-                {{ sfxGenerating ? 'Generating…' : '✨ Generate' }}
-              </button>
-            </div>
+          <div class="empty">
+            <strong>Add files locally</strong><br />
+            Copy {{ isAudioPool ? 'MP3, WAV, M4A, or OGG files' : selectedPool.media === 'image' ? 'JPG, PNG, or WebP files' : 'video files' }} into
+            <code>{{ selectedPool.folder_path }}</code>, then return to <strong>Clips</strong> and click <strong>↻ Re-scan</strong>.
             <p class="fetch-hint text-muted text-xs">
-              Needs an <strong>ElevenLabs</strong> API key (App Settings → API Keys). The clip lands tagged
-              with your prompt keywords and plays inline under the <strong>🎞 Clips</strong> tab.
+              Direct stock and SFX provider search is disabled. It will return only through a qualified typed GenStudio KH asset route.
             </p>
-            <div v-if="sfxGenError" class="fetch-error">⚠ {{ sfxGenError }}</div>
-          </div>
-
-          <div class="fetch-controls">
-            <div class="fetch-providers" role="group" aria-label="Search providers">
-              <label v-for="p in visibleProviders" :key="p.provider" :class="['fetch-provider', { 'is-unconfigured': !p.configured }]">
-                <input
-                  type="checkbox"
-                  :checked="enabledProviders[p.provider]"
-                  :disabled="!p.configured"
-                  @change="(e: any) => enabledProviders[p.provider] = e.target.checked"
-                />
-                <span>{{ p.name }}</span>
-                <span v-if="!p.configured" class="text-muted text-xs">no key</span>
-              </label>
-            </div>
-            <div class="fetch-search-row">
-              <input
-                v-model="fetchQuery"
-                class="input"
-                :placeholder="isAudioPool ? 'rain, footsteps, sci-fi whoosh, applause…' : 'ocean sunset, calm beach, slow motion clouds…'"
-                @keydown.enter="runFetchSearch"
-              />
-              <select v-if="!isAudioPool" v-model="fetchQuality" class="select" title="Quality preference. Falls back to next-best when the requested isn't available. HD matches normalize target (1080p) — UHD costs bandwidth + storage with no render benefit.">
-                <option value="hd">HD (1080p)</option>
-                <option value="uhd">UHD (4K)</option>
-                <option value="sd">SD</option>
-              </select>
-              <button
-                class="btn btn-primary"
-                :disabled="!canFetchSearch"
-                @click="runFetchSearch"
-              >
-                <LoadingSpinner v-if="fetchLoading" size="sm" />
-                {{ fetchLoading ? 'Searching…' : 'Search' }}
-              </button>
-            </div>
-            <p v-if="!anyProviderConfigured && isAudioPool" class="fetch-hint text-warn">
-              No SFX provider configured. Add a free <strong>Freesound</strong> API token under
-              <strong>App Settings → API Keys</strong> to search Creative-Commons sound effects,
-              or use <strong>Generate</strong> above (ElevenLabs) to make one from a text prompt.
-            </p>
-            <p v-else-if="!anyProviderConfigured" class="fetch-hint text-warn">
-              No fetch providers configured. Add a Pexels or Pixabay API key under
-              <strong>App Settings → API Keys</strong> (both free, no attribution required),
-              or tick the <strong>NASA</strong> checkbox above for key-free public-domain
-              video from NASA's Image &amp; Video Library.
-            </p>
-          </div>
-
-          <div v-if="fetchError" class="fetch-error">⚠ {{ fetchError }}</div>
-
-          <div v-if="fetchResults.length" class="fetch-summary">
-            <span>{{ fetchResults.length }} result{{ fetchResults.length === 1 ? '' : 's' }} · {{ alreadyHaveCount }} already in pool · {{ selectedFetchCount }} selected</span>
-            <div class="fetch-summary-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="!fetchResults.length" @click="toggleSelectAll">
-                {{ allSelectableSelected ? 'Deselect all' : 'Select all new' }}
-              </button>
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="!selectedFetchCount || queueingFetch || !selectedPool?.online"
-                :title="!selectedPool?.online ? 'Pool offline — plug in the SSD first' : ''"
-                @click="queueSelectedFetches"
-              >
-                {{ queueingFetch ? 'Queuing…' : `Add ${selectedFetchCount} to pool` }}
-              </button>
-            </div>
-          </div>
-
-          <div v-if="fetchResults.length" class="fetch-grid">
-            <article
-              v-for="r in fetchResults"
-              :key="`${r.provider}-${r.source_id}`"
-              :class="['fetch-card', { 'is-already-have': r.already_have, 'is-selected': isFetchSelected(r) }]"
-            >
-              <label class="fetch-card-select">
-                <input
-                  type="checkbox"
-                  :checked="isFetchSelected(r)"
-                  :disabled="r.already_have"
-                  @change="toggleFetchPick(r)"
-                />
-              </label>
-              <div class="fetch-thumb-wrap">
-                <!-- Audio results have no still — preview the CC-licensed
-                     mp3 inline straight from the provider's CDN URL. -->
-                <div v-if="isAudioPool" class="fetch-audio-wrap">
-                  <audio
-                    v-if="r.files[0]?.url"
-                    controls
-                    preload="none"
-                    class="fetch-audio"
-                    :src="r.files[0].url"
-                  ></audio>
-                  <div v-else class="clip-audio-offline">🔊 no preview</div>
-                </div>
-                <img v-else :src="r.thumbnail_url" :alt="`${r.provider} ${r.source_id}`" loading="lazy" class="fetch-thumb" />
-                <span class="fetch-duration">{{ formatDuration(r.duration) }}</span>
-                <span :class="['fetch-provider-pill', `source-${r.provider}`]">{{ r.provider }}</span>
-                <span v-if="r.already_have" class="fetch-have-badge" title="A clip from this provider with this source_id is already in this pool.">✓ in pool</span>
-              </div>
-              <div class="fetch-card-body">
-                <div class="fetch-card-meta text-muted text-xs">
-                  <template v-if="isAudioPool">by {{ r.author || 'Unknown' }}</template>
-                  <template v-else>{{ r.width }}×{{ r.height }} · by {{ r.author || 'Unknown' }}</template>
-                </div>
-                <div class="fetch-card-license text-muted text-xs">
-                  <a :href="r.license_url" target="_blank" rel="noopener noreferrer">{{ r.license }}</a> ·
-                  <a :href="r.source_url" target="_blank" rel="noopener noreferrer">view source ↗</a>
-                </div>
-              </div>
-            </article>
-          </div>
-
-          <div v-else-if="!fetchLoading && fetchQuery && !fetchError" class="muted">
-            No results. Try different keywords, or enable another provider above.
-          </div>
-
-          <div v-else-if="!fetchQuery && isAudioPool" class="empty">
-            Type keywords above and hit <strong>Search</strong> to find free Creative-Commons sound
-            effects on Freesound — or <strong>Generate</strong> a bespoke one with ElevenLabs.
-            Clips already in this pool are flagged automatically.
-          </div>
-
-          <div v-else-if="!fetchQuery" class="empty">
-            Type keywords above and hit <strong>Search</strong> to find free stock B-Roll on Pexels and Pixabay.
-            Clips you've already added to this pool are flagged automatically — you can re-search the same
-            terms next month and only pick the new ones.
           </div>
         </div><!-- /Fetch tab -->
 
@@ -530,9 +341,7 @@
           </div>
 
           <div v-if="!provenanceCount" class="empty">
-            No fetched clips yet. Use the <strong>🔎 Fetch</strong> tab to pull stock clips into this pool —
-            each one writes a provenance sidecar that shows up here with source, license, date, and the
-            keywords that found it. Hand-added clips don't have provenance records.
+            No historical provider provenance is stored for this pool. Hand-added files remain local and do not require provenance records.
           </div>
 
           <table v-else class="log-table">
@@ -875,7 +684,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, reactive } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 // v1.0.118+ — pickFolder() branches between Electron's native dialog
 // and the in-app FileBrowserModal (server mode) so the same callsite
 // works in both modes. Not auto-imported (it's a bare named export,
@@ -992,87 +801,6 @@ const normalizingAll = ref(false)
 const unnormalizedCount = computed(() =>
   clips.value.filter(c => !c.normalized && !c.missing).length,
 )
-const untaggedCount = computed(() =>
-  clips.value.filter(c => !c.missing && !(c.tags && c.tags.length)).length,
-)
-const autotagging = ref(false)
-
-interface AutotagModelRow {
-  id: string
-  label: string
-  provider: string
-  available: boolean
-  disabled_reason?: string | null
-  supports_vision: boolean
-}
-
-// Use the shared model catalog so B-Roll sees the same cloud + local choices
-// as every other LLM picker. Text-only models remain visible but disabled:
-// they cannot inspect the cached thumbnail frame that auto-tagging requires.
-const autotagModel = ref<string>('')
-const autotagModels = ref<AutotagModelRow[]>([])
-const autotagModelsLoading = ref(false)
-const usableAutotagModels = computed(() => autotagModels.value.filter(isUsableAutotagModel))
-const autotagModelGroups = computed(() => {
-  const rows: Record<string, AutotagModelRow> = {}
-  for (const model of autotagModels.value) rows[model.id] = model
-  return groupModels(rows, (_id, model) => model.provider || 'other')
-})
-const autotagModelMenuOptions = computed(() => autotagModelGroups.value.flatMap(group => group.items.map(item => ({
-  id: item.id,
-  label: item.data.label,
-  group: group.label,
-  provider: group.label,
-  meta: item.data.supports_vision ? 'Analyses images and video frames' : 'Text-only model',
-  disabled: !isUsableAutotagModel(item.data),
-  disabledReason: !isUsableAutotagModel(item.data) ? autotagModelTooltip(item.data) : undefined,
-  badges: item.data.provider === 'chatstudio'
-    ? [{ label: 'Local', tone: 'local' as const }, { label: 'Free', tone: 'free' as const }]
-    : [{ label: 'Vision', tone: 'info' as const }, { label: 'Cloud', tone: 'paid' as const }],
-}))))
-
-function isUsableAutotagModel(model: AutotagModelRow): boolean {
-  return model.available && !model.disabled_reason && model.supports_vision
-}
-
-function autotagModelTooltip(model: AutotagModelRow): string {
-  if (model.disabled_reason) return model.disabled_reason
-  if (!model.available) {
-    return model.provider === 'chatstudio'
-      ? 'Start Chat Studio and load this model.'
-      : 'No API key configured for this provider.'
-  }
-  if (!model.supports_vision) {
-    return model.provider === 'deepseek'
-      ? 'DeepSeek is text-only and cannot inspect B-Roll images or video frames.'
-      : 'This text-only model cannot inspect B-Roll images or video frames.'
-  }
-  return model.provider === 'chatstudio'
-    ? 'Runs locally for free. The loaded model must support image input.'
-    : 'Vision-capable cloud model.'
-}
-
-onMounted(async () => {
-  try {
-    const saved = window.localStorage.getItem('brollAutotagModel')
-    if (saved) autotagModel.value = saved
-  } catch { /* no storage */ }
-  autotagModelsLoading.value = true
-  try {
-    autotagModels.value = await apiGet<AutotagModelRow[]>('/models')
-    const selected = autotagModels.value.find(model => model.id === autotagModel.value)
-    if (!selected || !isUsableAutotagModel(selected)) {
-      autotagModel.value = usableAutotagModels.value[0]?.id || ''
-    }
-  } catch {
-    autotagModels.value = []
-  } finally {
-    autotagModelsLoading.value = false
-  }
-})
-watch(autotagModel, (v) => {
-  try { window.localStorage.setItem('brollAutotagModel', v) } catch { /* no storage */ }
-})
 
 // ── Pool jobs panel + auto-refresh ────────────────────────────────────
 const poolJobsExpanded = ref(true)
@@ -1176,254 +904,12 @@ watch(poolTab, (v) => {
   const cur = String(_route.query.tab || 'clips')
   if (cur === v) return
   _router.replace({ query: { ..._route.query, tab: v } })
-  // Lazy-load tab content the first time the user opens it. This keeps
-  // the initial pool-page render cheap (no provenance scan, no
-  // providers probe) for the common case of just wanting to view clips.
-  if (v === 'fetch') void loadProvidersOnce()
+  // Lazy-load provenance while keeping the local import tab network-free.
   if (v === 'log' || v === 'clips') void loadProvenanceOnce()
 })
 
-// ── v1.0.122+ Fetch state ───────────────────────────────────────────────
 type FetchProviderId = 'pexels' | 'pixabay' | 'nasa' | 'freesound'
-interface ConfiguredProvider {
-  provider: FetchProviderId
-  name: string
-  configured: boolean
-  /** Pool media this provider feeds — used to gate which providers show. */
-  media: 'video' | 'image' | 'audio'
-}
-interface FetchResultUi {
-  provider: FetchProviderId
-  source_id: string
-  source_url: string
-  thumbnail_url: string
-  duration: number
-  width: number
-  height: number
-  author: string
-  author_url?: string
-  license: string
-  license_url: string
-  files: Array<{ quality: string; url: string; width: number; height: number }>
-  tags?: string[]
-  already_have: boolean
-}
-const { get: apiGet, post: apiPost } = useApi()
-
-const providersState = ref<ConfiguredProvider[]>([])
-const enabledProviders = reactive<Record<FetchProviderId, boolean>>({
-  pexels: true,
-  pixabay: true,
-  // v1.0.136+ — NASA Image & Video Library (public domain, no API key).
-  // Defaults OFF because most users searching "ocean sunset" want stock
-  // footage, not space telescope archives — NASA's catalog is niche
-  // (space, science, missions). Users who want it tick the checkbox.
-  nasa: false,
-  // Freesound — the lone SFX provider, so it's on by default for audio pools.
-  freesound: true,
-})
-// Only providers matching the selected pool's media are shown/searched —
-// Freesound for audio (SFX) pools, Pexels/Pixabay/NASA for video pools.
-const visibleProviders = computed<ConfiguredProvider[]>(() => {
-  const media = poolMediaOf(selectedPool.value || {})
-  return providersState.value.filter(p => p.media === media)
-})
-const anyProviderConfigured = computed(() => visibleProviders.value.some(p => p.configured))
-const fetchQuery = ref('')
-const fetchQuality = ref<'hd' | 'uhd' | 'sd'>('hd')
-const fetchResults = ref<FetchResultUi[]>([])
-const fetchLoading = ref(false)
-const fetchError = ref<string | null>(null)
-const selectedFetchKeys = ref<Set<string>>(new Set())
-const queueingFetch = ref(false)
-
-// ── SFX generation (ElevenLabs sound-generation, audio pools only) ───────
-const sfxPrompt = ref('')
-const sfxDuration = ref<number | null>(null)
-const sfxGenerating = ref(false)
-const sfxGenError = ref<string | null>(null)
-
-const canFetchSearch = computed(() => {
-  if (fetchLoading.value) return false
-  if (!fetchQuery.value.trim()) return false
-  if (!anyProviderConfigured.value) return false
-  // At least one enabled-AND-configured provider (matching this pool's
-  // media) needs to be ticked.
-  return visibleProviders.value.some(p => p.configured && enabledProviders[p.provider])
-})
-
-const alreadyHaveCount = computed(() => fetchResults.value.filter(r => r.already_have).length)
-const selectedFetchCount = computed(() => selectedFetchKeys.value.size)
-const allSelectableSelected = computed(() => {
-  const selectable = fetchResults.value.filter(r => !r.already_have)
-  if (selectable.length === 0) return false
-  return selectable.every(r => selectedFetchKeys.value.has(fetchKey(r)))
-})
-
-function fetchKey(r: { provider: string; source_id: string }): string {
-  return `${r.provider}::${r.source_id}`
-}
-function isFetchSelected(r: FetchResultUi): boolean {
-  return selectedFetchKeys.value.has(fetchKey(r))
-}
-function toggleFetchPick(r: FetchResultUi): void {
-  if (r.already_have) return
-  const k = fetchKey(r)
-  const next = new Set(selectedFetchKeys.value)
-  if (next.has(k)) next.delete(k); else next.add(k)
-  selectedFetchKeys.value = next
-}
-function toggleSelectAll(): void {
-  if (allSelectableSelected.value) {
-    selectedFetchKeys.value = new Set()
-  } else {
-    const next = new Set<string>()
-    for (const r of fetchResults.value) {
-      if (!r.already_have) next.add(fetchKey(r))
-    }
-    selectedFetchKeys.value = next
-  }
-}
-
-let _providersLoaded = false
-async function loadProvidersOnce(): Promise<void> {
-  if (_providersLoaded) return
-  try {
-    const r = await apiGet<{ providers: ConfiguredProvider[] }>('/broll-fetch/providers')
-    providersState.value = r.providers
-    _providersLoaded = true
-    // If only one provider is configured, leave both enabled by default
-    // and let the search route ignore the un-keyed one. The "no key"
-    // dimmed label is enough UX signal.
-  } catch (e: any) {
-    fetchError.value = e?.data?.detail || e?.message || 'Failed to load providers'
-  }
-}
-
-async function runFetchSearch(): Promise<void> {
-  if (!canFetchSearch.value) return
-  const q = fetchQuery.value.trim()
-  fetchLoading.value = true
-  fetchError.value = null
-  fetchResults.value = []
-  selectedFetchKeys.value = new Set()
-  try {
-    // Fan out to enabled+configured providers (matching pool media) in parallel.
-    const providers = visibleProviders.value
-      .filter(p => p.configured && enabledProviders[p.provider])
-      .map(p => p.provider)
-    const responses = await Promise.allSettled(
-      providers.map(prov => apiGet<{ provider: string; results: FetchResultUi[] }>(
-        `/broll-fetch/search?provider=${prov}&q=${encodeURIComponent(q)}&pool_id=${encodeURIComponent(selectedPoolId.value)}&per_page=20`,
-      )),
-    )
-    const collected: FetchResultUi[] = []
-    const errs: string[] = []
-    for (let i = 0; i < responses.length; i++) {
-      const res = responses[i]
-      if (res?.status === 'fulfilled') {
-        collected.push(...(res.value.results || []))
-      } else if (res?.status === 'rejected') {
-        const msg = res.reason?.data?.detail || res.reason?.message || 'Search failed'
-        errs.push(`${providers[i]}: ${msg}`)
-      }
-    }
-    fetchResults.value = collected
-    if (errs.length && collected.length === 0) {
-      // All providers failed — surface the union.
-      fetchError.value = errs.join(' · ')
-    } else if (errs.length) {
-      // Partial failure — show a non-blocking hint via toast so the
-      // user can act on what did come back.
-      showError(`Partial search failure: ${errs.join(' · ')}`)
-    }
-  } catch (e: any) {
-    fetchError.value = e?.data?.detail || e?.message || 'Search failed'
-  } finally {
-    fetchLoading.value = false
-  }
-}
-
-async function queueSelectedFetches(): Promise<void> {
-  if (!selectedFetchCount.value || !selectedPool.value) return
-  queueingFetch.value = true
-  try {
-    // Group picks by provider so the backend gets one request per
-    // provider with its full result list — fewer roundtrips than per-
-    // clip POSTs, and the queue dedupe runs once per call. Built
-    // dynamically so every provider (incl. nasa / freesound) is covered.
-    const byProvider: Record<string, FetchResultUi[]> = {}
-    for (const r of fetchResults.value) {
-      if (!selectedFetchKeys.value.has(fetchKey(r))) continue
-      if (r.already_have) continue
-      ;(byProvider[r.provider] ??= []).push(r)
-    }
-    let totalQueued = 0
-    for (const [provider, results] of Object.entries(byProvider)) {
-      if (!results.length) continue
-      const resp = await apiPost<{ queued: number; skipped: number }>(
-        `/broll-pools/${selectedPoolId.value}/fetch`,
-        {
-          provider,
-          results,
-          search_keywords: fetchQuery.value.trim().split(/\s+/).filter(Boolean),
-          quality: fetchQuality.value,
-        },
-      )
-      totalQueued += resp.queued
-    }
-    if (totalQueued > 0) {
-      success(`Queued ${totalQueued} fetch job${totalQueued === 1 ? '' : 's'}. Watch the Pool jobs panel under Clips for progress.`)
-      // Clear selection — but keep results visible so the user can see
-      // their picks have flipped to "in pool" once jobs finish + a
-      // refresh fires.
-      selectedFetchKeys.value = new Set()
-      // Optimistically mark them as already-have so the UI updates
-      // immediately; the next provenance refresh confirms.
-      for (const r of fetchResults.value) {
-        if (byProvider[r.provider]?.includes(r)) {
-          r.already_have = true
-        }
-      }
-    } else {
-      showError('No jobs queued — every pick was already in the pool.')
-    }
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue fetch')
-  } finally {
-    queueingFetch.value = false
-  }
-}
-
-async function generateSfx(): Promise<void> {
-  const text = sfxPrompt.value.trim()
-  if (!text || sfxGenerating.value || !selectedPoolId.value) return
-  sfxGenerating.value = true
-  sfxGenError.value = null
-  try {
-    const body: { text: string; duration_seconds?: number } = { text }
-    if (typeof sfxDuration.value === 'number' && sfxDuration.value > 0) {
-      body.duration_seconds = sfxDuration.value
-    }
-    const resp = await apiPost<{ ok: boolean; filename: string }>(
-      `/broll-pools/${selectedPoolId.value}/generate-sfx`,
-      body,
-    )
-    success(`Generated ${resp.filename} — added to pool.`)
-    sfxPrompt.value = ''
-    sfxDuration.value = null
-    // The route already re-scanned server-side; refresh the grid + provenance
-    // so the new clip shows up immediately under the Clips tab.
-    const fresh = await broll.listClips(selectedPoolId.value)
-    clips.value = fresh.clips
-    void loadProvenance()
-  } catch (e: any) {
-    sfxGenError.value = e?.data?.detail || e?.message || 'Failed to generate sound effect'
-  } finally {
-    sfxGenerating.value = false
-  }
-}
-
+const { get: apiGet } = useApi()
 // ── v1.0.122+ Provenance state ──────────────────────────────────────────
 interface ProvenanceRow {
   filename: string
@@ -1642,28 +1128,6 @@ async function normalizeOne(filename: string): Promise<void> {
   }
 }
 
-async function autotagOne(filename: string): Promise<void> {
-  if (!selectedPoolId.value) return
-  try {
-    await broll.autotagClip(selectedPoolId.value, filename, { model: autotagModel.value || undefined })
-    success(`Queued auto-tag for ${filename}`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue auto-tag')
-  }
-}
-
-async function runAutotagUntagged(): Promise<void> {
-  if (!selectedPoolId.value || autotagging.value) return
-  autotagging.value = true
-  try {
-    const r = await broll.autotagUntagged(selectedPoolId.value, { model: autotagModel.value || undefined })
-    success(`Queued ${r.queued} auto-tag job(s) (${r.total_targets} candidate clips).`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue bulk auto-tag')
-  } finally {
-    autotagging.value = false
-  }
-}
 
 async function toggleAutoNormalize(): Promise<void> {
   if (!selectedPool.value) return

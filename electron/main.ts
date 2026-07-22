@@ -20,6 +20,8 @@ import { PROJECTS_ROOT } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
+import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
+import { redactSecrets } from './server/lib/redact-secrets.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
@@ -48,8 +50,9 @@ if (!gotLock) {
 // EXC_BREAKPOINT — a heap OOM aborts V8 directly, BYPASSING our
 // uncaughtException handler, so nothing was logged. Give the isolate more
 // room (default 4 GB; override with SS_MAX_OLD_SPACE_MB). Must run before the
-// app is ready. See the memory watchdog below, which captures a heap snapshot
-// before the limit is hit next time so the real retainer is diagnosable.
+// app is ready. The memory watchdog below records aggregate counters only;
+// heap snapshots are intentionally disabled because they can contain secrets
+// and customer prompts or assets.
 {
   const mb = Math.max(1024, Number(process.env.SS_MAX_OLD_SPACE_MB) || 4096)
   electronApp.commandLine.appendSwitch('js-flags', `--max-old-space-size=${mb}`)
@@ -109,6 +112,11 @@ async function createWindow(port: number) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      devTools: isDev,
       // Marker preload — sets `window.electron` so the renderer can refuse to
       // run when a user accidentally opens http://localhost:3001/ in Chrome.
       // See electron/preload.cjs and frontend/app.vue for the other half.
@@ -133,41 +141,8 @@ async function createWindow(port: number) {
 
     const express = await import('express')
 
-    // ── Content Security Policy ───────────────────────────────────────────
-    // Defense against XSS-via-AI-output: even if an injected script lands in
-    // the renderer (e.g. via v-html of poisoned provider content), CSP stops
-    // it from exfiltrating to attacker-controlled hosts. Key restriction is
-    // `connect-src` — fetch/XHR can only talk to loopback. Blocks off-box
-    // POSTs that would otherwise drain provider keys out of /api/settings/*.
-    //
-    // `'unsafe-inline'` on script-src is a concession to Nuxt 3's built-in
-    // inline hydration shim (`window.__NUXT__={...}`). Removing it requires a
-    // per-request nonce rewrite of index.html, which isn't worth the
-    // complexity for a self-use app. Omitting `'unsafe-eval'` still blocks
-    // the dangerous eval/new-Function escalation path.
-    const CSP = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' data: https://fonts.gstatic.com",
-      "img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*",
-      "media-src 'self' data: blob: http://127.0.0.1:* http://localhost:*",
-      "connect-src 'self' http://127.0.0.1:* http://localhost:*",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "frame-ancestors 'none'",
-    ].join('; ')
-    expressApp.use((_req, res, next) => {
-      res.setHeader('Content-Security-Policy', CSP)
-      // Frame-ancestors can't be set via <meta>; but it's also not reachable
-      // from an Electron BrowserWindow. X-Frame-Options is the legacy mirror
-      // that covers older embed contexts.
-      res.setHeader('X-Frame-Options', 'DENY')
-      res.setHeader('X-Content-Type-Options', 'nosniff')
-      res.setHeader('Referrer-Policy', 'no-referrer')
-      next()
-    })
+    // Security headers are installed on the Express app before every route in
+    // server/app.ts, so they cover API responses and this static renderer.
 
     // ── Static SPA serving ────────────────────────────────────────────
     // v1.0.111 — cached read of index.html (no transform). The previous
@@ -229,13 +204,11 @@ async function createWindow(port: number) {
     // mirror to console.error AND the daily request log so the symptom is
     // captured wherever the user looks.
     expressApp.use((err: any, req: any, res: any, _next: any) => {
-      const msg = String(err?.message || err || 'unknown')
-      const stack = String(err?.stack || '')
-      console.error('[express-error]', req.method, req.path, '→', stack || msg)
+      const msg = redactSecrets(String(err?.message || err || 'unknown'))
+      const incident = `ss-${Date.now().toString(36)}`
+      console.error('[express-error]', incident, req.method, req.path, '→', msg)
       if (res.headersSent) return
       const safeMsg = msg.replace(/[<>&]/g, (c) =>
-        c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')
-      const safeStack = stack.replace(/[<>&]/g, (c) =>
         c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')
       res.status(500).type('html').send(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Internal error · Story Studio KH</title>
@@ -248,16 +221,16 @@ async function createWindow(port: number) {
   pre { background: rgba(255,255,255,0.06); padding: 12px 14px;
         border-radius: 6px; overflow: auto; font-size: 12px;
         white-space: pre-wrap; word-break: break-word; }
-  button { margin-top: 18px; padding: 8px 16px; font-size: 13px;
-           background: #6ea8fe; color: #0f1117; border: 0;
-           border-radius: 6px; cursor: pointer; font-weight: 600; }
+  a { display: inline-block; margin-top: 18px; padding: 8px 16px;
+      font-size: 13px; text-decoration: none; background: #6ea8fe;
+      color: #0f1117; border-radius: 6px; font-weight: 600; }
 </style></head>
 <body>
   <h1>Internal server error</h1>
   <div class="meta">${req.method} ${req.path}</div>
   <pre>${safeMsg}</pre>
-  ${safeStack ? `<pre>${safeStack}</pre>` : ''}
-  <button onclick="location.reload()">Reload</button>
+  <div class="meta">Reference: ${incident}</div>
+  <a href="/">Reload</a>
 </body></html>`)
     })
 
@@ -276,23 +249,19 @@ async function createWindow(port: number) {
     `http://127.0.0.1:${port}`,
     `http://localhost:${port}`,
   ])
-  function isOwnOrigin(urlStr: string): boolean {
-    try {
-      const u = new URL(urlStr)
-      return allowedOrigins.has(`${u.protocol}//${u.host}`)
-    } catch { return false }
-  }
-
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url && /^https?:\/\//.test(url)) void shell.openExternal(url)
+    if (url && isSafeExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
-  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
-    if (isOwnOrigin(targetUrl)) return
+  const guardNavigation = (event: Electron.Event, targetUrl: string) => {
+    if (isAllowedApplicationNavigation(targetUrl, allowedOrigins)) return
     event.preventDefault()
-    if (/^https?:\/\//.test(targetUrl)) void shell.openExternal(targetUrl)
-  })
+    if (isSafeExternalUrl(targetUrl)) void shell.openExternal(targetUrl)
+  }
+  mainWindow.webContents.on('will-navigate', guardNavigation)
+  mainWindow.webContents.on('will-redirect', guardNavigation)
+  mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault())
 
   // Deny every permission request by default (camera, mic, geolocation,
   // notifications, etc.) — this is a content-creation app that doesn't need
@@ -500,7 +469,7 @@ function installJobNotifier(): void {
 function logCrash(source: string, err: unknown) {
   let message = ''
   try {
-    message = err instanceof Error ? (err.stack || err.message) : String(err)
+    message = redactSecrets(err instanceof Error ? (err.stack || err.message) : String(err))
   } catch { /* coercion failed, give up on a useful message */ }
   // console.error writes to stdout/stderr. If the launching shell has
   // closed those pipes (Electron child detached, terminal closed, etc.)
@@ -523,13 +492,11 @@ function logCrash(source: string, err: unknown) {
 /**
  * v1.0.510 — main-process memory watchdog. Diagnostic + early-warning for the
  * heap-OOM class of crash (which aborts V8 before any JS handler runs, so it's
- * otherwise invisible). Logs heap/RSS every 60s; when heapUsed first crosses
- * 80% of the V8 heap limit, writes a single heap snapshot to the logs dir so
- * the retaining objects can be inspected after the fact. One snapshot per
- * session (they're large + writing under pressure is expensive).
+ * otherwise invisible). Logs aggregate heap/RSS counters every 60s. Heap
+ * snapshots are intentionally forbidden: they can contain API keys, customer
+ * prompts, and asset buffers and therefore are not safe support artifacts.
  */
 function startMemoryWatchdog(): void {
-  let snapshotTaken = false
   const logsDir = path.join(electronApp.getPath('userData'), 'logs')
   const tick = () => {
     try {
@@ -549,14 +516,6 @@ function startMemoryWatchdog(): void {
           }) + '\n',
         )
       } catch { /* best effort */ }
-      if (!snapshotTaken && limit && pct >= 0.8) {
-        snapshotTaken = true
-        try {
-          const snapPath = path.join(logsDir, `heap-${new Date().toISOString().replace(/[:.]/g, '-')}.heapsnapshot`)
-          v8.writeHeapSnapshot(snapPath)
-          logCrash('mem-watch', new Error(`heapUsed reached ${Math.round(pct * 100)}% of limit (${mb(mem.heapUsed)}/${mb(limit)} MB) — wrote heap snapshot ${snapPath} for diagnosis.`))
-        } catch (e) { logCrash('mem-watch-snapshot', e) }
-      }
     } catch { /* never let the watchdog crash the app */ }
   }
   const timer = setInterval(tick, 60_000)
@@ -701,9 +660,8 @@ void electronApp.whenReady().then(async () => {
     // ── Memory watchdog (v1.0.510) ───────────────────────────────────────
     // A heap OOM aborts V8 directly (EXC_BREAKPOINT), bypassing our
     // uncaughtException handler — so the 2026-07-04 crash left no JS log. This
-    // (a) logs heap/RSS every 60s so a climb is visible in the logs, and (b)
-    // writes ONE heap snapshot to the logs dir when heapUsed first crosses 80%
-    // of the heap limit, capturing the actual retainer BEFORE the next OOM.
+    // Logs aggregate heap/RSS every 60s so a climb is visible without writing
+    // privacy-sensitive heap snapshots.
     startMemoryWatchdog()
 
     // Daily digest scheduler (v1.0.62+). Ticks every minute; fires
@@ -731,7 +689,7 @@ void electronApp.whenReady().then(async () => {
     logCrash('startup', e)
     dialog.showErrorBox(
       'Story Studio failed to start',
-      String((e as Error)?.message || e),
+      redactSecrets(String((e as Error)?.message || e)),
     )
     electronApp.quit()
   }

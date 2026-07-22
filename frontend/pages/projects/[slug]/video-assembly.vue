@@ -517,17 +517,7 @@
 
           <!-- Title Image Preview -->
           <div v-if="titleImage.enabled && titleImage.image_path" class="title-image-preview mt-2">
-            <div class="flex gap-2 items-center justify-between flex-wrap">
-              <label class="sub-section-label">Preview</label>
-              <button
-                type="button"
-                class="btn btn-sm btn-secondary"
-                title="Edit this image with AI — describe what to change in plain English. Source is never overwritten unless you opt in."
-                @click="openImageEditor(titleImage.image_path, 'title')"
-              >
-                🪄 Edit with AI
-              </button>
-            </div>
+            <label class="sub-section-label">Preview</label>
             <div class="preview-frame mt-1">
               <ResilientImage
                 :src="getImagePreviewUrl(titleImage.image_path)"
@@ -1065,15 +1055,6 @@
               :output-root="vaProject?.output_root || ''"
               clearable
             />
-            <button
-              v-if="logo.image_path"
-              type="button"
-              class="btn btn-sm btn-secondary mt-1"
-              title="Edit the logo with AI — useful for removing baked-in text or cleaning the background around a transparent PNG."
-              @click="openImageEditor(logo.image_path, 'logo')"
-            >
-              🪄 Edit with AI
-            </button>
           </div>
 
           <div class="grid-2 mt-1">
@@ -2023,22 +2004,11 @@
            HEVC means; the helper text explains the trade-off right
            where the choice is made. -->
       <div class="grid-2 mt-2">
-        <!-- Render target is saved in the export preset. The remote option is
-             deliberately strict: this Mac stays the control centre unless the
-             operator picks the local option for this particular workflow. -->
         <div class="form-group">
           <label>Render location</label>
-          <select v-model="exportSettings.render_target" class="select">
-            <option value="remote">Remote Render Studio fleet — recommended</option>
-            <option value="local">This Mac — render locally</option>
-          </select>
+          <div class="input">This Mac</div>
           <p class="text-muted text-sm mt-1">
-            <template v-if="exportSettings.render_target === 'remote'">
-              Studio Hub sends this episode to an external Render Studio worker. If none is available, it waits or fails clearly; this Mac will not take over.
-            </template>
-            <template v-else>
-              This export intentionally uses this Mac's local FFmpeg renderer. Choose this only when you want to reserve the fleet for other work.
-            </template>
+            Final FFmpeg assembly stays on this Mac until GenStudio exposes a qualified render route.
           </p>
         </div>
 
@@ -2296,7 +2266,7 @@
           </div>
           <div class="summary-row">
             <span class="text-muted">Render location</span>
-            <span>{{ exportSettings.render_target === 'remote' ? 'Remote Render Studio fleet' : 'This Mac' }}</span>
+            <span>This Mac</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Quality / Format</span>
@@ -2347,16 +2317,6 @@
         <span />
       </div>
     </div>
-
-    <!-- AI image-edit modal (pain-point #14). Mounted once at the page -->
-    <!-- root; `openImageEditor` sets the target + opens it for either -->
-    <!-- the title image or the logo. -->
-    <ImageEditDialog
-      v-model="imageEditOpen"
-      :project-slug="slug"
-      :image-path="imageEditTarget || ''"
-      @accepted="onImageEditAccepted"
-    />
 
   </div>
 </template>
@@ -3315,9 +3275,7 @@ const exportSettings = reactive<{
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
 }>({
-  // This Mac coordinates the fleet by default. Local rendering remains a
-  // deliberate export-preset option for cases where the operator wants it.
-  render_target: 'remote',
+  render_target: 'local',
   resolution: '1080p',
   quality: 'high',
   fps: 30,
@@ -4456,34 +4414,6 @@ function previewOverlayStyle(layer: OverlayLayer): CSSProperties {
 
 // Logo preview
 const logoLoadError = ref(false)
-
-// ── AI image-edit dialog (pain-point #14) ────────────────────────────────
-// Drives the 🪄 Edit with AI buttons on the title image + logo blocks. We
-// remember which slot was opened so `accepted` swaps the right field.
-const imageEditOpen = ref(false)
-const imageEditTarget = ref<string | null>(null)
-const imageEditSlot = ref<'title' | 'logo' | null>(null)
-
-function openImageEditor(path: string, slot: 'title' | 'logo') {
-  if (!path) return
-  imageEditTarget.value = path
-  imageEditSlot.value = slot
-  imageEditOpen.value = true
-}
-
-function onImageEditAccepted(newPath: string) {
-  void (async () => {
-    const portable = await collapseToPortablePath(newPath)
-    if (imageEditSlot.value === 'title') {
-      titleImage.image_path = portable
-    } else if (imageEditSlot.value === 'logo') {
-      logo.image_path = portable
-      logoLoadError.value = false  // new file; let the <img> re-probe
-    }
-    imageEditTarget.value = null
-    imageEditSlot.value = null
-  })()
-}
 
 // Show the first scene image as the preview backdrop so the user sees the
 // logo against a real frame — matches the actual render much better than a

@@ -7,11 +7,14 @@ import {
 } from '../utils/api-provider-groups.js'
 
 describe('API provider settings groups', () => {
-  test('keeps the requested category order', () => {
+  test('exposes only the GenStudio mixed-capability connection group', () => {
     assert.deepEqual(
       API_PROVIDER_GROUPS.map(group => group.id),
-      ['llm', 'audio', 'image', 'video', 'mix'],
+      ['mix'],
     )
+    assert.deepEqual(API_PROVIDER_META.map(provider => provider.id), ['genstudio'])
+    assert.deepEqual(apiProvidersFor('mix').map(provider => provider.id), ['genstudio'])
+    assert.match(API_PROVIDER_GROUPS[0]!.description, /sole catalog, job, and credit boundary/i)
   })
 
   test('shows every provider in exactly one non-empty category', () => {

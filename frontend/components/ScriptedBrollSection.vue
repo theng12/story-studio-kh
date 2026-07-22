@@ -4,77 +4,10 @@
       <h4 class="m-0">Scripted B-Roll <span class="sbr-badge">beta</span></h4>
     </div>
     <p class="text-muted text-sm hint-line">
-      Instead of random pool clips, an LLM turns this episode's <strong>narration</strong> into timed beats and writes a
-      filmable search query for each, then pulls a matching stock clip (Pexels / Pixabay) into your
-      <NuxtLink to="/broll-library" class="ffmpeg-inline-link">B-Roll pool</NuxtLink> and lines them up to the narration.
-      Needs the episode's stitched subtitles + a Pexels/Pixabay key + a video pool.
+      Automatic shot direction and stock-provider search are paused until GenStudio KH publishes a qualified typed B-Roll route.
+      Existing resolved plans still use your <NuxtLink to="/broll-library" class="ffmpeg-inline-link">local B-Roll pools</NuxtLink>
+      and can be reviewed, edited, previewed, and assembled safely.
     </p>
-
-    <div class="sbr-gen-row">
-      <div class="sbr-model">
-        <label class="sbr-lbl">Shot director model</label>
-        <ModelSelector v-model="model" :project-slug="slug" />
-      </div>
-      <div class="sbr-field">
-        <label class="sbr-lbl">Beat length</label>
-        <span class="sbr-inline"><input type="number" v-model.number="beatSec" class="input sbr-num" min="2" max="15" step="1" />s</span>
-      </div>
-      <div class="sbr-field sbr-style">
-        <label class="sbr-lbl">Style hint (optional)</label>
-        <input v-model="styleHint" class="input" placeholder="e.g. corporate, 1950s period" />
-      </div>
-    </div>
-
-    <div class="sbr-actions-top">
-      <label class="sbr-check" title="After writing queries, immediately search + download a clip for each beat.">
-        <input type="checkbox" v-model="resolveNow" /> <span>Download clips now</span>
-      </label>
-      <button class="btn btn-primary" :disabled="!model || !!busy || !episodeCode" @click="generate">
-        {{ busy === 'gen' ? 'Directing…' : '🎬 Generate shot plan' }}
-      </button>
-    </div>
-
-    <div class="sbr-aigen">
-      <label class="sbr-check" title="For beats with no stock match, generate a channel-styled clip with your image model (costs image credits).">
-        <input type="checkbox" v-model="aiFallback" /> <span>AI-generate clips for beats with no stock match</span>
-      </label>
-      <div v-if="aiFallback" class="sbr-aigen-fields">
-        <div class="sbr-aigen-field">
-          <label class="sbr-lbl">Channel style for AI clips</label>
-          <input v-model="plan.broll_style" class="input" placeholder="e.g. flat editorial illustration, muted 2D vector" @input="dirty = true" />
-        </div>
-        <div class="sbr-aigen-field">
-          <label class="sbr-lbl">Image model</label>
-          <ImageModelPicker v-model="imageModel" :project-slug="slug" />
-        </div>
-        <template v-if="selectedGenStudioModel">
-          <div class="sbr-aigen-field sbr-compact-field">
-            <label class="sbr-lbl">Ratio</label>
-            <select v-model="imageAspectRatio" class="select">
-              <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
-            </select>
-          </div>
-          <div class="sbr-aigen-field sbr-compact-field">
-            <label class="sbr-lbl">Quality</label>
-            <select v-model="imageQuality" class="select" @change="applyImageQuality">
-              <option value="draft">Draft</option>
-              <option value="balanced">Balanced</option>
-              <option value="detailed">Detailed</option>
-              <option value="maximum">Maximum</option>
-              <option value="custom">Custom steps</option>
-            </select>
-          </div>
-          <div class="sbr-aigen-field sbr-compact-field">
-            <label class="sbr-lbl">Steps</label>
-            <input v-model.number="imageSteps" class="input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="imageQuality = 'custom'" />
-          </div>
-          <div class="sbr-aigen-field sbr-seed-field">
-            <label class="sbr-lbl">Seed (optional)</label>
-            <input v-model.number="imageSeed" class="input" type="number" min="0" max="2147483647" placeholder="Random" />
-          </div>
-        </template>
-      </div>
-    </div>
 
     <p v-if="message" :class="['sbr-msg', messageKind]">{{ message }}</p>
 
@@ -102,22 +35,7 @@
             />
             <div v-if="b.clip" class="sbr-clip">🎞 {{ b.clip }}</div>
             <div class="sbr-beat-actions">
-              <button class="sbr-mini" :disabled="!!busyBeat || !model" title="Ask the LLM for fresh queries" @click="requery(i)">{{ busyBeat === 'rq' + i ? '…' : '↻ re-query' }}</button>
-              <button class="sbr-mini" :disabled="!!busyBeat || !b.queries.length" title="Search alternatives + pick a clip" @click="openSwap(i)">{{ busyBeat === 'sw' + i ? '…' : '⇄ swap clip' }}</button>
               <span :class="['sbr-status', 'st-' + b.status]">{{ b.status === 'matched' || b.status === 'user-swapped' ? '✓ clip' : (b.status === 'empty' ? 'none' : 'pending') }}</span>
-            </div>
-
-            <!-- Swap candidate picker -->
-            <div v-if="swapOpen === i" class="sbr-swap">
-              <div v-if="swapLoading" class="text-muted text-xs">Searching…</div>
-              <div v-else-if="!swapCandidates.length" class="text-muted text-xs">No results for these queries.</div>
-              <div v-else class="sbr-swap-grid">
-                <button v-for="c in swapCandidates" :key="c.provider + c.source_id" class="sbr-cand" :title="`${c.provider} · ${c.duration?.toFixed?.(0) || '?'}s`" @click="doSwap(i, c)">
-                  <img :src="c.thumbnail_url" alt="" loading="lazy" />
-                  <span class="sbr-cand-prov">{{ c.provider }}</span>
-                </button>
-              </div>
-              <button class="sbr-mini" @click="swapOpen = -1">close</button>
             </div>
           </div>
         </div>
@@ -125,7 +43,6 @@
 
       <div class="sbr-actions">
         <button class="btn btn-sm btn-primary" :disabled="!!busy || !dirty" @click="saveEdits">{{ dirty ? 'Save edits' : 'Saved' }}</button>
-        <button class="btn btn-sm" :disabled="!!busy" @click="resolve">{{ busy === 'res' ? 'Downloading…' : '⬇ Download / re-match clips' }}</button>
         <button class="btn btn-sm" :disabled="!matchedCount" :title="matchedCount ? 'Scrub the cut in your browser (no render)' : 'Resolve clips first'" @click="previewOpen = !previewOpen">{{ previewOpen ? '▲ Hide preview' : '▶ Preview cut' }}</button>
         <span class="sbr-spacer" />
         <button class="btn btn-sm btn-icon danger" title="Delete the shot plan" @click="clearPlan">🗑</button>
@@ -136,60 +53,22 @@
     </template>
 
     <div v-else-if="!loading" class="text-muted text-sm sbr-empty">
-      No shot plan yet — generate one from the narration above.
+      No shot plan yet. Automatic planning will return after GenStudio KH exposes the typed B-Roll workflow.
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { useBrollPlan, type BrollPlan, type BrollBeat, type BrollCandidate, type GenerateResult } from '../composables/useBrollPlan.js'
+import { ref, reactive, computed, watch } from 'vue'
+import { useBrollPlan, type BrollPlan, type BrollBeat } from '../composables/useBrollPlan.js'
 
 const props = defineProps<{ slug: string; episodeCode: string }>()
 const api = useBrollPlan()
 
 const plan = reactive<BrollPlan>({ schema_version: 1, enabled: false, broll_style: '', beats: [] })
-const model = ref('')
-const beatSec = ref(5)
-const styleHint = ref('')
-const resolveNow = ref(true)
-const aiFallback = ref(false)
-const imageModel = ref('')
-const imageAspectRatio = ref('16:9')
-const imageQuality = ref<'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'>('balanced')
-const imageSteps = ref(4)
-const imageSeed = ref<number | ''>('')
-const { models: genStudioModels, refresh: refreshGenStudioModels } = useGenStudioImageModels()
-const selectedGenStudioModel = computed(() => genStudioModels.value.find(item => item.id === imageModel.value))
-const qualitySteps = computed(() => {
-  const item = selectedGenStudioModel.value
-  return item ? {
-    draft: item.min_steps,
-    balanced: item.default_steps,
-    detailed: Math.min(item.max_steps, item.default_steps + 2),
-    maximum: item.max_steps,
-  } : { draft: 2, balanced: 4, detailed: 6, maximum: 8 }
-})
-function applyImageQuality() {
-  if (imageQuality.value !== 'custom') imageSteps.value = qualitySteps.value[imageQuality.value]
-}
-function aiImageControls() {
-  if (!aiFallback.value) return { ai_fallback: false }
-  return {
-    ai_fallback: true,
-    image_model: imageModel.value,
-    image_aspect_ratio: selectedGenStudioModel.value ? imageAspectRatio.value : undefined,
-    image_steps: selectedGenStudioModel.value ? imageSteps.value : undefined,
-    image_seed: selectedGenStudioModel.value && typeof imageSeed.value === 'number' ? imageSeed.value : undefined,
-  }
-}
 const loading = ref(false)
-const busy = ref<'' | 'gen' | 'res' | 'asm'>('')
-const busyBeat = ref('')
+const busy = ref<'' | 'save' | 'asm'>('')
 const dirty = ref(false)
-const swapOpen = ref(-1)
-const swapLoading = ref(false)
-const swapCandidates = ref<BrollCandidate[]>([])
 const previewOpen = ref(false)
 const message = ref('')
 const messageKind = ref<'ok' | 'err'>('ok')
@@ -205,14 +84,6 @@ function applyPlan(p: BrollPlan) {
   plan.beats = p.beats || []
   dirty.value = false // every applyPlan reflects the persisted server state
 }
-function resolveNote(r: GenerateResult): string {
-  if (r.resolve_skipped_reason) return ` (download skipped: ${r.resolve_skipped_reason})`
-  if (typeof r.matched === 'number') {
-    const ai = r.aigen ? ` (${r.aigen} AI-generated)` : ''
-    return ` Downloaded ${r.downloaded ?? 0}, ${r.matched} beat(s) now have a clip${ai}.`
-  }
-  return ''
-}
 
 async function load() {
   if (!props.episodeCode) return
@@ -221,34 +92,6 @@ async function load() {
   try { applyPlan(await api.getPlan(props.slug, props.episodeCode)) }
   catch (e) { setMsg(`Couldn't load the shot plan: ${errOf(e)}`, 'err') }
   finally { loading.value = false }
-}
-
-async function generate() {
-  busy.value = 'gen'
-  message.value = ''
-  try {
-    const r = await api.generate(props.slug, props.episodeCode, {
-      model: model.value, style_hint: styleHint.value || undefined, target_beat_sec: beatSec.value, resolve: resolveNow.value,
-      broll_style: plan.broll_style || undefined,
-      ...aiImageControls(),
-    })
-    applyPlan(r.plan)
-    setMsg(`Directed ${r.beat_count} beat(s).${resolveNote(r)}`, 'ok')
-  } catch (e) { setMsg(errOf(e), 'err') }
-  finally { busy.value = '' }
-}
-
-async function resolve() {
-  busy.value = 'res'
-  message.value = ''
-  try {
-    const r = await api.resolve(props.slug, props.episodeCode, { ...plan } as BrollPlan, {
-      ...aiImageControls(),
-    })
-    applyPlan(r.plan)
-    setMsg(`${r.matched} beat(s) have a clip.${resolveNote(r)}`, 'ok')
-  } catch (e) { setMsg(errOf(e), 'err') }
-  finally { busy.value = '' }
 }
 
 async function assemble() {
@@ -267,7 +110,7 @@ function onQueryEdit(b: BrollBeat, val: string) {
 }
 
 async function saveEdits() {
-  busy.value = 'gen'
+  busy.value = 'save'
   try {
     const r = await api.savePlan(props.slug, props.episodeCode, { ...plan } as BrollPlan)
     applyPlan(r.plan)
@@ -275,41 +118,6 @@ async function saveEdits() {
     setMsg('Shot plan saved.', 'ok')
   } catch (e) { setMsg(errOf(e), 'err') }
   finally { busy.value = '' }
-}
-
-async function requery(i: number) {
-  if (!model.value) { setMsg('Pick a director model first.', 'err'); return }
-  busyBeat.value = 'rq' + i
-  try {
-    const r = await api.requeryBeat(props.slug, props.episodeCode, { beat_index: i, model: model.value, style_hint: styleHint.value || undefined })
-    applyPlan(r.plan)
-    setMsg(`Beat ${i + 1}: ${r.queries.length} fresh quer${r.queries.length === 1 ? 'y' : 'ies'}.`, 'ok')
-  } catch (e) { setMsg(errOf(e), 'err') }
-  finally { busyBeat.value = '' }
-}
-
-async function openSwap(i: number) {
-  if (swapOpen.value === i) { swapOpen.value = -1; return }
-  swapOpen.value = i
-  swapCandidates.value = []
-  swapLoading.value = true
-  busyBeat.value = 'sw' + i
-  try {
-    const r = await api.search(props.slug, props.episodeCode, plan.beats[i]!.queries)
-    swapCandidates.value = r.candidates || []
-  } catch (e) { setMsg(errOf(e), 'err'); swapOpen.value = -1 }
-  finally { swapLoading.value = false; busyBeat.value = '' }
-}
-
-async function doSwap(i: number, c: BrollCandidate) {
-  busyBeat.value = 'sw' + i
-  try {
-    const r = await api.swapBeat(props.slug, props.episodeCode, { beat_index: i, provider: c.provider, result: c.result })
-    applyPlan(r.plan)
-    swapOpen.value = -1
-    setMsg(`Beat ${i + 1}: swapped to ${r.filename}.`, 'ok')
-  } catch (e) { setMsg(errOf(e), 'err') }
-  finally { busyBeat.value = '' }
 }
 
 async function clearPlan() {
@@ -321,14 +129,6 @@ async function clearPlan() {
 }
 
 watch(() => props.episodeCode, load, { immediate: true })
-watch([imageModel, () => genStudioModels.value.length], () => {
-  const item = selectedGenStudioModel.value
-  if (!item) return
-  if (!item.aspect_ratios.includes(imageAspectRatio.value)) imageAspectRatio.value = item.default_aspect_ratio
-  imageSteps.value = Math.max(item.min_steps, Math.min(item.max_steps, Number(imageSteps.value) || item.default_steps))
-  if (imageQuality.value !== 'custom') applyImageQuality()
-})
-onMounted(() => { void refreshGenStudioModels() })
 </script>
 
 <style scoped>

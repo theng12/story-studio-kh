@@ -28,6 +28,7 @@ import { fileExistsWithContent } from '../lib/http-retry.js'
 import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
 
 export interface TranscribeSubtitlesRequest {
@@ -81,21 +82,16 @@ async function resolveGenStudioTranscription(
       `${message}. Ensure the saved GenStudio KH key includes audio:transcribe.`,
     )
   }
-  const requestedModel = req.engine === 'genstudio' ? req.model?.trim() : ''
-  const selected = requestedModel
-    ? models.find(model => model.id === requestedModel)
-    : models.find(model => model.available) || models[0]
-  if (requestedModel && !selected) {
-    throw new Error(`GenStudio KH no longer publishes transcription model "${requestedModel}".`)
-  }
-  if (!selected) throw new Error('GenStudio KH did not publish a transcription model.')
+  const requestedModel = req.model?.trim() || ''
+  const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
+  if (!migratedModel) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
+  const selected = models.find(model => model.id === migratedModel)
+  if (!selected) throw new Error(`GenStudio KH no longer publishes transcription model "${migratedModel}".`)
   if (!selected.available) {
     throw new Error(`GenStudio KH transcription model "${selected.display_name}" has no ready workers.`)
   }
-  if (req.engine && req.engine !== 'genstudio') {
-    job.output_lines.push(
-      `Legacy ${req.engine} transcription setting retired — healed to GenStudio KH.`,
-    )
+  if (requestedModel !== migratedModel) {
+    job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)
   }
   job.output_lines.push(`Engine: GenStudio KH · ${selected.display_name}`)
   return { apiKey, modelId: selected.id }

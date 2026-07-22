@@ -25,7 +25,7 @@ import { downloadImage } from '../lib/kie-client.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
-import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
+import { requireSceneClipGenStudioModel, resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
@@ -425,23 +425,28 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
-  if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
-    return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
-  }
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'scene_clip_generate' as JobType,
-    episode_id: episodeId,
-    title: `Scene ${sceneId.slice(0, 12)} clip`,
-    params: {
+  try {
+    const { modelId } = await requireSceneClipGenStudioModel(model)
+    if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
+      return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
+    }
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'scene_clip_generate' as JobType,
       episode_id: episodeId,
-      scene_id: sceneId,
-      model,
-      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-      auto_approve_clip: body.auto_approve_clip === true,
-    },
-  })
-  res.status(201).json(job)
+      title: `Scene ${sceneId.slice(0, 12)} clip`,
+      params: {
+        episode_id: episodeId,
+        scene_id: sceneId,
+        model: `genstudio-video:${modelId}`,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        auto_approve_clip: body.auto_approve_clip === true,
+      },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
+  }
 })
 
 // One durable episode-level owner used by Pipeline and Job Retry. Unlike the
@@ -453,6 +458,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   try {
+    const { modelId } = await requireSceneClipGenStudioModel(model)
     const job = jq.enqueue({
       project_slug: slug,
       type: 'scene_clips_batch' as JobType,
@@ -460,14 +466,14 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
       title: `Motion clips — ${episodeId}`,
       params: {
         episode_id: episodeId,
-        model,
+        model: `genstudio-video:${modelId}`,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
       },
     })
     res.status(201).json(job)
   } catch (e: any) {
     if (e instanceof jq.DuplicateJobError) return res.status(409).json({ detail: e.message })
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue motion clips'))
+    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
   }
 })
 
@@ -481,6 +487,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
+    const { modelId } = await requireSceneClipGenStudioModel(model)
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
@@ -520,7 +527,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
         params: {
           episode_id: episodeId,
           scene_id: s.id,
-          model,
+          model: `genstudio-video:${modelId}`,
           aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
         },
       })
@@ -529,7 +536,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     }
     res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue scene-clip jobs'))
+    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
   }
 })
 

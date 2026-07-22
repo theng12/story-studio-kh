@@ -1,9 +1,4 @@
 export const VOICE_PROVIDER_OPTIONS = [
-  { id: 'elevenlabs', label: 'ElevenLabs' },
-  { id: 'fal', label: 'fal.ai' },
-  { id: 'genaipro', label: 'GenAIPro' },
-  { id: 'kie', label: 'kie.ai' },
-  { id: 'fishaudio', label: 'Fish Audio' },
   { id: 'genstudio', label: 'GenStudio KH' },
 ] as const
 
@@ -16,7 +11,6 @@ export interface SavedVoice {
 }
 
 const PROVIDER_IDS = new Set<string>(VOICE_PROVIDER_OPTIONS.map(option => option.id))
-const LEGACY_ELEVEN_GATEWAYS: VoiceProviderId[] = ['elevenlabs', 'fal', 'genaipro', 'kie']
 
 export function normalizeVoiceProviders(value: unknown, legacyProvider?: unknown): VoiceProviderId[] {
   const explicit = Array.isArray(value)
@@ -25,7 +19,7 @@ export function normalizeVoiceProviders(value: unknown, legacyProvider?: unknown
   const legacy = typeof legacyProvider === 'string' && PROVIDER_IDS.has(legacyProvider)
     ? [legacyProvider as VoiceProviderId]
     : []
-  const selected = explicit.length > 0 ? explicit : legacy.length > 0 ? legacy : LEGACY_ELEVEN_GATEWAYS
+  const selected = explicit.length > 0 ? explicit : legacy
   const wanted = new Set(selected)
   return VOICE_PROVIDER_OPTIONS.map(option => option.id).filter(provider => wanted.has(provider))
 }

@@ -1,8 +1,7 @@
 <!--
   v1.0.142+ — Research page real content. First production step of the
-  timestamp-driven pipeline. Source adapters (user picks per-episode):
-    - Perplexity (direct)            requires perplexity API key
-    - LLM-only with disclaimers      uses any text-provider key
+  timestamp-driven pipeline. Research generation is routed exclusively
+  through the published GenStudio LLM catalog.
 
   Output is two sidecars in the episode dir:
     - research.json  (machine-readable, claims/citations/structure)
@@ -65,8 +64,8 @@
       class="workspace-section research-brief-section"
     >
       <template #actions>
-        <span class="research-selection-pill" :data-ready="selectedSource?.configured ? 'true' : 'false'">
-          {{ selectedSource?.display_name || 'Choose a source' }}
+        <span class="research-selection-pill" :data-ready="genStudioSource?.configured ? 'true' : 'false'">
+          GenStudio LLM
         </span>
       </template>
 
@@ -95,37 +94,28 @@
 
         <aside class="research-source-panel">
           <div class="research-panel-heading">
-            <span>Evidence source</span>
-            <small>{{ configuredSourceCount }} ready</small>
+            <span>Generation route</span>
+            <small>Managed centrally</small>
           </div>
           <div v-if="sourcesLoading" class="research-source-loading">
-            <LoadingSpinner size="sm" /> Loading sources…
+            <LoadingSpinner size="sm" /> Checking GenStudio…
           </div>
-          <div v-else class="research-source-grid">
-            <button
-              v-for="src in sources"
-              :key="src.id"
-              type="button"
-              :class="['research-source-card', { active: form.source_provider === src.id, unconfigured: !src.configured }]"
-              @click="form.source_provider = src.id"
-              :title="src.configured ? '' : 'API key not configured — see App Settings → API Keys'"
-            >
-              <span class="research-source-radio" aria-hidden="true"></span>
-              <span class="research-source-card-copy">
-                <strong>{{ src.display_name }}</strong>
-                <small>{{ src.helper_text }}</small>
-              </span>
-              <span class="research-source-badge" :class="{ active: src.configured }">
-                {{ src.configured ? 'Ready' : 'No key' }}
-              </span>
-            </button>
+          <div v-else class="research-source-summary">
+            <span class="research-source-mark" aria-hidden="true">G</span>
+            <span class="research-source-copy">
+              <strong>GenStudio LLM</strong>
+              <small>Uses the model selected below through your single GenStudio API connection.</small>
+            </span>
+            <span class="research-source-badge" :class="{ active: genStudioSource?.configured }">
+              {{ genStudioSource?.configured ? 'Ready' : 'Not connected' }}
+            </span>
           </div>
           <NuxtLink
-            v-if="selectedSource && !selectedSource.configured"
+            v-if="genStudioSource && !genStudioSource.configured"
             :to="`/projects/${slug}/settings#app`"
             class="research-settings-link"
           >
-            Configure this source in Settings
+            Connect GenStudio in Settings
           </NuxtLink>
         </aside>
       </div>
@@ -139,10 +129,10 @@
           <p>Save, apply, or rename reusable research presets in the command bar above. Episode topics remain episode-specific.</p>
         </div>
         <div class="research-run-controls">
-          <div v-if="form.source_provider === 'llm-only'" class="research-model-field">
+          <div class="research-model-field">
             <label>Research model</label>
             <ModelSelector v-model="form.source_model" :project-slug="slug" />
-            <span class="research-field-note">Your last explicit model remains selected for this project.</span>
+            <span class="research-field-note">Only published GenStudio LLM models appear here. Your last choice remains selected for this project.</span>
           </div>
           <div class="research-depth-field">
             <label for="research-max-sources">Source depth</label>
@@ -157,7 +147,7 @@
               />
               <span>sources</span>
             </div>
-            <span class="research-field-note">Web research honors this closely; LLM-only treats it as guidance.</span>
+            <span class="research-field-note">Guides the number of claims and references requested from the selected model.</span>
           </div>
         </div>
       </div>
@@ -320,7 +310,7 @@
         <span class="research-empty-mark">R</span>
         <div>
           <strong>{{ episodeId ? 'This episode has no research yet' : 'Choose an episode to begin' }}</strong>
-          <p>{{ episodeId ? 'Confirm the topic and evidence source above, then run research when this story benefits from fact-checking.' : 'Research stays optional and never blocks the production pipeline.' }}</p>
+          <p>{{ episodeId ? 'Confirm the topic and GenStudio model above, then run research when this story benefits from fact-checking.' : 'Research stays optional and never blocks the production pipeline.' }}</p>
         </div>
       </div>
     </WorkspaceSection>
@@ -350,30 +340,27 @@ const selectedEpisode = computed(() =>
   episodes.value.find(e => e.episode_code === episodeId.value) || null,
 )
 
-// v1.0.142+ — Source list comes from /research/sources so the
-// configured-or-not state stays in sync with the live key store.
+// `/research/sources` remains as a compatibility health endpoint, but it now
+// returns one fixed GenStudio route. There is intentionally no provider picker.
 interface SourceInfo {
-  id: 'perplexity' | 'llm-only'
+  id: 'llm-only'
   display_name: string
   helper_text: string
   configured: boolean
 }
-const sources = ref<SourceInfo[]>([])
+const genStudioSource = ref<SourceInfo>({
+  id: 'llm-only',
+  display_name: 'GenStudio LLM',
+  helper_text: 'Uses the published GenStudio language-model catalog.',
+  configured: false,
+})
 const sourcesLoading = ref(false)
 
 async function loadSources(): Promise<void> {
   sourcesLoading.value = true
   try {
     const r = await get<{ sources: SourceInfo[] }>('/research/sources')
-    sources.value = r.sources
-    // Default the picker to the first CONFIGURED source so the user
-    // can run immediately without poking the picker. Only override
-    // if form.source_provider isn't already set to a configured one.
-    const current = sources.value.find(s => s.id === form.value.source_provider)
-    if (!current || !current.configured) {
-      const firstReady = sources.value.find(s => s.configured)
-      if (firstReady) form.value.source_provider = firstReady.id
-    }
+    genStudioSource.value = r.sources.find(source => source.id === 'llm-only') || genStudioSource.value
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to load research sources')
   } finally {
@@ -381,45 +368,43 @@ async function loadSources(): Promise<void> {
   }
 }
 
-// Form state — defaults to the llm-only adapter since it works with any
-// configured text-provider key (Anthropic / OpenAI / kie.ai); the page
-// still auto-selects the first CONFIGURED source on load.
+// Form state contains no provider selector. The backend always dispatches to
+// GenStudio; only the published GenStudio model remains user-selectable.
 interface ResearchForm {
-  source_provider: 'perplexity' | 'llm-only'
   topic: string
   specific_questions: string
   max_sources: number
-  // v1.0.175 — model for the LLM-only source. Empty = adapter default.
-  // Ignored by the web-search sources (they're bound to search models).
+  // Empty means the GenStudio Research adapter's compatibility default.
   source_model: string
 }
-// Per-project memory of the last LLM-only model picked, so the page stops
-// silently defaulting to Anthropic for users who don't use it.
+// Per-project memory of the last GenStudio model picked.
 const RESEARCH_MODEL_KEY = `research_llm_model_${slug.value}`
 const form = ref<ResearchForm>({
-  source_provider: 'llm-only',
   topic: '',
   specific_questions: '',
   max_sources: 8,
   source_model: (typeof localStorage !== 'undefined' && localStorage.getItem(RESEARCH_MODEL_KEY)) || '',
 })
-// v1.0.259 — remember the source + breadth across reloads (NOT topic /
-// specific_questions — those are episode content). source_model already has
-// its own per-project key (above), so it's left out of the allowlist.
-useRememberedForm('research', slug, form, { include: ['source_provider', 'max_sources'] })
+// Remember breadth only. Historical `source_provider` values in saved form
+// state are deliberately ignored; all runs now use GenStudio.
+useRememberedForm('research', slug, form, { include: ['max_sources'] })
 const researchPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'research',
   presetType: 'research',
   snapshot: () => ({
     form: {
-      source_provider: form.value.source_provider,
       source_model: form.value.source_model,
       specific_questions: form.value.specific_questions,
       max_sources: form.value.max_sources,
     },
   }),
-  apply: (data) => { if (data?.form) Object.assign(form.value, data.form) },
+  apply: (data) => {
+    if (!data?.form) return
+    if (typeof data.form.source_model === 'string') form.value.source_model = data.form.source_model
+    if (typeof data.form.specific_questions === 'string') form.value.specific_questions = data.form.specific_questions
+    if (typeof data.form.max_sources === 'number') form.value.max_sources = data.form.max_sources
+  },
 })
 // Persist the model choice whenever it changes.
 watch(() => form.value.source_model, (m) => {
@@ -432,15 +417,13 @@ watch(() => form.value.source_model, (m) => {
 const canRun = computed(() => {
   if (!episodeId.value) return false
   if (!form.value.topic.trim()) return false
-  const src = sources.value.find(s => s.id === form.value.source_provider)
-  if (!src?.configured) return false
+  if (!genStudioSource.value?.configured) return false
   return true
 })
 const runDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.topic.trim()) return 'Enter a topic'
-  const src = sources.value.find(s => s.id === form.value.source_provider)
-  if (!src?.configured) return `${src?.display_name ?? 'Source'} not configured — App Settings → API Keys`
+  if (!genStudioSource.value?.configured) return 'GenStudio API not configured — App Settings → API Keys'
   return ''
 })
 
@@ -497,8 +480,6 @@ const dirty = computed(() => {
 const acceptedCount = computed(() => result.value?.claims.filter(c => c.status === 'verified').length ?? 0)
 const ignoredCount = computed(() => result.value?.claims.filter(c => c.status === 'ignored').length ?? 0)
 const unreviewedCount = computed(() => result.value?.claims.filter(c => c.status === 'unreviewed').length ?? 0)
-const selectedSource = computed(() => sources.value.find(source => source.id === form.value.source_provider) || null)
-const configuredSourceCount = computed(() => sources.value.filter(source => source.configured).length)
 const reviewProgress = computed(() => {
   const total = result.value?.claims.length || 0
   if (!total) return 0
@@ -553,13 +534,11 @@ async function loadExisting(): Promise<void> {
       result.value = r.research
       serverResult.value = JSON.stringify(r.research)
       // Hydrate the form from the loaded research so re-running shows
-      // the same topic / questions / source the user used last time.
-      form.value.source_provider = r.research.source_provider as ResearchForm['source_provider']
+      // the same topic / questions / model the user used last time. Historical
+      // source_provider values remain audit evidence and never restore a route.
       form.value.topic = r.research.topic
       form.value.specific_questions = r.research.specific_questions || ''
-      // v1.0.175 — restore the LLM-only model used last time (if it was an
-      // llm-only run); keep the persisted choice otherwise.
-      if (r.research.source_provider === 'llm-only' && r.research.source_model) {
+      if (r.research.source_model) {
         form.value.source_model = r.research.source_model
       }
     } else {
@@ -596,14 +575,10 @@ async function runResearch(): Promise<void> {
   researchingEpisode.value = ep
   try {
     await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, {
-      source_provider: form.value.source_provider,
       topic: form.value.topic.trim(),
       specific_questions: form.value.specific_questions.trim() || undefined,
       max_sources: form.value.max_sources,
-      // Only meaningful for llm-only; backend ignores it for web sources.
-      model: form.value.source_provider === 'llm-only' && form.value.source_model
-        ? form.value.source_model
-        : undefined,
+      model: form.value.source_model || undefined,
       title: form.value.topic.trim(),  // best-effort title hint for path resolution
     })
     success('Research job queued — watch the Jobs panel for progress')
@@ -825,11 +800,10 @@ watch(
   text-transform: uppercase;
 }
 .research-panel-heading small { color: var(--text-muted); font-size: 10px; font-weight: 600; }
-.research-source-grid { display: grid; gap: 7px; }
 .research-source-loading { display: flex; align-items: center; gap: 8px; min-height: 78px; color: var(--text-muted); font-size: 12px; }
-.research-source-card {
+.research-source-summary {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
   min-height: 58px;
@@ -837,25 +811,21 @@ watch(
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 7px);
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--bg-primary) 65%, transparent);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  background: var(--accent-dim);
 }
-.research-source-card:hover { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); transform: translateY(-1px); }
-.research-source-card.active { border-color: var(--accent); background: var(--accent-dim); }
-.research-source-card.unconfigured:not(.active) { opacity: 0.62; }
-.research-source-radio {
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--text-muted);
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 3px transparent;
+.research-source-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--bg-primary);
+  background: var(--text-primary);
+  font-weight: 800;
 }
-.research-source-card.active .research-source-radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--bg-secondary); }
-.research-source-card-copy { display: grid; min-width: 0; gap: 2px; }
-.research-source-card-copy strong { font-size: 12px; }
-.research-source-card-copy small { overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.research-source-copy { display: grid; min-width: 0; gap: 2px; }
+.research-source-copy strong { font-size: 12px; }
+.research-source-copy small { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
 .research-source-badge {
   padding: 2px 7px;
   border-radius: 999px;
@@ -1028,7 +998,6 @@ watch(
 
 @media (max-width: 1080px) {
   .research-brief-grid { grid-template-columns: 1fr; }
-  .research-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .research-flow-rail .workspace-command-copy { display: none; }
   .research-setup-surface { grid-template-columns: 1fr; }
   .research-setup-heading { grid-column: 1; }
@@ -1037,8 +1006,7 @@ watch(
 @media (max-width: 760px) {
   .research-flow-line { width: 12px; }
   .research-flow-step { font-size: 9px; }
-  .research-run-controls,
-  .research-source-grid { grid-template-columns: 1fr; }
+  .research-run-controls { grid-template-columns: 1fr; }
   .research-setup-heading { align-items: flex-start; flex-direction: column; }
   .research-setup-heading p { text-align: left; }
   .research-review-dashboard { grid-template-columns: 74px 1fr; }

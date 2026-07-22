@@ -18,19 +18,23 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadVideo } from '../lib/download-video.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
-import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { Job, VideoModelConfig, ScenePlan } from '../models/types.js'
-import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
+import type { Job, ScenePlan } from '../models/types.js'
 import { auditSceneClipCompletion, checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import {
+  generateVideoWithGenStudio,
+  listVideoModels as listGenStudioVideoModels,
+  type GenStudioVideoModel,
+} from '../lib/genstudio-client.js'
+import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 
 /**
  * Canonical "11 Video Assets" directory for an episode — the named folder
@@ -60,6 +64,63 @@ interface SceneClipGenerateParams {
   auto_approve_clip?: boolean
 }
 
+const LEGACY_VIDEO_NAME_HINTS: Readonly<Record<string, readonly string[]>> = {
+  'fal-veo-3.1-i2v': ['veo', '3.1'],
+  'fal-hailuo-02-i2v': ['hailuo', '02'],
+  'fal-wan-i2v': ['wan'],
+  'kie-kling-3': ['kling', '3'],
+  'kie-veo3-fast': ['veo', '3', 'fast'],
+  'kie-veo3': ['veo', '3'],
+  'kie-veo3-lite': ['veo', '3', 'lite'],
+}
+
+function searchableModelName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9.]+/g, ' ').trim()
+}
+
+/**
+ * Resolve a saved selection only against GenStudio's live, account-visible
+ * image-to-video catalog. Legacy fal/Kie ids are migration hints only: they
+ * can never select their former direct provider.
+ */
+export function resolveSceneClipCatalogModel(
+  selectedModel: string,
+  catalog: readonly GenStudioVideoModel[],
+): string | null {
+  const raw = selectedModel.trim().replace(/^genstudio-video:/, '')
+  if (!raw) return null
+  const available = catalog.filter(model => model.available && model.modes.includes('image-to-video'))
+  const canonical = resolveGenStudioModelId('video', raw)
+  const exact = available.find(model => model.id === canonical || model.id === raw)
+  if (exact) return exact.id
+  const hints = LEGACY_VIDEO_NAME_HINTS[raw]
+  if (!hints) return null
+  const matches = available.filter(model => {
+    const name = searchableModelName(`${model.id} ${model.display_name}`)
+    return hints.every(hint => name.includes(searchableModelName(hint)))
+  })
+  return matches.length === 1 ? matches[0]!.id : null
+}
+
+export async function requireSceneClipGenStudioModel(selectedModel: string): Promise<{
+  apiKey: string
+  modelId: string
+}> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    throw new Error('Add the scoped GenStudio API key in Settings → This Mac before generating motion clips.')
+  }
+  const catalog = await listGenStudioVideoModels(apiKey)
+  const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
+  if (!modelId) {
+    throw new Error(
+      `Saved video model "${selectedModel}" is not available through GenStudio. `
+      + 'Choose an available GenStudio image-to-video model; no fal.ai, Kie.ai, or Studio Hub fallback was attempted.',
+    )
+  }
+  return { apiKey, modelId }
+}
+
 export async function generateSceneClipJob(job: Job): Promise<void> {
   const params = job.params as SceneClipGenerateParams
   const { episode_id, scene_id, model } = params
@@ -84,70 +145,45 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     throw new Error(`Scene ${scene_id} has no motion_prompt — write one on the Scene Plan page first.`)
   }
 
-  // Resolve the i2v model + provider.
-  const config = await pm.getConfig(job.project_slug)
-  if (!config) throw new Error('Project config not found')
-  const videoModels: Record<string, VideoModelConfig> = (config as any).video_models || {}
-  const modelConfig = videoModels[model] || await resolveVideoStudioModel(model)
-  if (!modelConfig) throw new Error(`Unknown video model: ${model}. Add one in Settings → Models.`)
-  if (!modelConfig.modes?.includes('frames')) {
-    throw new Error(`"${modelConfig.label || model}" is not an image-to-video model (no 'frames' mode). Pick an i2v model.`)
-  }
-
-  const providerId = modelConfig.provider || 'kie-video'
-  const provider = registry.getVideoProvider(providerId)
-  if (!provider) throw new Error(`No video provider registered for: ${providerId}`)
-
-  const apiKey = provider.meta.requiresApiKey === false
-    ? 'studio-managed'
-    : await resolveApiKeyForProvider(job.project_slug, provider.meta, {
-        model,
-        jobId: job.job_id,
-      })
-  if (!apiKey) throw new Error(`No API key configured for ${provider.meta.name}. Add one in Settings → API Keys.`)
+  // Re-check the live catalog at execution time. A queued historical job may
+  // outlive a route/catalog refresh, but it must never revive a direct route.
+  const { apiKey, modelId } = await requireSceneClipGenStudioModel(model)
 
   const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'
 
-  job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via ${provider.meta.name} / ${model}`)
+  job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
   job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
-  const result = await provider.generateVideo({
-    mode: 'frames',
+  const result = await generateVideoWithGenStudio(apiKey, {
     prompt: scene.motion_prompt,
-    apiKey,
-    aspectRatio,
-    numberOfVideos: 1,
-    modelId: model,
-    startImagePath: resolvedImagePath,
-    // Pass the model's provider_params so fal gets its `slug` + default_duration
-    // (kie reads its routing too). ai-video omits this — a latent fal bug we avoid.
-    providerParams: (modelConfig as any).provider_params || {},
+    modelId,
+    sourceImagePath: resolvedImagePath,
+    aspectRatio: aspectRatio === 'portrait' ? '9:16' : '16:9',
+    durationSeconds: 5,
+    resolution: '720p',
+    requestIdentity: `${job.project_slug}:${episode_id}:${scene_id}:motion`,
     isCancelled: () => jq.isCancelled(job.job_id),
   })
 
   job.progress = 70
-  if (!result.videoUrls.length) {
-    throw new Error(`${provider.meta.name} returned no video for scene ${scene_id}`)
-  }
-
   const outDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.mp4`)
-  const taskId = result.taskIds?.[0]
+  const taskId = result.jobId
   if (taskId) {
     await recordTask(outDir, `${scene_id}.mp4`, {
-      provider: provider.meta.providerId || provider.meta.id,
+      provider: 'genstudio',
       task_id: taskId,
       submitted_at: new Date().toISOString(),
       input_hash: hashInput(scene.motion_prompt),
-      ...(result.videoUrls[0] ? { result_url: result.videoUrls[0] } : {}),
+      result_url: result.videoUrl,
     })
   }
-  await downloadVideo(result.videoUrls[0]!, outPath, (received) => {
+  await downloadVideo(result.videoUrl, outPath, (received) => {
     // Coarse 70→95 progress band while the clip downloads.
     if (received > 0 && (job.progress ?? 0) < 95) job.progress = Math.min(95, (job.progress ?? 0) + 1)
-  })
+  }, result.downloadHeaders)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded clip is empty for scene ${scene_id}`)
   job.progress = 95

@@ -351,7 +351,7 @@
       <div class="modal">
         <h2>Create New Project</h2>
 
-        <!-- Step indicator (6 steps: Basics → Location → Video tools → API Keys → Upload → Review).
+        <!-- Step indicator (6 steps: Basics → Location → Video tools → GenStudio → Upload → Review).
              Mode picker (multi-machine vs local-only) was removed alongside the
              legacy manifest-sync feature — there's now only one mode. Cloud sync
              happens at the OS level by storing the projects folder inside iCloud
@@ -642,103 +642,30 @@
               :disabled="!ffmpegStatus?.installed || ffmpegInstalling"
               @click="step = 4"
             >
-              Next: API Keys
+              Next: GenStudio
             </button>
           </div>
         </div>
 
-        <!-- Step 4: API Keys -->
+        <!-- Step 4: the sole GenStudio generation boundary -->
         <div v-if="step ===4">
           <p class="text-muted mb-2">
-            Add API keys for the services you want to use. You can skip this
-            and add them later from the
+            Story Studio uses one scoped GenStudio API key for every AI catalog,
+            generation job, and credit event. You can add or rotate it later from
             <button
               type="button"
               @click="appSettingsModal.open()"
               style="background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer;"
-            >⚙ Settings</button>
-            button on the home screen (or any project's Settings → This Mac).
+            >Settings → This Mac</button>.
           </p>
           <div class="precheck-banner precheck-info" style="margin-bottom: 12px;">
             <span>
-              🔑 <strong>Keys are app-wide.</strong>
-              They're stored once on this Mac and used by every project you create.
+              🔑 <strong>One app-wide connection.</strong>
+              The key is stored once on this Mac, remains masked after save, and is used by every project.
               <span v-if="appKeysAlreadyConfigured > 0">
-                You already have {{ appKeysAlreadyConfigured }} key{{ appKeysAlreadyConfigured === 1 ? '' : 's' }} configured —
-                leave a row blank to keep what's there, or paste a new value to replace it.
+                A GenStudio key is already configured. Leave this field blank to keep it, or paste a replacement.
               </span>
             </span>
-          </div>
-
-          <!-- Connectivity precheck banner.
-               Without this, a user behind a corporate firewall, captive
-               portal, or DNS-broken LAN can't distinguish "key is wrong"
-               from "can't reach provider" — both surface as the same
-               opaque error during `testApiKey`. The banner runs the
-               backend precheck (GET /api/connectivity/precheck) when the
-               step mounts and whenever the user clicks Retry.
-               States:
-                 • all reachable   → no banner (silence is good UX)
-                 • some unreachable → yellow non-blocking warning
-                 • all unreachable  → red block; Next disabled unless the
-                   user explicitly opts to "Continue anyway" -->
-          <div v-if="precheck.loading" class="precheck-banner precheck-info">
-            <span>🔎 Checking connectivity to AI providers…</span>
-          </div>
-          <div
-            v-else-if="precheck.result && precheck.result.unreachable.length > 0 && precheck.result.reachable.length === 0"
-            class="precheck-banner precheck-error"
-          >
-            <div>
-              <strong>Can't reach any AI provider.</strong>
-              <p style="font-size: 12px; margin: 4px 0 0 0;">
-                Check your network, DNS, firewall, or captive portal — your keys can't be verified until connectivity is restored.
-              </p>
-              <div class="precheck-host-list">
-                <code v-for="h in precheck.result.unreachable" :key="h.host" class="precheck-host">
-                  {{ h.host }} <span class="text-muted">({{ h.reason }})</span>
-                </code>
-              </div>
-            </div>
-            <div class="flex gap-2 mt-1">
-              <button class="btn btn-sm btn-secondary" :disabled="precheck.loading" @click="runPrecheck">
-                {{ precheck.loading ? 'Checking…' : 'Retry' }}
-              </button>
-              <button
-                v-if="!precheck.override"
-                class="btn btn-sm btn-secondary"
-                @click="precheck.override = true"
-                title="Skip the connectivity gate and proceed anyway."
-              >
-                Continue anyway
-              </button>
-              <span v-else class="text-muted" style="font-size: 11px; align-self: center;">
-                Override enabled — Next is re-enabled.
-              </span>
-            </div>
-          </div>
-          <div
-            v-else-if="precheck.result && precheck.result.unreachable.length > 0"
-            class="precheck-banner precheck-warn"
-          >
-            <div>
-              <strong>Some providers can't be reached.</strong>
-              <p style="font-size: 12px; margin: 4px 0 0 0;">
-                If you don't plan to use these, ignore this. Otherwise check your network before continuing.
-              </p>
-              <div class="precheck-host-list">
-                <code v-for="h in precheck.result.unreachable" :key="h.host" class="precheck-host">
-                  {{ h.label }} <span class="text-muted">({{ h.reason }})</span>
-                </code>
-              </div>
-            </div>
-            <button class="btn btn-sm btn-secondary mt-1" :disabled="precheck.loading" @click="runPrecheck">
-              {{ precheck.loading ? 'Checking…' : 'Retry' }}
-            </button>
-          </div>
-          <div v-else-if="precheck.error" class="precheck-banner precheck-warn">
-            <span>Couldn't run connectivity check: {{ precheck.error }}.</span>
-            <button class="btn btn-sm btn-secondary mt-1" @click="runPrecheck">Retry</button>
           </div>
 
           <!-- Per-key verification. Each row tests its key on blur OR on
@@ -746,7 +673,7 @@
                limits). Editing a key resets its pill back to "untested" so a
                green pill can't outlive the key it vouches for. The "Continue
                without testing" link per row is a per-key bypass: it lets the
-               operator advance with an unverified key (e.g. provider down)
+               operator advance with an unverified key (e.g. GenStudio temporarily down)
                without globally turning off verification. -->
           <div
             v-for="row in keyRows"
@@ -800,30 +727,25 @@
                 && !keyTests[row.provider].bypassed"
               type="button"
               class="bypass-link"
-              :title="'Skip verification for this key only. You can test it in Settings → API Keys later.'"
+              :title="'Skip verification for this key only. You can test it in Settings → This Mac later.'"
               @click="bypassKey(row.provider)"
             >
               Continue without testing — I'll add this later
             </button>
           </div>
 
-          <!-- Convenience: test every entered key in one click. Per-row
-               buttons are still primary; this is for operators who pasted
-               all five and want a single click instead of five. -->
+          <!-- The test checks the configured GenStudio URL and every scope
+               Story Studio needs without submitting a billable generation. -->
           <div class="flex gap-2 items-center mt-2" style="flex-wrap:wrap">
             <button
               type="button"
               class="btn btn-secondary"
               :disabled="keysTesting || providedKeyCount === 0"
-              :title="providedKeyCount === 0 ? 'Add at least one key to test' : `Call each provider to verify the ${providedKeyCount} key${providedKeyCount === 1 ? '' : 's'} you have entered`"
+              :title="providedKeyCount === 0 ? 'Enter a GenStudio key to test' : 'Verify the GenStudio URL, key, and required scopes without generating'"
               @click="testAllKeys"
             >
               {{
-                keysTesting
-                  ? 'Testing…'
-                  : (providedKeyCount === 0
-                      ? '🔍 Test keys'
-                      : `🔍 Test all ${providedKeyCount} key${providedKeyCount === 1 ? '' : 's'}`)
+                keysTesting ? 'Testing…' : '🔍 Test GenStudio scopes'
               }}
             </button>
             <span v-if="verificationSummary" class="text-muted" style="font-size: 12px;">
@@ -845,7 +767,7 @@
         </div>
 
         <!-- Step 5: Upload destinations ─────────────────────────────────────
-             Inserted between API Keys and Review so the machine is pinned
+             Inserted between GenStudio and Review so the machine is pinned
              to the right YouTube channel at setup — not 30 minutes later,
              which is when a wrong-channel upload could already have happened
              (see audit-reports/04 §3). Each row is skippable so users without
@@ -1057,8 +979,8 @@
               </span>
             </div>
             <div class="review-item">
-              <span class="text-muted">API Keys</span>
-              <span>{{ keyCount }} configured</span>
+              <span class="text-muted">GenStudio</span>
+              <span>{{ keyCount ? 'Connected' : 'Not connected' }}</span>
             </div>
             <div class="review-item">
               <span class="text-muted">Upload</span>
@@ -1507,12 +1429,6 @@ function closeCreate() {
   // Intentionally leave ffmpegStatus populated — re-checking FFmpeg every
   // time the user reopens the wizard is pointless (the binary doesn't move
   // between opens). It gets refreshed if the user revisits Step 3.
-  // Connectivity precheck, on the other hand, IS worth re-running on the
-  // next wizard open: network state can change in the seconds between
-  // "cancelled" and "reopened" (toggled VPN, joined a different Wi-Fi).
-  precheck.result = null
-  precheck.error = ''
-  precheck.override = false
   // Key tests are per-wizard-session; don't carry stale pills into the
   // next create flow.
   for (const p of KEY_PROVIDERS) {
@@ -1636,22 +1552,14 @@ async function pickFolder() {
 }
 
 const apiKeys = reactive({
-  openai: '',
-  anthropic: '',
-  kie: '',
-  fal: '',
-  genaipro: '',
+  genstudio: '',
 })
 
 // Track which providers already have an app-level key so the wizard can
 // say "✓ already configured" and skip overwriting on save when the row
 // is left blank. We never receive the actual key value — masked only.
 const appKeysExisting = reactive<Record<string, boolean>>({
-  openai: false,
-  anthropic: false,
-  kie: false,
-  fal: false,
-  genaipro: false,
+  genstudio: false,
 })
 const appKeysAlreadyConfigured = computed(
   () => Object.values(appKeysExisting).filter(Boolean).length,
@@ -1728,16 +1636,10 @@ async function ensureProjectCreated(): Promise<any> {
     // backend's optional-field handling kicks in.
     niche_id: form.niche_id || undefined,
   })
-  // API keys are stored at app level (per-Mac, not per-project). Write
-  // each non-empty value individually so a blank row in the wizard
-  // means "leave the existing app-level key untouched" rather than
-  // "overwrite with empty". See PUT /api/app-settings/api-keys/:providerId.
+  // The one GenStudio key is stored at app level (per-Mac, not per-project).
+  // A blank field leaves the existing masked credential untouched.
   const entries: Array<[string, string]> = [
-    ['openai', apiKeys.openai],
-    ['anthropic', apiKeys.anthropic],
-    ['kie', apiKeys.kie],
-    ['fal', apiKeys.fal],
-    ['genaipro', apiKeys.genaipro],
+    ['genstudio', apiKeys.genstudio],
   ]
   for (const [providerId, value] of entries) {
     const trimmed = (value || '').trim()
@@ -1830,36 +1732,26 @@ async function connectYoutubeInWizard() {
   }
 }
 
-const keyCount = computed(() =>
-  [apiKeys.openai, apiKeys.anthropic, apiKeys.kie, apiKeys.fal, apiKeys.genaipro].filter(Boolean).length
-)
+const keyCount = computed(() => Number(!!apiKeys.genstudio.trim() || appKeysExisting.genstudio))
 
 // ── Per-key verification ─────────────────────────────────────────────────
-// The wizard verifies each provided key against its provider BEFORE letting
+// The wizard verifies the scoped GenStudio key BEFORE letting
 // the user advance past Step 4. Without this, typos surface as opaque 401s
 // 5–15 minutes into the first generation job. Empty inputs are fine — users
 // who only plan to use script generation shouldn't be forced to paste every
 // key. The "Skip verification" checkbox is the escape hatch for when the
 // network is flaky or the user genuinely wants to defer.
-type KeyProvider = 'openai' | 'anthropic' | 'kie' | 'fal' | 'genaipro'
+type KeyProvider = 'genstudio'
 type KeyTestStatus = 'untested' | 'testing' | 'valid' | 'invalid' | 'unreachable'
 
-const KEY_PROVIDERS: KeyProvider[] = ['openai', 'anthropic', 'kie', 'fal', 'genaipro']
+const KEY_PROVIDERS: KeyProvider[] = ['genstudio']
 
 const keyRows: Array<{ provider: KeyProvider; label: string; placeholder?: string }> = [
-  { provider: 'openai',    label: 'OpenAI API Key (for script generation)',         placeholder: 'sk-...' },
-  { provider: 'anthropic', label: 'Anthropic API Key (for script generation)',      placeholder: 'sk-ant-...' },
-  { provider: 'kie',       label: 'kie.ai API Key (for image generation)' },
-  { provider: 'fal',       label: 'fal.ai API Key (for audio generation)' },
-  { provider: 'genaipro',  label: 'GenAIPro API Key (optional — alternative ElevenLabs TTS)' },
+  { provider: 'genstudio', label: 'Scoped GenStudio API key', placeholder: 'gsk_…' },
 ]
 
 const keyTests = reactive<Record<KeyProvider, { status: KeyTestStatus; message: string; bypassed: boolean }>>({
-  openai:    { status: 'untested', message: '', bypassed: false },
-  anthropic: { status: 'untested', message: '', bypassed: false },
-  kie:       { status: 'untested', message: '', bypassed: false },
-  fal:       { status: 'untested', message: '', bypassed: false },
-  genaipro:  { status: 'untested', message: '', bypassed: false },
+  genstudio: { status: 'untested', message: '', bypassed: false },
 })
 
 const keysTesting = ref(false)
@@ -1867,7 +1759,7 @@ const keysTesting = ref(false)
 // re-tests on blur if nothing changed (the operator clicking elsewhere
 // shouldn't ping the provider every time).
 const lastTestedKey = reactive<Record<KeyProvider, string>>({
-  openai: '', anthropic: '', kie: '', fal: '', genaipro: '',
+  genstudio: '',
 })
 
 function resetKeyStatus(provider: KeyProvider) {
@@ -1886,7 +1778,7 @@ async function testOneKey(provider: KeyProvider) {
   keyTests[provider] = { status: 'testing', message: '', bypassed: false }
   try {
     const r = await post<{ valid: boolean; reachable: boolean; message: string }>(
-      `/test-key/${provider}`,
+      `/app-settings/api-keys/${provider}/test`,
       { apiKey },
     )
     const status: KeyTestStatus = r.valid
@@ -1946,7 +1838,7 @@ const hasUnreachable = computed(() =>
 )
 
 const verificationSummary = computed(() => {
-  if (keysTesting.value) return 'Calling each provider…'
+  if (keysTesting.value) return 'Checking GenStudio scopes…'
   const tested = KEY_PROVIDERS.filter(p => apiKeys[p].trim() && keyTests[p].status !== 'untested')
   const bypassed = KEY_PROVIDERS.filter(p => apiKeys[p].trim() && keyTests[p].bypassed).length
   if (tested.length === 0 && bypassed === 0) return ''
@@ -1974,7 +1866,7 @@ async function testAllKeys() {
       const apiKey = apiKeys[p].trim()
       try {
         const r = await post<{ valid: boolean; reachable: boolean; message: string }>(
-          `/test-key/${p}`,
+          `/app-settings/api-keys/${p}/test`,
           { apiKey },
         )
         const status: KeyTestStatus = r.valid
@@ -1997,56 +1889,10 @@ async function testAllKeys() {
   }
 }
 
-// ── Connectivity precheck ────────────────────────────────────────────────
-// Distinguishes "your API key is wrong" from "your network can't reach the
-// provider." The backend runs concurrent 3-second probes against the base
-// hosts we use for script/image/audio/video generation; we render a banner
-// on wizard Step 4 (API Keys) so the user isn't left to burn 10 minutes
-// re-pasting correct keys while on a broken network.
-interface PrecheckResult {
-  reachable: Array<{ host: string; label: string; status: number }>
-  unreachable: Array<{ host: string; label: string; reason: string }>
-  elapsed_ms: number
-}
-const precheck = reactive<{
-  loading: boolean
-  result: PrecheckResult | null
-  error: string
-  override: boolean
-}>({ loading: false, result: null, error: '', override: false })
-
-async function runPrecheck() {
-  precheck.loading = true
-  precheck.error = ''
-  try {
-    precheck.result = await get<PrecheckResult>('/connectivity/precheck')
-    // A fresh successful probe resets the override. If everything is
-    // reachable the override becomes moot; if some hosts are still down
-    // the user re-confirms intent before the Next button re-activates.
-    if (precheck.result.unreachable.length === 0) {
-      precheck.override = false
-    }
-  } catch (e: any) {
-    precheck.error = e?.data?.detail || e?.message || 'unknown error'
-    precheck.result = null
-  } finally {
-    precheck.loading = false
-  }
-}
-
-// Gating rules for the Next button on Step 4. Two independent concerns:
-//   1. Connectivity — blocks only if ALL hosts unreachable and the user has
-//      not clicked "Continue anyway". Partial outages stay non-blocking.
-//   2. Per-key verification — if the user entered any keys, they must either
+// Gating rules for the GenStudio step. If the user enters a replacement key,
+// it must either
 //      test them (all valid) or tick "Skip verification". Empty wizard (no
 //      keys at all) is allowed through without either.
-const connectivityOk = computed(() => {
-  if (precheck.override) return true
-  if (!precheck.result) return true
-  if (precheck.result.reachable.length > 0) return true
-  return false
-})
-
 const keyVerificationOk = computed(() => {
   if (providedKeyCount.value === 0) return true
   if (keysTesting.value) return false
@@ -2061,10 +1907,9 @@ const keyVerificationOk = computed(() => {
   })
 })
 
-const canAdvancePastKeys = computed(() => connectivityOk.value && keyVerificationOk.value)
+const canAdvancePastKeys = computed(() => keyVerificationOk.value)
 
 const nextBlockReason = computed(() => {
-  if (!connectivityOk.value) return 'Blocked until connectivity is restored, or click Continue anyway.'
   if (keysTesting.value) return 'Waiting for key tests to finish…'
   if (providedKeyCount.value === 0) return ''
   if (hasInvalidKey.value) return 'One or more keys were rejected by the provider. Fix them, or click "Continue without testing" on each row.'
@@ -2472,17 +2317,11 @@ async function commitImport() {
 // and again if they come back to it with an unknown state. We don't re-check
 // automatically after that — the user has explicit "check again" + "install"
 // buttons once they're on the step.
-// Connectivity precheck fires on entering Step 4 (API Keys) so the banner
-// is ready before the user starts pasting keys. It re-runs only on explicit
-// Retry after that; we don't auto-poll.
 watch(step, (s) => {
   if (s === 3 && !ffmpegChecking.value && !ffmpegInstalling.value) {
     if (!ffmpegStatus.value || !ffmpegStatus.value.installed) {
       checkFFmpeg()
     }
-  }
-  if (s === 4 && !precheck.loading && !precheck.result) {
-    runPrecheck()
   }
   if (s === 4) {
     // Pre-load which providers already have an app-level key so the

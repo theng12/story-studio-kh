@@ -85,10 +85,11 @@ test('GenStudio media and LLM discovery use provider-owned live catalogs', async
         max_output_tokens: 8_192, controls: ['temperature'], activation_blockers: [],
       }])
     }
-    if (url.endsWith('/v1/video/models')) {
+    if (url.endsWith('/v1/videos/models')) {
       return Response.json([{
         id: 'video-v1', display_name: 'Video V1', available: false,
-        qualification_only: true, coming_soon: true, modes: ['image-to-video'],
+        modes: ['image-to-video'], aspect_ratios: ['16:9'],
+        variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
       }])
     }
     throw new Error(`Unexpected request: ${url}`)
@@ -144,8 +145,8 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     const url = String(input)
     visited.push(url)
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_all_story_scopes')
-    if (url.endsWith('/v1/jobs/story-studio-key-probe')) return new Response(null, { status: 404 })
-    if (url.endsWith('/v1/chat/responses/story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/account/overview')) return Response.json({ detail: 'missing usage:read' }, { status: 403 })
     return Response.json([])
   }
 
@@ -155,14 +156,21 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     .expect(200)
 
   assert.equal(response.body.valid, true)
-  assert.match(response.body.message, /model discovery, voices, TTS, transcription, images, and LLM generation/)
+  assert.match(response.body.message, /catalogs and TTS, transcription, image, LLM, and video job access/)
+  assert.equal(response.body.usage_available, false)
+  assert.match(response.body.warning, /usage:read/)
   assert.deepEqual(visited, [
     'http://127.0.0.1:8000/v1/models',
     'http://127.0.0.1:8000/v1/voices',
     'http://127.0.0.1:8000/v1/transcription/models',
     'http://127.0.0.1:8000/v1/image/models',
+    'http://127.0.0.1:8000/v1/videos/models',
     'http://127.0.0.1:8000/v1/jobs/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/chat/responses/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/images/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/transcriptions/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/videos/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/account/overview',
   ])
 })
 
@@ -184,4 +192,30 @@ test('GenStudio key test names the first missing scope without submitting work',
   assert.equal(response.body.valid, false)
   assert.equal(response.body.reachable, true)
   assert.match(response.body.message, /chat:generate/)
+})
+
+test('GenStudio usage failures name the supported usage:read scope actionably', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_missing_usage_scope' })
+    .expect(200)
+
+  const visited: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    visited.push(url)
+    assert.match(url, /^http:\/\/127\.0\.0\.1:8000\/v1\/account\//)
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_missing_usage_scope')
+    return Response.json({ detail: 'missing usage:read' }, { status: 403 })
+  }
+
+  const response = await request(app)
+    .get('/api/app-settings/genstudio/usage')
+    .expect(503)
+
+  assert.equal(response.body.code, 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE')
+  assert.match(response.body.detail, /invalid or missing usage:read/i)
+  assert.match(response.body.detail, /Issue or update a scoped key in GenStudio/i)
+  assert.doesNotMatch(response.body.detail, /after GenStudio exposes/i)
+  assert.deepEqual(visited, ['http://127.0.0.1:8000/v1/account/overview'])
 })

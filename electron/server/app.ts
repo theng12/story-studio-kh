@@ -19,7 +19,7 @@ import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { logLine } from './services/logger.js'
-import { requireAllowedHost } from './lib/security.js'
+import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
@@ -37,6 +37,7 @@ const SERVER_MODE = isServerMode()
 // reachable from non-local hosts (the user's iMac browser via Tailscale), and
 // session-cookie auth carries the security weight instead. See lib/server-mode.ts.
 app.use(requireAllowedHost(SERVER_MODE))
+app.use(applySecurityHeaders)
 
 // v1.0.472 — Chrome Private Network Access (PNA) preflight support (server mode).
 // When a browser/extension on ANOTHER machine (e.g. the iMac reaching this Mac

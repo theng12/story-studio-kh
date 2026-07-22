@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.669 — 2026-07-23
+
+**Story Studio now has one secure, release-qualified generation gateway: GenStudio KH.**
+
+- Removes active direct cloud-provider, local Studio, and Studio Hub generation
+  routes from Story Studio. One per-machine GenStudio URL and one masked, scoped
+  API key now serve LLM, image, video, voice, and transcription workflows.
+- Loads every model and voice selector from GenStudio's qualified live catalogs.
+  Known legacy preset IDs migrate to current models; unknown retired choices stay
+  visible as unavailable so the owner can repair them without silent substitution.
+- Replaces provider-dollar estimates and locally reconstructed balances with
+  GenStudio-authoritative reservation, settlement, returned-credit, price-version,
+  account-balance, job, and credit-ledger evidence.
+- Preserves durable GenStudio job and idempotency identities through restarts,
+  download failures, and uncertain provider responses. Terminal failures never
+  trigger an unapproved second provider submission.
+- Retires legacy provider-key and account-management endpoints with explicit
+  `410 GENSTUDIO_ONLY` responses while preserving historical project and job
+  evidence.
+- Hardens the desktop boundary with context isolation, sandboxing, protected
+  navigation, production-disabled developer tools, restrictive security headers,
+  deep secret redaction, safe GenStudio URL validation, and package-content scans.
+- Adds a deterministic zero-spend release qualification for scopes, catalogs,
+  idempotency, cancellation, failure classification, private assets, and the
+  absence of direct-provider or Studio Hub fallbacks.
+- Keeps final video assembly on this Mac through bundled FFmpeg and keeps local
+  file import and existing media pools available. Direct stock/SFX retrieval,
+  image editing, and vision workflows fail closed and stay hidden until
+  GenStudio publishes qualified typed APIs for them.
+- Adds a reproducible unsigned Apple-silicon DMG workflow with offline startup,
+  resource, upgrade-identity, secret-exclusion, and artifact-integrity checks.
+
 ## v1.0.668 — 2026-07-22
 
 **One GenStudio credential is now proven across every migrated Story Studio media route.**

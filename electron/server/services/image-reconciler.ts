@@ -22,23 +22,21 @@
  * recovered (no manifest, expired task record, provider failure) are
  * reported back so the user can decide whether to regenerate them.
  *
- * Provider matrix:
- *   - kie.ai (current default for image gen) → fetchImageUrlsByTaskId
- *   - other image providers (none in current code) → add a new branch
- *     when wired up.
+ * Recovery boundary:
+ *   - GenStudio image jobs reconnect through their durable GenStudio job id.
+ *   - Legacy provider task ids remain audit evidence only and are never polled.
  */
 
 import { stat } from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
-import { fetchImageUrlsByTaskId, downloadImage } from '../lib/kie-client.js'
+import { downloadImage } from '../lib/kie-client.js'
 import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
 } from '../generators/images.js'
 import { readManifest, type TaskManifestEntry } from './task-manifest.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
-import * as pm from '../services/project-manager.js'
-import type { Job, ImageModelConfig } from '../models/types.js'
+import type { Job } from '../models/types.js'
 import { recoverImageWithGenStudio } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
 
@@ -49,8 +47,7 @@ export interface ImageReconcileOutcome {
    *   skipped_ok   → file already on disk, nothing to do.
    *   no_manifest  → file is missing AND no task id was ever recorded; user
    *                  must run a fresh generation for this item.
-   *   expired      → manifest had a task id but the provider's record is gone
-   *                  (kie.ai purges old jobs). User must regenerate.
+   *   expired      → manifest had a task id but the provider's record is gone.
    *   failed       → provider stored the task as failed. User must regenerate.
    *   pending      → task is still in flight upstream. Re-run repair shortly.
    *   error        → unexpected (network, parse, write); see `reason`.
@@ -114,8 +111,7 @@ function buildExpected(
 async function recoverOne(
   expected: ExpectedImage,
   entry: TaskManifestEntry | null,
-  apiKeys: { kie: string; genstudio: string },
-  modelConfig: ImageModelConfig,
+  genstudioApiKey: string,
 ): Promise<ImageReconcileOutcome> {
   if (!entry) {
     return {
@@ -126,7 +122,7 @@ async function recoverOne(
   }
 
   if (entry.provider === 'genstudio-image' || entry.provider === 'genstudio') {
-    if (!apiKeys.genstudio) {
+    if (!genstudioApiKey) {
       return {
         filename: expected.filename,
         status: 'error',
@@ -136,7 +132,7 @@ async function recoverOne(
       }
     }
     try {
-      const recovered = await recoverImageWithGenStudio(apiKeys.genstudio, entry.task_id)
+      const recovered = await recoverImageWithGenStudio(genstudioApiKey, entry.task_id)
       await downloadImage(recovered.url, expected.fullPath)
       return {
         filename: expected.filename,
@@ -155,67 +151,13 @@ async function recoverOne(
     }
   }
 
-  if (entry.provider !== 'kie' && entry.provider !== 'kie-image') {
-    return {
-      filename: expected.filename,
-      status: 'error',
-      reason: `Recovery for provider "${entry.provider}" is not implemented yet.`,
-      task_id: entry.task_id,
-      provider: entry.provider,
-    }
-  }
-
-  if (!apiKeys.kie) {
-    return {
-      filename: expected.filename,
-      status: 'error',
-      reason: 'The saved kie.ai API key is unavailable.',
-      task_id: entry.task_id,
-      provider: entry.provider,
-    }
-  }
-  const lookup = await fetchImageUrlsByTaskId(entry.task_id, apiKeys.kie, modelConfig)
-  switch (lookup.status) {
-    case 'success': {
-      const urls = lookup.urls
-      // Pick the URL by variant index (1-based suffix). Most kie models
-      // emit one URL per task, so urls[0] is the right pick for _v1.
-      // For multi-variant models, _v2 would map to urls[1], etc.
-      const idx = Math.max(0, expected.variantIndex - 1)
-      const url = urls[idx] || urls[0]
-      if (!url) {
-        return {
-          filename: expected.filename,
-          status: 'error',
-          reason: `Provider returned ${urls.length} URL(s) but none matched variant ${expected.variantIndex}`,
-          task_id: entry.task_id,
-          provider: entry.provider,
-        }
-      }
-      try {
-        await downloadImage(url, expected.fullPath)
-        if (!await fileNonEmpty(expected.fullPath)) {
-          return {
-            filename: expected.filename,
-            status: 'error',
-            reason: 'Provider download finished but the expected image file was not written.',
-            task_id: entry.task_id,
-            provider: entry.provider,
-          }
-        }
-        return { filename: expected.filename, status: 'recovered', task_id: entry.task_id, provider: entry.provider }
-      } catch (e: any) {
-        return { filename: expected.filename, status: 'error', reason: `Download failed: ${e.message}`, task_id: entry.task_id, provider: entry.provider }
-      }
-    }
-    case 'expired':
-      return { filename: expected.filename, status: 'expired', reason: lookup.message || 'Provider record purged', task_id: entry.task_id, provider: entry.provider }
-    case 'failed':
-      return { filename: expected.filename, status: 'failed', reason: lookup.message || 'Provider job failed', task_id: entry.task_id, provider: entry.provider }
-    case 'pending':
-      return { filename: expected.filename, status: 'pending', reason: lookup.message || 'Still in progress', task_id: entry.task_id, provider: entry.provider }
-    default:
-      return { filename: expected.filename, status: 'error', reason: lookup.message || 'Unknown lookup result', task_id: entry.task_id, provider: entry.provider }
+  return {
+    filename: expected.filename,
+    status: 'error',
+    reason: `Legacy ${entry.provider} task evidence was preserved, but Story Studio no longer contacts that provider. ` +
+      'Use a deliberate GenStudio Retry for a new image.',
+    task_id: entry.task_id,
+    provider: entry.provider,
   }
 }
 
@@ -316,22 +258,7 @@ export async function reconcileImages(
     total_expected: 0,
   }
 
-  const config = await pm.getConfig(slug)
-  if (!config) throw new Error('Project config missing')
-
-  // Resolve the api key + model config for kie image gen. We assume the
-  // user repaired with the same provider they used to generate; if a
-  // future provider switch happens mid-episode, we'll need to dispatch
-  // by `entry.provider` rather than picking one model up-front.
-  const apiKeys = {
-    kie: await getApiKey('kie'),
-    genstudio: await getApiKey('genstudio'),
-  }
-  const imageModels: Record<string, ImageModelConfig> = (config as any).image_models || {}
-  // Pick any kie model config; the poll path is the only field we need
-  // and it's the same across most kie image models. If repair fails for
-  // a custom-poll model, the user can re-generate that model's output.
-  const modelConfig: ImageModelConfig = Object.values(imageModels)[0] || ({ poll: '/jobs/recordInfo' } as any)
+  const genstudioApiKey = await getApiKey('genstudio')
 
   const sceneFile = await findScenePromptsFile(slug, episodeId).catch(() => '')
   const thumbFile = await findThumbPromptsFile(slug, episodeId).catch(() => '')
@@ -359,7 +286,7 @@ export async function reconcileImages(
         continue
       }
       const entry = manifest.tasks[e.filename] || null
-      const outcome = await recoverOne(e, entry, apiKeys, modelConfig)
+      const outcome = await recoverOne(e, entry, genstudioApiKey)
       out.push(outcome)
       if (outcome.status === 'recovered') {
         result.recovered++

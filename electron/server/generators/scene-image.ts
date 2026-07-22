@@ -24,20 +24,20 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import type { Job, ImageModelConfig, ScenePlan } from '../models/types.js'
+import type { Job, ScenePlan } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 
 /** Legacy flat folder at the episode root where continuity / scene-review
  *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
@@ -135,9 +135,11 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,
@@ -146,19 +148,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, {
-    model,
-    jobId: job.job_id,
-  })
-  // v1.0.151+ — Image Studio is a local Pinokio modal; the "apiKey"
-  // slot carries its Tailscale base URL. Empty value falls back to the
-  // discovered tailnet default inside the provider — skip the no-key
-  // throw so that path is allowed to run.
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(
-      `No API key configured for ${imageProvider.meta.name}. Add one in App Settings → API Keys.`,
-    )
-  }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — ${imageProvider.meta.name} / ${model}`)
   job.output_lines.push(`Prompt: ${scene.visual_prompt.slice(0, 200)}${scene.visual_prompt.length > 200 ? '…' : ''}`)
@@ -177,12 +168,13 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     prompt: scene.visual_prompt,
     apiKey,
     aspectRatio,
-    modelId: model,
+    modelId: modelConfig.api_model || model,
     providerParams,
     width: renderWidth,
     height: renderHeight,
     steps: params.image_steps,
     seed: params.seed,
+    idempotencyIdentity: `${job.job_id}:${scene_id}`,
     isCancelled: () => false,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, `${scene_id}.png`, {

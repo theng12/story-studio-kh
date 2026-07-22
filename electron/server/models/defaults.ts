@@ -301,12 +301,10 @@ export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [
   },
 ]
 
-// Per-model extra fields live in provider_params on the stored config (not the typed interface)
-// so we cast via `as any` on each object. Keeps VideoModelConfig lean.
-export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
-  // Video generation is image-to-video only. New provider models belong in
-  // Video Studio once its catalog API is ready; keep this compatibility list
-  // deliberately small in the meantime.
+// Retained only as migration documentation for historical project files. This
+// map is deliberately not exported or merged into new project configuration.
+const RETIRED_DIRECT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
+  // Former direct-provider image-to-video models.
   // ── fal.ai video models (base64 data-URI i2v) ────────────────────────────
   'fal-veo-3.1-i2v': {
     label: 'Veo 3.1 Image-to-Video [fal.ai]',
@@ -368,3 +366,9 @@ export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
     ...({ provider_params: { type: 'veo', api_model: 'veo3_lite' } } as any),
   } as any,
 }
+
+// GenStudio owns the live video catalog. Keep the retired map above as
+// migration documentation only; never seed executable fal/Kie routes into a
+// new project configuration.
+void RETIRED_DIRECT_VIDEO_MODELS
+export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {}

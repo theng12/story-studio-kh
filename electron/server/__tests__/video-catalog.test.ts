@@ -4,13 +4,8 @@ import { DEFAULT_VIDEO_MODELS } from '../models/defaults.js'
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 
 describe('image-to-video catalog policy', () => {
-  test('ships only image-to-video defaults without retired models', () => {
-    assert.ok(Object.keys(DEFAULT_VIDEO_MODELS).length > 0)
-    for (const [id, model] of Object.entries(DEFAULT_VIDEO_MODELS)) {
-      assert.deepEqual(model.modes, ['frames'], `${id} must be image-to-video only`)
-      const searchable = `${id} ${model.label} ${JSON.stringify((model as any).provider_params || {})}`
-      assert.doesNotMatch(searchable, /sora[-_ ]?2|runway[^a-z0-9]*gen[-_ ]?3|text-to-video/i)
-    }
+  test('seeds no executable direct-provider video defaults', () => {
+    assert.deepEqual(DEFAULT_VIDEO_MODELS, {})
   })
 
   test('drops text-only and retired saved entries and normalizes mixed entries', () => {

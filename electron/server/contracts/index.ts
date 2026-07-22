@@ -206,10 +206,17 @@ export const UpdateConfigSchema = z.object({
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
-  audio_models: z.record(z.string(), z.any()).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
-}).passthrough()
+}).passthrough().transform((value) => {
+  // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
+  // accepting those payloads so old clients can save unrelated settings, but
+  // never let an audio_models map become executable routing configuration.
+  // GenStudio is now the sole voice catalog and TTS execution boundary.
+  const current = { ...value }
+  delete current.audio_models
+  return current
+})
 export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
 
 /**
@@ -432,6 +439,21 @@ export interface JobEnqueuedResponse {
    * on the server for the canonical shape.
    */
   accounts_used?: Record<string, { id: string; label: string }>
+  genstudio_jobs?: Array<{
+    id: string
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'video.generation'
+    state: string
+    model_id?: string
+    credit_cost?: number
+    remaining_credits?: number
+    reserved_credits?: number
+    settled_credits?: number
+    returned_credits?: number
+    price_version?: string | null
+    failure_code?: string | null
+    routing_status_code?: string | null
+    updated_at: string
+  }>
   /**
    * Directory containing the job's primary output (audio dir, image dir,
    * video dir, …). Set by each generator on success. Drives the Jobs

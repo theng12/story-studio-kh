@@ -34,7 +34,6 @@ import type { TaskManifestEntry } from '../services/task-manifest.js'
 import {
   fetchKieVideo, fetchFalVideo, type FetchResult,
 } from '../services/video-reconciler.js'
-import { pollForImageUrls } from './kie-client.js'
 import { pollExistingTask as pollExistingGenaiproTask } from './genaipro-client.js'
 import { pollExistingFalAudio } from './fal-client.js'
 import { fetchKieAudioUrlByTaskId } from './kie-tts-client.js'
@@ -64,30 +63,29 @@ const DEFAULT_POLL_DEADLINE_MS = 6 * 60 * 1000
 export async function tryRecoverImageFromManifest(
   entry: TaskManifestEntry | null,
   apiKey: string,
-  modelConfig: ImageModelConfig,
+  _modelConfig: ImageModelConfig,
   isCancelled?: () => boolean,
 ): Promise<RecoveryResult | null> {
   if (!entry || !entry.task_id) return null
-  if (!apiKey) return null
   if (entry.provider === 'genstudio-image' || entry.provider === 'genstudio') {
+    if (!apiKey) {
+      throw new Error('A GenStudio API key is required to reconnect to the accepted image job.')
+    }
     try {
       const result = await recoverImageWithGenStudio(apiKey, entry.task_id, { isCancelled })
       return { urls: [result.url], taskId: result.jobId, provider: entry.provider }
-    } catch {
-      return null
+    } catch (error: any) {
+      throw new Error(
+        `Could not reconnect to accepted GenStudio image job ${entry.task_id}: ` +
+        `${error?.message || error}. No replacement image was submitted.`,
+      )
     }
   }
-  if (entry.provider !== 'kie' && entry.provider !== 'kie-image') return null
-  try {
-    // pollForImageUrls already handles pending→success polling and throws
-    // on provider failure / expired. Reuse it directly.
-    const urls = await pollForImageUrls(entry.task_id, apiKey, modelConfig, { isCancelled })
-    if (!urls.length) return null
-    return { urls, taskId: entry.task_id, provider: entry.provider }
-  } catch {
-    // failed / expired / network — caller falls through to fresh submit.
-    return null
-  }
+  throw new Error(
+    `The missing image belongs to legacy provider "${entry.provider}" (task ${entry.task_id}). ` +
+    'Story Studio will not contact that provider or submit replacement work automatically. ' +
+    'Choose Retry to create a deliberate new GenStudio image job.',
+  )
 }
 
 // ── Audio (genaipro only — matches existing audio-reconciler scope) ──────

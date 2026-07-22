@@ -138,12 +138,12 @@
                     <button type="button" class="btn btn-sm btn-secondary" @click="retryReferencePreview(editing, filename)">Retry preview</button>
                   </div>
                   <small class="reference-filename">{{ filename }}</small>
-                  <button type="button" class="btn btn-sm btn-secondary" :disabled="describingFrom === filename" @click="describeFromImage(filename)">
+                  <button v-if="visionModelOptions.length" type="button" class="btn btn-sm btn-secondary" :disabled="describingFrom === filename" @click="describeFromImage(filename)">
                     {{ describingFrom === filename ? 'Describing…' : 'Describe image' }}
                   </button>
                 </div>
               </div>
-              <div v-if="editing?.references?.images?.length" class="vision-control">
+              <div v-if="editing?.references?.images?.length && visionModelOptions.length" class="vision-control">
                 <label>Vision model</label>
                 <ModelMenu
                   v-model="visionModel"

@@ -48,7 +48,6 @@ import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as continuityRouter } from './continuity.js'
-import { router as chatstudioRouter } from './chatstudio.js'
 import { router as sfxRouter } from './sfx.js'
 import { router as brollShotsRouter } from './broll-shots.js'
 import { requireProject } from './middleware.js'
@@ -65,6 +64,21 @@ export function mountRoutes(app: Express): void {
   app.use('/api', lastSessionRouter)
   app.use('/api', jobsRouter)
   app.use('/api', scriptsRouter)
+
+  // Story Studio has one generation boundary: GenStudio KH. Keep the legacy
+  // sibling-Studio handlers in source only for historical data compatibility,
+  // but make every direct control URL unreachable before those routers mount.
+  // This is deliberately a 410 (not a fall-through 404) so old clients receive
+  // a clear migration signal and cannot silently reconnect to a local fleet.
+  for (const prefix of ['imagestudio', 'voicestudio', 'chatstudio', 'videostudio', 'studiohub']) {
+    app.use(`/api/${prefix}`, (_req, res) => {
+      res.status(410).json({
+        code: 'GENSTUDIO_ONLY',
+        detail: 'Direct Studio and Studio Hub control routes are retired. Configure the single GenStudio connection in Settings → This Mac.',
+      })
+    })
+  }
+
   app.use('/api', imagesRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
@@ -103,5 +117,4 @@ export function mountRoutes(app: Express): void {
   app.use('/api', scenePlanRouter)
   app.use('/api', sceneReviewRouter)
   app.use('/api', continuityRouter)
-  app.use('/api', chatstudioRouter)
 }

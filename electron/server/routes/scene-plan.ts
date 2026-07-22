@@ -18,7 +18,7 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
-import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
   inspectScenePlanCoverage,
@@ -90,8 +90,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const body = req.body || {}
   const stage: 'timeline' | 'visual' | 'motion' =
     body.stage === 'visual' || body.stage === 'motion' ? body.stage : 'timeline'
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model && stage !== 'timeline') return res.status(400).json({ detail: 'model is required' })
+  if (stage !== 'timeline') {
+    try {
+      model = await requireScenePlanGenStudioModel(model)
+    } catch (error: any) {
+      return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
+    }
+  }
 
   const targetSceneCount = typeof body.target_scene_count === 'number' ? body.target_scene_count : undefined
   const useResearch = body.use_research === false ? false : true  // default true
@@ -196,13 +203,18 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
   // front with a clear, fast error (passing one used to time out deep in the
   // text client as "Unsupported model").
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
     return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  try {
+    model = await requireScenePlanGenStudioModel(model)
+  } catch (error: any) {
+    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
   }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
@@ -249,11 +261,16 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   // Scene planning/rewrite is an LLM task — reject IMAGE models up front.
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
     return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  try {
+    model = await requireScenePlanGenStudioModel(model)
+  } catch (error: any) {
+    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
   }
 
   const detailLevel = typeof body.detail_level === 'number'
@@ -584,10 +601,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (re
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
     return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  try {
+    model = await requireScenePlanGenStudioModel(model)
+  } catch (error: any) {
+    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
   }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
@@ -614,10 +636,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
     return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  try {
+    model = await requireScenePlanGenStudioModel(model)
+  } catch (error: any) {
+    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
   }
   const motionLevel = typeof body.motion_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined

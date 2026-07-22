@@ -22,6 +22,7 @@
 
 import type { Request, Response, NextFunction } from 'express'
 import { logLine } from '../services/logger.js'
+import { redactSecrets } from './redact-secrets.js'
 
 export function errorBoundary(err: any, req: Request, res: Response, next: NextFunction): void {
   logLine('error', 'unhandled-error', {
@@ -33,6 +34,6 @@ export function errorBoundary(err: any, req: Request, res: Response, next: NextF
   if (res.headersSent) return next(err)
   const status = Number(err?.status || err?.statusCode) || 500
   res.status(status).json({
-    detail: err?.expose ? String(err.message) : 'Internal server error',
+    detail: err?.expose ? redactSecrets(String(err.message)) : 'Internal server error',
   })
 }

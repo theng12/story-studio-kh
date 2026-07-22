@@ -28,7 +28,7 @@ describe('flattenVideoAssemblyBundle', () => {
     const out = flattenVideoAssemblyBundle({}, 'EP0042', 'My Episode')
     assert.equal(out.episode_id, 'EP0042')
     assert.equal(out.title, 'My Episode')
-    assert.equal(out.render_target, 'remote', 'older presets keep the control Mac out of final rendering by default')
+    assert.equal(out.render_target, 'local', 'Story Studio never bypasses GenStudio by dispatching directly to Studio Hub')
   })
 
   test('flattens export slot fields to top level', () => {
@@ -299,11 +299,11 @@ describe('flattenVideoAssemblyBundle', () => {
       assert.equal(out.video_layout, 'compilation')
     })
 
-    test('empty bundle data uses the safe remote render default without false legacy detection', () => {
+    test('empty bundle data uses the safe local render default without false legacy detection', () => {
       const out = flattenVideoAssemblyBundle({}, 'EP0042', 'Empty')
       assert.equal(out.episode_id, 'EP0042')
       assert.equal(out.title, 'Empty')
-      assert.equal(out.render_target, 'remote')
+      assert.equal(out.render_target, 'local')
       // Should NOT have triggered legacy passthrough — bundle was empty,
       // not legacy; only the routing safety default was applied.
       assert.equal(Object.keys(out).length, 3)

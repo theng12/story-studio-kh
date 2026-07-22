@@ -17,7 +17,7 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 ## Phase 1 — App Installation & Launch
 
-- [ ] Double-click `Story Studio KH-*.dmg` → mounts without "damaged" warning
+- [ ] Double-click `Story Studio KH <version>-arm64.dmg` → mounts without "damaged" warning
 - [ ] Drag `Story Studio KH.app` to Applications
 - [ ] Launch from Applications → window opens with:
   - [ ] Title bar reads "Story Studio KH"
@@ -215,5 +215,5 @@ Ship only if:
 - [x] All automated tests green
 - [x] All 18 manual phases complete without blocking issues
 - [x] Fresh install works on a test machine (or fresh user account)
-- [x] DMG filename and bundle name are `Story Studio KH`
-- [x] Apple Developer signing + notarization (for public distribution)
+- [ ] DMG filename is `Story Studio KH <version>-arm64.dmg`; bundle name is `Story Studio KH.app`
+- [ ] Apple Developer signing + notarization validated for public distribution

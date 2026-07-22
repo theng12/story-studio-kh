@@ -1,8 +1,10 @@
 # Offline-first notes
 
-**Supported platform:** macOS only (arm64 + x64). Windows and Linux targets
-were removed from `electron-builder.json` on 2026-04-24 — the FFmpeg bundle
-is fused with `lipo` and ships as a macOS universal2 binary, and the runtime
+**Supported desktop artifact:** macOS arm64 only. The Electron app is a thin
+Apple Silicon build; the bundled FFmpeg helper is universal2 so it can also be
+reused if an x64 or universal Electron target is deliberately added later.
+Windows and Linux targets were removed from `electron-builder.json` on
+2026-04-24 — the FFmpeg bundle is fused with `lipo`, and the runtime
 auto-download fallback (`ffmpeg-manager.ts::DOWNLOAD_URLS`) only has darwin
 sources. Re-enabling a non-Mac target requires bundling per-platform FFmpeg
 builds (gyan.dev for Windows, johnvansickle.com for Linux) with matching
@@ -21,7 +23,7 @@ blocked. This doc lists **what ships locally**, **what stays remote**
 | Inter typeface (latin subset, variable weight) | `frontend/public/fonts/inter/inter-latin.woff2` + `frontend/assets/css/fonts.css` | Previously loaded from `fonts.googleapis.com` on every startup. Now shipped; zero network on cold boot. ~48 KB. |
 | IANA timezone database (419 zones, 10 regions, offsets for Jan + Jul) | `frontend/data/timezones.json` | Used by the Plans editor's timezone picker. Generated once from Node's `Intl.supportedValuesOf('timeZone')`; renders as a fast grouped `<select>` instead of a 400+ option datalist. ~68 KB raw, ~10 KB gzipped. |
 | ElevenLabs voice snapshot fallback | `electron/server/data/voices-snapshot.json` | Shown on first run or when the ElevenLabs API is unreachable. Refreshed 24h-TTL from the live API when online. |
-| FFmpeg binary | `electron/vendor/ffmpeg/` (fetched once by `scripts/fetch-ffmpeg.mjs` during install) | Audio/video assembly works without a system install. |
+| FFmpeg + ffprobe | `bundled/ffmpeg/` at build time, copied to `Contents/Resources/ffmpeg/` | Audio/video assembly works on first launch without a system install, Pinokio, Homebrew, or an internet download. |
 
 ## Must remain remote
 
@@ -30,6 +32,9 @@ These are genuinely user-specific or per-request and can't be bundled:
 - **YouTube Data API** — OAuth token refresh, video upload, playlist read/write, reconcile. Per-account, per-channel, quota-tracked locally.
 - **ElevenLabs TTS + subscription** — user's keyed account, per-synthesis charge; character cap lookups are user-specific.
 - **GenAIPro TTS / kie.ai image generation / Claude completions** — all generator jobs that produce new content.
+- **GenStudio generation** — the desktop UI and local project data still start
+  offline, but catalog discovery and generation require the configured GenStudio
+  service to be reachable.
 
 ## Regenerating bundled data
 

@@ -25,6 +25,7 @@ import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
 
 export const router = Router()
@@ -971,9 +972,11 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     ))
   }
   const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  const selectedModel = requestedModel
-    ? models.find(model => model.id === requestedModel)
-    : models.find(model => model.available) || models[0]
+  const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
+  if (!migratedModel) {
+    return res.status(409).json({ detail: unavailableLegacyModelMessage('transcription', requestedModel || '(none)') })
+  }
+  const selectedModel = models.find(model => model.id === migratedModel)
   if (!selectedModel) {
     return res.status(400).json({
       detail: requestedModel
@@ -1297,12 +1300,11 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
     return res.status(409).json({ detail: `Video assembly already queued/running for ${episode_id}` })
   }
 
-  // The Video Assembly export preset owns the render location. Default old
-  // presets to the fleet so the main Mac remains a control centre; choosing
-  // `local` is always an explicit, saved preset decision.
-  req.body.render_target = req.body.render_target === 'local' ? 'local' : 'remote'
-  // Kept on the job as a compatibility marker for jobs saved by older builds.
-  req.body.remote_render_requested = req.body.render_target === 'remote'
+  // Story Studio is a GenStudio client only. Final FFmpeg assembly remains a
+  // local desktop operation until GenStudio exposes a qualified render API;
+  // never bypass the gateway by submitting directly to Studio Hub.
+  req.body.render_target = 'local'
+  req.body.remote_render_requested = false
 
   const job = enqueue({
     project_slug: slug,

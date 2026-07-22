@@ -12,7 +12,7 @@ describe('Settings workspace navigation', () => {
   test('every Settings surface uses the shared modern panel shell', () => {
     const activeTabPanels = [...settingsSource.matchAll(/activeTab === '([^']+)'[^>]+class="([^"]+)"/g)]
 
-    assert.equal(activeTabPanels.length, 17)
+    assert.equal(activeTabPanels.length, 15)
     for (const [, tabId, className] of activeTabPanels) {
       assert.match(className, /settings-panel/, `${tabId} must use the shared Settings panel`)
     }
@@ -51,8 +51,10 @@ describe('Settings workspace navigation', () => {
     for (const section of ['Scripts & prompts', 'Images', 'Audio & TTS', 'Motion clips', 'Transcription']) {
       assert.match(settingsSource, new RegExp(section.replace('&', '&amp;')))
     }
-    assert.match(settingsSource, /Cloud provider safeguards/)
-    assert.match(settingsSource, /Local Studio work automatically uses the available fleet/)
+    assert.match(settingsSource, /GenStudio request safeguards/)
+    assert.match(settingsSource, /GenStudio remains authoritative for provider capacity, credits, and settlement/)
+    assert.match(settingsSource, /GenStudio chooses the qualified provider or fleet route/)
+    assert.doesNotMatch(settingsSource, /Local Studio work automatically uses the available fleet/)
     assert.match(settingsSource, /Save performance/)
   })
 

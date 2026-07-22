@@ -1899,6 +1899,26 @@ export interface Job {
    */
   accounts_used?: Record<string, AccountUsage>
   /**
+   * Durable GenStudio-side job evidence. The remote boundary owns billing;
+   * Story records only values returned by GenStudio and never derives rates.
+   * Historical jobs simply omit this additive field.
+   */
+  genstudio_jobs?: Array<{
+    id: string
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'video.generation'
+    state: string
+    model_id?: string
+    credit_cost?: number
+    remaining_credits?: number
+    reserved_credits?: number
+    settled_credits?: number
+    returned_credits?: number
+    price_version?: string | null
+    failure_code?: string | null
+    routing_status_code?: string | null
+    updated_at: string
+  }>
+  /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video
    * dir, …). Used by the Jobs page's "Open in Finder" button to reveal

@@ -23,6 +23,7 @@
 
 import type { Response } from 'express'
 import { logLine } from '../services/logger.js'
+import { redactSecrets } from './redact-secrets.js'
 
 export interface HumanizedError {
   detail: string
@@ -94,6 +95,7 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   // string the operator pasted in. This stays one-to-one with the old
   // behaviour where `e.message` flowed straight to the response.
   const rawMessage = (e as any)?.message ?? String(e ?? '')
+  const safeMessage = redactSecrets(String(rawMessage || ''))
   try {
     logLine('error', 'Backend error surfaced to user', {
       raw: rawMessage,
@@ -214,7 +216,7 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   const exposed = (e as any)?.expose === true && typeof (e as any)?.code === 'string'
     ? { code: (e as any).code as string }
     : {}
-  if (rawMessage) return { detail: rawMessage, ...exposed }
+  if (safeMessage) return { detail: safeMessage, ...exposed }
   if (fallback) return { detail: fallback, ...exposed }
   return { detail: 'Something went wrong. Please try again.', ...exposed }
 }

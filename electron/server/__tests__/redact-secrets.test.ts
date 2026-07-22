@@ -12,7 +12,11 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { redactSecrets } from '../lib/redact-secrets.js'
+import {
+  redactSecrets,
+  redactSensitiveValue,
+  registerSecretForRedaction,
+} from '../lib/redact-secrets.js'
 
 describe('redactSecrets()', () => {
   test('removes the exact secret from a Bearer-style header echo', () => {
@@ -67,5 +71,43 @@ describe('redactSecrets()', () => {
     assert.ok(out.includes('"error":"bad key'),
       'JSON envelope context must survive redaction')
     assert.ok(!out.includes('sk-abc123'))
+  })
+
+  test('redacts GenStudio scoped keys before the secrets store has loaded', () => {
+    const out = redactSecrets('GenStudio rejected gsk_test_ThisMustNeverReachTheRenderer123')
+    assert.ok(!out.includes('gsk_test_ThisMustNeverReachTheRenderer123'))
+    assert.match(out, /\[REDACTED\]/)
+  })
+
+  test('registered arbitrary credentials are removed from later crash text', () => {
+    const opaque = 'opaque-production-credential-with-no-provider-prefix'
+    registerSecretForRedaction(opaque)
+    const out = redactSecrets(`socket failed while using ${opaque}`)
+    assert.ok(!out.includes(opaque))
+  })
+
+  test('removes secrets from credential-bearing URLs and query strings', () => {
+    const out = redactSecrets(
+      'https://user:password@example.com/v1?api_key=abc12345&token=xyz98765',
+    )
+    assert.ok(!out.includes('user:password'))
+    assert.ok(!out.includes('abc12345'))
+    assert.ok(!out.includes('xyz98765'))
+  })
+
+  test('deep redaction protects persisted job diagnostics and renderer payloads', () => {
+    const safe = redactSensitiveValue({
+      params: {
+        model: 'genstudio-chat-model',
+        genstudio_api_key: 'should-not-persist',
+        nested: { Authorization: 'Bearer secret-value-1234' },
+      },
+      output_lines: ['request api_key=another-secret-value'],
+    })
+    const serialized = JSON.stringify(safe)
+    assert.ok(!serialized.includes('should-not-persist'))
+    assert.ok(!serialized.includes('secret-value-1234'))
+    assert.ok(!serialized.includes('another-secret-value'))
+    assert.ok(serialized.includes('genstudio-chat-model'))
   })
 })

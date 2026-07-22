@@ -29,6 +29,15 @@ describe('Research workspace flow', () => {
     assert.doesNotMatch(research, /research_run_settings_open_/)
   })
 
+  test('uses one fixed GenStudio LLM route without a provider selector', () => {
+    assert.match(research, />GenStudio LLM</)
+    assert.match(research, /Only published GenStudio LLM models appear here/)
+    assert.match(research, /<ModelSelector v-model="form\.source_model"/)
+    assert.doesNotMatch(research, /form\.source_provider/)
+    assert.doesNotMatch(research, /v-for="src in sources"/)
+    assert.doesNotMatch(research, /Perplexity \(direct\)/)
+  })
+
   test('makes review completeness and Script handoff explicit', () => {
     assert.match(research, /research-review-score/)
     assert.match(research, /\{\{ reviewProgress \}\}%/)

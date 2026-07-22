@@ -12,14 +12,14 @@
  */
 import path from 'path'
 import fs from 'fs/promises'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
-import type { ImageModelConfig } from '../models/types.js'
 import type { BrollBeat } from './broll-plan.js'
 import { resolveImageModelConfig } from './image-model-resolver.js'
+import { getApiKey } from './app-secrets-store.js'
 
 /** Resolve the project's image provider + key for `model` (mirrors image-pool-generate). */
 async function resolveImageGen(slug: string, model: string) {
@@ -27,18 +27,18 @@ async function resolveImageGen(slug: string, model: string) {
   if (!config) throw new Error('Project config not found')
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint, poll: modelConfig.poll, type: modelConfig.type,
     api_model: modelConfig.api_model, aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model })
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(`No API key for ${imageProvider.meta.name}. Add one in Settings → API Keys.`)
-  }
-  return { imageProvider, apiKey, providerParams, model }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  return { imageProvider, apiKey, providerParams, model: modelConfig.api_model || model }
 }
 
 export async function isAiGenAvailable(slug: string, model: string): Promise<boolean> {
@@ -89,6 +89,7 @@ export async function aiGenFallbackForBeat(
       providerParams: gen.providerParams,
       steps: controls.imageSteps,
       seed: controls.seed,
+      idempotencyIdentity: `broll:${slug}:${beat.start_sec}:${beat.end_sec}:${prompt}`,
       isCancelled: () => false,
     })
     urls = result.urls || []

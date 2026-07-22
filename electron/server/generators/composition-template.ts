@@ -16,14 +16,14 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
-import type { Job, ImageModelConfig } from '../models/types.js'
+import type { Job } from '../models/types.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
 
@@ -55,9 +55,11 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   const modelConfig = resolveImageModelConfig(config, model)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
+  if (modelConfig.provider !== 'genstudio-image') {
+    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+  }
+  const imageProvider = registry.getImageProvider('genstudio-image')
+  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,
@@ -66,15 +68,8 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, {
-    model,
-    jobId: job.job_id,
-  })
-  if (!apiKey && providerId !== 'imagestudio') {
-    throw new Error(
-      `No API key configured for ${imageProvider.meta.name}. Add one in App Settings → API Keys.`,
-    )
-  }
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   job.output_lines.push(`Composition template — ${imageProvider.meta.name} / ${model}`)
   job.output_lines.push(`Prompt: ${prompt.slice(0, 200)}${prompt.length > 200 ? '…' : ''}`)
@@ -88,8 +83,9 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     prompt,
     apiKey,
     aspectRatio,
-    modelId: model,
+    modelId: modelConfig.api_model || model,
     providerParams,
+    idempotencyIdentity: `${job.job_id}:composition-template`,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, COMPOSITION_FILENAME, {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,

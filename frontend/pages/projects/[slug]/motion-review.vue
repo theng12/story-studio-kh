@@ -239,23 +239,6 @@ const motionPresets = usePresets({
 })
 
 const i2vModels = computed(() => {
-  const configured = Object.entries((config.value as any)?.video_models || {})
-  .filter(([, model]: [string, any]) => Array.isArray(model?.modes) && model.modes.includes('frames'))
-  .map(([id, model]: [string, any]) => {
-    const provider = String(model.provider || model.provider_id || 'Video Studio')
-    const credits = Number(model.credits_per_video || model.credits_per_generation || 0)
-    return {
-      id,
-      label: model.label || id,
-      group: provider,
-      provider,
-      meta: credits > 0 ? `${credits} credits per clip` : 'Image-to-video',
-      description: model.description || model.hint || '',
-      disabled: false,
-      disabledReason: undefined,
-      badges: [{ label: credits > 0 ? 'paid' : 'I2V', tone: credits > 0 ? 'paid' as const : 'info' as const }],
-    }
-  })
   const discovered = genStudioVideoModels.value
     .filter(model => model.modes.includes('image-to-video'))
     .map(model => ({
@@ -263,19 +246,32 @@ const i2vModels = computed(() => {
       label: model.display_name,
       group: 'GenStudio KH',
       provider: 'GenStudio KH',
-      meta: 'Image-to-video',
-      description: model.description || '',
-      disabled: true,
-      disabledReason: model.available
-        ? 'GenStudio KH has not published its durable video polling and private download contract yet.'
-        : 'This video model is not available in GenStudio KH yet.',
-      badges: [{ label: model.coming_soon ? 'coming soon' : 'not ready', tone: 'warning' as const }],
+      meta: 'Quote at submission',
+      description: model.description || 'GenStudio owns reservation and settlement.',
+      disabled: !model.available,
+      disabledReason: model.available ? undefined : 'This video model is not available in GenStudio KH.',
+      badges: [{ label: 'GenStudio I2V', tone: 'info' as const }],
     }))
-  return [...configured, ...discovered]
+  if (videoModel.value && !discovered.some(model => model.id === videoModel.value)) {
+    discovered.unshift({
+      id: videoModel.value,
+      label: `${videoModel.value} (migration required)`,
+      group: 'Unavailable saved selection',
+      provider: 'Historical',
+      meta: 'No fallback',
+      description: 'This saved model is not available in the GenStudio catalog. Choose a live GenStudio model.',
+      disabled: true,
+      disabledReason: 'Unavailable in GenStudio; no legacy provider fallback will run.',
+      badges: [{ label: 'unavailable', tone: 'info' as const }],
+    })
+  }
+  return discovered
 })
 watch(i2vModels, (models) => {
-  const ready = models.find(model => !model.disabled)
-  if (!videoModel.value && ready) videoModel.value = ready.id
+  if (!videoModel.value) return
+  const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
+  const mapped = genStudioVideoModels.value.find(model => model.available && model.legacy_ids?.includes(raw))
+  if (mapped) videoModel.value = `genstudio-video:${mapped.id}`
 }, { immediate: true })
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
@@ -285,7 +281,7 @@ const canGenerate = computed(() => !!episodeId.value && !!videoModel.value && sc
 ))
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
-  if (!i2vModels.value.length) return 'Add an image-to-video model in Settings first'
+  if (!i2vModels.value.length) return 'GenStudio has no image-to-video models available'
   if (!videoModel.value) return 'Pick an image-to-video model'
   if (!canGenerate.value) return 'No approved images are waiting for motion'
   return 'Only approved images are sent to image-to-video'

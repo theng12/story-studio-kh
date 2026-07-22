@@ -34,6 +34,12 @@ export interface GenStudioJob {
   state: 'accepted' | 'reserved' | 'dispatched' | 'running' | 'validating' | 'succeeded' | 'failed' | 'reconciling'
   failure_code?: string | null
   audio_url?: string | null
+  model_id?: string
+  model_revision_id?: string
+  credit_cost?: number
+  remaining_credits?: number
+  routing_status_code?: string | null
+  price_version?: string | null
 }
 
 export interface GenStudioTtsRequest extends GenStudioOperationContext {
@@ -181,9 +187,15 @@ export interface GenStudioVideoModel {
   display_name: string
   description?: string
   available: boolean
-  qualification_only: boolean
-  coming_soon: boolean
-  modes: string[]
+  modes: Array<'image-to-video'>
+  aspect_ratios: string[]
+  variants: Array<{
+    duration_seconds: 5 | 10
+    resolution: '720p' | '1080p'
+    credits_per_video: number
+    minimum_credits: number
+    price_version: string
+  }>
 }
 
 interface GenStudioChatJob {
@@ -193,6 +205,75 @@ interface GenStudioChatJob {
   output_text?: string | null
   failure_code?: string | null
   routing_status_code?: string | null
+  credit_cost?: number
+  remaining_credits?: number
+  price_version?: string | null
+}
+
+interface GenStudioVideoSourceAsset {
+  id: string
+  media_type: string
+  byte_size: number
+  width: number
+  height: number
+  expires_at: string
+}
+
+interface GenStudioVideoJob extends GenStudioJob {
+  model_id: string
+  video_url?: string | null
+  cancellation_requested?: boolean
+  cancelled?: boolean
+}
+
+export interface GenStudioVideoRequest extends GenStudioOperationContext {
+  prompt: string
+  modelId: string
+  sourceImagePath: string
+  aspectRatio: string
+  durationSeconds: 5 | 10
+  resolution: '720p' | '1080p'
+  requestIdentity?: string
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+  onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+}
+
+export interface GenStudioAccountOverview {
+  credit_balance: number
+  credits_used_30d: number
+  total_jobs: number
+  active_jobs: number
+  completed_jobs: number
+  failed_jobs: number
+  available_assets: number
+  next_asset_expiration: string | null
+}
+
+export interface GenStudioCustomerJob {
+  id: string
+  operation: GenStudioModelCapability['operation']
+  state: GenStudioJob['state']
+  model_id: string
+  credit_cost: number
+  reserved_credits: number
+  settled_credits: number
+  released_credits: number
+  failure_code: string | null
+  routing_status_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GenStudioCreditActivity {
+  id: string
+  kind: 'credit' | 'charge' | 'return'
+  description: string
+  credits: number
+  state: string
+  reason_code: string
+  balance_after: number | null
+  created_at: string
+  job_id: string | null
 }
 
 export interface GenStudioChatRequest extends GenStudioOperationContext {
@@ -206,6 +287,26 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   idempotencyKey?: string
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+}
+
+type GenStudioOperation = GenStudioModelCapability['operation']
+
+async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenStudioJob): Promise<void> {
+  const queue = await import('../services/job-queue.js')
+  const storyJobId = queue.currentJobId()
+  if (!storyJobId || !job?.id) return
+  await queue.recordGenStudioJob(storyJobId, {
+    id: job.id,
+    operation,
+    state: job.state,
+    model_id: job.model_id || job.model_revision_id,
+    credit_cost: Number.isFinite(job.credit_cost) ? job.credit_cost : undefined,
+    remaining_credits: Number.isFinite(job.remaining_credits) ? job.remaining_credits : undefined,
+    price_version: job.price_version,
+    failure_code: job.failure_code,
+    routing_status_code: job.routing_status_code,
+    updated_at: new Date().toISOString(),
+  })
 }
 
 export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
@@ -267,11 +368,19 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
 }
 
 function retryableStatus(status: number): boolean {
-  // GenStudio can briefly answer 401 while its local API session is being
-  // restored after a restart. Retrying is safe because every submit carries
-  // a stable Idempotency-Key; a genuinely invalid key still fails after the
-  // bounded reconnect attempts without creating duplicate provider work.
-  return status === 401 || status === 408 || status === 425 || status === 429 || status >= 500
+  return status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+export class GenStudioApiError extends Error {
+  constructor(public readonly status: number, public readonly detail: string) {
+    super(
+      status === 401 || status === 403
+        ? `GenStudio KH rejected the scoped API key (HTTP ${status}): ${detail}. ` +
+          'Verify this key belongs to the intended account and includes the scope required by this operation.'
+        : `GenStudio KH request failed: ${detail}`,
+    )
+    this.name = 'GenStudioApiError'
+  }
 }
 
 export function operationSignal(
@@ -312,7 +421,7 @@ async function requestJsonWithRetry(
       }
       if (!response.ok) {
         const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
-        const error = new Error(`GenStudio KH request failed: ${detail}`)
+        const error = new GenStudioApiError(response.status, detail)
         if (!retryableStatus(response.status)) throw error
         lastError = error
       } else {
@@ -321,8 +430,7 @@ async function requestJsonWithRetry(
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
-      if (error instanceof Error && error.message.startsWith('GenStudio KH request failed:')
-        && !/HTTP (408|425|429|5\d\d)/.test(error.message)) throw error
+      if (error instanceof GenStudioApiError && !retryableStatus(error.status)) throw error
     }
     if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
   }
@@ -333,7 +441,7 @@ async function readJson(response: Response): Promise<any> {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
-    throw new Error(`GenStudio KH request failed: ${detail}`)
+    throw new GenStudioApiError(response.status, detail)
   }
   return body
 }
@@ -414,7 +522,7 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
 
 export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/video/models`, {
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/videos/models`, {
     headers: authorization(apiKey),
     signal: AbortSignal.timeout(8_000),
   }))
@@ -424,10 +532,196 @@ export async function listVideoModels(apiKey: string): Promise<GenStudioVideoMod
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
-    qualification_only: value?.qualification_only !== false,
-    coming_soon: value?.coming_soon !== false,
-    modes: Array.isArray(value?.modes) ? value.modes.filter((item: unknown) => typeof item === 'string') : [],
+    modes: Array.isArray(value?.modes)
+      ? value.modes.filter((item: unknown): item is 'image-to-video' => item === 'image-to-video')
+      : [],
+    aspect_ratios: Array.isArray(value?.aspect_ratios)
+      ? value.aspect_ratios.filter((item: unknown): item is string => typeof item === 'string')
+      : [],
+    variants: Array.isArray(value?.variants)
+      ? value.variants.filter((item: any) => (
+          (item?.duration_seconds === 5 || item?.duration_seconds === 10)
+          && (item?.resolution === '720p' || item?.resolution === '1080p')
+          && Number.isFinite(item?.credits_per_video)
+          && Number.isFinite(item?.minimum_credits)
+          && typeof item?.price_version === 'string'
+        )).map((item: any) => ({
+          duration_seconds: item.duration_seconds,
+          resolution: item.resolution,
+          credits_per_video: item.credits_per_video,
+          minimum_credits: item.minimum_credits,
+          price_version: item.price_version,
+        }))
+      : [],
   })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
+}
+
+function videoSourceMediaType(filename: string): string {
+  switch (path.extname(filename).toLowerCase()) {
+    case '.png': return 'image/png'
+    case '.webp': return 'image/webp'
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    default: return 'application/octet-stream'
+  }
+}
+
+export function buildGenStudioVideoIdempotencyKey(input: {
+  prompt: string
+  modelId: string
+  sourceSha256: string
+  aspectRatio: string
+  durationSeconds: 5 | 10
+  resolution: '720p' | '1080p'
+  requestIdentity?: string
+}): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    prompt: input.prompt.trim(),
+    model_id: input.modelId.trim(),
+    source_sha256: input.sourceSha256,
+    aspect_ratio: input.aspectRatio,
+    duration_seconds: input.durationSeconds,
+    resolution: input.resolution,
+    request_identity: input.requestIdentity || null,
+  })).digest('hex')
+  return `story-video-${digest.slice(0, 44)}`
+}
+
+/** Submit image-to-video work only through GenStudio's durable video boundary. */
+export async function generateVideoWithGenStudio(
+  apiKey: string,
+  request: GenStudioVideoRequest,
+): Promise<{
+  videoUrl: string
+  jobId: string
+  modelId: string
+  downloadHeaders: Record<string, string>
+  creditCost?: number
+  remainingCredits?: number
+  priceVersion?: string | null
+}> {
+  const prompt = request.prompt.trim()
+  const modelId = request.modelId.trim()
+  if (prompt.length < 3 || prompt.length > 4_000) throw new Error('GenStudio video prompts must contain 3 to 4,000 characters.')
+  if (!modelId) throw new Error('Select a GenStudio video model.')
+  const source = await fs.readFile(request.sourceImagePath)
+  if (!source.length) throw new Error('GenStudio video source image is empty.')
+  const sourceSha256 = createHash('sha256').update(source).digest('hex')
+  const idempotencyKey = buildGenStudioVideoIdempotencyKey({
+    prompt,
+    modelId,
+    sourceSha256,
+    aspectRatio: request.aspectRatio,
+    durationSeconds: request.durationSeconds,
+    resolution: request.resolution,
+    requestIdentity: request.requestIdentity,
+  })
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const uploadBody = new FormData()
+  uploadBody.set(
+    'upload',
+    new Blob([new Uint8Array(source)], { type: videoSourceMediaType(request.sourceImagePath) }),
+    path.basename(request.sourceImagePath),
+  )
+  const sourceAsset = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/videos/source-images`,
+    { method: 'POST', headers: authorization(apiKey), body: uploadBody },
+    request,
+    deadline,
+  ) as GenStudioVideoSourceAsset
+  if (!sourceAsset.id) throw new Error('GenStudio video source upload returned no asset id.')
+
+  const submitted = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/videos/generations`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        prompt,
+        model_id: modelId,
+        mode: 'image-to-video',
+        reference_asset_id: sourceAsset.id,
+        aspect_ratio: request.aspectRatio,
+        duration_seconds: request.durationSeconds,
+        resolution: request.resolution,
+      }),
+    },
+    request,
+    deadline,
+  ) as GenStudioVideoJob
+  await recordGenStudioEvidence('video.generation', submitted)
+  await request.onJobAccepted?.(submitted.id, idempotencyKey)
+  let current = submitted
+  let reportedState = ''
+  while (current.state !== 'succeeded' && current.state !== 'failed') {
+    if (reportedState !== current.state) {
+      reportedState = current.state
+      await recordGenStudioEvidence('video.generation', current)
+      await request.onState?.(current.state, current.id)
+    }
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await requestJsonWithRetry(
+        `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}/cancel`,
+        { method: 'POST', headers: authorization(apiKey) },
+        {},
+        deadline,
+      ).catch(() => {})
+      throw new Error('Cancelled by user')
+    }
+    if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioVideoJob
+  }
+  await recordGenStudioEvidence('video.generation', current)
+  await request.onState?.(current.state, current.id)
+  if (current.state === 'failed') {
+    throw new Error(`GenStudio video generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No legacy fallback was attempted.`)
+  }
+  const videoUrl = current.video_url || `/v1/videos/${encodeURIComponent(current.id)}/file`
+  return {
+    videoUrl: requestUrl(baseUrl, videoUrl),
+    jobId: current.id,
+    modelId: current.model_id,
+    downloadHeaders: authorization(apiKey),
+    creditCost: current.credit_cost,
+    remainingCredits: current.remaining_credits,
+    priceVersion: current.price_version,
+  }
+}
+
+async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> {
+  const baseUrl = await getGenStudioUrl()
+  return readJson(await fetch(`${apiBase(baseUrl)}${pathName}`, {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  })) as Promise<T>
+}
+
+/** Authoritative balance and settlement data; never reconstructed locally. */
+export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
+  overview: GenStudioAccountOverview
+  jobs: { items: GenStudioCustomerJob[]; page: number; page_size: number; total: number; total_pages: number }
+  credit_activity: { items: GenStudioCreditActivity[]; page: number; page_size: number; total: number; total_pages: number }
+}> {
+  // Prove the key has account access before starting the two larger paginated
+  // reads. An invalid or under-scoped key therefore produces one clear
+  // failure instead of three concurrent rejected requests.
+  const overview = await readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+  const [jobs, creditActivity] = await Promise.all([
+    readAccountJson<any>(apiKey, '/v1/account/jobs?page=1&page_size=25'),
+    readAccountJson<any>(apiKey, '/v1/account/credit-activity?page=1&page_size=25'),
+  ])
+  return { overview, jobs, credit_activity: creditActivity }
 }
 
 export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
@@ -477,12 +771,14 @@ export async function callChatWithGenStudio(
     request,
     deadline,
   ) as GenStudioChatJob
+  await recordGenStudioEvidence('chat.response', submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   let current = submitted
   let reportedState = ''
   while (true) {
     if (reportedState !== current.state) {
       reportedState = current.state
+      await recordGenStudioEvidence('chat.response', current)
       await request.onState?.(current.state, current.id)
     }
     if (current.state === 'failed') {
@@ -605,6 +901,7 @@ async function waitForImageJob(
   deadline: number,
 ): Promise<GenStudioImageJob> {
   let current = submitted
+  await recordGenStudioEvidence('image.generation', current)
   request.onState?.(current.state)
   while (current.state !== 'succeeded' && current.state !== 'failed') {
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
@@ -616,6 +913,7 @@ async function waitForImageJob(
       request,
       deadline,
     ) as GenStudioImageJob
+    await recordGenStudioEvidence('image.generation', current)
     request.onState?.(current.state)
   }
   if (current.state === 'failed') {
@@ -732,6 +1030,7 @@ export async function generateImageWithGenStudio(
     request,
     deadline,
   ) as GenStudioImageJob
+  await recordGenStudioEvidence('image.generation', submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
@@ -785,6 +1084,7 @@ async function waitForTranscriptionJob(
   const reportState = async (): Promise<void> => {
     if (reportedState === current.state) return
     reportedState = current.state
+    await recordGenStudioEvidence('audio.transcription', current)
     await request.onState?.(current.state, current.id)
   }
   await reportState()
@@ -917,6 +1217,7 @@ export async function transcribeWithGenStudio(
     request,
     deadline,
   ) as GenStudioTranscriptionJob
+  await recordGenStudioEvidence('audio.transcription', submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
   const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
   const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
@@ -935,6 +1236,7 @@ async function waitForJob(
   const reportState = async (): Promise<void> => {
     if (reportedState === current.state) return
     reportedState = current.state
+    await recordGenStudioEvidence('voice.tts', current)
     await request.onState?.(current.state, current.id)
   }
   await reportState()
@@ -1060,6 +1362,7 @@ export async function generateTtsToFile(
     request,
     deadline,
   ) as GenStudioJob
+  await recordGenStudioEvidence('voice.tts', submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
 }

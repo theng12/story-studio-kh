@@ -536,12 +536,11 @@
       </div>
     </div>
 
-    <!-- ── Edit existing image (AI clean-up / removal) ────────────────────
-         Tile grid that lists the active image pool and
-         opens the shared ImageEditDialog on click. Audit pain-point #14. -->
+    <!-- Browse the active image pool without exposing the retired direct
+         provider image-edit path. -->
     <div v-if="form.episode_id" class="card workspace-section">
       <div class="card-header">
-        <h3>Edit Existing Images</h3>
+        <h3>Browse Existing Images</h3>
         <button
           class="btn btn-sm btn-ghost"
           :disabled="editScanLoading"
@@ -554,8 +553,8 @@
         </button>
       </div>
       <p class="text-muted text-sm mt-1">
-        Click any image to clean up unwanted text, watermarks, or details with AI.
-        Each edit is saved as <code>_edited_v1.png</code> next to the original — no destructive overwrites.
+        Click any image to preview it. Image editing will return after GenStudio
+        exposes and qualifies a secure image-edit API.
       </p>
 
       <div v-if="editScanError" class="text-danger text-sm mt-2">{{ editScanError }}</div>
@@ -659,9 +658,7 @@
       </div>
     </div>
 
-    <!-- Lightbox: fullscreen preview + carousel. Tile clicks open this -->
-    <!-- first; the user browses / decides, then triggers Edit which -->
-    <!-- closes the lightbox and opens ImageEditDialog on the same path. -->
+    <!-- Lightbox: fullscreen preview + carousel. -->
     <!-- v1.0.41: pin-toggle is enabled when the current image is a -->
     <!-- thumbnail (the lightbox + parent both gate on `section`). -->
     <ImagePreviewLightbox
@@ -670,17 +667,7 @@
       :images="allEditableImagesWithPin"
       :project-slug="slug"
       :pin-enabled="currentLightboxIsThumbnail"
-      @edit="onLightboxEdit"
       @pin-toggle="onLightboxPinToggle"
-    />
-
-    <!-- Shared AI image-edit dialog. Mounted once at the page root; -->
-    <!-- triggered from inside the lightbox (Edit with AI button / Enter). -->
-    <ImageEditDialog
-      v-model="imageEditOpen"
-      :project-slug="slug"
-      :image-path="imageEditTarget || ''"
-      @accepted="onImageEditAccepted"
     />
 
     <!-- Niche-templated thumbnail composer (v1.0.104+). Opens from the -->
@@ -1727,13 +1714,6 @@ async function loadEditScan() {
   }
 }
 
-const imageEditOpen = ref(false)
-const imageEditTarget = ref<string | null>(null)
-function openEditOnPath(path: string) {
-  imageEditTarget.value = path
-  imageEditOpen.value = true
-}
-
 // ── Niche-templated thumbnail composer (v1.0.104+) ───────────────────────
 //
 // Opens a dialog that POSTs to /thumbnails/compose with the active
@@ -1778,10 +1758,9 @@ function onComposePinned(filename: string) {
   pinnedThumbnailFilename.value = filename
 }
 
-// ── Lightbox / carousel (preview-then-edit flow) ─────────────────────────
-// Tile clicks now open this fullscreen preview first. The user browses
-// with ← / → and Esc-closes; the "Edit with AI" CTA inside the lightbox
-// closes itself and forwards to openEditOnPath() above.
+// ── Lightbox / carousel ──────────────────────────────────────────────────
+// Tile clicks open this fullscreen preview. The user browses with ← / →
+// and closes it with Escape.
 const lightboxOpen = ref(false)
 const lightboxIndex = ref(0)
 
@@ -1828,17 +1807,6 @@ function openLightboxAt(path: string) {
   const i = allEditableImages.value.findIndex(img => img.path === path)
   lightboxIndex.value = i >= 0 ? i : 0
   lightboxOpen.value = true
-}
-
-/**
- * Wired to the lightbox's `edit` emit. Sequence matters: close the
- * lightbox first so its document-level keydown listener detaches before
- * ImageEditDialog mounts. Otherwise ArrowLeft inside the dialog's prompt
- * textarea would also navigate the lightbox in the background.
- */
-function onLightboxEdit(path: string) {
-  lightboxOpen.value = false
-  openEditOnPath(path)
 }
 
 // ── Thumbnail pin state (v1.0.41) ────────────────────────────────────────
@@ -1890,19 +1858,7 @@ async function setThumbnailPin(filename: string | null) {
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
   await setThumbnailPin(payload.pin ? payload.filename : null)
 }
-function onImageEditAccepted(newPath: string) {
-  // After an edit, refresh the grid so the new `_edited_v1.png` (or its
-  // replaced original) shows up. The grid uses absolute paths as keys, so
-  // an existing tile updates in place when the path stays the same.
-  void loadEditScan()
-  // Bust the preview-img cache for the affected path so the displayed
-  // thumbnail reflects the new content. _editKey changes drive the
-  // `getImagePreviewUrlImages` cache-busting query param below.
-  _editKey.value++
-  void newPath
-}
-
-// Cache-buster bumped after each accepted edit so <img> tags re-fetch.
+// Cache-buster for refreshed disk previews.
 const _editKey = ref(0)
 function getImagePreviewUrlImages(path: string): string {
   return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(path)}&k=${_editKey.value}`

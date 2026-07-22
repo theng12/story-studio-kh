@@ -11,7 +11,29 @@
     "frontend/.output/public/**/*",
     "electron/templates/**/*",
     "package.json",
-    "node_modules/**/*"
+    "node_modules/**/*",
+    "!**/.env*",
+    "!**/.DS_Store",
+    "!**/*.map",
+    "!**/*.db",
+    "!**/*.db-*",
+    "!**/*.sqlite",
+    "!**/*.sqlite3",
+    "!**/app-secrets.json*",
+    "!**/secrets.json*",
+    "!**/jobs.json",
+    "!**/logs/**",
+    "!**/__tests__/**",
+    "!**/test/**",
+    "!**/tests/**",
+    "!electron/.story-studio-data/**",
+    "!electron/.preview-cache/**",
+    "!electron/.style-previews/**",
+    "!electron/app-settings.json",
+    "!electron/last-session.json",
+    "!electron/migrations.json",
+    "!electron/templates/**/secrets.json*",
+    "!electron/templates/**/jobs.json"
   ],
   "asarUnpack": [
     "**/node_modules/sharp/**",
@@ -19,7 +41,24 @@
     "**/*.node"
   ],
   "extraResources": [
-    { "from": "electron/templates",         "to": "templates" },
+    {
+      "from": "electron/templates",
+      "to": "templates",
+      "filter": [
+        "**/*",
+        "!**/.env*",
+        "!**/*.db",
+        "!**/*.db-*",
+        "!**/*.sqlite",
+        "!**/*.sqlite3",
+        "!**/app-secrets.json*",
+        "!**/secrets.json*",
+        "!**/jobs.json",
+        "!**/logs/**",
+        "!**/generated/**",
+        "!**/assets/generated/**"
+      ]
+    },
     { "from": "electron/server/formats",    "to": "formats" },
     { "from": "electron/server/niches",     "to": "niches" },
     { "from": "electron/server/thumbnail-templates", "to": "thumbnail-templates" },

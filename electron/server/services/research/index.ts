@@ -1,23 +1,43 @@
-/**
- * Research adapter registry. Routes go through this so they never
- * reference a specific adapter directly — same pattern as
- * services/broll-fetchers/index.ts.
- */
+/** GenStudio-only Research execution boundary. */
 
 import type { ResearchAdapter } from './types.js'
 import type { ResearchSourceProvider } from '../../models/types.js'
-import { perplexity } from './perplexity.js'
-import { llmOnly } from './llm-only.js'
+import { genStudioResearch } from './genstudio.js'
 
-export const RESEARCH_ADAPTERS: Record<ResearchSourceProvider, ResearchAdapter> = {
-  'perplexity': perplexity,
-  'llm-only': llmOnly,
+/**
+ * `llm-only` is retained as the persisted schema value because existing
+ * research sidecars use the ResearchSourceProvider union. Its execution is
+ * GenStudio-only; it no longer means "choose any locally configured LLM".
+ */
+export const GENSTUDIO_RESEARCH_PROVIDER = 'llm-only' as const
+
+export const RESEARCH_ADAPTERS: Readonly<Record<typeof GENSTUDIO_RESEARCH_PROVIDER, ResearchAdapter>> = {
+  [GENSTUDIO_RESEARCH_PROVIDER]: genStudioResearch,
 }
 
-export function getResearchAdapter(provider: ResearchSourceProvider): ResearchAdapter {
-  const a = RESEARCH_ADAPTERS[provider]
-  if (!a) throw new Error(`Unknown research source provider: ${provider}`)
-  return a
+/**
+ * Normalize only known historical values. This keeps saved `perplexity`
+ * presets and jobs usable after upgrade without retaining a direct provider
+ * path. Missing values are accepted for new clients because there is no
+ * provider choice anymore.
+ */
+export function normalizeResearchSourceProvider(provider: unknown): typeof GENSTUDIO_RESEARCH_PROVIDER {
+  if (
+    provider == null
+    || provider === ''
+    || provider === GENSTUDIO_RESEARCH_PROVIDER
+    || provider === 'perplexity'
+    || provider === 'genstudio'
+    || provider === 'genstudio-llm'
+  ) {
+    return GENSTUDIO_RESEARCH_PROVIDER
+  }
+  throw new Error(`Unknown research source: ${String(provider)}`)
+}
+
+export function getResearchAdapter(provider: ResearchSourceProvider | string | undefined): ResearchAdapter {
+  normalizeResearchSourceProvider(provider)
+  return genStudioResearch
 }
 
 export type { ResearchAdapter } from './types.js'

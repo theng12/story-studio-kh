@@ -45,15 +45,16 @@ let fakeOutlineResponse: string = '[]'
 let fakeExpansionFor: (firstChapterN: number, batchSize: number) => string = () => ''
 let fakeAbortAfterNCalls: number = Infinity
 
-const FAKE_MODEL = 'fake-test-model'
+const FAKE_MODEL = 'genstudio-chat-test-chunked-v1'
+const DISPATCH_MODEL = `genstudio-chat:${FAKE_MODEL}`
 
 const fakeProvider: TextProvider = {
   meta: {
-    id: 'fake-test-provider',
-    name: 'Fake Test Provider',
-    apiKeyField: 'anthropic_api_key' as any,
+    id: 'genstudio',
+    name: 'Fake GenStudio Provider',
+    apiKeyField: 'genstudio_api_key' as any,
   },
-  supportsModel(modelId: string): boolean { return modelId === FAKE_MODEL },
+  supportsModel(modelId: string): boolean { return modelId === DISPATCH_MODEL },
   async callText(req: TextGenerationRequest): Promise<string> {
     if (req.signal?.aborted) throw new Error('Cancelled by user')
     if (fakeCalls.length >= fakeAbortAfterNCalls) throw new Error('Cancelled by user')
@@ -171,7 +172,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       systemPrompt: 'system',
       scriptDir,
       model: FAKE_MODEL,
-      apiKeys: { anthropic_api_key: 'fake' },
+      apiKeys: {},
     })
 
     // 12 chapters / batch size 3 = 4 expansion calls + 1 outline call.
@@ -200,7 +201,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     await generateNarrativeChunked(job1, {
       episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     const callsRun1 = fakeCalls.length
     assert.ok(callsRun1 > 0, 'first run made calls')
@@ -218,7 +219,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     assert.equal(fakeCalls.length, 0, 'fully-completed run does no LLM calls on resume')
     assert.equal(result.fromResume, true)
@@ -304,7 +305,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     await generateNarrativeChunked(job1, {
       episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     // Truncate chapter 4's docx — simulates the file system flushing the
     // metadata but not the content before the crash. File exists but is
@@ -320,7 +321,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     // Post-fix: resume notices chapter 4 is 0 bytes, drops it, re-runs
     // exactly that batch (chapters 4-6 in batch size 3).
@@ -346,7 +347,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       generateNarrativeChunked(job1, {
         episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
         format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-        model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+        model: FAKE_MODEL, apiKeys: {},
       }),
       /Cancelled by user/,
     )
@@ -361,7 +362,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     // 9 - 6 = 3 chapters left, batch size 3 = 1 expansion call. NO outline
     // call (cached in the sidecar from run 1).
@@ -383,7 +384,7 @@ describe('generateListicleChunked — end-to-end with fake provider', () => {
       totalChapters: 24, wordsPerChapter: 400,
       format: makeFormat('listicle', /* chaptersIndependent */ true),
       systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     // 24 / 8 = 3 expansion batches.
     assert.equal(fakeCalls.filter(c => c.kind === 'outline').length, 1)
@@ -414,7 +415,7 @@ describe('generateListicleChunked — end-to-end with fake provider', () => {
       totalChapters: 8, wordsPerChapter: 500,
       format: makeFormat('listicle', /* chaptersIndependent */ true),
       systemPrompt: 'sys', scriptDir,
-      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      model: FAKE_MODEL, apiKeys: {},
     })
     const expansionCall = fakeCalls.find(c => c.kind === 'expansion')
     assert.ok(expansionCall, 'expected at least one expansion call')

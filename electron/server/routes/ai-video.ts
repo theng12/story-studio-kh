@@ -20,6 +20,9 @@ import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services
 import { getVideoStatus } from '../services/asset-status.js'
 import { BUILT_IN_VIDEO_PROMPTS } from '../models/video-prompts-builtin.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listVideoModels as listGenStudioVideoModels } from '../lib/genstudio-client.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
 
@@ -87,7 +90,7 @@ RETURN ONLY THIS JSON (no markdown):
 }`
 
   try {
-    const raw = await callAiWithRetry(model || 'deepseek-v4-flash', sys, userPrompt, {
+    const raw = await callAiWithRetry(model || 'genstudio-chat:genstudio-chat-304c7e5dd2011f75a067-v1', sys, userPrompt, {
       anthropic_api_key: config.anthropic_api_key,
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,
@@ -145,25 +148,24 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   const episodeId = req.body.episode_id
   if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
 
-  // Look up the selected model → required API key
-  const modelId: string = req.body.model || 'kie-veo3-fast'
-  const videoModels: Record<string, any> = (config as any).video_models || {}
-  const { resolveVideoStudioModel } = await import('../lib/videostudio-client.js')
-  const modelConfig = videoModels[modelId] || await resolveVideoStudioModel(modelId)
-  if (!modelConfig) return res.status(400).json({ detail: `Unknown video model: ${modelId}` })
-  if (!Array.isArray(modelConfig.modes) || !modelConfig.modes.includes('frames')) {
-    return res.status(400).json({ detail: `Video model ${modelId} is not image-to-video capable.` })
-  }
+  const selectedModelId: string = req.body.model || ''
+  const modelId = resolveGenStudioModelId('video', selectedModelId)
+  if (!modelId) return res.status(409).json({ detail: unavailableLegacyModelMessage('video', selectedModelId || '(none)') })
   if (req.body.mode && req.body.mode !== 'frames') {
     return res.status(400).json({ detail: 'Text-to-video has been retired. Choose an image-to-video model and generate the scene image first.' })
   }
-
-  const apiKeyField = modelConfig.provider === 'videostudio' ? 'studio-managed'
-    : modelConfig.provider === 'kie' || modelConfig.provider === 'kie-video' ? 'kie_api_key'
-    : modelConfig.provider === 'fal' || modelConfig.provider === 'fal-video' ? 'fal_api_key'
-    : null
-  if (!apiKeyField || (apiKeyField !== 'studio-managed' && !(config as any)[apiKeyField])) {
-    return res.status(400).json({ detail: `No API key configured for ${modelConfig.provider}. Add one in Settings → API Keys.` })
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key in Settings → This Mac.' })
+  try {
+    const catalog = await listGenStudioVideoModels(apiKey)
+    const entry = catalog.find(item => item.id === modelId)
+    if (!entry?.available || !entry.modes.includes('image-to-video')) {
+      return res.status(409).json({
+        detail: `Saved video model "${selectedModelId}" is not currently available in the GenStudio catalog. Select an available image-to-video model.`,
+      })
+    }
+  } catch (error: any) {
+    return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio video catalog'))
   }
 
   if (jq.isDuplicate(slug, episodeId, 'video')) {
@@ -175,7 +177,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     type: 'video',
     episode_id: episodeId,
     title: req.body.title || '',
-    params: { ...req.body, mode: 'frames' },
+    params: { ...req.body, model: `genstudio-video:${modelId}`, mode: 'frames', provider: 'genstudio' },
   })
   res.status(201).json(job)
 })

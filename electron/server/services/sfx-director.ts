@@ -4,11 +4,9 @@
  * unresolved SfxPlan (cues carry label + timing only; clip resolution is a
  * separate step). See docs/sfx-sound-layer-spec.md.
  *
- * Mirrors services/scene-planner.ts: build prompt → callAi → tolerant JSON
- * parse → map to typed cues. The prompt builder and parser are pure so they're
- * unit-testable without a live model.
+ * Historical prompt and parser helpers remain pure and unit-testable. The
+ * executable director entry point is fail-closed pending a typed GenStudio API.
  */
-import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { SrtCue } from '../lib/subtitle-builder.js'
 import {
   normalizePlan,
@@ -18,6 +16,16 @@ import {
 } from './sfx-plan.js'
 
 export type SfxIntensity = 'minimal' | 'moderate' | 'rich'
+
+function sanitizeJsonControlChars(s: string): string {
+  return s.replace(/"(?:[^"\\]|\\.)*"/g, (str) =>
+    str
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/g, ''),
+  )
+}
 
 const INTENSITY_GUIDANCE: Record<SfxIntensity, string> = {
   minimal: 'Be extremely sparse — usually just ONE quiet ambient bed for the whole video and at most a couple of spot effects. When in doubt, add nothing.',
@@ -147,7 +155,10 @@ export function directorJsonToPlan(parsed: { beds?: any[]; spots?: any[] }, tota
   return normalizePlan({ schema_version: 1, enabled: true, beds, spots })
 }
 
-/** Orchestration: prompt → LLM → parse → unresolved plan. */
+/**
+ * Historical orchestration entry point. Automatic SFX direction requires a
+ * typed GenStudio endpoint so retries, billing, and evidence stay centralized.
+ */
 export async function runSfxDirector(opts: {
   cues: SrtCue[]
   model: string
@@ -156,8 +167,6 @@ export async function runSfxDirector(opts: {
   visual_hints?: Array<{ at_sec: number; label: string }>
   slug?: string
 }): Promise<SfxPlan> {
-  const totalSec = opts.cues.length ? opts.cues[opts.cues.length - 1]!.end_sec : 0
-  const { system, user } = buildDirectorPrompt(opts.cues, { intensity: opts.intensity, visual_hints: opts.visual_hints })
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
-  return directorJsonToPlan(parseDirectorJson(raw), totalSec)
+  void opts
+  throw new Error('GENSTUDIO_CAPABILITY_UNAVAILABLE: Automatic SFX direction requires a qualified typed GenStudio KH SFX route.')
 }

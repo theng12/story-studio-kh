@@ -4,12 +4,21 @@
  * abstract narration → concrete searchable nouns). See
  * docs/scripted-broll-format-spec.md (pipeline steps 2–3).
  *
- * Mirrors services/sfx-director.ts: pure beat-grouping + prompt + tolerant parse
- * + plan mapping (all unit-testable), with a thin callAi orchestrator.
+ * Pure beat-grouping, prompt, parse, and plan mapping remain unit-testable.
+ * Executable direction is fail-closed pending a typed GenStudio API.
  */
-import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { SrtCue } from '../lib/subtitle-builder.js'
 import { normalizePlan, type BrollPlan, type BrollBeat } from './broll-plan.js'
+
+function sanitizeJsonControlChars(s: string): string {
+  return s.replace(/"(?:[^"\\]|\\.)*"/g, (str) =>
+    str
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/g, ''),
+  )
+}
 
 export interface Beat {
   start_sec: number
@@ -156,14 +165,8 @@ export async function requeryBeat(opts: {
   style_hint?: string
   slug?: string
 }): Promise<string[]> {
-  const beat: Beat = { start_sec: opts.start_sec ?? 0, end_sec: opts.end_sec ?? 0, line: opts.line }
-  const { system, user } = buildShotPrompt([beat], { style_hint: opts.style_hint })
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
-  const parsed = parseShotJson(raw)
-  const entry = Array.isArray(parsed.beats) ? parsed.beats[0] : undefined
-  return Array.isArray(entry?.queries)
-    ? entry!.queries.map((q: any) => (typeof q === 'string' ? q.trim() : '')).filter(Boolean)
-    : []
+  void opts
+  throw new Error('GENSTUDIO_CAPABILITY_UNAVAILABLE: B-Roll query generation requires a qualified typed GenStudio KH asset-planning route.')
 }
 
 /** Orchestration: cues → beats → LLM → unresolved plan. */
@@ -176,9 +179,6 @@ export async function runShotDirector(opts: {
   style_hint?: string
   slug?: string
 }): Promise<BrollPlan> {
-  const beats = cuesToBeats(opts.cues, opts.target_beat_sec ?? 5)
-  if (!beats.length) return normalizePlan({ enabled: true, broll_style: opts.broll_style ?? '', beats: [] })
-  const { system, user } = buildShotPrompt(beats, { broll_style: opts.broll_style, style_hint: opts.style_hint })
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
-  return shotJsonToPlan(beats, parseShotJson(raw), { broll_style: opts.broll_style })
+  void opts
+  throw new Error('GENSTUDIO_CAPABILITY_UNAVAILABLE: Scripted B-Roll direction requires a qualified typed GenStudio KH asset-planning route.')
 }

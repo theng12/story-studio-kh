@@ -46,7 +46,6 @@ import {
   computeVignetteAngle,
 } from '../lib/video-effects.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { tryRunRemoteVideoAssembly } from './remote-video-assembly.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -542,7 +541,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
         // stored absolute image_path (which can be stale across Macs/users —
-        // /Users/theng/… vs /build/…), then the legacy flat folder.
+        // /Users/old-user/… vs /Users/current-user/…), then the legacy flat folder.
         // This keeps continuity renders visible in Video Assembly regardless of
         // where they physically live.
         const namedPath = namedSceneDir ? path.join(namedSceneDir, `${scene.id}.png`) : ''
@@ -1006,18 +1005,6 @@ export async function generateVideo(job: Job): Promise<void> {
     }
   } catch (e: any) {
     job.output_lines.push(`SFX mix skipped (${e?.message || e}); rendering with the original audio.`)
-  }
-
-  // Render Studio receives a complete, local copy of every input before it
-  // starts. If the chosen assembly features are not losslessly supported by
-  // the worker recipe, this returns false and the existing local path runs.
-  if (await tryRunRemoteVideoAssembly(job)) {
-    job.progress = 100
-    try {
-      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-      episodeStatusCache.invalidate(project_slug, code)
-    } catch { /* best-effort cache refresh */ }
-    return
   }
 
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)

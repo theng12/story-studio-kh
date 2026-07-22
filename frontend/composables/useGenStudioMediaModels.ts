@@ -7,6 +7,7 @@ export interface GenStudioVoiceModelInfo {
   pricing_unit?: string
   limits?: Record<string, unknown>
   controls?: Record<string, unknown>
+  legacy_ids?: string[]
 }
 
 export interface GenStudioVideoModelInfo {
@@ -14,9 +15,16 @@ export interface GenStudioVideoModelInfo {
   display_name: string
   description?: string
   available: boolean
-  qualification_only: boolean
-  coming_soon: boolean
-  modes: string[]
+  modes: Array<'image-to-video'>
+  aspect_ratios: string[]
+  variants: Array<{
+    duration_seconds: 5 | 10
+    resolution: '720p' | '1080p'
+    credits_per_video: number
+    minimum_credits: number
+    price_version: string
+  }>
+  legacy_ids?: string[]
 }
 
 const voiceModels = ref<GenStudioVoiceModelInfo[]>([])

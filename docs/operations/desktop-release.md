@@ -1,0 +1,124 @@
+# Desktop release owner checklist
+
+This is the release gate for the macOS desktop build. The checked target is an
+Apple Silicon (`arm64`) DMG named:
+
+```text
+Story Studio KH <version>-arm64.dmg
+```
+
+The bundle identity is `com.storystudio.kh`, the app name is `Story Studio KH`,
+and Electron therefore keeps upgrade data in
+`~/Library/Application Support/Story Studio KH`. These values are pinned in
+`release/desktop-release-contract.json`; changing any of them is a data-migration
+decision, not release housekeeping.
+
+## Automated gate
+
+From the repository root, with dependencies installed from both lockfiles:
+
+```bash
+npm ci
+npm --prefix frontend ci
+npm run verify
+npm run check:release -- --built --package-input
+```
+
+`npm run verify` covers lint, Electron/frontend typechecks, backend/frontend/
+release tests, changelog integrity, production security checks, the Nuxt static
+build, and the production Electron compile. The release check additionally
+proves that the renderer's startup document has no remote script, stylesheet,
+or font dependency and that every referenced startup asset is present locally.
+
+For a local packaging smoke test that neither installs nor launches the app:
+
+```bash
+npm run dist:smoke
+```
+
+That command:
+
+1. validates or fetches the pinned universal FFmpeg inputs;
+2. rebuilds from source;
+3. clears only `dist/release-smoke` to prevent stale-artifact passes;
+4. forces Electron Builder signing identity to `null`, disables notarization,
+   and publishes nothing;
+5. creates the arm64 app and DMG;
+6. mounts the DMG read-only, checks its layout, then detaches it;
+7. inspects `app.asar`, unpacked native modules, bundle metadata, architecture,
+   offline assets, packaged What's New entry, and forbidden file names; and
+8. prints the DMG byte size and SHA-256.
+
+Re-run artifact verification without rebuilding:
+
+```bash
+npm run verify:artifact -- \
+  --app "dist/release-smoke/mac-arm64/Story Studio KH.app" \
+  --dmg "dist/release-smoke/Story Studio KH <version>-arm64.dmg"
+```
+
+The smoke artifact is not a distributable release.
+
+## Release owner sign-off
+
+- [ ] Start from a known commit and record any intentional uncommitted files.
+- [ ] Use `npm ci` for both lockfiles; do not use an unlocked install to cut a release.
+- [ ] Bump the version in `package.json` and both root version fields in
+      `package-lock.json` only when the release is actually being cut.
+- [ ] Add the matching newest-first `## vX.Y.Z — YYYY-MM-DD` entry to
+      `CHANGELOG.md`. `npm run check:changelog` must prove the package, lockfile,
+      first What's New entry, and non-empty details agree.
+- [ ] Confirm the release contract still intentionally targets arm64 only. The
+      bundled FFmpeg helper is universal2, but that does not make the Electron
+      app universal.
+- [ ] Confirm a clean-install test uses a fresh macOS user or disposable Mac and
+      creates no state inside the app bundle.
+- [ ] Confirm an upgrade test replaces an older `/Applications/Story Studio KH.app`
+      while preserving projects, settings, secrets, jobs, and What's New state in
+      the existing Application Support directory.
+- [ ] Launch the packaged app with Wi-Fi disabled. The window, local project list,
+      bundled fonts, templates, niches, formats, and FFmpeg status must load;
+      provider-backed generation may report offline/unavailable without blocking
+      the rest of the UI.
+- [ ] Confirm the GenStudio base URL saved under the per-machine
+      `genstudio_url` setting is the approved deployment origin. Public endpoints
+      must use HTTPS; loopback HTTP is accepted only for a same-machine service.
+      Never place API keys, userinfo, query strings, filesystem paths, Pinokio
+      paths, or developer home paths in the URL.
+- [ ] If a public GenStudio endpoint should work on a completely fresh install,
+      have the GenStudio migration owner approve its production default before
+      release. The current loopback default is safe and offline-friendly but does
+      not provision a remote service.
+- [ ] Inspect the generated package report: no `.env` files, secrets, databases,
+      jobs, logs, tests, source maps, generated caches/assets, or developer-only
+      absolute paths.
+- [ ] Run the manual desktop phases in `qa-checklist.md` on the exact candidate.
+- [ ] Archive the final checksums and command output with the release record.
+
+## External signing and notarization requirements
+
+Public distribution requires infrastructure and credentials that are deliberately
+absent from the unsigned smoke flow:
+
+- Apple Developer Program membership and a `Developer ID Application` certificate
+  for the release team;
+- the stable `com.storystudio.kh` identifier registered to that team;
+- hardened-runtime-compatible entitlements reviewed for the app's actual needs;
+- App Store Connect API-key or Apple-ID notary credentials supplied only in the
+  protected release environment;
+- Electron Builder signing of the app and all nested executables/frameworks;
+- Apple notarization, successful ticket stapling, and Gatekeeper validation; and
+- a decision on whether signed releases require Electron `safeStorage` via
+  `STORY_STUDIO_FORCE_KEYCHAIN=1`, including an upgrade test for existing secrets.
+
+After creating the signed/notarized candidate, verify it with Apple's tools:
+
+```bash
+codesign --verify --deep --strict --verbose=2 "/path/to/Story Studio KH.app"
+spctl --assess --type execute --verbose=4 "/path/to/Story Studio KH.app"
+xcrun stapler validate "/path/to/Story Studio KH.app"
+xcrun stapler validate "/path/to/Story Studio KH <version>-arm64.dmg"
+```
+
+Do not publish, upload, or install a candidate merely because the local unsigned
+smoke check passed.

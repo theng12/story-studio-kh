@@ -3,123 +3,26 @@ import * as pm from '../services/project-manager.js'
 import { SUBFOLDER_LINKAGE, DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { validateBody } from '../lib/validate.js'
 import {
-  UpdateApiKeysSchema, UpdateConfigSchema, UpdateStandardsSchema,
-  AddAccountSchema, UpdateAccountSchema,
+  UpdateConfigSchema, UpdateStandardsSchema,
 } from '../schemas/index.js'
-import * as accounts from '../services/secrets-accounts.js'
-import { AccountsError } from '../services/secrets-accounts.js'
-import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
 router.get('/projects/:slug/settings/config', async (req, res) => {
   const config = await pm.getSafeConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
-  try {
-    const { getVideoStudioCatalog } = await import('../lib/videostudio-client.js')
-    const live = await getVideoStudioCatalog(req.query.refresh_video_models === '1')
-    if (Object.keys(live.models).length) {
-      return res.json({ ...config, video_models: live.models, video_models_source: live.source })
-    }
-  } catch { /* retain the compatibility catalog when Video Studio is offline */ }
   res.json(config)
 })
 
-router.put('/projects/:slug/settings/api-keys', validateBody(UpdateApiKeysSchema), async (req, res) => {
-  if (!await pm.updateApiKeys(req.params.slug, req.body)) {
-    return res.status(404).json({ detail: 'Project not found' })
-  }
-  res.json({ ok: true })
+const retiredCredentialPath = (_req: any, res: any) => res.status(410).json({
+  code: 'GENSTUDIO_ONLY',
+  detail: 'Project/provider credentials are retired. Configure the single scoped GenStudio key in Settings → This Mac.',
 })
-
-// ── Accounts (Delivery 2) ──────────────────────────────────────────────────
-// All endpoints are scoped by project slug + provider id. The legacy
-// PUT /api-keys above still works — it writes the default account per
-// provider via the compat shim in secrets-store.ts.
-
-function handleAccountsError(res: any, e: unknown): void {
-  if (e instanceof AccountsError) {
-    const status = e.code === 'unknown_provider' || e.code === 'account_not_found' ? 404 : 400
-    res.status(status).json({ detail: e.message, code: e.code })
-    return
-  }
-  res.status(500).json(humanizeBackendError(e, 'Unknown error'))
-}
-
-router.get('/projects/:slug/settings/accounts', async (req, res) => {
-  const project = await pm.getProject(req.params.slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
-  try {
-    res.json({ accounts: await accounts.listAllAccounts(req.params.slug) })
-  } catch (e) { handleAccountsError(res, e) }
-})
-
-router.post(
-  '/projects/:slug/settings/accounts/:providerId',
-  validateBody(AddAccountSchema),
-  async (req, res) => {
-    const project = await pm.getProject(req.params.slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    try {
-      const created = await accounts.addAccount(
-        req.params.slug,
-        req.params.providerId,
-        req.body,
-      )
-      res.status(201).json(created)
-    } catch (e) { handleAccountsError(res, e) }
-  },
-)
-
-router.patch(
-  '/projects/:slug/settings/accounts/:providerId/:accountId',
-  validateBody(UpdateAccountSchema),
-  async (req, res) => {
-    const project = await pm.getProject(req.params.slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    try {
-      const updated = await accounts.updateAccount(
-        req.params.slug,
-        req.params.providerId,
-        req.params.accountId,
-        req.body,
-      )
-      res.json(updated)
-    } catch (e) { handleAccountsError(res, e) }
-  },
-)
-
-router.delete(
-  '/projects/:slug/settings/accounts/:providerId/:accountId',
-  async (req, res) => {
-    const project = await pm.getProject(req.params.slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    try {
-      await accounts.removeAccount(
-        req.params.slug,
-        req.params.providerId,
-        req.params.accountId,
-      )
-      res.json({ ok: true })
-    } catch (e) { handleAccountsError(res, e) }
-  },
-)
-
-router.put(
-  '/projects/:slug/settings/accounts/:providerId/:accountId/default',
-  async (req, res) => {
-    const project = await pm.getProject(req.params.slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    try {
-      await accounts.setDefaultAccount(
-        req.params.slug,
-        req.params.providerId,
-        req.params.accountId,
-      )
-      res.json({ ok: true })
-    } catch (e) { handleAccountsError(res, e) }
-  },
-)
+router.all('/projects/:slug/settings/api-keys', retiredCredentialPath)
+router.all('/projects/:slug/settings/accounts', retiredCredentialPath)
+router.all('/projects/:slug/settings/accounts/:providerId', retiredCredentialPath)
+router.all('/projects/:slug/settings/accounts/:providerId/:accountId', retiredCredentialPath)
+router.all('/projects/:slug/settings/accounts/:providerId/:accountId/default', retiredCredentialPath)
 
 router.put('/projects/:slug/settings/config', validateBody(UpdateConfigSchema), async (req, res) => {
   if (!await pm.updateConfig(req.params.slug, req.body)) {

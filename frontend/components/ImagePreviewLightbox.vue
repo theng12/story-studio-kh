@@ -65,10 +65,10 @@
         >›</button>
       </div>
 
-      <!-- Bottom bar: edit CTA + keyboard hint + (v1.0.41) pin toggle -->
+      <!-- Bottom bar: preview shortcuts + optional thumbnail pin toggle. -->
       <footer class="ipl-bottombar">
         <span class="ipl-shortcut-hint" aria-hidden="true">
-          <kbd>Esc</kbd> close · <kbd>←</kbd> / <kbd>→</kbd> browse · <kbd>Enter</kbd> edit
+          <kbd>Esc</kbd> close · <kbd>←</kbd> / <kbd>→</kbd> browse
         </span>
         <div class="ipl-actions">
           <button
@@ -82,14 +82,6 @@
           >
             {{ currentImage.is_pinned ? '📌 Pinned · Unpin' : '📌 Pin for upload' }}
           </button>
-          <button
-            type="button"
-            class="btn btn-primary ipl-edit-btn"
-            :disabled="!currentImage || loadError"
-            @click="emitEdit"
-          >
-            ✨ Edit with AI
-          </button>
         </div>
       </footer>
     </div>
@@ -99,17 +91,15 @@
 <script setup lang="ts">
 /**
  * Fullscreen image lightbox + carousel — view one image at ~90vw / 85vh,
- * browse the supplied list with ← / → (or the side-arrow buttons), close
- * with Escape, and trigger an edit with Enter (or the bottom CTA).
+ * browse the supplied list with ← / → (or the side-arrow buttons), and close
+ * with Escape.
  *
  * Built as a custom Teleport overlay (rather than wrapping Modal.vue)
  * because Modal.vue caps at 880 px max-width and we want a true large
- * preview. Pattern mirrors ImageEditDialog's overlay + custom escape
- * handling so behaviour is consistent with the existing edit flow.
+ * preview. It uses a custom overlay because Modal.vue caps at 880 px.
  *
  * Self-contained — the parent only needs to mount once and pass images
- * + index. Edits go via the `edit` emit; the parent typically closes
- * this lightbox and opens its existing ImageEditDialog on the same path.
+ * + index.
  */
 
 interface PreviewImage {
@@ -144,8 +134,6 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:visible': [open: boolean]
   'update:index':   [i: number]
-  /** Caller should close the lightbox and open whatever edit UI it owns. */
-  'edit':           [path: string]
   /**
    * v1.0.41 — fired when the Pin / Unpin button is clicked. Payload
    * carries the current image path + the desired post-toggle state
@@ -233,10 +221,6 @@ function goNext() {
 function close() {
   emit('update:visible', false)
 }
-function emitEdit() {
-  if (!currentImage.value || loadError.value) return
-  emit('edit', currentImage.value.path)
-}
 function emitPinToggle() {
   const c = currentImage.value
   if (!c) return
@@ -251,20 +235,9 @@ function emitPinToggle() {
 
 // ── Keyboard handling ───────────────────────────────────────────────────
 // Document-level so it works no matter what's focused inside the overlay.
-// Attached/detached on visibility change to avoid intercepting keys for
-// other surfaces (notably: the parent's ImageEditDialog when the user
-// triggers `edit` and the lightbox closes).
+// Attached/detached on visibility change to avoid intercepting keys elsewhere.
 function onKeydown(e: KeyboardEvent) {
   if (!props.visible) return
-  // Don't fight a user typing into a hypothetical input inside the
-  // lightbox (none today, but defensive — Enter-to-edit shouldn't fire
-  // while typing into a search box added later).
-  const target = e.target as HTMLElement | null
-  const isFormControl = !!target && (
-    target.tagName === 'INPUT' ||
-    target.tagName === 'TEXTAREA' ||
-    target.isContentEditable
-  )
   switch (e.key) {
     case 'Escape':
       e.preventDefault()
@@ -277,11 +250,6 @@ function onKeydown(e: KeyboardEvent) {
     case 'ArrowRight':
       e.preventDefault()
       goNext()
-      break
-    case 'Enter':
-      if (isFormControl) return
-      e.preventDefault()
-      emitEdit()
       break
   }
 }
@@ -310,9 +278,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Highest z-index in the app — outranks ImageEditDialog (9999). When the
- * user triggers Edit, we close this layer first, so the dialog ends up
- * alone on top regardless of stacking order. */
+/* Highest z-index in the app so previews stay above the workspace. */
 .ipl-overlay {
   position: fixed;
   inset: 0;

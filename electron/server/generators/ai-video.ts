@@ -19,24 +19,23 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
+import { resolveSubfolderNames } from '../services/utils.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { downloadVideo } from '../lib/download-video.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import {
   resolveGenerationConcurrency,
   resolveGenerationLaunchStaggerMs,
-  type GenerationExecution,
 } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { resolveVideoStudioModel } from '../lib/videostudio-client.js'
-import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
-import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import type { GenerateVideoRequest, Job } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
   async function walk(dir: string, depth: number): Promise<string | null> {
@@ -164,31 +163,28 @@ export async function generateAiVideo(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  const modelId = req.model || 'kie-veo3-fast'
-  const videoModels: Record<string, VideoModelConfig> = (config as any).video_models || {}
-  const modelConfig = videoModels[modelId] || await resolveVideoStudioModel(modelId)
-  if (!modelConfig) throw new Error(`Unknown video model: ${modelId}. Add one in Settings → Models.`)
-
-  const providerId = modelConfig.provider || 'kie-video'
+  const selectedModelId = req.model || ''
+  const resolvedModelId = resolveGenStudioModelId('video', selectedModelId)
+  if (!resolvedModelId) throw new Error(unavailableLegacyModelMessage('video', selectedModelId || '(none)'))
+  const modelId = `genstudio-video:${resolvedModelId}`
+  const modelConfig = {
+    modes: ['frames'],
+    provider: 'genstudio-video',
+    provider_params: {
+      provider: 'genstudio-video',
+      duration_seconds: (req as any).duration_seconds,
+      resolution: (req as any).resolution,
+    },
+  }
+  const providerId = 'genstudio-video'
   const providerMaybe = registry.getVideoProvider(providerId)
   if (!providerMaybe) throw new Error(`No video provider registered for: ${providerId}`)
   // Re-bind to a `!`-narrowed const so closures below (processPrompt) see
   // the non-null type — TS doesn't flow narrowing into nested async fns.
   const provider = providerMaybe!
 
-  const apiKey = provider.meta.requiresApiKey === false
-    ? 'studio-managed'
-    : await resolveApiKeyForProvider(project_slug, provider.meta, {
-        model: modelId,
-        jobId: job.job_id,
-      })
-  if (!apiKey) throw new Error(`No API key configured for ${provider.meta.name}. Add one in Settings → API Keys.`)
-
-  // Preflight: video clips are the most expensive thing this app submits
-  // (dollars per call). Refuse up front if the provider's balance is
-  // definitively zero. fal/kie both expose balances.
-  if (providerId === 'fal' || providerId === 'fal-video') await assertBalanceAvailable('fal', apiKey)
-  else if (providerId === 'kie' || providerId === 'kie-video') await assertBalanceAvailable('kie', apiKey)
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('No GenStudio API key configured. Add the scoped key in Settings → This Mac.')
 
   const mode = 'frames' as const
   if (req.mode && req.mode !== mode) {
@@ -246,27 +242,10 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // in flight; the user can bump this up
   // up to 50 via Settings → Video → Concurrency once their provider account
   // has the credits / quota to handle it.
-  const isVideoStudioProvider = providerId === 'videostudio'
-  const isVideoStudioCloud = (modelConfig as any)?.provider_params?.is_cloud === true
-  const isLocalVideoWork = isVideoStudioProvider && !isVideoStudioCloud
-  const videoRouting = isVideoStudioProvider ? await getHubBackend() : null
-  let localCapacity = 1
-  if (isLocalVideoWork && videoRouting?.mode === 'hub') {
-    if (!videoRouting.hubUrl) {
-      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
-    }
-    const studios = await hubStudios(videoRouting.hubUrl, videoRouting.hubToken)
-    localCapacity = studios.filter(studio => studio.modality === 'video' && studio.status === 'up').length
-    if (localCapacity < 1) throw new Error('Studio Hub has no reachable Video Studio workers.')
-  }
-  const execution: GenerationExecution = isLocalVideoWork
-    ? (videoRouting?.mode === 'hub' ? 'local-hub' : 'local-direct')
-    : 'cloud'
   const concurrency = resolveGenerationConcurrency(
     (config as any).video_concurrency,
-    execution,
+    'cloud',
     prompts.length,
-    localCapacity,
   )
   // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
   // so all workers don't hit Veo / fal / Kie in the same millisecond.
@@ -274,15 +253,8 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // Clamp 0..20000.
   const launchStaggerMs = resolveGenerationLaunchStaggerMs(
     (config as any).video_launch_stagger_ms,
-    execution,
+    'cloud',
   )
-  if (isLocalVideoWork) {
-    job.output_lines.push(
-      videoRouting?.mode === 'hub'
-        ? `Studio Hub local video routing: up to ${concurrency} clip(s) at once across ${localCapacity} online Video Studio worker(s); cloud limits do not throttle local work.`
-        : 'Local Video Studio routing: one clip at a time on this direct Studio endpoint; cloud launch controls are bypassed.',
-    )
-  }
   if (prompts.length > 1) {
     job.output_lines.push(
       `Pool: ${Math.min(concurrency, prompts.length)} in parallel` +
@@ -356,6 +328,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
         modelId,
         startImagePath: startImage.path,
         providerParams: (modelConfig as any).provider_params || {},
+        idempotencyIdentity: `${project_slug}:${episode_id}:scene:${p.number}`,
         isCancelled,
       })
       if (!result.videoUrls.length) throw new Error(`${provider.meta.name} returned no video URL`)
@@ -382,7 +355,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
       for (let v = 0; v < result.videoUrls.length; v++) {
         const savePath = path.join(videoDir, `${stem}_v${v + 1}.mp4`)
         if (!req.force && await fileExistsWithContent(savePath)) continue
-        await downloadVideo(result.videoUrls[v], savePath, makeChunkCb())
+        await downloadVideo(result.videoUrls[v], savePath, makeChunkCb(), result.downloadHeaders)
         job.output_lines.push(`  Saved ${path.basename(savePath)}`)
       }
     } catch (e: any) {

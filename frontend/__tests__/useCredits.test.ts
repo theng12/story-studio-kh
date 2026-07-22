@@ -3,13 +3,12 @@
  *
  * Covers the three invariants the dashboard layout renders against:
  *
- *   1. `fetchHealth(slug)` hits `/projects/:slug/health` and `/usage`, then
- *      writes each provider's balance into the right ref.
+ *   1. `fetchHealth(slug)` reads the one scoped key and authoritative
+ *      GenStudio usage snapshot.
  *   2. `startPolling(slug)` fires an immediate fetch then schedules more on
  *      `intervalMs`. `stopPolling()` clears the interval.
- *   3. A fetch error doesn't null out previous values — the sidebar keeps
- *      showing the last-known balance instead of flashing to '...' on a
- *      single network blip.
+ *   3. A fetch error clears the displayed number so stale credits are never
+ *      presented as authoritative.
  *   4. Slow balance reads are shared instead of overlapping.
  *
  * `$fetch` is a Nuxt global stubbed before the module loads.
@@ -33,16 +32,8 @@ const { DEFAULT_CREDIT_POLL_MS, useCredits } = await import('../composables/useC
 
 function sleep(ms: number) { return new Promise<void>((r) => setTimeout(r, ms)) }
 
-function happyHealth() {
-  return {
-    credits: {
-      kie: 250,
-      fal: 12.5,
-      elevenlabs: { tier: 'starter', character_count: 3000, character_limit: 30000, remaining: 27000 },
-    },
-    api_keys: { kie: true, fal: true, openai: true, anthropic: false, elevenlabs: true, genaipro: false },
-  }
-}
+const configuredKey = { providers: [{ providerId: 'genstudio', hasKey: true }] }
+const authoritativeUsage = { overview: { credit_balance: 250 } }
 
 beforeEach(() => {
   const { stopPolling } = useCredits()
@@ -52,48 +43,40 @@ beforeEach(() => {
 })
 
 describe('useCredits.fetchHealth()', () => {
-  test('populates each balance ref from the health + usage payloads', async () => {
+  test('populates the authoritative GenStudio credit balance', async () => {
     fetchHandler = (url) => {
-      if (url.endsWith('/health')) return happyHealth()
-      if (url === '/api/usage') return { total_cost: 7.42 }
+      if (url === '/api/app-settings/api-keys') return configuredKey
+      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 
-    const { fetchHealth, kieCredits, falBalance, elevenLabsBalance, apiKeys, openaiUsage } = useCredits()
+    const { fetchHealth, genstudioCredits, genstudioConfigured, usageError } = useCredits()
     await fetchHealth('active')
 
-    assert.equal(kieCredits.value, 250)
-    assert.equal(falBalance.value, 12.5)
-    assert.equal(elevenLabsBalance.value?.tier, 'starter')
-    assert.equal(elevenLabsBalance.value?.remaining, 27000)
-    assert.equal(openaiUsage.value, 7.42)
-    assert.equal(apiKeys.value.kie, true)
-    assert.equal(apiKeys.value.anthropic, false)
+    assert.equal(genstudioCredits.value, 250)
+    assert.equal(genstudioConfigured.value, true)
+    assert.equal(usageError.value, '')
 
-    // Both endpoints hit in the one call.
-    assert.ok(fetchCalls.some(u => u === '/api/projects/active/health'))
-    assert.ok(fetchCalls.some(u => u === '/api/usage'))
+    assert.deepEqual(fetchCalls, [
+      '/api/app-settings/api-keys',
+      '/api/app-settings/genstudio/usage',
+    ])
   })
 
-  test('a fetch error leaves previous values intact (silent-fail by design)', async () => {
-    // First fetch — populate with a known-good snapshot.
+  test('a fetch error clears stale credits and exposes an actionable error', async () => {
     fetchHandler = (url) => {
-      if (url.endsWith('/health')) return happyHealth()
-      if (url === '/api/usage') return { total_cost: 5 }
+      if (url === '/api/app-settings/api-keys') return configuredKey
+      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
-    const { fetchHealth, kieCredits, falBalance, openaiUsage } = useCredits()
+    const { fetchHealth, genstudioCredits, usageError } = useCredits()
     await fetchHealth('active')
-    assert.equal(kieCredits.value, 250)
-    assert.equal(falBalance.value, 12.5)
-    assert.equal(openaiUsage.value, 5)
+    assert.equal(genstudioCredits.value, 250)
 
-    // Second fetch errors — refs must stay at the previous snapshot.
     fetchHandler = () => { throw new Error('network down') }
     await fetchHealth('active')
-    assert.equal(kieCredits.value, 250, 'prior balance preserved on error')
-    assert.equal(falBalance.value, 12.5)
-    assert.equal(openaiUsage.value, 5)
+    assert.equal(genstudioCredits.value, null)
+    assert.match(usageError.value, /network down/)
   })
 })
 
@@ -105,8 +88,8 @@ describe('useCredits.startPolling()', () => {
   test('fires an immediate fetch, then on the interval; stopPolling clears it', async () => {
     let count = 0
     fetchHandler = (url) => {
-      if (url.endsWith('/health')) { count++; return happyHealth() }
-      if (url === '/api/usage') return { total_cost: 0 }
+      if (url === '/api/app-settings/api-keys') { count++; return configuredKey }
+      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 
@@ -131,12 +114,12 @@ describe('useCredits.startPolling()', () => {
     let release!: () => void
     const healthReady = new Promise<void>((resolve) => { release = resolve })
     fetchHandler = async (url) => {
-      if (url.endsWith('/health')) {
+      if (url === '/api/app-settings/api-keys') {
         healthCalls++
         await healthReady
-        return happyHealth()
+        return configuredKey
       }
-      if (url === '/api/usage') return { total_cost: 0 }
+      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 

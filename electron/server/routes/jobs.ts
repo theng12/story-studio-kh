@@ -2,7 +2,6 @@ import { Router } from 'express'
 import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { getModelPricing } from '../services/usage-tracker.js'
-import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { validateBody } from '../lib/validate.js'
@@ -274,34 +273,14 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   res.json(job)
 })
 
-// Read-only Studio Hub image recovery. Re-enqueues the original generator with
-// its accepted batch checkpoint and a hard `hub_repair_only` guard. The
-// generator may poll/download successful artifacts, but the provider refuses
-// to POST a replacement batch in this mode.
-router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (req, res) => {
-  const original = jq.getJob(req.params.jobId)
-  if (!original || original.project_slug !== req.params.slug) {
-    return res.status(404).json({ detail: 'Job not found' })
-  }
-  if (original.status !== 'error' && original.status !== 'cancelled') {
-    return res.status(409).json({ detail: 'Only failed or cancelled Hub image jobs can be repaired.' })
-  }
-  const checkpoint = (original.params as any)?.hub_image_recovery
-  const repairableTypes = new Set(['scene_images_batch', 'continuity_render', 'image_pool_generate'])
-  if (!repairableTypes.has(original.type) || !checkpoint?.batch_id) {
-    return res.status(409).json({
-      detail: 'No accepted Studio Hub image batch is saved for this job. Use Retry; a prepared idempotency key will safely resolve an uncertain submission.',
-    })
-  }
-  const params = { ...original.params, hub_repair_only: true, hub_repair_source_job_id: original.job_id }
-  const job = jq.enqueue({
-    project_slug: original.project_slug,
-    type: original.type,
-    episode_id: original.episode_id,
-    title: `Repair Hub images — ${original.title || original.episode_id}`,
-    params,
+// Retained compatibility endpoint for older renderer builds. Direct Studio Hub
+// repair is retired; the saved checkpoint stays on the historical job as audit
+// evidence, and the user must retry through the GenStudio-owned job identity.
+router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (_req, res) => {
+  res.status(410).json({
+    code: 'GENSTUDIO_ONLY',
+    detail: 'Direct Studio Hub repair is retired. Retry the original job through GenStudio; no Hub or provider request was attempted.',
   })
-  res.status(202).json({ ok: true, job_id: job.job_id, job })
 })
 
 // Queue-level Retry fallback. Specialized generator pages may still use their
@@ -362,6 +341,21 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
 
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
+
+  const genStudioQuotedTypes = new Set([
+    'script', 'scene_images', 'thumb_images', 'images', 'audio',
+    'scene_prompts', 'thumb_prompts', 'metadata',
+  ])
+  if (genStudioQuotedTypes.has(type) || (type === 'video' && String(params?.model || '').startsWith('genstudio-video:'))) {
+    return res.json({
+      estimated_cost: 'Authoritative quote at submission',
+      cost_unit: 'GenStudio credits',
+      estimated_duration: 'Reported by the GenStudio job',
+      details: 'GenStudio reserves credits when the job is accepted, settles the verified result, and returns unused credits. Story Studio does not calculate provider rates or balances.',
+      authoritative: true,
+      quote_status: 'at_submission',
+    })
+  }
 
   const pricing = getModelPricing()
   const estimate: CostEstimate = {

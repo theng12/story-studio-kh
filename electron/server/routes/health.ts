@@ -6,6 +6,9 @@ import * as pm from '../services/project-manager.js'
 import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance, getFishCredit, getDeepseekBalance, testApiKey } from '../services/utils.js'
 import { MODEL_LABELS, SUPPORTED_MODELS, KNOWN_UNAVAILABLE_REASONS } from '../models/types.js'
 import { listChatModels as listGenStudioChatModels } from '../lib/genstudio-client.js'
+import { getGenStudioAccountSnapshot, GenStudioApiError } from '../lib/genstudio-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { legacyIdsForGenStudioModel } from '../services/genstudio-model-migration.js'
 import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
@@ -19,6 +22,11 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 const requireFromHere = createRequire(import.meta.url)
 
 export const router = Router()
+
+// Historical provider/model/health handlers remain below temporarily as
+// migration evidence, but are never registered. The public handlers above each
+// legacy block are the only reachable network-management surface.
+const LEGACY_DIRECT_NETWORK_ROUTES_ENABLED = false as const
 
 // ── FFmpeg Status & Install ───────────────────────────────────────────────
 
@@ -161,6 +169,112 @@ router.post('/app/restart', (_req, res) => {
     }
   }, 200)
 })
+
+// GenStudio-only public surfaces. These handlers intentionally precede the
+// historical compatibility handlers below, making the old provider/local
+// implementations unreachable while preserving their evidence for migration.
+router.get('/models', async (_req, res) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.json([])
+  try {
+    const models = (await listGenStudioChatModels(apiKey)).map(entry => ({
+      id: `genstudio-chat:${entry.id}`,
+      label: `${entry.display_name} [GenStudio KH]`,
+      provider: 'genstudio',
+      available: entry.available,
+      disabled_reason: entry.available
+        ? null
+        : (entry.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),
+      hint: entry.description || null,
+      supports_vision: false,
+      cost_tier: 'genstudio',
+      legacy_ids: legacyIdsForGenStudioModel('chat', entry.id),
+    }))
+    res.json(models)
+  } catch (error: any) {
+    res.status(502).json(humanizeBackendError(error, 'Could not load the GenStudio chat catalog'))
+  }
+})
+
+async function authoritativeUsage(res: any): Promise<void> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    res.status(400).json({ detail: 'Add the scoped GenStudio API key in Settings → This Mac.' })
+    return
+  }
+  try {
+    res.json(await getGenStudioAccountSnapshot(apiKey))
+  } catch (error: any) {
+    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
+      res.status(503).json({
+        code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
+        detail: 'Authoritative GenStudio balance and settlement history are not available to this scoped key. Story Studio will not estimate them locally.',
+      })
+      return
+    }
+    res.status(502).json(humanizeBackendError(error, 'Could not load authoritative GenStudio usage'))
+  }
+}
+
+router.get('/usage', async (_req, res) => authoritativeUsage(res))
+router.get('/usage/pricing', (_req, res) => res.status(410).json({
+  code: 'GENSTUDIO_AUTHORITATIVE_PRICING',
+  detail: 'Story Studio no longer stores or calculates model rates. GenStudio quotes and settles every job.',
+}))
+router.get('/usage/rollup', async (_req, res) => authoritativeUsage(res))
+
+router.get('/projects/:slug/health', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add the scoped GenStudio API key.' } })
+  try {
+    const models = await listGenStudioChatModels(apiKey)
+    res.json({ genstudio: { configured: true, online: true, available_chat_models: models.filter(model => model.available).length } })
+  } catch (error: any) {
+    res.json({ genstudio: { configured: true, online: false, detail: error?.message || 'GenStudio unavailable' } })
+  }
+})
+
+router.get('/connectivity/precheck', async (_req, res) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'Scoped GenStudio API key is not configured.' })
+  try {
+    await listGenStudioChatModels(apiKey)
+    res.json({ online: true, genstudio: true })
+  } catch (error: any) {
+    res.json({ online: false, genstudio: false, detail: error?.message || 'GenStudio unavailable' })
+  }
+})
+
+router.post('/test-key/:provider', async (req, res) => {
+  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Direct provider key tests are retired.' })
+  const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : ''
+  if (!apiKey) return res.status(400).json({ valid: false, reachable: false, message: 'A GenStudio API key is required.' })
+  try {
+    const models = await listGenStudioChatModels(apiKey)
+    res.json({ valid: true, reachable: true, message: `GenStudio key works · ${models.filter(model => model.available).length} chat model(s) available.` })
+  } catch (error: any) {
+    res.json({ valid: false, reachable: !(error instanceof TypeError), message: error?.message || 'GenStudio key test failed.' })
+  }
+})
+router.post('/projects/:slug/test-key/:provider', async (req, res) => {
+  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Direct provider key tests are retired.' })
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.status(400).json({ valid: false, reachable: false, message: 'Add the scoped GenStudio API key.' })
+  try {
+    const models = await listGenStudioChatModels(apiKey)
+    res.json({ valid: true, reachable: true, message: `GenStudio key works · ${models.filter(model => model.available).length} chat model(s) available.` })
+  } catch (error: any) {
+    res.json({ valid: false, reachable: !(error instanceof TypeError), message: error?.message || 'GenStudio key test failed.' })
+  }
+})
+router.get('/local-servers/status', (_req, res) => res.status(410).json({
+  code: 'GENSTUDIO_ONLY',
+  detail: 'Local model server discovery is retired. Model availability comes from GenStudio.',
+}))
+
+if (LEGACY_DIRECT_NETWORK_ROUTES_ENABLED) {
 
 // Serve available AI models to the frontend (with key availability).
 //
@@ -393,6 +507,8 @@ router.get('/usage/rollup', async (req, res) => {
   }
 })
 
+}
+
 // Dashboard overview metadata. Episode completion and stage coverage come from
 // `/projects/:slug/episodes`, the same cached, verified inventory used by the
 // Production Board and Pipeline. Keeping this endpoint lightweight prevents the
@@ -419,6 +535,8 @@ router.get('/projects/:slug/dashboard-stats', async (req, res) => {
     },
   })
 })
+
+if (LEGACY_DIRECT_NETWORK_ROUTES_ENABLED) {
 
 router.get('/projects/:slug/health', async (req, res) => {
   const config = await pm.getConfig(req.params.slug)
@@ -589,3 +707,5 @@ router.get('/local-servers/status', async (_req, res) => {
     res.status(500).json(humanizeBackendError(e, 'Failed to check local servers'))
   }
 })
+
+}

@@ -9,6 +9,7 @@
 import { registry } from '../registry.js'
 import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } from '../types.js'
 import { generateImageWithGenStudio } from '../../lib/genstudio-client.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
 
 const genstudioImageProvider: ImageProvider = {
   meta: {
@@ -26,10 +27,12 @@ const genstudioImageProvider: ImageProvider = {
     if (request.referenceImagePaths?.length) {
       throw new Error('This GenStudio KH image model currently supports Prompt only. Switch Image Mode to Prompt only and retry.')
     }
+    const modelId = resolveGenStudioModelId('image', request.modelId)
+    if (!modelId) throw new Error(unavailableLegacyModelMessage('image', request.modelId))
     const defaultSteps = Number(request.providerParams?.default_steps) || 4
     const result = await generateImageWithGenStudio(request.apiKey, {
       prompt: request.prompt,
-      modelId: request.modelId,
+      modelId,
       aspectRatio: request.aspectRatio || '16:9',
       steps: Number.isInteger(request.steps) ? request.steps! : defaultSteps,
       width: request.width,

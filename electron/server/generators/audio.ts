@@ -1,6 +1,6 @@
 /**
  * Audio generator — port of generate_audio.py.
- * Generates TTS narration audio via fal.ai (ElevenLabs).
+ * Generates TTS narration exclusively through GenStudio KH.
  */
 
 import { existsSync } from 'fs'
@@ -8,37 +8,21 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { chunkText } from '../lib/text-chunker.js'
-import { generateTts as generateTtsFal, downloadAudio } from '../lib/fal-client.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
-import { generateTts as generateTtsGenaipro } from '../lib/genaipro-client.js'
-import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-client.js'
-import { generateTtsToUrl as generateTtsKie } from '../lib/kie-tts-client.js'
-// v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, multi-engine).
-// v1.0.150+ — superseded the standalone Chatterbox helper entirely;
-// Chatterbox-mlx is reachable through Voice Studio's family list now.
-import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
-import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
 import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
   recoverTtsToFile as recoverTtsGenStudio,
   splitGenStudioApiRequests,
 } from '../lib/genstudio-client.js'
-import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
-// v1.0.378+ — Fish Audio (direct cloud TTS; streams bytes inline like ElevenLabs).
-import { generateTtsToFile as generateTtsFishaudio } from '../lib/fishaudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { resolveApiKeyForProviderId } from '../providers/registry.js'
-import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
-import { newLatencyStats, recordCall as recordLatency, summarize as summarizeLatency } from '../lib/endpoint-latency-stats.js'
-import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
-import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
+import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
@@ -48,34 +32,23 @@ import {
   type GenerationExecution,
 } from '../lib/performance-settings.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { getVoicePresetsGlobal } from '../services/app-settings.js'
-import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
-import { voiceSupportsProvider } from '../services/voice-presets.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
 type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
 
 /**
- * Pick the TTS provider for a given model. Prefers the explicit `provider`
- * field on AudioModelConfig if present; falls back to prefix detection for
- * backward-compat with projects created before the field existed.
+ * TTS execution has one boundary. The union return type deliberately keeps
+ * the old provider vocabulary readable to historical manifests/tests, while
+ * this resolver ignores all project-owned catalog data and always dispatches
+ * new work through GenStudio.
  */
-function resolveAudioProvider(
-  modelId: string,
-  audioModels: Record<string, AudioModelConfig> | undefined,
+export function resolveAudioProvider(
+  _modelId: string,
+  _audioModels: Record<string, AudioModelConfig> | undefined,
 ): AudioProviderId {
-  const entry = audioModels?.[modelId]
-  if (entry?.provider) return entry.provider
-  if (typeof modelId === 'string') {
-    if (modelId.startsWith('eleven_')) return 'elevenlabs'
-    if (modelId.startsWith('genaipro-')) return 'genaipro'
-    if (modelId.startsWith('voicestudio-')) return 'voicestudio'
-    if (modelId.startsWith('genstudio-')) return 'genstudio'
-    if (modelId.startsWith('macos-')) return 'macos'
-    if (modelId.startsWith('fishaudio-')) return 'fishaudio'
-    if (modelId.startsWith('kie-')) return 'kie'
-  }
-  return 'fal'
+  void _modelId
+  void _audioModels
+  return 'genstudio'
 }
 
 /**
@@ -221,68 +194,15 @@ export async function generateAudio(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  // Pick TTS backend. Prefer the explicit provider on the model catalog;
-  // fall back to prefix detection for legacy model IDs.
+  const resolvedVoiceModel = pm.resolveStoryTtsModelId(req.model)
+  if (!resolvedVoiceModel) throw new Error(unavailableLegacyModelMessage('voice', req.model || '(none)'))
+  req.model = resolvedVoiceModel
+
+  // Persisted audio_models is historical evidence only and cannot influence
+  // new execution. resolveAudioProvider intentionally always returns GenStudio.
   const providerId = resolveAudioProvider(req.model, config.audio_models)
-  const providerLabel = providerId === 'elevenlabs' ? 'ElevenLabs (direct)'
-    : providerId === 'genaipro' ? 'GenAIPro'
-    : providerId === 'voicestudio' ? 'Voice Studio (Local)'
-    : providerId === 'genstudio' ? 'GenStudio KH'
-    : providerId === 'macos' ? 'macOS say (Local)'
-    : providerId === 'fishaudio' ? 'Fish Audio'
-    : providerId === 'kie' ? 'ElevenLabs (kie.ai)'
-    : 'fal.ai'
-
-  // GenStudio catalog membership is verified against the live API before the
-  // job is queued. Do not re-check it against Story's optional saved labels.
-  if (!['voicestudio', 'genstudio', 'macos'].includes(providerId)) {
-    const savedVoices = await getVoicePresetsGlobal()
-    if (!voiceSupportsProvider(savedVoices, req.voice, providerId)) {
-      throw new Error(
-        `Voice compatibility check failed: the selected voice is not labelled for ${providerLabel}. `
-        + 'Pick a compatible voice or update it in Settings → Voices.',
-      )
-    }
-  }
-
-  // Voice Studio KH is special — there is no API key. The "key" we resolve
-  // is the base URL of the Tailscale-reachable Pinokio modal stored in the
-  // per-machine secrets bucket. URL set in App Settings → Local Models IS
-  // the enable signal; no per-project toggle needed.
-  let apiKey: string
-  if (providerId === 'voicestudio') {
-    // v1.0.149+ — same pattern as chatterbox: the "apiKey" we resolve is
-    // the base URL of the Tailscale-reachable Voice Studio modal. Unlike
-    // chatterbox there's no per-project enable flag — the URL being set
-    // in App Settings → Local Models IS the enable. Falls through to the
-    // default tailnet IP if nothing is configured (which fails fast at
-    // the first connection if Tailscale isn't up).
-    apiKey = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!apiKey) {
-      throw new Error(
-        'Voice Studio modal URL not configured. ' +
-        'Open App Settings → Local Models and set the URL.',
-      )
-    }
-  } else if (providerId === 'macos') {
-    // macOS built-in `say` — local synthesis, no key, no URL. The voice
-    // (form.voice) is the only input; the render reads it per chunk.
-    apiKey = ''
-  } else {
-    apiKey = await resolveApiKeyForProviderId(project_slug, providerId, {
-      model: req.model,
-      jobId: job.job_id,
-    })
-    if (!apiKey) throw new Error(`No ${providerLabel} API key configured. Add one in Settings → API Keys.`)
-  }
-
-  // Preflight: for providers that expose a numeric balance, refuse the job
-  // up front if it's definitively empty. GenAIPro doesn't expose a balance
-  // endpoint we can query cheaply, so the preflight is skipped there and
-  // the provider surfaces any quota issue on first call. Chatterbox is local
-  // — no balance to check.
-  if (providerId === 'fal') await assertBalanceAvailable('fal', apiKey)
-  else if (providerId === 'elevenlabs') await assertBalanceAvailable('elevenlabs', apiKey)
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac.')
 
   const narrationPath = await findNarrationFile(project_slug, episode_id)
   job.output_lines.push(`Found narration: ${path.basename(narrationPath)}`)
@@ -614,166 +534,15 @@ export async function generateAudio(job: Job): Promise<void> {
     concatPlans.set(finalPath, intermediates)
   }
 
-  // ── Concurrency pool ───────────────────────────────────────────────────
-  const isVoiceStudioProvider = providerId === 'voicestudio'
-  const voiceStudioCloud = modelEntry?.is_cloud === true || modelEntry?.provider_params?.is_cloud === true
-  const isLocalAudioWork = providerId === 'macos' || (isVoiceStudioProvider && !voiceStudioCloud)
-  const hubBackend = isVoiceStudioProvider ? await getHubBackend() : null
-  const isHubAudioProvider = isVoiceStudioProvider && hubBackend?.mode === 'hub'
-
-  // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio
-  // instance has its OWN voice library with locally-unique UUIDs, so a
-  // voice saved on m1 isn't directly addressable on m4. The picker now
-  // stores voices by NAME (`vsname:Vincent`) and this module maps the
-  // name to the right UUID for each endpoint we dispatch to. Legacy
-  // projects with raw UUIDs in form.voice fall back to single-endpoint
-  // pinning (see the comment below).
-  let voicePool: import('../services/voicestudio-voice-pool.js').VoicePoolResult | null = null
-  let voiceFilteredEndpoints: string[] | null = null
-  if (isVoiceStudioProvider && !isHubAudioProvider && req.voice) {
-    const { resolveVoicePool, parseVoiceName, parseHubVoiceId } = await import('../services/voicestudio-voice-pool.js')
-    voicePool = await resolveVoicePool(apiKey)
-    const voiceJobName = parseVoiceName(req.voice)
-    const hubVoiceId = parseHubVoiceId(req.voice)
-    if (hubVoiceId) {
-      // Hub-managed clones have the same stable id on every synchronized
-      // worker. In explicit Direct mode, keep only direct endpoints where that
-      // stable id is present.
-      const matching = Object.values(voicePool.voicesByName).flatMap(voice =>
-        Object.entries(voice.idByEndpoint)
-          .filter(([, id]) => id === hubVoiceId)
-          .map(([endpoint]) => endpoint),
-      )
-      if (matching.length) {
-        voiceFilteredEndpoints = [...new Set(matching)]
-        job.output_lines.push(
-          `Shared voice available on ${voiceFilteredEndpoints.length} configured direct endpoint(s).`,
-        )
-      }
-    } else if (voiceJobName) {
-      // Name-keyed voice — filter the dispatcher to endpoints that have it.
-      const v = voicePool.voicesByName[voiceJobName]
-      if (!v) {
-        const reachable = voicePool.reachableEndpoints.length
-        const total = voicePool.endpoints.length
-        const hint = reachable < total
-          ? `(${reachable}/${total} endpoints responded; some may be offline)`
-          : `(${reachable} endpoint(s) queried)`
-        throw new Error(
-          `Voice "${voiceJobName}" not found in Voice Studio's voice library on any reachable endpoint ${hint}. `
-          + `Save it via Voice Studio → Voices on at least one Mac, then retry. `
-          + `For full parallel speed across your pool, save the same reference clip under the same name on every Mac.`,
-        )
-      }
-      voiceFilteredEndpoints = [...v.availableOn]
-      job.output_lines.push(
-        `Voice "${voiceJobName}" found on ${v.availableOn.length}/${voicePool.reachableEndpoints.length} endpoint(s).`
-        + (v.availableOn.length < voicePool.reachableEndpoints.length
-          ? ` Other endpoint(s) will be skipped for THIS job — save the voice there too for full parallel speed.`
-          : ''),
-      )
-    } else {
-      // Legacy UUID — find which endpoint has this UUID and pin to it.
-      // This keeps pre-v1.0.293 projects working without re-selecting the
-      // voice, at the cost of losing parallel dispatch (only one endpoint
-      // has this UUID, so we can only run on one Mac). The user can re-
-      // select the voice from the picker to upgrade to name-keyed.
-      const rawId = req.voice
-      let matchEndpoint: string | undefined
-      let matchName: string | undefined
-      outer: for (const v of Object.values(voicePool.voicesByName)) {
-        for (const [ep, id] of Object.entries(v.idByEndpoint)) {
-          if (id === rawId) { matchEndpoint = ep; matchName = v.name; break outer }
-        }
-      }
-      if (matchEndpoint && matchName) {
-        voiceFilteredEndpoints = [matchEndpoint]
-        job.output_lines.push(
-          `Legacy voice UUID "${rawId}" matches "${matchName}" on ${matchEndpoint} — pinning chunks here. `
-          + `Re-select this voice from the picker to enable name-keyed multi-endpoint dispatch.`,
-        )
-      }
-      // If no endpoint has this UUID at all, leave voiceFilteredEndpoints
-      // null → falls through to the unfiltered pool, and the eventual
-      // TTS call will fail with Voice Studio's own "voice not found"
-      // error. That's the right place to surface it — we don't pre-empt.
-    }
-  }
-
-  // v1.0.255 — Voice Studio multi-endpoint pool (run TTS across several Macs).
-  // A single MLX modal serialises submits, so local concurrency was clamped to
-  // 1. With multiple endpoints we parallelise ACROSS Macs (one chunk per Mac),
-  // health-checking + least-busy + failover, same as the image renderer.
-  let audioDispatcher: Dispatcher | null = null
-  let voicePoolSize = 1
-  if (isVoiceStudioProvider && !isHubAudioProvider) {
-    // v1.0.437 — honour the per-Mac on/off switch: build the pool over enabled
-    // endpoints only, so a Mac switched off in Settings is never used.
-    const eps = parseEnabledEndpoints(apiKey)
-    if (eps.length > 1) {
-      const { health: voiceHealth } = await import('../lib/voicestudio-client.js')
-      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await voiceHealth(u)).ok)
-      let usable = healthy.length ? healthy : eps
-      // v1.0.293 — further filter to endpoints that actually have the
-      // requested voice. Computed above when the voice is name-keyed
-      // or matches a known legacy UUID. Null = no voice-aware filter
-      // (cloud, or no voice selected, or unknown UUID).
-      if (voiceFilteredEndpoints && voiceFilteredEndpoints.length > 0) {
-        const filtered = usable.filter(u => voiceFilteredEndpoints!.includes(u))
-        if (filtered.length > 0) {
-          usable = filtered
-        }
-        // If filter wiped out usable, fall back to unfiltered (voice exists
-        // somewhere we couldn't health-check). The per-chunk lambda's
-        // resolver will still pick the right endpoint via pickEndpointForVoice.
-      }
-      audioDispatcher = createDispatcher(usable)
-      voicePoolSize = usable.length
-      const filterNote = voiceFilteredEndpoints && voiceFilteredEndpoints.length < eps.length
-        ? ` (filtered by voice availability — ${voiceFilteredEndpoints.length} endpoint(s) have the selected voice)`
-        : ''
-      job.output_lines.push(
-        `Voice Studio pool: ${healthy.length}/${eps.length} online` +
-        (offline.length ? ` (offline: ${offline.join(', ')})` : '') +
-        ` — distributing least-busy across ${usable.length} endpoint(s)${filterNote}.`,
-      )
-    }
-  }
-
-  // Saved concurrency + spacing are cloud-provider safeguards. Local work is
-  // governed by fleet capacity instead: one request per reachable Direct Mac,
-  // or one outstanding request per online Hub Voice Studio. Counting all
-  // online Voice Studios (rather than only currently model-ready ones) leaves
-  // queued work available for a Mac that finishes installing the model.
-  let localCapacity = providerId === 'macos' ? 1 : voicePoolSize
-  if (isLocalAudioWork && isHubAudioProvider) {
-    if (!hubBackend?.hubUrl) {
-      throw new Error('Studio Hub routing is selected, but no Studio Hub URL is configured. Choose Studio Hub or Direct Studio URLs in Settings.')
-    }
-    const studios = await hubStudios(hubBackend.hubUrl, hubBackend.hubToken)
-    localCapacity = studios.filter(studio => studio.modality === 'voice' && studio.status === 'up').length
-    if (localCapacity < 1) throw new Error('Studio Hub has no reachable Voice Studio workers.')
-  }
-  const execution: GenerationExecution = isLocalAudioWork
-    ? (isHubAudioProvider ? 'local-hub' : 'local-direct')
-    : 'cloud'
+  // GenStudio is the only execution boundary. Fleet/controller selection is
+  // internal to GenStudio and must never be reconstructed in Story Studio.
+  const execution: GenerationExecution = 'cloud'
   const concurrency = resolveGenerationConcurrency(
     (config as any).audio_concurrency,
     execution,
     tasks.length,
-    localCapacity,
+    1,
   )
-  if (isHubAudioProvider && isLocalAudioWork) {
-    job.output_lines.push(
-      `Studio Hub local voice routing: up to ${concurrency} section(s) in parallel across ` +
-      `${localCapacity} online Voice Studio worker(s); cloud limits do not throttle local work.`,
-    )
-  } else if (isLocalAudioWork && isVoiceStudioProvider && voicePoolSize === 1) {
-    job.output_lines.push(
-      `Local modal (${providerId}): concurrency 1 ` +
-      `(single Apple Silicon MLX endpoint is serial — add more Image/Voice Studio URLs to parallelise across Macs).`,
-    )
-  }
 
   // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
   // section loop) so the chunkText() calls in the loop can reference it
@@ -804,16 +573,6 @@ export async function generateAudio(job: Job): Promise<void> {
     if (isCancelled()) controller.abort()
   }, 500)
 
-  // v1.0.294 — per-endpoint latency tracking for Voice Studio pool.
-  // After the first N successful calls per endpoint, we lock in a
-  // "baseline avg seconds/chunk" and watch the rolling window. If the
-  // recent window's average exceeds 2× baseline, the modal is probably
-  // suffering from MLX memory pressure (KV cache fragmentation, VAE
-  // decode churn) and we surface a one-time "restart this Mac soon"
-  // hint to the Jobs panel. Single-job scoped — each new audio job
-  // starts with fresh baselines. Only meaningful for local Direct Voice Studio.
-  const latencyStats = isLocalAudioWork && isVoiceStudioProvider && !isHubAudioProvider ? newLatencyStats() : null
-
   async function processTask(task: ChunkTask): Promise<void> {
     if (isCancelled()) return
     // Phase 6: per-task voice override for routed sections. Falls back to
@@ -822,306 +581,98 @@ export async function generateAudio(job: Job): Promise<void> {
     // Ensure intermediate dir exists (routed-section files live in .routed/).
     await fs.mkdir(path.dirname(task.outputPath), { recursive: true }).catch(() => {})
     try {
-      if (providerId === 'elevenlabs') {
-        // Direct API streams MP3 bytes — write straight to disk.
-        await generateTtsElevenLabs(task.chunkText, apiKey, task.outputPath, {
-          model: req.model,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-          stability: req.stability,
-          similarity: req.similarity,
-          signal: controller.signal,
-          onProgress: makeChunkCb(),
-        })
-      } else if (providerId === 'fishaudio') {
-        // Fish Audio (direct): streams MP3 bytes inline → write straight to
-        // disk. `effectiveVoice` is the Fish reference_id (cloned voice / any
-        // fish.audio model id). Stability/similarity don't apply; speed maps
-        // to Fish prosody.speed and fish_temperature to expressiveness.
-        await generateTtsFishaudio(task.chunkText, apiKey, task.outputPath, {
-          model: req.model,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-          temperature: typeof req.fish_temperature === 'number' ? req.fish_temperature : undefined,
-          signal: controller.signal,
-          onProgress: makeChunkCb(),
-        })
-      } else if (providerId === 'kie') {
-        // kie.ai ElevenLabs gateway: submit → poll → download the finished
-        // audio URL (mirrors the genaipro/fal URL-download path). Same
-        // ElevenLabs voices; cheapest per-character pricing of the gateways.
-        const audioUrl = await generateTtsKie(task.chunkText, apiKey, {
-          model: req.model,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-          stability: req.stability,
-          similarity: req.similarity,
-          signal: controller.signal,
-          isCancelled,
-          // Persist the kie taskId so a completed-but-lost download can be
-          // repaired later (re-fetched from kie's task history) without paying again.
-          onTaskSubmitted: async (taskId) => {
-            await recordTask(audioDir, path.basename(task.outputPath), {
-              provider: 'kie',
-              task_id: taskId,
-              submitted_at: new Date().toISOString(),
-              input_hash: hashInput(task.chunkText),
-            })
-          },
-        })
-        // Retry the download itself — re-fetching the same kie CDN URL is
-        // idempotent (no re-charge), so a transient "fetch failed" here
-        // shouldn't kill an already-generated chunk.
-        {
-          let dlErr: any = null
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            if (isCancelled()) throw new Error('Cancelled by user')
-            try { await downloadAudio(audioUrl, task.outputPath, makeChunkCb()); dlErr = null; break }
-            catch (e: any) { dlErr = e; if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt)) }
-          }
-          if (dlErr) throw dlErr
-        }
-      } else if (providerId === 'macos') {
-        // macOS built-in `say` — local, single-machine, no pool. Renders the
-        // chunk to AIFF then transcodes to MP3 at task.outputPath. `speed`
-        // maps to words-per-minute inside the client. effectiveVoice is the
-        // plain voice name (e.g. "Evan"); undefined → system default voice.
-        await generateTtsMacos(task.outputPath, {
-          text: task.chunkText,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-        }, { signal: controller.signal })
-      } else if (providerId === 'genstudio') {
-        // Parallel migration route: this client knows only GenStudio's
-        // API-key contract. It does not inspect, contact, or fall back to the
-        // local Studio Hub/direct Voice Studio route.
-        const chunkFilename = path.basename(task.outputPath)
-        const manifestEntry = audioManifest.tasks[chunkFilename]
-        const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
-        const inputHash = hashInput(JSON.stringify({
-          requestIdentity,
-          text: task.chunkText,
-          voiceId: effectiveVoice || '',
-          speed: req.speed ?? 1,
-        }))
-        const legacyTextHash = hashInput(task.chunkText)
-        const reusableEntry = manifestEntry?.provider === 'genstudio'
-          && (manifestEntry.input_hash === inputHash
-            || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
-          ? manifestEntry
-          : null
-        const prepared = buildGenStudioSubmission({
-          text: task.chunkText,
-          voiceId: effectiveVoice,
-          speed: req.speed ?? 1,
-          requestIdentity,
-        })
-        const idempotencyKey = reusableEntry?.idempotency_key || prepared.idempotencyKey
-        const submittedAt = reusableEntry?.submitted_at || new Date().toISOString()
+      const chunkFilename = path.basename(task.outputPath)
+      const manifestEntry = audioManifest.tasks[chunkFilename]
+      const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
+      const inputHash = hashInput(JSON.stringify({
+        requestIdentity,
+        text: task.chunkText,
+        voiceId: effectiveVoice || '',
+        speed: req.speed ?? 1,
+      }))
+      const legacyTextHash = hashInput(task.chunkText)
+      const reusableEntry = manifestEntry?.provider === 'genstudio'
+        && (manifestEntry.input_hash === inputHash
+          || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
+        ? manifestEntry
+        : null
+      const prepared = buildGenStudioSubmission({
+        text: task.chunkText,
+        voiceId: effectiveVoice,
+        speed: req.speed ?? 1,
+        requestIdentity,
+      })
+      const idempotencyKey = reusableEntry?.idempotency_key || prepared.idempotencyKey
+      const submittedAt = reusableEntry?.submitted_at || new Date().toISOString()
 
-        // This strict checkpoint happens before POST. If disk persistence is
-        // unavailable, abort without submitting rather than risk paid work
-        // whose identity Story Studio cannot reclaim after a restart.
-        await recordTaskStrict(audioDir, chunkFilename, {
-          provider: 'genstudio',
-          task_id: reusableEntry?.task_id || '',
-          submitted_at: submittedAt,
-          input_hash: inputHash,
-          idempotency_key: idempotencyKey,
-          operation: 'tts',
-          last_state: reusableEntry?.last_state || 'prepared',
-        })
-        await checkpointGenStudioAsset(job, chunkFilename, {
-          operation: 'tts',
-          idempotency_key: idempotencyKey,
-          ...(reusableEntry?.task_id ? { job_id: reusableEntry.task_id } : {}),
-          state: (reusableEntry?.last_state || 'prepared') as GenStudioRecoveryState,
-        })
-        job.output_lines.push(`  GenStudio request: ${task.sectionLabel} -> ${idempotencyKey}`)
-        const request = {
-          text: task.chunkText,
-          voiceId: effectiveVoice,
-          speed: req.speed ?? 1,
-          requestIdentity,
-          idempotencyKey,
-          signal: controller.signal,
-          isCancelled,
-          onProgress: makeChunkCb(),
-          onJobAccepted: async (providerJobId: string, idempotencyKey: string) => {
-            await recordTaskStrict(audioDir, chunkFilename, {
-              provider: 'genstudio',
-              task_id: providerJobId,
-              submitted_at: submittedAt,
-              input_hash: inputHash,
-              idempotency_key: idempotencyKey,
-              operation: 'tts',
-              last_state: 'accepted',
-            })
-            await checkpointGenStudioAsset(job, chunkFilename, {
-              operation: 'tts',
-              idempotency_key: idempotencyKey,
-              job_id: providerJobId,
-              state: 'accepted',
-            })
-            job.output_lines.push(
-              `  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`,
-            )
-          },
-          onState: async (state: GenStudioRecoveryState, providerJobId: string) => {
-            await recordTaskStrict(audioDir, chunkFilename, {
-              provider: 'genstudio',
-              task_id: providerJobId,
-              submitted_at: submittedAt,
-              input_hash: inputHash,
-              idempotency_key: idempotencyKey,
-              operation: 'tts',
-              last_state: state,
-            })
-            await checkpointGenStudioAsset(job, chunkFilename, {
-              operation: 'tts',
-              idempotency_key: idempotencyKey,
-              job_id: providerJobId,
-              state,
-            })
-          },
-        }
-        if (reusableEntry?.task_id) {
-          job.output_lines.push(`  Reclaiming accepted GenStudio task ${reusableEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
-          await recoverTtsGenStudio(apiKey, task.outputPath, reusableEntry.task_id, request)
-        } else {
-          await generateTtsGenStudio(apiKey, task.outputPath, request)
-        }
-      } else if (providerId === 'voicestudio') {
-        // v1.0.149+ — Voice Studio KH writes the WAV straight to the
-        // output path via its async job pipeline (POST → poll → download).
-        // v1.0.255 — multi-endpoint pool: dispatch to a least-busy healthy mac.
-        // v1.0.293 — voice-name resolution: if `effectiveVoice` is in the
-        // `vsname:<name>` format (the new picker convention), resolve it
-        // to the per-endpoint UUID at call time. Per-task character-routed
-        // voice overrides go through the same path. Raw UUIDs (legacy
-        // projects) pass through unchanged — pre-filtered above to the
-        // single endpoint that has them.
-        const generateVoiceChunk = async (ep: string) => {
-          let voiceIdForCall: string | undefined = effectiveVoice
-          if (effectiveVoice && voicePool) {
-            const { parseVoiceName, pickEndpointForVoice } = await import('../services/voicestudio-voice-pool.js')
-            const name = parseVoiceName(effectiveVoice)
-            if (name) {
-              const picked = pickEndpointForVoice(voicePool, name, ep)
-              if (!picked) {
-                throw new Error(
-                  `Voice "${name}" not found in Voice Studio library on any reachable endpoint. `
-                  + `Save it via Voice Studio → Voices and retry.`,
-                )
-              }
-              voiceIdForCall = picked.voiceId
-              if (picked.endpoint !== ep) {
-                // Dispatcher picked an endpoint that lacks this character-
-                // voice; route this single chunk to the endpoint that has
-                // it. The dispatcher's busy-counter is slightly off for
-                // this chunk, but it self-corrects on the next call.
-                ep = picked.endpoint
-              }
-            }
-          }
-          // v1.0.294 — time each successful call so the latency tracker
-          // can detect MLX memory-pressure degradation. We start the
-          // timer just before the actual TTS submit (after name resolution
-          // overhead) and stop on success only — failures hand off to
-          // the dispatcher's failover path and don't say anything useful
-          // about model health.
-          const callStartMs = performance.now()
-          const callResult = await generateTtsVoiceStudio(ep, task.outputPath, {
-            text: task.chunkText,
-            apiKey: ep, // ignored by the helper but required by the AudioGenerationRequest type
-            modelId: req.model,
-            voiceId: voiceIdForCall,
-            speed: req.speed,
-          }, {
-            signal: controller.signal,
-            isCancelled,
-            onProgress: makeChunkCb(),
+      // Persist identity before POST. Legacy manifest entries are deliberately
+      // ignored unless they already represent this exact GenStudio request.
+      await recordTaskStrict(audioDir, chunkFilename, {
+        provider: 'genstudio',
+        task_id: reusableEntry?.task_id || '',
+        submitted_at: submittedAt,
+        input_hash: inputHash,
+        idempotency_key: idempotencyKey,
+        operation: 'tts',
+        last_state: reusableEntry?.last_state || 'prepared',
+      })
+      await checkpointGenStudioAsset(job, chunkFilename, {
+        operation: 'tts',
+        idempotency_key: idempotencyKey,
+        ...(reusableEntry?.task_id ? { job_id: reusableEntry.task_id } : {}),
+        state: (reusableEntry?.last_state || 'prepared') as GenStudioRecoveryState,
+      })
+      job.output_lines.push(`  GenStudio request: ${task.sectionLabel} -> ${idempotencyKey}`)
+      const request = {
+        text: task.chunkText,
+        voiceId: effectiveVoice,
+        speed: req.speed ?? 1,
+        requestIdentity,
+        idempotencyKey,
+        signal: controller.signal,
+        isCancelled,
+        onProgress: makeChunkCb(),
+        onJobAccepted: async (providerJobId: string, acceptedIdempotencyKey: string) => {
+          await recordTaskStrict(audioDir, chunkFilename, {
+            provider: 'genstudio',
+            task_id: providerJobId,
+            submitted_at: submittedAt,
+            input_hash: inputHash,
+            idempotency_key: acceptedIdempotencyKey,
+            operation: 'tts',
+            last_state: 'accepted',
           })
-          if (latencyStats) {
-            recordLatency(latencyStats, ep, performance.now() - callStartMs, {
-              onDegradation: (msg) => job.output_lines.push(msg),
-            })
-          }
-          return callResult
-        }
-        if (isHubAudioProvider) {
-          await generateVoiceChunk('studiohub')
-        } else {
-          await runOnPool(audioDispatcher, apiKey, generateVoiceChunk)
-        }
+          await checkpointGenStudioAsset(job, chunkFilename, {
+            operation: 'tts',
+            idempotency_key: acceptedIdempotencyKey,
+            job_id: providerJobId,
+            state: 'accepted',
+          })
+          job.output_lines.push(`  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`)
+        },
+        onState: async (state: GenStudioRecoveryState, providerJobId: string) => {
+          await recordTaskStrict(audioDir, chunkFilename, {
+            provider: 'genstudio',
+            task_id: providerJobId,
+            submitted_at: submittedAt,
+            input_hash: inputHash,
+            idempotency_key: idempotencyKey,
+            operation: 'tts',
+            last_state: state,
+          })
+          await checkpointGenStudioAsset(job, chunkFilename, {
+            operation: 'tts',
+            idempotency_key: idempotencyKey,
+            job_id: providerJobId,
+            state,
+          })
+        },
+      }
+      if (reusableEntry?.task_id) {
+        job.output_lines.push(`  Reclaiming accepted GenStudio task ${reusableEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+        await recoverTtsGenStudio(apiKey, task.outputPath, reusableEntry.task_id, request)
       } else {
-        const chunkFilename = path.basename(task.outputPath)
-        // User-configurable TTS timeout (minutes → ms). Undefined means use
-        // the client's built-in default (20 min for GenAIPro, 5 min for fal).
-        const timeoutMinutes = (config as any)?.generation_timeouts?.tts_minutes
-        const timeoutMs = typeof timeoutMinutes === 'number' && timeoutMinutes > 0
-          ? timeoutMinutes * 60_000 : undefined
-        // Auto-recovery: before issuing a fresh submit, see if the task
-        // sidecar has a stored task_id from a previous run. If the provider
-        // still has the result, polling it is free; only the fresh submit
-        // below would charge a second time. Covers GenAIPro (task_id), fal
-        // (statusUrl + responseUrl pair), and kie.ai (task_id → recordInfo).
-        // ElevenLabs / Fish stream direct — no task_id, no recovery possible.
-        if ((providerId === 'genaipro' || providerId === 'fal' || providerId === 'kie') && !req.force) {
-          const recovered = await tryRecoverAudioFromManifest(
-            audioManifest.tasks[chunkFilename] || null,
-            apiKey, isCancelled, timeoutMs,
-          )
-          if (recovered) {
-            await downloadAudio(recovered.url, task.outputPath, makeChunkCb())
-            job.output_lines.push(
-              `  Recovered: ${chunkFilename} from existing task ` +
-              `${recovered.taskId.slice(0, 12)}… (no charge)`,
-            )
-            return
-          }
-        }
-        const commonOpts = {
-          model: req.model,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-          stability: req.stability,
-          similarity: req.similarity,
-          timeoutMs,
-          isCancelled,
-        }
-        // Both GenAIPro and fal persist their task reference the moment the
-        // submit returns, so a later timeout or crash still leaves a reference
-        // the reconciler can look up deterministically. fal stores the status
-        // URL (poll_path) and response URL (result_url) instead of an opaque
-        // task_id — its queue API hands back URL pairs rather than ids.
-        const audioUrl = providerId === 'genaipro'
-          ? await generateTtsGenaipro(task.chunkText, apiKey, {
-              ...commonOpts,
-              onTaskSubmitted: async (taskId) => {
-                await recordTask(audioDir, chunkFilename, {
-                  provider: 'genaipro',
-                  task_id: taskId,
-                  submitted_at: new Date().toISOString(),
-                  input_hash: hashInput(task.chunkText),
-                })
-              },
-            })
-          : await generateTtsFal(task.chunkText, apiKey, {
-              ...commonOpts,
-              onTaskSubmitted: async (ref) => {
-                if (!ref.statusUrl || !ref.responseUrl) return
-                await recordTask(audioDir, chunkFilename, {
-                  provider: 'fal',
-                  task_id: ref.requestId || ref.statusUrl,
-                  submitted_at: new Date().toISOString(),
-                  input_hash: hashInput(task.chunkText),
-                  poll_path: ref.statusUrl,
-                  result_url: ref.responseUrl,
-                })
-              },
-            })
-        await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
+        await generateTtsGenStudio(apiKey, task.outputPath, request)
       }
       job.output_lines.push(`  Saved: ${path.basename(task.outputPath)}`)
     } catch (e: any) {
@@ -1144,42 +695,6 @@ export async function generateAudio(job: Job): Promise<void> {
   // i-th worker delays its first task by i * launchStaggerMs to smooth the
   // initial-burst submit. sleepCancellable ticks every 200ms so a user
   // cancel during the stagger window unwinds without hanging.
-  // v1.0.161+ — Defensive cross-request handling for local-modal providers.
-  //
-  // [1] Inter-chunk cooldown. Apple Silicon Metal driver releases buffers
-  // ASYNCHRONOUSLY — the moment a forward pass finishes returning bytes,
-  // the underlying GPU allocations are still queued for deallocation. A
-  // back-to-back submit can hit a partly-cleaned memory pool that doesn't
-  // have headroom for the next allocation, even when each request would
-  // fit individually. Reproducer (voicestudio v1.2.6, M4): two 1500-char
-  // submits in sequence crashed the server on submit #2 with the same
-  // Abort: 6 / Metal OOM that v1.0.160 fixed for single-request size.
-  // 3 s gives Metal a reliable window to drain the previous pass's pool.
-  //
-  // [2] Server-died detection. When a chunk fails with a network-layer
-  // error (ECONNRESET / fetch failed / refused) AFTER the modal previously
-  // succeeded in this run, the modal process has likely died. Subsequent
-  // submits into a dead process just queue pointless work and produce
-  // cascading confusing errors. processTask sets `modalDiedDuringRun`
-  // when it detects the pattern (mid-loop, before catching); the worker
-  // checks the flag at top of each iteration and short-circuits with a
-  // clear "modal died — restart Voice Studio and retry" message.
-  const isLocalModalAudio = isLocalAudioWork && isVoiceStudioProvider
-  const LOCAL_MODAL_INTER_CHUNK_DELAY_MS = 3_000
-  let localModalPriorChunkCompleted = false
-  let modalDiedDuringRun = false
-  function looksLikeServerDied(err: any): boolean {
-    const msg = (err?.message || String(err || '')).toLowerCase()
-    return (
-      msg.includes('econnreset') ||
-      msg.includes('fetch failed') ||
-      msg.includes('connection refused') ||
-      msg.includes('socket hang up') ||
-      msg.includes('cannot reach voice studio') ||
-      msg.includes('refused the connection')
-    )
-  }
-
   async function worker(workerIndex: number): Promise<void> {
     if (launchStaggerMs > 0 && workerIndex > 0) {
       try {
@@ -1190,50 +705,7 @@ export async function generateAudio(job: Job): Promise<void> {
       if (isCancelled()) return
       if (jq.isPauseRequested(job.job_id)) return
       const i = cursor++
-      // Server-died short-circuit. processTask sets the flag below
-      // when it catches a network-layer failure that came AFTER a
-      // successful chunk in the same run.
-      if (isLocalModalAudio && modalDiedDuringRun) {
-        const skipMsg =
-          `  Skipping chunk ${i + 1} — local Voice Studio modal stopped ` +
-          `responding earlier in this run. Restart Voice Studio in ` +
-          `Pinokio (Stop → Start) and retry the generation.`
-        job.output_lines.push(skipMsg)
-        errors.push(`${tasks[i]!.sectionLabel}: modal died mid-batch — restart required`)
-        continue
-      }
-      // Inter-chunk cooldown — only between consecutive successful
-      // submits to the same local modal. First chunk runs immediately
-      // (no prior buffers to wait on); cooldown kicks in starting at
-      // chunk #2.
-      if (isLocalModalAudio && localModalPriorChunkCompleted) {
-        try {
-          await sleepCancellable(LOCAL_MODAL_INTER_CHUNK_DELAY_MS, isCancelled)
-        } catch { return /* cancelled mid-cooldown */ }
-      }
-      // Inspect the errors[] tail length to detect whether processTask
-      // succeeded or pushed a new failure. processTask swallows
-      // exceptions and appends to errors[] — we can't use a plain
-      // try/catch around it.
-      const errorsBefore = errors.length
       await processTask(tasks[i]!)
-      const failed = errors.length > errorsBefore
-      if (!failed) {
-        if (isLocalModalAudio) localModalPriorChunkCompleted = true
-      } else if (isLocalModalAudio && localModalPriorChunkCompleted) {
-        // Failed AFTER at least one chunk in this run already succeeded.
-        // Inspect the just-pushed error string for server-died patterns.
-        const lastErr = errors[errors.length - 1] || ''
-        if (looksLikeServerDied(lastErr)) {
-          modalDiedDuringRun = true
-          job.output_lines.push(
-            `  ⚠ Local Voice Studio modal stopped responding mid-batch ` +
-            `after chunk(s) had already succeeded — looks like a server ` +
-            `crash on the modal side. Aborting remaining chunks. Restart ` +
-            `Voice Studio in Pinokio (Stop → Start), then retry.`,
-          )
-        }
-      }
     }
   }
   try {
@@ -1247,18 +719,6 @@ export async function generateAudio(job: Job): Promise<void> {
     clearInterval(cancelWatcher)
   }
   jq.throwIfPauseRequested(job.job_id)
-
-  // v1.0.294 — emit per-endpoint latency summary into the Jobs panel.
-  // Empty for cloud providers (latencyStats is null) and for single-call
-  // local jobs where the baseline never locked in. Lines look like:
-  //   Endpoint latency summary:
-  //     • http://mac-m1:47870: 50 calls · recent avg 14.2s/chunk · baseline 13.8s
-  //     • http://mac-m4:47870: 50 calls · recent avg 24.1s/chunk · baseline 12.0s · 2.0× slower · ⚠ degraded mid-job
-  if (latencyStats) {
-    for (const line of summarizeLatency(latencyStats)) {
-      job.output_lines.push(line)
-    }
-  }
 
   // Phase 6: post-pool concat for routed sections. Each concatPlans entry
   // pairs a final section path with its ordered intermediate segment files.

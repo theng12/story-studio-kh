@@ -1,0 +1,653 @@
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http'
+import { once } from 'node:events'
+
+export const MOCK_GENSTUDIO_FULL_KEY = 'gsk_mock_story_full_scope'
+
+export type MockGenStudioOperation = 'chat' | 'image' | 'tts' | 'transcription'
+
+export type MockGenStudioState =
+  | 'accepted'
+  | 'reserved'
+  | 'dispatched'
+  | 'running'
+  | 'reconciling'
+  | 'validating'
+  | 'succeeded'
+  | 'failed'
+
+export type MockGenStudioScope =
+  | 'models:read'
+  | 'voices:read'
+  | 'tts:generate'
+  | 'audio:transcribe'
+  | 'images:generate'
+  | 'chat:generate'
+
+export interface MockCreditSnapshot {
+  quoted: number
+  reserved: number
+  final: number
+  returned: number
+}
+
+export interface MockGenStudioScenario {
+  states?: MockGenStudioState[]
+  quotedCredits?: number
+  reservedCredits?: number
+  finalCredits?: number
+  failureCode?: string
+  routingStatusCode?: string
+  outputText?: string
+  artifactExpired?: boolean
+  dropFirstSubmitResponse?: boolean
+}
+
+export interface MockGenStudioRequest {
+  method: string
+  path: string
+  authorization: string
+  idempotencyKey: string
+  bodyText: string
+}
+
+export interface MockGenStudioSubmission {
+  operation: MockGenStudioOperation
+  jobId: string
+  idempotencyKey: string
+  bodyText: string
+  parsedBody: Record<string, unknown> | null
+  replay: boolean
+}
+
+interface StoredScenario extends Required<Omit<MockGenStudioScenario,
+  'failureCode' | 'routingStatusCode' | 'outputText'>> {
+  failureCode: string | null
+  routingStatusCode: string | null
+  outputText: string
+}
+
+interface MockJob {
+  id: string
+  operation: MockGenStudioOperation
+  idempotencyKey: string
+  scenario: StoredScenario
+  stateIndex: number
+  modelId: string
+  body: Record<string, unknown>
+  bodyText: string
+  responseDropped: boolean
+  replayCount: number
+  pollCount: number
+  credits: MockCreditSnapshot
+}
+
+const FULL_SCOPES: MockGenStudioScope[] = [
+  'models:read',
+  'voices:read',
+  'tts:generate',
+  'audio:transcribe',
+  'images:generate',
+  'chat:generate',
+]
+
+const OPERATION_NAME: Record<MockGenStudioOperation, string> = {
+  chat: 'chat.response',
+  image: 'image.generation',
+  tts: 'voice.tts',
+  transcription: 'audio.transcription',
+}
+
+const DEFAULT_CREDITS: Record<MockGenStudioOperation, number> = {
+  chat: 9,
+  image: 7,
+  tts: 5,
+  transcription: 7,
+}
+
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+)
+
+function silentWav(): Buffer {
+  const sampleRate = 8_000
+  const sampleCount = 800
+  const dataLength = sampleCount * 2
+  const wav = Buffer.alloc(44 + dataLength)
+  wav.write('RIFF', 0, 'ascii')
+  wav.writeUInt32LE(36 + dataLength, 4)
+  wav.write('WAVE', 8, 'ascii')
+  wav.write('fmt ', 12, 'ascii')
+  wav.writeUInt32LE(16, 16)
+  wav.writeUInt16LE(1, 20)
+  wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(sampleRate, 24)
+  wav.writeUInt32LE(sampleRate * 2, 28)
+  wav.writeUInt16LE(2, 32)
+  wav.writeUInt16LE(16, 34)
+  wav.write('data', 36, 'ascii')
+  wav.writeUInt32LE(dataLength, 40)
+  return wav
+}
+
+function json(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+): void {
+  const encoded = Buffer.from(JSON.stringify(body))
+  response.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': String(encoded.length),
+  })
+  response.end(encoded)
+}
+
+async function readBody(request: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
+
+function parseJson(body: Buffer): Record<string, unknown> {
+  if (!body.length) return {}
+  try {
+    const value = JSON.parse(body.toString('utf8'))
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  } catch {
+    return {}
+  }
+}
+
+function multipartField(bodyText: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = bodyText.match(new RegExp(`name="${escaped}"\\r\\n\\r\\n([^\\r\\n]+)`))
+  return match?.[1]?.trim() || ''
+}
+
+function normalizeScenario(
+  operation: MockGenStudioOperation,
+  scenario: MockGenStudioScenario,
+): StoredScenario {
+  const states: MockGenStudioState[] = scenario.states?.length ? [...scenario.states] : ['succeeded']
+  const quotedCredits = scenario.quotedCredits ?? DEFAULT_CREDITS[operation]
+  const reservedCredits = scenario.reservedCredits ?? quotedCredits
+  const terminal = states.at(-1)
+  const finalCredits = scenario.finalCredits ?? (terminal === 'failed' ? 0 : reservedCredits)
+  if (!['succeeded', 'failed'].includes(terminal || '')) {
+    throw new Error('Mock GenStudio scenarios must end in succeeded or failed')
+  }
+  if (quotedCredits < 0 || reservedCredits < 0 || finalCredits < 0 || finalCredits > reservedCredits) {
+    throw new Error('Mock GenStudio credit values are invalid')
+  }
+  return {
+    states,
+    quotedCredits,
+    reservedCredits,
+    finalCredits,
+    failureCode: scenario.failureCode || null,
+    routingStatusCode: scenario.routingStatusCode || null,
+    outputText: scenario.outputText || 'Mock GenStudio output.',
+    artifactExpired: scenario.artifactExpired === true,
+    dropFirstSubmitResponse: scenario.dropFirstSubmitResponse === true,
+  }
+}
+
+function requiredScope(pathname: string, method: string): MockGenStudioScope | null {
+  if (pathname === '/v1/models' || pathname === '/v1/chat/models'
+    || pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
+    return 'models:read'
+  }
+  if (pathname === '/v1/voices') return 'voices:read'
+  if (pathname === '/v1/transcription/models') return 'audio:transcribe'
+  if (pathname === '/v1/image/models' || pathname === '/v1/images/models') return 'images:generate'
+  if (pathname.startsWith('/v1/chat/responses')) return 'chat:generate'
+  if (pathname.startsWith('/v1/images')) return 'images:generate'
+  if (pathname.startsWith('/v1/audio/transcriptions') || pathname.startsWith('/v1/transcriptions')) {
+    return 'audio:transcribe'
+  }
+  if (pathname.startsWith('/v1/audio/jobs') || pathname.startsWith('/v1/jobs')) return 'tts:generate'
+  return method === 'POST' ? null : null
+}
+
+export class MockGenStudioService {
+  readonly requests: MockGenStudioRequest[] = []
+  readonly submissions: MockGenStudioSubmission[] = []
+  readonly server: Server
+
+  private readonly keys = new Map<string, Set<MockGenStudioScope>>()
+  private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
+  private readonly jobs = new Map<string, MockJob>()
+  private readonly jobByIdempotency = new Map<string, string>()
+  private readonly sequence: Record<MockGenStudioOperation, number> = {
+    chat: 0,
+    image: 0,
+    tts: 0,
+    transcription: 0,
+  }
+
+  baseUrl = ''
+
+  constructor() {
+    this.server = http.createServer((request, response) => {
+      void this.handle(request, response)
+    })
+    this.registerKey(MOCK_GENSTUDIO_FULL_KEY, FULL_SCOPES)
+  }
+
+  async start(): Promise<this> {
+    this.server.listen(0, '127.0.0.1')
+    await once(this.server, 'listening')
+    const address = this.server.address()
+    if (!address || typeof address === 'string') throw new Error('Mock GenStudio did not bind a TCP port')
+    this.baseUrl = `http://127.0.0.1:${address.port}`
+    return this
+  }
+
+  async close(): Promise<void> {
+    if (!this.server.listening) return
+    this.server.close()
+    await once(this.server, 'close')
+  }
+
+  reset(): void {
+    this.requests.length = 0
+    this.submissions.length = 0
+    this.queuedScenarios.clear()
+    this.jobs.clear()
+    this.jobByIdempotency.clear()
+    for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
+      this.sequence[operation] = 0
+    }
+  }
+
+  registerKey(key: string, scopes: Iterable<MockGenStudioScope>): void {
+    this.keys.set(key, new Set(scopes))
+  }
+
+  queueScenario(operation: MockGenStudioOperation, scenario: MockGenStudioScenario): void {
+    const queue = this.queuedScenarios.get(operation) || []
+    queue.push(normalizeScenario(operation, scenario))
+    this.queuedScenarios.set(operation, queue)
+  }
+
+  jobCount(operation?: MockGenStudioOperation): number {
+    if (!operation) return this.jobs.size
+    return [...this.jobs.values()].filter(job => job.operation === operation).length
+  }
+
+  providerSubmissionCount(operation?: MockGenStudioOperation): number {
+    const unique = new Set(
+      this.submissions
+        .filter(submission => !submission.replay && (!operation || submission.operation === operation))
+        .map(submission => submission.jobId),
+    )
+    return unique.size
+  }
+
+  pollCount(jobId: string): number {
+    return this.requireJob(jobId).pollCount
+  }
+
+  replayCount(jobId: string): number {
+    return this.requireJob(jobId).replayCount
+  }
+
+  creditSnapshot(jobId: string): MockCreditSnapshot {
+    return { ...this.requireJob(jobId).credits }
+  }
+
+  private requireJob(jobId: string): MockJob {
+    const job = this.jobs.get(jobId)
+    if (!job) throw new Error(`Unknown mock GenStudio job: ${jobId}`)
+    return job
+  }
+
+  private authorize(request: IncomingMessage, scope: MockGenStudioScope): boolean {
+    const header = request.headers.authorization || ''
+    const key = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
+    return this.keys.get(key)?.has(scope) === true
+  }
+
+  private nextScenario(operation: MockGenStudioOperation): StoredScenario {
+    const queue = this.queuedScenarios.get(operation)
+    return queue?.shift() || normalizeScenario(operation, {})
+  }
+
+  private createOrReplay(
+    operation: MockGenStudioOperation,
+    idempotencyKey: string,
+    parsedBody: Record<string, unknown>,
+    bodyText: string,
+  ): { job: MockJob; replay: boolean } {
+    const identity = `${operation}:${idempotencyKey}`
+    const existingId = this.jobByIdempotency.get(identity)
+    if (existingId) {
+      const job = this.requireJob(existingId)
+      job.replayCount++
+      this.submissions.push({
+        operation,
+        jobId: job.id,
+        idempotencyKey,
+        bodyText,
+        parsedBody,
+        replay: true,
+      })
+      return { job, replay: true }
+    }
+
+    this.sequence[operation]++
+    const id = `mock-${operation}-${String(this.sequence[operation]).padStart(3, '0')}`
+    const scenario = this.nextScenario(operation)
+    const modelId = String(parsedBody.model_id || parsedBody.model || this.defaultModel(operation))
+    const job: MockJob = {
+      id,
+      operation,
+      idempotencyKey,
+      scenario,
+      stateIndex: 0,
+      modelId,
+      body: parsedBody,
+      bodyText,
+      responseDropped: false,
+      replayCount: 0,
+      pollCount: 0,
+      credits: {
+        quoted: scenario.quotedCredits,
+        reserved: scenario.reservedCredits,
+        final: 0,
+        returned: 0,
+      },
+    }
+    this.jobs.set(id, job)
+    this.jobByIdempotency.set(identity, id)
+    this.settleIfTerminal(job)
+    this.submissions.push({ operation, jobId: id, idempotencyKey, bodyText, parsedBody, replay: false })
+    return { job, replay: false }
+  }
+
+  private defaultModel(operation: MockGenStudioOperation): string {
+    if (operation === 'chat') return 'mock-chat-v1'
+    if (operation === 'image') return 'mock-image-v1'
+    if (operation === 'transcription') return 'mock-whisper-v1'
+    return 'mock-tts-v1'
+  }
+
+  private state(job: MockJob): MockGenStudioState {
+    return job.scenario.states[job.stateIndex]!
+  }
+
+  private advance(job: MockJob): void {
+    job.pollCount++
+    if (job.stateIndex < job.scenario.states.length - 1) job.stateIndex++
+    this.settleIfTerminal(job)
+  }
+
+  private settleIfTerminal(job: MockJob): void {
+    const state = this.state(job)
+    if (state === 'succeeded') {
+      job.credits.final = job.scenario.finalCredits
+      job.credits.returned = job.credits.reserved - job.credits.final
+    } else if (state === 'failed') {
+      job.credits.final = 0
+      job.credits.returned = job.credits.reserved
+    }
+  }
+
+  private responseBody(job: MockJob, replay = false): Record<string, unknown> {
+    const state = this.state(job)
+    const base = {
+      id: job.id,
+      state,
+      operation: OPERATION_NAME[job.operation],
+      dispatch_mode: 'asynchronous',
+      model_id: job.modelId,
+      credit_cost: state === 'failed' ? 0 : (state === 'succeeded' ? job.credits.final : job.credits.reserved),
+      remaining_credits: 1_000 - job.credits.reserved + job.credits.returned,
+      failure_code: state === 'failed' ? job.scenario.failureCode : null,
+      routing_status_code: job.scenario.routingStatusCode,
+      idempotent_replay: replay,
+    }
+
+    if (job.operation === 'chat') {
+      return {
+        ...base,
+        output_text: state === 'succeeded' ? job.scenario.outputText : null,
+      }
+    }
+    if (job.operation === 'image') {
+      return {
+        ...base,
+        prompt: String(job.body.prompt || ''),
+        width: Number(job.body.width) || 1_344,
+        height: Number(job.body.height) || 768,
+        aspect_ratio: String(job.body.aspect_ratio || '16:9'),
+        steps: Number(job.body.steps) || 4,
+        seed: job.body.seed ?? null,
+        image_url: state === 'succeeded' ? `/v1/images/${job.id}/file` : null,
+      }
+    }
+    if (job.operation === 'transcription') {
+      return {
+        ...base,
+        filename: 'mock.wav',
+        language: job.body.language || null,
+        word_timestamps: job.body.word_timestamps === 'true',
+        quoted_credit_cost: job.credits.quoted,
+        duration_seconds: 65,
+        price_version: 'mock-price-v1',
+        preview_only: false,
+        transcript: state === 'succeeded' ? 'Hello from the mock GenStudio service.' : null,
+        srt_url: state === 'succeeded' ? `/v1/transcriptions/${job.id}/srt` : null,
+      }
+    }
+    return {
+      ...base,
+      voice_id: String(job.body.voice_id || 'mock-voice'),
+      model_revision_id: 'mock-tts-r1',
+      speed: Number(job.body.speed) || 1,
+      billable_characters: Array.from(String(job.body.text || '')).length,
+      preview_only: false,
+      audio_url: state === 'succeeded' ? `/v1/jobs/${job.id}/audio` : null,
+    }
+  }
+
+  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    try {
+      const method = (request.method || 'GET').toUpperCase()
+      const url = new URL(request.url || '/', this.baseUrl || 'http://127.0.0.1')
+      const body = ['GET', 'HEAD'].includes(method) ? Buffer.alloc(0) : await readBody(request)
+      const bodyText = body.toString('utf8')
+      const idempotencyKey = String(request.headers['idempotency-key'] || '')
+      this.requests.push({
+        method,
+        path: url.pathname,
+        authorization: request.headers.authorization || '',
+        idempotencyKey,
+        bodyText,
+      })
+
+      const scope = requiredScope(url.pathname, method)
+      if (scope && !this.authorize(request, scope)) {
+        json(response, 403, { detail: `missing required scope: ${scope}` })
+        return
+      }
+
+      if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
+      if (method === 'POST') {
+        const operation = this.submitOperation(url.pathname)
+        if (operation) {
+          if (idempotencyKey.length < 8) {
+            json(response, 400, { detail: 'Idempotency-Key is required' })
+            return
+          }
+          const parsedBody = operation === 'transcription'
+            ? {
+                model: multipartField(bodyText, 'model'),
+                language: multipartField(bodyText, 'language'),
+                word_timestamps: multipartField(bodyText, 'word_timestamps'),
+              }
+            : parseJson(body)
+          const { job, replay } = this.createOrReplay(operation, idempotencyKey, parsedBody, bodyText)
+          if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
+            job.responseDropped = true
+            response.socket?.destroy()
+            return
+          }
+          json(response, 202, this.responseBody(job, replay))
+          return
+        }
+      }
+
+      const artifact = this.artifactJob(url.pathname)
+      if (method === 'GET' && artifact) {
+        if (artifact.job.scenario.artifactExpired) {
+          json(response, 404, { detail: 'asset expired' })
+          return
+        }
+        if (this.state(artifact.job) !== 'succeeded') {
+          json(response, 409, { detail: 'asset is not ready' })
+          return
+        }
+        if (artifact.kind === 'image') {
+          response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(ONE_PIXEL_PNG.length) })
+          response.end(ONE_PIXEL_PNG)
+        } else if (artifact.kind === 'audio') {
+          const wav = silentWav()
+          response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
+          response.end(wav)
+        } else {
+          const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock GenStudio.\n')
+          response.writeHead(200, { 'Content-Type': 'application/x-subrip', 'Content-Length': String(srt.length) })
+          response.end(srt)
+        }
+        return
+      }
+
+      const job = method === 'GET' ? this.lookupJob(url.pathname) : null
+      if (job) {
+        this.advance(job)
+        json(response, 200, this.responseBody(job))
+        return
+      }
+
+      json(response, 404, { detail: 'mock route not found' })
+    } catch (error) {
+      json(response, 500, { detail: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  private handleCatalog(pathname: string, response: ServerResponse): boolean {
+    if (pathname === '/v1/models') {
+      json(response, 200, [
+        {
+          id: 'mock-tts-v1', revision: 'r1', display_name: 'Mock TTS', modality: 'audio',
+          operation: 'voice.tts', availability: 'available', qualification_only: false,
+          pricing_unit: 'characters', limits: { max_characters: 15_000 }, controls: { speed: true },
+        },
+        {
+          id: 'mock-chat-v1', revision: 'r1', display_name: 'Mock Chat', modality: 'text',
+          operation: 'chat.response', availability: 'available', qualification_only: false,
+          pricing_unit: 'tokens', limits: { max_output_tokens: 4_096 }, controls: { temperature: true },
+        },
+      ])
+      return true
+    }
+    if (pathname === '/v1/voices') {
+      json(response, 200, [{
+        id: 'mock-voice', display_name: 'Mock Voice', language: 'en', provider: 'GenStudio mock',
+        engine_id: 'mock-tts-v1', engine_name: 'Mock TTS', model_revision_id: 'mock-tts-r1',
+        model_family: 'mock', voice_tier: 'standard', generation_enabled: true,
+      }])
+      return true
+    }
+    if (pathname === '/v1/transcription/models') {
+      json(response, 200, [{
+        id: 'mock-whisper-v1', display_name: 'Mock Whisper', provider: 'GenStudio mock',
+        language: 'multilingual', available: true, available_workers: 1, qualification_only: false,
+      }])
+      return true
+    }
+    if (pathname === '/v1/image/models' || pathname === '/v1/images/models') {
+      json(response, 200, [{
+        id: 'mock-image-v1', display_name: 'Mock Image', description: 'In-process PNG fixture.',
+        available: true, qualification_only: false, aspect_ratios: ['16:9', '1:1'],
+        default_aspect_ratio: '16:9', default_steps: 4, min_steps: 2, max_steps: 8,
+      }])
+      return true
+    }
+    if (pathname === '/v1/chat/models') {
+      json(response, 200, [{
+        id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
+        available: true, qualification_only: false, max_output_tokens: 4_096,
+        controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
+      }])
+      return true
+    }
+    if (pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
+      json(response, 200, [{
+        id: 'mock-video-v1', display_name: 'Mock Video', available: false,
+        modes: ['image-to-video'],
+        aspect_ratios: ['16:9'],
+        variants: [{
+          duration_seconds: 5,
+          resolution: '720p',
+          credits_per_video: 50,
+          minimum_credits: 50,
+          price_version: 'mock-video-price-v1',
+        }],
+      }])
+      return true
+    }
+    return false
+  }
+
+  private submitOperation(pathname: string): MockGenStudioOperation | null {
+    if (pathname === '/v1/chat/responses') return 'chat'
+    if (pathname === '/v1/images/generations') return 'image'
+    if (pathname === '/v1/audio/jobs') return 'tts'
+    if (pathname === '/v1/audio/transcriptions') return 'transcription'
+    return null
+  }
+
+  private lookupJob(pathname: string): MockJob | null {
+    const patterns: Array<[MockGenStudioOperation, RegExp]> = [
+      ['chat', /^\/v1\/chat\/responses\/([^/]+)$/],
+      ['image', /^\/v1\/images\/([^/]+)$/],
+      ['transcription', /^\/v1\/transcriptions\/([^/]+)$/],
+      ['tts', /^\/v1\/jobs\/([^/]+)$/],
+    ]
+    for (const [operation, pattern] of patterns) {
+      const match = pathname.match(pattern)
+      if (!match) continue
+      const job = this.jobs.get(decodeURIComponent(match[1]!))
+      return job?.operation === operation ? job : null
+    }
+    return null
+  }
+
+  private artifactJob(pathname: string): { job: MockJob; kind: 'audio' | 'image' | 'srt' } | null {
+    const patterns: Array<[MockGenStudioOperation, 'audio' | 'image' | 'srt', RegExp]> = [
+      ['tts', 'audio', /^\/v1\/jobs\/([^/]+)\/audio$/],
+      ['image', 'image', /^\/v1\/images\/([^/]+)\/file$/],
+      ['transcription', 'srt', /^\/v1\/transcriptions\/([^/]+)\/srt$/],
+    ]
+    for (const [operation, kind, pattern] of patterns) {
+      const match = pathname.match(pattern)
+      if (!match) continue
+      const job = this.jobs.get(decodeURIComponent(match[1]!))
+      return job?.operation === operation ? { job, kind } : null
+    }
+    return null
+  }
+}
+
+export async function startMockGenStudioService(): Promise<MockGenStudioService> {
+  return new MockGenStudioService().start()
+}

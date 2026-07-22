@@ -65,8 +65,12 @@
       <ThisMacSettings />
     </div>
 
-    <!-- Models (Editable) -->
     <div v-if="activeTab === 'models'" class="card settings-panel mt-2">
+      <GenStudioCatalogSettings />
+    </div>
+
+    <!-- Historical editor retained in source for project evidence migration; never customer-visible. -->
+    <div v-if="false" class="card settings-panel mt-2">
       <div class="settings-section-head">
         <div>
           <span class="settings-section-kicker">Generation catalog</span>
@@ -198,7 +202,7 @@
     </div>
 
     <!-- Saved cloud voices -->
-    <div v-if="activeTab === 'voices'" class="card settings-panel mt-2">
+    <div v-if="false" class="card settings-panel mt-2">
       <div class="voice-library-heading">
         <div>
           <h3>Voice library</h3>
@@ -1313,9 +1317,9 @@
     <div v-if="activeTab === 'performance'" class="card settings-panel performance-panel mt-2">
       <header class="settings-section-head">
         <div>
-          <span class="settings-section-kicker">Cloud provider safeguards</span>
-          <h3>Cloud generation limits</h3>
-          <p>Control paid and hosted API traffic. Local Studio work automatically uses the available fleet and ignores these limits.</p>
+          <span class="settings-section-kicker">GenStudio request safeguards</span>
+          <h3>Generation concurrency</h3>
+          <p>Control how many Story Studio jobs may call GenStudio at once. GenStudio remains authoritative for provider capacity, credits, and settlement.</p>
         </div>
         <span class="settings-section-count">{{ performanceProfileLabel }}</span>
       </header>
@@ -1343,42 +1347,42 @@
         <article class="performance-card performance-card--text">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">Aa</span>
-            <div><h4>Scripts &amp; prompts</h4><p>App-wide queue capacity for direct cloud and Chat Studio cloud models.</p></div>
+            <div><h4>Scripts &amp; prompts</h4><p>App-wide capacity for GenStudio language-model requests.</p></div>
             <span class="performance-value">{{ scriptConcurrency }} jobs</span>
           </header>
           <div class="performance-control">
-            <label>Concurrent cloud text jobs</label>
+            <label>Concurrent GenStudio text jobs</label>
             <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
             <div class="performance-scale"><span>Serial</span><span>50 maximum</span></div>
           </div>
-          <footer class="performance-card-foot"><span>This Mac</span><span>Local Chat Studio jobs bypass this cap</span></footer>
+          <footer class="performance-card-foot"><span>This Mac</span><span>Every request still follows GenStudio account limits</span></footer>
         </article>
 
         <article class="performance-card performance-card--image">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">▧</span>
-            <div><h4>Images</h4><p>Parallel direct-cloud and Image Studio cloud requests inside each job.</p></div>
+            <div><h4>Images</h4><p>Parallel GenStudio image requests inside each Story job.</p></div>
             <span class="performance-value">{{ imageConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Cloud concurrency</label>
+            <label>GenStudio concurrency</label>
             <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
             <label>Launch spacing <span>{{ formatLaunchStagger(imageLaunchStaggerMs) }}</span></label>
             <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
           </div>
-          <footer class="performance-card-foot"><span>This project</span><span>Local image fleets run at live capacity</span></footer>
+          <footer class="performance-card-foot"><span>This project</span><span>GenStudio chooses the qualified provider or fleet route</span></footer>
         </article>
 
         <article class="performance-card performance-card--audio">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">◖</span>
-            <div><h4>Audio &amp; TTS</h4><p>Parallel cloud narration requests plus the provider wait limit.</p></div>
+            <div><h4>Audio &amp; TTS</h4><p>Parallel GenStudio narration requests plus the durable job wait limit.</p></div>
             <span class="performance-value">{{ audioConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Cloud concurrency</label>
+            <label>GenStudio concurrency</label>
             <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
@@ -1400,24 +1404,24 @@
             <span class="performance-value">{{ videoConcurrency }} at once</span>
           </header>
           <div class="performance-control">
-            <label>Cloud concurrency</label>
+            <label>GenStudio concurrency</label>
             <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
           </div>
           <div class="performance-control compact">
             <label>Launch spacing <span>{{ formatLaunchStagger(videoLaunchStaggerMs) }}</span></label>
             <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
           </div>
-          <footer class="performance-card-foot"><span>This project</span><span>Provider charges still apply per clip</span></footer>
+          <footer class="performance-card-foot"><span>This project</span><span>GenStudio quotes and settles each completed clip</span></footer>
         </article>
 
         <article class="performance-card performance-card--subtitle">
           <header class="performance-card-head">
             <span class="performance-card-icon" aria-hidden="true">CC</span>
-            <div><h4>Transcription</h4><p>Chapter-level cloud Whisper requests. Local Voice Studio always matches its ready fleet.</p></div>
+            <div><h4>Transcription</h4><p>Chapter-level GenStudio transcription requests.</p></div>
             <span class="performance-value">{{ subtitleConcurrency === 'auto' ? 'Auto' : `${subtitleConcurrency} at once` }}</span>
           </header>
           <div class="performance-control">
-            <label>Concurrent cloud chapters</label>
+            <label>Concurrent GenStudio chapters</label>
             <select v-model="subtitleConcurrency" class="select">
               <option value="auto">Auto — 3 cloud requests</option>
               <option value="1">1 (sequential)</option>
@@ -1426,23 +1430,23 @@
               <option value="16">16</option><option value="24">24</option><option value="32">32</option><option value="50">50</option>
             </select>
           </div>
-          <footer class="performance-card-foot"><span>This project</span><span>Local transcription adapts automatically</span></footer>
+          <footer class="performance-card-foot"><span>This project</span><span>GenStudio selects the qualified transcription route</span></footer>
         </article>
 
         <article class="performance-guidance-card">
           <span class="settings-section-kicker">How to tune</span>
-          <h4>Tune only for your cloud provider limits</h4>
-          <p>Keep launch spacing near 2 seconds. Increase cloud concurrency in small steps, then watch Jobs for 429 or timeout errors.</p>
+          <h4>Tune Story Studio's request pressure</h4>
+          <p>Keep launch spacing near 2 seconds. Increase concurrency in small steps, then watch Jobs for throttling or timeout errors.</p>
           <dl>
             <div><dt>429 errors</dt><dd>Raise spacing or lower concurrency.</dd></div>
-            <div><dt>Local fleet</dt><dd>No tuning needed; all ready Studios are used automatically.</dd></div>
-            <div><dt>Cloud proxy</dt><dd>Cloud models inside a Studio still follow these safeguards.</dd></div>
+            <div><dt>Fleet capacity</dt><dd>GenStudio and Studio Hub decide which qualified workers may accept each request.</dd></div>
+            <div><dt>Credits</dt><dd>Concurrency never bypasses GenStudio reservations, settlement, or exact returns.</dd></div>
           </dl>
         </article>
       </div>
 
       <div class="performance-save-bar">
-        <div><strong>Ready to apply</strong><span>One save updates this project's cloud safeguards and this Mac's cloud text-job capacity.</span></div>
+        <div><strong>Ready to apply</strong><span>One save updates this project's GenStudio request safeguards and this Mac's text-job capacity.</span></div>
         <SaveIndicator v-bind="savedHintProps('performance')" />
         <button class="btn btn-primary" @click="savePerformance">Save performance</button>
       </div>
@@ -1453,7 +1457,7 @@
          TTS modals will append below. v1.0.150 removed the legacy
          Chatterbox section entirely (chatterbox-mlx is reachable
          through Voice Studio's family list if needed). -->
-    <div v-if="activeTab === 'local-tts'" class="card settings-panel local-models-panel mt-2">
+    <div v-if="false" class="card settings-panel local-models-panel mt-2">
       <header class="local-models-head">
         <div>
           <span class="local-models-kicker">Private generation fleet</span>
@@ -4197,8 +4201,6 @@ const tabZones = [
         { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and API provider connections shared by every project on this Mac.' },
       ] },
       { title: 'Local & system', tabs: [
-        // id stays 'local-tts' for saved-tab-state / deep-link back-compat.
-        { id: 'local-tts', label: 'Local Models', icon: '⌘', description: 'Connect Studio Hub and your local Chat, Image, and Voice Studio workers without mixing their setup flows.' },
         { id: 'ffmpeg', label: 'FFmpeg', icon: '▶', description: 'Install and verify the media engine used for audio mixing, subtitles, effects, and final video exports.' },
         { id: 'notifications', label: 'Notifications', icon: '◉', description: 'Route important job outcomes to this Mac or Telegram and schedule a concise daily production brief.' },
       ] },
@@ -4215,8 +4217,7 @@ const tabZones = [
         { id: 'standards', label: 'Standards', icon: '✓', description: 'Keep reusable creative rules, templates, and project-wide production instructions in one place.' },
       ] },
       { title: 'Generation', tabs: [
-        { id: 'models', label: 'Models', icon: '◈', description: 'Review supported generation models and maintain pricing or operational limits for this project.' },
-        { id: 'voices', label: 'Voices', icon: '◖', description: 'Build a provider-aware voice library so generators only offer compatible saved voices.' },
+        { id: 'models', label: 'Models', icon: '◈', description: 'Review the live GenStudio catalogs. Availability, quotes, reservations, and settlement remain authoritative in GenStudio.' },
         { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
         { id: 'performance', label: 'Performance', icon: '↯', description: 'Balance concurrency, launch staggering, and timeouts for reliable high-volume generation.' },
       ] },
@@ -5133,7 +5134,7 @@ function toggleVoiceProvider(voice: SavedVoice, provider: VoiceProviderId) {
 }
 
 function addVoice() {
-  const provider: VoiceProviderId = voiceProviderFilter.value === 'all' ? 'elevenlabs' : voiceProviderFilter.value
+  const provider: VoiceProviderId = voiceProviderFilter.value === 'all' ? 'genstudio' : voiceProviderFilter.value
   editVoices.value.push({ name: '', voice_id: '', providers: [provider] })
 }
 

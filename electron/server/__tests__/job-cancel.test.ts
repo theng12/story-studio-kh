@@ -37,6 +37,8 @@ after(async () => { await cleanup() })
 describe('cancelJob()', () => {
   test('sends SIGTERM to children registered via trackChild', async () => {
     const proj = await pm.createProject({ name: 'CancelChild' })
+    let reportChildTracked!: () => void
+    const childTracked = new Promise<void>((resolve) => { reportChildTracked = resolve })
 
     // A subprocess that would otherwise run indefinitely. The executor
     // registers it with the queue and then awaits its exit.
@@ -44,6 +46,7 @@ describe('cancelJob()', () => {
       jq.registerExecutor('script-only', async () => {
         const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
         jq.trackChild(child)
+        reportChildTracked()
         await new Promise<void>((r) => {
           child.on('exit', (_code, signal) => {
             resolve(signal)
@@ -58,14 +61,17 @@ describe('cancelJob()', () => {
       title: 't', params: {},
     })
 
-    // Let processQueue pick up the job and start the executor.
-    await new Promise((r) => setTimeout(r, 100))
+    // Wait for the exact registration checkpoint instead of assuming the
+    // queue starts within 100 ms. The full suite intentionally exercises
+    // many real subprocesses, so a wall-clock sleep can cancel the queued
+    // job before this executor has attached its child.
+    await childTracked
 
     assert.equal(jq.cancelJob(job.job_id), true, 'cancelJob should report success')
 
     const signal = await Promise.race([
       childExitedWithSignal,
-      new Promise<string | null>((_, rej) => setTimeout(() => rej(new Error('child did not exit in 3s')), 3000)),
+      new Promise<string | null>((_, rej) => setTimeout(() => rej(new Error('child did not exit in 10s')), 10_000)),
     ])
     assert.equal(signal, 'SIGTERM', `child should be killed with SIGTERM, got ${signal}`)
   })
