@@ -726,48 +726,38 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
       const baseUrl = await getGenStudioUrl()
       const root = baseUrl.replace(/\/+$/, '')
       const headers = { Authorization: `Bearer ${apiKey}` }
-      const catalogResponse = await fetch(`${root}/v1/voices`, {
-        headers,
-        signal: AbortSignal.timeout(8_000),
-      })
-      if (catalogResponse.status === 401) {
-        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is invalid or is missing voices:read.' })
-      }
-      if (!catalogResponse.ok) {
-        return res.json({
-          valid: false,
-          reachable: true,
-          message: `GenStudio voice catalog returned HTTP ${catalogResponse.status}. Check the API URL and key.`,
+      const probes = [
+        { path: '/v1/models', scope: 'models:read', label: 'model catalog', expected: 200 },
+        { path: '/v1/voices', scope: 'voices:read', label: 'voice catalog', expected: 200 },
+        { path: '/v1/transcription/models', scope: 'audio:transcribe', label: 'transcription catalog', expected: 200 },
+        { path: '/v1/image/models', scope: 'images:generate', label: 'image catalog', expected: 200 },
+        { path: '/v1/jobs/story-studio-key-probe', scope: 'tts:generate', label: 'TTS job access', expected: 404 },
+        { path: '/v1/chat/responses/story-studio-key-probe', scope: 'chat:generate', label: 'LLM job access', expected: 404 },
+      ] as const
+      for (const probe of probes) {
+        const response = await fetch(`${root}${probe.path}`, {
+          headers,
+          signal: AbortSignal.timeout(8_000),
         })
-      }
-      const imageCatalogResponse = await fetch(`${root}/v1/image/models`, {
-        headers,
-        signal: AbortSignal.timeout(8_000),
-      })
-      if (imageCatalogResponse.status === 401 || imageCatalogResponse.status === 403) {
-        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is missing images:generate.' })
-      }
-      if (!imageCatalogResponse.ok) {
-        return res.json({
-          valid: false,
-          reachable: true,
-          message: `GenStudio image catalog returned HTTP ${imageCatalogResponse.status}. Check the API URL and key.`,
-        })
-      }
-      const response = await fetch(`${root}/v1/jobs/story-studio-key-probe`, {
-        headers,
-        signal: AbortSignal.timeout(8_000),
-      })
-      if (response.status === 401) {
-        return res.json({ valid: false, reachable: true, message: 'The GenStudio API key is invalid or is missing tts:generate.' })
-      }
-      if (response.status === 404) {
-        return res.json({ valid: true, reachable: true, message: 'Key works for GenStudio voices, TTS, transcription, and images.' })
+        if (response.status === 401 || response.status === 403) {
+          return res.json({
+            valid: false,
+            reachable: true,
+            message: `The GenStudio API key is invalid or is missing ${probe.scope}.`,
+          })
+        }
+        if (response.status !== probe.expected) {
+          return res.json({
+            valid: false,
+            reachable: true,
+            message: `GenStudio ${probe.label} returned HTTP ${response.status}. Check the API URL and key.`,
+          })
+        }
       }
       return res.json({
-        valid: false,
+        valid: true,
         reachable: true,
-        message: `GenStudio API returned HTTP ${response.status}. Check the API URL and Release 1A staging setup.`,
+        message: 'Key works for GenStudio model discovery, voices, TTS, transcription, images, and LLM generation.',
       })
     }
     const result = await testApiKey(providerId, apiKey)

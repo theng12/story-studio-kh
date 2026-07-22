@@ -137,3 +137,51 @@ test('GenStudio transcription discovery uses the same scoped boundary key', asyn
     'mlx-community/whisper-large-v3-turbo',
   ])
 })
+
+test('GenStudio key test proves every Story Studio catalog and generation scope', async () => {
+  const visited: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    visited.push(url)
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_all_story_scopes')
+    if (url.endsWith('/v1/jobs/story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/chat/responses/story-studio-key-probe')) return new Response(null, { status: 404 })
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_all_story_scopes' })
+    .expect(200)
+
+  assert.equal(response.body.valid, true)
+  assert.match(response.body.message, /model discovery, voices, TTS, transcription, images, and LLM generation/)
+  assert.deepEqual(visited, [
+    'http://127.0.0.1:8000/v1/models',
+    'http://127.0.0.1:8000/v1/voices',
+    'http://127.0.0.1:8000/v1/transcription/models',
+    'http://127.0.0.1:8000/v1/image/models',
+    'http://127.0.0.1:8000/v1/jobs/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/chat/responses/story-studio-key-probe',
+  ])
+})
+
+test('GenStudio key test names the first missing scope without submitting work', async () => {
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/v1/chat/responses/story-studio-key-probe')) {
+      return Response.json({ detail: 'missing scope' }, { status: 403 })
+    }
+    if (url.endsWith('/v1/jobs/story-studio-key-probe')) return new Response(null, { status: 404 })
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_missing_chat_scope' })
+    .expect(200)
+
+  assert.equal(response.body.valid, false)
+  assert.equal(response.body.reachable, true)
+  assert.match(response.body.message, /chat:generate/)
+})

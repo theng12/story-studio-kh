@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.668 — 2026-07-22
+
+**One GenStudio credential is now proven across every migrated Story Studio media route.**
+
+- Audits the existing GenStudio gateway and confirms that image generation, transcription, TTS, and LLM requests all reuse the same per-machine GenStudio API URL and bearer key.
+- Makes the GenStudio key test verify `models:read`, `voices:read`, `tts:generate`, `audio:transcribe`, `images:generate`, and `chat:generate` through read-only catalog or nonexistent-job probes before reporting the connection ready.
+- Reports the exact first missing scope instead of claiming transcription or LLM access from an incomplete test.
+- Preserves all explicit direct-provider, Direct Studio, and Studio Hub choices as separate manual fallback routes; accepted GenStudio jobs never trigger an automatic second provider submission.
+- Adds regression coverage proving every scope is checked without submitting billable work.
+
 ## v1.0.667 — 2026-07-21
 
 **Voice generation now follows one current model limit, never stale preset chunking.**
