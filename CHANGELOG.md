@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.706 — 2026-07-24
+
+**Script Generator no longer gets stuck on retired GPT-4o defaults.**
+
+- Removes the hardcoded GPT-4o script-model default entirely.
+- Validates remembered and preset model choices against GenStudio's live chat
+  catalog, preserving valid explicit selections and healing stale values to a
+  usable published model.
+- Keeps script generation disabled until the live catalog confirms the model,
+  so a legacy value cannot enqueue a job that will fail later.
+
 ## v1.0.705 — 2026-07-24
 
 **Large local job backlogs now survive restarts without losing queued work.**

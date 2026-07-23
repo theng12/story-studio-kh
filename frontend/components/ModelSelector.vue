@@ -23,6 +23,11 @@
 </template>
 
 <script setup lang="ts">
+import {
+  isUsableLiveGenStudioModel,
+  selectLiveGenStudioModel,
+} from '../utils/live-genstudio-model-selection.js'
+
 interface LlmModelRow {
   id: string
   label: string
@@ -62,7 +67,7 @@ const migrationMessage = computed(() => {
 })
 
 function isDisabled(model: LlmModelRow): boolean {
-  return !model.available || !!model.disabled_reason || (props.requireVision === true && model.supports_vision !== true)
+  return !isUsableLiveGenStudioModel(model, props.requireVision === true)
 }
 
 const menuOptions = computed(() => {
@@ -104,6 +109,23 @@ function selectModel(value: string): void {
   emit('model-meta', model)
 }
 
+function syncModelSelection(): void {
+  const selected = selectLiveGenStudioModel(
+    props.modelValue,
+    allModels.value,
+    props.requireVision === true,
+  )
+  if (!selected) {
+    emit('model-meta', null)
+    return
+  }
+  // Persist the healed value through the owning form. This replaces stale
+  // direct-provider defaults (notably GPT-4o) and means they cannot reappear
+  // after the next visit.
+  if (props.modelValue !== selected.id) emit('update:modelValue', selected.id)
+  emit('model-meta', selected)
+}
+
 async function loadModels(): Promise<void> {
   loading.value = true
   loadError.value = ''
@@ -113,18 +135,7 @@ async function loadModels(): Promise<void> {
       refreshAccess(),
     ])
     allModels.value = models
-    const exact = allModels.value.find(model => model.id === props.modelValue)
-    if (exact) {
-      emit('model-meta', exact)
-      return
-    }
-    const mapped = allModels.value.find(model => model.available && model.legacy_ids?.includes(props.modelValue))
-    if (mapped) {
-      emit('update:modelValue', mapped.id)
-      emit('model-meta', mapped)
-      return
-    }
-    emit('model-meta', null)
+    syncModelSelection()
   } catch (error: any) {
     allModels.value = []
     loadError.value = error?.data?.detail || error?.message || 'GenStudio catalog unavailable.'
@@ -134,7 +145,7 @@ async function loadModels(): Promise<void> {
 }
 
 watch(() => props.projectSlug, loadModels, { immediate: true })
-watch(() => props.modelValue, value => emit('model-meta', allModels.value.find(model => model.id === value) || null))
+watch(() => props.modelValue, syncModelSelection)
 </script>
 
 <style scoped>

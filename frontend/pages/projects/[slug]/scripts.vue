@@ -277,7 +277,7 @@
            the auto-after-chapters generation, so the intro is never a separate
            thing to remember. -->
       <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:14px; margin-top:8px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2, rgba(127,127,127,0.06));">
-        <button class="btn btn-primary" style="font-size:15px; padding:10px 18px;" :disabled="submitting || scriptGenerating || !form.model" @click="generateScript">
+        <button class="btn btn-primary" style="font-size:15px; padding:10px 18px;" :disabled="submitting || scriptGenerating || !form.model || !scriptModelReady" @click="generateScript">
           ⚡ Generate script<span v-if="intro.enabled"> + intro</span>
         </button>
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
@@ -296,7 +296,7 @@
            below) and shown there as a read-only estimate. Model + Narrator
            Style are the only Main-settings inputs now. -->
       <div class="grid-2 mt-2">
-        <ModelSelector v-model="form.model" :project-slug="slug" />
+        <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
         <div class="form-group">
           <label>Narrator Style</label>
           <select v-model="form.style" class="select">
@@ -1120,7 +1120,10 @@ const form = reactive({
   episode_id: route.query.episode_id as string || '',
   title: route.query.title as string || '',
   length: Number(route.query.length) || 45,
-  model: 'gpt-4o',
+  // The live GenStudio picker selects the first usable catalog model. Do not
+  // seed a retired direct-provider id here: a persisted preference is restored
+  // first and then validated/healed against that same live catalog.
+  model: '',
   style: 'auto',
   creative_mode: 'guided' as 'strict' | 'guided' | 'open',
   creative_direction: '',
@@ -1159,6 +1162,15 @@ const form = reactive({
 useRememberedForm('scripts', slug, form, {
   include: ['model', 'style', 'creative_mode', 'creative_direction', 'perspective', 'custom_perspective', 'generate_image_prompts', 'generate_youtube_desc'],
 })
+
+// Saved model ids are only preferences. Keep every generation action disabled
+// until ModelSelector has confirmed a currently usable GenStudio catalog entry.
+// This prevents an old persisted `gpt-4o` value from enqueueing a job before
+// the picker replaces it with the live fallback.
+const scriptModelReady = ref(false)
+function onScriptModelMeta(model: unknown): void {
+  scriptModelReady.value = !!model
+}
 
 // v1.0.176 — character references are opt-in. Default OFF; the toggle reveals
 // the picker. Turning it off clears any selection so an outdated cast can't
