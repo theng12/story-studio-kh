@@ -6,7 +6,7 @@
 import { existsSync } from 'fs'
 import path from 'path'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
@@ -518,7 +518,7 @@ export async function generateImages(job: Job): Promise<void> {
       )
       if (recovered) {
         for (let i = 0; i < recovered.urls.length; i++) {
-          await downloadImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+          await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
         }
         processed++
         job.output_lines.push(
@@ -567,7 +567,7 @@ export async function generateImages(job: Job): Promise<void> {
         })))
       }
       for (let i = 0; i < urls.length; i++) {
-        await downloadImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+        await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
       }
       processed++
       job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
@@ -603,7 +603,7 @@ export async function generateImages(job: Job): Promise<void> {
       )
       if (recovered) {
         for (let i = 0; i < recovered.urls.length; i++) {
-          await downloadImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+          await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
         }
         processed++
         job.output_lines.push(
@@ -665,7 +665,7 @@ export async function generateImages(job: Job): Promise<void> {
         })))
       }
       for (let i = 0; i < urls.length; i++) {
-        await downloadImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+        await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
       }
       processed++
       job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)

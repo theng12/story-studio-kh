@@ -17,7 +17,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
@@ -130,7 +130,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         input_hash: hashInput(item.prompt),
       })
     }
-    await downloadImage(result.url, path.join(pool.folder_path, item.filename))
+    await saveGenStudioImage(result.url, path.join(pool.folder_path, item.filename))
     if (!await isUsable(item.filename)) throw new Error('downloaded image is empty')
     successfulFiles.add(item.filename)
     failedFiles.delete(item.filename)

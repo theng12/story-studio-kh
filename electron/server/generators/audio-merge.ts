@@ -595,14 +595,8 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       for (const slug of order) chaptersForSidecar.push(groups.get(slug)!)
       const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
       // v1.0.140+ — Persist the gap_duration the merge actually used.
-      // Subtitle derivation (`/video-editor/subtitles/from-chapters`)
-      // reads this so its cue timestamps match the merged audio's
-      // actual section spacing instead of the hardcoded 5s fallback.
-      // Without this, any user with a non-default gap saw their
-      // burned-in subtitles drift further behind the audio with every
-      // section. Schema bump implicit: older sidecars without the
-      // field fall back to the old default-5 behaviour, which matches
-      // pre-fix renders so we don't surprise anyone.
+      // Subtitle stitching and video assembly read this to align their
+      // timeline offsets with the actual merge spacing.
       await fs.writeFile(sidecarPath, JSON.stringify({
         sections: chaptersForSidecar,
         gap_duration_s: req.gap_duration,

@@ -30,7 +30,7 @@
 import { stat } from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
 } from '../generators/images.js'
@@ -133,7 +133,7 @@ async function recoverOne(
     }
     try {
       const recovered = await recoverImageWithGenStudio(genstudioApiKey, entry.task_id)
-      await downloadImage(recovered.url, expected.fullPath)
+      await saveGenStudioImage(recovered.url, expected.fullPath)
       return {
         filename: expected.filename,
         status: 'recovered',

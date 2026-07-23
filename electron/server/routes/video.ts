@@ -15,7 +15,7 @@ import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
-import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
+import { normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
@@ -727,50 +727,25 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 
 // ── Subtitles ────────────────────────────────────────────────────────────
 // Three sources, matching the wizard's three tabs:
-//   - chapters : derive from the episode's individual chapter audio files
 //   - import   : copy a user-picked .srt/.vtt into the episode's subtitles folder
-//   - transcribe: queue a Whisper job (handled by the job queue; see executors.ts)
-// All three produce a plain .srt on disk; the burn-in filter in the
+//   - transcribe: queue a transcription job (handled by the job queue; see executors.ts)
+// Both produce a plain .srt on disk; the burn-in filter in the
 // generator reads it during the final composition pass.
 
 /** Check what source options are actually usable for the current episode. */
 router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const [assets, libass, config] = await Promise.all([
+    const [assets, libass] = await Promise.all([
       scanEpisodeAssets(slug, episodeId),
       hasLibass(),
-      pm.getConfig(slug),
     ])
 
     const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
-    // v1.0.140+ — Drift detection prep: read the current audio-merge
-    // gap from audio_chapters.json (written by the audio-merge job).
-    // Each existing SRT's parallel `.srt.json` records the gap that
-    // SRT was generated against. Compare to surface a warning when
-    // the user re-merged with a different gap but never re-derived
-    // the subtitle — the burn-in would drift section-by-section.
-    let currentMergeGap: number | null = null
-    try {
-      const sidecarPath = path.join(assets.episode_dir, 'audio_chapters.json')
-      const raw = await fs.readFile(sidecarPath, 'utf-8')
-      const parsed = JSON.parse(raw)
-      if (typeof parsed?.gap_duration_s === 'number') {
-        currentMergeGap = parsed.gap_duration_s
-      }
-    } catch { /* missing sidecar — old merge or no merge yet */ }
-
     interface ExistingSrt {
       path: string
       filename: string
       mtime: number
-      /** v1.0.140+ — gap value this SRT was generated against, when known. */
-      generated_with_gap_s?: number | null
-      /** v1.0.140+ — true when generated_with_gap_s !== currentMergeGap.
-       *  Frontend renders a warning chip on the row when this is true. */
-      drifts_from_current_merge?: boolean
-      /** Best-effort human description of the drift severity. */
-      drift_note?: string
     }
     const existingSrts: ExistingSrt[] = []
     try {
@@ -779,29 +754,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         if (!/\.(srt|vtt|ass)$/i.test(f)) continue
         const full = path.join(subtitlesDir, f)
         const stat = await fs.stat(full)
-        const entry: ExistingSrt = { path: full, filename: f, mtime: stat.mtimeMs }
-
-        // Look for the parallel .json metadata sidecar that
-        // /subtitles/from-chapters writes alongside its output. If
-        // present, we know the exact gap the SRT was generated against.
-        try {
-          const metaRaw = await fs.readFile(`${full}.json`, 'utf-8')
-          const meta = JSON.parse(metaRaw)
-          if (typeof meta?.gap_duration_s === 'number') {
-            entry.generated_with_gap_s = meta.gap_duration_s
-            if (currentMergeGap !== null && meta.gap_duration_s !== currentMergeGap) {
-              entry.drifts_from_current_merge = true
-              const diff = currentMergeGap - meta.gap_duration_s
-              const sign = diff > 0 ? '+' : ''
-              entry.drift_note =
-                `This SRT was derived with gap=${meta.gap_duration_s}s but the merged audio uses ` +
-                `gap=${currentMergeGap}s. Each section's cues drift ${sign}${diff.toFixed(1)}s ` +
-                `× section index. Re-derive to fix.`
-            }
-          }
-        } catch { /* no meta sidecar — was hand-imported, Whisper-transcribed, or pre-1.0.140 */ }
-
-        existingSrts.push(entry)
+        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs })
       }
       existingSrts.sort((a, b) => b.mtime - a.mtime)
     } catch { /* no dir yet — fine */ }
@@ -810,10 +763,8 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       has_libass: libass,
       has_merged_audio: assets.merged_audio.length > 0,
       has_chapter_audio: assets.audio_sections.length > 0,
-      has_openai_key: !!(config as any)?.openai_api_key,
       existing_srts: existingSrts,
       subtitles_dir: subtitlesDir,
-      current_merge_gap_s: currentMergeGap,
       // v1.0.396 — the user-pinned subtitle to burn (null = AUTO: prefer the
       // full stitched/whisper transcript, skip per-chapter partials).
       selected_subtitle: await readSelectedSubtitle(subtitlesDir),
@@ -821,102 +772,6 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle status'))
-  }
-})
-
-/** Derive SRT cues from the episode's individual chapter audio files.
- *  Each chapter is one cue spanning its full duration — suitable for
- *  section markers, not word-level captions.
- *
- *  v1.0.140+ — Gap resolution priority:
- *    1. `req.body.gap_sec` (explicit override from caller, e.g. user
- *       typed a value in the UI form)
- *    2. `audio_chapters.json.gap_duration_s` (the gap the audio-merge
- *       job actually used — written into the sidecar at merge time)
- *    3. Hardcoded 5s fallback (pre-1.0.140 behaviour for legacy projects
- *       whose sidecar predates the gap field)
- *
- *  The sidecar path is the fix for the cross-section drift the user
- *  flagged: without it, anyone whose audio-merge gap was ≠5s saw their
- *  chapters-derived subtitles fall progressively behind the burned-in
- *  audio (each section's cue starts 2-3s late, error compounds). */
-router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', async (req, res) => {
-  const { slug, episodeId } = req.params
-  try {
-    const assets = await scanEpisodeAssets(slug, episodeId)
-    if (assets.audio_sections.length === 0) {
-      return res.status(400).json({ detail: 'No chapter audio files found for this episode' })
-    }
-
-    // Resolve the gap. Explicit body value wins; else read from the
-    // audio-merge sidecar; else default 5. The episode_dir-relative
-    // sidecar lookup mirrors the audio-merge generator's write path.
-    let gap = typeof req.body?.gap_sec === 'number' ? req.body.gap_sec : null
-    let gap_source: 'body' | 'sidecar' | 'default' = 'body'
-    if (gap == null) {
-      try {
-        const sidecarPath = path.join(assets.episode_dir, 'audio_chapters.json')
-        const raw = await fs.readFile(sidecarPath, 'utf-8')
-        const parsed = JSON.parse(raw)
-        if (typeof parsed?.gap_duration_s === 'number') {
-          gap = parsed.gap_duration_s
-          gap_source = 'sidecar'
-        }
-      } catch { /* missing or unreadable sidecar — fall through */ }
-    }
-    if (gap == null) {
-      gap = 5
-      gap_source = 'default'
-    }
-
-    // v1.0.397 — offset cues by the intro lead-in (intro + its gap) so the
-    // chapter captions line up with the merged audio instead of running ahead.
-    // Best-effort + read-only against the merged file + sidecar; 0 = no intro.
-    let leadIn = 0
-    try {
-      const { computeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
-      const merged = assets.merged_audio?.[0]?.path || null
-      const parsed = JSON.parse(await fs.readFile(path.join(assets.episode_dir, 'audio_chapters.json'), 'utf-8'))
-      leadIn = await computeIntroLeadInSec(merged, parsed.sections || [], typeof parsed.gap_duration_s === 'number' ? parsed.gap_duration_s : gap)
-    } catch { /* no merged audio / sidecar — leadIn stays 0 */ }
-
-    const chapters = chaptersFromDurations(
-      assets.audio_sections.map(a => ({
-        title: a.label || a.filename.replace(/\.[^.]+$/, ''),
-        duration_sec: a.duration || 0,
-      })),
-      gap,
-      leadIn,
-    )
-    const srt = chaptersToSrt(chapters, {
-      max_chars_per_line: req.body?.max_chars_per_line,
-      max_lines: req.body?.max_lines,
-    })
-
-    const outDir = await resolveSubtitlesDir(slug, episodeId)
-    await fs.mkdir(outDir, { recursive: true })
-    const outPath = path.join(outDir, `${episodeId.toUpperCase()}_chapters.srt`)
-    await fs.writeFile(outPath, srt, 'utf-8')
-
-    // v1.0.140+ — Stamp the gap used into a parallel JSON sidecar so
-    // the drift-detection in subtitles/status can compare it against
-    // the current audio-merge gap and surface a "regen me" warning
-    // when they differ. Filename mirrors the SRT for trivial pairing.
-    try {
-      const meta = {
-        srt: path.basename(outPath),
-        gap_duration_s: gap,
-        gap_source,
-        lead_in_sec: leadIn,
-        generated_at: new Date().toISOString(),
-        cues: chapters.length,
-      }
-      await fs.writeFile(`${outPath}.json`, JSON.stringify(meta, null, 2))
-    } catch { /* best-effort */ }
-
-    res.json({ srt_path: outPath, cues: chapters.length, gap_sec: gap, gap_source, lead_in_sec: leadIn })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not derive subtitles from chapters'))
   }
 })
 
@@ -950,7 +805,7 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
   }
 })
 
-/** Queue a GenStudio transcription job. Returns the job id so the UI can
+/** Queue a transcription job. Returns the job id so the UI can
  *  poll /jobs/:id for progress. */
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -959,17 +814,14 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey.trim()) {
     return res.status(400).json({
-      detail: 'GenStudio KH API key not configured. Save a key with audio:transcribe in Settings → This Mac → API Keys.',
+      detail: 'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
     })
   }
   let models
   try {
     models = await listGenStudioTranscriptionModels(apiKey)
-  } catch (error) {
-    return res.status(502).json(humanizeBackendError(
-      error,
-      'Could not load GenStudio KH transcription models. Ensure the key includes audio:transcribe.',
-    ))
+  } catch {
+    return res.status(502).json({ detail: 'Could not load transcription models. Check your connection and try again.' })
   }
   const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
   const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
@@ -980,13 +832,13 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   if (!selectedModel) {
     return res.status(400).json({
       detail: requestedModel
-        ? `GenStudio KH does not publish transcription model "${requestedModel}".`
-        : 'GenStudio KH did not publish a transcription model.',
+        ? 'The selected transcription model is no longer available.'
+        : 'No transcription model is available right now.',
     })
   }
   if (!selectedModel.available) {
     return res.status(503).json({
-      detail: `GenStudio KH transcription model "${selectedModel.display_name}" has no ready workers.`,
+      detail: 'The selected transcription model is temporarily unavailable.',
     })
   }
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {

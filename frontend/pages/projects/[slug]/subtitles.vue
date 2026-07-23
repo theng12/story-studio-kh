@@ -2,10 +2,9 @@
   Subtitles workshop.
 
   Dedicated home for CREATING an episode's subtitles, between Audio Assembly
-  and Scene Plan (needs the chapter audio). GenStudio KH is the sole AI
-  transcription boundary and publishes the selectable model catalog.
-  Plus non-transcribe methods (from-chapters, import). All write per-chapter
-  SRTs ({code}_{slug}.srt) into the episode's "09 Subtitles Output" folder,
+  and Scene Plan (needs the chapter audio). The live transcription catalog
+  supplies the selectable models. Imported tracks and transcribed chapter
+  SRTs ({code}_{slug}.srt) live in the episode's "09 Subtitles Output" folder,
   which Scene Plan stitches and Video Assembly burns in.
 -->
 <template>
@@ -90,35 +89,27 @@
       <WorkspaceSection
         eyebrow="Create"
         title="Transcribe chapter audio"
-        description="GenStudio KH securely routes every transcription. Completed chapter files are preserved, so retries fill only missing sections."
+        description="Completed chapter files are preserved, so retries fill only missing sections."
       >
-        <div class="sub-engine-card active mt-2">
-          <div class="sub-engine-head">
-            <strong>GenStudio KH</strong>
-            <span class="sub-engine-tag free">single route</span>
-          </div>
-          <p class="sub-engine-desc">Story Studio uploads privately to GenStudio. GenStudio handles Studio Hub, worker selection, durable recovery, and the final SRT.</p>
-        </div>
-
-        <div class="sub-engine-detail mt-2">
+        <div class="mt-2">
           <div v-if="genstudioModelsLoading" class="text-muted text-sm">
-            <LoadingSpinner size="sm" /> Loading GenStudio models…
+            <LoadingSpinner size="sm" /> Loading transcription models…
           </div>
           <p v-else-if="genstudioModelsError" class="validation-msg text-sm">
             ⚠ {{ genstudioModelsError }}
-            <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" class="inline-link">Open GenStudio settings</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" class="inline-link">Open transcription settings</NuxtLink>
             or <a href="#" class="inline-link" @click.prevent="loadGenstudioModels">retry</a>.
           </p>
           <div v-else class="form-group">
-            <label>Transcription model <span class="text-muted text-xs">· published by GenStudio KH</span></label>
+            <label>Transcription model</label>
             <ModelMenu
               v-model="genstudioModel"
               :options="genstudioModelOptions"
               media-type="transcription"
-              title="Choose a GenStudio transcription model"
+              title="Choose a transcription model"
               placeholder="Pick a transcription model…"
-              search-placeholder="Search GenStudio models…"
-              aria-label="GenStudio transcription model options"
+              search-placeholder="Search transcription models…"
+              aria-label="Transcription model options"
               :catalog-notice="genstudioPlanNotice"
               catalog-notice-href="/usage"
             />
@@ -138,24 +129,12 @@
         </div>
       </WorkspaceSection>
 
-      <!-- Other methods -->
       <WorkspaceSection
         eyebrow="Alternatives"
-        title="Other methods"
-        description="Create simple chapter-level timing or bring an existing subtitle track into this episode."
+        title="Import subtitles"
+        description="Bring an existing subtitle track into this episode."
       >
         <div class="sub-method">
-          <div>
-            <strong class="text-sm">From chapters</strong>
-            <p class="text-muted text-xs mt-1">
-              One cue per chapter from durations + the audio-merge gap. Fast and free, chapter-level only (no word timing).
-            </p>
-          </div>
-          <button class="btn btn-sm btn-secondary" :disabled="fromChaptersBusy || !status?.has_chapter_audio" @click="fromChapters">
-            {{ fromChaptersBusy ? 'Generating…' : 'Generate from chapters' }}
-          </button>
-        </div>
-        <div class="sub-method mt-2">
           <div class="sub-method-import">
             <strong class="text-sm">Import .srt / .vtt</strong>
             <p class="text-muted text-xs mt-1">Bring your own subtitle file — we copy + normalize it into this episode.</p>
@@ -183,7 +162,6 @@
         <ul v-else class="sub-file-list mt-2">
           <li v-for="srt in status.existing_srts" :key="srt.path" class="sub-file-row">
             <span class="sub-file-name">{{ srt.filename }}</span>
-            <span v-if="srt.drifts_from_current_merge" class="sub-file-warn" :title="srt.drift_note">⚠ gap drift</span>
             <button
               class="btn-icon"
               :class="{ active: previewFilename === srt.filename }"
@@ -236,7 +214,6 @@
           <strong>{{ stitchStatus.stitched_srt.meta?.total_cues ?? '?' }} cues</strong>
           across <strong>{{ stitchStatus.stitched_srt.meta?.sections?.length ?? '?' }} section(s)</strong>,
           <strong>{{ stitchStatus.stitched_srt.meta?.total_duration_sec?.toFixed(1) ?? '?' }}s</strong> total.
-          <span v-if="stitchStatus.stitched_srt.drifts_from_current_merge" class="sub-file-warn"> ⚠ gap drift — re-stitch</span>
         </div>
         <p v-else class="text-muted text-sm mt-2">Not stitched yet.</p>
 
@@ -278,7 +255,7 @@
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Subtitles')
 
-interface ExistingSrt { path: string; filename: string; mtime: number; drifts_from_current_merge?: boolean; drift_note?: string }
+interface ExistingSrt { path: string; filename: string; mtime: number }
 interface SubtitleStatus {
   has_libass: boolean
   has_merged_audio: boolean
@@ -293,7 +270,6 @@ interface SubtitleStatus {
     full_track_filename?: string
   }
   subtitles_dir: string
-  current_merge_gap_s: number | null
 }
 interface SectionRow { label: string; slug: string }
 
@@ -321,8 +297,6 @@ const {
   load: loadGenstudioModels,
 } = useGenStudioTranscriptionModels()
 
-// Non-transcribe methods.
-const fromChaptersBusy = ref(false)
 const importPath = ref('')
 const importing = ref(false)
 
@@ -408,7 +382,7 @@ const transcribeJobActive = computed(() =>
   ),
 )
 
-const transcribeLabel = computed(() => 'Transcribe (GenStudio)')
+const transcribeLabel = computed(() => 'Transcribe')
 
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio) return false
@@ -418,10 +392,10 @@ const canTranscribe = computed(() => {
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
-  if (genstudioModelsLoading.value) return 'Loading GenStudio transcription models'
+  if (genstudioModelsLoading.value) return 'Loading transcription models'
   if (genstudioModelsError.value) return genstudioModelsError.value
-  if (!genstudioModel.value) return 'GenStudio KH did not publish a transcription model'
-  if (!genstudioModelReady.value) return 'The selected GenStudio transcription model has no ready workers'
+  if (!genstudioModel.value) return 'No transcription model is available'
+  if (!genstudioModelReady.value) return 'The selected transcription model is temporarily unavailable'
   return ''
 })
 
@@ -545,20 +519,6 @@ watch(transcribeJobSignal, () => {
   }
 })
 
-async function fromChapters(): Promise<void> {
-  if (fromChaptersBusy.value || !episodeId.value) return
-  fromChaptersBusy.value = true
-  try {
-    const r = await post<{ cues: number }>(`/projects/${slug.value}/video-editor/subtitles/from-chapters/${episodeId.value}`, {})
-    success(`Built chapter-marker SRT (${r.cues} cue${r.cues === 1 ? '' : 's'}).`)
-    await loadStatus()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not derive subtitles from chapters')
-  } finally {
-    fromChaptersBusy.value = false
-  }
-}
-
 async function importSrt(): Promise<void> {
   if (importing.value || !importPath.value || !episodeId.value) return
   importing.value = true
@@ -623,35 +583,11 @@ onMounted(async () => {
 .sub-chapter-mark.ok { color: rgb(34, 197, 94); }
 .sub-chapter-name { flex: 1; color: var(--text-primary); }
 
-/* Engine chooser */
-.sub-engine-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 720px) { .sub-engine-grid { grid-template-columns: 1fr; } }
-.sub-engine-card {
-  text-align: left;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.sub-engine-card:hover { border-color: var(--text-secondary); }
-.sub-engine-card.active { border-color: var(--accent); background: var(--accent-dim); }
-.sub-engine-head { display: flex; align-items: center; gap: 8px; }
-.sub-engine-tag { font-size: var(--font-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 999px; }
-.sub-engine-tag.free { background: rgba(74, 222, 128, 0.15); color: rgb(22, 163, 74); }
-.sub-engine-tag.paid { background: rgba(245, 158, 11, 0.16); color: rgb(180, 83, 9); }
-.sub-engine-desc { margin: 4px 0 0; font-size: var(--font-xs); line-height: 1.45; color: var(--text-muted); }
-
-.sub-engine-detail { border-left: 2px solid var(--border); padding-left: 10px; }
-.sub-download { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-
 .sub-method { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 10px 0; border-top: 1px solid var(--border); }
 .sub-method:first-of-type { border-top: none; }
 .sub-method-import { flex: 1; }
 
 .sub-file-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.sub-file-warn { font-size: var(--font-xs); color: rgb(180, 83, 9); }
 .sub-dir { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-xs); word-break: break-all; }
 
 /* Subtitle cue preview (v1.0.494/495) — panel styles live in SubtitleCuePreview.vue. */

@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.693 — 2026-07-23
+
+**GenStudio batch credit activity now has an expandable ledger.**
+
+- Switches large Jobs cards from a wall of individual settlement badges to a
+  compact batch rollup with progress by remote state.
+- Lets you inspect only active or failed remote items, or open the full
+  paginated item ledger without rendering hundreds of rows at once.
+
+## v1.0.692 — 2026-07-23
+
+**Subtitles now focuses on transcription and importing.**
+
+- Simplifies the action to **Transcribe** and removes provider, route, worker,
+  and dispatch language from the customer-facing picker and status messages.
+- Removes the chapter-timing subtitle generator and its B-Roll entry point;
+  importing an existing `.srt` or `.vtt` is the sole alternative to transcription.
+
 ## v1.0.691 — 2026-07-23
 
 **Large GenStudio jobs now stay readable at hundreds of items.**

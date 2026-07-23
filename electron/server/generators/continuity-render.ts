@@ -23,7 +23,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
@@ -554,7 +554,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                 input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
               })
             }
-            await downloadImage(result.urls[0]!, outPath)
+            await saveGenStudioImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath, scene.visual_prompt)
             successfulSceneIds.add(scene.id)
             rendered++
@@ -728,7 +728,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
       })
     }
-    await downloadImage(result.urls[0]!, outPath)
+    await saveGenStudioImage(result.urls[0]!, outPath)
 
     await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
     successfulSceneIds.add(scene.id)

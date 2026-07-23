@@ -1890,7 +1890,7 @@
           <p class="text-muted text-sm">
             Create or transcribe subtitles in the
             <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink>
-            (per-chapter Whisper, from chapters, or import), then pick the file to burn in below.
+            (transcribe or import), then pick the file to burn in below.
           </p>
           <p v-if="!subtitles.srt_path && !subtitlesStatus?.existing_srts?.length"
              class="validation-msg text-sm mt-2">
@@ -3230,9 +3230,9 @@ async function loadSubtitlesStatus() {
   } catch { /* non-fatal */ }
 }
 
-// v1.0.216 — subtitle CREATION (from-chapters / import / Whisper transcribe)
-// moved to the dedicated Subtitles tab. Video Assembly only reads the existing
-// SRT list (via loadSubtitlesStatus above) to let the user pick one to burn in.
+// Subtitle creation moved to the dedicated Subtitles tab. Video Assembly only
+// reads the existing SRT list (via loadSubtitlesStatus above) to let the user
+// pick one to burn in.
 
 const titleCardOpen = ref(false)
 const chapterTitlesOpen = ref(false)

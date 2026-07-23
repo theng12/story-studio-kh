@@ -21,7 +21,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
@@ -686,7 +686,7 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
     const recovered = await tryRecoverImageFromManifest(entry, apiKey, modelConfig)
     if (recovered?.urls?.length) {
       await fs.mkdir(outDir, { recursive: true })
-      await downloadImage(recovered.urls[0]!, outPath)
+      await saveGenStudioImage(recovered.urls[0]!, outPath)
       await checkpointSceneImage(
         planPath,
         sceneId,

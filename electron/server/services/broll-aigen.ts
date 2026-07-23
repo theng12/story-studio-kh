@@ -13,7 +13,7 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
@@ -101,7 +101,7 @@ export async function aiGenFallbackForBeat(
   const clipName = `aigen-${stamp}.mp4`
   const clipPath = path.join(pool.folder_path, clipName)
   try {
-    await downloadImage(urls[0]!, imgPath)
+    await saveGenStudioImage(urls[0]!, imgPath)
     await runFfmpeg(buildImageToClipArgs(imgPath, clipPath, beat.end_sec - beat.start_sec))
   } catch {
     await fs.unlink(clipPath).catch(() => {})

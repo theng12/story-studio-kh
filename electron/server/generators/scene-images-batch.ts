@@ -15,7 +15,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { existsSync, statSync } from 'fs'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -131,7 +131,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   // fallback loop + other jobs may touch the same file).
   const saveScene = async (scene: ScenePlanEntry, url: string): Promise<void> => {
     const outPath = path.join(outDir, `${scene.id}.png`)
-    await downloadImage(url, outPath)
+    await saveGenStudioImage(url, outPath)
     await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
     successfulSceneIds.add(scene.id)
     failedSceneIds.delete(scene.id)

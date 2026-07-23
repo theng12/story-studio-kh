@@ -13,6 +13,7 @@ const imagePicker = source('../components/ImageModelPicker.vue')
 const imageGenerator = source('../pages/projects/[slug]/images.vue')
 const voicePicker = source('../components/VoicePicker.vue')
 const modelSelector = source('../components/ModelSelector.vue')
+const transcriptionCatalog = source('../composables/useGenStudioTranscription.ts')
 
 const modelSurfaces = {
   audio: source('../pages/projects/[slug]/audio.vue'),
@@ -81,6 +82,17 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.sceneReview, /<ModelSelector[^>]+label="Rewrite LLM"/)
     assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
+  })
+
+  test('transcription keeps dispatch details internal and supports import instead of chapter timing synthesis', () => {
+    for (const source of [modelSurfaces.subtitles, modelSurfaces.broll, transcriptionCatalog]) {
+      assert.doesNotMatch(source, /single route|ready workers|no ready workers|Transcribe \(GenStudio\)|from-chapters/i)
+    }
+    assert.match(modelSurfaces.subtitles, /:generate-label="transcribeLabel"/)
+    assert.match(modelSurfaces.subtitles, /title="Import subtitles"/)
+    assert.doesNotMatch(modelSurfaces.subtitles, /title="Other methods"|From chapters/)
+    assert.match(transcriptionCatalog, /disabled: !model\.available/)
+    assert.match(transcriptionCatalog, /temporarily unavailable/)
   })
 
   test('the format wizard no longer restores a hardcoded paid model list', () => {

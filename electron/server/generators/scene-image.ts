@@ -24,7 +24,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
@@ -197,7 +197,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // v1.0.457 — write into the unified named "NN Scene Images" folder (not the
   // legacy flat scene_images/), so there's one scene-image location per episode
   // and it migrates to the external media root with everything else.
-  await downloadImage(url, outPath)
+    await saveGenStudioImage(url, outPath)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)
   job.progress = 90

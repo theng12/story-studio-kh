@@ -98,11 +98,10 @@
         <NuxtLink :to="`/projects/${slug}/audio-merge`" class="nav-item" active-class="active">
           <span class="nav-icon">&#128266;</span> Audio Assembly <span v-if="audioMergeGenerating" class="nav-pulse" />
         </NuxtLink>
-        <!-- v1.0.216+ — Subtitles workshop. Creates the episode's subtitle
-             track (per-chapter Whisper / from-chapters / import) from the
-             chapter audio. Sits after Audio Assembly; Scene Plan stitches its
-             per-chapter SRTs and Video Assembly burns them in. -->
-        <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create the episode's subtitles (per-chapter Whisper, from chapters, or import). Built from chapter audio; consumed by Scene Plan + Video Assembly.">
+        <!-- Subtitles creates the episode's transcribed or imported subtitle
+             tracks. Scene Plan stitches per-chapter SRTs and Video Assembly
+             burns the selected track in. -->
+        <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create or import the episode's subtitles. Built from chapter audio; consumed by Scene Plan and Video Assembly.">
           <span class="nav-icon">&#128292;</span> Subtitles
         </NuxtLink>
         <!-- v1.0.187+ — Character Sheet: continuity-chain (hard img2img lock)

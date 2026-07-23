@@ -1,10 +1,8 @@
 /**
  * Subtitle generation jobs.
  *
- * `subtitles_transcribe` uses GenStudio KH as Story Studio's sole AI
- * transcription boundary. GenStudio owns Studio Hub routing, VoiceStudio
- * workers, durable polling, and private artifacts. Chapter-derived and
- * user-uploaded SRTs remain synchronous local operations.
+ * `subtitles_transcribe` uses Story Studio's transcription service and live
+ * model catalog. Imported SRTs remain synchronous local operations.
  */
 
 import fs from 'fs/promises'
@@ -50,10 +48,7 @@ export interface TranscribeSubtitlesRequest {
    * the merged track contaminating the transcript.
    */
   per_chapter?: boolean
-  /**
-   * New work always uses GenStudio. Retired values remain accepted only so a
-   * queued pre-migration job can heal onto the published GenStudio model.
-   */
+  /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
 }
 
@@ -70,30 +65,27 @@ async function resolveGenStudioTranscription(
   const apiKey = await getApiKey('genstudio')
   if (!apiKey.trim()) {
     throw new Error(
-      'GenStudio KH API key not configured. Save a key with audio:transcribe in Settings → This Mac → API Keys.',
+      'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
     )
   }
   let models: Awaited<ReturnType<typeof listTranscriptionModels>>
   try {
     models = await listTranscriptionModels(apiKey)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(
-      `${message}. Ensure the saved GenStudio KH key includes audio:transcribe.`,
-    )
+    throw new Error('Could not load transcription models. Check your connection and try again.')
   }
   const requestedModel = req.model?.trim() || ''
   const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
   if (!migratedModel) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
   const selected = models.find(model => model.id === migratedModel)
-  if (!selected) throw new Error(`GenStudio KH no longer publishes transcription model "${migratedModel}".`)
+  if (!selected) throw new Error('The selected transcription model is no longer available.')
   if (!selected.available) {
-    throw new Error(`GenStudio KH transcription model "${selected.display_name}" has no ready workers.`)
+    throw new Error('The selected transcription model is temporarily unavailable.')
   }
   if (requestedModel !== migratedModel) {
     job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)
   }
-  job.output_lines.push(`Engine: GenStudio KH · ${selected.display_name}`)
+  job.output_lines.push(`Model: ${selected.display_name}`)
   return { apiKey, modelId: selected.id }
 }
 
@@ -103,7 +95,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const code = episode_id.toUpperCase()
 
   job.progress = 0
-  job.output_lines.push(`Starting GenStudio transcription for ${code}`)
+  job.output_lines.push(`Starting transcription for ${code}`)
 
   // v1.0.216+ — Per-chapter mode (audio-paced pipeline). Routed before the
   // merged-audio path: transcribe each chapter's clean narration into

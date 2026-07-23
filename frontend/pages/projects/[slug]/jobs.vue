@@ -406,7 +406,11 @@
           </span>
         </div>
 
-        <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
+        <GenStudioBatchLedger
+          v-if="isLargeGenStudioBatch(job)"
+          :remote-jobs="job.genstudio_jobs!"
+        />
+        <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
           <span class="meta-label">GenStudio:</span>
           <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
             {{ remote.operation }} · <strong>{{ remote.state }}</strong>
@@ -588,7 +592,11 @@
             </span>
           </div>
 
-          <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
+          <GenStudioBatchLedger
+            v-if="isLargeGenStudioBatch(job)"
+            :remote-jobs="job.genstudio_jobs!"
+          />
+          <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
             <span class="meta-label">GenStudio:</span>
             <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
               {{ remote.operation }} · <strong>{{ remote.state }}</strong>
@@ -707,6 +715,12 @@ watch(isUniversal, enabled => {
 function hasAccountsUsed(job: RJob): boolean {
   const used = job.accounts_used
   return !!used && Object.keys(used).length > 0
+}
+
+const GENSTUDIO_BATCH_THRESHOLD = 12
+
+function isLargeGenStudioBatch(job: RJob): boolean {
+  return (job.genstudio_jobs?.length || 0) >= GENSTUDIO_BATCH_THRESHOLD
 }
 
 function providerDisplay(providerId: string): string {

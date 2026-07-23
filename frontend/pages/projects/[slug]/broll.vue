@@ -373,67 +373,13 @@
       <!-- Source picker -->
       <div class="flex gap-2 mt-2 flex-wrap">
         <button
-          :class="['btn btn-sm', subtitlesSource === 'chapters' ? 'btn-primary' : 'btn-secondary']"
-          @click="subtitlesSource = 'chapters'"
-        >📑 Auto from chapters</button>
-        <button
           :class="['btn btn-sm', subtitlesSource === 'upload' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'upload'"
         >📂 Import .srt / .vtt</button>
         <button
           :class="['btn btn-sm', subtitlesSource === 'whisper' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'whisper'"
-        >🎙 Transcribe (GenStudio)</button>
-      </div>
-
-      <!-- Chapters -->
-      <div v-if="subtitlesSource === 'chapters'" class="mt-2">
-        <p class="text-muted text-sm">
-          Derives one cue per chapter from the individual chapter audio files —
-          fast, free, chapter-level granularity (one line per chapter).
-        </p>
-        <p
-          v-if="subtitlesStatus && !subtitlesStatus.has_chapter_audio"
-          class="validation-msg text-sm"
-        >
-          No chapter audio files found. Run the Audio Generator for this
-          episode first, or pick a different source.
-        </p>
-        <!-- v1.0.127+ — Gap input. Audio Assembly inserts silence between
-             chapters (default 5s, format-overridable via the format's
-             audioMergeDefaults.gapDurationSec). The subtitle generator
-             needs to use the SAME gap or cues drift forward through the
-             episode. Default is seeded from the format on mount; the user
-             can override here per-episode. -->
-        <div class="flex items-center gap-2 mt-2 flex-wrap">
-          <label class="text-sm text-muted" style="white-space: nowrap">Gap between chapters (sec)</label>
-          <input
-            v-model.number="brollSubtitles.gap_sec"
-            type="number"
-            min="0"
-            max="30"
-            step="0.5"
-            class="input input-sm"
-            style="width: 90px"
-          />
-          <span class="text-xs text-muted" v-if="brollFormatGapDefault !== null && brollSubtitles.gap_sec !== brollFormatGapDefault">
-            format default: {{ brollFormatGapDefault }}s — restore?
-            <button class="btn-icon" title="Restore format default" @click="brollSubtitles.gap_sec = brollFormatGapDefault ?? 5">↺</button>
-          </span>
-          <span class="text-xs text-muted" v-else-if="brollFormatGapDefault !== null">
-            format default (audioMergeDefaults.gapDurationSec)
-          </span>
-          <span class="text-xs text-muted" v-else>
-            should match the silence your Audio Assembly inserts between chapters
-          </span>
-        </div>
-        <button
-          class="btn btn-sm btn-secondary mt-2"
-          :disabled="subtitlesGenerating || !form.episode_id || !subtitlesStatus?.has_chapter_audio"
-          @click="generateBrollSubtitlesFromChapters"
-        >
-          {{ subtitlesGenerating ? 'Generating…' : `Generate SRT from chapters (gap: ${brollSubtitles.gap_sec}s)` }}
-        </button>
+        >🎙 Transcribe</button>
       </div>
 
       <!-- Upload -->
@@ -464,23 +410,22 @@
       <!-- Whisper -->
       <div v-if="subtitlesSource === 'whisper'" class="mt-2">
         <p class="text-muted text-sm mt-2">
-          Transcribes merged audio through <strong>GenStudio KH</strong>. Story Studio never
-          contacts OpenAI, Studio Hub, or Voice Studio directly for transcription.
+          Transcribe the merged audio into a subtitle track.
         </p>
-        <div v-if="brollGenstudioModelsLoading" class="text-muted text-sm">Loading GenStudio models…</div>
+        <div v-if="brollGenstudioModelsLoading" class="text-muted text-sm">Loading transcription models…</div>
         <p v-else-if="brollGenstudioModelsError" class="validation-msg text-sm">
           ⚠ {{ brollGenstudioModelsError }}
-          <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" style="color: var(--accent)">Open GenStudio settings</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" style="color: var(--accent)">Open transcription settings</NuxtLink>
           or <a href="#" style="color: var(--accent)" @click.prevent="loadBrollGenstudioModels">retry</a>.
         </p>
         <div v-else class="form-group mt-2">
-          <label class="text-muted text-xs">Transcription model · published by GenStudio KH</label>
+          <label class="text-muted text-xs">Transcription model</label>
           <ModelMenu
             v-model="brollGenstudioModel"
             :options="brollGenstudioModelOptions"
             media-type="transcription"
-            title="GenStudio transcription model"
-            search-placeholder="Search GenStudio models…"
+            title="Choose a transcription model"
+            search-placeholder="Search transcription models…"
             :catalog-notice="brollGenstudioPlanNotice"
             catalog-notice-href="/usage"
           />
@@ -553,20 +498,6 @@
             >✓ burned next</span>
             <span class="text-muted" v-if="!brollSubtitles.enabled">
               — currently disabled by the toggle above; will be burned when re-enabled
-            </span>
-            <!-- v1.0.140+ — Drift warning. Surfaces when this SRT was
-                 derived against a different merge gap than the audio
-                 was actually merged with — re-deriving fixes the
-                 progressive drift the user would otherwise see in the
-                 burned-in subtitles. -->
-            <span
-              v-if="srt.drifts_from_current_merge"
-              class="broll-srt-drift"
-              :title="srt.drift_note || 'Gap mismatch — re-derive to fix drift.'"
-            >
-              ⚠ drift {{ srt.generated_with_gap_s != null
-                ? `(was ${srt.generated_with_gap_s}s, now ${subtitlesStatus?.current_merge_gap_s}s)`
-                : '' }}
             </span>
             <!-- v1.0.135+ — In-app delete. Removes the file from
                  subtitles_dir so the broll-assemble findSubtitlePath
@@ -709,10 +640,9 @@ const brollPresets = usePresets<any>({
 //   - Format-aware gap default (read from audioMergeDefaults.gapDurationSec)
 //   - Persisted to config.broll_subtitles via useAutoSave debounce
 //
-// `brollSubtitles` is the persistent state — survives navigation,
-// flows into the assemble request. `subtitlesSource` is transient
-// (which generator-tab is showing right now).
-const subtitlesSource = ref<'chapters' | 'upload' | 'whisper'>('chapters')
+// `brollSubtitles` is the persistent state — survives navigation and flows
+// into the assemble request. `subtitlesSource` is transient.
+const subtitlesSource = ref<'upload' | 'whisper'>('upload')
 const subtitlesGenerating = ref(false)
 const subtitlesStatus = ref<{
   has_libass: boolean
@@ -722,19 +652,8 @@ const subtitlesStatus = ref<{
     path: string
     filename: string
     mtime: number
-    // v1.0.140+ — Drift-detection fields populated by the backend when
-    // a parallel `.srt.json` metadata sidecar exists. Missing on
-    // pre-1.0.140 SRTs (hand-imported, Whisper-transcribed, etc.) and
-    // ignored by the frontend in that case.
-    generated_with_gap_s?: number | null
-    drifts_from_current_merge?: boolean
-    drift_note?: string
   }>
   subtitles_dir: string
-  /** v1.0.140+ — The gap_duration the most recent audio-merge job
-   *  used, read from the audio_chapters.json sidecar. null when no
-   *  merge has run on 1.0.140+ yet. */
-  current_merge_gap_s?: number | null
   /** v1.0.396 — user-pinned subtitle filename to burn (null = AUTO). */
   selected_subtitle?: string | null
 } | null>(null)
@@ -753,13 +672,9 @@ const {
 
 // Persistent subtitle config — saved to config.broll_subtitles. Default
 // shape matches what broll-assemble.ts expects on the wire + the
-// VideoSubtitleStyle interface. `gap_sec` controls subtitle cue
-// timestamps in the chapters-source generator; the default is replaced
-// by the format's audioMergeDefaults.gapDurationSec on mount if the
-// project's effective format declares one.
+// VideoSubtitleStyle interface.
 const brollSubtitles = reactive({
   enabled: false,
-  gap_sec: 5,
   style: {
     font_family: 'Helvetica',
     font_size_px: 28,
@@ -774,23 +689,6 @@ const brollSubtitles = reactive({
   },
 })
 
-// v1.0.127+ — Format-driven default for the inter-chapter silence gap.
-// audio-merge.ts uses `req.body.gap_duration ?? fmtMerge?.gapDurationSec ?? 5`
-// when concatenating the chapter MP3s. Subtitle from-chapters needs to
-// use the SAME value or its cues drift over the episode. We fetch the
-// format on mount and seed `brollSubtitles.gap_sec` from it (unless the
-// user already saved a different value to config).
-const brollFormatGapDefault = ref<number | null>(null)
-async function loadBrollFormatGapDefault(): Promise<void> {
-  try {
-    const f = await get<{ script?: { audioMergeDefaults?: { gapDurationSec?: number } } }>(
-      `/projects/${slug.value}/effective-format`,
-    )
-    const fg = f?.script?.audioMergeDefaults?.gapDurationSec
-    if (typeof fg === 'number' && fg >= 0) brollFormatGapDefault.value = fg
-  } catch { /* tolerate — fallback default (5) stays in place */ }
-}
-
 // v1.0.127+ — Persist brollSubtitles to config.broll_subtitles whenever it
 // changes. Debounced 800ms via useAutoSave so a series of rapid edits
 // (slider drag in the style picker, gap arrow-key bumps) collapse into
@@ -803,7 +701,6 @@ const brollSubsAutoSave = useAutoSave({
     await put(`/projects/${slug.value}/settings/config`, {
       broll_subtitles: {
         enabled: brollSubtitles.enabled,
-        gap_sec: brollSubtitles.gap_sec,
         style: { ...brollSubtitles.style },
       },
     })
@@ -814,7 +711,6 @@ const brollSubsAutoSave = useAutoSave({
 watch(
   () => ({
     enabled: brollSubtitles.enabled,
-    gap_sec: brollSubtitles.gap_sec,
     style: { ...brollSubtitles.style },
   }),
   () => { brollSubsAutoSave.scheduleSave() },
@@ -870,26 +766,6 @@ async function selectBrollSubtitle(filename: string | null): Promise<void> {
   }
 }
 
-async function generateBrollSubtitlesFromChapters(): Promise<void> {
-  if (!form.episode_id) return
-  subtitlesGenerating.value = true
-  try {
-    const r = await post<{ srt_path: string; cues: number }>(
-      `/projects/${slug.value}/video-editor/subtitles/from-chapters/${form.episode_id}`,
-      // v1.0.127+ — use the configured gap (format-aware default seeded
-      // on mount; user can override). Hardcoded 5 in v1.0.126 made cues
-      // drift for projects whose audio_merge used a non-5 gap_duration.
-      { gap_sec: brollSubtitles.gap_sec },
-    )
-    success(`Generated ${r.cues} chapter cues at ${brollSubtitles.gap_sec}s inter-chapter gap`)
-    await loadBrollSubtitlesStatus()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Chapter subtitles failed')
-  } finally {
-    subtitlesGenerating.value = false
-  }
-}
-
 async function importBrollSubtitles(): Promise<void> {
   if (!form.episode_id || !brollSubtitleUploadPath.value) return
   subtitlesGenerating.value = true
@@ -931,7 +807,7 @@ async function transcribeBrollWithGenStudio(): Promise<void> {
     success(
       brollHasExistingWhisperSrt.value && !brollWhisperForce.value
         ? 'Existing transcript will be reused — no transcription run'
-        : 'GenStudio transcription queued — check Jobs panel for progress',
+        : 'Transcription queued — check Jobs for progress',
     )
     // No immediate srt_path set — the transcribe job is async. The user
     // pops back here later (or the status refreshes after the job 'done'
@@ -969,9 +845,6 @@ async function deleteBrollSubtitle(filename: string): Promise<void> {
     // if the response shape ever drifts.
     const r = await del<{ existing_srts: Array<{
       path: string; filename: string; mtime: number
-      generated_with_gap_s?: number | null
-      drifts_from_current_merge?: boolean
-      drift_note?: string
     }>; deleted: string }>(
       `/projects/${slug.value}/video-editor/subtitles/${form.episode_id}/${encodeURIComponent(filename)}`,
     )
@@ -1096,12 +969,11 @@ async function loadConfig(): Promise<void> {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     subscribedPoolId.value = cfg?.broll_pool_id || ''
     form.broll_lookback = cfg?.broll_lookback ?? 10
-    // v1.0.127+ — Hydrate persistent subtitle config. Defensive Object.assign
-    // so a partial config (missing style or gap_sec) keeps the defaults.
+    // Hydrate persistent subtitle config. Defensive Object.assign keeps the
+    // current defaults when a saved style is partial.
     const saved = cfg?.broll_subtitles
     if (saved && typeof saved === 'object') {
       if (typeof saved.enabled === 'boolean') brollSubtitles.enabled = saved.enabled
-      if (typeof saved.gap_sec === 'number' && saved.gap_sec >= 0) brollSubtitles.gap_sec = saved.gap_sec
       if (saved.style && typeof saved.style === 'object') Object.assign(brollSubtitles.style, saved.style)
     }
   } catch { /* tolerate */ }
@@ -1139,15 +1011,6 @@ onMounted(async () => {
   // Status drives the libass and audio gates in the Subtitles section.
   await loadBrollSubtitlesStatus()
   if (subtitlesSource.value === 'whisper') await loadBrollGenstudioModels()
-  // v1.0.127+ — Format-aware gap default. If the user has never saved a
-  // broll_subtitles.gap_sec (i.e. it's still the hardcoded 5), seed it
-  // from the format's audioMergeDefaults.gapDurationSec so the first
-  // "Generate SRT from chapters" run produces cues that line up with
-  // what audio-merge actually wrote between chapters.
-  await loadBrollFormatGapDefault()
-  if (brollFormatGapDefault.value !== null && brollSubtitles.gap_sec === 5) {
-    brollSubtitles.gap_sec = brollFormatGapDefault.value
-  }
 })
 
 // ── Pool subscription ──────────────────────────────────────────────────
@@ -1466,21 +1329,6 @@ function formatDuration(sec: number): string {
 }
 .broll-srt-del:disabled { opacity: 0.6; cursor: default; }
 
-/* v1.0.140+ — Drift warning chip on subtitle rows where the SRT was
-   derived against a different audio-merge gap than the current one.
-   Yellow-tinted so it reads as "needs attention" without being a
-   hard error — the SRT still burns; it just drifts visibly. Hover
-   shows the full explanation from drift_note. */
-.broll-srt-drift {
-  margin-left: 8px;
-  padding: 0 6px;
-  font-size: var(--font-xs);
-  color: #d4a017;
-  background: rgba(212, 160, 23, 0.10);
-  border: 1px solid rgba(212, 160, 23, 0.35);
-  border-radius: 3px;
-  cursor: help;
-}
 .validation-msg {
   color: #c97a4a;
   background: rgba(201, 122, 74, 0.08);

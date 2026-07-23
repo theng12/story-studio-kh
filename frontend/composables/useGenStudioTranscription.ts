@@ -9,7 +9,7 @@ export interface GenStudioTranscriptionModel {
   unlimited_relaxed?: boolean
 }
 
-/** Shared GenStudio transcription catalog state for Subtitles and B-Roll. */
+/** Shared live transcription catalog state for Subtitles and B-Roll. */
 export function useGenStudioTranscriptionModels() {
   const { get } = useApi()
   const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
@@ -27,19 +27,15 @@ export function useGenStudioTranscriptionModels() {
     return {
       id: model.id,
       label: model.display_name,
-      group: 'GenStudio KH · transcription',
-      provider: model.provider || 'GenStudio KH',
-      meta: [
-        model.language,
-        model.available ? `${model.available_workers} ready worker${model.available_workers === 1 ? '' : 's'}` : 'No ready workers',
-      ].filter(Boolean).join(' · '),
+      group: 'Transcription',
+      meta: model.language,
       description: model.qualification_only
-        ? 'Qualification model published by GenStudio KH.'
-        : 'Published by GenStudio KH.',
+        ? 'Available for qualified accounts.'
+        : 'Available for transcription.',
+      disabled: !model.available,
+      disabledReason: model.available ? undefined : 'This transcription model is temporarily unavailable.',
       badges: [
-        ...(model.available
-          ? [{ label: 'ready', tone: 'local' as const }]
-          : [{ label: 'offline', tone: 'warning' as const }]),
+        ...(!model.available ? [{ label: 'unavailable', tone: 'warning' as const }] : []),
         ...(model.qualification_only
           ? [{ label: 'qualification', tone: 'info' as const }]
           : []),
@@ -66,12 +62,12 @@ export function useGenStudioTranscriptionModels() {
         )?.id || ''
       }
       if (!models.value.length) {
-        error.value = 'GenStudio KH did not publish a transcription model.'
+        error.value = 'No transcription models are available right now.'
       }
     } catch (cause: any) {
       models.value = []
       error.value = cause?.data?.detail || cause?.message || (
-        'Could not load GenStudio KH transcription models. Ensure the saved API key includes audio:transcribe.'
+        'Could not load transcription models. Check your connection and try again.'
       )
     } finally {
       loading.value = false

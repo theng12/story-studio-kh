@@ -16,7 +16,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { downloadImage } from '../lib/kie-client.js'
+import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -109,7 +109,7 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
       input_hash: hashInput(prompt),
     })
   }
-  await downloadImage(result.urls[0]!, outPath)
+  await saveGenStudioImage(result.urls[0]!, outPath)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error('Downloaded composition template is empty.')
 
