@@ -15,10 +15,36 @@
           </nav>
           <div class="workspace-metrics" aria-label="Job queue summary">
             <span class="workspace-metric" data-tone="info"><strong>{{ stats.running }}</strong> running</span>
-            <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> queued</span>
+            <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> waiting locally</span>
             <span v-if="stats.paused" class="workspace-metric" data-tone="warning"><strong>{{ stats.paused }}</strong> paused</span>
             <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> errors</span>
+          </div>
+          <div
+            v-if="genStudioAdmission"
+            class="genstudio-capacity-summary"
+            aria-label="GenStudio account capacity"
+          >
+            <span>
+              <strong>{{ genStudioAdmission.local_waiting }}</strong>
+              submissions waiting locally
+            </span>
+            <span>
+              <strong>{{ genStudioAdmission.paid_active_jobs }}/{{ genStudioAdmission.paid_concurrency_limit }}</strong>
+              paid active
+            </span>
+            <span :class="{ 'capacity-warning': genStudioAdmission.queue_near_capacity }">
+              <strong>{{ genStudioAdmission.paid_queued_jobs }}/{{ genStudioAdmission.max_queued_jobs }}</strong>
+              GenStudio queued
+            </span>
+            <span>
+              <strong>{{ genStudioAdmission.generation_submissions_per_minute }}</strong>
+              submissions/min
+            </span>
+            <span v-if="genStudioAdmission.relaxed_concurrency_limit > 0">
+              <strong>{{ genStudioAdmission.relaxed_concurrency_limit }}</strong>
+              Unlimited Relaxed
+            </span>
           </div>
           <div class="jobs-hero-actions">
             <button
@@ -413,7 +439,7 @@
         <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
           <span class="meta-label">GenStudio:</span>
           <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-            {{ remote.operation }} · <strong>{{ remote.state }}</strong>
+            {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
             <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
             <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
             <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
@@ -599,7 +625,7 @@
           <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
             <span class="meta-label">GenStudio:</span>
             <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-              {{ remote.operation }} · <strong>{{ remote.state }}</strong>
+              {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
               <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
               <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
               <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
@@ -686,6 +712,22 @@ const stats = computed(() => isUniversal.value ? universalQueue.stats.value : pr
 const { success, error: showError, info } = useToast()
 
 interface ProjectOption { slug: string; name: string }
+interface GenStudioAdmissionSnapshot {
+  paid_concurrency_limit: number
+  paid_active_jobs: number
+  paid_queued_jobs: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
+  relaxed_concurrency_limit: number
+  local_waiting: number
+  submitting: number
+  available_paid_slots: number
+  submissions_in_window: number
+  queue_near_capacity: boolean
+  retry_after_ms: number
+  refreshed_at: string | null
+  limitSource: 'account-overview' | 'safe-fallback'
+}
 const projects = ref<ProjectOption[]>([])
 const projectFilter = ref('all')
 const projectNames = computed(() => new Map(projects.value.map(project => [project.slug, project.name])))
@@ -768,6 +810,26 @@ function genStudioJobTitle(
   ].filter(Boolean).join(' · ')
 }
 
+const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
+  waiting_local: 'Waiting locally',
+  submitting: 'Submitting to GenStudio',
+  accepted: 'Accepted',
+  waiting_account_capacity: 'Waiting for account capacity',
+  running: 'Running',
+  completing: 'Completing',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  waiting_credits: 'Waiting for credits',
+  cancelled: 'Cancelled',
+}
+
+function genStudioQueueLabel(
+  remote: NonNullable<RJob['genstudio_jobs']>[number],
+): string {
+  const state = remote.queue_state || remote.state || 'unknown'
+  return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
+}
+
 const expanded = ref<string | null>(null)
 const errorExpanded = ref<string | null>(null)
 // Persistent per-job repair result so the user can see WHICH cards they've
@@ -783,12 +845,22 @@ const queuePaused = ref(false)
 const resumingQueue = ref(false)
 const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
+const genStudioAdmission = ref<GenStudioAdmissionSnapshot | null>(null)
 
 async function checkQueuePaused(): Promise<void> {
   try {
     const r = await get<{ paused: boolean }>('/system/queue/status')
     queuePaused.value = !!r.paused
   } catch { /* backend unreachable — leave the last-known value */ }
+}
+
+async function refreshGenStudioCapacity(): Promise<void> {
+  try {
+    genStudioAdmission.value = await get<GenStudioAdmissionSnapshot>('/app-settings/genstudio/admission')
+  } catch {
+    // Generation remains safe: the backend scheduler uses its conservative
+    // fallback while the last visible account snapshot stays on screen.
+  }
 }
 
 async function resumeQueue(): Promise<void> {
@@ -822,7 +894,11 @@ onMounted(() => {
   void genStudioModels.refresh()
   timer = setInterval(() => now.value = Date.now(), 1000)
   void checkQueuePaused()
-  queueTimer = setInterval(checkQueuePaused, 5000)
+  void refreshGenStudioCapacity()
+  queueTimer = setInterval(() => {
+    void checkQueuePaused()
+    void refreshGenStudioCapacity()
+  }, 5000)
 })
 onUnmounted(() => {
   if (isUniversal.value) universalQueue.stop()
@@ -1821,6 +1897,31 @@ async function clearFinished() {
   justify-content: flex-end;
   gap: 8px;
 }
+.genstudio-capacity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(720px, 100%);
+}
+.genstudio-capacity-summary span {
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.genstudio-capacity-summary strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.genstudio-capacity-summary .capacity-warning {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  color: var(--warning);
+}
 .job-scope-switch {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2333,6 +2434,7 @@ async function clearFinished() {
 @media (max-width: 760px) {
   .jobs-hero-aside { justify-items: start; }
   .jobs-hero-actions { justify-content: flex-start; }
+  .genstudio-capacity-summary { justify-content: flex-start; }
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
   .job-identity { flex-basis: 100%; }
   .job-actions { margin-left: auto; }

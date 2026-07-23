@@ -225,7 +225,7 @@
           <div
             v-else
             class="project-card"
-            @click="navigateTo(`/projects/${project.slug}`)"
+            @click="openProject(project)"
           >
             <div class="project-card-header">
               <h3>{{ project.name }}</h3>
@@ -1183,6 +1183,7 @@
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
 import { canonicalFormatId, formatBuildLine } from '~/composables/useFormats'
 import { useNiches } from '~/composables/useNiches'
+import { projectSlug } from '~/utils/project-slug'
 
 useAppTitle()
 const { get, post, put } = useApi()
@@ -1203,6 +1204,21 @@ const templates = ref<any[]>([])
 // Cleared when a fetch succeeds with any result, even an empty array.
 const projectsLoadError = ref<string>('')
 const projectsRetrying = ref(false)
+
+/**
+ * Never construct a project URL from an incomplete list row. Under a busy
+ * backend the list can refresh while a newly-created project is still being
+ * registered; routing with a missing slug used to produce `/projects/undefined`.
+ */
+function openProject(project: { slug?: unknown }) {
+  const slug = projectSlug(project?.slug)
+  if (!slug) {
+    showError('This project is still loading. Please wait a moment and try again.')
+    void loadData()
+    return
+  }
+  void navigateTo(`/projects/${slug}`)
+}
 
 // ── Linked-projects "Add existing project folder…" dialog ─────────────────
 const addLinkedOpen = ref(false)
@@ -1636,6 +1652,9 @@ async function ensureProjectCreated(): Promise<any> {
     // backend's optional-field handling kicks in.
     niche_id: form.niche_id || undefined,
   })
+  if (!projectSlug(project?.slug)) {
+    throw new Error('The project is still being registered. Please wait a moment, then refresh the project list.')
+  }
   // The one GenStudio key is stored at app level (per-Mac, not per-project).
   // A blank field leaves the existing masked credential untouched.
   const entries: Array<[string, string]> = [
@@ -2150,7 +2169,7 @@ async function createProject() {
         : `Project "${project.name}" created!`,
     )
     closeCreate()
-    navigateTo(`/projects/${project.slug}`)
+    openProject(project)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to create project')
   } finally {
@@ -2305,7 +2324,7 @@ async function commitImport() {
         : `Imported "${label}"!`,
     )
     showImport.value = false
-    navigateTo(`/projects/${result.slug}`)
+    openProject(result)
   } catch (e: any) {
     importError.value = e.data?.detail || 'Import failed.'
   } finally {

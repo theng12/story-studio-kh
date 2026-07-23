@@ -85,7 +85,7 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     aspectRatio,
     modelId: modelConfig.api_model || model,
     providerParams,
-    idempotencyIdentity: `${job.job_id}:composition-template`,
+    idempotencyIdentity: `${job.project_slug}:${episode_id}:composition-template`,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, COMPOSITION_FILENAME, {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,

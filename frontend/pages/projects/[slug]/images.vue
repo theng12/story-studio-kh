@@ -156,27 +156,12 @@
           </select>
         </div>
         <div v-if="activeGenStudioModel" class="form-group">
-          <label>GenStudio quality</label>
-          <select v-model="activeForm.image_quality" class="select" @change="applyGenStudioQuality">
-            <option value="draft">Draft · {{ genStudioQualitySteps.draft }} steps</option>
-            <option value="balanced">Balanced · {{ genStudioQualitySteps.balanced }} steps</option>
-            <option value="detailed">Detailed · {{ genStudioQualitySteps.detailed }} steps</option>
-            <option value="maximum">Maximum · {{ genStudioQualitySteps.maximum }} steps</option>
-            <option value="custom">Custom · exact steps below</option>
-          </select>
-          <p class="text-muted text-xs mt-1">Quality maps to the model's real inference-step range.</p>
-        </div>
-        <div v-if="activeGenStudioModel" class="form-group">
-          <label>Image steps</label>
-          <input
-            v-model.number="activeForm.image_steps"
-            class="input"
-            type="number"
-            :min="activeGenStudioModel.min_steps"
-            :max="activeGenStudioModel.max_steps"
-            @input="activeForm.image_quality = 'custom'"
-          />
-          <p class="text-muted text-xs mt-1">Allowed: {{ activeGenStudioModel.min_steps }}–{{ activeGenStudioModel.max_steps }} steps.</p>
+          <label>Generation quality</label>
+          <div class="input generator-automatic-quality" aria-live="polite">
+            <strong>Automatic</strong>
+            <span>GenStudio uses {{ activeGenStudioModel.display_name }}’s recommended quality.</span>
+          </div>
+          <p class="text-muted text-xs mt-1">No step setting is saved or sent by Story Studio.</p>
         </div>
         <div v-if="activeGenStudioModel" class="form-group">
           <label>Seed <span class="text-muted text-xs">optional</span></label>
@@ -306,7 +291,6 @@
       :generation-mode="form.thumbnail.generation_mode"
       :image-mode="form.thumbnail.image_mode"
       :tier="form.thumbnail.tier"
-      :image-steps="form.thumbnail.image_steps"
       :seed="form.thumbnail.seed"
       :reference-sources="form.thumbnail.reference_sources"
       :reference-strength="form.thumbnail.reference_strength"
@@ -329,7 +313,6 @@
       :generation-mode="form.scene.generation_mode"
       :image-mode="form.scene.image_mode"
       :tier="form.scene.tier"
-      :image-steps="form.scene.image_steps"
       :seed="form.scene.seed"
       :reference-sources="form.scene.reference_sources"
       :reference-strength="form.scene.reference_strength"
@@ -747,8 +730,6 @@ type ImagesSubForm = {
   // (Image Studio). 'highest' = largest size for the AR (ultra→high→max),
   // 'balanced' = middle/default, 'fast' = smallest. Portable across models.
   render_tier: 'highest' | 'balanced' | 'fast'
-  image_quality: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
-  image_steps: number
   seed: number | null
 }
 const defaultSubForm = (): ImagesSubForm => ({
@@ -786,8 +767,6 @@ const defaultSubForm = (): ImagesSubForm => ({
   // v1.0.478 — model-menu quality tier. Balanced = a sensible default (e.g. 1080p
   // for 16:9 on cloud models); only used when the model reports `sizes`.
   render_tier: 'balanced',
-  image_quality: 'balanced',
-  image_steps: 4,
   seed: null,
 })
 const form = reactive({
@@ -903,24 +882,6 @@ const isCatalog = ref<Map<string, IsModel>>(new Map())
 const activeGenStudioModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === activeForm.value.model) || null,
 )
-const genStudioQualitySteps = computed(() => {
-  const model = activeGenStudioModel.value
-  const min = model?.min_steps ?? 2
-  const balanced = model?.default_steps ?? 4
-  const max = model?.max_steps ?? 8
-  return {
-    draft: min,
-    balanced,
-    detailed: Math.min(max, balanced + 2),
-    maximum: max,
-  }
-})
-function applyGenStudioQuality() {
-  const quality = activeForm.value.image_quality
-  if (quality === 'custom') return
-  activeForm.value.image_steps = genStudioQualitySteps.value[quality]
-}
-
 // When the active model changes, snap the tier selection back to the new
 // model's default_tier (or first tier, or empty). Without this, switching
 // from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
@@ -952,9 +913,6 @@ watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
         ? genStudio.default_aspect_ratio
         : supported[0]!
     }
-    const steps = Number(activeForm.value.image_steps || genStudio.default_steps)
-    activeForm.value.image_steps = Math.max(genStudio.min_steps, Math.min(genStudio.max_steps, steps))
-    if (activeForm.value.image_quality !== 'custom') applyGenStudioQuality()
   }
 }, { immediate: true })
 
@@ -969,17 +927,33 @@ watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
 // Legacy `image_generator_presets` is intentionally NOT migrated.
 // Existing presets stay on disk under that key but no longer surface
 // in the new split UI (re-save from the new tabs to materialize them).
+function imageGeneratorPresetForm(value: ImagesSubForm): Omit<ImagesSubForm, 'image_quality' | 'image_steps'> {
+  // Inference steps are GenStudio-owned. Drop legacy values as presets are
+  // saved so Pipeline cannot revive an obsolete manual step selection.
+  const { image_quality: _quality, image_steps: _steps, ...saved } = value as ImagesSubForm & {
+    image_quality?: unknown
+    image_steps?: unknown
+  }
+  return saved
+}
+
+function applyImageGeneratorPreset(target: ImagesSubForm, data: any): void {
+  if (!data?.form) return
+  const { image_quality: _quality, image_steps: _steps, ...saved } = data.form
+  Object.assign(target, saved)
+}
+
 const thumbnailGeneratorPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'thumbnail_generator',
-  snapshot: () => ({ form: { ...form.thumbnail } }),
-  apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
+  snapshot: () => ({ form: imageGeneratorPresetForm(form.thumbnail) }),
+  apply: (data) => applyImageGeneratorPreset(form.thumbnail, data),
 })
 const sceneGeneratorPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'scene_generator',
-  snapshot: () => ({ form: { ...form.scene } }),
-  apply: (data) => { if (data?.form) Object.assign(form.scene, data.form) },
+  snapshot: () => ({ form: imageGeneratorPresetForm(form.scene) }),
+  apply: (data) => applyImageGeneratorPreset(form.scene, data),
 })
 // Bound to TopActionBar — swaps active preset surface on tab change.
 const imgPresets = computed(() => thumbnailGeneratorPresets)
@@ -1139,10 +1113,7 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
       model: activeForm.value.model,
       aspect_ratio: activeForm.value.aspect_ratio,
       tier: activeForm.value.tier || undefined,
-      ...(activeGenStudioModel.value ? {
-        image_steps: activeForm.value.image_steps,
-        ...(typeof activeForm.value.seed === 'number' ? { seed: activeForm.value.seed } : {}),
-      } : {}),
+      ...(typeof activeForm.value.seed === 'number' ? { seed: activeForm.value.seed } : {}),
     })
     previewState[key] = {
       loading: false,
@@ -1764,14 +1735,8 @@ function generationParams(forceOverride?: boolean, includeSpecific = true) {
   }
   // Forward a tier only when the active model has tiers.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
-  if (activeGenStudioModel.value) {
-    params.image_steps = Math.max(
-      activeGenStudioModel.value.min_steps,
-      Math.min(activeGenStudioModel.value.max_steps, Number(activeForm.value.image_steps || activeGenStudioModel.value.default_steps)),
-    )
-    if (typeof activeForm.value.seed === 'number' && Number.isFinite(activeForm.value.seed)) {
-      params.seed = Math.max(0, Math.min(2147483647, Math.trunc(activeForm.value.seed)))
-    }
+  if (typeof activeForm.value.seed === 'number' && Number.isFinite(activeForm.value.seed)) {
+    params.seed = Math.max(0, Math.min(2147483647, Math.trunc(activeForm.value.seed)))
   }
 
   // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
@@ -2018,6 +1983,16 @@ async function submit() {
 .tier-option input { margin: 0; }
 .tier-option-label { font-weight: 600; color: var(--text-primary); }
 .tier-option-cost { color: var(--text-muted); font-size: var(--font-xs); }
+
+.generator-automatic-quality {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--text-secondary);
+}
+.generator-automatic-quality strong { color: var(--text-primary); }
+.generator-automatic-quality span { font-size: var(--font-xs); }
 
 .integrity-pill {
   display: inline-flex;

@@ -174,7 +174,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     height: renderHeight,
     steps: params.image_steps,
     seed: params.seed,
-    idempotencyIdentity: `${job.job_id}:${scene_id}`,
+    idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene_id}:image`,
     isCancelled: () => false,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, `${scene_id}.png`, {

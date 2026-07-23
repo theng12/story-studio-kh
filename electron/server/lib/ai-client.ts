@@ -93,7 +93,10 @@ export async function callAi(
     jsonMode: ctx.jsonMode,
     disableReasoning: ctx.disableReasoning,
     temperature: ctx.temperature,
-    requestIdentity: ctx.requestIdentity || [ctx.slug, ctx.jobId].filter(Boolean).join(':') || undefined,
+    // The request body is already part of the GenStudio idempotency digest.
+    // Keep the fallback stable across Story job retries instead of including
+    // the transient local queue id.
+    requestIdentity: ctx.requestIdentity || ctx.slug || undefined,
     onDiagnostics: ctx.onDiagnostics,
     images: ctx.images,
   })

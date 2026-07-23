@@ -534,7 +534,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               height: renderHeight,
               steps: params.image_steps,
               seed: params.seed,
-              idempotencyIdentity: `${job.job_id}:${scene.id}`,
+              idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
               isCancelled: () => jq.isCancelled(job.job_id),
               onJobAccepted: async (taskId) => {
                 await recordTask(outDir, `${scene.id}.png`, {
@@ -706,7 +706,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       height: renderHeight,
       steps: params.image_steps,
       seed: params.seed,
-      idempotencyIdentity: `${job.job_id}:${scene.id}`,
+      idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
       isCancelled: () => jq.isCancelled(job.job_id),
       onJobAccepted: async (taskId) => {
         await recordTask(outDir, `${scene.id}.png`, {

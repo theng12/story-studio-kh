@@ -539,7 +539,7 @@ export async function generateImages(job: Job): Promise<void> {
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
-        idempotencyIdentity: `${job.job_id}:scene:${scene.number}`,
+        idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId) => {
           await recordTask(bgDir, `${stem}_v1.png`, {
@@ -643,7 +643,7 @@ export async function generateImages(job: Job): Promise<void> {
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
-        idempotencyIdentity: `${job.job_id}:thumbnail:${thumb.number}`,
+        idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId) => {
           await recordTask(thumbDir, `${stem}_v1.png`, {

@@ -64,6 +64,20 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('useProject.loadProject()', () => {
+  test('clears state and makes no request for an unresolved slug', async () => {
+    const { loadProject, project, config, slug, loading } = useProject()
+    await loadProject('valid-project')
+    assert.ok(project.value)
+
+    await loadProject('undefined')
+
+    assert.equal(project.value, null)
+    assert.equal(config.value, null)
+    assert.equal(slug.value, null)
+    assert.equal(loading.value, false)
+    assert.equal(fetchCalls.filter(url => url.includes('/undefined')).length, 0)
+  })
+
   test('hydrates project + config and toggles loading', async () => {
     const { loadProject, project, config, loading, slug } = useProject()
 

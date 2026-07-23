@@ -137,7 +137,6 @@ const props = defineProps<{
   generationMode?: 'skip' | 'regenerate' | 'new_version'
   imageMode?: 'text2img' | 'img2img'
   tier?: string
-  imageSteps?: number
   seed?: number | null
   referenceSources?: Record<string, any>
   referenceStrength?: 'loose' | 'balanced' | 'strong'
@@ -321,7 +320,6 @@ function sharedJobParams() {
     model: props.model,
     aspect_ratio: props.aspectRatio,
     tier: props.tier,
-    ...(typeof props.imageSteps === 'number' ? { image_steps: props.imageSteps } : {}),
     ...(typeof props.seed === 'number' ? { seed: props.seed } : {}),
     image_mode: props.imageMode,
     reference_sources: props.referenceSources,

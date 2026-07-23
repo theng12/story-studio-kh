@@ -53,6 +53,14 @@ describe('shared model menus', () => {
     assert.match(imageGenerator, /if \(mode === 'img2img'\) activeForm\.value\.image_mode = 'text2img'/)
   })
 
+  test('image generation quality is automatic and never persists a manual step count', () => {
+    assert.match(imageGenerator, /<strong>Automatic<\/strong>/)
+    assert.match(imageGenerator, /imageGeneratorPresetForm/)
+    assert.match(imageGenerator, /image_steps: _steps/)
+    assert.doesNotMatch(imageGenerator, /v-model\.number="activeForm\.image_steps"/)
+    assert.doesNotMatch(imageGenerator, /params\.image_steps/)
+  })
+
   test('floating menus avoid clipped cards and stay inside the viewport', () => {
     assert.match(modelMenu, /<Teleport to="body">/)
     assert.match(modelMenu, /:style="panelStyle"/)

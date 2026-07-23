@@ -407,9 +407,10 @@
 
 <script setup lang="ts">
 import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+import { projectSlug } from '~/utils/project-slug'
 
 const route = useRoute()
-const slug = computed(() => route.params.slug as string)
+const slug = computed(() => projectSlug(route.params.slug))
 
 // v1.0.366 — mobile/touch: the sidebar becomes an off-canvas drawer below 900px.
 // Closes on navigation so tapping a nav item doesn't leave the drawer open.

@@ -543,10 +543,17 @@ export function resolveStepParams(
   }
   if (step === 'thumb_images') {
     const form = data.form || {}
+    // Inference steps are selected by the current GenStudio model at
+    // submission time. Old image-generator presets can contain an obsolete
+    // image_steps value (for example 4 for GPT Image 2, which only accepts
+    // 1); Pipeline must never forward it.
+    const automaticForm = { ...form }
+    delete automaticForm.image_steps
+    delete automaticForm.image_quality
     // Pipeline-step variant determines mode. Split steps force the
     // corresponding mode regardless of what the preset carries.
     return {
-      ...form,
+      ...automaticForm,
       episode_id: episodeId,
       mode: 'thumbs',
     }

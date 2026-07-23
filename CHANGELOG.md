@@ -4,6 +4,30 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.698 — 2026-07-24
+
+**Thumbnail Prompts again shows its model selector.**
+
+- Restores the live GenStudio prompt-model picker above Thumbnail Prompts'
+  look controls, with clear separation from the image-rendering model chosen
+  later in Thumbnail Generator.
+- Makes image-rendering quality automatic: removes manual inference-step
+  controls, cleans them from saved presets, and prevents Pipeline from sending
+  stale step values that GenStudio rejects for fixed-step models such as GPT
+  Image 2.
+
+## v1.0.697 — 2026-07-23
+
+**Project navigation no longer exposes internal slug-race errors.**
+
+- Redirects malformed or unresolved project routes before project pages mount,
+  preventing the application from loading against an `undefined` project.
+- Normalizes project slugs at the shared state and dashboard boundaries, clears
+  stale project state safely, and keeps internal request-cancellation markers
+  out of customer-facing error banners.
+- Rejects incomplete project-list and project-creation results before they can
+  construct an invalid project route during a busy refresh.
+
 ## v1.0.696 — 2026-07-23
 
 **Scene Plan now batches from live GenStudio limits, with a calmer workspace.**

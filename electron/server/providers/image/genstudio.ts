@@ -8,8 +8,32 @@
 
 import { registry } from '../registry.js'
 import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } from '../types.js'
-import { generateImageWithGenStudio } from '../../lib/genstudio-client.js'
+import { generateImageWithGenStudio, listImageModels } from '../../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
+
+const AUTOMATIC_STEPS_CACHE_MS = 30_000
+const automaticStepsByAccount = new Map<string, {
+  expiresAt: number
+  stepsByModel: Map<string, number>
+}>()
+
+async function automaticGenStudioSteps(apiKey: string, modelId: string): Promise<number> {
+  const now = Date.now()
+  let cached = automaticStepsByAccount.get(apiKey)
+  if (!cached || cached.expiresAt <= now) {
+    const models = await listImageModels(apiKey)
+    cached = {
+      expiresAt: now + AUTOMATIC_STEPS_CACHE_MS,
+      stepsByModel: new Map(models.map(model => [model.id, model.default_steps])),
+    }
+    automaticStepsByAccount.set(apiKey, cached)
+  }
+  const steps = cached.stepsByModel.get(modelId)
+  if (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 1) {
+    throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
+  }
+  return steps
+}
 
 const genstudioImageProvider: ImageProvider = {
   meta: {
@@ -29,12 +53,15 @@ const genstudioImageProvider: ImageProvider = {
     }
     const modelId = resolveGenStudioModelId('image', request.modelId)
     if (!modelId) throw new Error(unavailableLegacyModelMessage('image', request.modelId))
-    const defaultSteps = Number(request.providerParams?.default_steps) || 4
+    // GenStudio owns every model's inference contract. Story Studio never
+    // forwards a saved/manual step count: fetch the current model default so
+    // old presets and Pipeline runs cannot submit an invalid value.
+    const steps = await automaticGenStudioSteps(request.apiKey, modelId)
     const result = await generateImageWithGenStudio(request.apiKey, {
       prompt: request.prompt,
       modelId,
       aspectRatio: request.aspectRatio || '16:9',
-      steps: Number.isInteger(request.steps) ? request.steps! : defaultSteps,
+      steps,
       width: request.width,
       height: request.height,
       seed: request.seed,

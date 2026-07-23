@@ -24,6 +24,8 @@ import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
+import { getApiKey } from './services/app-secrets-store.js'
+import { refreshGenStudioAdmission } from './lib/genstudio-client.js'
 
 const app = express()
 const SERVER_MODE = isServerMode()
@@ -157,6 +159,14 @@ mountRoutes(app)
 
 runBootMigrations()
 registerAllExecutors()
+
+// Warm the account-wide GenStudio admission snapshot at startup. This is
+// advisory only: every actual dispatch refreshes capacity again, and a
+// missing usage:read grant falls back to the scheduler's safe single-submit
+// profile without blocking application startup.
+void getApiKey('genstudio')
+  .then(apiKey => apiKey?.trim() ? refreshGenStudioAdmission(apiKey) : undefined)
+  .catch(() => undefined)
 
 // (Removed: reconcilePortableFlagsAtStartup boot task. The `portable`
 // flag was the multi-machine-vs-local distinction for the legacy

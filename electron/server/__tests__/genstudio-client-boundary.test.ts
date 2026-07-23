@@ -157,13 +157,173 @@ test('GenStudio chat submits and completes through only the durable public job A
   }
 })
 
-test('GenStudio chat terminal failure never falls back to a direct provider', async () => {
+test('GenStudio 429 retries honor Retry-After with the same idempotency identity', async () => {
   const originalFetch = globalThis.fetch
-  let requests = 0
+  const submissionKeys: string[] = []
+  let submissions = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 3,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 1,
+        })
+      }
+      assert.equal(url, 'http://127.0.0.1:8000/v1/chat/responses')
+      submissions += 1
+      submissionKeys.push((init?.headers as Record<string, string>)['Idempotency-Key'] || '')
+      if (submissions === 1) {
+        return Response.json(
+          { detail: 'account submission rate reached' },
+          { status: 429, headers: { 'Retry-After': '0' } },
+        )
+      }
+      return Response.json({
+        id: 'chat_after_429',
+        state: 'succeeded',
+        model_id: 'genstudio-chat-local-v1',
+        output_text: 'Recovered without creating duplicate work.',
+      }, { status: 202, headers: { Location: '/v1/chat/responses/chat_after_429' } })
+    }
+
+    const result = await callChatWithGenStudio('scoped-key', {
+      modelId: 'genstudio-chat-local-v1',
+      system: '',
+      userMessage: 'Retry this one logical task safely.',
+      requestIdentity: 'boundful:EP0001:metadata',
+    })
+    assert.equal(result.jobId, 'chat_after_429')
+    assert.equal(submissions, 2)
+    assert.match(submissionKeys[0]!, /^story-chat-/)
+    assert.deepEqual(submissionKeys, [submissionKeys[0], submissionKeys[0]])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('uncertain GenStudio submission retries one identity and cannot duplicate the logical job', async () => {
+  const originalFetch = globalThis.fetch
+  const submissionKeys: string[] = []
+  let submissions = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 3,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 1,
+        })
+      }
+      assert.equal(url, 'http://127.0.0.1:8000/v1/chat/responses')
+      submissions += 1
+      submissionKeys.push((init?.headers as Record<string, string>)['Idempotency-Key'] || '')
+      if (submissions === 1) throw new TypeError('connection closed after request upload')
+      return Response.json({
+        id: 'chat_uncertain_replay',
+        state: 'succeeded',
+        model_id: 'genstudio-chat-local-v1',
+        output_text: 'GenStudio replayed the existing idempotent request.',
+      }, { status: 202 })
+    }
+
+    const result = await callChatWithGenStudio('scoped-key', {
+      modelId: 'genstudio-chat-local-v1',
+      system: '',
+      userMessage: 'Do not duplicate this logical task.',
+      requestIdentity: 'boundful:EP0002:script-outline',
+    })
+    assert.equal(result.jobId, 'chat_uncertain_replay')
+    assert.equal(submissions, 2)
+    assert.deepEqual(submissionKeys, [submissionKeys[0], submissionKeys[0]])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('202 account-concurrency queued response is healthy and polls the accepted job once', async () => {
+  const originalFetch = globalThis.fetch
+  const queueStates: string[] = []
+  let submissions = 0
+  let polls = 0
   try {
     globalThis.fetch = async (input) => {
-      requests++
-      assert.match(String(input), /\/v1\/chat\/responses$/)
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 3,
+          paid_active_jobs: 3,
+          paid_queued_jobs: 2,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 1,
+        })
+      }
+      if (url.endsWith('/v1/chat/responses')) {
+        submissions += 1
+        return Response.json({
+          id: 'chat_account_queued',
+          state: 'accepted',
+          model_id: 'genstudio-chat-local-v1',
+          routing_status_code: 'PAID_ACCOUNT_CONCURRENCY_QUEUED',
+        }, { status: 202, headers: { Location: '/v1/chat/responses/chat_account_queued' } })
+      }
+      if (url.endsWith('/v1/chat/responses/chat_account_queued')) {
+        polls += 1
+        return Response.json({
+          id: 'chat_account_queued',
+          state: 'succeeded',
+          model_id: 'genstudio-chat-local-v1',
+          output_text: 'Started when GenStudio account capacity became available.',
+        })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+
+    const result = await callChatWithGenStudio('scoped-key', {
+      modelId: 'genstudio-chat-local-v1',
+      system: '',
+      userMessage: 'Queue this at the account boundary.',
+      requestIdentity: 'boundful:EP0003:thumbnail-prompts',
+      onQueueState: state => { queueStates.push(state) },
+    })
+    assert.equal(result.jobId, 'chat_account_queued')
+    assert.equal(submissions, 1)
+    assert.equal(polls, 1)
+    assert.ok(queueStates.includes('waiting_account_capacity'))
+    assert.ok(queueStates.includes('succeeded'))
+    assert.equal(queueStates.includes('failed'), false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio chat terminal failure never falls back to a direct provider', async () => {
+  const originalFetch = globalThis.fetch
+  let submissions = 0
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 3,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 0,
+        })
+      }
+      assert.match(url, /\/v1\/chat\/responses$/)
+      submissions++
       return Response.json({
         id: 'chat_failed',
         state: 'failed',
@@ -179,7 +339,7 @@ test('GenStudio chat terminal failure never falls back to a direct provider', as
       }),
       /No direct provider or Studio Hub fallback was attempted/,
     )
-    assert.equal(requests, 1)
+    assert.equal(submissions, 1)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -628,12 +788,17 @@ test('GenStudio transcription uploads the selected model and verifies private SR
   try {
     globalThis.fetch = async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/v1/audio/transcriptions')) {
+      if (url.endsWith('/v1/audio/transcriptions/quotes')) {
         const body = init?.body as FormData
         submittedModel = String(body.get('model'))
         assert.equal(init?.method, 'POST')
         assert.equal((init?.headers as Record<string, string>)?.Authorization, 'Bearer scoped-key')
         assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-stt-/)
+        return Response.json({ id: 'quote_transcription_ok' }, { status: 201 })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes/quote_transcription_ok/confirm')) {
+        assert.equal(init?.method, 'POST')
+        assert.match((init?.headers as Record<string, string>)?.['Idempotency-Key'] || '', /^story-stt-.+-confirm$/)
         return Response.json({
           id: 'job_transcription_ok',
           state: 'succeeded',
@@ -702,7 +867,11 @@ test('an accepted transcription survives artifact download failure without a sec
   try {
     globalThis.fetch = async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/v1/audio/transcriptions')) {
+      if (url.endsWith('/v1/audio/transcriptions/quotes')) {
+        posts++
+        return Response.json({ id: 'quote_download_recovery' }, { status: 201 })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes/quote_download_recovery/confirm')) {
         posts++
         return Response.json({
           id: 'stt_download_recovery',
@@ -737,7 +906,7 @@ test('an accepted transcription survives artifact download failure without a sec
     )
     artifactReady = true
     const recovered = await recoverTranscriptionWithGenStudio('scoped-key', acceptedJobId, {})
-    assert.equal(posts, 1)
+    assert.equal(posts, 2)
     assert.equal(recovered.jobId, acceptedJobId)
     assert.match(recovered.srt, /Recovered/)
   } finally {
@@ -781,7 +950,10 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
   try {
     globalThis.fetch = async (input) => {
       const url = String(input)
-      if (url.endsWith('/v1/audio/transcriptions')) {
+      if (url.endsWith('/v1/audio/transcriptions/quotes')) {
+        return Response.json({ id: 'quote_transcription_failed' }, { status: 201 })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes/quote_transcription_failed/confirm')) {
         return Response.json({
           id: 'job_transcription_failed',
           state: 'failed',
@@ -802,7 +974,10 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
 
     globalThis.fetch = async (input) => {
       const url = String(input)
-      if (url.endsWith('/v1/audio/transcriptions')) {
+      if (url.endsWith('/v1/audio/transcriptions/quotes')) {
+        return Response.json({ id: 'quote_transcription_empty' }, { status: 201 })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes/quote_transcription_empty/confirm')) {
         return Response.json({
           id: 'job_transcription_empty',
           state: 'succeeded',

@@ -80,10 +80,6 @@
         </div>
       </div>
 
-      <div class="form-group field-medium">
-        <ModelSelector v-model="activeForm.model" :project-slug="slug" />
-      </div>
-
       <!-- Style preset -->
       <div class="grid-2">
         <div class="form-group">
@@ -583,18 +579,28 @@
     <div class="card workspace-section prompt-settings-panel">
       <div class="grid-2">
         <div class="form-group">
-          <label>Look</label>
-          <StylePicker
-            :slug="slug"
-            :active-style-bible="form.thumbnail.style_tag"
-            @apply="applyThumbnailVisualStyle"
+          <ModelSelector
+            v-model="form.thumbnail.model"
+            :project-slug="slug"
+            label="Prompt model"
           />
+          <p class="text-muted text-xs hint-line">
+            This model writes the thumbnail prompts. Image rendering uses the separate model chosen in Thumbnail Generator.
+          </p>
         </div>
         <div class="form-group">
           <label>Variations</label>
           <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="6" />
           <p class="text-muted text-xs hint-line">Start with three. You can refine or regenerate one prompt later.</p>
         </div>
+      </div>
+      <div class="form-group mt-2">
+        <label>Look</label>
+        <StylePicker
+          :slug="slug"
+          :active-style-bible="form.thumbnail.style_tag"
+          @apply="applyThumbnailVisualStyle"
+        />
       </div>
 
       <div class="grid-3 mt-2">

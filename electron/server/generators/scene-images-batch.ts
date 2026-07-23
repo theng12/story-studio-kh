@@ -114,7 +114,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     width: renderWidth, height: renderHeight,
     steps: params.image_steps,
     seed: params.seed,
-    idempotencyIdentity: `${job.job_id}:${scene.id}`,
+    idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, `${scene.id}.png`, {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,

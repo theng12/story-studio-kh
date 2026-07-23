@@ -16,6 +16,7 @@
 // additive inside .vue files.
 import { ref, readonly } from 'vue'
 import { useApi } from './useApi.js'
+import { projectSlug } from '~/utils/project-slug'
 import type {
   ProjectMetaResponse,
   SafeProjectConfigResponse,
@@ -43,9 +44,16 @@ export function useProject() {
     // Race guard: a route transition can briefly produce slug="undefined"
     // (the literal string from a template-literal of an undefined value)
     // or empty. Hitting /projects/undefined/* always 404s and the UI
-    // would show stale-state errors. The next valid call from the
-    // dashboard layout's slug watcher takes over.
-    if (!slug || slug === 'undefined') return
+    // would show stale-state errors. Clear any prior project instead;
+    // route middleware redirects malformed project URLs before pages mount.
+    const safeSlug = projectSlug(slug)
+    if (!safeSlug) {
+      currentSlug.value = null
+      resetState()
+      loading.value = false
+      return
+    }
+    slug = safeSlug
     // Switching projects — drop stale state synchronously so no component
     // renders the old project's data against the new slug.
     if (currentSlug.value && currentSlug.value !== slug) {
@@ -69,6 +77,8 @@ export function useProject() {
   }
 
   async function refreshConfig(slug: string) {
+    slug = projectSlug(slug)
+    if (!slug) return
     const config = await get<ProjectConfig>(`/projects/${slug}/settings/config`, { cache: 'no-store' })
     if (currentSlug.value === slug) currentConfig.value = config
   }

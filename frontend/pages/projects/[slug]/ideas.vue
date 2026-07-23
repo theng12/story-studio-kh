@@ -1222,12 +1222,13 @@
 <script setup lang="ts">
 import { canonicalFormatId } from '~/composables/useFormats'
 import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
+import { projectSlug } from '~/utils/project-slug'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Ideas')
 const route = useRoute()
 const _router = useRouter()
-const slug = computed(() => route.params.slug as string)
+const slug = computed(() => projectSlug(route.params.slug))
 const { get, post, del, patch } = useApi()
 const { success, error: showError, successUndoable } = useToast()
 
@@ -1683,6 +1684,7 @@ async function loadFormatNames() {
 const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch' | 'project-no-format'; detail?: string } | null>(null)
 
 async function retryHydration(): Promise<void> {
+  if (!slug.value) return
   hydrationError.value = null
   const ok = await loadPatternPreferences()
   if (ok) {
@@ -1733,6 +1735,8 @@ async function loadPatternPreferences(): Promise<boolean> {
   // v1.0.93+ — returns true on success so the orchestrating mount can
   // gate downstream loads on it. Errors surface via `hydrationError`
   // (banner in the template) rather than being swallowed.
+  if (!slug.value) return false
+
   let metaNiche = ''
   let metaFormatLoaded = false
   try {
@@ -2692,6 +2696,7 @@ function shortDate(d: string) {
 }
 
 async function loadIdeas() {
+  if (!slug.value) return
   try {
     const data = await get<any>(`/projects/${slug.value}/ideas`)
     // Defensive: only clobber the local list when the backend actually

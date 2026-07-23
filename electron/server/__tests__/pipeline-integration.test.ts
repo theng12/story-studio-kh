@@ -127,6 +127,20 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.mode, 'thumbnails')
   })
 
+  test('thumb_images always uses automatic GenStudio quality', () => {
+    const params = resolveStepParams('thumb_images', 'EP0042', 'Title', fakePreset({
+      form: {
+        model: 'genstudio-image-studio-v1',
+        image_steps: 4,
+        image_quality: 'maximum',
+      },
+    }), LISTICLE_FORMAT)
+    assert.equal(params.image_steps, undefined)
+    assert.equal(params.image_quality, undefined)
+    assert.equal(params.model, 'genstudio-image-studio-v1')
+    assert.equal(params.mode, 'thumbs')
+  })
+
   test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {
     // Stale preset (saved before the user touched the form): empty form.
     // Pre-fix: backend hardcoded 10 scenes / 5 thumbs / 16:9 / storybook

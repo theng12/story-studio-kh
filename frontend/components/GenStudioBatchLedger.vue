@@ -38,7 +38,7 @@
       <ul class="gs-batch-items">
         <li v-for="remote in pageItems" :key="remote.id">
           <span>{{ remote.operation }}</span>
-          <strong :class="stateClass(remote.state)">{{ displayState(remote.state) }}</strong>
+          <strong :class="stateClass(remote)">{{ displayState(remote) }}</strong>
           <span v-if="settledFor(remote) !== null">{{ settledFor(remote)!.toLocaleString() }} credits</span>
           <span v-else-if="numeric(remote.reserved_credits) > 0">{{ numeric(remote.reserved_credits).toLocaleString() }} reserved</span>
           <span v-else>—</span>
@@ -60,6 +60,7 @@ type RemoteJob = {
   id: string
   operation: string
   state: string
+  queue_state?: string
   credit_cost?: number
   reserved_credits?: number
   settled_credits?: number
@@ -79,8 +80,12 @@ function numeric(value: unknown): number {
   return Number.isFinite(number) ? number : 0
 }
 
+function effectiveState(remote: RemoteJob): string {
+  return String(remote.queue_state || remote.state || '').toLowerCase()
+}
+
 function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'failed' {
-  const state = String(remote.state || '').toLowerCase()
+  const state = effectiveState(remote)
   if (remote.failure_code || /fail|error|cancel|reject/.test(state)) return 'failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
   if (/queue|pending|wait|accept/.test(state)) return 'queued'
@@ -116,12 +121,26 @@ function segmentStyle(count: number) {
   return { width: `${(count / Math.max(1, props.remoteJobs.length)) * 100}%` }
 }
 
-function displayState(state: string) {
-  return String(state || 'unknown').replace(/_/g, ' ')
+const QUEUE_LABELS: Record<string, string> = {
+  waiting_local: 'Waiting locally',
+  submitting: 'Submitting to GenStudio',
+  accepted: 'Accepted',
+  waiting_account_capacity: 'Waiting for account capacity',
+  running: 'Running',
+  completing: 'Completing',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  waiting_credits: 'Waiting for credits',
+  cancelled: 'Cancelled',
 }
 
-function stateClass(state: string) {
-  return `state-${stateBucket({ id: '', operation: '', state })}`
+function displayState(remote: RemoteJob) {
+  const state = effectiveState(remote) || 'unknown'
+  return QUEUE_LABELS[state] || state.replace(/_/g, ' ')
+}
+
+function stateClass(remote: RemoteJob) {
+  return `state-${stateBucket(remote)}`
 }
 
 function toggleLedger() {

@@ -14,7 +14,11 @@ import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { getGenStudioUrl } from '../services/app-settings.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
-import { GenStudioAdmissionPool } from './genstudio-admission.js'
+import {
+  GenStudioAdmissionPool,
+  type GenStudioAdmissionState,
+  type GenStudioAccountCapacity,
+} from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 
 const POLL_INTERVAL_MS = 1_000
@@ -25,9 +29,22 @@ export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
+export type GenStudioQueueState =
+  | 'waiting_local'
+  | 'submitting'
+  | 'accepted'
+  | 'waiting_account_capacity'
+  | 'running'
+  | 'completing'
+  | 'succeeded'
+  | 'failed'
+  | 'waiting_credits'
+  | 'cancelled'
+
 interface GenStudioOperationContext {
   signal?: AbortSignal
   isCancelled?: () => boolean
+  onQueueState?: (state: GenStudioQueueState, jobId?: string) => void | Promise<void>
 }
 
 export interface GenStudioJob {
@@ -41,6 +58,7 @@ export interface GenStudioJob {
   remaining_credits?: number
   routing_status_code?: string | null
   price_version?: string | null
+  location?: string | null
 }
 
 export interface GenStudioTtsRequest extends GenStudioOperationContext {
@@ -129,6 +147,7 @@ interface GenStudioTranscriptionJob {
   state: GenStudioJob['state']
   model_id: string
   failure_code?: string | null
+  routing_status_code?: string | null
   srt_url?: string | null
 }
 
@@ -347,7 +366,7 @@ export class GenStudioChatIncompleteError extends Error {
 
 type GenStudioOperation = GenStudioModelCapability['operation']
 
-const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey) => {
+const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<GenStudioAccountCapacity> => {
   const overview = await readAccountJson<GenStudioAccountOverview>(
     apiKey,
     '/v1/account/overview',
@@ -358,7 +377,14 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey) => {
   ) {
     throw new Error('GenStudio account overview did not include a valid paid concurrency limit')
   }
-  return overview.paid_concurrency_limit
+  return {
+    paid_concurrency_limit: overview.paid_concurrency_limit,
+    paid_active_jobs: overview.paid_active_jobs,
+    paid_queued_jobs: overview.paid_queued_jobs,
+    max_queued_jobs: overview.max_queued_jobs,
+    generation_submissions_per_minute: overview.generation_submissions_per_minute,
+    relaxed_concurrency_limit: overview.relaxed_concurrency_limit,
+  }
 })
 
 export function genStudioAdmissionSnapshot() {
@@ -370,7 +396,50 @@ function withGenStudioAdmission<T>(
   request: GenStudioOperationContext,
   work: () => Promise<T>,
 ): Promise<T> {
-  return genStudioAdmission.run(apiKey, request.signal, work)
+  return genStudioAdmission.run(
+    apiKey,
+    request.signal,
+    work,
+    async (state: GenStudioAdmissionState) => {
+      await request.onQueueState?.(state)
+    },
+  )
+}
+
+export async function refreshGenStudioAdmission(apiKey: string) {
+  return genStudioAdmission.refreshNow(apiKey)
+}
+
+function queueStateForJob(job: GenStudioJob): GenStudioQueueState {
+  if (job.state === 'succeeded') return 'succeeded'
+  if (job.state === 'failed') return 'failed'
+  if (job.routing_status_code === 'PAID_ACCOUNT_CONCURRENCY_QUEUED') {
+    return 'waiting_account_capacity'
+  }
+  if (job.state === 'accepted' || job.state === 'reserved') return 'accepted'
+  if (job.state === 'validating' || job.state === 'reconciling') return 'completing'
+  return 'running'
+}
+
+async function reportQueueState(
+  request: GenStudioOperationContext,
+  job: GenStudioJob,
+): Promise<void> {
+  await request.onQueueState?.(queueStateForJob(job), job.id)
+}
+
+async function cancelGenStudioJob(
+  baseUrl: string,
+  apiKey: string,
+  cancelPath: string,
+  deadline: number,
+): Promise<void> {
+  await requestJsonWithRetry(
+    `${apiBase(baseUrl)}${cancelPath}`,
+    { method: 'POST', headers: authorization(apiKey) },
+    {},
+    deadline,
+  ).catch(() => undefined)
 }
 
 async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenStudioJob): Promise<void> {
@@ -387,6 +456,8 @@ async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenSt
     price_version: job.price_version,
     failure_code: job.failure_code,
     routing_status_code: job.routing_status_code,
+    location: job.location || undefined,
+    queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
   })
 }
@@ -503,6 +574,7 @@ async function requestJsonWithRetry(
   init: RequestInit,
   request: GenStudioOperationContext,
   deadline: number,
+  apiKey?: string,
 ): Promise<any> {
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
@@ -522,10 +594,29 @@ async function requestJsonWithRetry(
       if (!response.ok) {
         const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
         const error = new GenStudioApiError(response.status, detail)
-        if (!retryableStatus(response.status)) throw error
+        if (response.status === 402) {
+          await request.onQueueState?.('waiting_credits')
+          throw error
+        }
+        if (!retryableStatus(response.status)) {
+          await request.onQueueState?.('failed')
+          throw error
+        }
         lastError = error
         retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+        if (response.status === 429 && apiKey) {
+          const retryBaseMs = retryAfterMs ?? 1_000
+          await genStudioAdmission.noteRateLimit(apiKey, retryBaseMs)
+          const jitterMs = Math.floor(
+            Math.random() * Math.min(750, Math.max(100, retryBaseMs * 0.1)),
+          )
+          retryAfterMs = retryBaseMs + jitterMs
+        }
       } else {
+        if (body && typeof body === 'object') {
+          body.location ||= response.headers.get('location')
+          body.http_status ||= response.status
+        }
         return body
       }
     } catch (error) {
@@ -538,6 +629,20 @@ async function requestJsonWithRetry(
     }
   }
   throw lastError instanceof Error ? lastError : new Error('GenStudio KH request failed after reconnect attempts')
+}
+
+async function submitJsonWithAdmission(
+  apiKey: string,
+  url: string,
+  init: RequestInit,
+  request: GenStudioOperationContext,
+  deadline: number,
+): Promise<any> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => requestJsonWithRetry(url, init, request, deadline, apiKey),
+  )
 }
 
 async function readJson(response: Response): Promise<any> {
@@ -781,7 +886,8 @@ async function generateVideoWithGenStudioAdmitted(
   ) as GenStudioVideoSourceAsset
   if (!sourceAsset.id) throw new Error('GenStudio video source upload returned no asset id.')
 
-  const submitted = await requestJsonWithRetry(
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
     `${apiBase(baseUrl)}/v1/videos/generations`,
     {
       method: 'POST',
@@ -804,22 +910,30 @@ async function generateVideoWithGenStudioAdmitted(
     deadline,
   ) as GenStudioVideoJob
   await recordGenStudioEvidence('video.generation', submitted)
+  await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   let current = submitted
   let reportedState = ''
+  let reportedRoutingState = ''
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || ''
+    if (reportedState === current.state && reportedRoutingState === routingState) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    await recordGenStudioEvidence('video.generation', current)
+    await reportQueueState(request, current)
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
   while (current.state !== 'succeeded' && current.state !== 'failed') {
-    if (reportedState !== current.state) {
-      reportedState = current.state
-      await recordGenStudioEvidence('video.generation', current)
-      await request.onState?.(current.state, current.id)
-    }
     if (request.isCancelled?.() || request.signal?.aborted) {
-      await requestJsonWithRetry(
-        `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}/cancel`,
-        { method: 'POST', headers: authorization(apiKey) },
-        {},
+      await cancelGenStudioJob(
+        baseUrl,
+        apiKey,
+        `/v1/videos/${encodeURIComponent(current.id)}/cancel`,
         deadline,
-      ).catch(() => {})
+      )
+      await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
@@ -830,9 +944,9 @@ async function generateVideoWithGenStudioAdmitted(
       request,
       deadline,
     ) as GenStudioVideoJob
+    await reportState()
   }
-  await recordGenStudioEvidence('video.generation', current)
-  await request.onState?.(current.state, current.id)
+  await genStudioAdmission.notifyTerminal(apiKey)
   if (current.state === 'failed') {
     throw new Error(`GenStudio video generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No legacy fallback was attempted.`)
   }
@@ -860,11 +974,7 @@ export async function generateVideoWithGenStudio(
   remainingCredits?: number
   priceVersion?: string | null
 }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => generateVideoWithGenStudioAdmitted(apiKey, request),
-  )
+  return generateVideoWithGenStudioAdmitted(apiKey, request)
 }
 
 async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> {
@@ -924,7 +1034,8 @@ async function callChatWithGenStudioAdmitted(
   const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioChatIdempotencyKey(request)
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const submitted = await requestJsonWithRetry(
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
     `${apiBase(baseUrl)}/v1/chat/responses`,
     {
       method: 'POST',
@@ -948,16 +1059,24 @@ async function callChatWithGenStudioAdmitted(
     deadline,
   ) as GenStudioChatJob
   await recordGenStudioEvidence('chat.response', submitted)
+  await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   let current = submitted
   let reportedState = ''
+  let reportedRoutingState = ''
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || ''
+    if (reportedState === current.state && reportedRoutingState === routingState) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    await recordGenStudioEvidence('chat.response', current)
+    await request.onState?.(current.state, current.id)
+    await reportQueueState(request, current)
+  }
   while (true) {
-    if (reportedState !== current.state) {
-      reportedState = current.state
-      await recordGenStudioEvidence('chat.response', current)
-      await request.onState?.(current.state, current.id)
-    }
+    await reportState()
     if (current.state === 'failed') {
+      await genStudioAdmission.notifyTerminal(apiKey)
       if (current.failure_code === 'CHAT_PROVIDER_INCOMPLETE') {
         throw new GenStudioChatIncompleteError(current)
       }
@@ -967,7 +1086,10 @@ async function callChatWithGenStudioAdmitted(
       )
     }
     if (current.state === 'succeeded') break
-    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
     if (Date.now() >= deadline) throw new Error('GenStudio KH chat job timed out while waiting for completion')
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     current = await requestJsonWithRetry(
@@ -980,6 +1102,7 @@ async function callChatWithGenStudioAdmitted(
   if (typeof current.output_text !== 'string' || !current.output_text.trim()) {
     throw new Error('GenStudio KH chat job succeeded without usable output text')
   }
+  await genStudioAdmission.notifyTerminal(apiKey)
   return { text: current.output_text, jobId: current.id, modelId: current.model_id }
 }
 
@@ -987,11 +1110,7 @@ export async function callChatWithGenStudio(
   apiKey: string,
   request: GenStudioChatRequest,
 ): Promise<{ text: string; jobId: string; modelId: string }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => callChatWithGenStudioAdmitted(apiKey, request),
-  )
+  return callChatWithGenStudioAdmitted(apiKey, request)
 }
 
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */
@@ -1110,9 +1229,19 @@ async function waitForImageJob(
 ): Promise<GenStudioImageJob> {
   let current = submitted
   await recordGenStudioEvidence('image.generation', current)
+  await reportQueueState(request, current)
   request.onState?.(current.state)
   while (current.state !== 'succeeded' && current.state !== 'failed') {
-    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await cancelGenStudioJob(
+        baseUrl,
+        apiKey,
+        `/v1/images/${encodeURIComponent(current.id)}/cancel`,
+        deadline,
+      )
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
     if (Date.now() >= deadline) throw new Error('GenStudio KH image job timed out while waiting for completion')
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     current = await requestJsonWithRetry(
@@ -1122,8 +1251,10 @@ async function waitForImageJob(
       deadline,
     ) as GenStudioImageJob
     await recordGenStudioEvidence('image.generation', current)
+    await reportQueueState(request, current)
     request.onState?.(current.state)
   }
+  await genStudioAdmission.notifyTerminal(apiKey)
   if (current.state === 'failed') {
     throw new Error(`GenStudio KH image generation failed${current.failure_code ? ` (${current.failure_code})` : ''}.`)
   }
@@ -1191,11 +1322,7 @@ export async function recoverImageWithGenStudio(
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
 ): Promise<{ url: string; jobId: string; modelId: string }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => recoverImageWithGenStudioAdmitted(apiKey, jobId, request),
-  )
+  return recoverImageWithGenStudioAdmitted(apiKey, jobId, request)
 }
 
 /** Submit one durable GenStudio image task and return its verified private PNG. */
@@ -1232,11 +1359,12 @@ async function generateImageWithGenStudioAdmitted(
     width: request.width,
     height: request.height,
     seed: request.seed,
-    requestIdentity: request.requestIdentity || randomUUID(),
+    requestIdentity: request.requestIdentity,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const submitted = await requestJsonWithRetry(
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
     `${apiBase(baseUrl)}/v1/images/generations`,
     {
       method: 'POST',
@@ -1251,6 +1379,7 @@ async function generateImageWithGenStudioAdmitted(
     deadline,
   ) as GenStudioImageJob
   await recordGenStudioEvidence('image.generation', submitted)
+  await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
@@ -1261,11 +1390,7 @@ export async function generateImageWithGenStudio(
   apiKey: string,
   request: GenStudioImageRequest,
 ): Promise<{ url: string; jobId: string; modelId: string }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => generateImageWithGenStudioAdmitted(apiKey, request),
-  )
+  return generateImageWithGenStudioAdmitted(apiKey, request)
 }
 
 function transcriptionMediaType(filename: string): string {
@@ -1312,15 +1437,28 @@ async function waitForTranscriptionJob(
 ): Promise<GenStudioTranscriptionJob> {
   let current = submitted
   let reportedState: string | null = null
+  let reportedRoutingState: string | null = null
   const reportState = async (): Promise<void> => {
-    if (reportedState === current.state) return
+    const routingState = current.routing_status_code || null
+    if (reportedState === current.state && reportedRoutingState === routingState) return
     reportedState = current.state
+    reportedRoutingState = routingState
     await recordGenStudioEvidence('audio.transcription', current)
+    await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
   }
   await reportState()
   while (current.state !== 'succeeded' && current.state !== 'failed') {
-    if (request.isCancelled?.()) throw new Error('Cancelled by user')
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await cancelGenStudioJob(
+        baseUrl,
+        apiKey,
+        `/v1/transcriptions/${encodeURIComponent(current.id)}/cancel`,
+        deadline,
+      )
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
     if (Date.now() >= deadline) {
       throw new Error('GenStudio KH transcription timed out while waiting for completion')
     }
@@ -1333,6 +1471,7 @@ async function waitForTranscriptionJob(
     ) as GenStudioTranscriptionJob
     await reportState()
   }
+  await genStudioAdmission.notifyTerminal(apiKey)
   if (current.state === 'failed') {
     throw new Error(
       `GenStudio KH transcription failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
@@ -1409,11 +1548,7 @@ export async function recoverTranscriptionWithGenStudio(
     onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
   },
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => recoverTranscriptionWithGenStudioAdmitted(apiKey, jobId, request),
-  )
+  return recoverTranscriptionWithGenStudioAdmitted(apiKey, jobId, request)
 }
 
 /** Submit private audio to GenStudio, poll its durable job, and return verified SRT text. */
@@ -1449,8 +1584,9 @@ async function transcribeWithGenStudioAdmitted(
 
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const submitted = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}/v1/audio/transcriptions`,
+  const quote = await submitJsonWithAdmission(
+    apiKey,
+    `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`,
     {
       method: 'POST',
       headers: {
@@ -1461,8 +1597,24 @@ async function transcribeWithGenStudioAdmitted(
     },
     request,
     deadline,
+  ) as { id?: string }
+  if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
+  const confirmIdempotencyKey = `${idempotencyKey}-confirm`
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
+    `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes/${encodeURIComponent(quote.id)}/confirm`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Idempotency-Key': confirmIdempotencyKey,
+      },
+    },
+    request,
+    deadline,
   ) as GenStudioTranscriptionJob
   await recordGenStudioEvidence('audio.transcription', submitted)
+  await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
   const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
   const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
@@ -1473,11 +1625,7 @@ export async function transcribeWithGenStudio(
   apiKey: string,
   request: GenStudioTranscriptionRequest,
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => transcribeWithGenStudioAdmitted(apiKey, request),
-  )
+  return transcribeWithGenStudioAdmitted(apiKey, request)
 }
 
 async function waitForJob(
@@ -1489,15 +1637,31 @@ async function waitForJob(
 ): Promise<GenStudioJob> {
   let current = job
   let reportedState: string | null = null
+  let reportedRoutingState: string | null = null
   const reportState = async (): Promise<void> => {
-    if (reportedState === current.state) return
+    const routingState = current.routing_status_code || null
+    if (reportedState === current.state && reportedRoutingState === routingState) return
     reportedState = current.state
+    reportedRoutingState = routingState
     await recordGenStudioEvidence('voice.tts', current)
+    await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
   }
   await reportState()
   while (current.state !== 'succeeded' && current.state !== 'failed') {
-    if (request.isCancelled?.()) throw new Error('Cancelled by user')
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await cancelGenStudioJob(
+        baseUrl,
+        apiKey,
+        `/v1/jobs/${encodeURIComponent(current.id)}/cancel`,
+        deadline,
+      )
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
+    if (Date.now() >= deadline) {
+      throw new Error('GenStudio KH TTS job timed out while waiting for completion')
+    }
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/jobs/${encodeURIComponent(current.id)}`,
@@ -1507,6 +1671,7 @@ async function waitForJob(
     ) as GenStudioJob
     await reportState()
   }
+  await genStudioAdmission.notifyTerminal(apiKey)
   if (current.state === 'failed') {
     throw new Error(`GenStudio KH generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No direct Studio Hub fallback was attempted.`)
   }
@@ -1600,11 +1765,7 @@ export async function recoverTtsToFile(
   jobId: string,
   request: GenStudioTtsRequest,
 ): Promise<void> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => recoverTtsToFileAdmitted(apiKey, outPath, jobId, request),
-  )
+  return recoverTtsToFileAdmitted(apiKey, outPath, jobId, request)
 }
 
 /** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
@@ -1617,7 +1778,8 @@ async function generateTtsToFileAdmitted(
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const submission = buildGenStudioSubmission(request)
   const idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
-  const submitted = await requestJsonWithRetry(
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
     `${apiBase(baseUrl)}/v1/audio/jobs`,
     {
       method: 'POST',
@@ -1632,6 +1794,7 @@ async function generateTtsToFileAdmitted(
     deadline,
   ) as GenStudioJob
   await recordGenStudioEvidence('voice.tts', submitted)
+  await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
 }
@@ -1641,9 +1804,5 @@ export async function generateTtsToFile(
   outPath: string,
   request: GenStudioTtsRequest,
 ): Promise<void> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => generateTtsToFileAdmitted(apiKey, outPath, request),
-  )
+  return generateTtsToFileAdmitted(apiKey, outPath, request)
 }

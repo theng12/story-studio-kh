@@ -33,6 +33,7 @@ import {
   listVoices as listGenStudioVoices,
   getGenStudioAccountOverview,
   getGenStudioAccountSnapshot,
+  refreshGenStudioAdmission,
   GenStudioApiError,
 } from '../lib/genstudio-client.js'
 
@@ -564,6 +565,23 @@ router.get('/app-settings/genstudio/access', async (_req, res) => {
     })
   } catch (error: any) {
     res.status(502).json(humanizeBackendError(error, 'Could not load the GenStudio plan and credit status'))
+  }
+})
+
+router.get('/app-settings/genstudio/admission', async (_req, res) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key first.' })
+  try {
+    res.json(await refreshGenStudioAdmission(apiKey))
+  } catch (error: any) {
+    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
+      return res.status(503).json({
+        code: 'GENSTUDIO_ADMISSION_SCOPE_UNAVAILABLE',
+        detail: 'The saved GenStudio key is invalid or missing usage:read for account admission capacity. ' +
+          'Issue or update a scoped key in GenStudio with usage:read, then save and test it again.',
+      })
+    }
+    res.status(502).json(humanizeBackendError(error, 'Could not load GenStudio account admission capacity'))
   }
 })
 

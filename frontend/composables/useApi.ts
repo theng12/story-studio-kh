@@ -254,16 +254,16 @@ export function useApi() {
     //   err.data.detail  = '__slug_race__'
     // — useToast.error() checks both and silently swallows.
     if (
-      path.includes('/undefined/') ||
-      path.endsWith('/undefined') ||
-      /\/undefined[?#]/.test(path) ||
+      path.includes('/undefined/') || path.includes('/null/') ||
+      path.endsWith('/undefined') || path.endsWith('/null') ||
+      /\/(undefined|null)[?#]/.test(path) ||
       // v1.0.129+ — Also catch query-string variants. /models?project=X,
       // /usage?project=X, /dashboard-stats?project=X etc. all stringify
       // undefined into the value and would otherwise reach the backend
       // (which has no project context to resolve and 404s with the same
       // 'Project not found' detail). Match common slug-bearing param
       // names: project, slug, project_slug, episode, episode_id.
-      /[?&](project|slug|project_slug|episode|episode_id)=undefined(?:&|$|#)/.test(path)
+      /[?&](project|slug|project_slug|episode|episode_id)=(undefined|null)(?:&|$|#)/.test(path)
     ) {
       const err: any = new Error('__slug_race__')
       err.data = { detail: '__slug_race__' }

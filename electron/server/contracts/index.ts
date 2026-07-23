@@ -450,6 +450,9 @@ export interface JobEnqueuedResponse {
     price_version?: string | null
     failure_code?: string | null
     routing_status_code?: string | null
+    location?: string
+    queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
+      | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
     updated_at: string
   }>
   /**

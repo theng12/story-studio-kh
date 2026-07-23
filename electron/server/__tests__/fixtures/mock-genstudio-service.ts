@@ -86,6 +86,13 @@ interface MockJob {
   credits: MockCreditSnapshot
 }
 
+interface MockTranscriptionQuote {
+  id: string
+  idempotencyKey: string
+  body: Record<string, unknown>
+  bodyText: string
+}
+
 const FULL_SCOPES: MockGenStudioScope[] = [
   'models:read',
   'voices:read',
@@ -228,6 +235,8 @@ export class MockGenStudioService {
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
   private readonly jobs = new Map<string, MockJob>()
   private readonly jobByIdempotency = new Map<string, string>()
+  private readonly transcriptionQuotes = new Map<string, MockTranscriptionQuote>()
+  private readonly transcriptionQuoteByIdempotency = new Map<string, string>()
   private readonly sequence: Record<MockGenStudioOperation, number> = {
     chat: 0,
     image: 0,
@@ -265,6 +274,8 @@ export class MockGenStudioService {
     this.queuedScenarios.clear()
     this.jobs.clear()
     this.jobByIdempotency.clear()
+    this.transcriptionQuotes.clear()
+    this.transcriptionQuoteByIdempotency.clear()
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
       this.sequence[operation] = 0
     }
@@ -484,6 +495,61 @@ export class MockGenStudioService {
 
       if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
       if (method === 'POST') {
+        if (url.pathname === '/v1/audio/transcriptions/quotes') {
+          if (idempotencyKey.length < 8) {
+            json(response, 400, { detail: 'Idempotency-Key is required' })
+            return
+          }
+          const existingId = this.transcriptionQuoteByIdempotency.get(idempotencyKey)
+          const parsedBody = {
+            model: multipartField(bodyText, 'model'),
+            language: multipartField(bodyText, 'language'),
+            word_timestamps: multipartField(bodyText, 'word_timestamps'),
+          }
+          const quote = existingId
+            ? this.transcriptionQuotes.get(existingId)!
+            : {
+                id: `mock-transcription-quote-${String(this.transcriptionQuotes.size + 1).padStart(3, '0')}`,
+                idempotencyKey,
+                body: parsedBody,
+                bodyText,
+              }
+          if (!existingId) {
+            this.transcriptionQuotes.set(quote.id, quote)
+            this.transcriptionQuoteByIdempotency.set(idempotencyKey, quote.id)
+          }
+          json(response, existingId ? 200 : 201, {
+            id: quote.id,
+            state: 'quoted',
+            quoted_credit_cost: DEFAULT_CREDITS.transcription,
+          })
+          return
+        }
+        const confirmMatch = url.pathname.match(/^\/v1\/audio\/transcriptions\/quotes\/([^/]+)\/confirm$/)
+        if (confirmMatch) {
+          if (idempotencyKey.length < 8) {
+            json(response, 400, { detail: 'Idempotency-Key is required' })
+            return
+          }
+          const quote = this.transcriptionQuotes.get(decodeURIComponent(confirmMatch[1]!))
+          if (!quote) {
+            json(response, 404, { detail: 'quote not found' })
+            return
+          }
+          const { job, replay } = this.createOrReplay(
+            'transcription',
+            idempotencyKey,
+            quote.body,
+            quote.bodyText,
+          )
+          if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
+            job.responseDropped = true
+            response.socket?.destroy()
+            return
+          }
+          json(response, 202, this.responseBody(job, replay))
+          return
+        }
         const operation = this.submitOperation(url.pathname)
         if (operation) {
           if (idempotencyKey.length < 8) {
