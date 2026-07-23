@@ -16,6 +16,7 @@ import {
   type SimilarityCandidate,
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -287,6 +288,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         slug: job.project_slug,
         jobId: job.job_id,
         signal: controller.signal,
+        maxTokens: ideaOutputTokenBudget(assignments.length),
       })
     } finally {
       clearInterval(watcher)

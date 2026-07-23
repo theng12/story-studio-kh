@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.704 — 2026-07-24
+
+**DeepSeek idea generation now receives enough bounded output space to finish.**
+
+- Sizes regular Ideas and durable Idea Campaign responses from the number of
+  structured JSON objects requested instead of inheriting the generic
+  2,048-token chat default.
+- Keeps output limits bounded between 4,096 and 16,384 tokens so large batches
+  can complete without turning the cap into an uncontrolled generation budget.
+- Applies the same sizing rule to similarity-replacement retries, preventing a
+  valid DeepSeek response from being rejected only because its JSON was cut off.
+
 ## v1.0.703 — 2026-07-24
 
 **Idea generation now scales through Series Formulas, Topic Packs, and durable campaigns.**
