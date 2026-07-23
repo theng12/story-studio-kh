@@ -57,7 +57,7 @@
           {{ state.cached ? '✓ cached' : '✨ fresh' }}
         </span>
         <span v-if="state.model_id" class="text-muted text-xs">
-          {{ state.model_id }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
+          {{ previewModelName }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
         </span>
       </div>
     </div>
@@ -80,15 +80,23 @@ interface PromptRow {
   title?: string
   prompt: string
 }
-defineProps<{
+const props = defineProps<{
   row: PromptRow
   prefix: string
   state: PreviewState | null
 }>()
 defineEmits<{ (e: 'preview'): void }>()
 
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 const expanded = ref(false)
+const genStudioModels = useGenStudioModelDisplay()
+const previewModelName = computed(() =>
+  genStudioModels.displayName(props.state?.model_id) || props.state?.model_id || '',
+)
+
+onMounted(() => {
+  void genStudioModels.refresh()
+})
 </script>
 
 <style scoped>

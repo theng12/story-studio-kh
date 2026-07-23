@@ -357,8 +357,12 @@
 
         <!-- Row 2: Meta (model, duration, timestamps) -->
         <div class="job-meta">
-          <span v-if="job.params?.model" class="meta-tag">
-            <span class="meta-label">Model:</span> {{ job.params.model }}
+          <span
+            v-if="job.params?.model"
+            class="meta-tag"
+            :title="jobModelTitle(job)"
+          >
+            <span class="meta-label">Model:</span> {{ jobModelDisplay(job) }}
           </span>
           <span
             v-if="job.auto_retry?.eligible"
@@ -404,7 +408,7 @@
 
         <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
           <span class="meta-label">GenStudio:</span>
-          <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote)">
+          <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
             {{ remote.operation }} · <strong>{{ remote.state }}</strong>
             <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
             <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
@@ -558,8 +562,12 @@
           </div>
 
           <div class="job-meta">
-            <span v-if="job.params?.model" class="meta-tag">
-              <span class="meta-label">Model:</span> {{ job.params.model }}
+            <span
+              v-if="job.params?.model"
+              class="meta-tag"
+              :title="jobModelTitle(job)"
+            >
+              <span class="meta-label">Model:</span> {{ jobModelDisplay(job) }}
             </span>
             <span
               v-if="job.auto_retry?.eligible"
@@ -582,7 +590,7 @@
 
           <div v-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
             <span class="meta-label">GenStudio:</span>
-            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote)">
+            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
               {{ remote.operation }} · <strong>{{ remote.state }}</strong>
               <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
               <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
@@ -663,6 +671,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, del, post } = useApi()
 const projectQueue = useJobs()
 const universalQueue = useAllJobs()
+const genStudioModels = useGenStudioModelDisplay()
 const isUniversal = computed(() => route.query.scope === 'all')
 const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
 const stats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
@@ -704,10 +713,41 @@ function providerDisplay(providerId: string): string {
   return PROVIDER_DISPLAY[providerId] || providerId
 }
 
-function genStudioJobTitle(remote: NonNullable<RJob['genstudio_jobs']>[number]): string {
+function isTtsJob(job: RJob): boolean {
+  return job.type === 'audio'
+}
+
+function jobModelDisplay(job: RJob): string {
+  return genStudioModels.displayName(job.params?.model, {
+    tts: isTtsJob(job),
+    ttsTier: job.params?.tts_tier,
+  })
+}
+
+function jobModelTitle(job: RJob): string {
+  const label = jobModelDisplay(job)
+  const rawId = typeof job.params?.model === 'string' ? job.params.model.trim() : ''
+  if (isTtsJob(job) || !rawId || label === rawId) return label
+  return `${label} · Internal id: ${rawId}`
+}
+
+function genStudioJobTitle(
+  remote: NonNullable<RJob['genstudio_jobs']>[number],
+  job: RJob,
+): string {
+  const isTts = remote.operation === 'voice.tts'
+  const modelLabel = remote.model_id
+    ? genStudioModels.displayName(remote.model_id, {
+        tts: isTts,
+        ttsTier: job.params?.tts_tier,
+      })
+    : ''
   return [
     `Remote job: ${remote.id}`,
-    remote.model_id ? `Model: ${remote.model_id}` : '',
+    modelLabel ? `Model: ${modelLabel}` : '',
+    remote.model_id && !isTts && modelLabel !== remote.model_id
+      ? `Internal model id: ${remote.model_id}`
+      : '',
     remote.remaining_credits !== undefined ? `Balance after: ${remote.remaining_credits}` : '',
     remote.price_version ? `Price version: ${remote.price_version}` : '',
     remote.failure_code ? `Failure: ${remote.failure_code}` : '',
@@ -765,6 +805,7 @@ async function pauseQueue(): Promise<void> {
 }
 
 onMounted(() => {
+  void genStudioModels.refresh()
   timer = setInterval(() => now.value = Date.now(), 1000)
   void checkQueuePaused()
   queueTimer = setInterval(checkQueuePaused, 5000)

@@ -29,7 +29,10 @@
             <thead><tr><th>Job</th><th>Operation</th><th>State</th><th class="num">Reserved</th><th class="num">Settled</th><th class="num">Returned</th></tr></thead>
             <tbody>
               <tr v-for="job in snapshot.jobs.items" :key="job.id">
-                <td><code>{{ job.id }}</code><small>{{ job.model_id }}</small></td>
+                <td>
+                  <code>{{ job.id }}</code>
+                  <small :title="usageModelTitle(job)">{{ usageModelDisplay(job) }}</small>
+                </td>
                 <td>{{ job.operation }}</td>
                 <td>{{ job.state }}</td>
                 <td class="num">{{ job.reserved_credits }}</td>
@@ -74,6 +77,7 @@ const snapshot = ref<Snapshot | null>(null)
 const loading = ref(false)
 const error = ref('')
 const { get } = useApi()
+const genStudioModels = useGenStudioModelDisplay()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -90,7 +94,19 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString()
 }
 
-await load()
+function usageModelDisplay(job: Snapshot['jobs']['items'][number]): string {
+  return genStudioModels.displayName(job.model_id, {
+    tts: job.operation === 'voice.tts',
+  })
+}
+
+function usageModelTitle(job: Snapshot['jobs']['items'][number]): string {
+  const label = usageModelDisplay(job)
+  if (job.operation === 'voice.tts' || label === job.model_id) return label
+  return `${label} · Internal id: ${job.model_id}`
+}
+
+await Promise.all([load(), genStudioModels.refresh()])
 </script>
 
 <style scoped>

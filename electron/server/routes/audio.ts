@@ -54,6 +54,10 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', req.body.model || '(none)') })
   }
   req.body.model = migratedModel
+  // Keep the customer-facing product tier beside the internal GenStudio
+  // engine id. Job history can then show Regular, Premium, or Clone without
+  // exposing the private TTS model inventory.
+  if (requestedTier) req.body.tts_tier = requestedTier
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {

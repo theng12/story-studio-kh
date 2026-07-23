@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.675 — 2026-07-23
+
+**GenStudio jobs now show the real model used instead of opaque dispatch IDs.**
+
+- Resolves LLM, image, video, and transcription IDs from GenStudio's live
+  account catalogs and displays each published model name with
+  **[GenStudio KH]** branding.
+- Applies the same readable naming to Project Jobs, All Jobs, credit usage,
+  remote-job diagnostics, and image preview metadata.
+- Retains a local display-name cache so completed job history remains readable
+  if a catalog is temporarily unavailable or a model is later retired.
+- Keeps internal dispatch IDs only in hover diagnostics for support and never
+  changes the identifiers used to resume or reconcile remote jobs.
+- Preserves the intentional TTS product boundary: voice generation shows only
+  **GenStudio TTS Regular**, **Premium**, or **Clone**.
+
 ## v1.0.674 — 2026-07-23
 
 **Story Studio typography is now consistently comfortable to read across every workspace.**

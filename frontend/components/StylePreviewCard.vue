@@ -104,7 +104,7 @@
           {{ state.cached ? '✓ cached' : '✨ fresh' }}
         </span>
         <span v-if="state.model_id" class="text-muted text-xs">
-          {{ state.model_id }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
+          {{ previewModelName }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
         </span>
         <button
           type="button"
@@ -200,7 +200,7 @@
         <button type="button" class="spc-zoom-close" title="Close (Esc)" @click="zoomOpen = false">×</button>
         <img :src="state.url" alt="Style preview full size" class="spc-zoom-img" />
         <div class="spc-zoom-meta">
-          {{ state.model_id }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
+          {{ previewModelName }}{{ state.aspect_ratio ? ` · ${state.aspect_ratio}` : '' }}{{ state.tier ? ` · ${state.tier}` : '' }}
           <span v-if="saveState.saved"> · saved as <code>{{ saveState.saved }}</code></span>
         </div>
       </div>
@@ -256,6 +256,14 @@ const props = defineProps<{
    *  styles). Falls back to "scene" when absent. */
   kind?: 'scene' | 'thumbnail'
 }>()
+const genStudioModels = useGenStudioModelDisplay()
+const previewModelName = computed(() =>
+  genStudioModels.displayName(state.value.model_id) || state.value.model_id || '',
+)
+
+onMounted(() => {
+  void genStudioModels.refresh()
+})
 
 const { get: apiGet, post, del } = useApi()
 const { success, error: showError } = useToast()
