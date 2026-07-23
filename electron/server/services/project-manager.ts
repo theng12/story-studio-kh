@@ -621,8 +621,10 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     }
   }
 
-  // Copy template
-  const templateDir = path.join(TEMPLATES_ROOT, req.template || 'blank')
+  // New channels always begin from the adaptive blank base. Do not honor a
+  // template supplied by an older client: the former blank/sleep-story fork
+  // bundled stale production assumptions into new channels.
+  const templateDir = path.join(TEMPLATES_ROOT, 'blank')
   if (existsSync(templateDir)) {
     await fs.cp(templateDir, projectDir, { recursive: true })
   } else {
@@ -647,12 +649,10 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     subfolder_names: { ...DEFAULT_SUBFOLDER_NAMES },
     output_root: resolvedOutputRoot,
     created_at: new Date().toISOString(),
-    // v1.0.68+: persist the user's choice from the Channel Format
-    // picker (Step 1 of the create wizard). Bare projects without a
-    // pick fall through to whatever sleep-story-leaning defaults
-    // existed before — getEffectiveFormat resolves missing format_id
-    // by reading the bundled sleep-story.json profile.
-    ...(req.format_id ? { format_id: req.format_id } : {}),
+    // New channels use the one continuity workflow. Existing projects retain
+    // their persisted format, and Settings remains the explicit place to
+    // change it after creation.
+    format_id: 'continuity-chain',
     // Niche is optional (subject-domain layer, orthogonal to format).
     // Unset = no niche, generators behave exactly like format defaults.
     // We trust the wizard to pass a valid id; the niche-loader logs and

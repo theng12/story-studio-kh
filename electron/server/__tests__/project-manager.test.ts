@@ -40,6 +40,23 @@ describe('createProject / listProjects / getProject', () => {
     assert.equal(p.name, 'My New Project')
     assert.equal(p.slug, 'my-new-project')
     assert.equal(p.episode_prefix, 'EP')
+    assert.equal(p.format_id, 'continuity-chain')
+  })
+
+  test('always creates a blank continuity channel, ignoring retired template and format inputs', async () => {
+    const p = await pm.createProject({
+      name: 'Adaptive Channel',
+      template: 'sleep-stories',
+      format_id: 'scenes',
+    })
+    const dir = path.join(tempDir, 'projects', p.slug)
+    const [createdStandards, blankStandards] = await Promise.all([
+      fs.readFile(path.join(dir, 'production_standards.txt'), 'utf8'),
+      fs.readFile(path.join(pm.TEMPLATES_ROOT, 'blank', 'production_standards.txt'), 'utf8'),
+    ])
+
+    assert.equal(p.format_id, 'continuity-chain')
+    assert.equal(createdStandards, blankStandards)
   })
 
   test('auto-increments slug on collision', async () => {

@@ -173,7 +173,9 @@ model, or Studio Hub generation fallback.
 - [ ] Queue a job so it's running/queued
 - [ ] Cmd+Q to quit
 - [ ] Relaunch → projects, ideas, jobs history, API keys, FFmpeg detection, Audio Assembly presets all preserved
-- [ ] Previously-running jobs marked `error: "Interrupted by app restart"`, Retry button works
+- [ ] Locally queued GenStudio work remains queued and resumes admission
+- [ ] Accepted GenStudio work resumes polling its saved job ID and idempotency key without a duplicate submission
+- [ ] Only non-recoverable local execution is marked `error: "Interrupted by app restart"`; Retry remains available
 
 ## Phase 17 — Error Scenarios
 

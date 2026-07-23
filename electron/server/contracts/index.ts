@@ -36,13 +36,9 @@ export const CreateProjectSchema = z.object({
   season_size: z.number().int().min(1).max(1000).optional(),
   output_root: z.string().optional(),
   portable: z.boolean().optional(),
-  // v1.0.68+: per-channel format chosen at project-creation time.
-  // The Create Project wizard surfaces a card grid of all built-in
-  // formats (sleep-story, listicle, documentary, …); leaving this
-  // unset preserves the legacy default ('sleep-story') applied by
-  // project-manager when no format_id is supplied. Bounded to 60
-  // chars — built-in ids are short and user-custom format ids
-  // sanitise the same way through format-loader.
+  // Accepted only so older clients can still submit a create request. New
+  // channels always start on the continuity workflow; changing format is a
+  // deliberate post-creation Settings action.
   format_id: z.string().max(60).optional(),
   // v1.0.79+: optional subject-domain niche (plants, animals, fungi,
   // insects, or user-custom). Orthogonal to format — niche layers

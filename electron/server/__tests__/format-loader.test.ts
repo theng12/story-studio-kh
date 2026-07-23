@@ -6,7 +6,7 @@
  *   - All 3 active presentation-shell formats load + validate
  *   - listFormats() returns at least the built-ins
  *   - mergeFormatOverrides() deep-merges objects, replaces arrays wholesale
- *   - getEffectiveFormat() defaults to 'scenes' when project has no format_id
+ *   - getEffectiveFormat() defaults to 'continuity-chain' when project has no format_id
  *   - getEffectiveFormat() applies project.format_overrides
  *   - Missing/unknown format_id falls back to default with warning (no throw)
  *   - LEGACY remap: deleted ids (narrative / narrated-scenes / narration-synced)
@@ -198,7 +198,7 @@ describe('format-loader', () => {
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('no-format-project'))
     const fmt = await loader.getEffectiveFormat('no-format-project')
-    assert.equal(fmt.id, 'scenes', 'should default to scenes')
+    assert.equal(fmt.id, 'continuity-chain', 'should default to continuity')
   })
 
   test('getEffectiveFormat: applies project.format_overrides', async () => {
@@ -225,7 +225,7 @@ describe('format-loader', () => {
       format_id: 'this-format-id-does-not-exist',
     }))
     const fmt = await loader.getEffectiveFormat('bad-format-project')
-    assert.equal(fmt.id, 'scenes', 'falls back to default on bad id')
+    assert.equal(fmt.id, 'continuity-chain', 'falls back to continuity on bad id')
   })
 
   // ── LEGACY remap (v1.0.280) ───────────────────────────────────────────────

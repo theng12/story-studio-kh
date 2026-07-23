@@ -50,7 +50,9 @@ const require = createRequire(import.meta.url)
  * 'scenes' on the next config read. The niche layer carries all content and
  * voice tuning on top (mindfulness, prayer, etc.).
  */
-export const DEFAULT_FORMAT_ID = 'scenes'
+// New channels are continuity-first. Existing projects that explicitly saved
+// another format keep it; this only governs missing/default format values.
+export const DEFAULT_FORMAT_ID = 'continuity-chain'
 
 /**
  * Formats retired when every visual workflow moved to the narration-timed

@@ -349,26 +349,26 @@
     <!-- Create project modal -->
     <div v-if="showCreate" class="modal-overlay" @click.self="closeCreate">
       <div class="modal">
-        <h2>Create New Project</h2>
+        <h2>Create New Channel</h2>
 
-        <!-- Step indicator (6 steps: Basics → Location → Video tools → GenStudio → Upload → Review).
-             Mode picker (multi-machine vs local-only) was removed alongside the
-             legacy manifest-sync feature — there's now only one mode. Cloud sync
-             happens at the OS level by storing the projects folder inside iCloud
-             Drive (or any synced location), configurable in Settings → Storage. -->
+        <!-- A channel only needs its identity and a save location. Service
+             readiness and publishing connections are optional follow-up work. -->
         <div class="steps">
-          <div v-for="s in 6" :key="s" :class="['step', { active: step === s, done: step > s }]">
+          <div v-for="s in 2" :key="s" :class="['step', { active: step === s, done: step > s }]">
             {{ s }}
           </div>
         </div>
 
-        <!-- Step 1: Basics -->
+        <!-- Step 1: Channel identity -->
         <div v-if="step === 1">
           <div class="form-group">
-            <label>Project Name</label>
-            <input v-model="form.name" class="input" placeholder="My Sleep Stories" />
+            <label>Channel name</label>
+            <input v-model="form.name" class="input" placeholder="My channel" />
           </div>
-          <div class="grid-3">
+          <button type="button" class="btn btn-sm btn-ghost" @click="showNamingOptions = !showNamingOptions">
+            {{ showNamingOptions ? 'Hide naming options' : 'Episode naming options' }}
+          </button>
+          <div v-if="showNamingOptions" class="grid-3 mt-1">
             <div class="form-group">
               <label>Episode Prefix</label>
               <input v-model="form.episode_prefix" class="input" placeholder="EP" />
@@ -383,26 +383,6 @@
               <input v-model.number="form.season_size" class="input" type="number" min="1" />
             </div>
           </div>
-          <div class="form-group">
-            <label id="template-label">Folder Template</label>
-            <div class="template-cards" role="radiogroup" aria-labelledby="template-label">
-              <button
-                v-for="t in templates"
-                :key="t.id"
-                type="button"
-                role="radio"
-                :aria-checked="form.template === t.id"
-                :class="['template-card', { selected: form.template === t.id }]"
-                @click="form.template = t.id"
-                @keydown.space.prevent="form.template = t.id"
-              >
-                <span class="template-icon" aria-hidden="true">{{ templateIcon(t.id) }}</span>
-                <strong>{{ t.name }}</strong>
-                <p>{{ t.description }}</p>
-              </button>
-            </div>
-          </div>
-
           <!-- Niche picker — PRIMARY content/voice chooser (v1.0.280+).
                The niche decides WHAT the video says and HOW it feels:
                vocabulary, title style, narrator voice, emotional tone, and
@@ -413,7 +393,7 @@
             <label id="niche-label">
               Content &amp; voice
               <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">
-                — the niche is your channel's voice: vocabulary, title style, narrator, mood. This is the main creative choice.
+                — choose it now when you know the voice you want, or set it later in Channel Settings.
               </span>
             </label>
             <NichePicker v-model="form.niche_id" />
@@ -430,7 +410,7 @@
                v1.0.69: the auto-selected default format gets a
                "Default" badge so users know which one they'll ship
                with if they don't interact with the picker. -->
-          <div class="form-group">
+          <div v-if="false" class="form-group">
             <label id="format-label">
               Format — how it's built
               <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">
@@ -498,10 +478,18 @@
             </div>
           </div>
 
+          <div class="continuity-default-card">
+            <span aria-hidden="true">🎭</span>
+            <div>
+              <strong>Continuity workflow</strong>
+              <p>Every new channel starts continuity-first: character references, dense scene coverage, and sequential visual flow. Change it later only from Settings.</p>
+            </div>
+          </div>
+
           <div class="flex gap-2">
             <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
             <button class="btn btn-primary" :disabled="!form.name" @click="step = 2">
-              Next: Save Location
+              Next: Save location
             </button>
           </div>
         </div>
@@ -534,9 +522,13 @@
           </div>
           <div class="flex gap-2 mt-2">
             <button class="btn btn-secondary" @click="step = 1">Back</button>
-            <button class="btn btn-primary" :disabled="!form.output_root" @click="step = 3">
-              Next: Video tools
+            <button class="btn btn-primary" :disabled="!form.output_root || creating" @click="createProject">
+              {{ creating ? 'Creating channel…' : 'Create channel' }}
             </button>
+          </div>
+          <div class="channel-followup-note mt-2">
+            <strong>Finish setup when you need it.</strong>
+            Add GenStudio access, YouTube, and any machine tools later from Settings—none of them should block creating a channel.
           </div>
         </div>
 
@@ -1326,7 +1318,7 @@ type FormatLite = {
 // Mirrors electron/server/services/format-loader.ts:DEFAULT_FORMAT_ID.
 // Frontend can't import the backend constant directly (no shared
 // module boundary today), so we duplicate it. Keep both in sync.
-const DEFAULT_FORMAT_ID = 'scenes'
+const DEFAULT_FORMAT_ID = 'continuity-chain'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
 
@@ -1426,9 +1418,9 @@ const form = reactive<{
   season_prefix: 'Season',
   season_size: 20,
   output_root: '',
-  // Default matches the project-manager fallback so users who don't
-  // touch the Channel Format picker get the default 'scenes' format.
-  format_id: 'scenes',
+  // Matches the server's continuity-first default. The creation UI does not
+  // offer a workflow choice; Settings is the deliberate change surface.
+  format_id: 'continuity-chain',
   niche_id: '',
 })
 
@@ -1437,11 +1429,13 @@ const form = reactive<{
 // already populates it), so this is a cheap lookup.
 const { find: findNiche } = useNiches()
 const selectedNicheName = computed(() => findNiche(form.niche_id)?.name || form.niche_id)
+const showNamingOptions = ref(false)
 
 function closeCreate() {
   showCreate.value = false
   step.value = 1
   form.output_root = ''
+  showNamingOptions.value = false
   // Intentionally leave ffmpegStatus populated — re-checking FFmpeg every
   // time the user reopens the wizard is pointless (the binary doesn't move
   // between opens). It gets refreshed if the user revisits Step 3.
@@ -2056,7 +2050,7 @@ async function retryLoadProjects() {
 async function loadData() {
   loading.value = true
   try {
-    // Load projects + templates + linked-projects registry in parallel.
+    // Load projects and the metadata used by project cards in parallel.
     // The linked list powers the 🔗 Linked location chip and is per-Mac
     // (lives in app-settings.json on the backend; never synced).
     //
@@ -2065,7 +2059,7 @@ async function loadData() {
     // if even that fails, we surface a toast + leave projects empty so
     // the onboarding state renders (Welcome card with the buttons), not
     // a forever-spinning blank screen.
-    const [p, t] = await Promise.all([
+    const [p] = await Promise.all([
       // v1.0.316 — auto-retry the projects fetch on transient failure. The
       // backend's event loop can briefly stall during a heavy audio merge
       // (per-file ffprobe spawns) and a single failed fetch used to leave
@@ -2074,10 +2068,6 @@ async function loadData() {
       // empty state shows a Retry button instead of the Welcome card; cleared
       // on any success (even when the response is genuinely an empty array).
       fetchProjectsWithRetry(),
-      get<any[]>('/projects/templates').catch((e: any) => {
-        console.error('[index] /projects/templates failed:', e)
-        return [] as any[]
-      }),
       linkedProjects.refresh(),  // already swallows its own errors internally
       softDeleted.refresh(),      // same — populates the 🗑️ Hidden chip
       // v1.0.68+: load formats so the Create Project wizard's
@@ -2087,7 +2077,6 @@ async function loadData() {
       loadFormats(),
     ])
     projects.value = Array.isArray(p) ? p : []
-    templates.value = Array.isArray(t) ? t : []
     // If any project came back as 'downloading', poll until they all
     // settle — see startDownloadPoll for cap + cadence rationale.
     if (downloadingProjects.value.length > 0) startDownloadPoll()
@@ -2160,33 +2149,23 @@ onBeforeUnmount(() => stopDownloadPoll())
 async function createProject() {
   creating.value = true
   try {
-    // Idempotent — if the user already connected a YouTube account in
-    // Step 5, the project already exists and this is a no-op.
-    const project = await ensureProjectCreated()
-    success(
-      uploadStep.youtube.channelId
-        ? `Project "${project.name}" created and bound to ${uploadStep.youtube.channelTitle}.`
-        : `Project "${project.name}" created!`,
-    )
+    const project = await post<any>('/projects', {
+      name: form.name,
+      episode_prefix: form.episode_prefix,
+      season_prefix: form.season_prefix,
+      season_size: form.season_size,
+      output_root: form.output_root,
+      niche_id: form.niche_id || undefined,
+    })
+    success(`Channel "${project.name}" created!`)
     closeCreate()
     openProject(project)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to create project')
+    showError(e?.data?.detail || e?.message || 'Failed to create channel')
   } finally {
     creating.value = false
   }
 }
-
-// Watch template selection to update prefix
-watch(() => form.template, (t) => {
-  const tpl = templates.value.find(x => x.id === t)
-  // Auto-set prefix based on template (user can always override)
-  if (t === 'sleep-stories' && form.episode_prefix === 'EP') {
-    form.episode_prefix = 'SS'
-  } else if (t === 'blank' && form.episode_prefix === 'SS') {
-    form.episode_prefix = 'EP'
-  }
-})
 
 // ── Import existing project ───────────────────────────────────────────────
 // Three states: pick → confirm → commit. Commit either succeeds outright or
@@ -2898,6 +2877,29 @@ onMounted(async () => {
   margin-top: 12px;
 }
 .warning-box strong { color: var(--warning); }
+
+.continuity-default-card,
+.channel-followup-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+}
+.continuity-default-card > span { font-size: 20px; line-height: 1.2; }
+.continuity-default-card strong,
+.channel-followup-note strong { color: var(--text-primary); }
+.continuity-default-card p,
+.channel-followup-note {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  line-height: 1.45;
+}
+.channel-followup-note { display: block; }
 
 /* "detected from folder" vs "from manifest" tag inside the Import dialog. */
 .source-tag {

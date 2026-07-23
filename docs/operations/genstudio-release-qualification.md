@@ -11,7 +11,7 @@ boundary. It runs the focused GenStudio contract suite and typechecks that
 suite plus its transitive production imports. A non-zero exit blocks
 qualification.
 
-The Story Studio KH v1.0.679 release is paired with GenStudio KH v0.16.0
+The Story Studio KH v1.0.700 release is paired with GenStudio KH v0.16.0
 (`396806d`). Its exact-release staging qualification
 `qrun_f27bf5a5bb4a4d64be05c0581e0691da` passed voice, image, and transcription
 on `terranash-tsh` with a zero-job backlog.
@@ -39,7 +39,9 @@ The qualification is deterministic and zero-spend:
 | Generation scopes | Missing `chat:generate`, `images:generate`, `tts:generate`, or `audio:transcribe` creates no GenStudio job. |
 | LLM, image, TTS, transcription | Submits every requested modality through the public GenStudio routes and verifies its terminal output. |
 | Polling and terminal states | Observes `accepted → reserved → dispatched → running → validating → succeeded`, plus terminal `failed`. |
-| Account admission | Reads canonical `paid_concurrency_limit`, queue, submission-rate, and Unlimited Relaxed metadata while leaving all execution admission authoritative in GenStudio. |
+| Account admission | Uses one shared scheduler across modalities and API keys, reads canonical `paid_concurrency_limit`, queue, submission-rate, and Unlimited Relaxed metadata, and leaves all execution admission authoritative in GenStudio. |
+| Durable local queue | Preserves local pending work across restart, then resumes the same accepted GenStudio job ID instead of creating replacement work. |
+| Submission pacing | Applies a rolling account submission-rate window and remote queue backpressure without treating Story Studio's local active count as total account activity. |
 | Backpressure | Honors GenStudio `Retry-After` guidance for retryable submission and polling responses without creating a second logical request. |
 | Credits | The mock ledger proves quoted, reserved, final, and returned credits. Story Studio payloads are rejected if they try to provide any settlement field; GenStudio alone owns billing. |
 | Idempotency | Drops the first accepted LLM response, then proves the client replays the same `Idempotency-Key`, receives the same job, and creates one provider submission. |
@@ -73,9 +75,12 @@ invent a direct-provider cancellation or fallback path.
 
 ## Admission ownership
 
-Story Studio may stage a bounded number of HTTP requests so its own UI and
-local job queue remain responsive. It must not expose or enforce a second
-customer-facing generation policy. GenStudio alone owns:
+Story Studio stages requests through one shared, durable local scheduler so its
+own UI and queue remain responsive. The scheduler is advisory: it refreshes
+account overview, limits bursts, and stops trickling work near remote queue
+capacity, but it never treats local activity as the whole account. It must not
+expose or enforce a second customer-facing generation policy. GenStudio alone
+owns:
 
 - generation submissions per minute;
 - active paid jobs and the durable account queue;

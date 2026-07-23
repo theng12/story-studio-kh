@@ -12,7 +12,9 @@ const tsc = path.join(root, 'node_modules', '.bin', `tsc${binSuffix}`)
 
 const qualificationTests = [
   'electron/server/__tests__/genstudio-release-qualification.test.ts',
+  'electron/server/__tests__/genstudio-admission.test.ts',
   'electron/server/__tests__/genstudio-client-boundary.test.ts',
+  'electron/server/__tests__/job-queue-genstudio-resume.test.ts',
   'electron/server/__tests__/audio-genstudio-only.test.ts',
   'electron/server/__tests__/image-genstudio-boundary.test.ts',
   'electron/server/__tests__/scene-genstudio-boundary.test.ts',

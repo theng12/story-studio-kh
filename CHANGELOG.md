@@ -4,6 +4,35 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.700 — 2026-07-24
+
+**New channels now start cleanly on Continuity.**
+
+- Replaces the six-step new-project wizard with a focused two-step channel
+  setup: identity, then save location.
+- Removes the retired Blank Project / Sleep Stories decision and enforces the
+  blank adaptive base at the API boundary, even for older clients.
+- Makes Continuity the frontend and backend default workflow; GenStudio,
+  publishing, and machine readiness remain optional follow-up setup.
+
+## v1.0.699 — 2026-07-24
+
+**Generation now follows GenStudio's account-wide admission queue safely.**
+
+- Adds one shared durable Story Studio scheduler across language, image, audio,
+  transcription, and video work, while keeping GenStudio authoritative for
+  paid concurrency, account queue capacity, submission rate, and Unlimited
+  Relaxed capacity.
+- Treats accepted and account-queued GenStudio jobs as healthy work, preserves
+  their job IDs and stable idempotency keys across retries and restarts, and
+  never duplicates uncertain submissions or falls back to a direct provider.
+- Shows local waiting work alongside live GenStudio paid, queued, rate-limit,
+  and Unlimited Relaxed capacity in Jobs, with clear waiting, accepted,
+  running, credit-blocked, and terminal states.
+- Honors `Retry-After`, pauses safely for exhausted credits or queue capacity,
+  and refreshes account admission on startup, dispatch, terminal completion,
+  throttling, and while local work remains queued.
+
 ## v1.0.698 — 2026-07-24
 
 **Thumbnail Prompts again shows its model selector.**
