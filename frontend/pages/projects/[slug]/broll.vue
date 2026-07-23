@@ -481,6 +481,8 @@
             media-type="transcription"
             title="GenStudio transcription model"
             search-placeholder="Search GenStudio models…"
+            :catalog-notice="brollGenstudioPlanNotice"
+            catalog-notice-href="/usage"
           />
         </div>
 
@@ -745,6 +747,7 @@ const {
   loading: brollGenstudioModelsLoading,
   error: brollGenstudioModelsError,
   ready: brollGenstudioModelReady,
+  planNotice: brollGenstudioPlanNotice,
   load: loadBrollGenstudioModels,
 } = useGenStudioTranscriptionModels()
 

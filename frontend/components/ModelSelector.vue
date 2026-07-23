@@ -13,6 +13,8 @@
       placeholder="Pick a GenStudio model…"
       search-placeholder="Search GenStudio models…"
       aria-label="GenStudio model options"
+      :catalog-notice="planNotice"
+      catalog-notice-href="/usage"
       @update:model-value="selectModel"
     />
     <p v-if="migrationMessage" class="migration-message">{{ migrationMessage }}</p>
@@ -29,6 +31,7 @@ interface LlmModelRow {
   disabled_reason?: string | null
   hint?: string | null
   supports_vision?: boolean
+  unlimited_relaxed?: boolean
   legacy_ids?: string[]
 }
 
@@ -48,6 +51,7 @@ const { get } = useApi()
 const allModels = ref<LlmModelRow[]>([])
 const loading = ref(false)
 const loadError = ref('')
+const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
 const current = computed(() => allModels.value.find(model => model.id === props.modelValue))
 const migrationMessage = computed(() => {
@@ -60,16 +64,22 @@ function isDisabled(model: LlmModelRow): boolean {
 }
 
 const menuOptions = computed(() => {
-  const rows = allModels.value.map(model => ({
-    id: model.id,
-    label: model.label,
-    group: 'GenStudio KH',
-    provider: 'GenStudio KH',
-    description: model.disabled_reason || model.hint || '',
-    disabled: isDisabled(model),
-    disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
-    badges: [{ label: 'GenStudio', tone: 'info' as const }],
-  }))
+  const rows = allModels.value.map((model) => {
+    const unlimited = badgeFor(model.unlimited_relaxed === true)
+    return {
+      id: model.id,
+      label: model.label,
+      group: 'GenStudio KH',
+      provider: 'GenStudio KH',
+      description: model.disabled_reason || model.hint || '',
+      disabled: isDisabled(model),
+      disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
+      badges: [
+        { label: 'GenStudio', tone: 'info' as const },
+        ...(unlimited ? [unlimited] : []),
+      ],
+    }
+  })
   if (props.modelValue && !allModels.value.some(model => model.id === props.modelValue)) {
     rows.unshift({
       id: props.modelValue,
@@ -96,7 +106,11 @@ async function loadModels(): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    allModels.value = await get<LlmModelRow[]>(`/models?project=${props.projectSlug}`)
+    const [models] = await Promise.all([
+      get<LlmModelRow[]>(`/models?project=${props.projectSlug}`),
+      refreshAccess(),
+    ])
+    allModels.value = models
     const exact = allModels.value.find(model => model.id === props.modelValue)
     if (exact) {
       emit('model-meta', exact)

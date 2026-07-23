@@ -6,11 +6,13 @@ export interface GenStudioTranscriptionModel {
   available: boolean
   available_workers: number
   qualification_only: boolean
+  unlimited_relaxed?: boolean
 }
 
 /** Shared GenStudio transcription catalog state for Subtitles and B-Roll. */
 export function useGenStudioTranscriptionModels() {
   const { get } = useApi()
+  const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
   const models = ref<GenStudioTranscriptionModel[]>([])
   const modelId = ref('')
   const loading = ref(false)
@@ -20,36 +22,43 @@ export function useGenStudioTranscriptionModels() {
     models.value.find(model => model.id === modelId.value),
   )
   const ready = computed(() => selectedModel.value?.available === true)
-  const options = computed(() => models.value.map(model => ({
-    id: model.id,
-    label: model.display_name,
-    group: 'GenStudio KH · transcription',
-    provider: model.provider || 'GenStudio KH',
-    meta: [
-      model.language,
-      model.available ? `${model.available_workers} ready worker${model.available_workers === 1 ? '' : 's'}` : 'No ready workers',
-    ].filter(Boolean).join(' · '),
-    description: model.qualification_only
-      ? 'Qualification model published by GenStudio KH.'
-      : 'Published by GenStudio KH.',
-    badges: [
-      ...(model.available
-        ? [{ label: 'ready', tone: 'local' as const }]
-        : [{ label: 'offline', tone: 'warning' as const }]),
-      ...(model.qualification_only
-        ? [{ label: 'qualification', tone: 'info' as const }]
-        : []),
-    ],
-  })))
+  const options = computed(() => models.value.map((model) => {
+    const unlimited = badgeFor(model.unlimited_relaxed === true)
+    return {
+      id: model.id,
+      label: model.display_name,
+      group: 'GenStudio KH · transcription',
+      provider: model.provider || 'GenStudio KH',
+      meta: [
+        model.language,
+        model.available ? `${model.available_workers} ready worker${model.available_workers === 1 ? '' : 's'}` : 'No ready workers',
+      ].filter(Boolean).join(' · '),
+      description: model.qualification_only
+        ? 'Qualification model published by GenStudio KH.'
+        : 'Published by GenStudio KH.',
+      badges: [
+        ...(model.available
+          ? [{ label: 'ready', tone: 'local' as const }]
+          : [{ label: 'offline', tone: 'warning' as const }]),
+        ...(model.qualification_only
+          ? [{ label: 'qualification', tone: 'info' as const }]
+          : []),
+        ...(unlimited ? [unlimited] : []),
+      ],
+    }
+  }))
 
   async function load(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      const response = await get<{ models: GenStudioTranscriptionModel[] }>(
-        '/app-settings/genstudio/transcription-models',
-        { cache: 'no-store' },
-      )
+      const [response] = await Promise.all([
+        get<{ models: GenStudioTranscriptionModel[] }>(
+          '/app-settings/genstudio/transcription-models',
+          { cache: 'no-store' },
+        ),
+        refreshAccess(),
+      ])
       models.value = Array.isArray(response.models) ? response.models : []
       if (!models.value.some(model => model.id === modelId.value)) {
         modelId.value = (
@@ -77,6 +86,7 @@ export function useGenStudioTranscriptionModels() {
     loading,
     error,
     ready,
+    planNotice,
     load,
   }
 }

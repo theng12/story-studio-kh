@@ -7,6 +7,7 @@ export interface GenStudioVoiceModelInfo {
   pricing_unit?: string
   limits?: Record<string, unknown>
   controls?: Record<string, unknown>
+  unlimited_relaxed?: boolean
   legacy_ids?: string[]
 }
 

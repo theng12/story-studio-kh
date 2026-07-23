@@ -33,6 +33,8 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /role="option"/)
     assert.match(modelMenu, /-webkit-line-clamp:\s*2/)
     assert.match(modelMenu, /overflow-wrap:\s*anywhere/)
+    assert.match(modelMenu, /badge\.title \|\| badge\.label/)
+    assert.match(modelMenu, /catalogNoticeHref/)
   })
 
   test('floating menus avoid clipped cards and stay inside the viewport', () => {
@@ -43,6 +45,8 @@ describe('shared model menus', () => {
     assert.match(anchoredPanel, /viewportWidth - width - gutter/)
     assert.match(anchoredPanel, /openAbove = below < 280 && above > below/)
     assert.match(imagePicker, /<ModelMenu/)
+    assert.match(imagePicker, /badgeFor\(model\.unlimited_relaxed === true\)/)
+    assert.match(modelSelector, /badgeFor\(model\.unlimited_relaxed === true\)/)
     assert.doesNotMatch(imagePicker, /<Teleport to="body">/)
     assert.match(voicePicker, /<Teleport to="body">/)
   })

@@ -21,6 +21,30 @@
         <article><span>Completed</span><strong>{{ snapshot.overview.completed_jobs.toLocaleString() }}</strong><small>GenStudio jobs</small></article>
       </div>
 
+      <section class="card plan-card">
+        <div>
+          <span class="eyebrow">Current plan</span>
+          <h2>{{ snapshot.overview.subscription_plan_name || 'GenStudio account' }}</h2>
+          <p v-if="snapshot.overview.relaxed_concurrency_limit > 0">
+            Reports up to {{ snapshot.overview.relaxed_concurrency_limit }} shared Unlimited Relaxed
+            {{ snapshot.overview.relaxed_concurrency_limit === 1 ? 'job' : 'jobs' }} for eligible models.
+            Credits are always used first; GenStudio verifies API eligibility when each job is submitted.
+          </p>
+          <p v-else>
+            This plan does not report Unlimited Relaxed capacity. Eligible models can still use paid credits,
+            but zero-credit fallback requires a qualifying plan.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          disabled
+          title="The GenStudio plan website is not hosted yet. This button will open it when the portal launches."
+        >
+          Manage plan · coming soon
+        </button>
+      </section>
+
       <section class="card">
         <h2>Recent jobs</h2>
         <p v-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
@@ -66,6 +90,8 @@ interface Snapshot {
   overview: {
     credit_balance: number
     credits_used_30d: number
+    subscription_plan_name: string
+    relaxed_concurrency_limit: number
     active_jobs: number
     completed_jobs: number
   }
@@ -118,7 +144,8 @@ await Promise.all([load(), genStudioModels.refresh()])
 .totals article, .card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); padding: 16px; }
 .totals span, .totals small { display: block; color: var(--text-muted); font-size: var(--font-xs); }.totals strong { display: block; margin: 4px 0; font-size: 24px; }
 .card { margin-top: 14px; }.card h2 { margin: 0 0 12px; font-size: 16px; }.empty { color: var(--text-muted); }
+.plan-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }.plan-card h2 { margin: 4px 0 6px; }.plan-card p { max-width: 760px; margin: 0; color: var(--text-secondary); line-height: 1.5; }.plan-card button { flex: 0 0 auto; }
 .table-wrap { overflow-x: auto; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th, td { padding: 9px; border-bottom: 1px solid var(--border); text-align: left; } th { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; } td small { display: block; color: var(--text-muted); }.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity { list-style: none; margin: 0; padding: 0; }.activity li { display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }.activity small { display: block; color: var(--text-muted); }.activity-kind { text-transform: uppercase; font-size: var(--font-xs); font-weight: 700; }.activity-kind.credit, .activity-kind.return { color: var(--success); }.activity-kind.charge { color: var(--warning, #d97706); }
-@media (max-width: 760px) { .totals { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .totals { grid-template-columns: repeat(2, 1fr); }.plan-card { align-items: stretch; flex-direction: column; }.plan-card button { width: 100%; } }
 </style>

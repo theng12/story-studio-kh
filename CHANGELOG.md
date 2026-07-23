@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.677 — 2026-07-23
+
+**GenStudio model pickers now explain Unlimited Relaxed access before a job is submitted.**
+
+- Marks eligible LLM, image, regular TTS, and transcription choices with a
+  visible Unlimited state while leaving cloud-only and unsupported models
+  unmarked.
+- Distinguishes plans that include Relaxed capacity, accounts whose credits are
+  already exhausted, and plans that require an upgrade without blocking normal
+  paid-credit access.
+- Explains that credits are always used first and that GenStudio makes the
+  authoritative API-entitlement decision when the job is submitted.
+- Adds the current GenStudio plan, balance, and Relaxed capacity to Credits and
+  Settings, with an honest plan-portal placeholder until the website launches.
+- Preserves published GenStudio Unlimited capability metadata across the shared
+  catalog boundary and adds regression coverage for every displayed state.
+
 ## v1.0.676 — 2026-07-23
 
 **Reusable presets now retain the exact GenStudio model and settings that were saved.**

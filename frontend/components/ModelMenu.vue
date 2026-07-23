@@ -15,6 +15,13 @@
         <strong>{{ selectedOption?.label || modelValue || (loading ? loadingLabel : placeholder) }}</strong>
         <span v-if="selectedSummary">{{ selectedSummary }}</span>
       </span>
+      <span
+        v-for="badge in selectedAccessBadges"
+        :key="`selected-${badge.label}`"
+        class="model-menu-badge model-menu-trigger-badge"
+        :data-tone="badge.tone || 'neutral'"
+        :title="badge.title || badge.label"
+      >{{ badge.label }}</span>
       <span class="model-menu-chevron" aria-hidden="true">▾</span>
     </button>
 
@@ -49,6 +56,11 @@
           />
         </div>
 
+        <div v-if="catalogNotice" class="model-menu-catalog-notice">
+          <span>{{ catalogNotice }}</span>
+          <NuxtLink v-if="catalogNoticeHref" :to="catalogNoticeHref">Plan status →</NuxtLink>
+        </div>
+
         <div class="model-menu-list">
           <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group">
             <h4>{{ group.label }}</h4>
@@ -75,6 +87,7 @@
                   :key="`${option.id}-${badge.label}`"
                   class="model-menu-badge"
                   :data-tone="badge.tone || 'neutral'"
+                  :title="badge.title || badge.label"
                 >{{ badge.label }}</span>
                 <span v-if="option.id === modelValue" class="model-menu-check" aria-label="Selected">✓</span>
               </span>
@@ -94,6 +107,7 @@
 interface ModelMenuBadge {
   label: string
   tone?: 'neutral' | 'local' | 'free' | 'paid' | 'warning' | 'info'
+  title?: string
 }
 
 interface ModelMenuOption {
@@ -119,6 +133,8 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   loadingLabel?: string
   disabled?: boolean
+  catalogNotice?: string
+  catalogNoticeHref?: string
 }>(), {
   mediaType: 'llm',
   title: 'Choose a model',
@@ -128,6 +144,8 @@ const props = withDefaults(defineProps<{
   loading: false,
   loadingLabel: 'Loading models…',
   disabled: false,
+  catalogNotice: '',
+  catalogNoticeHref: '',
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -150,6 +168,9 @@ const kindLabel = computed(() => ({
   transcription: 'STT',
 })[props.mediaType])
 const selectedOption = computed(() => props.options.find(option => option.id === props.modelValue) || null)
+const selectedAccessBadges = computed(() => (
+  selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
+))
 const selectedSummary = computed(() => {
   const option = selectedOption.value
   if (!option) return ''
@@ -253,6 +274,7 @@ onBeforeUnmount(() => {
 .model-menu-current span { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .model-menu-chevron { flex: 0 0 auto; color: var(--text-muted); transition: transform .15s ease; }
 .model-menu-trigger.open .model-menu-chevron { transform: rotate(180deg); }
+.model-menu-trigger-badge { flex: 0 0 auto; }
 
 .model-menu-panel {
   position: fixed;
@@ -273,6 +295,21 @@ onBeforeUnmount(() => {
 .model-menu-count { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-xs); }
 .model-menu-search-wrap { padding: 10px 12px 8px; }
 .model-menu-search { width: 100%; min-height: 38px; }
+.model-menu-catalog-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 12px 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+.model-menu-catalog-notice a { flex: 0 0 auto; color: var(--accent); font-weight: 700; white-space: nowrap; }
 .model-menu-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 10px; }
 .model-menu-group { margin-top: 5px; }
 .model-menu-group h4 { margin: 0; padding: 7px 8px 5px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
@@ -293,6 +330,7 @@ onBeforeUnmount(() => {
 .model-menu-empty { padding: 28px 14px; color: var(--text-muted); font-size: 12px; text-align: center; }
 
 @media (max-width: 680px) {
+  .model-menu-trigger-badge { display: none; }
   .model-menu-option-side .model-menu-badge:nth-child(n+2) { display: none; }
   .model-menu-panel-head { padding-inline: 12px; }
 }

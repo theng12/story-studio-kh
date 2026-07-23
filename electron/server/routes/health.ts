@@ -201,6 +201,7 @@ router.get('/models', async (_req, res) => {
         : (entry.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),
       hint: entry.description || null,
       supports_vision: false,
+      unlimited_relaxed: entry.unlimited_relaxed,
       cost_tier: 'genstudio',
       legacy_ids: legacyIdsForGenStudioModel('chat', entry.id),
     }))
@@ -371,7 +372,8 @@ router.get('/models', async (req, res) => {
     id: string; label: string; provider: string; available: boolean;
     disabled_reason: string | null; hint: string | null;
     supports_vision: boolean; cost_tier: CostTier;
-    min_unified_memory_gb?: number; is_reasoning?: boolean
+    min_unified_memory_gb?: number; is_reasoning?: boolean;
+    unlimited_relaxed?: boolean
   }> = Object.entries(MODEL_LABELS).map(([id, label]) => ({
     id,
     label,
@@ -489,6 +491,7 @@ router.get('/models', async (req, res) => {
             : (blockers.join(' ') || 'This model is not available in GenStudio KH yet.'),
           hint: [entry.description, entry.qualification_only ? 'Qualification catalog.' : ''].filter(Boolean).join(' '),
           supports_vision: false,
+          unlimited_relaxed: entry.unlimited_relaxed,
           cost_tier: 'paid',
         })
       }

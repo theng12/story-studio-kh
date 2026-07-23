@@ -9,6 +9,8 @@
       :placeholder="defaultLabel"
       search-placeholder="Search GenStudio image models…"
       aria-label="GenStudio image model options"
+      :catalog-notice="planNotice"
+      catalog-notice-href="/usage"
       @update:model-value="select"
     />
     <p v-if="imageMode === 'img2img'" class="notice">
@@ -34,6 +36,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [modelId: string] }>()
 const { models, loading, error, refresh } = useGenStudioImageModels()
+const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
 const currentExists = computed(() => models.value.some(model => model.id === props.modelValue))
 const migrationMessage = computed(() => {
@@ -42,20 +45,26 @@ const migrationMessage = computed(() => {
 })
 
 const options = computed(() => {
-  const rows = models.value.map(model => ({
-    id: model.id,
-    label: model.display_name,
-    group: 'GenStudio KH',
-    provider: 'GenStudio KH',
-    description: model.description || 'Pricing is quoted and settled by GenStudio.',
-    disabled: !model.available || props.imageMode === 'img2img',
-    disabledReason: !model.available
-      ? 'This model is currently unavailable in GenStudio.'
-      : props.imageMode === 'img2img'
-        ? 'This catalog currently supports prompt-only generation.'
-        : '',
-    badges: [{ label: 'GenStudio', tone: 'info' as const }],
-  }))
+  const rows = models.value.map((model) => {
+    const unlimited = badgeFor(model.unlimited_relaxed === true)
+    return {
+      id: model.id,
+      label: model.display_name,
+      group: 'GenStudio KH',
+      provider: model.execution_label || 'GenStudio KH',
+      description: model.description || 'Pricing is quoted and settled by GenStudio.',
+      disabled: !model.available || props.imageMode === 'img2img',
+      disabledReason: !model.available
+        ? 'This model is currently unavailable in GenStudio.'
+        : props.imageMode === 'img2img'
+          ? 'This catalog currently supports prompt-only generation.'
+          : '',
+      badges: [
+        { label: 'GenStudio', tone: 'info' as const },
+        ...(unlimited ? [unlimited] : []),
+      ],
+    }
+  })
   if (props.modelValue && !currentExists.value) {
     rows.unshift({
       id: props.modelValue,
@@ -83,7 +92,9 @@ watch(models, catalog => {
   if (mapped) emit('update:modelValue', mapped.id)
 }, { deep: true })
 
-onMounted(() => refresh())
+onMounted(() => {
+  void Promise.all([refresh(), refreshAccess()])
+})
 </script>
 
 <style scoped>

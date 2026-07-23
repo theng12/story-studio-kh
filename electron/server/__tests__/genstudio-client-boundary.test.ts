@@ -16,6 +16,7 @@ import {
   downloadVoicePreview,
   generateTtsToFile,
   generateImageWithGenStudio,
+  getGenStudioAccountOverview,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
@@ -23,6 +24,7 @@ import {
   listImageModels,
   listChatModels,
   listModelCapabilities,
+  listTranscriptionModels,
   listVoices,
   listVideoModels,
   operationSignal,
@@ -202,6 +204,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
+          unlimited_relaxed: true,
         }])
       }
       if (url.endsWith('/v1/videos/models')) {
@@ -222,6 +225,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(capabilities[0]?.operation, 'voice.tts')
     assert.equal(chat[0]?.max_output_tokens, 32_768)
     assert.equal(chat[0]?.available, true)
+    assert.equal(chat[0]?.unlimited_relaxed, true)
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
@@ -393,6 +397,7 @@ test('GenStudio image catalog preserves only valid provider-published pixel size
           default_steps: 4,
           min_steps: 2,
           max_steps: 8,
+          execution_label: 'Local fleet',
           sizes: [
             { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
             { aspect_ratio: '4:3', width: 1024, height: 768 },
@@ -405,6 +410,54 @@ test('GenStudio image catalog preserves only valid provider-published pixel size
       { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
       { aspect_ratio: '4:3', width: 1024, height: 768, label: undefined, default: false },
     ])
+    assert.equal(models[0]?.execution_label, 'Local fleet')
+    assert.equal(models[0]?.unlimited_relaxed, true)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio preserves published Unlimited Relaxed account and transcription status', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          credit_balance: 0,
+          credits_used_30d: 50,
+          subscription_plan_name: 'Mekong Studio',
+          api_concurrency_limit: 5,
+          relaxed_concurrency_limit: 10,
+          total_jobs: 4,
+          active_jobs: 1,
+          completed_jobs: 3,
+          failed_jobs: 0,
+          available_assets: 2,
+          next_asset_expiration: null,
+        })
+      }
+      if (url.endsWith('/v1/transcription/models')) {
+        return Response.json([{
+          id: 'genstudio-transcribe-tiny-v1',
+          display_name: 'Whisper Tiny',
+          provider: 'GenStudio KH',
+          language: 'multilingual',
+          available: true,
+          available_workers: 3,
+          qualification_only: false,
+          unlimited_relaxed: true,
+        }])
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const [overview, models] = await Promise.all([
+      getGenStudioAccountOverview('scoped-key'),
+      listTranscriptionModels('scoped-key'),
+    ])
+    assert.equal(overview.subscription_plan_name, 'Mekong Studio')
+    assert.equal(overview.relaxed_concurrency_limit, 10)
+    assert.equal(models[0]?.unlimited_relaxed, true)
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -64,6 +64,7 @@ export interface GenStudioTranscriptionModel {
   available: boolean
   available_workers: number
   qualification_only: boolean
+  unlimited_relaxed: boolean
 }
 
 export interface GenStudioImageModel {
@@ -72,6 +73,8 @@ export interface GenStudioImageModel {
   description?: string
   available: boolean
   qualification_only: boolean
+  execution_label?: string
+  unlimited_relaxed: boolean
   aspect_ratios: string[]
   default_aspect_ratio: string
   default_steps: number
@@ -184,6 +187,7 @@ export interface GenStudioChatModel {
   max_output_tokens: number
   controls: string[]
   activation_blockers: string[]
+  unlimited_relaxed: boolean
 }
 
 export interface GenStudioVideoModel {
@@ -247,6 +251,7 @@ export interface GenStudioAccountOverview {
   credits_used_30d: number
   subscription_plan_name: string
   api_concurrency_limit: number
+  relaxed_concurrency_limit: number
   total_jobs: number
   active_jobs: number
   completed_jobs: number
@@ -581,6 +586,7 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
     activation_blockers: Array.isArray(value?.activation_blockers)
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
       : [],
+    unlimited_relaxed: value?.unlimited_relaxed === true,
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
 }
 
@@ -790,6 +796,11 @@ async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> 
   })) as Promise<T>
 }
 
+/** Lightweight authoritative account status used by model catalogs and plan guidance. */
+export async function getGenStudioAccountOverview(apiKey: string): Promise<GenStudioAccountOverview> {
+  return readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+}
+
 /** Authoritative balance and settlement data; never reconstructed locally. */
 export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
   overview: GenStudioAccountOverview
@@ -799,7 +810,7 @@ export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
   // Prove the key has account access before starting the two larger paginated
   // reads. An invalid or under-scoped key therefore produces one clear
   // failure instead of three concurrent rejected requests.
-  const overview = await readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+  const overview = await getGenStudioAccountOverview(apiKey)
   const [jobs, creditActivity] = await Promise.all([
     readAccountJson<any>(apiKey, '/v1/account/jobs?page=1&page_size=25'),
     readAccountJson<any>(apiKey, '/v1/account/credit-activity?page=1&page_size=25'),
@@ -920,6 +931,7 @@ export async function listTranscriptionModels(
       ? Math.max(0, value.available_workers)
       : 0,
     qualification_only: value?.qualification_only !== false,
+    unlimited_relaxed: value?.unlimited_relaxed === true,
   })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
 }
 
@@ -937,6 +949,8 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
+    execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
+    unlimited_relaxed: value?.unlimited_relaxed === true || value?.execution_label === 'Local fleet',
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
       : [],

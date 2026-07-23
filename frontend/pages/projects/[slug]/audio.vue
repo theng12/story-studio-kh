@@ -77,6 +77,8 @@
             placeholder="Pick a GenStudio voice tier…"
             search-placeholder="Search voice tiers…"
             aria-label="GenStudio TTS tier options"
+            :catalog-notice="genstudioPlanNotice"
+            catalog-notice-href="/usage"
           />
         </div>
       </div>
@@ -355,6 +357,12 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
+const { voiceModels: genstudioVoiceModels, refresh: refreshMediaModels } = useGenStudioMediaModels()
+const {
+  planNotice: genstudioPlanNotice,
+  badgeFor: genstudioUnlimitedBadge,
+  refresh: refreshGenstudioAccess,
+} = useGenStudioAccess()
 
 const runtimeAudioModels = computed<Record<string, any>>(() => {
   const models: Record<string, any> = {}
@@ -373,18 +381,32 @@ const runtimeAudioModels = computed<Record<string, any>>(() => {
 })
 
 const visibleAudioModels = runtimeAudioModels
-const audioModelOptions = computed(() => GENSTUDIO_TTS_TIER_OPTIONS.map(option => ({
-  id: option.id,
-  label: option.label,
-  group: 'GenStudio TTS',
-  provider: 'GenStudio',
-  meta: `${option.tier[0]?.toUpperCase()}${option.tier.slice(1)} voice catalog`,
-  description: option.description,
-  badges: [{
-    label: option.tier === 'cloned' ? 'Private' : option.tier[0]!.toUpperCase() + option.tier.slice(1),
-    tone: option.tier === 'regular' ? 'local' as const : option.tier === 'premium' ? 'paid' as const : 'info' as const,
-  }],
-})))
+const regularTierSupportsUnlimited = computed(() => genstudioVoiceModels.value.some(model => (
+  model.available
+  && model.unlimited_relaxed === true
+  && Array.isArray(model.controls?.voice_tiers)
+  && model.controls.voice_tiers.includes('regular')
+)))
+const audioModelOptions = computed(() => GENSTUDIO_TTS_TIER_OPTIONS.map((option) => {
+  const unlimited = genstudioUnlimitedBadge(
+    option.tier === 'regular' && regularTierSupportsUnlimited.value,
+  )
+  return {
+    id: option.id,
+    label: option.label,
+    group: 'GenStudio TTS',
+    provider: 'GenStudio',
+    meta: `${option.tier[0]?.toUpperCase()}${option.tier.slice(1)} voice catalog`,
+    description: option.description,
+    badges: [
+      {
+        label: option.tier === 'cloned' ? 'Private' : option.tier[0]!.toUpperCase() + option.tier.slice(1),
+        tone: option.tier === 'regular' ? 'local' as const : option.tier === 'premium' ? 'paid' as const : 'info' as const,
+      },
+      ...(unlimited ? [unlimited] : []),
+    ],
+  }
+}))
 
 // v1.0.157 — `currentAudioProvider` computed + the cross-source voice
 // reset watcher moved BELOW the `form = reactive({...})` declaration
@@ -652,8 +674,12 @@ async function applyAudioFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
-  await applyAudioFormatDefaultsIfNoPreset()
-  await audioPresets.load()
+  await Promise.all([
+    applyAudioFormatDefaultsIfNoPreset(),
+    audioPresets.load(),
+    refreshMediaModels(),
+    refreshGenstudioAccess(),
+  ])
 })
 
 // Effective section list = what the AudioChapterSelector says to actually

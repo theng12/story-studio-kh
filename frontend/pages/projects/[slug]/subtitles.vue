@@ -119,6 +119,8 @@
               placeholder="Pick a transcription model…"
               search-placeholder="Search GenStudio models…"
               aria-label="GenStudio transcription model options"
+              :catalog-notice="genstudioPlanNotice"
+              catalog-notice-href="/usage"
             />
           </div>
         </div>
@@ -315,6 +317,7 @@ const {
   loading: genstudioModelsLoading,
   error: genstudioModelsError,
   ready: genstudioModelReady,
+  planNotice: genstudioPlanNotice,
   load: loadGenstudioModels,
 } = useGenStudioTranscriptionModels()
 
