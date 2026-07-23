@@ -201,17 +201,6 @@ export interface GenStudioChatModel {
   price_version: string
 }
 
-export interface GenStudioTtsQuote {
-  voice_id: string
-  billable_characters: number
-  speed: number
-  estimated_duration_ms: number
-  credits: number
-  credits_per_1000_characters: number
-  price_version: string
-  chargeable: boolean
-}
-
 export interface GenStudioVideoModel {
   id: string
   display_name: string
@@ -674,45 +663,6 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
-}
-
-/**
- * Get GenStudio's exact TTS quote. This deliberately keeps TTS pricing out of
- * Story Studio: GenStudio owns the voice tier, character rules, price version,
- * and the final settlement.
- */
-export async function quoteTts(
-  apiKey: string,
-  input: { voiceId: string; text: string; speed: number },
-): Promise<GenStudioTtsQuote> {
-  const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/tts/quotes`, {
-    method: 'POST',
-    headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ voice_id: input.voiceId, text: input.text, speed: input.speed }),
-    signal: AbortSignal.timeout(12_000),
-  })) as any
-  if (
-    typeof payload?.voice_id !== 'string'
-    || !Number.isFinite(payload?.credits)
-    || !Number.isFinite(payload?.billable_characters)
-    || !Number.isFinite(payload?.estimated_duration_ms)
-    || typeof payload?.price_version !== 'string'
-  ) {
-    throw new Error('GenStudio KH returned an invalid TTS quote')
-  }
-  return {
-    voice_id: payload.voice_id.trim(),
-    billable_characters: Math.max(0, payload.billable_characters),
-    speed: Number.isFinite(payload?.speed) ? payload.speed : input.speed,
-    estimated_duration_ms: Math.max(0, payload.estimated_duration_ms),
-    credits: Math.max(0, payload.credits),
-    credits_per_1000_characters: Number.isFinite(payload?.credits_per_1000_characters)
-      ? Math.max(0, payload.credits_per_1000_characters)
-      : 0,
-    price_version: payload.price_version.trim(),
-    chargeable: payload?.chargeable === true,
-  }
 }
 
 export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {

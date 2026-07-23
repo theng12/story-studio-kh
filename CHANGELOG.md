@@ -4,6 +4,37 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.689 — 2026-07-23
+
+**Thumbnail Prompts now gives you simple title-design control again.**
+
+- Removes an accidentally exposed internal note from the Thumbnail Prompts
+  page.
+- Adds compact selectors for title text treatment, font, and location. Each
+  can be locked to a choice or left on **Let LLM decide** for varied results.
+- Adds **Randomize title design** and **Surprise me** actions to explore
+  different title directions without restoring the old crowded workflow.
+
+## v1.0.688 — 2026-07-23
+
+**Thumbnail Generator is now focused on batch rendering.**
+
+- Removes the redundant Try a style sample-render card and its saved draft
+  state from the generator page.
+- Keeps explicit style proofs in the Project Style Library, where reusable
+  styles are created and managed.
+
+## v1.0.687 — 2026-07-23
+
+**Generation confirmation is now action-only.**
+
+- Removes Story Studio's cost-estimation endpoint, catalog lookups, prompt
+  counting, and TTS quote preflight so opening a confirmation never sends an
+  extra API request.
+- Confirmation now simply asks whether to start the selected action. GenStudio
+  remains the sole owner of admission, credit reservation, and final settlement
+  when the real job is submitted.
+
 ## v1.0.686 — 2026-07-23
 
 **Thumbnail Prompts now produces finished, titled thumbnails directly.**

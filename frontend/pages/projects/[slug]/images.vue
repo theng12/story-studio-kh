@@ -286,25 +286,6 @@
       @update:reference-strength="activeForm.reference_strength = $event"
     />
 
-    <!-- ── Style Preview card ──────────────────────────────────────────────
-         Free-form "what does THIS style look like?" sample render, using
-         the model + aspect + tier picked above. Episode-independent —
-         visible without picking an episode. Cached app-wide by
-         sha256(style + model + aspect + tier); re-clicking the same combo
-         is free, switching any input bills a fresh render once. -->
-    <StylePreviewCard
-      :project-slug="slug"
-      :model="activeForm.model"
-      :aspect-ratio="activeForm.aspect_ratio"
-      :tier="activeForm.tier"
-      :image-steps="activeForm.image_steps"
-      :seed="typeof activeForm.seed === 'number' ? activeForm.seed : null"
-      :model-label="modelLabelForStylePreview"
-      :episode-id="form.episode_id || ''"
-      :episode-title="selectedEpisode?.title || ''"
-      :kind="form.mode === 'thumbs' ? 'thumbnail' : 'scene'"
-    />
-
     <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────
          Each panel lists the episode's prompts for ONE kind (scene or
          thumbnail), shows the rendered image inline per row, and exposes
@@ -863,13 +844,6 @@ const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
 const modelTiers = computed<{ id: string; label: string; credits: number }[]>(() => {
   const m = config.value?.image_models?.[activeForm.value.model] as any
   return Array.isArray(m?.tiers) ? m.tiers : []
-})
-
-// Friendly model label for the StylePreviewCard's blurb. Falls back to
-// the model id when the config doesn't have a label.
-const modelLabelForStylePreview = computed(() => {
-  const m = config.value?.image_models?.[activeForm.value.model] as any
-  return (m?.label as string) || activeForm.value.model || ''
 })
 
 // Per-tab prompt-character cap + friendly label. Threaded into each
@@ -1788,9 +1762,7 @@ function generationParams(forceOverride?: boolean, includeSpecific = true) {
     aspect_ratio: activeForm.value.aspect_ratio,
     force,
   }
-  // Forward tier only when the active model has tiers. Flat-priced models
-  // ignore the field server-side, but sending it would clutter the request
-  // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
+  // Forward a tier only when the active model has tiers.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
   if (activeGenStudioModel.value) {
     params.image_steps = Math.max(

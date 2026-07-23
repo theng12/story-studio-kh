@@ -65,10 +65,6 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
     new URL('../components/PreviewPromptRow.vue', import.meta.url),
     'utf8',
   )
-  const stylePreview = readFileSync(
-    new URL('../components/StylePreviewCard.vue', import.meta.url),
-    'utf8',
-  )
   const audioRoute = readFileSync(
     new URL('../../electron/server/routes/audio.ts', import.meta.url),
     'utf8',
@@ -79,6 +75,5 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.match(usage, /usageModelDisplay\(job\)/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
   assert.match(previewRow, /\{\{\s*previewModelName\s*\}\}/)
-  assert.match(stylePreview, /\{\{\s*previewModelName\s*\}\}/)
   assert.match(audioRoute, /req\.body\.tts_tier = requestedTier/)
 })

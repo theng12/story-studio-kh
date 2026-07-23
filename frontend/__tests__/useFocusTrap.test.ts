@@ -1,7 +1,7 @@
 /**
  * Tests for `useFocusTrap` — the shared modal accessibility primitive.
  *
- * Every dialog in the app (ConfirmDialog, CostConfirmationDialog, Modal)
+ * Every dialog in the app (ConfirmDialog, generator confirmation, Modal)
  * runs through this. If it breaks, keyboard users get trapped outside
  * modals or can Tab past them into the page underneath — classic
  * accessibility footgun.

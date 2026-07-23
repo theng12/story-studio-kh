@@ -287,11 +287,6 @@ export const UpdateStandardsSchema = z.union([
 
 // ── Jobs / generation ───────────────────────────────────────────────────────
 
-export const EstimateCostSchema = z.object({
-  type: z.string().min(1),
-  params: z.record(z.string(), z.any()).optional(),
-}).strict()
-
 const EpisodeId = z.string().min(1).max(40)
 
 export const GenerateScriptSchema = z.object({

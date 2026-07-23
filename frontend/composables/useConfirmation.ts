@@ -1,20 +1,7 @@
-/** GenStudio is the sole pricing authority. Story Studio shows its live
- * estimate and price version, then GenStudio reserves and settles the final
- * credit amount when the job is submitted. */
-interface CreditEstimate {
-  estimated_credits: number | null
-  price_version: string | null
-  pricing_basis: string
-  estimated_duration: string | null
-  quote_status: 'estimated' | 'exact' | 'not_applicable' | 'unavailable'
-}
-
 interface ConfirmationState {
   visible: boolean
   type: string
   typeLabel: string
-  estimate: CreditEstimate | null
-  loading: boolean
   resolve: ((value: boolean) => void) | null
 }
 
@@ -22,8 +9,6 @@ const state = reactive<ConfirmationState>({
   visible: false,
   type: '',
   typeLabel: '',
-  estimate: null,
-  loading: false,
   resolve: null,
 })
 
@@ -45,7 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export function useConfirmation() {
-  const { post, put } = useApi()
+  const { put } = useApi()
   const { config, refreshConfig } = useProject()
 
   function shouldConfirm(generatorType: string): boolean {
@@ -57,30 +42,15 @@ export function useConfirmation() {
   async function confirmGeneration(
     slug: string,
     type: string,
-    params: Record<string, any>,
+    _params: Record<string, any>,
   ): Promise<boolean> {
     if (!shouldConfirm(type)) return true
 
-    let estimate: CreditEstimate
-    try {
-      estimate = await post<CreditEstimate>(`/projects/${slug}/estimate-cost`, { type, params })
-    } catch (err) {
-      console.warn('[confirmGeneration] GenStudio credit preflight failed', err)
-      estimate = {
-        estimated_credits: null,
-        price_version: null,
-        pricing_basis: 'Could not load the live GenStudio credit estimate. GenStudio remains authoritative when the job is accepted.',
-        estimated_duration: null,
-        quote_status: 'unavailable',
-      }
-    }
-
-    // Show the dialog. Dialog component reads from `state` reactively.
+    // Confirmation is intentionally local and action-only. GenStudio owns
+    // credit admission, reservation, and settlement at job submission.
     state.visible = true
     state.type = type
     state.typeLabel = TYPE_LABELS[type] || type
-    state.loading = false
-    state.estimate = estimate
 
     // Wait for user to confirm or cancel
     return new Promise<boolean>((resolve) => {

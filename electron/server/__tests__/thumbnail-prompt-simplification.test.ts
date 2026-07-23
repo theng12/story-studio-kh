@@ -9,6 +9,9 @@ test('thumbnail prompts use one user idea and render the episode title in the im
   const directive = buildThumbnailDirective({
     thumbs: 3,
     title: 'The Impossible Storm',
+    textStyle: 'neon',
+    fontStyle: 'display',
+    textPosition: 'top',
     creativeDirection: 'A lone ship against an impossible storm.',
     referenceStyle: 'Bold silhouette, cold teal palette, huge wave behind the ship.',
   })
@@ -17,7 +20,21 @@ test('thumbnail prompts use one user idea and render the episode title in the im
   assert.match(directive, /REFERENCE DIRECTION: Bold silhouette/i)
   assert.match(directive, /The Impossible Storm/)
   assert.match(directive, /inside the image/i)
-  assert.doesNotMatch(directive, /font style|text position|concept strategy/i)
+  assert.match(directive, /neon glow/i)
+  assert.match(directive, /large display headline font/i)
+  assert.match(directive, /place it at the top/i)
+})
+
+test('auto title controls give the LLM freedom to vary the title treatment', () => {
+  const directive = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'The Impossible Storm',
+    textStyle: 'auto',
+    fontStyle: 'auto',
+    textPosition: 'auto',
+  })
+
+  assert.match(directive, /choose the font, text treatment, and placement/i)
 })
 
 test('thumbnail prompt repair preserves the aspect ratio and ready-to-use title', () => {

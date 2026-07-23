@@ -198,11 +198,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    * submit error. The page is free to read `s.generating` /
    * `videoAssemblyGenerating` for its own UI feedback.
    *
-   * v1.0.514 — no cost-confirmation prompt. Video assembly is a FREE local
-   * ffmpeg render (no API spend), so there's nothing to confirm cost-wise, and
-   * the old estimate was meaningless for cost and wildly inaccurate for
-   * duration. Removing it also drops the estimate-cost round-trip that made the
-   * dialog slow to appear.
+   * Video assembly is a local ffmpeg render, so it queues without a generation
+   * confirmation.
    *
    * Callers supply:
    *   - `post` — the useApi().post helper (re-injected so the composable

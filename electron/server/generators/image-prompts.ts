@@ -25,6 +25,7 @@ import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job } from '../models/types.js'
+import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
@@ -51,6 +52,10 @@ interface ImagePromptsParams {
    */
   chapter_count?: number
   thumb_count?: number
+  /** Optional title controls. "auto" deliberately lets the LLM vary it. */
+  thumb_text_style?: string
+  thumb_text_position?: string
+  thumb_font_style?: string
   /** Vision-extracted direction from a reference image. */
   thumb_reference_style?: string
   /** The one user-written thumbnail idea. */
@@ -217,6 +222,9 @@ const GENERIC_THUMBNAIL_AVOID = [
 export function buildThumbnailDirective(opts: {
   thumbs: number
   title: string
+  textStyle?: string
+  fontStyle?: string
+  textPosition?: string
   referenceStyle?: string
   fmt?: ThumbnailFmt | null
   creativeDirection?: string
@@ -229,6 +237,14 @@ export function buildThumbnailDirective(opts: {
     `Avoid: ${[...(opts.fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}.`,
     `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
   ]
+  const font = !opts.fontStyle || opts.fontStyle === 'auto' ? '' : resolveFontStyle(opts.fontStyle)
+  const text = !opts.textStyle || opts.textStyle === 'auto' ? '' : resolveTextStyle(opts.textStyle)
+  const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
+  if (!font && !text && !position) {
+    lines.push(`TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.`)
+  } else {
+    lines.push(`TITLE DESIGN: ${font ? `use ${font}` : 'choose the font'}; ${text ? `use ${text}` : 'choose the text treatment'}; ${position ? `place it at the ${position}` : 'choose the strongest placement'}.`)
+  }
   if (opts.fmt?.compositionRules?.length) lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
   if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
   if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
@@ -254,7 +270,13 @@ const RATIO_DESCRIPTIONS: Record<string, string> = {
  * It ensures the selected aspect ratio, thumbnail framing, and the exact
  * in-image episode title required for a ready-to-publish thumbnail.
  */
-export function enforceThumbnailPromptElements(prompt: string, opts: { aspectRatio: string; title: string }): string {
+export function enforceThumbnailPromptElements(prompt: string, opts: {
+  aspectRatio: string
+  title: string
+  textStyle?: string
+  fontStyle?: string
+  textPosition?: string
+}): string {
   const out = (prompt || '').trim()
   if (!out) return out
   const ratio = opts.aspectRatio || '16:9'
@@ -269,7 +291,10 @@ export function enforceThumbnailPromptElements(prompt: string, opts: { aspectRat
   }
 
   if (opts.title.trim() && !out.includes(opts.title.trim())) {
-    clauses.push(`Render the exact episode title "${opts.title.trim()}" inside the image as large, bold, highly legible display text. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
+    const font = !opts.fontStyle || opts.fontStyle === 'auto' ? 'a font chosen to suit the concept' : resolveFontStyle(opts.fontStyle)
+    const text = !opts.textStyle || opts.textStyle === 'auto' ? 'a treatment chosen to suit the concept' : resolveTextStyle(opts.textStyle)
+    const position = !opts.textPosition || opts.textPosition === 'auto' ? 'the strongest placement for the composition' : opts.textPosition
+    clauses.push(`Render the exact episode title "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
 
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
@@ -465,6 +490,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const thumbnailDirective = buildThumbnailDirective({
     thumbs,
     title,
+    textStyle: req.thumb_text_style || 'auto',
+    fontStyle: req.thumb_font_style || 'auto',
+    textPosition: req.thumb_text_position || 'auto',
     referenceStyle: req.thumb_reference_style,
     fmt: thumbFmt,
     creativeDirection: req.thumb_creative_direction,
@@ -766,6 +794,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       const fixed = enforceThumbnailPromptElements(original, {
         aspectRatio: req.aspect_ratio || '16:9',
         title,
+        textStyle: req.thumb_text_style || 'auto',
+        fontStyle: req.thumb_font_style || 'auto',
+        textPosition: req.thumb_text_position || 'auto',
       })
       if (fixed !== original) enforced++
       return { ...t, prompt: fixed }

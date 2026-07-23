@@ -37,9 +37,7 @@
  * Replaces window.confirm() — themed, focus-trapped (via the shared Modal
  * primitive), Escape closes, Enter confirms.
  *
- * z-index is 2100 so the confirm layer always wins over CostConfirmationDialog
- * if both manage to mount at once (e.g. a stray "destructive" action fired
- * from inside the cost dialog).
+ * z-index is 2100 so destructive confirmations always stay on top.
  */
 const { state, confirm, cancel, toggleRemember } = useConfirm()
 

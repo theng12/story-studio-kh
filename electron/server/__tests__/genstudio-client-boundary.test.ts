@@ -30,7 +30,6 @@ import {
   listVideoModels,
   operationSignal,
   parseGenStudioRetryAfterMs,
-  quoteTts,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
   recoverTtsToFile,
@@ -272,42 +271,15 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
   }
 })
 
-test('GenStudio TTS quotes use the scoped API key and preserve the authoritative price version', async () => {
-  const originalFetch = globalThis.fetch
-  try {
-    globalThis.fetch = async (input, init) => {
-      assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/quotes')
-      assert.equal(init?.method, 'POST')
-      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
-      assert.deepEqual(JSON.parse(String(init?.body)), {
-        voice_id: 'voice-1', text: 'A quiet morning.', speed: 0.9,
-      })
-      return Response.json({
-        voice_id: 'voice-1', billable_characters: 16, speed: 0.9, estimated_duration_ms: 2200,
-        credits: 5, credits_per_1000_characters: 5, price_version: 'tts-price-v2', chargeable: true,
-      })
-    }
-    const quote = await quoteTts('scoped-key', { voiceId: 'voice-1', text: 'A quiet morning.', speed: 0.9 })
-    assert.deepEqual(quote, {
-      voice_id: 'voice-1', billable_characters: 16, speed: 0.9, estimated_duration_ms: 2200,
-      credits: 5, credits_per_1000_characters: 5, price_version: 'tts-price-v2', chargeable: true,
-    })
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('generation confirmation is GenStudio-credit-only and keeps no legacy provider calculator', () => {
+test('generation confirmation stays local and does not request estimates or quotes', () => {
   const route = readFileSync(new URL('../routes/jobs.ts', import.meta.url), 'utf8')
-  const dialog = readFileSync(new URL('../../../frontend/components/CostConfirmationDialog.vue', import.meta.url), 'utf8')
+  const dialog = readFileSync(new URL('../../../frontend/components/GenerationConfirmationDialog.vue', import.meta.url), 'utf8')
+  const confirmation = readFileSync(new URL('../../../frontend/composables/useConfirmation.ts', import.meta.url), 'utf8')
   const dashboard = readFileSync(new URL('../../../frontend/pages/projects/[slug]/index.vue', import.meta.url), 'utf8')
   const health = readFileSync(new URL('../routes/health.ts', import.meta.url), 'utf8')
-  assert.match(route, /listChatModels/)
-  assert.match(route, /listImageModels/)
-  assert.match(route, /quoteTts/)
-  assert.doesNotMatch(route, /getModelPricing|getKieCredits|getFalBalance|estimated_cost|cost_unit/)
-  assert.match(dialog, /Estimated GenStudio credits/)
-  assert.doesNotMatch(dialog, /USD_PER_CREDIT|kie\.ai|usdEquivalent/)
+  assert.doesNotMatch(route, /estimate-cost|quoteTts|getModelPricing|getKieCredits|getFalBalance/)
+  assert.doesNotMatch(confirmation, /estimate-cost|estimated_credits|quote_status/)
+  assert.doesNotMatch(dialog, /Estimated GenStudio credits|price version|pricing basis/i)
   assert.doesNotMatch(dashboard, /Tracked API spend|total_api_cost|allTimeCost/)
   assert.doesNotMatch(health, /usage-tracker\.js/)
 })

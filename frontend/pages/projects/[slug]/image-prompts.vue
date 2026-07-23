@@ -597,6 +597,48 @@
         </div>
       </div>
 
+      <div class="grid-3 mt-2">
+        <div class="form-group">
+          <label>Text style</label>
+          <select v-model="form.thumbnail.thumb_text_style" class="select">
+            <option value="auto">Let LLM decide</option>
+            <option v-for="p in TEXT_STYLE_PRESETS.filter(preset => preset.id !== 'custom')" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Font</label>
+          <select v-model="form.thumbnail.thumb_font_style" class="select">
+            <option value="auto">Let LLM decide</option>
+            <option v-for="p in FONT_STYLE_PRESETS.filter(preset => preset.id !== 'custom')" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Title location</label>
+          <select v-model="form.thumbnail.thumb_text_position" class="select">
+            <option value="auto">Let LLM decide</option>
+            <option value="top">Top</option>
+            <option value="center">Center</option>
+            <option value="bottom">Bottom</option>
+          </select>
+        </div>
+      </div>
+      <p class="text-muted text-xs hint-line">
+        Lock any of these when you know the look you want, or leave them on Let LLM decide to get varied thumbnail directions.
+      </p>
+      <div class="flex gap-2 mt-1 items-center flex-wrap">
+        <button type="button" class="btn btn-secondary" @click="randomizeThumbStyles">
+          🎲 Randomize title design
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!form.episode_id || generating"
+          @click="surpriseMeThumb"
+        >
+          ✨ Surprise me
+        </button>
+      </div>
+
       <div class="form-group mt-2">
         <label>What should make someone click? <span class="text-muted">(optional)</span></label>
         <textarea
@@ -642,7 +684,7 @@
       </div>
     </div>
 
-    <!-- ── Per-prompt review ───────────────────────────────────────────── -->
+    <!-- ── Per-prompt review ─────────────────────────────────────────────
          Reads whatever prompts are already on disk for the selected
          episode and lets the user fire a single-prompt regen for any
          row they don't like. Same docx is re-saved with that one
@@ -1128,10 +1170,10 @@ const form = reactive({
     force: false,
     thumb_count: 3,
     thumb_treatment_preset: 'custom',
-    thumb_text_style: 'gold',
+    thumb_text_style: 'auto',
     thumb_text_style_custom: '',
-    thumb_text_position: 'center',
-    thumb_font_style: 'serif',
+    thumb_text_position: 'auto',
+    thumb_font_style: 'auto',
     thumb_font_style_custom: '',
     thumb_title_mode: 'ai',
     thumb_art_direction: '',
@@ -1266,7 +1308,9 @@ function pickRandomPresetId(presets: StylePreset[]): string {
 function randomizeThumbStyles() {
   form.thumbnail.thumb_text_style = pickRandomPresetId(TEXT_STYLE_PRESETS)
   form.thumbnail.thumb_font_style = pickRandomPresetId(FONT_STYLE_PRESETS)
-  success(`Rolled: ${form.thumbnail.thumb_text_style} + ${form.thumbnail.thumb_font_style}`)
+  const positions = ['top', 'center', 'bottom']
+  form.thumbnail.thumb_text_position = positions[Math.floor(Math.random() * positions.length)]!
+  success(`Rolled: ${form.thumbnail.thumb_text_style} + ${form.thumbnail.thumb_font_style} + ${form.thumbnail.thumb_text_position}`)
 }
 
 async function surpriseMeThumb() {
@@ -1936,6 +1980,9 @@ async function runGenerate(mode: PromptMode) {
       thumb_count: form.thumbnail.thumb_count,
       // Thumbnail renders include the episode title directly in the image.
       thumb_title_mode: 'ai',
+      thumb_text_style: form.thumbnail.thumb_text_style,
+      thumb_text_position: form.thumbnail.thumb_text_position,
+      thumb_font_style: form.thumbnail.thumb_font_style,
       thumb_reference_style: form.thumbnail.thumb_reference_style,
       thumb_creative_direction: form.thumbnail.thumb_creative_direction,
       title: selectedEpisode.value?.title || '',

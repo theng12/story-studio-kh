@@ -1271,7 +1271,7 @@
     <div v-if="activeTab === 'confirmations'" class="card settings-panel mt-2">
       <h3>Generation Confirmations</h3>
       <p class="text-muted mt-1 mb-2">
-        Choose which generators show a cost estimation dialog before starting. Disabled generators will skip the confirmation and start immediately.
+        Choose which generators ask for confirmation before starting. Disabled generators skip the prompt and start immediately.
       </p>
       <div class="confirm-list">
         <label v-for="gen in confirmGenerationRows" :key="gen.key" class="confirm-row">
@@ -4932,7 +4932,7 @@ async function revealInFinder() {
 }
 
 // Confirmation preferences
-// `group: 'generation'` → cost-estimate dialogs before paid generators.
+// `group: 'generation'` → action-only dialogs before generation begins.
 // `group: 'action'` → everyday action dialogs (Open in Finder, etc.)
 // that don't cost money but still deserve a guardrail the user can
 // disable once they've decided they trust it. Both live in the same
@@ -4940,10 +4940,10 @@ async function revealInFinder() {
 const confirmGenerators = [
   { key: 'script', label: 'Scripts', description: 'Episode script generation', group: 'generation' },
   { key: 'thumb_prompts', label: 'Thumbnail Prompts', description: 'Thumbnail image prompt generation', group: 'generation' },
-  { key: 'thumb_images', label: 'Thumbnail Images', description: 'Thumbnail image generation via kie.ai', group: 'generation' },
+  { key: 'thumb_images', label: 'Thumbnail Images', description: 'Thumbnail image generation', group: 'generation' },
   { key: 'scene_plan', label: 'Scene Plan', description: 'Narration-timed visual prompt generation', group: 'generation' },
   { key: 'scene_review', label: 'Scene Review', description: 'Scene image generation from the approved plan', group: 'generation' },
-  { key: 'audio', label: 'Audio', description: 'TTS narration via fal.ai', group: 'generation' },
+  { key: 'audio', label: 'Audio', description: 'TTS narration', group: 'generation' },
   { key: 'description', label: 'Description', description: 'YouTube description generation', group: 'generation' },
   { key: 'video', label: 'Video', description: 'Video assembly via FFmpeg', group: 'generation' },
   { key: 'reveal_folder', label: 'Open in Finder', description: 'Confirm before opening a folder in Finder / File Explorer', group: 'action' },

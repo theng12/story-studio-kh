@@ -3,7 +3,7 @@
     <NuxtPage />
   </NuxtLayout>
   <ToastContainer />
-  <CostConfirmationDialog />
+  <GenerationConfirmationDialog />
   <ConfirmDialog />
   <AppSettingsModal />
   <!-- Server-mode-only: in-app replacement for native folder/file pickers. -->
