@@ -7,7 +7,14 @@
       <strong>{{ name }}</strong>
       <span>{{ providerLabel }}</span>
     </button>
-    <button type="button" class="vp-preview" title="Preview voice" @click="$emit('preview')">▶</button>
+    <button
+      type="button"
+      class="vp-preview"
+      :disabled="!previewAvailable"
+      :title="previewAvailable ? 'Play saved voice preview' : 'No preview is available for this voice yet'"
+      :aria-label="previewAvailable ? `Play ${name} preview` : `${name} preview unavailable`"
+      @click="$emit('preview')"
+    >▶</button>
   </div>
 </template>
 
@@ -17,6 +24,7 @@ defineProps<{
   selected: boolean
   favourite: boolean
   providerLabel: string
+  previewAvailable?: boolean
 }>()
 
 defineEmits<{
@@ -36,4 +44,5 @@ defineEmits<{
 .vp-select strong { font-size: 13px; }
 .vp-select span { color: var(--text-muted); font-size: 10px; }
 .vp-preview { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--accent); cursor: pointer; }
+.vp-preview:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .45; }
 </style>

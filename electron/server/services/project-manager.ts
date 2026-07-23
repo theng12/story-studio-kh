@@ -935,28 +935,50 @@ export function sanitizeAudioGeneratorPresets(value: unknown): unknown {
  * executable configuration.
  */
 export function genStudioOnlyAudioModels(
-  saved: Record<string, AudioModelConfig> | null | undefined,
+  _saved: Record<string, AudioModelConfig> | null | undefined,
 ): Record<string, AudioModelConfig> {
-  const candidates = mergeCatalog(DEFAULT_AUDIO_MODELS, saved)
-  const current: Record<string, AudioModelConfig> = {}
-  for (const [savedId, entry] of Object.entries(candidates)) {
-    const modelId = resolveStoryTtsModelId(savedId)
-    if (!modelId) continue
-    const existing = current[modelId]
-    current[modelId] = {
-      label: existing?.label || entry.label || 'GenStudio voice model',
-      cost_per_1k_chars: existing?.cost_per_1k_chars ?? entry.cost_per_1k_chars ?? 0,
-      provider: 'genstudio',
-      tts_soft_max_chars: 15_000,
-    }
-  }
-  return current
+  void _saved
+  const tiers = [
+    ['genstudio-tts-regular', 'GenStudio TTS Regular'],
+    ['genstudio-tts-premium', 'GenStudio TTS Premium'],
+    ['genstudio-tts-clone', 'GenStudio TTS Clone'],
+  ] as const
+  return Object.fromEntries(tiers.map(([id, label]) => [id, {
+    label,
+    cost_per_1k_chars: 0,
+    provider: 'genstudio',
+    tts_soft_max_chars: 15_000,
+  }]))
 }
 
-/** Canonicalize the one formerly public Story-owned GenStudio TTS alias. */
+export type StoryTtsTier = 'regular' | 'premium' | 'cloned'
+
+/** The Story selector is a voice-tier picker; GenStudio owns engine routing. */
+export function storyTtsTierForModelId(modelId: string): StoryTtsTier | null {
+  switch (modelId.trim()) {
+    case 'genstudio-tts-regular':
+    case 'genstudio-qwen3-standard':
+    case 'genstudio-standard-v1':
+      return 'regular'
+    case 'genstudio-tts-premium':
+      return 'premium'
+    case 'genstudio-tts-clone':
+    case 'genstudio-clone-v1':
+      return 'cloned'
+    default:
+      return null
+  }
+}
+
+/** Resolve a Story voice tier to the GenStudio capability that executes it. */
 export function resolveStoryTtsModelId(modelId: string): string | null {
   const value = modelId.trim()
-  if (value === 'genstudio-qwen3-standard') return 'genstudio-standard-v1'
+  if (value === 'genstudio-tts-regular' || value === 'genstudio-qwen3-standard') {
+    return 'genstudio-standard-v1'
+  }
+  if (value === 'genstudio-tts-premium' || value === 'genstudio-tts-clone') {
+    return 'genstudio-clone-v1'
+  }
   return resolveGenStudioModelId('voice', value)
 }
 

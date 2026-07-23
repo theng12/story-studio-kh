@@ -13,6 +13,7 @@ import {
   buildGenStudioSubmission,
   callChatWithGenStudio,
   catalogHasVoice,
+  downloadVoicePreview,
   generateTtsToFile,
   generateImageWithGenStudio,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
@@ -22,6 +23,7 @@ import {
   listImageModels,
   listChatModels,
   listModelCapabilities,
+  listVoices,
   listVideoModels,
   operationSignal,
   recoverImageWithGenStudio,
@@ -36,13 +38,8 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 
-test('GenStudio standard voices are an explicit, bounded TTS route', () => {
-  assert.deepEqual(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], {
-    label: 'Qwen3 Standard Voices [GenStudio KH]',
-    cost_per_1k_chars: 0,
-    provider: 'genstudio',
-    tts_soft_max_chars: 15000,
-  })
+test('legacy Qwen engine labels are absent from the Story-owned TTS defaults', () => {
+  assert.equal(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], undefined)
   const voices = normalizeVoicePresets(DEFAULT_VOICE_PRESETS)
   assert.equal(voiceSupportsProvider(voices, 'voice_qwen3_ryan', 'genstudio'), true)
   assert.equal(voiceSupportsProvider(voices, 'voice_qwen3_aiden', 'genstudio'), true)
@@ -227,6 +224,45 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.available, true)
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio voice catalog preserves tiers and stored previews without generating audio', async () => {
+  const originalFetch = globalThis.fetch
+  let previewDownloads = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
+      const url = String(input)
+      if (url.endsWith('/v1/voices')) {
+        return Response.json([{
+          id: 'voice-premium',
+          display_name: 'Premium narrator',
+          voice_tier: 'premium',
+          generation_enabled: true,
+          preview_available: true,
+          preview_url: '/v1/voices/voice-premium/preview',
+          preview_text: 'A stored listening sample.',
+        }])
+      }
+      if (url.endsWith('/v1/voices/voice-premium/preview')) {
+        previewDownloads++
+        return new Response(Buffer.from('preview-audio'), {
+          headers: { 'Content-Type': 'audio/mpeg' },
+        })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const voices = await listVoices('scoped-key')
+    assert.equal(voices[0]?.voice_tier, 'premium')
+    assert.equal(voices[0]?.preview_available, true)
+    assert.equal(voices[0]?.preview_url, '/v1/voices/voice-premium/preview')
+    const preview = await downloadVoicePreview('scoped-key', voices[0]!.preview_url!)
+    assert.equal(preview.mediaType, 'audio/mpeg')
+    assert.equal(preview.bytes.toString(), 'preview-audio')
+    assert.equal(previewDownloads, 1)
   } finally {
     globalThis.fetch = originalFetch
   }

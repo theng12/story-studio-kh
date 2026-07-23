@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { UpdateConfigSchema } from '../contracts/index.js'
 import { resolveAudioProvider } from '../generators/audio.js'
-import { genStudioOnlyAudioModels } from '../services/project-manager.js'
+import {
+  genStudioOnlyAudioModels,
+  resolveStoryTtsModelId,
+  storyTtsTierForModelId,
+} from '../services/project-manager.js'
 
 test('arbitrary project audio_models cannot select a direct TTS provider', () => {
   const malicious = {
@@ -18,7 +22,7 @@ test('arbitrary project audio_models cannot select a direct TTS provider', () =>
   assert.equal(resolveAudioProvider('voicestudio-qwen3-tts', malicious), 'genstudio')
 })
 
-test('project config healing exposes only canonical GenStudio TTS entries', () => {
+test('project config healing exposes exactly the three customer-facing GenStudio TTS tiers', () => {
   const healed = genStudioOnlyAudioModels({
     'genstudio-standard-v1': {
       label: 'Tampered canonical model',
@@ -32,11 +36,24 @@ test('project config healing exposes only canonical GenStudio TTS entries', () =
       provider: 'fishaudio',
     },
   })
-  assert.ok(healed['genstudio-standard-v1'])
-  assert.equal(healed['genstudio-standard-v1']?.provider, 'genstudio')
-  assert.equal(healed['genstudio-standard-v1']?.tts_soft_max_chars, 15_000)
+  assert.deepEqual(Object.keys(healed), [
+    'genstudio-tts-regular',
+    'genstudio-tts-premium',
+    'genstudio-tts-clone',
+  ])
+  assert.equal(healed['genstudio-tts-regular']?.provider, 'genstudio')
+  assert.equal(healed['genstudio-tts-premium']?.tts_soft_max_chars, 15_000)
   assert.equal(healed['fishaudio-s2.1-pro'], undefined)
   assert.ok(Object.values(healed).every(model => model.provider === 'genstudio'))
+})
+
+test('Story TTS tiers map to GenStudio capabilities while preserving voice tier validation', () => {
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-regular'), 'genstudio-standard-v1')
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-premium'), 'genstudio-clone-v1')
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-clone'), 'genstudio-clone-v1')
+  assert.equal(storyTtsTierForModelId('genstudio-tts-regular'), 'regular')
+  assert.equal(storyTtsTierForModelId('genstudio-tts-premium'), 'premium')
+  assert.equal(storyTtsTierForModelId('genstudio-tts-clone'), 'cloned')
 })
 
 test('legacy audio_models payloads are accepted but stripped before persistence', () => {
@@ -66,6 +83,8 @@ test('generation, preview, and recovery source contain no direct TTS clients', (
   assert.match(generator, /manifestEntry\?\.provider === 'genstudio'/)
   assert.match(reconciler, /entry\.provider !== 'genstudio'/)
   assert.doesNotMatch(preview, /registry\.getAudioProvider|resolveApiKeyForProviderId/)
+  assert.doesNotMatch(preview, /generateTtsToFile|\/v1\/audio\/jobs/)
+  assert.match(preview, /downloadVoicePreview/)
   assert.doesNotMatch(reconciler, /resolveApiKeyForProviderId|listAllLabsTasks|pollExistingFalAudio/)
   assert.match(reconciler, /Legacy .* evidence is read-only/)
   assert.match(preview, /getApiKey\('genstudio'\)/)

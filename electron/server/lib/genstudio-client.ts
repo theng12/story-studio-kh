@@ -155,6 +155,9 @@ export interface GenStudioVoice {
   model_family?: string
   voice_tier?: string
   generation_enabled?: boolean
+  preview_available?: boolean
+  preview_url?: string | null
+  preview_text?: string | null
 }
 
 export interface GenStudioModelCapability {
@@ -466,7 +469,39 @@ export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
     model_family: typeof value?.model_family === 'string' ? value.model_family.trim() : undefined,
     voice_tier: typeof value?.voice_tier === 'string' ? value.voice_tier.trim() : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
+    preview_available: typeof value?.preview_available === 'boolean' ? value.preview_available : undefined,
+    preview_url: typeof value?.preview_url === 'string' ? value.preview_url.trim() : null,
+    preview_text: typeof value?.preview_text === 'string' ? value.preview_text.trim() : null,
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
+}
+
+/**
+ * Download one already-generated GenStudio voice sample. This path never
+ * submits a TTS job and therefore never consumes generation credits.
+ */
+export async function downloadVoicePreview(
+  apiKey: string,
+  previewPath: string,
+): Promise<{ bytes: Buffer; mediaType: string }> {
+  const baseUrl = await getGenStudioUrl()
+  if (!previewPath.startsWith('/v1/voices/') || !previewPath.endsWith('/preview')) {
+    throw new Error('GenStudio KH returned an invalid voice preview path')
+  }
+  const response = await fetch(requestUrl(baseUrl, previewPath), {
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) {
+    throw new GenStudioApiError(response.status, `voice preview download returned HTTP ${response.status}`)
+  }
+  const mediaType = (response.headers.get('content-type') || 'audio/mpeg').split(';')[0]!.trim()
+  if (!mediaType.startsWith('audio/')) {
+    throw new Error('GenStudio KH voice preview did not return audio')
+  }
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    mediaType,
+  }
 }
 
 /** Fetch GenStudio's provider-owned capability registry without copying it into project config. */

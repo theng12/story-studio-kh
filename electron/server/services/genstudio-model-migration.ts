@@ -38,6 +38,9 @@ export const GENSTUDIO_LEGACY_MODEL_MAPS: Readonly<Record<GenStudioModality, Rea
   },
   voice: {
     'genstudio-qwen3-standard': 'genstudio-standard-v1',
+    'genstudio-tts-regular': 'genstudio-standard-v1',
+    'genstudio-tts-premium': 'genstudio-clone-v1',
+    'genstudio-tts-clone': 'genstudio-clone-v1',
   },
   transcription: {
     'whisper-1': 'genstudio-transcribe-v1',

@@ -7,6 +7,11 @@ import {
   normalizeSavedVoices,
   voiceSupportsProvider,
 } from '../utils/voice-providers.ts'
+import {
+  GENSTUDIO_TTS_TIER_OPTIONS,
+  genStudioTtsTierForModel,
+  normalizeStoryTtsTierModel,
+} from '../utils/genstudio-tts-tiers.ts'
 
 test('frontend preserves legacy voice evidence without granting a removed provider route', () => {
   assert.deepEqual(normalizeSavedVoice({ name: 'Legacy', voice_id: 'legacy' })?.providers,
@@ -53,6 +58,39 @@ test('discovered GenStudio voices merge without replacing saved names', () => {
   ])
 })
 
+test('discovered GenStudio voices preserve tier and stored-preview metadata', () => {
+  assert.deepEqual(mergeDiscoveredVoices([], [{
+    id: 'voice-premium',
+    display_name: 'Premium narrator',
+    voice_tier: 'premium',
+    preview_available: true,
+    preview_url: '/v1/voices/voice-premium/preview',
+    preview_text: 'A stored sample.',
+  }], 'genstudio'), [{
+    name: 'Premium narrator',
+    voice_id: 'voice-premium',
+    providers: ['genstudio'],
+    voice_tier: 'premium',
+    preview_available: true,
+    preview_url: '/v1/voices/voice-premium/preview',
+    preview_text: 'A stored sample.',
+  }])
+})
+
+test('Story Studio exposes only Regular, Premium, and Clone TTS product tiers', () => {
+  assert.deepEqual(
+    GENSTUDIO_TTS_TIER_OPTIONS.map(option => [option.id, option.label]),
+    [
+      ['genstudio-tts-regular', 'GenStudio TTS Regular'],
+      ['genstudio-tts-premium', 'GenStudio TTS Premium'],
+      ['genstudio-tts-clone', 'GenStudio TTS Clone'],
+    ],
+  )
+  assert.equal(genStudioTtsTierForModel('genstudio-tts-premium'), 'premium')
+  assert.equal(normalizeStoryTtsTierModel('genstudio-qwen3-standard'), 'genstudio-tts-premium')
+  assert.equal(normalizeStoryTtsTierModel('turbo-v2.5'), 'genstudio-tts-regular')
+})
+
 test('Audio generation receives the live GenStudio catalog from VoicePicker', () => {
   const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
@@ -60,6 +98,8 @@ test('Audio generation receives the live GenStudio catalog from VoicePicker', ()
   assert.match(picker, /emit\('catalog-updated', mergeDiscoveredVoices/)
   assert.match(audioPage, /@catalog-updated="onVoiceCatalogUpdated"/)
   assert.match(audioPage, /\.\.\.discoveredProviderVoices\.value/)
+  assert.match(audioPage, /genStudioTtsModelForTier\(selected\.voice_tier\)/)
+  assert.doesNotMatch(audioPage, /Qwen3 Standard Voices/)
 })
 
 test('Audio Generator shows the GenStudio 15,000-character request boundary', () => {

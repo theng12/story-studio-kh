@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Generator · Narration"
       title="Audio Generator"
-      description="Turn approved scripts into chapter narration using a compatible cloud voice or your local Voice Studio fleet."
+      description="Turn approved scripts into chapter narration through your GenStudio voice catalog."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Audio generator context">
@@ -14,8 +14,7 @@
         </div>
       </template>
     </WorkspaceHero>
-    <!-- Live TTS download speed while voice bytes are streaming back from
-         ElevenLabs / fal / GenAIPro. Auto-hides between runs. -->
+    <!-- Live TTS download speed while GenStudio audio bytes stream back. -->
     <AssetDownloadStrip :job-types="['audio']" />
     <TopActionBar
       :project-slug="slug"
@@ -69,15 +68,15 @@
     <div class="card mt-3">
       <div class="grid-2">
         <div class="form-group">
-          <label>TTS Model <span class="required" aria-hidden="true">*</span></label>
+          <label>TTS service <span class="required" aria-hidden="true">*</span></label>
           <ModelMenu
             v-model="form.model"
             :options="audioModelOptions"
             media-type="tts"
-            title="Choose a TTS model"
-            placeholder="Pick a voice model…"
-            search-placeholder="Search model or provider…"
-            aria-label="TTS model options"
+            title="Choose a voice tier"
+            placeholder="Pick a GenStudio voice tier…"
+            search-placeholder="Search voice tiers…"
+            aria-label="GenStudio TTS tier options"
           />
         </div>
       </div>
@@ -110,7 +109,7 @@
         </div>
         <span class="text-muted text-xs">
           <template v-if="currentAudioProvider === 'genstudio'">
-            Voices are fetched securely from your live <strong>GenStudio KH</strong> catalog. Each request supports up to <strong>15,000 characters</strong>; VoiceStudio handles its own internal chunks and returns one completed result.
+            Voices are fetched securely from the selected tier in your live <strong>GenStudio KH</strong> catalog. Each request supports up to <strong>15,000 characters</strong>.
           </template>
           <template v-else>
             Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
@@ -185,12 +184,8 @@
           </NuxtLink>
         </div>
         <p class="text-muted text-xs hint-line">
-          Story Studio splits at sentence boundaries within this outer cap.
-          Suggested per provider:
-          ElevenLabs / GenAIPro / fal ≈ 3,000–4,800;
-          Kokoro 3,000+;
-          Qwen3 Base, VoxCPM2, and Chatterbox 15,000 (Voice Studio safely
-          splits, verifies, and joins their smaller internal sections).
+          Story Studio sends up to 15,000 characters per GenStudio request.
+          GenStudio handles the selected voice safely behind this single service.
         </p>
       </div>
 
@@ -265,20 +260,14 @@
 
     </div>
 
-    <!-- Asset reconciliation: status pill + Repair button (per-episode). -->
-    <!-- Only shown once an episode is selected. `Repair` scans GenAIPro's -->
-    <!-- task history for completed tasks whose audio never made it back -->
-    <!-- to disk (usually due to client-side timeouts). GenAIPro keeps -->
-    <!-- history for ~1 day so this is time-sensitive after a failed batch. -->
+    <!-- Asset reconciliation: status pill + Repair button (per episode). -->
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="audio-integrity-heading">
       <h3 id="audio-integrity-heading" class="integrity-title">Audio integrity</h3>
       <p class="text-muted text-sm integrity-blurb">
-        Check whether every expected audio chunk is on disk. If a cloud gateway
-        (GenAIPro, kie.ai, or fal.ai) completed a task but the download was lost
-        (e.g. a network blip or timeout), <strong>Repair missing</strong>
-        re-fetches it from that provider's task history — no credits re-spent.
-        Chunks made with a streaming provider (direct ElevenLabs, Fish, Voice
-        Studio, macOS) have no re-fetchable task — regenerate those instead.
+        Check whether every expected audio file is on disk. If a completed
+        GenStudio download was interrupted, <strong>Repair missing</strong>
+        reconnects to the accepted job without submitting or charging twice.
+        Regenerate only when GenStudio no longer has a recoverable result.
       </p>
 
       <div v-if="audioStatus.loading" class="text-muted text-md">
@@ -353,6 +342,12 @@ import {
   type SavedVoice,
   type VoiceProviderId,
 } from '~/utils/voice-providers'
+import {
+  GENSTUDIO_TTS_TIER_OPTIONS,
+  genStudioTtsModelForTier,
+  genStudioTtsTierForModel,
+  normalizeStoryTtsTierModel,
+} from '~/utils/genstudio-tts-tiers'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
@@ -360,99 +355,36 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
-const {
-  voiceModels: genStudioVoiceModels,
-  refresh: refreshGenStudioMediaModels,
-} = useGenStudioMediaModels()
-
-function genStudioCharacterLimit(model: any): number {
-  const limits = model?.limits || {}
-  const candidates = [limits.max_characters, limits.max_text_characters, limits.max_chars]
-  const value = candidates.map(Number).find(number => Number.isFinite(number) && number > 0)
-  return value ? Math.round(value) : 15_000
-}
 
 const runtimeAudioModels = computed<Record<string, any>>(() => {
-  const models = { ...((config.value?.audio_models || {}) as Record<string, any>) }
-  for (const model of genStudioVoiceModels.value) {
-    models[model.id] = {
-      label: `${model.display_name} [GenStudio KH]`,
-      description: model.description || 'Voice model published by GenStudio KH.',
+  const models: Record<string, any> = {}
+  for (const option of GENSTUDIO_TTS_TIER_OPTIONS) {
+    models[option.id] = {
+      label: option.label,
+      description: option.description,
       provider: 'genstudio',
       cost_per_1k_chars: 0,
-      tts_soft_max_chars: genStudioCharacterLimit(model),
-      available: model.available,
-      qualification_only: model.qualification_only,
-      pricing_unit: model.pricing_unit,
+      tts_soft_max_chars: 15_000,
+      available: true,
+      voice_tier: option.tier,
     }
   }
   return models
 })
 
-// v1.0.203+ — which Voice Studio engines the live modal can actually run.
-// Every voicestudio-* model is registered in the catalog so generation +
-// preview work, but we only SHOW the ones the modal reports available — so
-// the dropdown is dynamic: spin up Chatterbox/Qwen3 on the modal and it
-// appears here with zero app changes. `null` = not probed yet; `ok:false`
-// = modal offline → we fall back to showing every registered engine.
-const vsAvailable = ref<{ ok: boolean; ids: Set<string> } | null>(null)
-async function loadVoicestudioModels() {
-  try {
-    const data = await get<{ ok: boolean; models: { id: string }[] }>(`/voicestudio/models`)
-    vsAvailable.value = { ok: !!data.ok, ids: new Set((data.models || []).map(m => m.id)) }
-  } catch {
-    vsAvailable.value = { ok: false, ids: new Set() }
-  }
-}
-
-// The audio_models catalog with unavailable Voice Studio engines hidden.
-// Cloud models are never touched. Only filters when we have a definitive
-// OK probe; otherwise everything shows (never strand the user with an
-// empty/short dropdown because the modal blipped).
-const visibleAudioModels = computed<Record<string, any>>(() => {
-  const all = runtimeAudioModels.value
-  const probe = vsAvailable.value
-  // Show everything when the probe isn't definitive (not run / modal offline)
-  // OR when it reports ZERO ready engines. v1.0.275 — the empty case used to
-  // hide the WHOLE Voice Studio provider (a reachable modal that reports no
-  // engine "ready" → local TTS vanished from the dropdown). Hiding the entire
-  // provider never helps; only narrow down when the modal positively lists a
-  // non-empty ready set (then trust it and hide the rest).
-  if (!probe || !probe.ok || probe.ids.size === 0) return all
-  const out: Record<string, any> = {}
-  for (const [id, m] of Object.entries(all)) {
-    const isVoiceStudio = resolveAudioProvider(id, m) === 'voicestudio'
-    if (isVoiceStudio && !probe.ids.has(id)) continue
-    out[id] = m
-  }
-  return out
-})
-
-// Group the audio model catalog by TTS provider for the dropdown.
-const audioModelGroups = computed(() =>
-  groupModels<any>(visibleAudioModels.value, (id, m) => resolveAudioProvider(id, m)),
-)
-const audioModelOptions = computed(() => audioModelGroups.value.flatMap(group =>
-  group.items.map(({ id, data }) => {
-    const isPaid = Number(data.cost_per_1k_chars || 0) > 0
-    return {
-      id,
-      label: data.label || id,
-      group: group.label,
-      provider: group.label,
-      meta: resolveAudioProvider(id, data) === 'genstudio'
-        ? (data.pricing_unit || 'GenStudio account credits')
-        : isPaid ? `$${data.cost_per_1k_chars}/1K characters` : 'Free · local processing',
-      description: data.description || data.hint || '',
-      disabled: data.available === false,
-      disabledReason: data.available === false ? 'This voice model is not currently available in GenStudio KH.' : undefined,
-      badges: [{
-        label: resolveAudioProvider(id, data) === 'genstudio' ? 'GenStudio' : isPaid ? 'paid' : 'local',
-        tone: resolveAudioProvider(id, data) === 'genstudio' ? 'info' as const : isPaid ? 'paid' as const : 'local' as const,
-      }],
-    }
-  }),
-))
+const visibleAudioModels = runtimeAudioModels
+const audioModelOptions = computed(() => GENSTUDIO_TTS_TIER_OPTIONS.map(option => ({
+  id: option.id,
+  label: option.label,
+  group: 'GenStudio TTS',
+  provider: 'GenStudio',
+  meta: `${option.tier[0]?.toUpperCase()}${option.tier.slice(1)} voice catalog`,
+  description: option.description,
+  badges: [{
+    label: option.tier === 'cloned' ? 'Private' : option.tier[0]!.toUpperCase() + option.tier.slice(1),
+    tone: option.tier === 'regular' ? 'local' as const : option.tier === 'premium' ? 'paid' as const : 'info' as const,
+  }],
+})))
 
 // v1.0.157 — `currentAudioProvider` computed + the cross-source voice
 // reset watcher moved BELOW the `form = reactive({...})` declaration
@@ -473,7 +405,7 @@ const submitting = ref(false)
 
 const form = reactive({
   episode_id: '',
-  model: 'turbo-v2.5',
+  model: 'genstudio-tts-regular',
   voice: null as string | null,
   // Empty by default — AudioChapterSelector auto-fills with missing sections
   // once an episode is picked. submit() falls back to 'all' if nothing is
@@ -505,24 +437,34 @@ const form = reactive({
 useRememberedForm('audio', slug, form, {
   include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
 })
+watch(() => form.model, (model) => {
+  const normalized = normalizeStoryTtsTierModel(model)
+  if (normalized !== model) form.model = normalized
+}, { immediate: true })
 
-// Resolve the selected model's provider so VoicePicker can enforce the
-// provider labels attached to each saved cloud voice. Voice Studio and macOS
-// remain separate live voice sources.
-//
-// v1.0.157 — moved BELOW the `form = reactive({...})` declaration. See
-// the placeholder comment above where this used to live (line ~250).
-const currentAudioProvider = computed<string>(() => {
-  if (!form.model) return ''
-  const entry = visibleAudioModels.value[form.model] as any
-  return resolveAudioProvider(form.model, entry || {})
-})
+const currentAudioProvider = computed<string>(() => form.model ? 'genstudio' : '')
 
-const CLOUD_VOICE_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'])
+const CLOUD_VOICE_PROVIDERS = new Set(['genstudio'])
 const discoveredProviderVoices = ref<SavedVoice[]>([])
+const voiceTierCatalogLoaded = ref(false)
 function onVoiceCatalogUpdated(voices: SavedVoice[]) {
   discoveredProviderVoices.value = voices
+  const selected = !voiceTierCatalogLoaded.value
+    ? voices.find(voice => voice.voice_id === form.voice)
+    : null
+  if (selected?.voice_tier) {
+    form.model = genStudioTtsModelForTier(selected.voice_tier)
+  }
+  voiceTierCatalogLoaded.value = true
 }
+watch(() => form.model, (model, previous) => {
+  if (!previous || !voiceTierCatalogLoaded.value || !form.voice) return
+  const selectedTier = discoveredProviderVoices.value.find(voice => voice.voice_id === form.voice)?.voice_tier
+  if (selectedTier && selectedTier !== genStudioTtsTierForModel(model)) {
+    form.voice = null
+    showInfo('Choose a voice from the selected GenStudio TTS tier.')
+  }
+})
 const currentAudioProviderLabel = computed(() => {
   const provider = currentAudioProvider.value
   return CLOUD_VOICE_PROVIDERS.has(provider)
@@ -533,21 +475,24 @@ const selectedVoiceCompatible = computed(() => {
   if (!form.voice) return false
   const provider = currentAudioProvider.value
   if (!CLOUD_VOICE_PROVIDERS.has(provider)) return true
+  const selectedTier = genStudioTtsTierForModel(form.model)
   return normalizeSavedVoices([
     ...(config.value?.voice_presets || []),
     ...discoveredProviderVoices.value,
   ]).some(voice =>
-    voice.voice_id === form.voice && voiceSupportsProvider(voice, provider))
+    voice.voice_id === form.voice
+    && voiceSupportsProvider(voice, provider)
+    && (!selectedTier || voice.voice_tier === selectedTier))
 })
 
 // Fish S2-Pro is the only model with inline expression tags — gate the
 // expression panel + the use_expression flag to it. (S1 would read an unknown
 // tag aloud, so it's deliberately excluded.)
-const isFish = computed(() => currentAudioProvider.value === 'fishaudio')
-const isFishS2Pro = computed(() => isFish.value && form.model === 'fishaudio-s2-pro')
+const isFish = computed(() => false)
+const isFishS2Pro = computed(() => false)
 // Models that take inline emotion/pause tags: Fish S2-Pro + ElevenLabs v3
 // (via fal / GenAIPro). Expressiveness (temperature) stays Fish-only.
-const isTagCapable = computed(() => ['fishaudio-s2-pro', 'eleven-v3', 'genaipro-v3'].includes(form.model))
+const isTagCapable = computed(() => false)
 watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
 // v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
@@ -569,7 +514,7 @@ function formatChunkSeconds(chars: number): string {
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
   ? currentAudioProvider.value === 'genstudio'
-    ? `GenStudio accepts one logical request up to ${resolvedChunkCap.value.toLocaleString()} characters. Story Studio splits only above this public API boundary; VoiceStudio handles smaller internal model chunks, joining, and final speed.`
+    ? `GenStudio accepts one logical request up to ${resolvedChunkCap.value.toLocaleString()} characters and returns one completed audio result.`
     : `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
   : 'No per-model cap set — the chunker uses its ~4,800-char default. Set a value in Settings → Audio Models to make the chunk size explicit.')
 
@@ -661,7 +606,15 @@ const audioPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'audio_generator',
   snapshot: () => ({ form: { ...form } }),
-  apply: (data) => { if (data?.form) Object.assign(form, data.form) },
+  apply: (data) => {
+    if (!data?.form) return
+    Object.assign(form, data.form)
+    const selectedTier = discoveredProviderVoices.value
+      .find(voice => voice.voice_id === form.voice)?.voice_tier
+    form.model = selectedTier
+      ? genStudioTtsModelForTier(selectedTier)
+      : normalizeStoryTtsTierModel(form.model)
+  },
   // Section selection belongs to the current episode, never to a reusable
   // voice/model preset. This also strips stale `sections` from old presets
   // before apply, so the selector can auto-pick every missing section.
@@ -701,8 +654,6 @@ async function applyAudioFormatDefaultsIfNoPreset() {
 onMounted(async () => {
   await applyAudioFormatDefaultsIfNoPreset()
   await audioPresets.load()
-  void loadVoicestudioModels()
-  void refreshGenStudioMediaModels()
 })
 
 // Effective section list = what the AudioChapterSelector says to actually
@@ -841,7 +792,7 @@ async function runRepair() {
     await refreshAudioStatus()
   } catch (e: any) {
     console.error('[audio] repair failed:', e)
-    showError(e?.data?.detail || 'Audio repair failed — GenAIPro task history may have aged out (1-day window).')
+    showError(e?.data?.detail || 'Audio repair failed — GenStudio no longer has a recoverable result for this job.')
   } finally {
     repairing.value = false
   }

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.670 — 2026-07-23
+
+**Story Studio voice selection now matches the three GenStudio products instead of exposing internal engines.**
+
+- Replaces legacy Qwen, Fish, Voice Studio, and duplicate model rows in the
+  Audio Generator with exactly **GenStudio TTS Regular**, **GenStudio TTS
+  Premium**, and **GenStudio TTS Clone**.
+- Filters the live GenStudio voice catalog by its authoritative regular,
+  premium, or account-private cloned tier and safely heals remembered legacy
+  engine choices without changing the selected voice.
+- Validates the selected tier and voice together before queuing, so a premium
+  or private cloned voice cannot be submitted under the wrong product.
+- Plays the same stored 15–30 second GenStudio voice samples used by the web
+  library directly inside Story Studio. Preview playback never submits a TTS
+  generation job, never spends credits, and starting a new preview stops the
+  previous one.
+- Disables preview controls when a catalog voice has no prepared sample and
+  reports that state clearly instead of generating a paid sample on demand.
+
 ## v1.0.669 — 2026-07-23
 
 **Story Studio now has one secure, release-qualified generation gateway: GenStudio KH.**

@@ -68,6 +68,7 @@
             :selected="modelValue === voice.voice_id"
             :favourite="true"
             :provider-label="activeProviderLabel"
+            :preview-available="voice.preview_available === true"
             @select="select(voice.voice_id)"
             @favourite="toggleFavourite(voice.voice_id)"
             @preview="$emit('preview', voice.voice_id)"
@@ -83,6 +84,7 @@
             :selected="modelValue === voice.voice_id"
             :favourite="false"
             :provider-label="activeProviderLabel"
+            :preview-available="voice.preview_available === true"
             @select="select(voice.voice_id)"
             @favourite="toggleFavourite(voice.voice_id)"
             @preview="$emit('preview', voice.voice_id)"
@@ -145,6 +147,7 @@ import {
   type SavedVoice,
   type VoiceProviderId,
 } from '~/utils/voice-providers'
+import { genStudioTtsTierForModel } from '~/utils/genstudio-tts-tiers'
 
 interface VoiceStudioVoice {
   id: string
@@ -165,7 +168,10 @@ interface GenStudioVoiceCatalogEntry {
   engine_name?: string
   model_revision_id?: string
   model_family?: string
-  voice_tier?: string
+  voice_tier?: 'regular' | 'premium' | 'cloned'
+  preview_available?: boolean
+  preview_url?: string | null
+  preview_text?: string | null
 }
 
 const props = withDefaults(defineProps<{
@@ -218,14 +224,9 @@ const savedVoices = computed(() => normalizeSavedVoices(props.customVoices))
 const discoveredCloudVoices = ref<GenStudioVoiceCatalogEntry[]>([])
 const filteredDiscoveredCloudVoices = computed(() => {
   if (activeProvider.value !== 'genstudio') return discoveredCloudVoices.value
-  const selected = props.audioModelId === 'genstudio-qwen3-standard'
-    ? 'genstudio-standard-v1'
-    : props.audioModelId
-  if (!selected) return discoveredCloudVoices.value
-  return discoveredCloudVoices.value.filter((voice) => {
-    const published = [voice.engine_id, voice.model_family].filter(Boolean)
-    return published.length === 0 || published.includes(selected)
-  })
+  const selectedTier = genStudioTtsTierForModel(props.audioModelId)
+  if (!selectedTier) return discoveredCloudVoices.value
+  return discoveredCloudVoices.value.filter(voice => voice.voice_tier === selectedTier)
 })
 const mergedCloudVoices = computed(() => activeProvider.value
   ? mergeDiscoveredVoices(
@@ -291,7 +292,7 @@ const currentVoiceProviderLabel = computed(() => currentSavedVoice.value
 const scopeTitle = computed(() => scopeFamily.value === 'cloud' ? `${activeProviderLabel.value} voice library` : localSectionTitle.value)
 const scopeDescription = computed(() => scopeFamily.value === 'cloud'
   ? activeProvider.value === 'genstudio'
-    ? 'This list is fetched securely from your GenStudio KH account.'
+    ? 'This tier is fetched securely from your GenStudio KH account.'
     : 'Only voices labelled as compatible with this provider are shown.'
   : 'This list comes from the selected local voice engine.')
 const localSectionTitle = computed(() => {
@@ -373,7 +374,7 @@ async function loadCloudVoices() {
   try {
     const data = await get<{ voices: GenStudioVoiceCatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
     discoveredCloudVoices.value = Array.isArray(data.voices) ? data.voices : []
-    emit('catalog-updated', mergeDiscoveredVoices([], filteredDiscoveredCloudVoices.value, 'genstudio'))
+    emit('catalog-updated', mergeDiscoveredVoices([], discoveredCloudVoices.value, 'genstudio'))
   } catch (error: any) {
     discoveredCloudVoices.value = []
     emit('catalog-updated', [])
@@ -448,6 +449,8 @@ function reconcileSelection() {
     if (!props.customVoicesLoaded || !activeProvider.value) return
     if (activeProvider.value === 'genstudio'
       && (!cloudAttempted.value || cloudLoading.value || !!cloudError.value)) return
+    if (activeProvider.value === 'genstudio'
+      && discoveredCloudVoices.value.some(voice => voice.id === props.modelValue)) return
     const compatible = mergedCloudVoices.value.some(voice =>
       voice.voice_id === props.modelValue && voiceSupportsProvider(voice, activeProvider.value!))
     if (!compatible) {

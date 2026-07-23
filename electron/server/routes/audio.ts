@@ -11,6 +11,7 @@ import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
   catalogHasVoice,
+  downloadVoicePreview,
   listModelCapabilities as listGenStudioCapabilities,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
@@ -47,6 +48,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
+  const requestedTier = pm.storyTtsTierForModelId(req.body.model || '')
   const migratedModel = pm.resolveStoryTtsModelId(req.body.model || '')
   if (!migratedModel) {
     return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', req.body.model || '(none)') })
@@ -66,9 +68,15 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       listGenStudioVoices(apiKey),
       listGenStudioCapabilities(apiKey),
     ])
-    if (!catalogHasVoice(voices, req.body.voice)) {
+    const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
+    if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
       return res.status(400).json({
         detail: 'The selected voice is not available in your GenStudio KH catalog. Refresh the voice picker and choose an available voice.',
+      })
+    }
+    if (requestedTier && selectedVoice.voice_tier !== requestedTier) {
+      return res.status(400).json({
+        detail: `The selected voice belongs to the ${selectedVoice.voice_tier || 'unknown'} tier. Choose it under GenStudio TTS ${selectedVoice.voice_tier === 'cloned' ? 'Clone' : selectedVoice.voice_tier === 'premium' ? 'Premium' : 'Regular'}.`,
       })
     }
     if (!capabilities.some(model => model.id === migratedModel && model.operation === 'voice.tts' && model.availability === 'available')) {
@@ -91,15 +99,13 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   res.status(201).json(job)
 })
 
-/**
- * Voice preview — generates a short 1-sentence sample with the selected voice
- * so users can audition voices before committing to a full episode generation.
- */
+/** Play the stored GenStudio voice sample without submitting a billable TTS job. */
 router.post('/projects/:slug/preview-voice', async (req, res) => {
   const { slug } = req.params
-  const { voice_id, model, speed, text } = req.body
+  const { voice_id, model } = req.body
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
+  const requestedTier = pm.storyTtsTierForModelId(model || '')
   const migratedModel = pm.resolveStoryTtsModelId(model || '')
   if (!migratedModel) return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', model || '(none)') })
   const apiKey = await getApiKey('genstudio').catch(() => '')
@@ -112,30 +118,28 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   const resolvedVoiceId = typeof voice_id === 'string' ? voice_id.trim() : ''
   if (!resolvedVoiceId) return res.status(400).json({ detail: 'Select a GenStudio voice before previewing.' })
 
-  const sample = typeof text === 'string' && text.trim().length > 0
-    ? text.trim().slice(0, 300)
-    : 'Welcome to the story. Take a deep breath, settle in, and let your mind drift.'
-
   try {
-    const fs = await import('fs/promises')
-    const os = await import('os')
-    const path = await import('path')
-    const { randomUUID } = await import('crypto')
-    const { generateTtsToFile } = await import('../lib/genstudio-client.js')
-    const tempPath = path.join(os.tmpdir(), `genstudio-preview-${randomUUID()}.mp3`)
-    try {
-      await generateTtsToFile(apiKey, tempPath, {
-        text: sample,
-        voiceId: resolvedVoiceId,
-        speed: typeof speed === 'number' ? speed : 1,
-      })
-      const buf = await fs.readFile(tempPath)
-      return res.json({ audio_url: `data:audio/mpeg;base64,${buf.toString('base64')}` })
-    } finally {
-      await fs.rm(tempPath, { force: true }).catch(() => {})
+    const voices = await listGenStudioVoices(apiKey)
+    const voice = voices.find(entry => entry.id === resolvedVoiceId)
+    if (!voice) {
+      return res.status(404).json({ detail: 'That voice is no longer available in your GenStudio catalog.' })
     }
+    if (requestedTier && voice.voice_tier !== requestedTier) {
+      return res.status(400).json({
+        detail: `That voice belongs to the ${voice.voice_tier || 'unknown'} tier. Refresh the picker and choose it from the matching GenStudio TTS tier.`,
+      })
+    }
+    if (!voice.preview_available || !voice.preview_url) {
+      return res.status(404).json({ detail: 'No saved preview is available for this voice yet.' })
+    }
+    const preview = await downloadVoicePreview(apiKey, voice.preview_url)
+    return res.json({
+      audio_url: `data:${preview.mediaType};base64,${preview.bytes.toString('base64')}`,
+      preview_text: voice.preview_text || null,
+      generated: false,
+    })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Voice preview failed'))
+    res.status(502).json(humanizeBackendError(e, 'Voice preview failed'))
   }
 })
 

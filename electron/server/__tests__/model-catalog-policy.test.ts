@@ -40,7 +40,6 @@ describe('model catalog ownership', () => {
 
   test('heals retired internally chunked defaults without replacing deliberate limits', () => {
     const defaults: Record<string, Record<string, any>> = {
-      'genstudio-qwen3-standard': { tts_soft_max_chars: 15000 },
       'voicestudio-qwen3-tts': { tts_soft_max_chars: 2000 },
       'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 15000 },
       'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 15000 },
@@ -48,7 +47,6 @@ describe('model catalog ownership', () => {
       'voicestudio-voxcpm-mlx': { tts_soft_max_chars: 15000 },
     }
     const saved: Record<string, Record<string, any>> = {
-      'genstudio-qwen3-standard': { tts_soft_max_chars: 375 },
       'voicestudio-qwen3-tts': { tts_soft_max_chars: 3000 },
       'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 5000 },
       'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 2400 },
@@ -58,7 +56,6 @@ describe('model catalog ownership', () => {
 
     const merged = migrateRetiredAudioDefaults(mergeCatalog(defaults, saved), saved)
 
-    assert.equal(merged['genstudio-qwen3-standard'].tts_soft_max_chars, 15000)
     assert.equal(merged['voicestudio-qwen3-tts'].tts_soft_max_chars, 3000)
     assert.equal(merged['voicestudio-qwen3-tts-base-0.6b'].tts_soft_max_chars, 15000)
     assert.equal(merged['voicestudio-qwen3-tts-base-1.7b'].tts_soft_max_chars, 2400)
