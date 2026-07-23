@@ -143,11 +143,11 @@ function onConfirm() {
   gap: 12px; margin-bottom: 14px;
 }
 .estimate-item { background: var(--bg-primary); border-radius: var(--radius-sm); padding: 12px; }
-.estimate-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+.estimate-label { font-size: var(--font-xs); color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
 .estimate-value { font-size: 18px; font-weight: 600; color: var(--text-primary); }
 .estimate-value.cost { color: var(--accent); }
 .estimate-value.balance { color: var(--text-secondary); font-size: 16px; }
-.estimate-subvalue { margin-top: 2px; font-size: 11px; color: var(--text-muted); font-weight: 400; }
+.estimate-subvalue { margin-top: 2px; font-size: var(--font-xs); color: var(--text-muted); font-weight: 400; }
 
 .estimate-details { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
 

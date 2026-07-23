@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   background: var(--accent);
   color: var(--accent-on, #0f1117);
-  font-size: 9.5px;
+  font-size: var(--font-xs);
   font-weight: 700;
   line-height: 1;
   border-radius: 999px;
@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   border-radius: 999px;
 }
@@ -350,14 +350,14 @@ onBeforeUnmount(() => {
 }
 .nc-item-detail {
   margin: 3px 0 0;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   line-height: 1.45;
   color: var(--text-muted);
 }
 .nc-item-detail.nc-err { color: #f87171; }
 
 .nc-pill {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -373,7 +373,7 @@ onBeforeUnmount(() => {
   margin-top: 6px;
 }
 .nc-action-link {
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: inherit;
   padding: 3px 9px;
   border-radius: var(--radius-sm);
@@ -415,13 +415,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 .nc-act-icon.done { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
 .nc-act-icon.error { background: rgba(239, 68, 68, 0.16); color: #f87171; }
 .nc-act-target { font-weight: 500; color: var(--text-secondary); }
-.nc-item-time { margin: 3px 0 0; font-size: 10.5px; color: var(--text-muted); }
+.nc-item-time { margin: 3px 0 0; font-size: var(--font-xs); color: var(--text-muted); }
 .nc-activity.unread { background: var(--accent-dim); }
 .nc-activity.unread:hover { background: var(--accent-dim); }
 
@@ -447,7 +447,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   font-family: inherit;
   padding: 4px 10px;
   border-radius: var(--radius-sm);
@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
 .nc-foot-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .nc-foot-btn:disabled { opacity: 0.5; cursor: default; }
 .nc-foot-link {
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;

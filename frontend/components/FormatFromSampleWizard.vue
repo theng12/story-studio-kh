@@ -24,7 +24,7 @@
             rows="14"
             placeholder="Paste your first sample here.&#10;&#10;===&#10;&#10;Optional second sample.&#10;&#10;==="
           />
-          <div class="text-muted" style="font-size: 11px;">
+          <div class="text-muted" style="font-size: var(--font-xs);">
             {{ sampleCount }} sample{{ sampleCount === 1 ? '' : 's' }} detected · {{ totalChars.toLocaleString() }} characters total (capped at ~12k each)
           </div>
         </div>
@@ -65,7 +65,7 @@
       <div v-if="step === 'review' && extracted" class="wiz-pane">
         <div class="review-header">
           <strong>Extracted format</strong>
-          <span class="text-muted" style="font-size: 11px;">Review the JSON below. Edit anything that looks off, then save.</span>
+          <span class="text-muted" style="font-size: var(--font-xs);">Review the JSON below. Edit anything that looks off, then save.</span>
         </div>
 
         <div class="form-group">
@@ -297,11 +297,11 @@ function closeAndUseFormat() {
 
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 .form-group label { font-size: 12px; color: var(--text-primary); }
-.form-group .hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-bottom: 4px; }
+.form-group .hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; margin-bottom: 4px; }
 
 .review-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
 
-.input.mono { font-family: 'Menlo', 'Monaco', monospace; font-size: 11px; line-height: 1.5; }
+.input.mono { font-family: 'Menlo', 'Monaco', monospace; font-size: var(--font-xs); line-height: 1.5; }
 
 .wiz-actions {
   display: flex;

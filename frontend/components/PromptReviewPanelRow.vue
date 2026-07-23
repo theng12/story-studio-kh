@@ -205,7 +205,7 @@ function emitRegenerate(): void {
 }
 .prr-num {
   font-family: var(--font-mono, monospace);
-  font-size: 11px; color: var(--text-muted); font-weight: 600;
+  font-size: var(--font-xs); color: var(--text-muted); font-weight: 600;
 }
 .prr-title {
   font-size: 13px;
@@ -214,7 +214,7 @@ function emitRegenerate(): void {
 .prr-regen-btn { white-space: nowrap; }
 .prr-chars {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 7px;
   border-radius: 10px;
   white-space: nowrap;
@@ -234,7 +234,7 @@ function emitRegenerate(): void {
 }
 .prr-error {
   margin-top: 6px;
-  font-size: 11px; color: rgb(220, 38, 38);
+  font-size: var(--font-xs); color: rgb(220, 38, 38);
   cursor: help;
 }
 .prr-body {
@@ -251,7 +251,7 @@ function emitRegenerate(): void {
   flex-wrap: wrap;
 }
 .prr-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;

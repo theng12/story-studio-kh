@@ -127,7 +127,7 @@ const expanded = ref(false)
 }
 .prw-num {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -151,7 +151,7 @@ const expanded = ref(false)
 }
 .prw-error {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgb(220, 38, 38);
   cursor: help;
 }
@@ -179,7 +179,7 @@ const expanded = ref(false)
   display: inline-block;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   font-family: var(--font-mono, monospace);
 }

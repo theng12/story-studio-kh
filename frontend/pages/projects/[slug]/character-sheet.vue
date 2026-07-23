@@ -609,7 +609,7 @@ watch(episodeId, () => {
   margin-left: 6px;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   background: rgba(91, 179, 124, 0.16);
   color: rgb(34, 134, 70);

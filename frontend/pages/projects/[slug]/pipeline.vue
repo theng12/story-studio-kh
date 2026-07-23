@@ -1714,13 +1714,13 @@ async function submit() {
 .step-tile.costly { border-style: dashed; }
 .step-tile.disabled { opacity: 0.55; cursor: not-allowed; }
 .step-tile.disabled input { cursor: not-allowed; }
-.step-warning { margin-top: 4px; font-size: 11px; color: rgb(180, 83, 9); }
+.step-warning { margin-top: 4px; font-size: var(--font-xs); color: rgb(180, 83, 9); }
 .step-body { flex: 1; }
 .step-head { display: flex; align-items: center; gap: 8px; }
 .step-icon { font-size: 16px; }
 .step-preset {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -1735,7 +1735,7 @@ async function submit() {
   flex: 1;
   min-width: 120px;
   max-width: 220px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -1746,9 +1746,9 @@ async function submit() {
 }
 .step-preset-select:disabled { opacity: 0.6; cursor: progress; }
 .preset-name { color: var(--accent); font-weight: 500; }
-.preset-missing { color: rgb(180, 83, 9); font-size: 10px; }
-.preset-link { color: var(--accent); text-decoration: underline; font-size: 10px; }
-.step-preset-none { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.preset-missing { color: rgb(180, 83, 9); font-size: var(--font-xs); }
+.preset-link { color: var(--accent); text-decoration: underline; font-size: var(--font-xs); }
+.step-preset-none { font-size: var(--font-xs); color: var(--text-muted); font-style: italic; }
 
 /* ── Episode list ─────────────────────────────────────────────────────── */
 .episode-list {
@@ -1799,7 +1799,7 @@ async function submit() {
   border-radius: 50%;
   background: var(--success, #3fb950);
   color: white;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   text-align: center;
 }
@@ -1895,7 +1895,7 @@ async function submit() {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border-radius: 999px;
   background: var(--accent-dim);
@@ -1990,7 +1990,7 @@ async function submit() {
   display: inline-flex;
   align-items: center;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   border-radius: 999px;
@@ -2050,7 +2050,7 @@ async function submit() {
   flex: 0 0 auto;
 }
 .step-external-note {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   line-height: 1.4;
   margin: 2px 0 4px;
@@ -2105,5 +2105,5 @@ async function submit() {
   min-width: 0;
 }
 .kebab-body strong { font-size: 13px; font-weight: 600; }
-.kebab-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.kebab-hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.35; }
 </style>

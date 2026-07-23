@@ -82,7 +82,7 @@ const ariaLabelText = computed(() => {
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary, #94a3b8);
 }
 .pb-label {

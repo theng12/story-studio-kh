@@ -1885,13 +1885,13 @@ onMounted(async () => {
 /* v1.0.200 — live section outline. */
 .section-outline { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .outline-chip {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
 }
-.outline-sep { color: var(--text-muted); font-size: 11px; }
+.outline-sep { color: var(--text-muted); font-size: var(--font-xs); }
 
 /* v1.0.198 (M1b) — Sources section. */
 .sources-section { display: flex; flex-direction: column; gap: 6px; }
@@ -1901,7 +1901,7 @@ onMounted(async () => {
 .sources-list li.src-off { opacity: 0.5; }
 .sources-note { margin: 4px 0 0; line-height: 1.5; }
 .src-vbadge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   border-radius: 3px;
   background: rgba(91, 179, 124, 0.16);
@@ -1946,7 +1946,7 @@ onMounted(async () => {
 /* Description-area version history dropdown. */
 .history-picker { margin-bottom: 0; }
 .history-picker .history-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   display: block;
   margin-bottom: 2px;
 }
@@ -1993,11 +1993,11 @@ onMounted(async () => {
 .title-option:hover { border-color: var(--accent); background: var(--bg-hover); }
 .title-option.selected { border-color: var(--accent); background: rgba(240, 198, 116, 0.1); }
 .title-option-text { flex: 1; font-size: 14px; }
-.title-option-count { font-size: 11px; color: var(--text-muted); font-family: 'SF Mono', monospace; white-space: nowrap; }
+.title-option-count { font-size: var(--font-xs); color: var(--text-muted); font-family: 'SF Mono', monospace; white-space: nowrap; }
 
 /* Char count badge */
 .char-count {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: 400;
   margin-left: 8px;
@@ -2045,7 +2045,7 @@ onMounted(async () => {
   border: 1px solid var(--border);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   line-height: 1;

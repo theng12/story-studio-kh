@@ -635,10 +635,10 @@ onMounted(async () => {
 .sub-engine-card:hover { border-color: var(--text-secondary); }
 .sub-engine-card.active { border-color: var(--accent); background: var(--accent-dim); }
 .sub-engine-head { display: flex; align-items: center; gap: 8px; }
-.sub-engine-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 999px; }
+.sub-engine-tag { font-size: var(--font-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 999px; }
 .sub-engine-tag.free { background: rgba(74, 222, 128, 0.15); color: rgb(22, 163, 74); }
 .sub-engine-tag.paid { background: rgba(245, 158, 11, 0.16); color: rgb(180, 83, 9); }
-.sub-engine-desc { margin: 4px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-muted); }
+.sub-engine-desc { margin: 4px 0 0; font-size: var(--font-xs); line-height: 1.45; color: var(--text-muted); }
 
 .sub-engine-detail { border-left: 2px solid var(--border); padding-left: 10px; }
 .sub-download { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -648,8 +648,8 @@ onMounted(async () => {
 .sub-method-import { flex: 1; }
 
 .sub-file-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.sub-file-warn { font-size: 11px; color: rgb(180, 83, 9); }
-.sub-dir { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
+.sub-file-warn { font-size: var(--font-xs); color: rgb(180, 83, 9); }
+.sub-dir { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-xs); word-break: break-all; }
 
 /* Subtitle cue preview (v1.0.494/495) — panel styles live in SubtitleCuePreview.vue. */
 .btn-icon.active { color: var(--accent); }

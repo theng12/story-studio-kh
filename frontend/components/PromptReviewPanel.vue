@@ -330,7 +330,7 @@ watch(() => [props.episodeId, props.title, props.refreshKey], () => {
 .prp-list { list-style: none; margin: 8px 0 0 0; padding: 0; }
 .prp-section {
   margin-top: 12px;
-  font-size: 11px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--text-muted);
 }

@@ -735,7 +735,7 @@ function ingestPrefilled(items: Array<any>) {
   display: inline-flex;
   align-items: center;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   border-radius: 999px;
   background: var(--accent-dim);
@@ -760,7 +760,7 @@ function ingestPrefilled(items: Array<any>) {
   border-radius: var(--radius-sm);
 }
 .map-row.map-head {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-muted);
   background: transparent;
@@ -770,14 +770,14 @@ function ingestPrefilled(items: Array<any>) {
 .col-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-arrow { color: var(--text-muted); text-align: center; }
 .col-mapping { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: var(--font-xs); }
 
 .scene-num-input {
   display: inline-block;
   width: 50px;
   margin-left: 6px;
   padding: 1px 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .renumber-btn { align-self: flex-start; margin-bottom: 6px; }
@@ -806,17 +806,17 @@ function ingestPrefilled(items: Array<any>) {
 .result-list { list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; }
 .result-row {
   padding: 4px 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
 }
 .result-row:last-child { border-bottom: none; }
 .result-row.status-failed { color: var(--error, #ef4444); }
 .result-row code {
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: var(--text-secondary);
 }
-.reason { font-size: 10px; }
+.reason { font-size: var(--font-xs); }
 
 .btn-icon {
   background: none;
@@ -829,5 +829,5 @@ function ingestPrefilled(items: Array<any>) {
 }
 .btn-icon:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.04); }
 
-.input-xs { padding: 1px 4px; font-size: 11px; height: 22px; }
+.input-xs { padding: 1px 4px; font-size: var(--font-xs); height: 22px; }
 </style>

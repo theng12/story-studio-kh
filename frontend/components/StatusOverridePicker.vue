@@ -243,7 +243,7 @@ watch(() => props.initial, (init) => {
 .override-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
 .override-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .override-text strong { font-size: 13px; font-weight: 600; }
-.override-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.override-hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.35; }
 
 .override-controls {
   display: flex;
@@ -255,7 +255,7 @@ watch(() => props.initial, (init) => {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border-radius: 999px;
   background: var(--bg-secondary);

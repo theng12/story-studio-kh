@@ -1812,7 +1812,7 @@ async function clearFinished() {
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
   border-radius: 999px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   text-decoration: none;
   text-overflow: ellipsis;
@@ -1926,7 +1926,7 @@ async function clearFinished() {
 .bbf-reason-list li {
   display: flex; align-items: baseline; gap: 8px;
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 .bbf-count {
@@ -1955,7 +1955,7 @@ async function clearFinished() {
 }
 .bbf-failed-episode-head { margin-bottom: 4px; font-size: 12px; }
 .bbf-failed-episode-head code {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 1px 5px;
   background: var(--bg-tertiary);
   border-radius: 3px;
@@ -1967,7 +1967,7 @@ async function clearFinished() {
   border-left: 2px solid var(--error);
   border-radius: var(--radius-sm);
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--error);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1982,7 +1982,7 @@ async function clearFinished() {
 }
 
 .bbf-explainer {
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   line-height: 1.5;
   color: var(--text-muted);
   padding: 8px 10px;
@@ -2022,7 +2022,7 @@ async function clearFinished() {
 .filter-tab.active { background: var(--accent-dim); color: var(--accent); }
 .tab-count {
   background: var(--accent); color: #0f1117;
-  font-size: 10px; font-weight: 700;
+  font-size: var(--font-xs); font-weight: 700;
   padding: 1px 5px; border-radius: 8px; min-width: 16px; text-align: center;
 }
 
@@ -2030,15 +2030,15 @@ async function clearFinished() {
 .sort-bar {
   display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 0;
 }
-.sort-label { font-size: 11px; margin-right: 4px; }
+.sort-label { font-size: var(--font-xs); margin-right: 4px; }
 .sort-btn {
   padding: 3px 8px; border-radius: var(--radius-sm);
-  font-size: 11px; background: none; border: 1px solid transparent;
+  font-size: var(--font-xs); background: none; border: 1px solid transparent;
   color: var(--text-muted); cursor: pointer; transition: all 0.15s;
 }
 .sort-btn:hover { color: var(--text-primary); border-color: var(--border); }
 .sort-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
-.sort-arrow { font-size: 8px; margin-left: 2px; }
+.sort-arrow { font-size: var(--font-xs); margin-left: 2px; }
 
 /* Job Cards */
 .live-indicator {
@@ -2104,7 +2104,7 @@ async function clearFinished() {
   display: flex; flex-wrap: wrap; gap: 4px 10px;
   margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
 }
-.meta-tag { font-size: 11px; color: var(--text-muted); }
+.meta-tag { font-size: var(--font-xs); color: var(--text-muted); }
 .meta-label { color: var(--text-muted); opacity: 0.7; }
 .auto-retry-tag {
   padding: 2px 8px;
@@ -2133,7 +2133,7 @@ async function clearFinished() {
 .job-accounts {
   display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .account-chip {
@@ -2154,7 +2154,7 @@ async function clearFinished() {
   background: var(--bg-primary); border-radius: var(--radius-sm);
   padding: 10px; margin-top: 6px;
   max-height: 180px; overflow: auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .output-scroll code {
   display: block; color: var(--text-secondary);
@@ -2184,16 +2184,16 @@ async function clearFinished() {
 .section-count {
   background: var(--bg-tertiary); color: var(--text-muted);
   border-radius: 999px; padding: 1px 8px;
-  font-size: 11px; font-family: 'SF Mono', Monaco, monospace;
+  font-size: var(--font-xs); font-family: 'SF Mono', Monaco, monospace;
 }
 .live-indicator-inline {
   margin-left: auto; display: flex; align-items: center; gap: 6px;
-  font-size: 11px; color: var(--accent);
+  font-size: var(--font-xs); color: var(--accent);
 }
 .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .progress-row > :first-child { flex: 1; min-width: 0; }
 .progress-counter {
-  font-size: 11px; font-family: 'SF Mono', Monaco, monospace;
+  font-size: var(--font-xs); font-family: 'SF Mono', Monaco, monospace;
   color: var(--accent); font-weight: 600; white-space: nowrap;
 }
 
@@ -2213,12 +2213,12 @@ async function clearFinished() {
 
 /* Expandable output */
 .job-expand {
-  margin-top: 6px; font-size: 11px; color: var(--accent); cursor: pointer;
+  margin-top: 6px; font-size: var(--font-xs); color: var(--accent); cursor: pointer;
 }
 .job-expand:hover { text-decoration: underline; }
 .job-output {
   margin-top: 6px; background: var(--bg-primary); border-radius: var(--radius-sm);
-  padding: 10px; font-size: 11px; max-height: 250px; overflow-y: auto;
+  padding: 10px; font-size: var(--font-xs); max-height: 250px; overflow-y: auto;
 }
 .job-output code {
   display: block; color: var(--text-secondary);
@@ -2237,7 +2237,7 @@ async function clearFinished() {
 .error-label { font-weight: 600; flex-shrink: 0; }
 .error-summary-text { word-break: break-word; }
 .error-toggle {
-  font-size: 11px; color: var(--error); cursor: pointer;
+  font-size: var(--font-xs); color: var(--error); cursor: pointer;
   margin-top: 4px; display: inline-block;
 }
 .error-toggle:hover { text-decoration: underline; }
@@ -2256,7 +2256,7 @@ async function clearFinished() {
 .page-info { font-size: 12px; color: var(--text-muted); }
 
 /* Button sizes */
-.btn-xs { padding: 3px 10px; font-size: 11px; }
+.btn-xs { padding: 3px 10px; font-size: var(--font-xs); }
 .status-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 .status-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .status-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border, #333); background: none; color: var(--text-muted, #999); cursor: pointer; }
@@ -2265,7 +2265,7 @@ async function clearFinished() {
 .status-chip.active.sc-error { background: #e06c75; border-color: #e06c75; }
 .status-count { margin-left: 5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
 .repair-all-btn { white-space: nowrap; }
-.repair-chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border, #333); white-space: nowrap; }
+.repair-chip { font-size: var(--font-xs); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border, #333); white-space: nowrap; }
 .repair-chip.rc-ok { color: #98c379; border-color: rgba(152, 195, 121, 0.4); }
 .repair-chip.rc-warn { color: #e5c07b; border-color: rgba(229, 192, 123, 0.4); }
 .repair-chip.rc-busy { color: var(--text-muted, #888); }

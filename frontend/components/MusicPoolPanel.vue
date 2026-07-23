@@ -625,11 +625,11 @@ defineExpose({ refresh })
   font-weight: 600;
 }
 .mp-count {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary, #b3b3bb);
 }
 .mp-folder-link {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .mp-intro {
   margin: 0 0 12px;
@@ -640,7 +640,7 @@ defineExpose({ refresh })
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
 }
 .mp-loading {
@@ -666,20 +666,20 @@ defineExpose({ refresh })
   gap: 4px;
 }
 .mp-setting-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary, #b3b3bb);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .mp-setting-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .mp-lookback-input {
   width: 80px;
 }
 .mp-cursor-reset {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 /* Empty state */
@@ -742,7 +742,7 @@ defineExpose({ refresh })
   border-left: 2px solid rgba(179, 157, 255, 0.4);
 }
 .mp-overrides-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
   margin-bottom: 8px;
 }
@@ -757,7 +757,7 @@ defineExpose({ refresh })
   gap: 3px;
 }
 .mp-overrides-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 .mp-overrides-input-row {
@@ -771,12 +771,12 @@ defineExpose({ refresh })
   padding: 2px 6px;
 }
 .mp-overrides-unit {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .mp-overrides-clear {
   display: inline-block;
   margin-top: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .mp-track-info {
   flex: 1;
@@ -801,7 +801,7 @@ defineExpose({ refresh })
   outline: none;
 }
 .mp-track-filename {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
   overflow: hidden;
   text-overflow: ellipsis;

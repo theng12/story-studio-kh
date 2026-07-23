@@ -115,7 +115,7 @@ watch(isOpen, (v) => {
 }
 .context-warn {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);
   padding: 1px 8px;
   background: rgba(240, 198, 116, 0.12);
@@ -139,11 +139,11 @@ watch(isOpen, (v) => {
 :slotted(.ctx-key),
 :slotted(.context-key) {
   color: var(--text-muted, #9a9a9a);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 :slotted(.is-fallback) { color: var(--text-muted, #9a9a9a); font-style: italic; font-weight: normal; }
 :slotted(.context-dot) { color: var(--border, #3a3a3a); }
-:slotted(.context-override) { color: var(--accent, #6c8fff); font-size: 11px; }
+:slotted(.context-override) { color: var(--accent, #6c8fff); font-size: var(--font-xs); }
 </style>

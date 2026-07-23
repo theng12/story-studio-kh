@@ -1944,12 +1944,12 @@ watch(episodeId, () => {
   border-radius: 50%;
   background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 800;
 }
 .review-hero-route span.is-complete { border-color: var(--review-green); background: var(--review-green); color: var(--review-ink); }
 .review-hero-route span.is-current { border-color: var(--review-gold); color: var(--review-gold); box-shadow: 0 0 0 4px rgba(240,198,106,.1); }
-.review-hero-route b { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.review-hero-route b { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 600; }
 .review-hero-route i { height: 1px; background: var(--border); }
 
 .review-command-bar :deep(.top-action-bar) {
@@ -2007,7 +2007,7 @@ watch(episodeId, () => {
   gap: 20px;
   padding: 20px 22px 16px;
 }
-.sr-status-kicker { color: var(--review-gold); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.sr-status-kicker { color: var(--review-gold); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .sr-status-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
 .sr-status-copy p { margin: 0; color: var(--text-muted); font-size: 12px; }
 .sr-status-orb {
@@ -2021,7 +2021,7 @@ watch(episodeId, () => {
   text-align: center;
 }
 .sr-status-orb strong { color: var(--review-gold); font-size: 19px; line-height: 1; }
-.sr-status-orb span { margin-top: 4px; color: var(--text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.sr-status-orb span { margin-top: 4px; color: var(--text-muted); font-size: var(--font-xs); letter-spacing: .08em; text-transform: uppercase; }
 .sr-status-orb.ready { border-color: color-mix(in srgb, var(--review-green) 55%, var(--border)); background: color-mix(in srgb, var(--review-green) 10%, transparent); }
 .sr-status-orb.ready strong { color: var(--review-green); }
 .sr-progress-track { height: 4px; margin: 0 22px 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
@@ -2031,9 +2031,9 @@ watch(episodeId, () => {
 .sr-control-section { padding: 17px 22px; border-top: 1px solid var(--border); }
 .sr-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
 .sr-section-heading > div { display: flex; align-items: center; gap: 9px; }
-.sr-section-heading span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--review-gold) 13%, var(--bg-tertiary)); color: var(--review-gold); font-size: 9px; font-weight: 800; }
+.sr-section-heading span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--review-gold) 13%, var(--bg-tertiary)); color: var(--review-gold); font-size: var(--font-xs); font-weight: 800; }
 .sr-section-heading strong { font-size: 13px; }
-.sr-section-heading small { color: var(--text-muted); font-size: 11px; }
+.sr-section-heading small { color: var(--text-muted); font-size: var(--font-xs); }
 .sr-model-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2051,11 +2051,11 @@ watch(episodeId, () => {
   background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
 }
 .sr-field-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
-.sr-field-heading small, .sr-model-field > small { color: var(--text-muted); font-size: 10px; }
+.sr-field-heading small, .sr-model-field > small { color: var(--text-muted); font-size: var(--font-xs); }
 .sr-llm-pick :deep(.form-group) { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 7px; margin: 0; }
 .sr-llm-pick :deep(.form-group > label) {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 750;
   letter-spacing: .07em;
   text-transform: uppercase;
@@ -2083,7 +2083,7 @@ watch(episodeId, () => {
   background: var(--bg-secondary);
 }
 .sr-static-control strong { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.sr-static-control small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.sr-static-control small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .sr-auto-approve {
   display: flex;
   min-width: 0;
@@ -2102,16 +2102,16 @@ watch(episodeId, () => {
 .sr-auto-approve input { flex: 0 0 auto; }
 .sr-auto-approve span { display: grid; gap: 3px; min-width: 0; }
 .sr-auto-approve strong { color: var(--text-primary); font-size: 12px; }
-.sr-auto-approve small { color: var(--text-muted); font-size: 10px; }
+.sr-auto-approve small { color: var(--text-muted); font-size: var(--font-xs); }
 .sr-ratio-label {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 750;
   text-transform: uppercase;
   letter-spacing: .07em;
 }
 .sr-ratio-select, .sr-conc-select, .sr-size-select, .sr-llm-select { width: 100%; min-width: 0; }
-.sr-llm-label { color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.sr-llm-label { color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {
@@ -2150,7 +2150,7 @@ watch(episodeId, () => {
 .sr-lb-kbd {
   margin-left: 6px;
   padding: 0 5px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1.4;
   border: 1px solid currentColor;
   border-radius: 3px;
@@ -2158,7 +2158,7 @@ watch(episodeId, () => {
 }
 /* Row-head badge + thumbnail corner flag. */
 .review-stale-badge {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: #e0843a;
   border: 1px solid color-mix(in srgb, #e0843a 50%, transparent);
@@ -2213,7 +2213,7 @@ watch(episodeId, () => {
 .btn-warn:hover { background: color-mix(in srgb, #e0843a 38%, transparent); }
 
 .sr-lb-prompt { display: flex; flex-direction: column; gap: 4px; }
-.sr-lb-prompt-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+.sr-lb-prompt-label { font-size: var(--font-xs); color: rgba(255, 255, 255, 0.55); }
 .sr-lb-prompt-input {
   width: 100%; resize: vertical; font: inherit; font-size: 12px; line-height: 1.45;
   padding: 8px 10px; border-radius: 6px;
@@ -2264,7 +2264,7 @@ watch(episodeId, () => {
   border: 1px dashed rgba(240, 180, 41, 0.5);
   color: var(--text-secondary);
 }
-.review-thumb-generating small { font-size: 11px; }
+.review-thumb-generating small { font-size: var(--font-xs); }
 .review-thumb-overlay {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
@@ -2273,7 +2273,7 @@ watch(episodeId, () => {
   color: #fff;
   pointer-events: none;
 }
-.review-thumb-overlay small { font-size: 11px; }
+.review-thumb-overlay small { font-size: var(--font-xs); }
 .review-render-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 10px 14px;
@@ -2290,7 +2290,7 @@ watch(episodeId, () => {
 .review-live-toggle {
   margin-left: auto;
   background: none; border: 1px solid var(--border); border-radius: 6px;
-  padding: 2px 10px; font-size: 11.5px; color: var(--text-secondary); cursor: pointer;
+  padding: 2px 10px; font-size: var(--font-xs); color: var(--text-secondary); cursor: pointer;
 }
 .review-live-toggle:hover { color: var(--text-primary); border-color: var(--text-secondary); }
 .review-stop-btn {
@@ -2299,7 +2299,7 @@ watch(episodeId, () => {
   border-radius: 6px;
   color: #ffb3b3;
   padding: 3px 10px;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 .review-stop-btn:hover:not(:disabled) { background: rgba(220, 80, 80, 0.26); color: #ffd0d0; }
@@ -2316,7 +2316,7 @@ watch(episodeId, () => {
 .review-live-head em { font-style: normal; color: var(--accent, #f0b429); font-weight: 600; }
 .review-live-prompt { margin: 8px 0 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; font-style: italic; }
 .review-live-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.review-live-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.review-live-label { font-size: var(--font-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .review-live-ref {
   margin: 0; width: 84px; display: flex; flex-direction: column; gap: 4px; align-items: center;
 }
@@ -2326,14 +2326,14 @@ watch(episodeId, () => {
   animation: sr-pulse 1.6s ease-in-out infinite;
 }
 @keyframes sr-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(240,180,41,0.0); } 50% { box-shadow: 0 0 0 3px rgba(240,180,41,0.35); } }
-.review-live-ref figcaption { font-size: 10px; color: var(--text-muted); text-align: center; line-height: 1.25; max-width: 84px; }
+.review-live-ref figcaption { font-size: var(--font-xs); color: var(--text-muted); text-align: center; line-height: 1.25; max-width: 84px; }
 .review-live-arrow { font-size: 22px; color: var(--accent, #f0b429); }
 .review-live-out {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   width: 84px; height: 84px; border-radius: 6px;
   border: 1px dashed rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.08);
 }
-.review-live-out small { font-size: 10px; color: var(--text-secondary); }
+.review-live-out small { font-size: var(--font-xs); color: var(--text-secondary); }
 
 /* v1.0.245 — Plan-health banner + flagged rows. */
 .sr-health {
@@ -2348,7 +2348,7 @@ watch(episodeId, () => {
 .sr-health-link:hover { text-decoration: underline; }
 .sr-health-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .sr-health-chip {
-  font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+  font-size: var(--font-xs); padding: 3px 9px; border-radius: 999px;
   border: 1px solid rgba(224, 162, 58, 0.45); background: rgba(224, 162, 58, 0.1);
   color: var(--text-primary); cursor: pointer;
 }
@@ -2435,7 +2435,7 @@ watch(episodeId, () => {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
   text-align: center;
   padding: 4px;
@@ -2501,8 +2501,14 @@ watch(episodeId, () => {
 .review-actions-cell { gap: 6px; min-width: 132px; }
 .review-actions-cell .btn { justify-content: flex-start; min-height: 31px; border-radius: 7px; }
 
-@media (max-width: 1220px) {
-  .review-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
+@media (max-width: 1400px) {
+  .review-command-bar :deep(.top-action-bar) {
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.4fr);
+    align-items: stretch;
+  }
+  .review-command-bar :deep(.generate-region) {
+    grid-column: 1 / -1;
+  }
   .review-command-bar :deep(.generate-region) { justify-content: flex-start; }
   .sr-settings-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
 }
@@ -2515,7 +2521,10 @@ watch(episodeId, () => {
   .review-actions-cell .btn { justify-content: center; }
 }
 @media (max-width: 640px) {
-  .review-command-bar :deep(.top-action-bar) { padding: 12px; }
+  .review-command-bar :deep(.top-action-bar) {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
   .sr-greenlight-head, .sr-section-heading { align-items: flex-start; flex-direction: column; }
   .sr-status-orb { width: 100%; min-height: 48px; }
   .sr-model-grid, .sr-settings-grid { grid-template-columns: 1fr; }

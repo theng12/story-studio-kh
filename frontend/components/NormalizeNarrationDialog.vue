@@ -244,7 +244,7 @@ watch(() => props.visible, (v) => {
 .picker-row { display: flex; gap: 6px; }
 .picker-row .input { flex: 1; }
 
-.hint { font-size: 11px; line-height: 1.4; margin-top: 4px; }
+.hint { font-size: var(--font-xs); line-height: 1.4; margin-top: 4px; }
 
 .result-panel {
   padding: 10px 12px;
@@ -255,7 +255,7 @@ watch(() => props.visible, (v) => {
 .result-panel.ok { border-color: rgba(46, 160, 67, 0.4); background: rgba(46, 160, 67, 0.06); }
 .result-panel.skipped { border-color: rgba(96, 165, 250, 0.4); background: rgba(96, 165, 250, 0.06); }
 .result-list { font-size: 12px; line-height: 1.6; padding-left: 18px; margin: 6px 0 0; }
-.result-list code { font-size: 10px; word-break: break-all; }
+.result-list code { font-size: var(--font-xs); word-break: break-all; }
 
 .dialog-foot {
   display: flex;

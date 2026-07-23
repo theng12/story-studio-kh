@@ -127,13 +127,13 @@ const emit = defineEmits<{ toggle: [] }>()
 .char-name { font-size: 14px; }
 
 .char-archetype {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-style: italic;
 }
 
 .scope-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 6px;
@@ -151,7 +151,7 @@ const emit = defineEmits<{ toggle: [] }>()
 }
 
 .source-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 3px;
   background: var(--bg-tertiary);
@@ -166,7 +166,7 @@ const emit = defineEmits<{ toggle: [] }>()
 }
 
 .char-episodes, .char-speech, .char-voice, .char-refs {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -178,17 +178,17 @@ const emit = defineEmits<{ toggle: [] }>()
 .char-refs-warn { color: var(--warning, #ca8a04); }
 
 .ep-chip {
-  font-size: 10px;
+  font-size: var(--font-xs);
   background: var(--bg-tertiary);
   padding: 1px 6px;
   border-radius: 3px;
   color: var(--text-primary);
 }
 
-code { font-family: 'Menlo', Monaco, monospace; font-size: 11px; }
+code { font-family: 'Menlo', Monaco, monospace; font-size: var(--font-xs); }
 
 .ref-hint {
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   line-height: 1.4;
   flex-basis: 100%;

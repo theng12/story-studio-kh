@@ -205,7 +205,7 @@
              running. publishAt is a YouTube-side primitive; once an
              upload completes with it set, YouTube auto-publishes server-
              side regardless of whether the app is open. -->
-        <p class="text-muted mt-1" style="font-size: 11px;">
+        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
           {{ uploadMode === 'private'
             ? 'In private mode, every video uploads as private with no publishAt. You schedule each one inside YouTube Studio.'
             : 'In Apply-plan mode, scheduled publishing is handled by YouTube server-side via publishAt — Story Studio doesn\'t need to be running at the publish moment.' }}
@@ -216,11 +216,11 @@
           <img v-if="youtubeAccounts[0].thumbnail_url" :src="youtubeAccounts[0].thumbnail_url" class="channel-thumb-lg" />
           <div style="flex: 1; min-width: 0;">
             <strong style="display: block;">{{ youtubeAccounts[0].remote_title }}</strong>
-            <div class="text-muted" style="font-size: 11px;">
+            <div class="text-muted" style="font-size: var(--font-xs);">
               <code>{{ youtubeAccounts[0].remote_id }}</code>
               <span v-if="youtubeAccounts[0].custom_url"> · {{ youtubeAccounts[0].custom_url }}</span>
             </div>
-            <div class="text-muted" style="font-size: 11px;">
+            <div class="text-muted" style="font-size: var(--font-xs);">
               Connected {{ formatDate(youtubeAccounts[0].connected_at) }}
             </div>
           </div>
@@ -362,7 +362,7 @@
           </button>
         </div>
       </div>
-      <p v-if="importsFolder" class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+      <p v-if="importsFolder" class="text-muted" style="font-size: var(--font-xs); margin: 4px 0 0;">
         Import folder: <code>{{ importsFolder }}</code>
       </p>
 
@@ -534,7 +534,7 @@
             </td>
             <td>
               <strong v-if="item.type === 'episode'">{{ item.episode_code }}</strong>
-              <code v-else style="font-size: 11px;">{{ item.filename }}</code>
+              <code v-else style="font-size: var(--font-xs);">{{ item.filename }}</code>
             </td>
             <td class="col-title">{{ item.title }}</td>
             <td>
@@ -601,7 +601,7 @@
                   🪦 Deleted upstream
                 </span>
                 <div class="row-chip-stack">
-                  <span class="text-muted" style="font-size: 11px;">
+                  <span class="text-muted" style="font-size: var(--font-xs);">
                     last seen {{ item.last_sync_at ? formatScheduled(item.last_sync_at) : '?' }}
                   </span>
                 </div>
@@ -620,7 +620,7 @@
                     {{ item._privacy.label }}
                   </span>
                 </div>
-                <span class="text-muted" style="font-size: 11px; display: block;">
+                <span class="text-muted" style="font-size: var(--font-xs); display: block;">
                   last sync {{ formatScheduled(item.last_sync_at) }}
                 </span>
               </template>
@@ -946,7 +946,7 @@
           <textarea v-model="editingImportMeta.description" class="textarea" style="min-height: 80px; font-size: 12px;" />
         </div>
         <div class="form-group">
-          <label>Tags <span class="text-muted" style="font-size: 11px; font-weight: normal;">(comma-separated)</span></label>
+          <label>Tags <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">(comma-separated)</span></label>
           <input v-model="editingImportMeta.tagsStr" class="input input-sm" placeholder="trailer, sleep stories, introduction" />
         </div>
         <div class="flex gap-2">
@@ -1112,13 +1112,13 @@
             <select v-model="editing.account_id" class="select select-sm">
               <option v-for="acc in youtubeAccounts" :key="acc.id" :value="acc.id">{{ acc.remote_title }}</option>
             </select>
-            <span v-if="!youtubeAccounts.length" class="text-muted" style="font-size:11px">
+            <span v-if="!youtubeAccounts.length" class="text-muted" style="font-size: var(--font-xs)">
               Connect a YouTube account on the Accounts tab first.
             </span>
           </div>
           <div class="form-group">
             <label>Time of day
-              <span class="text-muted" style="font-size:11px; font-weight:normal">({{ editing.schedule.timezone }})</span>
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">({{ editing.schedule.timezone }})</span>
             </label>
             <!-- Native time picker (R5.2). `step="900"` = 15-min steps
                  on the spin buttons, matching YouTube's publishAt grid.
@@ -1131,13 +1131,13 @@
               step="900"
               class="input input-sm"
             />
-            <span class="text-muted" style="font-size:11px">
+            <span class="text-muted" style="font-size: var(--font-xs)">
               24-hour time. Use the arrow keys or the native picker to step in 15-minute increments.
             </span>
           </div>
           <div class="form-group">
             <label>Timezone
-              <span class="text-muted" style="font-size:11px; font-weight:normal">
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">
                 (detected: {{ defaultTz }})
               </span>
             </label>
@@ -1161,14 +1161,14 @@
                 @click="editing.schedule.timezone = defaultTz"
               >📍 Use detected</button>
             </div>
-            <span class="text-muted" style="font-size:11px">
+            <span class="text-muted" style="font-size: var(--font-xs)">
               {{ tzData.total }} IANA zones bundled offline (source: {{ tzData.source }}).
               Offsets shown for January — summer-time zones shift +1h in July.
             </span>
           </div>
           <div class="form-group full-row">
             <label>Weekdays
-              <span class="text-muted" style="font-size:11px; font-weight:normal">
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">
                 (pick any combination — covers daily, weekly, 2–3×/week, etc.)
               </span>
             </label>
@@ -1197,7 +1197,7 @@
           </div>
           <div class="form-group">
             <label>Interval
-              <span class="text-muted" style="font-size:11px; font-weight:normal">(every N weeks)</span>
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">(every N weeks)</span>
             </label>
             <select v-model.number="editing.schedule.interval_weeks" class="select select-sm">
               <option :value="1">Every week</option>
@@ -1215,23 +1215,23 @@
               min="1" max="31"
               placeholder="(blank = use weekdays)"
             />
-            <span class="text-muted" style="font-size:11px">
+            <span class="text-muted" style="font-size: var(--font-xs)">
               When set, weekdays are ignored — e.g. 15 = the 15th of every month.
             </span>
           </div>
           <div class="form-group">
             <label>Start date</label>
             <input v-model="editing.schedule.start_date" class="input input-sm" type="date" />
-            <span class="text-muted" style="font-size:11px">
+            <span class="text-muted" style="font-size: var(--font-xs)">
               <strong>What it does:</strong> the first day this plan can fire a slot. Useful when the first
               episode in your queue should publish on a specific future date (e.g. "next Monday" for a season
               launch). <strong>Blank = start from today.</strong>
             </span>
           </div>
           <div class="form-group">
-            <label>End date <span class="text-muted" style="font-size:11px; font-weight:normal">(optional)</span></label>
+            <label>End date <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">(optional)</span></label>
             <input v-model="editing.schedule.end_date" class="input input-sm" type="date" />
-            <span class="text-muted" style="font-size:11px">
+            <span class="text-muted" style="font-size: var(--font-xs)">
               <strong>What it does:</strong> last day this plan will fire a slot. After this date, Apply
               produces no more times. <strong>Blank = the plan runs indefinitely.</strong>
               Use when you want a bounded campaign (e.g. "stop after the season finale on Oct 31").
@@ -1239,7 +1239,7 @@
           </div>
           <div class="form-group">
             <label>Default privacy
-              <span class="text-muted" style="font-size:11px; font-weight:normal">(applied on upload)</span>
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight:normal">(applied on upload)</span>
             </label>
             <select v-model="editing.defaults.privacy_status" class="select select-sm">
               <option value="private">Private (scheduled via publishAt)</option>
@@ -1261,7 +1261,7 @@
           <ol>
             <li v-for="(slot, i) in previewSlots" :key="i">
               {{ new Date(slot).toLocaleString() }}
-              <span class="text-muted" style="font-size:10px">({{ slot }})</span>
+              <span class="text-muted" style="font-size: var(--font-xs)">({{ slot }})</span>
             </li>
           </ol>
         </div>
@@ -1394,7 +1394,7 @@
         </div>
         <div class="form-group">
           <div class="flex items-center justify-between" style="margin-bottom: 4px;">
-            <label style="margin: 0;">Description <span class="text-muted" style="font-size: 11px; font-weight: normal;">(optional)</span></label>
+            <label style="margin: 0;">Description <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">(optional)</span></label>
             <button
               type="button"
               class="btn btn-sm btn-ghost"
@@ -1408,7 +1408,7 @@
             </button>
           </div>
           <textarea v-model="newPlaylistForm.description" class="textarea" style="min-height: 80px; font-size: 12px;" />
-          <p v-if="newPlaylistForm.description" class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p v-if="newPlaylistForm.description" class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
             {{ newPlaylistForm.description.length }} chars
             <template v-if="newPlaylistForm.description.length > 5000">
               <strong class="text-warn">— YouTube caps playlist descriptions at 5000.</strong>
@@ -1476,7 +1476,7 @@
             </td>
             <td>
               <strong>{{ pl.title }}</strong>
-              <div v-if="pl.description" class="text-muted" style="font-size: 11px;">{{ pl.description.slice(0, 120) }}{{ pl.description.length > 120 ? '…' : '' }}</div>
+              <div v-if="pl.description" class="text-muted" style="font-size: var(--font-xs);">{{ pl.description.slice(0, 120) }}{{ pl.description.length > 120 ? '…' : '' }}</div>
             </td>
             <td>
               <span :class="['meta-pill', pl.privacyStatus === 'public' ? 'ok' : pl.privacyStatus === 'unlisted' ? 'warn' : 'muted']">
@@ -1618,7 +1618,7 @@
                 <a :href="`https://youtu.be/${row.videoId}`" target="_blank" rel="noopener" class="video-link">
                   {{ row.title || '(untitled)' }}
                 </a>
-                <div class="text-muted" style="font-size: 11px;">
+                <div class="text-muted" style="font-size: var(--font-xs);">
                   <code>{{ row.videoId }}</code>
                   <span v-if="row.publishedAt"> · published {{ new Date(row.publishedAt).toLocaleDateString() }}</span>
                   <span v-if="row.privacyStatus"> · {{ row.privacyStatus }}</span>
@@ -1652,7 +1652,7 @@
                 <div
                   v-if="reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId)"
                   class="meta-pill warn"
-                  style="margin-top: 4px; font-size: 11px;"
+                  style="margin-top: 4px; font-size: var(--font-xs);"
                   :title="`Saving will replace ${row.selected_episode_code}'s existing link from ${reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId)} to this video. The other video becomes orphan.`"
                 >
                   ⚠ {{ row.selected_episode_code }} currently links to {{ reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId).slice(0, 8) }}…
@@ -1664,7 +1664,7 @@
                 <label
                   v-if="row.title"
                   class="text-muted"
-                  style="margin-top: 4px; display: inline-flex; gap: 4px; align-items: center; font-size: 11px;"
+                  style="margin-top: 4px; display: inline-flex; gap: 4px; align-items: center; font-size: var(--font-xs);"
                   :title="`On Save, also overwrite ${row.selected_episode_code || 'the episode'}'s title in ideas.json with the YouTube title (“${row.title.slice(0, 60)}${row.title.length > 60 ? '…' : ''}”). Useful when re-linking after a YT-side rename so the two stay aligned.`"
                 >
                   <input
@@ -1685,13 +1685,13 @@
                   <input
                     v-model="orphanCodeDraft[row.videoId]"
                     class="input input-sm"
-                    style="max-width: 110px; font-size: 11px;"
+                    style="max-width: 110px; font-size: var(--font-xs);"
                     :placeholder="`or new: TN${String(orphansNextNumber).padStart(4, '0')}`"
                     :title="`Type a new episode code + click Adopt to create a synthetic episode from this video. Use this when the remote video has no matching local episode and you want Story Studio to take over managing it. This is equivalent to the per-row Adopt on the Unlinked Uploads tab.`"
                   />
                   <button
                     class="btn btn-sm btn-secondary"
-                    style="padding: 2px 8px; font-size: 11px;"
+                    style="padding: 2px 8px; font-size: var(--font-xs);"
                     :disabled="orphanBusy || !orphanCodeDraft[row.videoId]?.trim()"
                     @click="doAdoptSingleOrphan({ videoId: row.videoId, title: row.title, publishedAt: row.publishedAt, privacyStatus: row.privacyStatus })"
                   >Adopt</button>
@@ -1699,11 +1699,11 @@
               </td>
               <td class="col-actions">
                 <span v-if="row._state === 'linked' && row.selected_episode_code !== reconcileState.linked_videos[row.videoId]"
-                      class="meta-pill warn" style="font-size: 11px;" :title="`Will replace the existing link from ${reconcileState.linked_videos[row.videoId]} to ${row.selected_episode_code}.`">
+                      class="meta-pill warn" style="font-size: var(--font-xs);" :title="`Will replace the existing link from ${reconcileState.linked_videos[row.videoId]} to ${row.selected_episode_code}.`">
                   ⚠ re-link
                 </span>
                 <span v-else-if="row.suggested_episode_code && row.selected_episode_code !== row.suggested_episode_code"
-                      class="text-muted" style="font-size: 11px;" :title="`Matcher suggested ${row.suggested_episode_code}; you changed it.`">
+                      class="text-muted" style="font-size: var(--font-xs);" :title="`Matcher suggested ${row.suggested_episode_code}; you changed it.`">
                   ✎ edited
                 </span>
               </td>
@@ -1863,14 +1863,14 @@
         <!-- Bulk action bar -->
         <div class="orphan-bulk-bar mt-3">
           <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
-            <label class="text-muted" style="font-size: 11px;">
+            <label class="text-muted" style="font-size: var(--font-xs);">
               <input type="checkbox" :checked="selectedOrphanIds.size === orphans.length" @change="selectAllOrphans(($event.target as HTMLInputElement).checked)" />
               Select all ({{ orphans.length }})
             </label>
             <strong v-if="selectedOrphanIds.size" style="font-size: 12px;">{{ selectedOrphanIds.size }} selected</strong>
           </div>
           <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
-            <label class="text-muted" style="font-size: 11px;">
+            <label class="text-muted" style="font-size: var(--font-xs);">
               Bulk mode:
               <select v-model="orphanBulkMode" class="select select-sm" style="margin-left: 4px;">
                 <option value="continuation">Continuation codes</option>
@@ -1918,7 +1918,7 @@
                 <a :href="`https://youtu.be/${o.videoId}`" target="_blank" rel="noopener" class="video-link">
                   {{ o.title || '(untitled)' }}
                 </a>
-                <div class="text-muted" style="font-size: 11px;">
+                <div class="text-muted" style="font-size: var(--font-xs);">
                   <code>{{ o.videoId }}</code>
                   <span v-if="o.privacyStatus"> · {{ o.privacyStatus }}</span>
                 </div>
@@ -2047,7 +2047,7 @@
         </li>
       </ul>
 
-      <p v-if="commentsResult?.has_more" class="text-muted mt-2" style="font-size: 11px">
+      <p v-if="commentsResult?.has_more" class="text-muted mt-2" style="font-size: var(--font-xs)">
         Showing the first 50 threads. Older comments aren't paginated yet — open the video on YouTube to see the rest.
       </p>
     </div>
@@ -2262,7 +2262,7 @@
               <div class="link-video-row-main">
                 <div class="link-video-row-title">{{ video.title || '(no title)' }}</div>
                 <div class="link-video-row-meta">
-                  <code style="font-size: 11px;">{{ video.videoId }}</code>
+                  <code style="font-size: var(--font-xs);">{{ video.videoId }}</code>
                   <span v-if="video.publishedAt" class="text-muted">· {{ new Date(video.publishedAt).toLocaleDateString() }}</span>
                   <span v-if="video.privacyStatus" :class="['privacy-chip', `privacy-chip--${video.privacyStatus === 'public' ? 'public' : video.privacyStatus === 'unlisted' ? 'unlisted' : 'private'}`]">{{ video.privacyStatus }}</span>
                 </div>
@@ -2445,7 +2445,7 @@
           <div class="form-group" style="margin-top: 12px;">
             <strong style="font-size: 12px;">1. Adopted channel videos to remove
               ({{ renumberUndoStatus.plan?.adopted?.length || 0 }})</strong>
-            <p class="text-muted" style="font-size: 11px; margin: 2px 0 4px;">
+            <p class="text-muted" style="font-size: var(--font-xs); margin: 2px 0 4px;">
               The synthesised ideas + sidecars + folders will be deleted. The remote YouTube videos stay on your channel — Story Studio just unlinks them.
             </p>
             <div class="renumber-undo-list" v-if="renumberUndoStatus.plan?.adopted?.length">
@@ -2454,7 +2454,7 @@
                 <span class="text-muted">·</span>
                 <code>{{ a.video_id }}</code>
               </div>
-              <div v-if="renumberUndoStatus.plan.adopted.length > 8" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+              <div v-if="renumberUndoStatus.plan.adopted.length > 8" class="text-muted" style="font-size: var(--font-xs); padding: 4px 0;">
                 + {{ renumberUndoStatus.plan.adopted.length - 8 }} more
               </div>
             </div>
@@ -2463,7 +2463,7 @@
           <div class="form-group" style="margin-top: 12px;">
             <strong style="font-size: 12px;">2. Episodes to renumber back
               ({{ renumberUndoStatus.plan?.rename_plan?.length || 0 }})</strong>
-            <p class="text-muted" style="font-size: 11px; margin: 2px 0 4px;">
+            <p class="text-muted" style="font-size: var(--font-xs); margin: 2px 0 4px;">
               ideas.json codes will be reverted and disk folders will be renamed in place.
             </p>
             <div class="renumber-undo-list" v-if="renumberUndoStatus.plan?.rename_plan?.length">
@@ -2472,7 +2472,7 @@
                 <span class="text-muted">→</span>
                 <code>{{ r.old_code }}</code>
               </div>
-              <div v-if="renumberUndoStatus.plan.rename_plan.length > 8" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+              <div v-if="renumberUndoStatus.plan.rename_plan.length > 8" class="text-muted" style="font-size: var(--font-xs); padding: 4px 0;">
                 + {{ renumberUndoStatus.plan.rename_plan.length - 8 }} more
               </div>
             </div>
@@ -2523,7 +2523,7 @@
           <div class="form-group" style="margin-top: 12px;">
             <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
               External URL
-              <span class="text-muted" style="font-weight: normal; font-size: 11px;">(optional)</span>
+              <span class="text-muted" style="font-weight: normal; font-size: var(--font-xs);">(optional)</span>
             </label>
             <input
               v-model="legacyEditModal.externalUrl"
@@ -2533,7 +2533,7 @@
               spellcheck="false"
               @keydown.enter="saveLegacyEdit"
             />
-            <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+            <p class="text-muted" style="font-size: var(--font-xs); margin: 4px 0 0;">
               Where this video lives. Pasted into a new tab when you click the 🔗 External pill on the row. Must start with <code>http://</code> or <code>https://</code>; otherwise free-text.
             </p>
             <p v-if="legacyEditModal.error" class="text-danger" style="font-size: 12px; margin: 4px 0 0;">
@@ -2544,7 +2544,7 @@
           <div class="form-group" style="margin-top: 10px;">
             <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
               Note
-              <span class="text-muted" style="font-weight: normal; font-size: 11px;">(optional)</span>
+              <span class="text-muted" style="font-weight: normal; font-size: var(--font-xs);">(optional)</span>
             </label>
             <input
               v-model="legacyEditModal.note"
@@ -2554,7 +2554,7 @@
               maxlength="200"
               @keydown.enter="saveLegacyEdit"
             />
-            <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+            <p class="text-muted" style="font-size: var(--font-xs); margin: 4px 0 0;">
               Free-form annotation. Shown as the secondary line in the pill tooltip so you remember why this episode is on a different account next time you see it.
             </p>
           </div>
@@ -2616,7 +2616,7 @@
               : scopePicker.verb === 'apply_upload' ? '🚀 Apply + Upload'
               : '↩ Unapply'
           }}</strong>
-          <span class="text-muted" style="font-size: 11px; margin-left: 4px;">— {{ scopePicker.plan?.name }}</span>
+          <span class="text-muted" style="font-size: var(--font-xs); margin-left: 4px;">— {{ scopePicker.plan?.name }}</span>
         </div>
 
         <!-- Step 1: scope-list (default). User picks Selection / All
@@ -2642,7 +2642,7 @@
               <span class="scope-option-count" :class="{ zero: opt.count === 0 }">{{ opt.count }}</span>
             </button>
           </div>
-          <div v-if="(scopePicker.verb === 'upload' || scopePicker.verb === 'apply_upload') && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
+          <div v-if="(scopePicker.verb === 'upload' || scopePicker.verb === 'apply_upload') && quota" class="scope-popover-foot text-muted" style="font-size: var(--font-xs);">
             Today’s YouTube quota: {{ quota.used }} / {{ quota.block_at }} units
             (~{{ Math.max(0, Math.floor((quota.block_at - quota.used) / 1600)) }} uploads left).
           </div>
@@ -6848,12 +6848,12 @@ onBeforeUnmount(() => {
 }
 .upload-tab.active .upload-tab-icon { background: var(--accent); color: #17140f; }
 .upload-tab-copy { display: flex; min-width: 0; flex-direction: column; }
-.upload-tab-copy strong { overflow: hidden; font-size: 11px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.upload-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.upload-tab-copy strong { overflow: hidden; font-size: var(--font-xs); line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.upload-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .tab-soon {
   margin-left: 6px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   background: var(--bg-tertiary);
   border-radius: 999px;
   color: var(--text-muted);
@@ -6870,9 +6870,9 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, rgba(76, 201, 154, 0.075), rgba(242, 200, 111, 0.045));
 }
 .queue-command-copy { display: flex; max-width: 620px; flex-direction: column; }
-.queue-command-copy > span { color: #62d6a7; font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.queue-command-copy > span { color: #62d6a7; font-size: var(--font-xs); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .queue-command-copy strong { margin: 3px 0; font-size: 16px; }
-.queue-command-copy small { color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.queue-command-copy small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .queue-command-metrics { display: grid; grid-template-columns: repeat(4, minmax(56px, 1fr)); gap: 6px; }
 .queue-command-metrics div {
   min-width: 58px;
@@ -6885,7 +6885,7 @@ onBeforeUnmount(() => {
 .queue-command-metrics strong,
 .queue-command-metrics span { display: block; }
 .queue-command-metrics strong { color: var(--text-primary); font-size: 15px; }
-.queue-command-metrics span { color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+.queue-command-metrics span { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: 0.06em; }
 
 .platform-block {
   padding: 16px 0;
@@ -6902,7 +6902,7 @@ onBeforeUnmount(() => {
   margin-left: 10px;
   padding: 2px 10px;
   border-radius: 999px;
-  font-size: 11px; font-weight: 500;
+  font-size: var(--font-xs); font-weight: 500;
   text-transform: uppercase; letter-spacing: 0.4px;
 }
 .state-pill.state-set {
@@ -6940,7 +6940,7 @@ onBeforeUnmount(() => {
 }
 .oauth-client-row .form-group { margin: 0; }
 .oauth-client-row label {
-  display: block; font-size: 11px; color: var(--text-muted);
+  display: block; font-size: var(--font-xs); color: var(--text-muted);
   margin-bottom: 2px;
 }
 
@@ -6980,7 +6980,7 @@ onBeforeUnmount(() => {
 }
 .accounts-table th {
   text-align: left;
-  font-size: 11px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.04em;
   padding: 6px 8px;
@@ -7136,7 +7136,7 @@ td.col-actions > a.btn {
 .default-badge {
   display: inline-block;
   padding: 3px 8px;
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.4px;
   border-radius: 999px;
@@ -7146,7 +7146,7 @@ td.col-actions > a.btn {
   white-space: nowrap;
 }
 .btn-make-default {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .plans-table tr.is-default {
   background: rgba(46, 160, 67, 0.06);
@@ -7234,7 +7234,7 @@ td.col-actions > a.btn {
   font-size: 13px;
 }
 .thread-author { color: var(--text-primary); }
-.thread-stamp { font-size: 11px; }
+.thread-stamp { font-size: var(--font-xs); }
 .thread-text {
   margin: 8px 0 0;
   font-size: 14px;
@@ -7266,7 +7266,7 @@ td.col-actions > a.btn {
 .thread-more {
   margin: 6px 0 0;
   padding-left: 32px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .reply-composer {
   margin-top: 12px;
@@ -7291,7 +7291,7 @@ td.col-actions > a.btn {
   border: 1px dashed var(--border);
   border-radius: 4px;
 }
-.draft-hint { margin: 0; font-size: 11px; }
+.draft-hint { margin: 0; font-size: var(--font-xs); }
 .draft-pill {
   text-align: left;
   padding: 6px 10px;
@@ -7312,7 +7312,7 @@ td.col-actions > a.btn {
 .queue-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .queue-table th {
   text-align: left;
-  font-size: 11px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.04em;
   padding: 6px 8px;
@@ -7328,7 +7328,7 @@ td.col-actions > a.btn {
 .meta-pill {
   display: inline-block;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border-radius: 999px;
   margin-right: 4px;
@@ -7370,7 +7370,7 @@ td.col-actions > a.btn {
 .reconcile-summary .state-chip.suggested { background: rgba(46, 160, 67, 0.10); border-color: rgba(46, 160, 67, 0.35); color: #3fb950; }
 .reconcile-summary .state-chip.review { background: rgba(240, 140, 60, 0.10); border-color: rgba(240, 140, 60, 0.35); color: rgb(228, 148, 66); }
 .reconcile-summary .state-chip.manual { color: var(--text-muted); }
-.reconcile-summary .reconcile-shown { margin-left: auto; font-size: 11px; }
+.reconcile-summary .reconcile-shown { margin-left: auto; font-size: var(--font-xs); }
 
 .reconcile-controls {
   display: flex;
@@ -7388,7 +7388,7 @@ td.col-actions > a.btn {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: 500;
   text-transform: uppercase;
@@ -7486,7 +7486,7 @@ td.col-actions > a.btn {
   align-items: center;
   gap: 6px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border-radius: 999px;
   background: var(--accent-dim);
@@ -7501,7 +7501,7 @@ td.col-actions > a.btn {
   display: inline-block;
   margin-bottom: 6px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border-radius: 6px;
   background: var(--bg-secondary, rgba(148, 163, 184, 0.12));
@@ -7520,7 +7520,7 @@ td.col-actions > a.btn {
 .type-chip {
   display: inline-block;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -7533,7 +7533,7 @@ td.col-actions > a.btn {
 .sched-pill {
   display: inline-block;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   border-radius: 4px;
   background: var(--bg-tertiary);
   margin-left: 4px;
@@ -7561,7 +7561,7 @@ td.col-actions > a.btn {
   line-height: 1.3;
 }
 .sched-time {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   line-height: 1.3;
 }
@@ -7593,7 +7593,7 @@ td.col-actions > a.btn {
 .privacy-chip {
   display: inline-block;
   padding: 1px 6px;
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   line-height: 1.4;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -7626,7 +7626,7 @@ td.col-actions > a.btn {
 .sched-chip {
   display: inline-block;
   padding: 1px 6px;
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   line-height: 1.4;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -7664,7 +7664,7 @@ td.col-actions > a.btn {
 .schedule-editor { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .unschedule-actions { display: flex; gap: 4px; margin-top: 2px; }
 .btn-unschedule {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
@@ -7707,7 +7707,7 @@ td.col-actions > a.btn {
   gap: 10px 14px;
 }
 .plan-grid .form-group { margin: 0; }
-.plan-grid .form-group label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.plan-grid .form-group label { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-bottom: 2px; }
 .plan-grid .full-row { grid-column: 1 / -1; }
 .tz-picker-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tz-picker-row .tz-select { flex: 1 1 240px; min-width: 200px; }
@@ -7779,7 +7779,7 @@ td.col-actions > a.btn {
 .explainer {
   margin-top: 8px;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.6;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -7800,7 +7800,7 @@ td.col-actions > a.btn {
 
 .playlist-select {
   max-width: 140px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .create-playlist-card {
@@ -7814,7 +7814,7 @@ td.col-actions > a.btn {
 .plans-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .plans-table th {
   text-align: left;
-  font-size: 11px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.04em;
   padding: 6px 8px;
@@ -7899,7 +7899,7 @@ td.col-actions > a.btn {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .qt-filter-group { flex: 1 1 100%; align-items: flex-start; gap: 8px; }
 
@@ -7915,7 +7915,7 @@ td.col-actions > a.btn {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 11px;
+  font-size: var(--font-xs);
   margin-right: 2px;
 }
 .quick-view {
@@ -7950,7 +7950,7 @@ td.col-actions > a.btn {
   border-radius: 999px;
   background: var(--bg-secondary, rgba(127, 127, 127, 0.18));
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
 }
 .quick-view.is-active .quick-view-count { background: var(--accent); color: var(--bg-primary, #1a1a1a); }
@@ -7999,7 +7999,7 @@ td.col-actions > a.btn {
   border: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
   padding: 4px 6px;
   text-decoration: underline;
@@ -8071,7 +8071,7 @@ td.col-actions > a.btn {
 .op-report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .op-report-title { font-size: 12.5px; color: var(--text-secondary); }
 .op-report-failchip {
-  font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+  font-size: var(--font-xs); font-weight: 700; padding: 1px 8px; border-radius: 999px;
   background: rgba(226, 92, 92, 0.14); color: rgb(200, 74, 74);
 }
 .op-report-spacer { flex: 1; }
@@ -8196,7 +8196,7 @@ td.col-actions > a.btn {
   margin-bottom: 6px;
 }
 .scope-preview-warn {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 6px 8px;
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.35);
@@ -8205,7 +8205,7 @@ td.col-actions > a.btn {
   margin-bottom: 6px;
 }
 .scope-preview-error {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 6px 8px;
   background: rgba(220, 38, 38, 0.12);
   border: 1px solid rgba(220, 38, 38, 0.35);
@@ -8244,7 +8244,7 @@ td.col-actions > a.btn {
   font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, monospace;
   font-weight: 600;
 }
-.scope-preview-arrow { font-size: 11px; }
+.scope-preview-arrow { font-size: var(--font-xs); }
 .scope-preview-slot {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -8253,7 +8253,7 @@ td.col-actions > a.btn {
 }
 .scope-preview-more {
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-align: center;
 }
 .scope-preview-actions {
@@ -8354,7 +8354,7 @@ td.col-actions > a.btn {
   background: rgba(120, 113, 108, 0.18);
   color: rgb(120, 113, 108);
   border: 1px solid rgba(120, 113, 108, 0.35);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -8370,7 +8370,7 @@ td.col-actions > a.btn {
   border: 1px solid rgba(96, 165, 250, 0.45);
   color: rgb(96, 165, 250);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
@@ -8394,7 +8394,7 @@ td.col-actions > a.btn {
   border: 1px solid rgba(168, 85, 247, 0.45);
   color: rgb(168, 85, 247);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -8464,12 +8464,12 @@ td.col-actions > a.btn {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .link-video-row-score {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 4px 8px;
   border-radius: 999px;
@@ -8501,7 +8501,7 @@ td.col-actions > a.btn {
   gap: 4px;
 }
 .rkm-section-label {
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -8541,7 +8541,7 @@ td.col-actions > a.btn {
   min-width: 0;
 }
 .rkm-body strong { font-size: 13px; font-weight: 600; }
-.rkm-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.rkm-hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.35; }
 
 /* v1.0.41 — pre-upload preview modal. v1.0.46 — modal scales with the
    viewport instead of capping at 720px (which cramped meta + zoomed
@@ -8589,7 +8589,7 @@ td.col-actions > a.btn {
 }
 .upload-preview-kicker {
   color: var(--accent);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -8600,7 +8600,7 @@ td.col-actions > a.btn {
   border-radius: 999px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .upload-preview-featured {
   display: grid;
@@ -8635,11 +8635,11 @@ td.col-actions > a.btn {
 }
 .upload-preview-featured-caption strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.upload-preview-featured-caption span { color: var(--text-muted); font-size: 10px; }
+.upload-preview-featured-caption span { color: var(--text-muted); font-size: var(--font-xs); }
 .upload-preview-thumb-picker {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
@@ -8669,11 +8669,11 @@ td.col-actions > a.btn {
   display: block;
   overflow: hidden;
   padding: 6px 2px 1px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.upload-preview-pin { display: block; padding: 0 2px 2px; color: var(--text-muted); font-size: 8px; }
+.upload-preview-pin { display: block; padding: 0 2px 2px; color: var(--text-muted); font-size: var(--font-xs); }
 .upload-preview-check {
   position: absolute;
   top: 9px;
@@ -8689,7 +8689,7 @@ td.col-actions > a.btn {
   font-weight: 900;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
-.upload-preview-choice-note { margin: 8px 0 0; color: var(--text-muted); font-size: 10px; }
+.upload-preview-choice-note { margin: 8px 0 0; color: var(--text-muted); font-size: var(--font-xs); }
 .upload-preview-desc {
   margin: 0;
   padding: 8px 10px;
@@ -8721,7 +8721,7 @@ td.col-actions > a.btn {
   gap: 4px;
 }
 .upload-preview-tags .idea-tag {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 8px;
   background: var(--bg-tertiary);
   border-radius: 999px;
@@ -8734,7 +8734,7 @@ td.col-actions > a.btn {
   border-radius: 7px;
   background: rgba(76, 201, 154, 0.07);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .scope-preview-anchor span { margin-right: 4px; color: #4cc99a; }
 @media (max-width: 900px) {

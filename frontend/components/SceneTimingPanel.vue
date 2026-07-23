@@ -133,18 +133,18 @@ function sceneStatus(scene: TimingScene): string {
 .timing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .timing-head h4 { margin: 0 0 4px; }
 .timing-head p { margin: 0; color: var(--text-muted); font-size: 12px; }
-.timing-state { flex: none; padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.timing-state { flex: none; padding: 5px 9px; border-radius: 999px; font-size: var(--font-xs); font-weight: 700; }
 .timing-state.ready { color: #65e39a; background: rgba(29, 140, 77, .18); }
 .timing-state.blocked { color: #ff897f; background: rgba(184, 54, 48, .18); }
 .timing-metrics { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 9px; }
-.timing-metrics span { padding: 4px 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-muted); font-size: 11px; }
+.timing-metrics span { padding: 4px 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-muted); font-size: var(--font-xs); }
 .timing-metrics .issue { color: #ff897f; border-color: rgba(255, 92, 82, .42); }
 .timing-ruler { display: flex; width: 100%; height: 28px; overflow: hidden; gap: 1px; border-radius: 7px; background: var(--bg-input); }
 .timing-segment { min-width: 1px; background: #c8a15a; }
 .timing-segment.motion { background: #55a8b4; }
 .timing-segment.opening { background: #8a7aab; }
 .timing-segment.invalid { background: #d4554d; }
-.timing-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 7px; color: var(--text-muted); font-size: 10px; }
+.timing-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 7px; color: var(--text-muted); font-size: var(--font-xs); }
 .timing-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .timing-legend i { width: 8px; height: 8px; border-radius: 2px; background: #c8a15a; }
 .timing-legend i.motion { background: #55a8b4; }
@@ -153,7 +153,7 @@ function sceneStatus(scene: TimingScene): string {
 .timing-details { margin-top: 12px; }
 .timing-details summary { cursor: pointer; color: var(--text); font-size: 12px; font-weight: 650; }
 .timing-table-wrap { max-height: 360px; overflow: auto; margin-top: 9px; border: 1px solid var(--border); border-radius: 8px; }
-.timing-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.timing-table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
 .timing-table th, .timing-table td { padding: 7px 9px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 .timing-table th { position: sticky; top: 0; background: var(--bg-card); color: var(--text-muted); }
 .timing-table td.ok { color: #65e39a; }

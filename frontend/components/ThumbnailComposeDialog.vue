@@ -554,7 +554,7 @@ async function pinResult() {
 }
 .tc-hint {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.4;
 }
 .tc-preview {
@@ -571,7 +571,7 @@ async function pinResult() {
   gap: 10px;
 }
 .tc-preview-filename {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
 }
 .tc-preview-img {
@@ -625,6 +625,6 @@ async function pinResult() {
   margin-bottom: 6px;
 }
 .tc-section-link {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 </style>

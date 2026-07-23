@@ -306,14 +306,14 @@ onUnmounted(stopPolling)
 .fish-expr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fish-expr-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 500; }
 .fish-expr-badge {
-  font-size: 10px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   padding: 1px 6px; border-radius: 999px;
   background: var(--accent-soft, var(--bg-hover)); color: var(--accent);
 }
 .fish-expr-hint { margin: 0; line-height: 1.4; }
 .fish-expr-bg { margin: 0; line-height: 1.4; color: var(--accent); }
 .fish-expr-hint code {
-  background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; font-size: 0.9em;
+  background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; font-size: var(--font-xs);
 }
 .fish-expr-empty, .fish-expr-error { padding: 4px 0; }
 .fish-expr-error { color: var(--danger, #e5534b); font-size: 12px; }
@@ -323,7 +323,7 @@ onUnmounted(stopPolling)
 .fish-expr-editor { display: flex; flex-direction: column; gap: 6px; }
 .fish-expr-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag-chip {
-  font-size: 10px; line-height: 1;
+  font-size: var(--font-xs); line-height: 1;
   padding: 4px 7px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--bg-tertiary);
   color: var(--text-secondary); cursor: pointer;

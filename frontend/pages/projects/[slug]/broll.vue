@@ -1266,7 +1266,7 @@ function formatDuration(sec: number): string {
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 .form-group label { font-size: 12px; color: var(--text-primary); }
-.form-group .hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.form-group .hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; }
 
 .radio-row, .checkbox-row { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .checkbox-row label { display: flex; align-items: center; gap: 6px; }
@@ -1292,13 +1292,13 @@ function formatDuration(sec: number): string {
 .seq-idx {
   position: absolute; top: 2px; left: 4px;
   background: rgba(0,0,0,0.65); color: #fff;
-  padding: 1px 5px; border-radius: 3px; font-size: 10px;
+  padding: 1px 5px; border-radius: 3px; font-size: var(--font-xs);
   font-family: var(--font-mono, monospace);
 }
 .seq-duration {
   position: absolute; bottom: 2px; right: 4px;
   background: rgba(0,0,0,0.65); color: #fff;
-  padding: 1px 5px; border-radius: 3px; font-size: 10px;
+  padding: 1px 5px; border-radius: 3px; font-size: var(--font-xs);
   font-family: var(--font-mono, monospace);
 }
 
@@ -1343,19 +1343,19 @@ function formatDuration(sec: number): string {
 .manual-thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
 .manual-tile-name {
   padding: 3px 5px 0;
-  font-size: 9px; line-height: 1.2;
+  font-size: var(--font-xs); line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-primary);
 }
 .manual-tile-dur {
   padding: 0 5px 3px;
-  font-size: 9px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
 .manual-tile-badge {
   position: absolute; top: 4px; right: 4px;
   background: rgba(34,197,94,0.85); color: #fff;
-  padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 600;
+  padding: 1px 5px; border-radius: 3px; font-size: var(--font-xs); font-weight: 600;
 }
 
 .manual-empty {
@@ -1372,13 +1372,13 @@ function formatDuration(sec: number): string {
 }
 .manual-row-thumb { width: 60px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 3px; flex-shrink: 0; }
 .manual-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.manual-row-name { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manual-row-name { font-size: var(--font-xs); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .manual-row-controls { display: flex; align-items: center; gap: 4px; }
 .manual-row-actions { display: flex; gap: 2px; flex-direction: column; }
-.manual-row-actions .btn { padding: 1px 6px; font-size: 11px; }
+.manual-row-actions .btn { padding: 1px 6px; font-size: var(--font-xs); }
 
 .manual-total-pill {
-  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  font-size: var(--font-xs); padding: 2px 8px; border-radius: 10px;
   font-family: var(--font-mono, monospace);
 }
 .manual-total-pill.is-short { background: rgba(245, 158, 11, 0.12); color: rgb(180, 120, 8); }
@@ -1397,7 +1397,7 @@ function formatDuration(sec: number): string {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 .motion-pool-chip.active { background: rgba(108, 143, 255, 0.12); border-color: var(--accent, #6c8fff); color: var(--accent, #6c8fff); font-weight: 600; }
@@ -1432,7 +1432,7 @@ function formatDuration(sec: number): string {
 }
 .broll-srt-radio { flex: 0 0 auto; cursor: pointer; }
 .broll-srt-pinned {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: #5bb37c;
   font-weight: 600;
 }
@@ -1471,7 +1471,7 @@ function formatDuration(sec: number): string {
 .broll-srt-drift {
   margin-left: 8px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: #d4a017;
   background: rgba(212, 160, 23, 0.10);
   border: 1px solid rgba(212, 160, 23, 0.35);

@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.674 — 2026-07-23
+
+**Story Studio typography is now consistently comfortable to read across every workspace.**
+
+- Raises the shared interface scale to a 12px minimum for compact supporting
+  text and a 14px baseline for normal body copy.
+- Normalizes undersized labels, hints, badges, menus, metadata, job details,
+  settings, generators, review screens, upload controls, and assembly tools
+  without flattening the existing visual hierarchy.
+- Makes Scene Review's command bar reflow before readable labels can overflow
+  at narrower desktop window sizes.
+- Adds a release-time typography check that prevents future source text from
+  dropping below the readable minimum.
+- Allows local development to select a non-default API proxy port so visual
+  regression testing does not need to interrupt another service on port 8000.
+
 ## v1.0.673 — 2026-07-23
 
 **The bundled FFmpeg is now the only normal media engine—no redundant download required.**

@@ -466,10 +466,10 @@ watch(episodeId, () => {
   padding-bottom: 72px;
 }
 .motion-hero-route { position: relative; z-index: 1; display: grid; grid-template-columns: 28px auto 22px 28px auto 22px 28px auto; align-items: center; gap: 7px; flex: 0 0 auto; }
-.motion-hero-route span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--text-muted); font-size: 11px; font-weight: 800; }
+.motion-hero-route span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--text-muted); font-size: var(--font-xs); font-weight: 800; }
 .motion-hero-route span.is-complete { border-color: var(--motion-green); background: var(--motion-green); color: var(--motion-ink); }
 .motion-hero-route span.is-current { border-color: var(--motion-blue); color: var(--motion-blue); box-shadow: 0 0 0 4px rgba(115,168,223,.1); }
-.motion-hero-route b { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.motion-hero-route b { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 600; }
 .motion-hero-route i { height: 1px; background: var(--border); }
 
 .motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
@@ -483,12 +483,12 @@ watch(episodeId, () => {
 .motion-control-deck { overflow: hidden; border-radius: 16px; }
 .motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
 .motion-summary { justify-content: space-between; padding-bottom: 16px; }
-.motion-summary-kicker { color: var(--motion-blue); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.motion-summary-kicker { color: var(--motion-blue); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .motion-summary-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
 .motion-summary-copy p { margin: 0; color: var(--text-muted); font-size: 12px; }
 .motion-summary-score { display: grid; min-width: 82px; min-height: 58px; place-content: center; border: 1px solid color-mix(in srgb, var(--motion-blue) 42%, var(--border)); border-radius: 13px; background: color-mix(in srgb, var(--motion-blue) 9%, transparent); text-align: center; }
 .motion-summary-score strong { color: var(--motion-blue); font-size: 19px; line-height: 1; }
-.motion-summary-score span { margin-top: 4px; color: var(--text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.motion-summary-score span { margin-top: 4px; color: var(--text-muted); font-size: var(--font-xs); letter-spacing: .08em; text-transform: uppercase; }
 .motion-summary-score.ready { border-color: color-mix(in srgb, var(--motion-green) 55%, var(--border)); background: color-mix(in srgb, var(--motion-green) 10%, transparent); }
 .motion-summary-score.ready strong { color: var(--motion-green); }
 .motion-progress { height: 4px; margin: 0 0 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
@@ -496,10 +496,10 @@ watch(episodeId, () => {
 .motion-tool-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-top: 17px; border-top: 1px solid var(--border); }
 .motion-tool-heading { display: flex; min-width: 190px; flex-direction: column; gap: 3px; }
 .motion-tool-heading strong { font-size: 13px; }
-.motion-tool-heading span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.motion-tool-heading span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .motion-tools { justify-content: flex-end; flex-wrap: wrap; }
 .model-field { min-width: 280px; }
-.model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
 .motion-ready { border-color: color-mix(in srgb, var(--motion-green) 65%, var(--border)); }
 
 .motion-grid { display: grid; gap: 14px; padding: 0; list-style: none; }

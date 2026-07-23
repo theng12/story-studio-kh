@@ -614,14 +614,14 @@ defineExpose({ refresh, rescan })
 }
 
 .status-legend {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   margin-top: 4px;
 }
 
 /* v1.0.48 — episode-count + loading-state hints next to the label. */
 .ep-count {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: normal;
   margin-left: 6px;
@@ -630,7 +630,7 @@ defineExpose({ refresh, rescan })
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: normal;
   color: var(--text-muted);
   margin-left: 6px;
@@ -685,7 +685,7 @@ defineExpose({ refresh, rescan })
   border: 0;
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1;
   cursor: pointer;
   display: inline-flex;
@@ -706,7 +706,7 @@ defineExpose({ refresh, rescan })
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: inherit;
   color: var(--text-muted);
   background: transparent;
@@ -719,7 +719,7 @@ defineExpose({ refresh, rescan })
   color: var(--text-primary);
 }
 .step-summary-arrow {
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 .step-summary-manual {
@@ -736,7 +736,7 @@ defineExpose({ refresh, rescan })
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: inherit;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -767,12 +767,12 @@ defineExpose({ refresh, rescan })
   opacity: 0.6;
 }
 .step-chip-mark {
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 .step-chips-hint {
   margin-top: 5px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
   color: var(--text-muted);
 }

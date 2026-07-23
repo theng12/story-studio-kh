@@ -2023,11 +2023,11 @@ onMounted(() => { void planPresets.load() })
 }
 .scene-setting-head > span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .scene-setting-head em {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-style: normal;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -2060,7 +2060,7 @@ onMounted(() => { void planPresets.load() })
 .scene-setting-help {
   margin: 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
 }
 .scene-motion-controls {
@@ -2077,7 +2077,7 @@ onMounted(() => { void planPresets.load() })
   display: block;
   margin-bottom: 4px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: .07em;
   text-transform: uppercase;
@@ -2137,7 +2137,7 @@ onMounted(() => { void planPresets.load() })
 .stage-step small { margin-top: auto; padding-top: 12px; color: var(--text-muted); line-height: 1.45; }
 .stage-step em {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-style: normal;
   text-transform: uppercase;
   letter-spacing: .08em;
@@ -2235,7 +2235,7 @@ onMounted(() => { void planPresets.load() })
   display: inline-block;
   margin-left: 8px;
   padding: 1px 10px;
-  font-size: 11px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   color: var(--accent);
   background: rgba(240, 198, 116, 0.12);
   border: 1px solid rgba(240, 198, 116, 0.25);
@@ -2244,7 +2244,7 @@ onMounted(() => { void planPresets.load() })
 .detail-slider { width: 100%; margin: 6px 0 2px; accent-color: var(--accent, #f0b429); cursor: pointer; }
 .detail-ticks {
   display: flex; justify-content: space-between;
-  font-size: 10.5px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.03em;
 }
 .detail-ticks span { flex: 1; text-align: center; transition: color 0.15s ease; }
@@ -2280,7 +2280,7 @@ onMounted(() => { void planPresets.load() })
 }
 .creative-profile strong, .creative-profile span { display: block; }
 .creative-profile strong { font-size: 12px; }
-.creative-profile span { margin-top: 3px; font-size: 10.5px; line-height: 1.35; color: var(--text-muted); }
+.creative-profile span { margin-top: 3px; font-size: var(--font-xs); line-height: 1.35; color: var(--text-muted); }
 .scene-creative-controls {
   display: grid;
   grid-template-columns: minmax(220px, .8fr) minmax(220px, 1fr) minmax(220px, 1fr);
@@ -2297,7 +2297,7 @@ onMounted(() => { void planPresets.load() })
   border-radius: 999px;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 .creative-strategy-chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-tertiary)); color: var(--text-primary); }
@@ -2307,7 +2307,7 @@ onMounted(() => { void planPresets.load() })
   border-radius: 999px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   line-height: 1.2;
 }
@@ -2363,7 +2363,7 @@ onMounted(() => { void planPresets.load() })
 .plan-health-head { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .plan-health-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .plan-health-chip {
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid rgba(224, 162, 58, 0.45);
@@ -2379,10 +2379,10 @@ onMounted(() => { void planPresets.load() })
    mix is scannable down the list at a glance. */
 .scene-type-pick { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 .scene-type-select {
-  font-size: 11px; padding: 1px 4px; border-radius: 4px; cursor: pointer;
+  font-size: var(--font-xs); padding: 1px 4px; border-radius: 4px; cursor: pointer;
   border: 1px solid var(--border); background: var(--bg-subtle); color: var(--text-primary);
 }
-.scene-type-lock { font-size: 10px; }
+.scene-type-lock { font-size: var(--font-xs); }
 .scene-type-pick.st-character .scene-type-select { border-color: #6aa9ff; background: rgba(106, 169, 255, 0.14); }
 .scene-type-pick.st-event     .scene-type-select { border-color: #e0795a; background: rgba(224, 121, 90, 0.14); }
 .scene-type-pick.st-environment .scene-type-select { border-color: #5ab47a; background: rgba(90, 180, 122, 0.14); }
@@ -2395,7 +2395,7 @@ onMounted(() => { void planPresets.load() })
 }
 .scene-row-actions { display: flex; gap: 6px; }
 .scene-row-actions .btn-icon {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 3px 8px;
   border-radius: 3px;
   background: transparent;

@@ -3132,7 +3132,7 @@ async function confirmCompact() {
 .idea-step-label,
 .launch-summary-label {
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3144,7 +3144,7 @@ async function confirmCompact() {
   border-radius: 999px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3175,7 +3175,7 @@ async function confirmCompact() {
 }
 .idea-choice-heading { justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .idea-choice-heading > span { font-size: 12px; font-weight: 700; color: var(--text-primary); }
-.idea-choice-heading small { font-size: 10px; color: var(--text-muted); text-align: right; }
+.idea-choice-heading small { font-size: var(--font-xs); color: var(--text-muted); text-align: right; }
 .freedom-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .freedom-option {
   min-width: 0;
@@ -3192,8 +3192,8 @@ async function confirmCompact() {
 .freedom-option.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary)); }
 .freedom-option strong,
 .freedom-option span { display: block; overflow: hidden; text-overflow: ellipsis; }
-.freedom-option strong { color: var(--text-primary); font-size: 11px; white-space: nowrap; }
-.freedom-option span { margin-top: 3px; font-size: 9px; line-height: 1.35; color: var(--text-muted); }
+.freedom-option strong { color: var(--text-primary); font-size: var(--font-xs); white-space: nowrap; }
+.freedom-option span { margin-top: 3px; font-size: var(--font-xs); line-height: 1.35; color: var(--text-muted); }
 .creative-lenses { display: flex; flex-wrap: wrap; gap: 6px; }
 .creative-lens {
   padding: 6px 9px;
@@ -3201,7 +3201,7 @@ async function confirmCompact() {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 .creative-lens:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
@@ -3227,13 +3227,13 @@ async function confirmCompact() {
 .originality-copy strong,
 .originality-copy small { display: block; }
 .originality-copy strong { color: var(--text-primary); font-size: 12px; }
-.originality-copy small { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.originality-copy small { margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .originality-state {
   padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3264,13 +3264,13 @@ async function confirmCompact() {
   border-radius: 7px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
 }
 .idea-refinement-heading strong,
 .idea-refinement-heading small { display: block; }
 .idea-refinement-heading strong { font-size: 12px; }
-.idea-refinement-heading small { margin-top: 1px; color: var(--text-muted); font-size: 9px; }
+.idea-refinement-heading small { margin-top: 1px; color: var(--text-muted); font-size: var(--font-xs); }
 .compact-grid,
 .generation-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .idea-refinement-card .form-group { margin: 0; min-width: 0; }
@@ -3278,7 +3278,7 @@ async function confirmCompact() {
 .compact-grid .form-group + .form-group,
 .generation-settings-grid .form-group + .form-group { margin-top: 0; }
 .compact-keywords { margin-top: 8px !important; }
-.title-wrap-preview { margin: 7px 0 0; color: var(--text-muted); font-size: 10px; }
+.title-wrap-preview { margin: 7px 0 0; color: var(--text-muted); font-size: var(--font-xs); }
 .title-wrap-preview code { color: var(--text-secondary); }
 .idea-launch-dock {
   gap: 12px;
@@ -3291,8 +3291,8 @@ async function confirmCompact() {
 .idea-launch-summary { flex: 1 1 220px; min-width: 0; }
 .idea-launch-summary span,
 .idea-launch-summary strong { display: block; }
-.idea-launch-summary strong { margin-top: 2px; overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.idea-count-control { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 11px; }
+.idea-launch-summary strong { margin-top: 2px; overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.idea-count-control { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: var(--font-xs); }
 .idea-count-control .input { width: 64px; height: 34px; padding: 5px 8px; }
 .generator-actions-primary { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
 .generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
@@ -3315,9 +3315,9 @@ async function confirmCompact() {
 }
 .format-indicator-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .format-indicator-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.format-indicator-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; }
+.format-indicator-label { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; }
 .format-indicator-name { font-size: 15px; color: var(--text-primary); }
-.format-indicator-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 8px; font-weight: 600; }
+.format-indicator-badge { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 8px; font-weight: 600; }
 .format-indicator-badge.badge-builtin { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); }
 .format-indicator-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
 .format-indicator-badge.badge-warn    { background: #5a3a00; color: #ffd58a; border: 1px solid #ffd58a; }
@@ -3328,7 +3328,7 @@ async function confirmCompact() {
 
 /* Per-field "From [Format]" tags shown next to dropdown labels. */
 .vocab-source-tag {
-  font-size: 10px; font-weight: 500; color: var(--text-muted);
+  font-size: var(--font-xs); font-weight: 500; color: var(--text-muted);
   text-transform: none; letter-spacing: 0; margin-left: 4px;
 }
 
@@ -3361,19 +3361,19 @@ async function confirmCompact() {
 .idea-row.status-accepted { border-left: 3px solid var(--success); }
 .idea-row.status-dismissed { opacity: 0.45; }
 
-.status-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.status-badge { padding: 2px 8px; border-radius: 10px; font-size: var(--font-xs); font-weight: 500; }
 .status-badge.new { background: rgba(251,191,36,0.15); color: var(--warning); }
 .status-badge.accepted { background: rgba(74,222,128,0.15); color: var(--success); }
 .status-badge.dismissed { background: rgba(107,114,128,0.15); color: var(--text-muted); }
 
-.code-badge { font-size: 11px; font-weight: 600; color: var(--success); }
+.code-badge { font-size: var(--font-xs); font-weight: 600; color: var(--success); }
 
 /* Expanded row */
 .expand-row td { padding: 0; background: var(--bg-tertiary); }
 .expand-content { padding: 12px 16px 14px; }
 .expand-logline { font-size: 13px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 8px; }
 .expand-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.idea-tag { background: var(--accent-dim); color: var(--accent); padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.idea-tag { background: var(--accent-dim); color: var(--accent); padding: 1px 8px; border-radius: 10px; font-size: var(--font-xs); }
 
 /* Pagination */
 .pagination { display: flex; justify-content: center; align-items: center; gap: 16px; }
@@ -3425,7 +3425,7 @@ async function confirmCompact() {
   margin: 0; padding: 6px 10px;
   background: rgba(226, 92, 92, 0.10);
   color: var(--error, #e25c5c);
-  border-radius: 4px; font-size: 11px;
+  border-radius: 4px; font-size: var(--font-xs);
 }
 .accept-code-resolved {
   margin: 0; font-size: 12px; color: var(--text-secondary);
@@ -3447,7 +3447,7 @@ async function confirmCompact() {
 }
 .ideas-title-template-hint {
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 
@@ -3482,7 +3482,7 @@ async function confirmCompact() {
   background: var(--bg-tertiary);
   padding: 1px 6px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .niche-override-banner {
   display: flex;
@@ -3504,7 +3504,7 @@ async function confirmCompact() {
   background: var(--bg-tertiary);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .niche-override-banner .banner-link {
   color: var(--accent, #6c8fff);
@@ -3550,7 +3550,7 @@ async function confirmCompact() {
 .code-option.active { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
 .code-option input { margin-right: 2px; cursor: pointer; }
 .code-option strong { color: var(--text-primary); }
-.code-hint { color: var(--text-muted); font-size: 11px; }
+.code-hint { color: var(--text-muted); font-size: var(--font-xs); }
 .import-conflicts { display: flex; flex-direction: column; gap: 4px; }
 .conflict-item {
   padding: 6px 8px; background: rgba(234, 179, 8, 0.10);
@@ -3569,7 +3569,7 @@ async function confirmCompact() {
 .asset-cell:has(.asset-check:not(:empty)) .asset-check { color: var(--accent); }
 .asset-name { flex: 1; color: var(--text-secondary); }
 .asset-count {
-  font-size: 11px; color: var(--accent);
+  font-size: var(--font-xs); color: var(--accent);
   background: rgba(240, 198, 116, 0.12);
   padding: 0 6px; border-radius: 999px;
 }
@@ -3580,7 +3580,7 @@ async function confirmCompact() {
   font-size: 12px; color: #60a5fa;
 }
 .import-warnings {
-  font-size: 11px; color: #eab308;
+  font-size: var(--font-xs); color: #eab308;
   display: flex; flex-direction: column; gap: 2px;
 }
 
@@ -3608,7 +3608,7 @@ async function confirmCompact() {
 }
 .import-mode-option input { grid-row: span 2; align-self: center; }
 .import-mode-label { font-size: 13px; font-weight: 600; }
-.import-mode-hint { font-size: 11px; color: var(--text-muted); }
+.import-mode-hint { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Parent-mode subfolder list — checkable rows with an inline status
    slot so per-folder progress (importing / done / error) shows up
@@ -3641,7 +3641,7 @@ async function confirmCompact() {
 .parent-sub-row.status-done { color: var(--text-muted); }
 .parent-sub-row.status-error { background: rgba(239, 68, 68, 0.08); }
 .parent-sub-name { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.parent-sub-status { font-size: 11px; color: var(--text-muted); }
+.parent-sub-status { font-size: var(--font-xs); color: var(--text-muted); }
 .parent-sub-row.status-error .parent-sub-status { color: #ef4444; }
 .parent-sub-row.status-done .parent-sub-status { color: #34d399; }
 
@@ -3684,7 +3684,7 @@ async function confirmCompact() {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -3703,7 +3703,7 @@ async function confirmCompact() {
   align-items: center;
   gap: 6px;
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .paste-prompt-source-label {
@@ -3746,7 +3746,7 @@ async function confirmCompact() {
   color: var(--text-muted);
   cursor: pointer;
   padding: 0 0 0 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 .paste-prompt-source-clear:hover { color: var(--error, #ef4444); }
@@ -3831,7 +3831,7 @@ async function confirmCompact() {
   background: var(--bg-secondary);
   font-weight: 600;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.02em;
   position: sticky;
@@ -3841,7 +3841,7 @@ async function confirmCompact() {
 /* v1.0.402 — min-widths so flexible columns keep readable width (no
    one-word-per-line crush); the table scrolls sideways if the window is too
    narrow to fit them all. */
-.paste-preview-row .ppr-num      { flex: 0 0 auto; min-width: 24px; color: var(--text-muted); font-size: 11px; }
+.paste-preview-row .ppr-num      { flex: 0 0 auto; min-width: 24px; color: var(--text-muted); font-size: var(--font-xs); }
 .paste-preview-row .ppr-title    { flex: 1.5 1 0; min-width: 150px; font-weight: 600; }
 .paste-preview-row .ppr-logline  { flex: 2 1 0; min-width: 220px; }
 .paste-preview-row .ppr-themes   { flex: 1 1 0; min-width: 120px; }
@@ -3882,7 +3882,7 @@ async function confirmCompact() {
 .paste-rejected-reason { color: var(--text-primary); flex-shrink: 0; }
 .paste-rejected-raw {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3899,7 +3899,7 @@ async function confirmCompact() {
   gap: 4px;
 }
 .source-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -3933,7 +3933,7 @@ async function confirmCompact() {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 6px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3949,7 +3949,7 @@ async function confirmCompact() {
   align-items: center;
   margin-left: 8px;
   padding: 1px 7px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   border-radius: 999px;
   background: rgba(46, 160, 67, 0.18);
@@ -4096,7 +4096,7 @@ async function confirmCompact() {
   display: inline-block;
   width: 80px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -4115,7 +4115,7 @@ async function confirmCompact() {
 }
 .effective-fallback-tag,
 .effective-override-tag {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);
   padding: 1px 8px;
   background: rgba(240, 198, 116, 0.10);
@@ -4142,13 +4142,13 @@ async function confirmCompact() {
 .context-chip { display: inline-flex; align-items: baseline; gap: 6px; }
 .context-key {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .context-chip strong { font-weight: 600; }
 .context-chip strong.is-fallback { color: var(--text-muted); font-weight: normal; font-style: italic; }
-.context-override { color: var(--accent, #6c8fff); font-size: 11px; }
+.context-override { color: var(--accent, #6c8fff); font-size: var(--font-xs); }
 .context-dot { color: var(--border, #3a3a3a); }
 .context-detail-row {
   display: flex;
@@ -4162,7 +4162,7 @@ async function confirmCompact() {
   display: inline-block;
   width: 64px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -4172,7 +4172,7 @@ async function confirmCompact() {
 .context-detail-desc { margin: 0 0 0 74px; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
 .context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
 .context-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 2px 6px;
@@ -4183,7 +4183,7 @@ async function confirmCompact() {
 .context-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
 .context-fallback-tag,
 .context-override-tag {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);
   padding: 1px 8px;
   background: rgba(240, 198, 116, 0.10);

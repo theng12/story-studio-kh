@@ -685,7 +685,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 }
 .psl-library-kicker {
   color: var(--accent);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
@@ -695,7 +695,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   background: rgba(108, 143, 255, 0.14);
   color: var(--accent);
@@ -741,7 +741,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.72);
   color: white;
-  font-size: 10px;
+  font-size: var(--font-xs);
   opacity: 0;
   transform: translateY(3px);
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -759,7 +759,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   display: block;
 }
 .psl-gallery-count {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--accent);
 }
@@ -808,7 +808,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   background: rgba(108, 143, 255, 0.14);
   color: var(--accent);

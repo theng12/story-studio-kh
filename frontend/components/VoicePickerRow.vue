@@ -42,7 +42,7 @@ defineEmits<{
 .vp-star.favourite, .vp-star:hover { color: var(--accent); }
 .vp-select { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .vp-select strong { font-size: 13px; }
-.vp-select span { color: var(--text-muted); font-size: 10px; }
+.vp-select span { color: var(--text-muted); font-size: var(--font-xs); }
 .vp-preview { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--accent); cursor: pointer; }
 .vp-preview:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .45; }
 </style>

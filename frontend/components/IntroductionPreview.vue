@@ -130,7 +130,7 @@ watch(() => [props.episodeId, props.title, props.refreshKey], load, { immediate:
 }
 
 .meta-pill {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   padding: 2px 8px;

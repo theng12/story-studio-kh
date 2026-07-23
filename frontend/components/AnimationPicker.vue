@@ -176,8 +176,8 @@ watch(activeCat, (cat) => {
 .ap-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .ap-tab { padding: 6px 12px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-muted); border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; }
 .ap-tab.active { background: var(--accent); color: #0f1117; border-color: var(--accent); font-weight: 600; }
-.ap-count { font-size: 10px; opacity: 0.7; margin-left: 4px; }
-.ap-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
+.ap-count { font-size: var(--font-xs); opacity: 0.7; margin-left: 4px; }
+.ap-meta { display: flex; align-items: center; gap: 8px; font-size: var(--font-xs); color: var(--text-muted); }
 .ap-meta-text { font-style: italic; }
 .ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .ap-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); overflow: hidden; cursor: pointer; transition: border-color 0.15s, transform 0.15s; display: flex; flex-direction: column; }
@@ -191,7 +191,7 @@ watch(activeCat, (cat) => {
 .ap-label-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 12px; background: var(--bg-secondary); }
 .ap-pool-toggle { display: flex; align-items: center; cursor: pointer; }
 .ap-label { flex: 1; color: var(--text-primary); font-weight: 500; }
-.ap-primary-tag { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
+.ap-primary-tag { font-size: var(--font-xs); color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
 .ap-footer { display: flex; gap: 12px; align-items: center; padding: 10px; border-top: 1px solid var(--border); }
 .ap-random-btns { display: flex; gap: 4px; }
 .ap-warn { padding: 6px 10px; background: rgba(255, 180, 0, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); border-radius: 6px; color: var(--text-muted); font-size: 12px; margin: 0; }

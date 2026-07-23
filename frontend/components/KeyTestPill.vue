@@ -38,7 +38,7 @@ const defaultLabel = computed(() => {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   vertical-align: middle;
   white-space: nowrap;

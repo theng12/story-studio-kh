@@ -343,7 +343,7 @@ function formatSize(bytes: number): string {
   overflow-y: auto;
 }
 .fbm-sidebar h3 {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   color: var(--text-muted);
   margin: 0 8px 8px;
@@ -436,7 +436,7 @@ function formatSize(bytes: number): string {
 }
 .fbm-icon { width: 18px; flex-shrink: 0; }
 .fbm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fbm-size { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.fbm-size { color: var(--text-muted); font-size: var(--font-xs); flex-shrink: 0; }
 .fbm-empty {
   flex: 1;
   display: flex;
@@ -467,7 +467,7 @@ function formatSize(bytes: number): string {
   background: var(--bg-tertiary);
   padding: 2px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .fbm-buttons { display: flex; gap: 8px; flex-shrink: 0; }
 </style>

@@ -160,7 +160,7 @@ onBeforeUnmount(clearRetryTimer)
   background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
   color: var(--text-muted);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-align: center;
 }
 
@@ -183,6 +183,6 @@ onBeforeUnmount(clearRetryTimer)
 .resilient-image.is-compact .resilient-image-retry {
   gap: 4px;
   padding: 4px;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 </style>

@@ -122,6 +122,6 @@ watch(() => props.modelValue, value => emit('model-meta', allModels.value.find(m
 </script>
 
 <style scoped>
-.loading { margin-left: 8px; color: var(--text-muted); font-size: 11px; font-weight: 400; }
-.migration-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: 11px; line-height: 1.4; }
+.loading { margin-left: 8px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
+.migration-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
 </style>

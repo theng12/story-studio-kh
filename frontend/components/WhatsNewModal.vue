@@ -216,7 +216,7 @@ function renderMd(md: string): string {
 }
 .wnm-entry-head .text-muted { font-size: 12px; }
 .state-pill {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 8px;
@@ -241,7 +241,7 @@ function renderMd(md: string): string {
   padding: 1px 5px;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .modal-footer {
   display: flex;

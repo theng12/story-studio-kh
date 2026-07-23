@@ -875,7 +875,7 @@
           <span
             v-if="compilationLayout.layout === 'compilation'"
             class="badge"
-            style="background: var(--accent); color: white; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+            style="background: var(--accent); color: white; font-size: var(--font-xs); padding: 2px 8px; border-radius: 4px;"
           >COMPILATION</span>
         </div>
         <p class="text-muted text-sm mt-1">
@@ -4948,7 +4948,7 @@ onUnmounted(() => {
 
 /* Logo-effect preview watermark — tiny tag glued under the preview. */
 .preview-watermark {
-  font-size: 10px;
+  font-size: var(--font-xs);
   margin-top: 6px;
   text-align: center;
 }
@@ -4985,7 +4985,7 @@ onUnmounted(() => {
 .step-line.completed { background: var(--success); }
 
 .step-labels { display: flex; justify-content: center; gap: 50px; padding: 6px 0 0; }
-.step-labels span { font-size: 11px; color: var(--text-muted); text-align: center; width: 36px; }
+.step-labels span { font-size: var(--font-xs); color: var(--text-muted); text-align: center; width: 36px; }
 .step-labels span.active { color: var(--accent); font-weight: 600; }
 
 /* Step navigation */
@@ -4997,7 +4997,7 @@ onUnmounted(() => {
 .badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.3); }
 .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); }
 .badge-warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
-.badge-muted { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); font-size: 10px; padding: 2px 8px; }
+.badge-muted { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); font-size: var(--font-xs); padding: 2px 8px; }
 .ffmpeg-warning code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 .ffmpeg-inline-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .ffmpeg-inline-link:hover { color: var(--accent-hover, var(--accent)); }
@@ -5005,7 +5005,7 @@ onUnmounted(() => {
 
 /* Asset thumbnails */
 .thumb-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.scene-thumb-small { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.scene-thumb-small { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); color: var(--text-muted); font-weight: 600; }
 .scene-source-control {
   display: inline-grid;
   grid-template-columns: repeat(3, minmax(110px, 1fr));
@@ -5058,7 +5058,7 @@ onUnmounted(() => {
 .thumb-card-img:hover { border-color: var(--text-secondary); transform: scale(1.02); }
 .thumb-card-img.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
-.thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: var(--font-xs); font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 .intro-hold-note { font-size: 12px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text-secondary); }
 
@@ -5073,7 +5073,7 @@ onUnmounted(() => {
 .thumb-card:hover { border-color: var(--text-secondary); }
 .thumb-card.selected { border-color: var(--accent); background: var(--accent-dim); }
 .thumb-num { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.thumb-name { font-size: 10px; color: var(--text-muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb-name { font-size: var(--font-xs); color: var(--text-muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Audio list */
 .merged-audio-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); }
@@ -5111,11 +5111,11 @@ onUnmounted(() => {
 /* Preview Canvas */
 .preview-canvas { width: 480px; height: 270px; border-radius: var(--radius-md); border: 1px solid var(--border); position: relative; overflow: hidden; }
 .preview-logo-img { pointer-events: none; }
-.preview-logo-error { background: rgba(255, 0, 0, 0.2); border: 1px dashed rgba(255, 120, 120, 0.8); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; letter-spacing: 0.5px; padding: 4px 8px; }
+.preview-logo-error { background: rgba(255, 0, 0, 0.2); border: 1px dashed rgba(255, 120, 120, 0.8); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); font-weight: 600; color: #fff; letter-spacing: 0.5px; padding: 4px 8px; }
 
 /* Scene Exclude Grid */
 .scene-exclude-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.scene-exclude-card { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--success); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--success); font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.scene-exclude-card { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--success); display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); color: var(--success); font-weight: 600; cursor: pointer; transition: all 0.15s; }
 .scene-exclude-card:hover { opacity: 0.8; }
 .scene-exclude-card.excluded { border-color: var(--error); color: var(--error); opacity: 0.4; text-decoration: line-through; }
 
@@ -5134,7 +5134,7 @@ onUnmounted(() => {
 .collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-tertiary); border-radius: var(--radius-sm); cursor: pointer; user-select: none; }
 .collapsible-header:hover { background: var(--bg-hover); }
 .collapsible-body { padding: 12px 16px 16px; }
-.collapse-arrow { font-size: 10px; color: var(--text-muted); }
+.collapse-arrow { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Preview box */
 .preview-box { padding: 8px 12px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
@@ -5168,7 +5168,7 @@ onUnmounted(() => {
 }
 .estimator-hint {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 /* Summary panel */
@@ -5178,7 +5178,7 @@ onUnmounted(() => {
 .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .summary-row:last-child { border-bottom: none; }
 .summary-row .text-muted { min-width: 130px; }
-.link-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0 0 0 8px; text-decoration: underline; }
+.link-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: var(--font-xs); padding: 0 0 0 8px; text-decoration: underline; }
 .link-btn:hover { color: var(--text-primary); }
 
 /* Generate button */
@@ -5190,8 +5190,8 @@ onUnmounted(() => {
 .gen-progress-pct { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; margin-left: 4px; }
 .gen-close { cursor: pointer; color: var(--text-muted); padding: 2px 8px; border-radius: 4px; font-size: 14px; }
 .gen-close:hover { color: var(--text-primary); background: var(--bg-hover); }
-.gen-hint { font-size: 11px; margin-top: 4px; }
-.generating-status .job-output { max-height: 220px; overflow-y: auto; background: var(--bg-primary); border-radius: var(--radius-sm); padding: 10px; font-family: 'SF Mono', Monaco, monospace; font-size: 11px; }
+.gen-hint { font-size: var(--font-xs); margin-top: 4px; }
+.generating-status .job-output { max-height: 220px; overflow-y: auto; background: var(--bg-primary); border-radius: var(--radius-sm); padding: 10px; font-family: 'SF Mono', Monaco, monospace; font-size: var(--font-xs); }
 .generating-status .output-line { color: var(--text-secondary); line-height: 1.6; }
 .gen-label { font-size: 13px; color: var(--accent); }
 .progress-bar { height: 3px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
@@ -5199,7 +5199,7 @@ onUnmounted(() => {
 @keyframes progressIndeterminate { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 0%; margin-left: 100%; } }
 
 /* Job output */
-.job-output { max-height: 200px; overflow-y: auto; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-family: monospace; font-size: 11px; }
+.job-output { max-height: 200px; overflow-y: auto; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-family: monospace; font-size: var(--font-xs); }
 .output-line { color: var(--text-secondary); line-height: 1.6; }
 
 /* Scanning status */
@@ -5243,7 +5243,7 @@ onUnmounted(() => {
 .post-audio-card.active { border-color: var(--accent); background: var(--accent-dim); }
 .pa-icon { font-size: 20px; opacity: 0.6; }
 .pa-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
-.pa-desc { font-size: 10px; color: var(--text-muted); }
+.pa-desc { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* ===== Transition Preview Grid ===== */
 .transition-preview-grid { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -5253,7 +5253,7 @@ onUnmounted(() => {
 .transition-preview-box { width: 100%; height: 80px; border-radius: 4px; overflow: hidden; position: relative; background: #111; }
 .tr-scene-a, .tr-scene-b { position: absolute; inset: 0; background-size: cover; background-position: center; }
 .tr-scene-b { opacity: 0; }
-.tr-label { display: block; text-align: center; font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
+.tr-label { display: block; text-align: center; font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
 
 /* Transition animations — play on hover of the card */
 .transition-card:hover .tr-anim-crossfade { animation: trCrossfade 2.5s ease-in-out infinite; }
@@ -5286,8 +5286,8 @@ onUnmounted(() => {
 .anim-preview-box { width: 100%; height: 78px; border-radius: 4px; overflow: hidden; position: relative; background: #1a1a2e; }
 .anim-preview-img, .anim-preview-placeholder { width: 100%; height: 100%; object-fit: cover; will-change: transform, opacity; transform-origin: center center; }
 .anim-preview-placeholder { background: linear-gradient(135deg, #2d3436, #636e72); }
-.anim-card-label { display: block; text-align: center; font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
-.anim-card-desc { display: block; text-align: center; font-size: 9px; color: var(--text-muted); }
+.anim-card-label { display: block; text-align: center; font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
+.anim-card-desc { display: block; text-align: center; font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Animation demos — always play on active, hover on others */
 .animation-preview-card:hover .anim-demo-ken-burns,
@@ -5313,8 +5313,8 @@ onUnmounted(() => {
   width: 340px;
 }
 .effects-controls-scroll { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-.logo-error-note { margin-top: 8px; padding: 8px 10px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); color: rgb(185, 28, 28); font-size: 11px; line-height: 1.4; }
-.logo-error-note code { background: rgba(0,0,0,0.1); padding: 1px 4px; border-radius: 3px; font-size: 10px; word-break: break-all; }
+.logo-error-note { margin-top: 8px; padding: 8px 10px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); color: rgb(185, 28, 28); font-size: var(--font-xs); line-height: 1.4; }
+.logo-error-note code { background: rgba(0,0,0,0.1); padding: 1px 4px; border-radius: 3px; font-size: var(--font-xs); word-break: break-all; }
 
 /* Quick-start export presets */
 .quick-preset-section { }
@@ -5339,12 +5339,12 @@ onUnmounted(() => {
 .qp-header { display: flex; align-items: center; gap: 8px; }
 .qp-icon { font-size: 18px; line-height: 1; }
 .qp-label { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 1; }
-.qp-active-badge { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--bg-primary); font-weight: 600; }
+.qp-active-badge { font-size: var(--font-xs); padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--bg-primary); font-weight: 600; }
 /* Hardware-encoder-missing state: preset still clickable (backend falls
  * back to CPU automatically) but visually de-emphasised + warn-tinted so
  * the user knows their pick won't deliver the speed promise. */
 .qp-hw-warn-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 999px;
   background: rgba(245, 158, 11, 0.18);
@@ -5360,8 +5360,8 @@ onUnmounted(() => {
 .quick-preset-card.hw-unavailable .qp-tagline {
   opacity: 0.75;
 }
-.qp-tagline { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
-.qp-stats { display: flex; gap: 6px; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.qp-tagline { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; }
+.qp-stats { display: flex; gap: 6px; font-size: var(--font-xs); color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .qp-stat-sep { color: var(--text-muted); }
 .qp-stat-pending { color: var(--text-muted); font-style: italic; }
 @media (max-width: 900px) {
@@ -5414,7 +5414,7 @@ onUnmounted(() => {
 .preset-card:hover { border-color: var(--text-secondary); }
 .preset-card.active { border-color: var(--accent); background: var(--accent-dim); }
 .preset-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
-.preset-desc { font-size: 10px; color: var(--text-muted); }
+.preset-desc { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Custom button — visually distinct from the named-preset grid so the
    user reads it as a mode switch ("the sliders are now primary") rather
@@ -5430,7 +5430,7 @@ onUnmounted(() => {
 .preset-custom-btn:hover { border-color: var(--text-secondary); background: var(--bg-primary); }
 .preset-custom-btn.active { border-color: var(--accent); background: var(--accent-dim); border-style: solid; }
 .preset-custom-label { font-size: 12px; font-weight: 600; }
-.preset-custom-hint { font-size: 10px; color: var(--text-muted); }
+.preset-custom-hint { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Input small */
 .input-sm { padding: 4px 6px; font-size: 12px; }
@@ -5459,7 +5459,7 @@ onUnmounted(() => {
   font-weight: 500;
   color: var(--error, #e25c5c);
 }
-.path-check-hint { font-size: 11px; line-height: 1.5; }
+.path-check-hint { font-size: var(--font-xs); line-height: 1.5; }
 .path-check-list {
   list-style: none;
   margin: 4px 0 0 0;
@@ -5481,11 +5481,11 @@ onUnmounted(() => {
 .path-check-field { font-weight: 500; color: var(--text-primary); }
 .path-check-value {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.path-check-reason { font-size: 11px; color: var(--error, #e25c5c); white-space: nowrap; }
+.path-check-reason { font-size: var(--font-xs); color: var(--error, #e25c5c); white-space: nowrap; }
 </style>

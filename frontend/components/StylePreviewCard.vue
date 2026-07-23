@@ -619,7 +619,7 @@ async function saveToEpisode(): Promise<void> {
   margin-top: 8px;
 }
 .spc-error {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgb(220, 38, 38);
   cursor: help;
 }
@@ -657,12 +657,12 @@ async function saveToEpisode(): Promise<void> {
   color: #fff;
   border-radius: 4px;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   opacity: 0;
   transition: opacity 0.15s;
   pointer-events: none;
 }
-.spc-save-btn { font-size: 11px; }
+.spc-save-btn { font-size: var(--font-xs); }
 
 /* Zoom modal — full-bleed backdrop, scaled-to-fit image, close on
    backdrop click / Escape. Keeps the gallery's existing
@@ -734,7 +734,7 @@ async function saveToEpisode(): Promise<void> {
   flex: 1 1 240px;
   min-width: 200px;
 }
-.spc-presets-delete { font-size: 11px; color: var(--error, #e25c5c); }
+.spc-presets-delete { font-size: var(--font-xs); color: var(--error, #e25c5c); }
 .spc-presets-delete:hover { background: rgba(226, 92, 92, 0.08); }
 
 /* Save-as-preset modal */
@@ -761,7 +761,7 @@ async function saveToEpisode(): Promise<void> {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   font-family: var(--font-mono, monospace);
 }

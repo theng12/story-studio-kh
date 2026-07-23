@@ -103,7 +103,7 @@
         <input type="checkbox" v-model="allowDuplicatesLocal" />
         Allow regenerating already-generated sections
       </label>
-      <span v-if="effectiveSelected.length" class="text-muted" style="font-size: 11px;">
+      <span v-if="effectiveSelected.length" class="text-muted" style="font-size: var(--font-xs);">
         Will queue: {{ effectiveSelected.length }} section(s)
         <template v-if="skippedCount"> ({{ skippedCount }} skipped — already generated)</template>
       </span>
@@ -406,7 +406,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
   color: var(--accent);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -425,7 +425,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   border-radius: var(--radius-sm);
   color: var(--accent);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1;
   padding: 3px 8px;
   flex-shrink: 0;
@@ -442,7 +442,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
 
 .cs-meta {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -452,7 +452,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   border: 1px solid transparent;
   white-space: nowrap;

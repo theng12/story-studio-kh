@@ -408,7 +408,7 @@ defineExpose({ getMaskBase64, clearMask })
 }
 
 .brush-status {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   flex: 1;
   min-width: 0;

@@ -927,7 +927,7 @@ async function queueAudio(sectionOverride?: string) {
 .repair-details-summary { cursor: pointer; font-size: 12px; }
 
 .required { color: var(--error); margin-left: 2px; }
-.field-hint { color: var(--text-muted); font-size: 11px; font-weight: 400; margin-left: 4px; }
+.field-hint { color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; margin-left: 4px; }
 
 /* Generation Mode (M6) — three-up radio cards. Stacks on narrow viewports. */
 .generation-mode-row {
@@ -956,7 +956,7 @@ async function queueAudio(sectionOverride?: string) {
 }
 .generation-mode-option input { margin-top: 2px; }
 .generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
-.generation-mode-option .text-muted { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.generation-mode-option .text-muted { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px; }
 
 .integrity-pill {
   display: inline-flex;

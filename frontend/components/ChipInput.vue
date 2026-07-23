@@ -182,6 +182,6 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
   border: 1px solid var(--border);
   border-radius: 3px;
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 </style>

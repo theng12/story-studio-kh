@@ -469,7 +469,7 @@ watch(
 }
 
 .igp-meta {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   padding: 4px 0;
 }

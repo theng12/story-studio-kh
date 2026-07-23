@@ -149,13 +149,13 @@ watch(() => props.slug, load)
 .inspiration-title { color: var(--text-primary); }
 .inspiration-meta {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .inspiration-hint {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .inspiration-cta {

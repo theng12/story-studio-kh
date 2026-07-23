@@ -60,12 +60,13 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --font-xs: 11px;
-  --font-sm: 12px;
-  --font-md: 13px;
-  --font-lg: 14px;
-  --font-xl: 16px;
-  --font-2xl: 20px;
+  /* Readability floor: supporting copy never drops below 12px. */
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 14px;
+  --font-lg: 15px;
+  --font-xl: 17px;
+  --font-2xl: 21px;
 
   /* Minimum tap-target size for accessibility (WCAG 2.5.5) */
   --min-tap: 32px;
@@ -125,8 +126,10 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
+  font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -340,10 +343,10 @@ label {
 .text-warning { color: var(--warning); }
 
 /* Font-size scale — keep in sync with --font-* tokens above. */
-.text-xs { font-size: var(--font-xs); }   /* 11px */
-.text-sm { font-size: var(--font-sm); }   /* 12px */
-.text-md { font-size: var(--font-md); }   /* 13px */
-.text-lg { font-size: var(--font-lg); }   /* 14px */
+.text-xs { font-size: var(--font-xs); }   /* 12px */
+.text-sm { font-size: var(--font-sm); }   /* 13px */
+.text-md { font-size: var(--font-md); }   /* 14px */
+.text-lg { font-size: var(--font-lg); }   /* 15px */
 
 .font-normal { font-weight: 400; }
 .font-medium { font-weight: 500; }

@@ -282,7 +282,7 @@ onMounted(load)
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .rcy-summary {
@@ -296,7 +296,7 @@ onMounted(load)
   gap: 16px;
 }
 .rcy-summary-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -320,7 +320,7 @@ onMounted(load)
   color: var(--accent, #6ea8fe);
 }
 .rcy-summary-stat-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -342,7 +342,7 @@ onMounted(load)
   gap: 4px;
 }
 .rcy-filter-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -370,7 +370,7 @@ onMounted(load)
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .rcy-table {
@@ -386,7 +386,7 @@ onMounted(load)
   border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
 }
 .rcy-table th {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -400,7 +400,7 @@ onMounted(load)
   font-size: 12px;
 }
 .rcy-cell-episode code {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .rcy-cell-used {
   font-size: 12px;
@@ -416,7 +416,7 @@ onMounted(load)
   background: rgba(80, 200, 160, 0.12);
   border: 1px solid rgba(80, 200, 160, 0.30);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-primary);
 }
 </style>

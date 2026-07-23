@@ -20,6 +20,7 @@ try {
   console.warn('[nuxt.config] could not read parent package.json version:', e)
 }
 const buildDate = new Date().toISOString().slice(0, 10)
+const apiProxyTarget = process.env.STORY_STUDIO_API_PROXY || 'http://localhost:8000/api'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
@@ -57,7 +58,7 @@ export default defineNuxtConfig({
   nitro: {
     devProxy: {
       '/api': {
-        target: 'http://localhost:8000/api',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

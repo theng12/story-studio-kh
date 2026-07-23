@@ -2038,7 +2038,7 @@ async function saveToFile() {
   flex-wrap: wrap;
 }
 .style-extract-focus-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -2054,7 +2054,7 @@ async function saveToFile() {
 }
 .style-save-preset-label {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 6px;
@@ -2183,7 +2183,7 @@ async function saveToFile() {
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.10);
   border: 1px solid rgba(99, 102, 241, 0.28);
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   max-width: min(640px, 100%);
   cursor: help;
@@ -2204,7 +2204,7 @@ async function saveToFile() {
 .style-extract-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0; }
 .style-extract-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .style-extract-filename { font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.style-extract-clear { align-self: flex-start; margin-top: 4px; padding: 2px 8px; font-size: 11px; color: var(--text-muted); }
+.style-extract-clear { align-self: flex-start; margin-top: 4px; padding: 2px 8px; font-size: var(--font-xs); color: var(--text-muted); }
 .style-extract-clear:hover { color: var(--error); }
 
 /* Char-counter colour preview picker — mirrors the small inline controls
@@ -2219,7 +2219,7 @@ async function saveToFile() {
   width: min(420px, 100%);
 }
 .cap-link {
-  font-size: 11px;
+  font-size: var(--font-xs);
   background: none; border: none;
   color: var(--accent, #6c8fff);
   cursor: pointer; padding: 0;
@@ -2261,7 +2261,7 @@ async function saveToFile() {
 .caps-table th {
   position: sticky; top: 0;
   background: var(--bg-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);

@@ -588,7 +588,7 @@
       <div v-if="form.mode === 'thumbs' && editThumbs.length" class="mt-2">
         <div class="edit-grid-heading-row">
           <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
-          <span class="text-muted" style="font-size: 11px;">
+          <span class="text-muted" style="font-size: var(--font-xs);">
             <template v-if="pinnedThumbnailFilename">
               📌 <strong>{{ pinnedThumbnailFilename }}</strong> will be uploaded.
               <button class="link-btn" type="button" @click="setThumbnailPin(null)">Unpin</button>
@@ -1998,7 +1998,7 @@ async function submit() {
 }
 .preview-list-section {
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2051,7 +2051,7 @@ async function submit() {
   left: 4px;
   background: rgba(0, 0, 0, 0.6);
   color: white;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
@@ -2069,7 +2069,7 @@ async function submit() {
   right: 4px;
   background: rgba(217, 119, 6, 0.92);
   color: white;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 999px;
   pointer-events: none;
@@ -2127,7 +2127,7 @@ async function submit() {
 }
 .generation-mode-option input { margin-top: 2px; }
 .generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
-.generation-mode-option .text-muted { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.generation-mode-option .text-muted { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px; }
 
 /* Tier picker — compact pill row sized to fit alongside the model
    dropdown. Matches the generation-mode option look but without the
@@ -2154,7 +2154,7 @@ async function submit() {
 }
 .tier-option input { margin: 0; }
 .tier-option-label { font-weight: 600; color: var(--text-primary); }
-.tier-option-cost { color: var(--text-muted); font-size: 11px; }
+.tier-option-cost { color: var(--text-muted); font-size: var(--font-xs); }
 
 .integrity-pill {
   display: inline-flex;
@@ -2231,7 +2231,7 @@ async function submit() {
 }
 .mode-tab-icon { font-size: 18px; }
 .mode-tab-label { font-weight: 600; font-size: 13px; }
-.mode-tab-hint { font-size: 11px; color: var(--text-muted); }
+.mode-tab-hint { font-size: var(--font-xs); color: var(--text-muted); }
 .mode-tab.active .mode-tab-hint { color: var(--accent); opacity: 0.8; }
 
 .checkbox-label {
@@ -2268,7 +2268,7 @@ async function submit() {
   display: inline-flex; align-items: center; gap: 8px; margin-top: 4px;
 }
 .cap-pill {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(108, 143, 255, 0.12);
@@ -2283,7 +2283,7 @@ async function submit() {
 }
 .cap-pill strong { font-weight: 600; }
 .cap-link {
-  font-size: 11px;
+  font-size: var(--font-xs);
   background: none; border: none;
   color: var(--accent, #6c8fff);
   cursor: pointer; padding: 0;
@@ -2327,7 +2327,7 @@ async function submit() {
 .caps-table th {
   position: sticky; top: 0;
   background: var(--bg-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);

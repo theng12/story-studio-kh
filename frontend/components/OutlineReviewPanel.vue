@@ -1109,7 +1109,7 @@ defineExpose({ loaded, reload: loadOutline })
   border-color: rgba(255, 180, 0, 0.35);
 }
 .op-edited {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-style: italic;
 }
@@ -1125,7 +1125,7 @@ defineExpose({ loaded, reload: loadOutline })
 
 .op-locked-params {
   margin: 6px 0 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   display: flex;
   flex-wrap: wrap;
@@ -1140,7 +1140,7 @@ defineExpose({ loaded, reload: loadOutline })
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 
@@ -1192,7 +1192,7 @@ defineExpose({ loaded, reload: loadOutline })
   text-align: right;
 }
 .op-words-actual {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1203,7 +1203,7 @@ defineExpose({ loaded, reload: loadOutline })
   gap: 4px;
 }
 .op-pill {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--bg-tertiary);
@@ -1282,7 +1282,7 @@ defineExpose({ loaded, reload: loadOutline })
   color: var(--text-primary);
 }
 .op-preview-icon {
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 

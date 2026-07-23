@@ -580,7 +580,7 @@ onBeforeUnmount(() => {
 }
 .tte-subtitle {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -594,13 +594,13 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .tte-pill {
   display: inline-block;
   padding: 2px 7px;
   border-radius: 9px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 2px;
   left: 4px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   background: rgba(0, 0, 0, 0.7);
   color: #fff;
   padding: 1px 5px;
@@ -685,7 +685,7 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 .tte-props-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .tte-props-grid {
   display: grid;
@@ -698,7 +698,7 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 .tte-prop-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary, #b3b3bb);
 }
 .tte-prop input,
@@ -722,6 +722,6 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 </style>

@@ -78,7 +78,7 @@ function fmtDur(sec: number): string {
 .sub-cue-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .sub-cue { display: flex; gap: 12px; padding: 4px 6px; border-radius: 4px; font-size: 13px; line-height: 1.4; }
 .sub-cue:nth-child(odd) { background: var(--bg-tertiary); }
-.sub-cue-time { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-muted); white-space: nowrap; padding-top: 1px; }
+.sub-cue-time { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-xs); color: var(--text-muted); white-space: nowrap; padding-top: 1px; }
 .sub-cue-text { flex: 1; color: var(--text-primary); white-space: pre-wrap; }
-.sub-preview-raw { max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre-wrap; margin: 0; color: var(--text-secondary); }
+.sub-preview-raw { max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-xs); white-space: pre-wrap; margin: 0; color: var(--text-secondary); }
 </style>

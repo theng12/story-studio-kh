@@ -474,7 +474,7 @@ function episodeStatusClass(ep: any, key: string) {
 .region-spacer { flex: 1 1 auto; }
 .region-label {
   flex-basis: 100%;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: .09em;
   text-transform: uppercase;

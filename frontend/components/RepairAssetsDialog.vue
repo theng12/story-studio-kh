@@ -62,7 +62,7 @@
       <div v-for="row in repairableRows" :key="row.episode_id" class="repair-row">
         <div class="repair-ep">
           <strong>{{ row.episode_id }}</strong>
-          <div class="text-muted" style="font-size: 11px;">{{ row.title }}</div>
+          <div class="text-muted" style="font-size: var(--font-xs);">{{ row.title }}</div>
         </div>
         <span class="repair-gap" :class="row.audio.missing > 0 ? 'gap-missing' : 'gap-ok'">
           {{ row.audio.missing > 0 ? `${row.audio.missing} missing` : '✓' }}
@@ -279,7 +279,7 @@ watch(() => props.visible, (open) => {
 .repair-chip {
   display: inline-flex; align-items: center;
   padding: 2px 10px;
-  font-size: 11px; font-weight: 500;
+  font-size: var(--font-xs); font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border-radius: 999px;
@@ -312,7 +312,7 @@ watch(() => props.visible, (open) => {
 .repair-row:last-child { border-bottom: none; }
 .repair-header {
   background: var(--bg-tertiary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
@@ -326,7 +326,7 @@ watch(() => props.visible, (open) => {
 .gap-ok { color: rgb(22, 163, 74); }
 .gap-missing { color: rgb(180, 83, 9); font-weight: 500; }
 .repair-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.repair-btn-row { font-size: 11px; padding: 2px 8px; }
+.repair-btn-row { font-size: var(--font-xs); padding: 2px 8px; }
 
 .dialog-actions {
   display: flex; justify-content: flex-end; gap: 8px;

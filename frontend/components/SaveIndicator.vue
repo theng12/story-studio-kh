@@ -49,7 +49,7 @@ const friendlyTime = computed(() => {
 <style scoped>
 .save-indicator {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 500;
+  font-size: var(--font-xs); font-weight: 500;
   padding: 4px 10px; border-radius: 999px;
   transition: all 0.2s;
 }

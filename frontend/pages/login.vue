@@ -187,6 +187,6 @@ onMounted(() => {
   padding: 1px 6px;
   border-radius: 3px;
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 </style>

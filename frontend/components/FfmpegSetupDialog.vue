@@ -20,7 +20,7 @@
         <button class="btn btn-primary" @click="installFFmpeg" style="width: 100%;">
           Download & Install FFmpeg Automatically
         </button>
-        <p class="text-muted mt-1" style="font-size: 11px; text-align: center;">
+        <p class="text-muted mt-1" style="font-size: var(--font-xs); text-align: center;">
           Downloads pre-built FFmpeg binaries (~80MB). Stored in app data folder.
         </p>
       </div>

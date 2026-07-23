@@ -199,7 +199,7 @@ async function confirmDelete() {
 .last-used-badge {
   display: inline-flex; align-items: center;
   padding: 2px 10px;
-  font-size: 11px; font-weight: 500;
+  font-size: var(--font-xs); font-weight: 500;
   color: var(--accent);
   background: rgba(240, 198, 116, 0.12);
   border: 1px solid rgba(240, 198, 116, 0.25);

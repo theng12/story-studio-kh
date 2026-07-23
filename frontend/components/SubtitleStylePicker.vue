@@ -101,7 +101,7 @@
         <select :value="style.animation || 'none'" @change="update('animation', ($event.target as HTMLSelectElement).value as SubtitleStyle['animation'])" class="select">
           <option v-for="a in ANIMATIONS" :key="a.id" :value="a.id">{{ a.label }}</option>
         </select>
-        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+        <p class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
           How each line enters. The CSS preview above is static — use "Render exact preview" to see it animate.
         </p>
       </div>
@@ -164,7 +164,7 @@
           autoplay muted loop playsinline
         />
       </div>
-      <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+      <p class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
         CSS preview approximates libass output. Use "Render exact preview" for the real FFmpeg render.
       </p>
     </div>

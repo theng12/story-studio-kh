@@ -455,7 +455,7 @@ watch(() => [props.episodeId, props.title], () => {
 }
 .i2i-scene-num {
   font-family: var(--font-mono, monospace);
-  font-size: 11px; color: var(--text-muted); font-weight: 600;
+  font-size: var(--font-xs); color: var(--text-muted); font-weight: 600;
   min-width: 24px;
 }
 .i2i-scene-title {

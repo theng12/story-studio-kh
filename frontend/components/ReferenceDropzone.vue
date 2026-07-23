@@ -155,13 +155,13 @@ function onPaste(e: ClipboardEvent): void {
   text-align: center;
 }
 .ref-dropzone-icon { font-size: 20px; line-height: 1; }
-.ref-dropzone-or { font-size: 11px; color: var(--text-muted); }
+.ref-dropzone-or { font-size: var(--font-xs); color: var(--text-muted); }
 
 .ref-dropzone-busy {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--accent);
   margin-top: 6px;
 }

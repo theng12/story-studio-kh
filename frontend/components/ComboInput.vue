@@ -122,7 +122,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
 .combo-trigger.open { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(240, 198, 116, 0.15); }
 .combo-value { flex: 1; color: var(--text-primary); }
 .combo-placeholder { flex: 1; color: var(--text-muted); }
-.combo-chev { color: var(--text-muted); font-size: 10px; }
+.combo-chev { color: var(--text-muted); font-size: var(--font-xs); }
 
 .combo-popover {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0;

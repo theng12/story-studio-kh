@@ -197,7 +197,7 @@ onBeforeUnmount(() => { teardownSfx(); try { narr.value?.pause() } catch {} })
 .bpp-seek { flex: 1; }
 .bpp-sfxtoggle { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .bpp-strip { display: flex; gap: 2px; margin-top: 8px; height: 22px; }
-.bpp-seg { background: var(--surface-2, #1e1e1e); border: 1px solid var(--border, #333); border-radius: 3px; font-size: 10px; color: var(--text-muted, #888); display: flex; align-items: center; justify-content: center; cursor: pointer; min-width: 16px; }
+.bpp-seg { background: var(--surface-2, #1e1e1e); border: 1px solid var(--border, #333); border-radius: 3px; font-size: var(--font-xs); color: var(--text-muted, #888); display: flex; align-items: center; justify-content: center; cursor: pointer; min-width: 16px; }
 .bpp-seg.active { background: var(--accent, #6ab0f3); color: #fff; border-color: var(--accent, #6ab0f3); }
 .bpp-note { margin-top: 6px; }
 </style>

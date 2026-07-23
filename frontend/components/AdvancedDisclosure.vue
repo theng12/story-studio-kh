@@ -99,11 +99,11 @@ watch(isOpen, (v) => {
   color: var(--text-primary, #e6e6e6);
   border-color: var(--accent, #6c8fff);
 }
-.adv-disclosure-chevron { flex: 0 0 auto; font-size: 11px; }
+.adv-disclosure-chevron { flex: 0 0 auto; font-size: var(--font-xs); }
 .adv-disclosure-label { flex: 1 1 auto; }
 .adv-disclosure-badge {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);
   padding: 1px 8px;
   background: rgba(240, 198, 116, 0.12);

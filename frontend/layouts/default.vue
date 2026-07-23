@@ -85,7 +85,7 @@ function openWhatsNew() { _whatsNew.open() }
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   cursor: pointer;
   line-height: 1.2;
@@ -98,7 +98,7 @@ function openWhatsNew() { _whatsNew.open() }
 }
 .version-build {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .page-content {

@@ -247,14 +247,14 @@ function parseCommaList(s: string): string[] {
 }
 
 .oe-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;
   max-width: 540px;
 }
 
-.btn-sm { font-size: 11px; padding: 4px 8px; }
+.btn-sm { font-size: var(--font-xs); padding: 4px 8px; }
 
 .oe-empty {
   font-size: 12px;

@@ -124,7 +124,7 @@ function formatErr(e: any): string {
 }
 
 .picker-label .hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: normal;
   line-height: 1.4;
@@ -151,7 +151,7 @@ function formatErr(e: any): string {
 }
 
 .custom-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 6px;
@@ -161,7 +161,7 @@ function formatErr(e: any): string {
 }
 
 .tagline {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-style: italic;
   color: var(--text-muted);
 }
@@ -177,12 +177,12 @@ function formatErr(e: any): string {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
 .niche-owns {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--success, #4caf7d);
   font-weight: 500;
 }
@@ -190,7 +190,7 @@ function formatErr(e: any): string {
 .niche-empty-note {
   margin: 2px 0 0;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
   color: var(--text-secondary);
   background: var(--warning-dim, rgba(220, 160, 60, 0.1));
@@ -199,7 +199,7 @@ function formatErr(e: any): string {
 
 .niche-preview summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--accent, #6c8fff);
   user-select: none;
   margin-top: 4px;
@@ -219,7 +219,7 @@ function formatErr(e: any): string {
   display: grid;
   grid-template-columns: 110px 1fr;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 
@@ -235,7 +235,7 @@ function formatErr(e: any): string {
 .niche-error {
   margin-top: 4px;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--error, #e25c5c);
   background: rgba(226, 92, 92, 0.08);
   border-radius: 4px;

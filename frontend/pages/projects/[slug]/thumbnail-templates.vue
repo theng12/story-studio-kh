@@ -265,7 +265,7 @@ onMounted(loadAll)
   min-width: 0;
 }
 .tt-active-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted, #b3b3bb);
@@ -301,7 +301,7 @@ onMounted(loadAll)
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .tt-howto-p {
   font-size: 12px;

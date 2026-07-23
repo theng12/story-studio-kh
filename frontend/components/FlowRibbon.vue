@@ -108,7 +108,7 @@ const { steps, routeFor, currentKey, currentIndex } = useProjectFlow(
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   background: var(--surface-3, #333);
   color: var(--text-muted, #9a9a9a);

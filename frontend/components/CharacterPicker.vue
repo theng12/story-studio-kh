@@ -156,14 +156,14 @@ async function saveQuickCreate() {
 }
 
 .picker-label .hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: normal;
   line-height: 1.4;
 }
 
 .optional-tag {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   color: var(--text-muted);
   letter-spacing: 0.05em;
@@ -219,14 +219,14 @@ async function saveQuickCreate() {
 .cast-desc {
   color: var(--text-muted);
   font-weight: normal;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.4;
   flex-basis: 100%;
   margin-top: 2px;
 }
 
 .scope-tag {
-  font-size: 9px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 1px 4px;
@@ -253,7 +253,7 @@ async function saveQuickCreate() {
 }
 
 .link-sm {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--accent, #6c8fff);
   text-decoration: none;
 }
@@ -281,7 +281,7 @@ async function saveQuickCreate() {
   background: rgba(226, 92, 92, 0.10);
   color: var(--error, #e25c5c);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .muted { color: var(--text-muted); font-size: 12px; }

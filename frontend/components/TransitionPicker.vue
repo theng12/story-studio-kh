@@ -233,7 +233,7 @@ watch(activeCat, (cat) => {
 }
 
 .tp-count {
-  font-size: 10px;
+  font-size: var(--font-xs);
   opacity: 0.7;
   margin-left: 4px;
 }
@@ -242,7 +242,7 @@ watch(activeCat, (cat) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
@@ -328,7 +328,7 @@ watch(activeCat, (cat) => {
 }
 
 .tp-primary-tag {
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.5px;

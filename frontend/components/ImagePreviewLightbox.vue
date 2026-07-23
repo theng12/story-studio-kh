@@ -459,14 +459,14 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .ipl-shortcut-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 .ipl-shortcut-hint kbd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.08);

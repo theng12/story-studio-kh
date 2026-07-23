@@ -178,7 +178,7 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.06);
   padding: 2px 4px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 /* Full grid (Settings page) */
@@ -265,7 +265,7 @@ onMounted(async () => {
   line-height: 1.2;
 }
 .ttp-tagline {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted, #b3b3bb);
   margin-top: 3px;
   line-height: 1.3;
@@ -274,7 +274,7 @@ onMounted(async () => {
   margin-top: 8px;
 }
 .ttp-edit {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 /* Compact-mode card metadata gets tighter */
@@ -282,7 +282,7 @@ onMounted(async () => {
   font-size: 12px;
 }
 .ttp-compact .ttp-tagline {
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .ttp-compact .ttp-meta {
   padding: 6px 8px 8px;

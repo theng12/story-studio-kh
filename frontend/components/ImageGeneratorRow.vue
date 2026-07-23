@@ -218,7 +218,7 @@ const charBadgeTooltip = computed(() => {
 }
 .igr-num {
   font-family: var(--font-mono, monospace);
-  font-size: 11px; color: var(--text-muted); font-weight: 600;
+  font-size: var(--font-xs); color: var(--text-muted); font-weight: 600;
 }
 .igr-title {
   flex: 1 1 auto; min-width: 0;
@@ -229,7 +229,7 @@ const charBadgeTooltip = computed(() => {
 /* Status badge — colour-codes the current state at a glance */
 .igr-status {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
@@ -247,7 +247,7 @@ const charBadgeTooltip = computed(() => {
 .igr-chars {
   flex: 0 0 auto;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 10px;
   white-space: nowrap;
@@ -270,7 +270,7 @@ const charBadgeTooltip = computed(() => {
 
 .igr-error {
   margin-top: 6px;
-  font-size: 11px; color: rgb(220, 38, 38);
+  font-size: var(--font-xs); color: rgb(220, 38, 38);
   cursor: help;
 }
 </style>

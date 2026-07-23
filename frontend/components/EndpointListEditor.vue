@@ -263,7 +263,7 @@ async function save(_opts: { auto?: boolean } = {}): Promise<boolean> {
   flex: 0 0 auto;
   min-width: 40px;
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -288,5 +288,5 @@ async function save(_opts: { auto?: boolean } = {}): Promise<boolean> {
 .ep-remove:disabled { opacity: 0.4; cursor: not-allowed; }
 .ep-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
 .ep-saved { color: #5bb37c; font-size: 12px; }
-.ep-detail { font-size: 11px; color: var(--text-muted); margin: 2px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ep-detail { font-size: var(--font-xs); color: var(--text-muted); margin: 2px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 </style>

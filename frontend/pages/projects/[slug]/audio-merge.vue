@@ -1635,9 +1635,9 @@ onUnmounted(() => {
 
 .audio-list-reorder { display: flex; flex-direction: column; gap: 3px; }
 .audio-item-reorder { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); }
-.audio-order-num { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.audio-order-num { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); font-size: var(--font-xs); font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .audio-reorder-btns { display: flex; flex-direction: column; gap: 0; flex-shrink: 0; }
-.audio-reorder-btns .btn-icon { font-size: 10px; padding: 1px 4px; line-height: 1; }
+.audio-reorder-btns .btn-icon { font-size: var(--font-xs); padding: 1px 4px; line-height: 1; }
 .audio-reorder-btns .btn-icon:disabled { opacity: 0.2; cursor: default; }
 .audio-name { color: var(--text-secondary); flex: 1; }
 .audio-duration { min-width: 60px; text-align: right; }
@@ -1668,7 +1668,7 @@ onUnmounted(() => {
  * is which when several music folders contain similarly-named files. */
 .music-file-path { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
 .music-filename { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-dir { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.music-dir { font-size: var(--font-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 
 .quick-add-music { padding: 8px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
 
@@ -1677,7 +1677,7 @@ onUnmounted(() => {
 .noise-preset-card:hover { border-color: var(--text-secondary); }
 .noise-preset-card.active { border-color: var(--accent); background: var(--accent-dim); }
 .np-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.np-desc { font-size: 11px; color: var(--text-muted); }
+.np-desc { font-size: var(--font-xs); color: var(--text-muted); }
 
 .summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid rgba(240, 198, 116, 0.2); }
 
@@ -1702,7 +1702,7 @@ onUnmounted(() => {
 .write-mode-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
 .write-mode-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .write-mode-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.write-mode-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; word-break: break-word; }
+.write-mode-desc { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; word-break: break-word; }
 
 .btn-lg { padding: 12px 40px; font-size: 16px; font-weight: 600; }
 
@@ -1743,7 +1743,7 @@ onUnmounted(() => {
   color: var(--error, #e25c5c);
 }
 .path-check-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 .path-check-list {
@@ -1770,14 +1770,14 @@ onUnmounted(() => {
 }
 .path-check-value {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .path-check-reason {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--error, #e25c5c);
   white-space: nowrap;
 }
@@ -1807,11 +1807,11 @@ onUnmounted(() => {
   margin-left: 4px;
 }
 .ppb-reason {
-  font-size: 11px;
+  font-size: var(--font-xs);
   margin-left: 6px;
 }
 .ppb-action {
-  font-size: 11px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 </style>

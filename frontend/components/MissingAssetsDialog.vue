@@ -55,7 +55,7 @@
               <li v-for="(name, i) in s.missing.slice(0, 6)" :key="name + i">
                 <code>{{ name }}</code>
               </li>
-              <li v-if="s.missing.length > 6" class="text-muted" style="font-size: 11px;">
+              <li v-if="s.missing.length > 6" class="text-muted" style="font-size: var(--font-xs);">
                 + {{ s.missing.length - 6 }} more
               </li>
             </ul>
@@ -210,16 +210,16 @@ function jumpTo(code: string, stage: AuditStage): string {
   font-size: 12px;
 }
 .miss-files li { margin-top: 2px; }
-.miss-files code { font-size: 11.5px; }
+.miss-files code { font-size: var(--font-xs); }
 
 .extras {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   display: flex; flex-wrap: wrap; gap: 4px;
   align-items: center;
 }
 .extras code {
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   background: var(--bg-tertiary);
   padding: 1px 5px; border-radius: 3px;
 }

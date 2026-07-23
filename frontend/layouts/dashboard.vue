@@ -809,7 +809,7 @@ function openWhatsNew() { _whatsNew.open() }
   border-bottom: 1px solid var(--border);
 }
 .brand-name { font-size: 14px; font-weight: 600; color: var(--accent); }
-.project-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.project-name { font-size: var(--font-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
 
 .sidebar-nav {
   flex: 1;
@@ -844,7 +844,7 @@ function openWhatsNew() { _whatsNew.open() }
 .nav-divider-label,
 .nav-section-label {
   padding: 10px 10px 4px;
-  font-size: 10px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   color: var(--text-muted); text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -854,7 +854,7 @@ function openWhatsNew() { _whatsNew.open() }
 .nav-pulse { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.8); } }
 
-.nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-on); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; }
+.nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-on); font-size: var(--font-xs); font-weight: 600; padding: 1px 6px; border-radius: 8px; }
 
 .sidebar-credits {
   flex-shrink: 0;                   /* stay pinned at the bottom — never shrinks or scrolls off */
@@ -863,7 +863,7 @@ function openWhatsNew() { _whatsNew.open() }
   background: var(--bg-secondary);  /* opaque so nav content behind it never bleeds through */
   display: flex; flex-direction: column; gap: 4px;
 }
-.credit-badge { display: flex; justify-content: space-between; font-size: 10px; }
+.credit-badge { display: flex; justify-content: space-between; font-size: var(--font-xs); }
 .credit-label { color: var(--text-muted); }
 .credit-value { color: var(--accent); font-weight: 500; }
 /* v1.0.380 — per-provider balance visibility toggle (edit mode). */
@@ -874,7 +874,7 @@ function openWhatsNew() { _whatsNew.open() }
 .credit-eye { margin-right: 3px; text-decoration: none; }
 .credits-edit-btn { margin-left: auto; }
 .credits-edit-btn.active { color: var(--accent); border-color: var(--accent); background: var(--bg-hover); }
-.credits-edit-hint { margin: 2px 0 0; font-size: 9px; color: var(--text-muted); line-height: 1.3; }
+.credits-edit-hint { margin: 2px 0 0; font-size: var(--font-xs); color: var(--text-muted); line-height: 1.3; }
 
 /* Version badge — last item in the sidebar credits column.
    Click to copy "Story Studio KH v1.0.11 · built 2026-04-27" so beta
@@ -889,7 +889,7 @@ function openWhatsNew() { _whatsNew.open() }
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-align: left;
   cursor: pointer;
   border-top: 1px dashed var(--border);
@@ -916,7 +916,7 @@ function openWhatsNew() { _whatsNew.open() }
   border: none;
   color: var(--accent);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--font-xs);
   cursor: pointer;
   padding: 4px 0 0;
   text-decoration: none;
@@ -926,7 +926,7 @@ function openWhatsNew() { _whatsNew.open() }
 
 .credits-refresh-row {
   display: flex; align-items: center; gap: 6px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   margin-bottom: 4px;
 }
 .refresh-btn {
@@ -937,7 +937,7 @@ function openWhatsNew() { _whatsNew.open() }
   color: var(--text-secondary);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 11px; line-height: 1;
+  font-size: var(--font-xs); line-height: 1;
   padding: 0;
   transition: color 0.15s, background 0.15s;
 }
@@ -952,7 +952,7 @@ function openWhatsNew() { _whatsNew.open() }
 
 .network-status {
   display: flex; align-items: center; gap: 6px;
-  font-size: 10px; padding: 2px 0; margin-bottom: 4px;
+  font-size: var(--font-xs); padding: 2px 0; margin-bottom: 4px;
 }
 .network-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -970,7 +970,7 @@ function openWhatsNew() { _whatsNew.open() }
 .network-status.offline .network-label { color: #f87171; font-weight: 600; }
 .network-status .network-warn {
   margin-left: 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: #fbbf24;
 }
 @keyframes networkPulse {
@@ -1055,7 +1055,7 @@ function openWhatsNew() { _whatsNew.open() }
 .asset-migration-banner .foreign-secrets-icon { color: rgb(14, 165, 233); }
 .inline-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 1px 5px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.06);
@@ -1087,7 +1087,7 @@ function openWhatsNew() { _whatsNew.open() }
    on a timer and isn't going to nag forever. Tabular-nums keeps it from
    jittering as the count ticks down. */
 .unclean-shutdown-timer {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   padding: 1px 7px;
@@ -1140,7 +1140,7 @@ function openWhatsNew() { _whatsNew.open() }
   border: 1px solid var(--border);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   padding: 3px 10px;
   border-radius: 999px;
 }

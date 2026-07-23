@@ -284,7 +284,7 @@
           <input type="checkbox" v-model="intro.enabled" />
           <span><strong>Include introduction</strong> — {{ intro.enabled ? 'on' : 'off' }}</span>
         </label>
-        <p class="text-muted" style="flex-basis:100%; margin:0; font-size:11.5px; line-height:1.6;">
+        <p class="text-muted" style="flex-basis:100%; margin:0; font-size: var(--font-xs); line-height:1.6;">
           One click runs <strong>outline → chapters<span v-if="intro.enabled"> → introduction</span></strong>.
           Prefer to review the outline first? Use <strong>Generate Outline</strong> (top) then Expand below<span v-if="intro.enabled"> — the introduction still auto-generates the moment the chapters finish</span>.
           Configure the intro's content in the <strong>Introduction</strong> tab.
@@ -2405,8 +2405,8 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 
 /* Custom-style picker — the "Style description" mini-form that appears
  * when the user picks "+ Write custom style…". */
-.style-desc-label { margin: 0; font-size: 11px; }
-.style-desc-toggle { font-size: 11px; }
+.style-desc-label { margin: 0; font-size: var(--font-xs); }
+.style-desc-toggle { font-size: var(--font-xs); }
 .style-desc-show { margin-top: 4px; }
 .style-textarea { min-height: 50px; font-size: 12px; }
 
@@ -2433,13 +2433,13 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 .guidance-label { font-weight: 600; font-size: 14px; }
 .guidance-optional {
   font-weight: 400;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-left: 4px;
 }
-.guidance-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.guidance-count { font-size: var(--font-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .guidance-count.over { color: var(--danger, #e06c75); font-weight: 600; }
 .guidance-help { margin: 4px 0 8px; line-height: 1.45; }
 .guidance-textarea { width: 100%; resize: vertical; min-height: 64px; font-family: inherit; }
@@ -2461,7 +2461,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
    disclosure. This is the pattern the other flow pages will adopt. */
 /* v1.0.183 — strip chrome moved to the shared ContextStrip component. Only
    .ctx-key / .ctx-value (used in this page's summary slot) remain. */
-.ctx-key { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ctx-key { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: 0.04em; }
 .ctx-value { font-weight: 500; }
 
 .format-context-card {
@@ -2505,7 +2505,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   font-size: 12px;
 }
 .niche-overlay-toggle {
-  font-size: 11px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 .niche-overlay-chips {
@@ -2522,7 +2522,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   background: rgba(245, 188, 66, 0.12);
   border: 1px solid rgba(245, 188, 66, 0.35);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-primary);
 }
 .niche-chip strong {
@@ -2554,7 +2554,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 }
 .niche-overlay-footer {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.4;
 }
 
@@ -2620,7 +2620,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   color: var(--text-primary);
 }
 .recency-toggle {
-  font-size: 11px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 .recency-controls {
@@ -2634,7 +2634,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 .recency-lookback-input {
@@ -2643,15 +2643,15 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   font-size: 12px;
 }
 .recency-lookback-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .recency-clear {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 .recency-empty {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 .recency-list-wrap {
@@ -2660,7 +2660,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   border-top: 1px solid rgba(80, 200, 160, 0.18);
 }
 .recency-list-h {
-  font-size: 11px;
+  font-size: var(--font-xs);
   margin-bottom: 6px;
 }
 .recency-list {
@@ -2674,7 +2674,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   background: rgba(80, 200, 160, 0.12);
   border: 1px solid rgba(80, 200, 160, 0.30);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
   color: var(--text-primary);
 }
@@ -2724,12 +2724,12 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 .rec-chip-label {
   color: var(--text-muted);
   text-transform: uppercase;
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   letter-spacing: 0.4px;
 }
 .rec-chip-current {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .rec-chip-warn {
   border-color: rgba(255, 180, 0, 0.55);
@@ -2787,7 +2787,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 }
 
 .calc-badge {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--accent);
   font-weight: 400;
   margin-left: 4px;
@@ -2799,7 +2799,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   box-shadow: 0 0 0 1px rgba(240, 198, 116, 0.25);
 }
 .primary-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--accent);
   background: var(--accent-dim);
   padding: 1px 6px;
@@ -2884,7 +2884,7 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 }
 
 .beat-controls .btn-icon {
-  font-size: 9px;
+  font-size: var(--font-xs);
   padding: 1px 4px;
   line-height: 1;
 }

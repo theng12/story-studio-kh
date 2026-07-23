@@ -259,7 +259,7 @@ watch(() => props.episodeCode, load, { immediate: true })
 
 <style scoped>
 .sfx-section { border-top: 1px solid var(--border, #2a2a2a); padding-top: 12px; }
-.sfx-badge { font-size: 11px; font-weight: 400; color: var(--text-muted, #888); border: 1px solid var(--border, #333); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+.sfx-badge { font-size: var(--font-xs); font-weight: 400; color: var(--text-muted, #888); border: 1px solid var(--border, #333); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
 .sfx-toggle { background: none; border: none; color: var(--accent, #6ab0f3); cursor: pointer; font-size: 12px; margin-left: 8px; padding: 0; vertical-align: middle; }
 .sfx-toggle:hover { text-decoration: underline; }
 .sfx-enable { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
@@ -277,7 +277,7 @@ watch(() => props.episodeCode, load, { immediate: true })
 .sfx-num { width: 62px; }
 .sfx-clip { max-width: 200px; }
 .sfx-gain { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--text-muted, #888); }
-.sfx-status { font-size: 11px; border-radius: 4px; padding: 1px 6px; border: 1px solid var(--border, #333); }
+.sfx-status { font-size: var(--font-xs); border-radius: 4px; padding: 1px 6px; border: 1px solid var(--border, #333); }
 .sfx-status.st-matched { color: #98c379; }
 .sfx-status.st-user-swapped { color: #6ab0f3; }
 .sfx-status.st-empty { color: #e06c75; }

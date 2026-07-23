@@ -71,7 +71,7 @@
       </table>
     </div>
 
-    <p v-if="!loading && totalCount" class="text-muted mt-2" style="font-size: 11px;">
+    <p v-if="!loading && totalCount" class="text-muted mt-2" style="font-size: var(--font-xs);">
       {{ totalCount }} preset{{ totalCount === 1 ? '' : 's' }} across {{ groupsWithItems }} group{{ groupsWithItems === 1 ? '' : 's' }}.
     </p>
   </div>
@@ -402,7 +402,7 @@ onMounted(loadAll)
 }
 .preset-table th {
   text-align: left;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -435,7 +435,7 @@ onMounted(loadAll)
 .type-chip {
   display: inline-block;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 500;
   text-transform: lowercase;
   color: var(--text-secondary);

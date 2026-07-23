@@ -509,7 +509,7 @@ defineExpose({ reload: load })
   display: block;
   margin-bottom: 2px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -521,7 +521,7 @@ defineExpose({ reload: load })
   margin: 0;
   font-size: 15px;
 }
-.ssm-help { margin: 4px 0 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
+.ssm-help { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .ssm-locked {
   margin: 9px 0 0;
   padding: 7px 10px;
@@ -529,7 +529,7 @@ defineExpose({ reload: load })
   border-radius: 4px;
   background: var(--accent-dim);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
 }
 .ssm-loading { padding: 16px 0; color: var(--text-muted); font-size: 13px; }
@@ -554,7 +554,7 @@ defineExpose({ reload: load })
   gap: 8px;
   padding: 0 7px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 .ssm-field { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; }
@@ -564,11 +564,11 @@ defineExpose({ reload: load })
   align-items: center;
   gap: 6px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
-.ssm-field-hint { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.ssm-field-hint { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
 .ssm-field-hint-warn { color: #ca8a04; }
-.ssm-input { font-size: 11.5px; }
+.ssm-input { font-size: var(--font-xs); }
 .ssm-input-narrow { max-width: 180px; }
 .ssm-inline-fields,
 .ssm-credential-grid { display: grid; gap: 7px; }
@@ -580,10 +580,10 @@ defineExpose({ reload: load })
 .ssm-credential-grid .ssm-input { width: 100%; min-width: 0; }
 .ssm-network-hint { display: block; margin-top: 7px; }
 .ssm-buttons { display: flex; gap: 7px; margin-top: 8px; }
-.ssm-message { margin-top: 9px; padding: 7px 9px; border-radius: 6px; font-size: 11px; }
+.ssm-message { margin-top: 9px; padding: 7px 9px; border-radius: 6px; font-size: var(--font-xs); }
 .ssm-message.ok { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .ssm-message.err { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
-.state-pill { padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; }
+.state-pill { padding: 2px 7px; border-radius: 999px; font-size: var(--font-xs); font-weight: 700; }
 .state-set { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .state-warn { background: rgba(234, 179, 8, 0.12); color: #ca8a04; }
 .state-empty { background: var(--bg-tertiary); color: var(--text-muted); }
@@ -598,7 +598,7 @@ defineExpose({ reload: load })
   background: var(--bg-primary);
   flex-wrap: wrap;
 }
-.ssm-quick-hint { flex: 1; min-width: 200px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.ssm-quick-hint { flex: 1; min-width: 200px; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
 .ssm-diag-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -616,7 +616,7 @@ defineExpose({ reload: load })
 }
 .ssm-diag-label {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -624,11 +624,11 @@ defineExpose({ reload: load })
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ssm-diag-value code { padding: 2px 5px; border-radius: 3px; background: var(--bg-tertiary); font-size: 10px; }
+.ssm-diag-value code { padding: 2px 5px; border-radius: 3px; background: var(--bg-tertiary); font-size: var(--font-xs); }
 .ssm-diag-refresh { display: flex; align-items: baseline; gap: 9px; margin-top: 8px; flex-wrap: wrap; }
 
 @media (max-width: 1000px) {

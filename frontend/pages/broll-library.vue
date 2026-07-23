@@ -1481,7 +1481,7 @@ function onThumbError(e: Event): void {
    ellipsize inside its cell instead of spilling out. */
 .pool-filter { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; }
 .pool-filter-btn {
-  padding: 5px 6px; font-size: 11.5px; cursor: pointer;
+  padding: 5px 6px; font-size: var(--font-xs); cursor: pointer;
   border: 1px solid var(--border); border-radius: var(--radius-sm, 6px);
   background: transparent; color: var(--text-secondary); white-space: nowrap;
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -1494,10 +1494,10 @@ function onThumbError(e: Event): void {
 .autotag-model-select { width: min(360px, 100%); }
 .pool-card.active { border-color: var(--accent, #6c8fff); background: rgba(108,143,255,0.06); }
 .pool-card-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
-.pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 4px; }
+.pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: var(--font-xs); margin-bottom: 4px; }
 .pool-online.is-online { color: rgb(34, 197, 94); }
 .pool-online.is-offline { color: var(--text-muted); }
-.pool-card-path { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pool-card-path { font-family: var(--font-mono, monospace); font-size: var(--font-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .pool-main { display: flex; flex-direction: column; gap: 12px; }
 .pool-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -1556,7 +1556,7 @@ function onThumbError(e: Event): void {
   color: #fff;
   padding: 2px 6px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-family: var(--font-mono, monospace);
 }
 .clip-normalized {
@@ -1565,7 +1565,7 @@ function onThumbError(e: Event): void {
   color: #fff;
   padding: 2px 6px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
 }
 .clip-missing-badge {
@@ -1574,7 +1574,7 @@ function onThumbError(e: Event): void {
   color: #fff;
   padding: 2px 6px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
 }
 .clip-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
@@ -1603,7 +1603,7 @@ function onThumbError(e: Event): void {
 .create-modal h3 { margin: 0; font-size: 16px; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 .form-group label { font-size: 12px; color: var(--text-primary); }
-.form-group .hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.form-group .hint { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; }
 .req { color: var(--error, #e25c5c); font-weight: bold; }
 
 /* v1.0.118+ — Input + Browse button row inside the Register pool modal.
@@ -1644,7 +1644,7 @@ function onThumbError(e: Event): void {
 .pool-jobs-header:hover { background: var(--bg-hover, var(--bg-tertiary)); }
 .pool-jobs-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .pool-jobs-stats {
-  font-weight: 400; font-size: 11px; color: var(--text-muted);
+  font-weight: 400; font-size: var(--font-xs); color: var(--text-muted);
   padding: 1px 6px; border-radius: 8px; background: var(--bg-secondary);
 }
 .pool-jobs-list {
@@ -1659,7 +1659,7 @@ function onThumbError(e: Event): void {
 }
 .pool-job-badge {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 8px;
   border-radius: 10px;
   font-family: var(--font-mono, monospace);
@@ -1677,16 +1677,16 @@ function onThumbError(e: Event): void {
 }
 .pool-job-progress {
   font-family: var(--font-mono, monospace);
-  font-size: 11px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pool-job-error {
-  font-size: 11px; color: rgb(185, 28, 28);
+  font-size: var(--font-xs); color: rgb(185, 28, 28);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pool-job-when {
   flex: 0 0 auto;
-  font-size: 11px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
 .pool-jobs-empty {
@@ -1729,7 +1729,7 @@ function onThumbError(e: Event): void {
   text-align: left;
   font-weight: 500;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 4px 8px 6px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -1783,7 +1783,7 @@ function onThumbError(e: Event): void {
 .bulk-rename-errors ul {
   margin: 8px 0 0 0;
   padding-left: 18px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .bulk-rename-errors li {
   margin: 4px 0;
@@ -1804,12 +1804,12 @@ function onThumbError(e: Event): void {
   align-items: center;
   gap: 6px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .clip-source-row.clip-source-local { opacity: 0.7; }
 .clip-source-pill {
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   padding: 2px 6px;
@@ -1822,7 +1822,7 @@ function onThumbError(e: Event): void {
 .clip-source-pill.source-freesound { background: rgba(232, 120, 24, 0.18); color: #f0a35e; }
 .clip-source-pill.source-local { background: rgba(127, 127, 127, 0.18); color: var(--text-muted); }
 .clip-source-link {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .clip-source-link:hover { color: var(--accent); }
@@ -1925,7 +1925,7 @@ function onThumbError(e: Event): void {
   right: 6px;
   background: rgba(0, 0, 0, 0.7);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 3px;
 }
@@ -1934,7 +1934,7 @@ function onThumbError(e: Event): void {
   top: 6px;
   right: 6px;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   padding: 2px 6px;
@@ -1946,7 +1946,7 @@ function onThumbError(e: Event): void {
   left: 6px;
   background: rgba(127, 127, 127, 0.65);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 3px;
 }
@@ -2002,7 +2002,7 @@ function onThumbError(e: Event): void {
   margin: 1px 2px;
   background: var(--bg-tertiary);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 </style>

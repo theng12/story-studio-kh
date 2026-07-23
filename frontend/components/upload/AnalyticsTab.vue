@@ -99,7 +99,7 @@
       <p>No analytics data yet. Click Apply to fetch.</p>
     </div>
 
-    <p v-if="analyticsResult?.fetched_at" class="text-muted mt-2" style="font-size: 11px">
+    <p v-if="analyticsResult?.fetched_at" class="text-muted mt-2" style="font-size: var(--font-xs)">
       Fetched {{ formatRelativeTime(analyticsResult.fetched_at) }}.
       Date range: {{ analyticsResult.start_date }} to {{ analyticsResult.end_date }}.
     </p>
@@ -229,7 +229,7 @@ onMounted(() => {
   padding: 12px 14px;
 }
 .totals-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -247,7 +247,7 @@ onMounted(() => {
 }
 .analytics-table th {
   text-align: left;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;

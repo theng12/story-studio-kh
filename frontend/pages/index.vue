@@ -158,11 +158,11 @@
           class="hidden-project-row"
         >
           <div class="hidden-project-info">
-            <div><strong>{{ row.name }}</strong> <code style="font-size: 11px;">({{ row.slug }})</code></div>
-            <div class="text-muted" style="font-size: 11px; word-break: break-all;">
+            <div><strong>{{ row.name }}</strong> <code style="font-size: var(--font-xs);">({{ row.slug }})</code></div>
+            <div class="text-muted" style="font-size: var(--font-xs); word-break: break-all;">
               <code>{{ row.path }}</code>
             </div>
-            <div class="text-muted" style="font-size: 11px;">
+            <div class="text-muted" style="font-size: var(--font-xs);">
               <template v-if="row.exists">
                 {{ formatBytes(row.estimated_bytes) }}
                 <template v-if="row.deleted_at"> · hidden {{ formatRelativeTime(row.deleted_at) }}</template>
@@ -215,7 +215,7 @@
               </div>
             </div>
             <div class="project-card-meta">
-              <span style="word-break: break-all; font-family: ui-monospace, monospace; font-size: 11px;">
+              <span style="word-break: break-all; font-family: ui-monospace, monospace; font-size: var(--font-xs);">
                 {{ project.output_root || '' }}
               </span>
             </div>
@@ -376,7 +376,7 @@
             <div class="form-group">
               <label>Group Label</label>
               <input v-model="form.season_prefix" class="input" placeholder="Season" />
-              <span class="text-muted" style="font-size:11px">Season, Batch, Volume, etc.</span>
+              <span class="text-muted" style="font-size: var(--font-xs)">Season, Batch, Volume, etc.</span>
             </div>
             <div class="form-group">
               <label>Episodes per Group</label>
@@ -412,7 +412,7 @@
           <div class="form-group">
             <label id="niche-label">
               Content &amp; voice
-              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">
                 — the niche is your channel's voice: vocabulary, title style, narrator, mood. This is the main creative choice.
               </span>
             </label>
@@ -433,7 +433,7 @@
           <div class="form-group">
             <label id="format-label">
               Format — how it's built
-              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+              <span class="text-muted" style="font-size: var(--font-xs); font-weight: normal;">
                 — the production pipeline (AI scenes, badges, character continuity, or stock footage). The niche above sets the voice. Change later from Settings → Format.
               </span>
             </label>
@@ -562,7 +562,7 @@
                   Version <code>{{ ffmpegStatus.version }}</code> ·
                   Built into Story Studio — no system install needed.
                 </div>
-                <div class="text-muted" style="font-size: 11px; margin-top: 4px;">
+                <div class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
                   (You won't see this binary in <code>which ffmpeg</code> or in <code>/usr/local/bin</code> —
                   it lives inside the .app and only Story Studio uses it.)
                 </div>
@@ -573,7 +573,7 @@
                   · Detected on your system
                 </div>
               </template>
-              <div v-if="ffmpegStatus.path" class="text-muted" style="font-size: 11px; word-break: break-all; margin-top: 4px;">
+              <div v-if="ffmpegStatus.path" class="text-muted" style="font-size: var(--font-xs); word-break: break-all; margin-top: 4px;">
                 <code>{{ ffmpegStatus.path }}</code>
               </div>
             </div>
@@ -599,7 +599,7 @@
               >
                 Download automatically (~80&nbsp;MB)
               </button>
-              <p class="text-muted mt-1" style="font-size: 11px; text-align: center;">
+              <p class="text-muted mt-1" style="font-size: var(--font-xs); text-align: center;">
                 Pre-built FFmpeg binary, saved inside the app's data folder.
               </p>
 
@@ -625,7 +625,7 @@
               <div class="progress-bar mt-1">
                 <div class="progress-fill" :style="{ width: ffmpegProgressPercent + '%' }" />
               </div>
-              <p class="text-muted mt-1" style="font-size: 11px;">
+              <p class="text-muted mt-1" style="font-size: var(--font-xs);">
                 This may take a minute — don't close the window.
               </p>
             </div>
@@ -876,10 +876,10 @@
               />
               <div style="flex: 1; min-width: 0;">
                 <strong style="display: block;">{{ uploadStep.youtube.channelTitle }}</strong>
-                <div class="text-muted" style="font-size: 11px;">
+                <div class="text-muted" style="font-size: var(--font-xs);">
                   Channel id <code>{{ uploadStep.youtube.channelId }}</code>
                 </div>
-                <div class="text-muted" style="font-size: 11px;">
+                <div class="text-muted" style="font-size: var(--font-xs);">
                   Tokens saved to this project's <code>secrets.json</code>.
                 </div>
               </div>
@@ -915,7 +915,7 @@
           <!-- Once the project is created on disk (needed so OAuth tokens can
                land in its secrets.json), going back to earlier steps would
                desync what's already persisted. Disable Back in that case. -->
-          <div v-if="createdProject" class="text-muted mt-2" style="font-size: 11px;">
+          <div v-if="createdProject" class="text-muted mt-2" style="font-size: var(--font-xs);">
             Project <code>{{ createdProject.slug }}</code> has been created on disk so OAuth tokens
             can be persisted. Use Settings after Finish if you need to change earlier steps.
           </div>
@@ -971,7 +971,7 @@
               <span>
                 <template v-if="ffmpegStatus?.installed">
                   ✓ FFmpeg {{ ffmpegStatus.version }}
-                  <span class="text-muted" style="font-size: 11px;">
+                  <span class="text-muted" style="font-size: var(--font-xs);">
                     ({{ ffmpegStatus.source === 'bundled' ? 'bundled' : 'system' }})
                   </span>
                 </template>
@@ -1049,7 +1049,7 @@
               <span class="text-muted">Episodes</span>
               <span>
                 {{ importPreview.episode_prefix }} × {{ importPreview.episode_digits }} digits
-                <span class="text-muted" style="font-size: 11px;">(e.g. {{ sampleCode }})</span>
+                <span class="text-muted" style="font-size: var(--font-xs);">(e.g. {{ sampleCode }})</span>
               </span>
             </div>
             <div class="review-item">
@@ -1079,25 +1079,25 @@
             >
               <label v-if="c.field === 'episode_prefix'">
                 Episode prefix
-                <span class="text-muted" style="font-size: 11px;">
+                <span class="text-muted" style="font-size: var(--font-xs);">
                   (saw: {{ (c.candidates || []).join(', ') || '—' }})
                 </span>
               </label>
               <label v-else-if="c.field === 'episode_digits'">
                 Episode digits
-                <span class="text-muted" style="font-size: 11px;">
+                <span class="text-muted" style="font-size: var(--font-xs);">
                   (saw: {{ (c.candidates || []).join(', ') }})
                 </span>
               </label>
               <label v-else-if="c.field === 'season_size'">
                 Episodes per season
-                <span class="text-muted" style="font-size: 11px;">
+                <span class="text-muted" style="font-size: var(--font-xs);">
                   (observed: {{ (c.observed_sizes || []).join(', ') }})
                 </span>
               </label>
               <label v-else-if="c.field === 'season_prefix'">
                 Season label
-                <span class="text-muted" style="font-size: 11px;">
+                <span class="text-muted" style="font-size: var(--font-xs);">
                   (saw: {{ (c.candidates || [c.observed]).filter(Boolean).join(', ') }})
                 </span>
               </label>
@@ -1155,7 +1155,7 @@
           <div class="form-group">
             <label>New slug</label>
             <input v-model="collisionSlug" class="input" placeholder="e.g. my-sleep-stories-2" />
-            <span class="text-muted" style="font-size: 11px;">Lowercase letters, digits, and hyphens only.</span>
+            <span class="text-muted" style="font-size: var(--font-xs);">Lowercase letters, digits, and hyphens only.</span>
           </div>
           <div v-if="importError" class="text-danger mt-2" style="font-size: 13px;">
             {{ importError }}
@@ -2544,7 +2544,7 @@ onMounted(async () => {
 }
 .add-linked-preview code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   word-break: break-all;
 }
 /* "What folder?" guidance card — explains which folder to pick. Lives
@@ -2559,7 +2559,7 @@ onMounted(async () => {
 }
 .add-linked-hint code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   word-break: break-all;
   background: rgba(0,0,0,0.06);
   padding: 1px 4px;
@@ -2626,7 +2626,7 @@ onMounted(async () => {
   color: var(--accent, #f0c674);
   padding: 1px 8px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 
@@ -2726,7 +2726,7 @@ onMounted(async () => {
   right: 8px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
@@ -2747,7 +2747,7 @@ onMounted(async () => {
   right: 6px;
   margin: 0;
   padding: 1px 6px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -2886,7 +2886,7 @@ onMounted(async () => {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -2956,7 +2956,7 @@ onMounted(async () => {
   margin-top: 6px;
 }
 .precheck-host {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(255,255,255,0.04);
@@ -2988,7 +2988,7 @@ onMounted(async () => {
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-style: italic;
   text-decoration: underline;
   cursor: pointer;
@@ -3001,7 +3001,7 @@ onMounted(async () => {
   margin-left: 6px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 500;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -3098,7 +3098,7 @@ onMounted(async () => {
 
 .state-pill {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;

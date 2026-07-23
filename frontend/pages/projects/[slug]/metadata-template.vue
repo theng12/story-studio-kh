@@ -126,7 +126,7 @@ async function clearTpl(): Promise<void> {
 <style scoped>
 .card { padding: 14px 18px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md, 6px); }
 .card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-.hint { font-size: 11px; color: var(--text-muted); }
+.hint { font-size: var(--font-xs); color: var(--text-muted); }
 .input { width: 100%; }
 textarea.input { font-family: var(--font-mono, monospace); font-size: 12px; resize: vertical; }
 .ph-table { width: 100%; border-collapse: collapse; font-size: 12px; }

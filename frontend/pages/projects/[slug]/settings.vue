@@ -1033,7 +1033,7 @@
         <p v-if="mediaRootStatus" :class="['external-root-status', mediaRootOk ? 'ok' : 'warn']">
           {{ mediaRootStatus }}
         </p>
-        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+        <p class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
           ⚠ Advanced &amp; experimental. New media is written here going forward. To move your
           <strong>existing</strong> episodes' media onto this root, use the button below.
           Keep the drive connected during generation / rendering / migration.
@@ -1549,7 +1549,7 @@
       <div v-if="localModelsView === 'hub'" class="pool-status-card local-model-surface">
         <div class="pool-status-head">
           <strong>⚙️ Generation backend</strong>
-          <span :style="`font-size:11px; padding:2px 8px; border-radius:10px; background:${localBackend==='hub' ? 'var(--accent,#3b82f6)' : 'var(--border,#ccc)'}; color:${localBackend==='hub' ? '#fff' : 'inherit'};`">
+          <span :style="`font-size: var(--font-xs); padding:2px 8px; border-radius:10px; background:${localBackend==='hub' ? 'var(--accent,#3b82f6)' : 'var(--border,#ccc)'}; color:${localBackend==='hub' ? '#fff' : 'inherit'};`">
             {{ localBackend === 'hub' ? 'Studio Hub' : 'Direct' }}
           </span>
         </div>
@@ -1629,7 +1629,7 @@
               <strong style="font-size:12.5px;">Fleet control</strong>
               <button class="btn btn-sm" :disabled="fleetLoading" @click="loadFleet">{{ fleetLoading ? 'Loading…' : '↻ Refresh' }}</button>
             </div>
-            <p v-if="fleetError" class="text-muted" style="font-size:11px; color:var(--danger,#e5534b); margin-top:4px;">{{ fleetError }}</p>
+            <p v-if="fleetError" class="text-muted" style="font-size: var(--font-xs); color:var(--danger,#e5534b); margin-top:4px;">{{ fleetError }}</p>
             <div v-if="fleet.length" style="max-height:260px; overflow-y:auto; margin-top:6px; border:1px solid var(--border); border-radius:8px;">
               <div v-for="s in fleet" :key="s.id" style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-bottom:1px solid var(--border); font-size:12px;">
                 <span class="pool-dot" :class="s.status === 'up' ? 'on' : 'off'" />
@@ -1644,7 +1644,7 @@
                 <button v-else class="btn btn-sm" :disabled="!!fleetBusy[s.id]" @click="studioAction(s, 'start')">Start</button>
               </div>
             </div>
-            <p v-else-if="!fleetError" class="text-muted" style="font-size:11px; margin-top:4px;">
+            <p v-else-if="!fleetError" class="text-muted" style="font-size: var(--font-xs); margin-top:4px;">
               Refresh to list the studios across your fleet and start / stop / restart a stuck or offline one.
             </p>
           </div>
@@ -1708,14 +1708,14 @@
         <label class="local-tts-label">Modal URL (per machine)</label>
         <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
         <EndpointListEditor route-prefix="/voicestudio" placeholder="http://mac1.local:47870" />
-        <p class="text-muted mt-1" style="font-size: 11px;">
+        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
           One row per Mac — e.g. <code>http://your-mac.local:47870</code> (Bonjour),
           <code>http://192.168.1.50:47870</code> (LAN), or a Tailscale IP. Port <code>47870</code> is fixed.
           TTS chunks distribute least-busy across whatever's online; offline rows are skipped. Re-test after relaunching the modal in Pinokio.
         </p>
       </div>
 
-      <p class="text-muted mt-3" style="font-size: 11px;">
+      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
         Once the URL is set, pick any <strong>[Voice Studio · local]</strong>
         engine from the audio model dropdown on the
         <NuxtLink :to="`/projects/${slug}/audio`" style="color: var(--accent);">Audio Generator</NuxtLink>
@@ -1753,7 +1753,7 @@
         <label class="local-tts-label">Modal URL (per machine)</label>
         <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
         <EndpointListEditor route-prefix="/imagestudio" placeholder="http://mac1.local:47868" />
-        <p class="text-muted mt-1" style="font-size: 11px;">
+        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
           One row per Mac — e.g. <code>http://your-mac.local:47868</code> (Bonjour),
           <code>http://192.168.1.50:47868</code> (LAN), or a Tailscale IP. Port <code>47868</code> is fixed
           (distinct from Voice Studio's <code>47870</code>). Render distributes least-busy across whatever's
@@ -1761,7 +1761,7 @@
         </p>
       </div>
 
-      <p class="text-muted mt-3" style="font-size: 11px;">
+      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
         Once the URL is set, the <strong>💻 local</strong> section of the
         image model picker (Scene / Thumbnail Generator) lists your modal's
         catalog — runnable models first, oversized ones shown but disabled.
@@ -1793,7 +1793,7 @@
       <div class="local-tts-row mt-3">
         <label class="local-tts-label">Server URL (per machine)</label>
         <EndpointListEditor route-prefix="/chatstudio" placeholder="http://localhost:47871" />
-        <p class="text-muted mt-1" style="font-size: 11px;">
+        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
           Your Chat Studio base URL — e.g. <code>http://localhost:47871</code>
           (the default port), <code>http://your-mac.local:47871</code> (Bonjour),
           or a LAN / Tailscale address. The <code>/v1</code> path is added
@@ -1803,7 +1803,7 @@
         </p>
       </div>
 
-      <p class="text-muted mt-3" style="font-size: 11px;">
+      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
         Once the URL is set and the server is running, pick any
         <strong>[Chat Studio · local]</strong> model from the LLM model dropdown
         wherever text is generated (Script, Scene Plan, Ideas, Metadata). The
@@ -1845,7 +1845,7 @@
           <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_libass" class="badge badge-warn">no libass</span>
         </template>
       </div>
-      <p v-if="ffmpegStatus?.installed && ffmpegStatus.path" class="text-muted mt-1" style="font-size: 11px;">
+      <p v-if="ffmpegStatus?.installed && ffmpegStatus.path" class="text-muted mt-1" style="font-size: var(--font-xs);">
         Resolved path: <code>{{ ffmpegStatus.path }}</code>
       </p>
       <p v-if="ffmpegStatus?.installed && (!ffmpegStatus.has_drawtext || !ffmpegStatus.has_libass)" class="text-muted mt-1" style="font-size: 12px;">
@@ -1873,7 +1873,7 @@
           class="ffmpeg-install-summary"
         >
           <span style="font-size: 13px;">Advanced: replace recovery FFmpeg</span>
-          <span class="text-muted" style="font-size: 11px;">
+          <span class="text-muted" style="font-size: var(--font-xs);">
             (only needed when the app bundle is unavailable)
           </span>
         </summary>
@@ -1931,10 +1931,10 @@
             <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
               Copy log to clipboard
             </button>
-            <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: 11px;">Copied ✓</span>
+            <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: var(--font-xs);">Copied ✓</span>
           </div>
           <pre v-if="ffmpegInstallLog.length" class="ffmpeg-log-output mt-1">{{ ffmpegInstallLogText }}</pre>
-          <p v-else-if="ffmpegInstallLogChecked" class="text-muted mt-1" style="font-size: 11px;">
+          <p v-else-if="ffmpegInstallLogChecked" class="text-muted mt-1" style="font-size: var(--font-xs);">
             No ffmpeg-install entries in the last hour. The error may have happened before logging was wired up — try clicking Install again.
           </p>
         </div>
@@ -2164,7 +2164,7 @@
               </td>
             </tr>
             <tr v-if="!Object.keys(namedRoots).length">
-              <td colspan="3" class="text-muted" style="font-size: 11px;">
+              <td colspan="3" class="text-muted" style="font-size: var(--font-xs);">
                 No named roots defined yet. Add one below to start using portable preset paths.
               </td>
             </tr>
@@ -2186,7 +2186,7 @@
           </button>
           <code v-if="newRootPath" class="path-display">{{ newRootPath }}</code>
         </div>
-        <span class="text-muted" style="font-size: 11px;">
+        <span class="text-muted" style="font-size: var(--font-xs);">
           Letters A–Z, digits, and underscores. Start with a letter. Reserved: <code>PROJECT</code>.
         </span>
       </div>
@@ -2217,7 +2217,7 @@
         <div class="form-group">
           <label>Group Label</label>
           <input v-model="projectForm.season_prefix" class="input" placeholder="Season" />
-          <span class="text-muted" style="font-size:11px">Season, Batch, Volume, Collection, etc.</span>
+          <span class="text-muted" style="font-size: var(--font-xs)">Season, Batch, Volume, Collection, etc.</span>
         </div>
         <div class="form-group">
           <label>Episodes per Group</label>
@@ -2235,7 +2235,7 @@
               {{ reseasonState.opening ? 'Loading…' : `↻ Rebalance ${projectForm.season_size}/group →` }}
             </button>
           </div>
-          <span class="text-muted" style="font-size: 11px;">
+          <span class="text-muted" style="font-size: var(--font-xs);">
             Changing this rebalances every episode folder into the new grouping.
             <strong>Use the Rebalance button</strong> — the regular Save below ignores this field
             because a silent value change would mismatch all the on-disk folders.
@@ -2289,7 +2289,7 @@
             {{ ytCategoryLoading ? '↻ Fetching…' : '↻ Refresh categories' }}
           </button>
         </div>
-        <span class="text-muted" style="font-size: 11px;">
+        <span class="text-muted" style="font-size: var(--font-xs);">
           <template v-if="ytCategoryHint">⚠ {{ ytCategoryHint }}</template>
           <template v-else-if="ytCategorySource">
             {{ ytCategorySource === 'live' ? 'Just fetched' : ytCategorySource === 'cache' ? 'From cache' : ytCategorySource === 'stale' ? 'Stale cache (fetch failed)' : 'Empty' }}
@@ -2334,7 +2334,7 @@
             {{ ytBackfillBusy === 'apply' ? 'Applying…' : 'Apply to all uploaded videos' }}
           </button>
         </div>
-        <span class="text-muted" style="font-size: 11px;">
+        <span class="text-muted" style="font-size: var(--font-xs);">
           Required by YouTube when your video contains realistic AI-generated narration, images, or footage.
           Fresh uploads pick this up automatically. The backfill action above PATCHes existing uploads
           (preserves privacy + schedule). Live YouTube quota: 1 unit per 50 videos read + 50 units per video updated.
@@ -2383,7 +2383,7 @@
             </optgroup>
           </select>
         </div>
-        <span v-if="artStyleSaveMessage" class="text-muted" style="font-size:11px">{{ artStyleSaveMessage }}</span>
+        <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
       </div>
 
       <!-- Per-project cloud-sync mode toggle removed alongside the
@@ -2431,14 +2431,14 @@
             @click="openMoveProjectDialog"
           >📦 Move this project to…</button>
         </div>
-        <span class="text-muted" style="font-size:11px">
+        <span class="text-muted" style="font-size: var(--font-xs)">
           Story Studio reads and writes all generated files here. Don't move this folder —
           if you do, use <strong>Repair Folder Structure</strong> below.
         </span>
         <p
           v-if="assetMigration.status.value && assetMigration.status.value.needed"
           class="text-muted mt-1"
-          style="font-size:11px; max-width: 720px;"
+          style="font-size: var(--font-xs); max-width: 720px;"
         >
           Assets currently sit at this absolute path. For cross-Mac iCloud sync to actually carry the
           files (not just the metadata), they need to live INSIDE the project's folder. Click
@@ -2554,7 +2554,7 @@
             />
             <button class="btn btn-secondary btn-sm" @click="browseMoveProjectDest">Browse…</button>
           </div>
-          <p class="text-muted mt-1" style="font-size: 11px;">
+          <p class="text-muted mt-1" style="font-size: var(--font-xs);">
             The project lands at <code class="path-display">{{ moveProjectDest ? moveProjectDest + '/' + (moveProjectStatus?.current_path?.split('/').pop() || project?.slug || '') : '(pick a destination first)' }}</code>.
           </p>
 
@@ -2563,12 +2563,12 @@
             class="move-assets-blockers mt-2"
           >
             <strong>⛔ Blocked — fix before retrying:</strong>
-            <p class="text-muted" style="font-size: 11px; margin: 4px 0;">
+            <p class="text-muted" style="font-size: var(--font-xs); margin: 4px 0;">
               {{ moveProjectStatus.icloud_blockers.length }} file(s) in this project are
               iCloud placeholders (not downloaded to this Mac). Right-click the project folder
               in Finder → "Download Now", wait for every file to lose the cloud icon, then retry.
             </p>
-            <ul style="font-size: 11px; margin: 4px 0 0 18px; padding: 0;">
+            <ul style="font-size: var(--font-xs); margin: 4px 0 0 18px; padding: 0;">
               <li v-for="(b, i) in moveProjectStatus.icloud_blockers.slice(0, 5)" :key="i">
                 <code>{{ b }}</code>
               </li>
@@ -2703,7 +2703,7 @@
       <button class="btn btn-secondary mt-3" @click="copyVersionString">
         {{ versionCopied ? 'Copied ✓' : 'Copy version string' }}
       </button>
-      <p class="text-muted mt-2" style="font-size:11px">
+      <p class="text-muted mt-2" style="font-size: var(--font-xs)">
         The same version is also pinned in the bottom-left of the sidebar so you can see it from any page.
       </p>
     </div>
@@ -2758,7 +2758,7 @@
                   {{ projectForm.season_prefix || 'Season' }} {{ String(m.new_season).padStart(3, '0') }}</span>
                 <span class="reseason-move-title text-muted">{{ m.title }}</span>
               </div>
-              <div v-if="reseasonState.preview.moves.length > 12" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+              <div v-if="reseasonState.preview.moves.length > 12" class="text-muted" style="font-size: var(--font-xs); padding: 4px 0;">
                 + {{ reseasonState.preview.moves.length - 12 }} more
               </div>
             </div>
@@ -6003,7 +6003,7 @@ async function deleteProject() {
 .ffmpeg-install-block > .ffmpeg-install-summary::before {
   content: '▸';
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   transition: transform 0.15s;
 }
 .ffmpeg-install-block[open] > .ffmpeg-install-summary::before { transform: rotate(90deg); }
@@ -6014,7 +6014,7 @@ async function deleteProject() {
   padding: 6px 10px;
   margin: 2px 0 8px 0;
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   overflow-x: auto;
 }
 .ffmpeg-cmd code { background: transparent; padding: 0; }
@@ -6045,7 +6045,7 @@ async function deleteProject() {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
   max-height: 280px;
   overflow: auto;
@@ -6070,7 +6070,7 @@ async function deleteProject() {
   margin-top: 8px;
 }
 .precheck-host {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -6118,7 +6118,7 @@ async function deleteProject() {
 .settings-active-kicker,
 .local-models-kicker {
   color: var(--settings-gold);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -6134,7 +6134,7 @@ async function deleteProject() {
   background: rgba(0,0,0,0.12);
   white-space: nowrap;
 }
-.settings-page-key span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.settings-page-key span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .key-dot { width: 7px; height: 7px; border-radius: 50%; }
 .key-machine { background: var(--settings-gold); }
 .key-project { background: var(--settings-green); }
@@ -6161,14 +6161,14 @@ async function deleteProject() {
   border-bottom: 1px solid var(--border);
 }
 .settings-zone-title { font-size: 13px; font-weight: 750; letter-spacing: 0.01em; color: var(--text-primary); }
-.settings-zone-scope { font-size: 10px; color: var(--text-muted); }
+.settings-zone-scope { font-size: var(--font-xs); color: var(--text-muted); }
 .settings-group { padding: 10px 0 0; }
 .settings-group + .settings-group { margin-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
 .settings-group-label {
   display: block;
   margin: 0 2px 6px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -6186,7 +6186,7 @@ async function deleteProject() {
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   transition: border-color .16s, background .16s, color .16s, transform .16s;
 }
 .settings-group-tabs .tab:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
@@ -6223,14 +6223,14 @@ async function deleteProject() {
   font-size: 20px;
 }
 .settings-active-copy h2 { margin: 1px 0 3px; font-size: 18px; letter-spacing: -0.015em; }
-.settings-active-copy p { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
+.settings-active-copy p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .settings-scope-pill {
   padding: 5px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: .07em;
   text-transform: uppercase;
@@ -6255,13 +6255,13 @@ async function deleteProject() {
 }
 .settings-section-kicker {
   color: var(--settings-gold);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: .13em;
   text-transform: uppercase;
 }
 .settings-section-head h3 { margin: 3px 0 4px; font-size: 20px; letter-spacing: -.025em; }
-.settings-section-head p { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.5; }
+.settings-section-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
 .settings-section-count {
   flex: 0 0 auto;
   padding: 6px 9px;
@@ -6269,7 +6269,7 @@ async function deleteProject() {
   border-radius: 999px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -6309,8 +6309,8 @@ async function deleteProject() {
   background: rgba(227,180,90,.09);
 }
 .settings-segmented-button > span:last-child { display: flex; min-width: 0; flex-direction: column; }
-.settings-segmented-button strong { font-size: 11.5px; }
-.settings-segmented-button small { color: var(--text-muted); font-size: 9px; }
+.settings-segmented-button strong { font-size: var(--font-xs); }
+.settings-segmented-button small { color: var(--text-muted); font-size: var(--font-xs); }
 .settings-segmented-button:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
 .settings-segmented-button.active {
   color: var(--text-primary);
@@ -6409,7 +6409,7 @@ async function deleteProject() {
 }
 .voice-count {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 4px 9px;
   border-radius: 999px;
   background: var(--bg-hover);
@@ -6460,13 +6460,13 @@ async function deleteProject() {
 .voice-name-input,
 .voice-id-input { width: 100%; }
 .voice-provider-labels { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.voice-provider-prompt { color: var(--text-muted); font-size: 11px; margin-right: 2px; }
+.voice-provider-prompt { color: var(--text-muted); font-size: var(--font-xs); margin-right: 2px; }
 .voice-provider-toggle {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
   user-select: none;
 }
@@ -6535,9 +6535,9 @@ async function deleteProject() {
   font-weight: 800;
 }
 .notification-status-card > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.notification-status-card strong { font-size: 11px; }
-.notification-status-card small { overflow: hidden; color: var(--text-muted); font-size: 8.8px; text-overflow: ellipsis; white-space: nowrap; }
-.notification-state { padding: 3px 6px; border-radius: 999px; font-size: 7.5px; font-weight: 850; letter-spacing: .08em; white-space: nowrap; }
+.notification-status-card strong { font-size: var(--font-xs); }
+.notification-status-card small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.notification-state { padding: 3px 6px; border-radius: 999px; font-size: var(--font-xs); font-weight: 850; letter-spacing: .08em; white-space: nowrap; }
 .notification-state.ready { color: #6bd6a8; background: rgba(88,198,146,.14); }
 .notification-state.warn { color: #e0b760; background: rgba(227,180,90,.13); }
 .notification-state.off { color: var(--text-muted); background: rgba(128,138,150,.12); }
@@ -6557,9 +6557,9 @@ async function deleteProject() {
 .notification-section-head { justify-content: space-between; margin-bottom: 11px; }
 .notification-section-head h4,
 .notification-channel-head h4 { margin: 2px 0 3px; font-size: 13px; }
-.notification-section-head > span { color: var(--text-muted); font-size: 9px; }
+.notification-section-head > span { color: var(--text-muted); font-size: var(--font-xs); }
 .notification-channel-head > div:nth-child(2) { min-width: 0; flex: 1; }
-.notification-channel-head p { margin: 0; color: var(--text-muted); font-size: 9.5px; line-height: 1.45; }
+.notification-channel-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .notification-event-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .notification-event-card {
   display: grid;
@@ -6576,11 +6576,11 @@ async function deleteProject() {
 .notification-event-card:hover { border-color: rgba(227,180,90,.35); transform: translateY(-1px); }
 .notification-event-card.active { border-color: rgba(88,198,146,.38); background: rgba(88,198,146,.07); }
 .notification-event-card input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.notification-event-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--text-muted); background: var(--bg-tertiary); font-size: 10px; font-weight: 850; }
+.notification-event-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--text-muted); background: var(--bg-tertiary); font-size: var(--font-xs); font-weight: 850; }
 .notification-event-card.active .notification-event-mark { color: var(--settings-green); background: rgba(88,198,146,.12); }
 .notification-event-card > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.notification-event-card strong { font-size: 10.5px; }
-.notification-event-card small { color: var(--text-muted); font-size: 8.8px; line-height: 1.45; }
+.notification-event-card strong { font-size: var(--font-xs); }
+.notification-event-card small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .notification-switch { position: relative; flex: 0 0 auto; width: 34px; height: 20px; cursor: pointer; }
 .notification-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .notification-switch span { display: block; width: 100%; height: 100%; border-radius: 999px; background: rgba(128,138,150,.28); transition: .18s ease; }
@@ -6590,25 +6590,25 @@ async function deleteProject() {
 .notification-threshold { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: end; margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border); }
 .notification-threshold.disabled { opacity: .48; }
 .notification-threshold > div { display: flex; flex-direction: column; gap: 3px; }
-.notification-threshold strong { font-size: 10px; }
-.notification-threshold small { color: var(--text-muted); font-size: 8.5px; line-height: 1.4; }
+.notification-threshold strong { font-size: var(--font-xs); }
+.notification-threshold small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .notification-threshold > :last-child { grid-column: 1 / -1; }
-.notification-threshold-value { color: var(--settings-gold); font-size: 10px; font-weight: 800; }
+.notification-threshold-value { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; }
 .notification-setup { margin-top: 14px; border: 1px dashed var(--border); border-radius: 12px; background: rgba(0,0,0,.06); }
 .notification-setup[open] { border-style: solid; }
 .notification-setup > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; }
 .notification-setup > summary::-webkit-details-marker { display: none; }
 .notification-setup > summary > span:first-child { display: flex; flex-direction: column; gap: 2px; }
-.notification-setup > summary strong { font-size: 10.5px; }
-.notification-setup > summary small { color: var(--text-muted); font-size: 8.8px; }
+.notification-setup > summary strong { font-size: var(--font-xs); }
+.notification-setup > summary small { color: var(--text-muted); font-size: var(--font-xs); }
 .notification-setup-body { display: grid; gap: 0; border-top: 1px solid var(--border); }
 .notification-setup-step { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 13px; }
 .notification-setup-step + .notification-setup-step { border-top: 1px solid var(--border); }
-.notification-setup-step > span:first-child { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; color: #16231e; background: var(--settings-green); font-size: 9px; font-weight: 850; }
-.notification-setup-step strong { font-size: 10.5px; }
-.notification-setup-step p { margin: 3px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
+.notification-setup-step > span:first-child { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; color: #16231e; background: var(--settings-green); font-size: var(--font-xs); font-weight: 850; }
+.notification-setup-step strong { font-size: var(--font-xs); }
+.notification-setup-step p { margin: 3px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
 .notification-setup-fields { min-width: 0; }
-.notification-setup-fields > label { display: block; margin: 10px 0 4px; color: var(--text-secondary); font-size: 9px; font-weight: 700; }
+.notification-setup-fields > label { display: block; margin: 10px 0 4px; color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
 .notification-secret-row,
 .notification-connect-row { display: flex; gap: 7px; align-items: center; }
 .notification-secret-row .input,
@@ -6616,7 +6616,7 @@ async function deleteProject() {
 .notification-connect-row { margin-top: 7px; }
 .notification-test-action { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .notification-test-action small,
-.notification-inline-result { font-size: 8.8px; line-height: 1.4; }
+.notification-inline-result { font-size: var(--font-xs); line-height: 1.4; }
 .notification-test-action .ok,
 .notification-inline-result.ok { color: var(--success); }
 .notification-test-action .error,
@@ -6629,23 +6629,23 @@ async function deleteProject() {
 .notification-last-fired { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,.055); }
 .notification-time-control > span,
 .notification-route-control > span,
-.notification-last-fired > span { color: var(--text-secondary); font-size: 9px; font-weight: 750; }
+.notification-last-fired > span { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 750; }
 .notification-time-control small,
 .notification-route-control small,
-.notification-quiet-control small { color: var(--text-muted); font-size: 8px; line-height: 1.35; }
-.notification-route-control label { display: flex; align-items: center; gap: 5px; font-size: 9px; }
+.notification-quiet-control small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
+.notification-route-control label { display: flex; align-items: center; gap: 5px; font-size: var(--font-xs); }
 .notification-quiet-control { flex-direction: row; align-items: flex-start; cursor: pointer; }
 .notification-quiet-control > span { display: flex; flex-direction: column; gap: 3px; }
-.notification-quiet-control strong { font-size: 9px; }
-.notification-last-fired strong { margin-top: auto; color: var(--settings-gold); font-size: 10px; }
+.notification-quiet-control strong { font-size: var(--font-xs); }
+.notification-last-fired strong { margin-top: auto; color: var(--settings-gold); font-size: var(--font-xs); }
 .notification-digest-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 10px; }
 .notification-preview { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: color-mix(in srgb, var(--bg-primary) 62%, transparent); }
-.notification-preview > strong { display: block; margin: 4px 0 7px; font-size: 11px; }
-.notification-preview pre { max-height: 280px; margin: 0; overflow: auto; color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: 9px; line-height: 1.55; white-space: pre-wrap; }
+.notification-preview > strong { display: block; margin: 4px 0 7px; font-size: var(--font-xs); }
+.notification-preview pre { max-height: 280px; margin: 0; overflow: auto; color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: var(--font-xs); line-height: 1.55; white-space: pre-wrap; }
 .notification-save-bar { position: sticky; bottom: 10px; z-index: 4; display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 11px 12px; border: 1px solid rgba(88,198,146,.3); border-radius: 13px; background: color-mix(in srgb, var(--bg-secondary) 94%, rgba(88,198,146,.2)); box-shadow: 0 10px 28px rgba(0,0,0,.24); }
 .notification-save-bar > div:first-child { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
-.notification-save-bar strong { font-size: 10.5px; }
-.notification-save-bar span { color: var(--text-muted); font-size: 8.5px; }
+.notification-save-bar strong { font-size: var(--font-xs); }
+.notification-save-bar span { color: var(--text-muted); font-size: var(--font-xs); }
 .notification-save-bar .error { color: var(--error); }
 
 /* ── Performance control center ─────────────────────────────────────── */
@@ -6662,7 +6662,7 @@ async function deleteProject() {
 }
 .performance-profile-copy { display: flex; flex-direction: column; gap: 3px; }
 .performance-profile-copy strong { font-size: 12px; }
-.performance-profile-copy span { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.performance-profile-copy span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .performance-profile-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .performance-profile-button {
   display: flex;
@@ -6678,8 +6678,8 @@ async function deleteProject() {
   cursor: pointer;
   transition: .16s ease;
 }
-.performance-profile-button strong { color: var(--text-primary); font-size: 11px; }
-.performance-profile-button small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.performance-profile-button strong { color: var(--text-primary); font-size: var(--font-xs); }
+.performance-profile-button small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .performance-profile-button:hover { border-color: rgba(227,180,90,.45); transform: translateY(-1px); }
 .performance-profile-button.active { border-color: rgba(88,198,146,.55); background: rgba(88,198,146,.11); box-shadow: inset 0 0 0 1px rgba(88,198,146,.08); }
 .performance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
@@ -6714,35 +6714,35 @@ async function deleteProject() {
   border-radius: 10px;
   color: var(--performance-accent, var(--settings-green));
   background: color-mix(in srgb, var(--performance-accent, var(--settings-green)) 12%, transparent);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 800;
 }
 .performance-card-head h4 { margin: 1px 0 3px; font-size: 13px; }
-.performance-card-head p { margin: 0; color: var(--text-muted); font-size: 9.5px; line-height: 1.45; }
-.performance-value { padding: 4px 7px; border-radius: 999px; color: var(--text-secondary); background: var(--bg-primary); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.performance-card-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
+.performance-value { padding: 4px 7px; border-radius: 999px; color: var(--text-secondary); background: var(--bg-primary); font-size: var(--font-xs); font-weight: 700; white-space: nowrap; }
 .performance-control { margin-top: 12px; }
-.performance-control label { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.performance-control label { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
 .performance-control label span { color: var(--settings-gold); font-variant-numeric: tabular-nums; }
 .performance-control.compact { padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
-.performance-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--text-muted); font-size: 8.5px; }
+.performance-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--text-muted); font-size: var(--font-xs); }
 .performance-timeout-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.performance-timeout-row label { color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.performance-timeout-row label { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
 .performance-timeout-row .input { min-width: 0; padding: 6px 8px; }
-.performance-timeout-row > span { color: var(--text-muted); font-size: 9px; }
-.performance-card-foot { display: flex; justify-content: space-between; gap: 10px; margin: 14px -16px -16px; padding: 9px 16px; color: var(--text-muted); background: color-mix(in srgb, var(--bg-primary) 45%, transparent); font-size: 8.5px; line-height: 1.35; }
+.performance-timeout-row > span { color: var(--text-muted); font-size: var(--font-xs); }
+.performance-card-foot { display: flex; justify-content: space-between; gap: 10px; margin: 14px -16px -16px; padding: 9px 16px; color: var(--text-muted); background: color-mix(in srgb, var(--bg-primary) 45%, transparent); font-size: var(--font-xs); line-height: 1.35; }
 .performance-card-foot span:first-child { color: var(--performance-accent, var(--settings-green)); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
 .performance-card-foot span:last-child { text-align: right; }
 .performance-guidance-card { background: linear-gradient(145deg, rgba(24,72,55,.19), rgba(227,180,90,.05)); }
 .performance-guidance-card h4 { margin: 5px 0 7px; font-size: 14px; }
-.performance-guidance-card > p { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.performance-guidance-card > p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
 .performance-guidance-card dl { display: grid; gap: 7px; margin: 14px 0 0; }
-.performance-guidance-card dl div { display: grid; grid-template-columns: 85px 1fr; gap: 8px; padding-top: 7px; border-top: 1px solid var(--border); font-size: 9px; }
+.performance-guidance-card dl div { display: grid; grid-template-columns: 85px 1fr; gap: 8px; padding-top: 7px; border-top: 1px solid var(--border); font-size: var(--font-xs); }
 .performance-guidance-card dt { color: var(--text-primary); font-weight: 700; }
 .performance-guidance-card dd { margin: 0; color: var(--text-muted); }
 .performance-save-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(88,198,146,.25); border-radius: 13px; background: rgba(88,198,146,.055); }
 .performance-save-bar > div:first-child { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
-.performance-save-bar strong { font-size: 11px; }
-.performance-save-bar span { color: var(--text-muted); font-size: 9px; }
+.performance-save-bar strong { font-size: var(--font-xs); }
+.performance-save-bar span { color: var(--text-muted); font-size: var(--font-xs); }
 
 /* ── Storage tab ─────────────────────────────────────────────────────── */
 .storage-panel { overflow: hidden; }
@@ -6754,7 +6754,7 @@ async function deleteProject() {
   gap: 8px;
   flex-wrap: wrap;
 }
-.storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
+.storage-section .hint { margin: 4px 0 8px; font-size: var(--font-xs); line-height: 1.45; }
 .storage-section-icon { font-size: 16px; line-height: 1; }
 .storage-surface {
   margin-top: 12px;
@@ -6786,7 +6786,7 @@ async function deleteProject() {
   line-height: 1.45;
   color: var(--text-secondary);
 }
-.optional-tag { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+.optional-tag { color: var(--text-muted); font-size: var(--font-xs); font-weight: normal; }
 
 /* ── Cloud sync overview (top-of-Storage indicator card) ─────────── */
 .cloud-sync-overview {
@@ -6805,7 +6805,7 @@ async function deleteProject() {
 .overview-icon { font-size: 20px; line-height: 1.2; flex-shrink: 0; }
 .overview-head strong { display: block; margin-bottom: 2px; font-size: 14px; }
 .overview-sub {
-  margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+  margin: 0; font-size: var(--font-xs); color: var(--text-secondary); line-height: 1.5;
 }
 .overview-grid {
   display: grid;
@@ -6835,7 +6835,7 @@ async function deleteProject() {
 .overview-badge {
   display: inline-block;
   padding: 1px 6px;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+  font-size: var(--font-xs); font-weight: 700; letter-spacing: 0.05em;
   border-radius: 999px;
   margin-left: auto;
 }
@@ -6843,11 +6843,11 @@ async function deleteProject() {
 .overview-badge.off { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
 .overview-badge.info { background: rgba(214, 155, 43, 0.15); color: var(--warning, #d69b2b); }
 .overview-card-desc {
-  margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.45;
+  margin: 0; font-size: var(--font-xs); color: var(--text-secondary); line-height: 1.45;
 }
 .overview-card-path {
   font-family: 'Menlo', 'Monaco', monospace;
-  font-size: 10px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
   word-break: break-all;
 }
 .overview-warnings {
@@ -6856,7 +6856,7 @@ async function deleteProject() {
   background: rgba(214, 155, 43, 0.08);
   border-left: 3px solid var(--warning, #d69b2b);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .overview-warnings summary {
   cursor: pointer;
@@ -6871,19 +6871,19 @@ async function deleteProject() {
 .overview-warnings li { margin-bottom: 4px; color: var(--text-secondary); }
 .overview-warnings code {
   background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .storage-advanced-heading { display: flex; align-items: baseline; gap: 10px; margin: 24px 2px 8px; }
-.storage-advanced-heading > span { color: var(--settings-gold); font-size: 9px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap; }
-.storage-advanced-heading p { margin: 0; color: var(--text-muted); font-size: 9.5px; }
+.storage-advanced-heading > span { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap; }
+.storage-advanced-heading p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .storage-disclosure { margin-top: 8px; border: 1px dashed var(--border); border-radius: 13px; background: color-mix(in srgb, var(--bg-primary) 42%, transparent); scroll-margin-top: 18px; }
 .storage-disclosure[open] { border-style: solid; background: color-mix(in srgb, var(--bg-tertiary) 56%, transparent); }
 .storage-disclosure-summary { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 18px; gap: 10px; align-items: center; padding: 13px 15px; cursor: pointer; list-style: none; }
 .storage-disclosure-summary::-webkit-details-marker { display: none; }
 .storage-disclosure-summary > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.storage-disclosure-summary strong { font-size: 11px; }
-.storage-disclosure-summary small { color: var(--text-muted); font-size: 9px; }
+.storage-disclosure-summary strong { font-size: var(--font-xs); }
+.storage-disclosure-summary small { color: var(--text-muted); font-size: var(--font-xs); }
 .storage-disclosure-summary::after { content: '+'; grid-column: 4; grid-row: 1; justify-self: end; color: var(--text-muted); font-size: 13px; }
 .storage-disclosure[open] > .storage-disclosure-summary::after { content: '−'; }
 .storage-disclosure-body { padding: 0 15px 15px; border-top: 1px solid var(--border); }
@@ -6909,18 +6909,18 @@ async function deleteProject() {
 .root-badge {
   display: inline-block;
   padding: 1px 7px;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  font-size: var(--font-xs); font-weight: 700; letter-spacing: 0.06em;
   border-radius: 999px;
   flex-shrink: 0;
 }
 .root-badge.default { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
 .root-badge.custom { background: rgba(75, 130, 200, 0.22); color: #60a5fa; }
 .projects-root-default-note {
-  font-size: 11px; color: var(--text-muted);
+  font-size: var(--font-xs); color: var(--text-muted);
 }
 .projects-root-default-note code {
   background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .projects-root-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -6929,7 +6929,7 @@ async function deleteProject() {
   background: rgba(214, 155, 43, 0.08);
   border-left: 3px solid var(--warning, #d69b2b);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .projects-root-warning summary {
   cursor: pointer;
@@ -6944,7 +6944,7 @@ async function deleteProject() {
 .projects-root-warning li { margin-bottom: 4px; color: var(--text-secondary); }
 .projects-root-warning code {
   background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .projects-root-status {
@@ -6964,7 +6964,7 @@ async function deleteProject() {
 .external-root-status {
   margin: 6px 0 0; padding: 6px 10px;
   background: var(--bg-tertiary); border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .external-root-status.ok { color: var(--success, #5fc070); }
 .external-root-status.warn { color: var(--warning, #d69b2b); }
@@ -6992,22 +6992,22 @@ async function deleteProject() {
 }
 .storage-row.storage-head {
   background: transparent; padding: 6px 8px 4px;
-  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  font-size: var(--font-xs); font-weight: 600; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 .storage-row.uploaded { background: rgba(75, 200, 100, 0.06); }
 .storage-row.no-final { opacity: 0.55; }
 .col-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col-final, .col-clips, .col-other { font-family: 'Menlo', 'Monaco', monospace; font-size: 11px; }
+.col-final, .col-clips, .col-other { font-family: 'Menlo', 'Monaco', monospace; font-size: var(--font-xs); }
 .col-final .ext-badge {
   margin-left: 4px; padding: 1px 5px;
   background: rgba(96, 165, 250, 0.18); color: #60a5fa;
-  border-radius: 4px; font-size: 10px;
+  border-radius: 4px; font-size: var(--font-xs);
 }
 
 .upload-badge {
   display: inline-block; padding: 1px 7px;
-  font-size: 10px; font-weight: 600;
+  font-size: var(--font-xs); font-weight: 600;
   border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
 }
 .upload-badge.ok { background: rgba(75, 200, 100, 0.18); color: var(--success, #5fc070); }
@@ -7065,7 +7065,7 @@ async function deleteProject() {
   padding: 8px 4px;
 }
 .folder-config-header {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -7172,7 +7172,7 @@ async function deleteProject() {
   background: transparent;
   cursor: pointer;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   transition: all 0.15s;
 }
 .sub-tab:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); }
@@ -7199,7 +7199,7 @@ async function deleteProject() {
 }
 .toolbar-label {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
@@ -7320,7 +7320,7 @@ async function deleteProject() {
   padding: 4px 2px 14px;
 }
 .local-models-head h3 { margin: 3px 0; font-size: 21px; letter-spacing: -.025em; }
-.local-models-head p { margin: 0; color: var(--text-muted); font-size: 11.5px; }
+.local-models-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .local-models-state {
   display: inline-flex;
   align-items: center;
@@ -7330,7 +7330,7 @@ async function deleteProject() {
   border-radius: 999px;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -7377,8 +7377,8 @@ async function deleteProject() {
   font-size: 14px;
 }
 .local-model-tab-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.local-model-tab-copy strong { font-size: 11.5px; }
-.local-model-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.local-model-tab-copy strong { font-size: var(--font-xs); }
+.local-model-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .local-model-pane-intro {
   display: grid;
   grid-template-columns: 120px minmax(180px, .55fr) minmax(280px, 1fr);
@@ -7387,9 +7387,9 @@ async function deleteProject() {
   padding: 16px 4px 12px;
   border-bottom: 1px solid var(--border);
 }
-.local-model-pane-intro > span { color: var(--settings-gold); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.local-model-pane-intro > span { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .local-model-pane-intro > strong { font-size: 14px; }
-.local-model-pane-intro > p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.local-model-pane-intro > p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .local-help {
   margin-top: 12px;
   background: linear-gradient(145deg, rgba(88, 198, 146, 0.08), rgba(227, 180, 90, 0.035));
@@ -7431,11 +7431,11 @@ async function deleteProject() {
 }
 .hub-connection-head { justify-content: space-between; margin-bottom: 4px; }
 .hub-connection-head > div { display: grid; gap: 2px; }
-.hub-connection-head > div > span { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.hub-connection-head > div > span { color: var(--text-muted); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .hub-connection-head strong { font-size: 14px; }
 .hub-connection-input { width: 100%; }
 .hub-connection-help,
-.hub-routing-note { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.hub-routing-note { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.55; }
 .hub-connection-actions { margin-top: 4px; }
 .hub-save-state,
 .hub-route-chip {
@@ -7443,7 +7443,7 @@ async function deleteProject() {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 .hub-save-state.saved,
@@ -7465,7 +7465,7 @@ async function deleteProject() {
   background: linear-gradient(145deg, rgba(227,180,90,.14), rgba(88,198,146,.08));
   font-size: 19px;
 }
-.studio-pane-head span:not(.studio-pane-icon) { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.studio-pane-head span:not(.studio-pane-icon) { color: var(--text-muted); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .studio-pane-head h3 { margin: 1px 0 0; font-size: 18px; }
 
 @media (max-width: 900px) {
@@ -7584,7 +7584,7 @@ async function deleteProject() {
 .sub-tab-count {
   color: var(--text-muted);
   font-weight: normal;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .niche-library-header {
   display: flex;
@@ -7629,7 +7629,7 @@ async function deleteProject() {
   color: var(--text-primary);
 }
 .niche-lib-tile .badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 1px 7px;
   border-radius: 999px;
   text-transform: uppercase;
@@ -7640,7 +7640,7 @@ async function deleteProject() {
 .niche-lib-tile .badge-active { background: rgba(108, 143, 255, 0.20); color: var(--accent, #6c8fff); font-weight: 500; }
 .niche-lib-tile .tile-tagline {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-style: italic;
   color: var(--text-muted);
 }
@@ -7654,12 +7654,12 @@ async function deleteProject() {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .niche-lib-tile .tile-details summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--accent, #6c8fff);
   user-select: none;
 }
@@ -7667,7 +7667,7 @@ async function deleteProject() {
   list-style: none;
   margin: 6px 0 0 0;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 .niche-lib-tile .topic-list li {
@@ -7679,7 +7679,7 @@ async function deleteProject() {
 }
 .niche-lib-tile .detail-row {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   line-height: 1.5;
 }

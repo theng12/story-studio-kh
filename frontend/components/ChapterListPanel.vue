@@ -452,11 +452,11 @@ function relativeTime(iso: string): string {
   white-space: nowrap;
 }
 .chp-expand-icon {
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 .chp-expand-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
   letter-spacing: 0.2px;
 }
 .chp-expand:hover {
@@ -538,7 +538,7 @@ function relativeTime(iso: string): string {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   background: var(--bg-tertiary);
   color: var(--text-muted);
   border: 1px solid var(--border);

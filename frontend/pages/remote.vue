@@ -359,7 +359,7 @@ onBeforeUnmount(() => stopPolling())
   background: var(--accent, #6c8fff); color: #fff; border: none;
 }
 .rm-run:disabled { opacity: 0.5; }
-.rm-note { margin: 0; font-size: 11px; color: var(--text-muted, #888); }
+.rm-note { margin: 0; font-size: var(--font-xs); color: var(--text-muted, #888); }
 .rm-err-text { margin: 0; font-size: 13px; color: #dc6666; }
 
 .rm-job { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
@@ -373,5 +373,5 @@ onBeforeUnmount(() => stopPolling())
 .rm-approve { color: #4ade80; border-color: rgba(74,222,128,0.45); }
 .rm-stopall { height: 36px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
 
-.rm-foot { margin: 0; font-size: 11px; color: var(--text-muted, #888); text-align: center; }
+.rm-foot { margin: 0; font-size: var(--font-xs); color: var(--text-muted, #888); text-align: center; }
 </style>

@@ -131,7 +131,7 @@ function formatBase(v: any): string {
 }
 
 .ovf-hint {
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   font-weight: normal;
   line-height: 1.4;
@@ -146,7 +146,7 @@ function formatBase(v: any): string {
 }
 
 .ovf-state {
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 6px;
@@ -164,12 +164,12 @@ function formatBase(v: any): string {
   border: 1px solid var(--border);
 }
 
-.btn-tiny { font-size: 10px; padding: 2px 8px; }
+.btn-tiny { font-size: var(--font-xs); padding: 2px 8px; }
 
 .ovf-base, .ovf-base-compare {
   display: flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 

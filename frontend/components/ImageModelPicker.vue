@@ -87,5 +87,5 @@ onMounted(() => refresh())
 </script>
 
 <style scoped>
-.notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: 11px; line-height: 1.4; }
+.notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
 </style>

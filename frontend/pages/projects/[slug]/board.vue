@@ -606,7 +606,7 @@ async function markCell(ep: any, col: BoardCol) {
   flex-wrap: wrap;
 }
 .board-stepfilter-chip {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: inherit;
   padding: 2px 8px;
   border-radius: 10px;
@@ -785,9 +785,9 @@ async function markCell(ep: any, col: BoardCol) {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 .step-h-icon { font-size: 13px; }
-.step-h-label { font-size: 10px; line-height: 1.1; color: var(--text-primary); text-align: center; }
-.step-h-optional { font-size: 8px; line-height: 1; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }
-.step-h-count { font-size: 9px; color: var(--text-muted); }
+.step-h-label { font-size: var(--font-xs); line-height: 1.1; color: var(--text-primary); text-align: center; }
+.step-h-optional { font-size: var(--font-xs); line-height: 1; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }
+.step-h-count { font-size: var(--font-xs); color: var(--text-muted); }
 
 /* Cheap virtualization: skip layout/paint for off-screen rows. The fixed
    intrinsic height keeps the scrollbar accurate without windowing JS. */
@@ -828,9 +828,9 @@ async function markCell(ep: any, col: BoardCol) {
   align-items: center;
   gap: 6px;
 }
-.ep-busy { font-size: 11px; }
+.ep-busy { font-size: var(--font-xs); }
 .ep-donepill {
-  font-size: 9px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--success, #22c55e);
@@ -839,7 +839,7 @@ async function markCell(ep: any, col: BoardCol) {
   padding: 0 4px;
 }
 .ep-title {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -884,7 +884,7 @@ async function markCell(ep: any, col: BoardCol) {
   gap: 14px;
   align-items: center;
   padding: 8px 2px 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 .board-legend b { font-style: normal; }

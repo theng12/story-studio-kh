@@ -139,7 +139,7 @@ async function onSignOut() {
   padding: 3px 9px;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .ssm-signout:hover:not(:disabled) {
   background: var(--bg-hover);
