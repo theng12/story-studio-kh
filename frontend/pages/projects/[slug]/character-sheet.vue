@@ -232,7 +232,6 @@
           <StylePicker
             class="mt-3"
             :slug="slug"
-            :image-models="projectConfig?.image_models || {}"
             :active-style-bible="config.style_bible"
             :show-custom-styles="false"
             @apply="onStyleApply"

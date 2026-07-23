@@ -43,16 +43,14 @@
 
       <div v-if="hasBrokenBundledPreview" class="slm-fallback">
         <span>One or more bundled previews could not load.</span>
-        <ModelMenu
+        <ImageModelPicker
           v-model="previewModel"
+          :project-slug="projectSlug"
           class="slm-preview-model"
-          :options="previewModelOptions"
-          media-type="image"
-          title="Fallback preview model"
-          search-placeholder="Search image models…"
+          default-label="Choose a GenStudio image model…"
         />
         <select v-model="previewAspect" class="input input-sm">
-          <option v-for="opt in ASPECT_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
+          <option v-for="opt in aspectOptions" :key="opt" :value="opt">{{ opt }}</option>
         </select>
       </div>
 
@@ -160,7 +158,6 @@ const props = withDefaults(defineProps<{
   visible: boolean
   projectSlug: string
   selectedStyleId?: string
-  imageModels?: Record<string, any>
   actionLabel?: string
 }>(), {
   selectedStyleId: '',
@@ -173,9 +170,9 @@ const emit = defineEmits<{
 }>()
 
 const { post } = useApi()
+const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const FAVORITES_KEY = 'story-studio:style-library:favorites'
 const RECENTS_KEY = 'story-studio:style-library:recents'
-const ASPECT_OPTIONS = ['16:9', '1:1', '9:16'] as const
 const categories = Array.from(new Set(BUILT_IN_STYLES.map(style => style.category))).sort()
 
 interface PreviewState {
@@ -192,14 +189,16 @@ const recentIds = ref<string[]>([])
 const bundledFailed = ref<Record<string, boolean>>({})
 const previewStates = ref<Record<string, PreviewState>>({})
 const previewModel = ref('')
-const previewAspect = ref<(typeof ASPECT_OPTIONS)[number]>('16:9')
+const previewAspect = ref('16:9')
 const searchInput = ref<HTMLInputElement | null>(null)
 
-const previewModelOptions = computed(() => Object.keys(props.imageModels || {}).map(id => ({
-  id,
-  label: id,
-  group: 'Image models',
-})))
+const selectedImageModel = computed(() =>
+  genStudioImageModels.value.find(model => model.id === previewModel.value),
+)
+const aspectOptions = computed(() => {
+  const supported = selectedImageModel.value?.aspect_ratios?.filter(Boolean) || []
+  return supported.length ? supported : ['16:9']
+})
 const hasBrokenBundledPreview = computed(() => Object.keys(bundledFailed.value).length > 0)
 const draftStyle = computed(() => BUILT_IN_STYLES.find(style => style.id === draftStyleId.value) || null)
 const filters = computed(() => [
@@ -240,13 +239,21 @@ watch(() => props.visible, async (visible) => {
   await nextTick()
   searchInput.value?.focus({ preventScroll: true })
 })
-watch(previewModelOptions, (options) => {
-  if (!previewModel.value && options.length) previewModel.value = options[0]!.id
+watch(genStudioImageModels, (models) => {
+  if (models.some(model => model.id === previewModel.value && model.available)) return
+  previewModel.value = models.find(model => model.available)?.id || ''
+}, { immediate: true, deep: true })
+watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
+  if (!model || aspects.includes(previewAspect.value)) return
+  previewAspect.value = aspects.includes(model.default_aspect_ratio)
+    ? model.default_aspect_ratio
+    : aspects[0] || '16:9'
 }, { immediate: true })
 
 onMounted(() => {
   favoriteIds.value = new Set(readStoredIds(FAVORITES_KEY))
   recentIds.value = readStoredIds(RECENTS_KEY).slice(0, 8)
+  void refreshGenStudioImageModels()
 })
 
 function readStoredIds(key: string): string[] {
@@ -292,6 +299,8 @@ async function generatePreview(style: BuiltInStyle): Promise<void> {
       style_tag: style.data.style_bible,
       model: previewModel.value,
       aspect_ratio: previewAspect.value,
+      variant_id: 'style-proof',
+      image_steps: selectedImageModel.value?.default_steps,
     })
     previewStates.value[style.id] = { loading: false, url: data.url, error: null }
   } catch (error: any) {

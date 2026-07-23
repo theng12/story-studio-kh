@@ -14,7 +14,6 @@
     <BuiltInStyleLibraryModal
       :visible="builtInLibraryOpen"
       :project-slug="projectSlug"
-      :image-models="imageModels"
       action-label="Load into editor"
       @close="builtInLibraryOpen = false"
       @select="loadBuiltInStyle"
@@ -24,20 +23,18 @@
       <div>
         <label>{{ title }}</label>
         <p class="text-muted text-xs mt-1">
-          Build your own style pack for this project, render five real samples with your chosen image model, then save it so every machine sees the same style text and preview gallery.
+          Build a reusable style pack, render one representative proof with a live GenStudio image model, then save the style text and preview with this project.
         </p>
       </div>
       <div class="psl-controls">
-        <ModelMenu
+        <ImageModelPicker
           v-model="previewModel"
+          :project-slug="projectSlug"
           class="psl-preview-model"
-          :options="previewModelOptions"
-          media-type="image"
-          title="Style sample model"
-          search-placeholder="Search image models…"
+          default-label="Choose a GenStudio image model…"
         />
         <select v-model="previewAspect" class="input input-sm">
-          <option v-for="opt in ASPECT_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
+          <option v-for="opt in aspectOptions" :key="opt" :value="opt">{{ opt }}</option>
         </select>
       </div>
     </div>
@@ -73,10 +70,10 @@
         <button
           class="btn btn-secondary btn-sm"
           :disabled="renderingAll || anySampleLoading || !draftDescription.trim() || !previewModel"
-          :title="!previewModel ? 'Pick a preview model first' : 'Render five fixed sample scenes with this style'"
+          :title="!previewModel ? 'Pick a GenStudio image model first' : 'Render one balanced scene that tests the complete visual style'"
           @click="generateAllSamples"
         >
-          {{ renderingAll ? 'Rendering 5 samples…' : 'Generate 5 live samples' }}
+          {{ renderingAll ? 'Rendering style proof…' : 'Generate style proof' }}
         </button>
         <button
           class="btn btn-primary btn-sm"
@@ -106,7 +103,7 @@
           Apply to Style Bible
         </button>
         <span v-if="galleryCount" class="psl-gallery-count">{{ galleryCount }} sample{{ galleryCount === 1 ? '' : 's' }} selected for gallery</span>
-        <span class="text-muted text-xs">Uses your current model selection, so `gpt-image-2` works here.</span>
+        <span class="text-muted text-xs">Uses the live GenStudio catalog and the selected model's supported defaults.</span>
       </div>
       <p v-if="renderError" class="psl-error">{{ renderError }}</p>
 
@@ -284,7 +281,6 @@ interface LightboxImage {
 
 const props = withDefaults(defineProps<{
   projectSlug: string
-  imageModels?: Record<string, any>
   title?: string
   showApply?: boolean
   showBuiltInStarters?: boolean
@@ -301,21 +297,21 @@ const emit = defineEmits<{
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
+const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 
-const ASPECT_OPTIONS = ['16:9', '1:1', '9:16'] as const
 const SAMPLE_VARIANTS = [
-  { id: 'landscape', label: 'Landscape', scene_hint: 'Outdoor wide shot to test overall environment handling.' },
-  { id: 'character', label: 'Character', scene_hint: 'Readable subject silhouette and simple front-facing character staging.' },
-  { id: 'interior', label: 'Interior', scene_hint: 'Indoor lighting, props, and cozy environmental texture.' },
-  { id: 'action', label: 'Action', scene_hint: 'Movement, depth separation, and multi-subject clarity.' },
-  { id: 'closeup', label: 'Close-up', scene_hint: 'Face design, line confidence, and emotional readability.' },
+  {
+    id: 'style-proof',
+    label: 'Style proof',
+    scene_hint: 'One balanced scene tests character design, environment, lighting, depth, palette, and texture together.',
+  },
 ] as const
 
 const presets = ref<PresetEntry[]>([])
 const draftName = ref('')
 const draftDescription = ref('')
 const previewModel = ref('')
-const previewAspect = ref<(typeof ASPECT_OPTIONS)[number]>('16:9')
+const previewAspect = ref('16:9')
 const saving = ref(false)
 const renderingAll = ref(false)
 const renderError = ref<string | null>(null)
@@ -326,20 +322,32 @@ const lightboxImages = ref<LightboxImage[]>([])
 const lightboxIndex = ref(0)
 const builtInLibraryOpen = ref(false)
 
-const modelOptions = computed(() =>
-  Object.keys(props.imageModels || {}).map(id => ({ value: id, label: id })),
+const selectedImageModel = computed(() =>
+  genStudioImageModels.value.find(model => model.id === previewModel.value),
 )
-const previewModelOptions = computed(() => modelOptions.value.map(option => ({
-  id: option.value,
-  label: option.label,
-  group: 'Image models',
-})))
+const aspectOptions = computed(() => {
+  const supported = selectedImageModel.value?.aspect_ratios?.filter(Boolean) || []
+  return supported.length ? supported : ['16:9']
+})
 const anySampleLoading = computed(() => liveSamples.value.some(sample => sample.loading))
 const galleryCount = computed(() => liveSamples.value.filter(sample => sample.url && sample.included).length)
 const lightboxCurrent = computed(() => lightboxImages.value[lightboxIndex.value] || null)
 
-watch(modelOptions, (opts) => {
-  if (!previewModel.value && opts.length) previewModel.value = opts[0]!.value
+watch(genStudioImageModels, (models) => {
+  const current = models.find(model => model.id === previewModel.value && model.available)
+  if (!current) {
+    const mapped = models.find(model => model.available && model.legacy_ids?.includes(previewModel.value))
+    previewModel.value = mapped?.id || models.find(model => model.available)?.id || ''
+  }
+}, { immediate: true, deep: true })
+
+watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
+  if (!model) return
+  if (!aspects.includes(previewAspect.value)) {
+    previewAspect.value = aspects.includes(model.default_aspect_ratio)
+      ? model.default_aspect_ratio
+      : aspects[0] || '16:9'
+  }
 }, { immediate: true })
 
 watch(() => props.projectSlug, () => {
@@ -348,6 +356,7 @@ watch(() => props.projectSlug, () => {
 })
 
 onMounted(() => {
+  void refreshGenStudioImageModels()
   void loadPresets()
 })
 
@@ -405,7 +414,7 @@ async function generateAllSamples(): Promise<void> {
   renderError.value = null
   liveSamples.value = liveSamples.value.map(sample => ({ ...sample, loading: true, error: null }))
   try {
-    await Promise.all(SAMPLE_VARIANTS.map(variant => renderSample(variant.id, false)))
+    await renderSample(SAMPLE_VARIANTS[0].id, false)
   } finally {
     renderingAll.value = false
     if (liveSamples.value.every(s => !s.url)) {
@@ -437,6 +446,7 @@ async function renderSample(variantId: string, force: boolean): Promise<void> {
       model: previewModel.value,
       aspect_ratio: previewAspect.value,
       variant_id: variantId,
+      image_steps: selectedImageModel.value?.default_steps,
       force,
     })
     patchSample(variantId, {
@@ -516,8 +526,8 @@ function loadPreset(preset: PresetEntry): void {
   draftName.value = preset.name
   draftDescription.value = preset.description
   if (preset.preview_model) previewModel.value = preset.preview_model
-  if (preset.preview_aspect_ratio && ASPECT_OPTIONS.includes(preset.preview_aspect_ratio as any)) {
-    previewAspect.value = preset.preview_aspect_ratio as (typeof ASPECT_OPTIONS)[number]
+  if (preset.preview_aspect_ratio) {
+    previewAspect.value = preset.preview_aspect_ratio
   }
   const previewFiles = presetPreviewFiles(preset)
   liveSamples.value = SAMPLE_VARIANTS.map((variant, index) => {
@@ -662,11 +672,16 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   font-size: 12px;
   color: var(--text-muted);
 }
+.psl-samples-grid {
+  grid-template-columns: minmax(0, 760px);
+}
 .psl-samples-grid,
 .psl-preset-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+}
+.psl-preset-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 .psl-builtins-launch {
   display: flex;

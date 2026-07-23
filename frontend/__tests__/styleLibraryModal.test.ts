@@ -37,6 +37,17 @@ describe('scalable built-in style library', () => {
     assert.doesNotMatch(projectLibrary, /v-for="style in BUILT_IN_STYLES"/)
   })
 
+  test('uses the live GenStudio image catalog and one representative style proof', () => {
+    assert.match(projectLibrary, /<ImageModelPicker/)
+    assert.match(projectLibrary, /useGenStudioImageModels/)
+    assert.match(projectLibrary, /Generate style proof/)
+    assert.match(projectLibrary, /id: 'style-proof'/)
+    assert.doesNotMatch(projectLibrary, /Generate 5 live samples/)
+    assert.doesNotMatch(projectLibrary, /props\.imageModels/)
+    assert.match(modal, /<ImageModelPicker/)
+    assert.doesNotMatch(modal, /props\.imageModels/)
+  })
+
   test('keeps every project style surface on the shared built-in catalog', () => {
     assert.match(characterSheet, /<StylePicker/)
     assert.match(imagePrompts, /import \{ BUILT_IN_STYLES \}/)

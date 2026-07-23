@@ -276,7 +276,6 @@
     <div v-if="activeTab === 'styles'" class="card settings-panel mt-2">
       <ProjectStyleLibrary
         :project-slug="slug"
-        :image-models="config?.image_models || {}"
         title="Project style library"
         :show-built-in-starters="true"
       />

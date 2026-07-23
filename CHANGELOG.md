@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.678 — 2026-07-23
+
+**Style previews now use the live GenStudio image catalog and one focused proof image.**
+
+- Replaces the retired project image-model list in Settings and shared style
+  surfaces with the same live GenStudio picker used by production image tools.
+- Validates model availability, aspect ratio, and inference-step limits against
+  GenStudio before submitting a style preview.
+- Replaces the five-image sample batch with one balanced Style Proof scene that
+  tests character treatment, environment, lighting, depth, palette, and texture
+  together.
+- Uses a stable idempotency identity for preview submissions so a transient
+  polling or download retry cannot create a duplicate GenStudio generation.
+- Keeps existing saved multi-image style galleries readable while new and
+  updated styles use the simpler single-proof workflow.
+
 ## v1.0.677 — 2026-07-23
 
 **GenStudio model pickers now explain Unlimited Relaxed access before a job is submitted.**

@@ -16,32 +16,27 @@
  *     regex blocks path traversal.
  */
 
+import { randomUUID } from 'crypto'
 import path from 'path'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
-import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import * as pm from '../services/project-manager.js'
 import {
   getCachedStylePreview,
+  hashStylePreviewKey,
   saveStylePreview,
   pathForStylePreviewHash,
 } from '../services/style-preview-cache.js'
-import type { ImageModelConfig } from '../models/types.js'
-import { resolveImageProviderParams } from '../models/image-provider-params.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
 
 export const router = Router()
 
-// Fixed sample scenes for "show me how this style behaves" previews.
-// They stay stable across rerenders so cache hits remain deterministic
-// while still exercising different compositions, subjects, and framing.
+// One stable, coherent proof scene covers the major visual-style dimensions
+// without spending five separate image generations.
 const STYLE_PREVIEW_VARIANTS = {
-  landscape: 'A solitary path winding through autumn trees at golden hour, with a small wooden bench beside it and warm natural light filtering through the leaves.',
-  character: 'A friendly explorer standing on a rocky overlook at sunrise, facing the viewer with clear silhouette separation and simple readable body language.',
-  interior: 'A cozy reading room with a glowing lamp, bookshelves, a window with evening light, and a cup of tea on a wooden table.',
-  action: 'A small group crossing a windswept snowy valley with dynamic movement, clear foreground and background separation, and one large focal animal in the distance.',
-  closeup: 'A calm protagonist in close-up, expressive face, clean eye line, gentle side lighting, and a softly simplified background.',
+  'style-proof': 'A traveler pauses beside a small open-air reading shelter on a winding garden path at golden hour. Show one expressive full-body character, a few tactile props, foreground plants, architectural details, distant landscape depth, and clear natural lighting in one coherent scene. No captions, labels, split panels, collage layout, or written text.',
 } as const
 
 type StylePreviewVariantId = keyof typeof STYLE_PREVIEW_VARIANTS
@@ -52,7 +47,7 @@ const StylePreviewSchema = z.object({
   aspect_ratio: z.string().min(1),
   /** Tier id for variable-priced models (nano-banana high/low etc.). */
   tier: z.string().optional(),
-  variant_id: z.enum(['landscape', 'character', 'interior', 'action', 'closeup']).optional(),
+  variant_id: z.literal('style-proof').optional(),
   image_steps: z.number().int().min(1).max(100).optional(),
   seed: z.number().int().min(0).max(2147483647).optional(),
   /** Explicit reroll: bypass the free cache hit and ask the provider for new pixels. */
@@ -69,7 +64,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const modelName = req.body.model as string
   const aspectRatio = req.body.aspect_ratio as string
   const tier = (req.body.tier as string | undefined) || ''
-  const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'landscape')
+  const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'style-proof')
   const force = req.body.force === true
   const imageSteps = req.body.image_steps as number | undefined
   const seed = req.body.seed as number | undefined
@@ -94,60 +89,75 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     })
   }
 
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Project config not found' })
-
-  const modelConfig = resolveImageModelConfig(config, modelName)
-  if (!modelConfig) {
-    return res.status(400).json({ detail: `Unknown image model: ${modelName}` })
-  }
-
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
-  if (!imageProvider) {
-    return res.status(400).json({ detail: `No image provider registered for: ${providerId}` })
-  }
-
-  // Provider params + tier override. Mirrors generators/images.ts.
-  const providerParams = resolveImageProviderParams(modelConfig, tier)
-
-  const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model: modelName })
+  const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     return res.status(400).json({
-      detail: `No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`,
+      detail: 'No GenStudio KH API key is saved. Add one in Settings → App & Connections.',
     })
   }
 
-  // Style as the leading clause matches how scene prompts thread it in
-  // production — keeps the preview faithful to the eventual renders.
-  const prompt = `${styleTag}. ${STYLE_PREVIEW_VARIANTS[variantId]}`
-
-  let urls: string[]
+  let catalog
   try {
-    const result = await imageProvider.generateImage({
-      prompt,
-      apiKey,
-      aspectRatio,
-      modelId: modelName,
-      providerParams,
-      steps: imageSteps,
-      seed,
-    })
-    urls = result.urls || []
+    catalog = await listImageModels(apiKey)
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Image provider failed' })
+    return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
   }
-  if (!urls.length) return res.status(502).json({ detail: 'Image provider returned no images' })
+  const selectedModel = catalog.find(model => model.id === modelName)
+  if (!selectedModel) {
+    return res.status(400).json({
+      detail: `The selected model is not in the live GenStudio image catalog: ${modelName}`,
+    })
+  }
+  if (!selectedModel.available) {
+    return res.status(409).json({
+      detail: `${selectedModel.display_name} is currently unavailable in GenStudio.`,
+    })
+  }
+  if (selectedModel.aspect_ratios.length && !selectedModel.aspect_ratios.includes(aspectRatio)) {
+    return res.status(400).json({
+      detail: `${selectedModel.display_name} does not support ${aspectRatio}. Choose ${selectedModel.aspect_ratios.join(', ')}.`,
+    })
+  }
+  const steps = imageSteps ?? selectedModel.default_steps
+  if (steps < selectedModel.min_steps || steps > selectedModel.max_steps) {
+    return res.status(400).json({
+      detail: `${selectedModel.display_name} supports ${selectedModel.min_steps}-${selectedModel.max_steps} image steps.`,
+    })
+  }
+
+  const prompt = `${styleTag}. ${STYLE_PREVIEW_VARIANTS[variantId]}`
+  const stablePreviewKey = hashStylePreviewKey({
+    styleTag,
+    modelId: modelName,
+    aspectRatio,
+    tier,
+    variantId,
+    imageSteps: steps,
+    seed,
+  })
+  let source: string
+  try {
+    const result = await generateImageWithGenStudio(apiKey, {
+      prompt,
+      modelId: modelName,
+      aspectRatio,
+      steps,
+      seed,
+      requestIdentity: force
+        ? `style-preview:${slug}:${randomUUID()}`
+        : `style-preview:${slug}:${stablePreviewKey}`,
+    })
+    source = result.url
+  } catch (e: any) {
+    return res.status(502).json({ detail: e?.message || 'GenStudio image generation failed' })
+  }
 
   let imageBytes: Buffer
   try {
-    const source = urls[0]!
     if (source.startsWith('data:')) {
       imageBytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64')
     } else {
-      const dl = await fetch(source, { signal: AbortSignal.timeout(120000) })
-      if (!dl.ok) throw new Error(`Download failed: ${dl.status}`)
-      imageBytes = Buffer.from(await dl.arrayBuffer())
+      throw new Error('GenStudio returned an unsupported preview artifact')
     }
     if (imageBytes.length === 0) throw new Error('Downloaded zero bytes')
   } catch (e: any) {
@@ -160,7 +170,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     aspectRatio,
     tier,
     variantId,
-    imageSteps,
+    imageSteps: steps,
     seed,
     imageBytes,
   })

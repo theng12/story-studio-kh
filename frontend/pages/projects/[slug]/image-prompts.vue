@@ -134,7 +134,6 @@
       <div v-if="formTab === 'thumbnails' && showVisualStyleGallery" class="card workspace-section nested-workspace-section">
         <StylePicker
           :slug="slug"
-          :image-models="config?.image_models || {}"
           :active-style-bible="form.thumbnail.style_tag"
           @apply="applyThumbnailVisualStyle"
         />

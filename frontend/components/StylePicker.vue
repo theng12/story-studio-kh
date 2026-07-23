@@ -38,7 +38,6 @@
       :visible="libraryOpen"
       :project-slug="slug"
       :selected-style-id="activeStyle?.id || appliedStyleId"
-      :image-models="imageModels"
       @close="libraryOpen = false"
       @select="applyStyle"
     />
@@ -46,7 +45,6 @@
     <ProjectStyleLibrary
       v-if="showCustomStyles !== false"
       :project-slug="slug"
-      :image-models="imageModels"
       title="Custom styles for this project"
       :show-apply="true"
       @apply="applyCustomStyle"
@@ -59,8 +57,6 @@ import { BUILT_IN_STYLES, type BuiltInStyle } from '~/composables/useBuiltInStyl
 
 const props = defineProps<{
   slug: string
-  /** Project config image_models, used only if a bundled preview needs repair. */
-  imageModels?: Record<string, any>
   /** The active Style Bible lets the compact card identify the current built-in. */
   activeStyleBible?: string
   /** Some focused workspaces only need the shipped style library. */
