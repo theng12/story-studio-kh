@@ -886,9 +886,12 @@ export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
   // reads. An invalid or under-scoped key therefore produces one clear
   // failure instead of three concurrent rejected requests.
   const overview = await getGenStudioAccountOverview(apiKey)
+  // GenStudio accepts a fixed page-size set. Keep this explicit so Story
+  // Studio cannot drift back to an otherwise reasonable but invalid value.
+  const accountPageSize = 20
   const [jobs, creditActivity] = await Promise.all([
-    readAccountJson<any>(apiKey, '/v1/account/jobs?page=1&page_size=25'),
-    readAccountJson<any>(apiKey, '/v1/account/credit-activity?page=1&page_size=25'),
+    readAccountJson<any>(apiKey, `/v1/account/jobs?page=1&page_size=${accountPageSize}`),
+    readAccountJson<any>(apiKey, `/v1/account/credit-activity?page=1&page_size=${accountPageSize}`),
   ])
   return { overview, jobs, credit_activity: creditActivity }
 }

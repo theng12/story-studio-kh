@@ -219,3 +219,47 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
   assert.doesNotMatch(response.body.detail, /after GenStudio exposes/i)
   assert.deepEqual(visited, ['http://127.0.0.1:8000/v1/account/overview'])
 })
+
+test('GenStudio usage requests supported account pagination and returns authoritative settlement', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_usage_snapshot' })
+    .expect(200)
+
+  const visited: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    visited.push(url)
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_usage_snapshot')
+    if (url.endsWith('/v1/account/overview')) {
+      return Response.json({
+        credit_balance: 900,
+        credits_used_30d: 100,
+        subscription_plan_name: 'Angkor Pro',
+        relaxed_concurrency_limit: 3,
+        active_jobs: 1,
+        completed_jobs: 12,
+      })
+    }
+    if (url.endsWith('/v1/account/jobs?page=1&page_size=20')) {
+      return Response.json({ items: [], page: 1, page_size: 20, total: 0, total_pages: 0 })
+    }
+    if (url.endsWith('/v1/account/credit-activity?page=1&page_size=20')) {
+      return Response.json({ items: [], page: 1, page_size: 20, total: 0, total_pages: 0 })
+    }
+    throw new Error(`Unexpected GenStudio usage request: ${url}`)
+  }
+
+  const response = await request(app)
+    .get('/api/app-settings/genstudio/usage')
+    .expect(200)
+
+  assert.equal(response.body.overview.credit_balance, 900)
+  assert.equal(response.body.jobs.page_size, 20)
+  assert.equal(response.body.credit_activity.page_size, 20)
+  assert.deepEqual(visited, [
+    'http://127.0.0.1:8000/v1/account/overview',
+    'http://127.0.0.1:8000/v1/account/jobs?page=1&page_size=20',
+    'http://127.0.0.1:8000/v1/account/credit-activity?page=1&page_size=20',
+  ])
+})

@@ -6,7 +6,10 @@
         <h1>Credits &amp; settlement</h1>
         <p>Every value on this page comes from GenStudio. Story Studio does not calculate rates or balances.</p>
       </div>
-      <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+      <div class="usage-actions">
+        <NuxtLink to="/" class="btn btn-secondary btn-sm">← Back to projects</NuxtLink>
+        <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+      </div>
     </header>
 
     <WorkspaceNotice v-if="error" tone="warning" title="Authoritative credit data unavailable">
@@ -139,6 +142,7 @@ await Promise.all([load(), genStudioModels.refresh()])
 .usage-page { max-width: 1120px; margin: 0 auto; padding: 24px; color: var(--text-primary); }
 .usage-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .usage-header h1 { margin: 2px 0; color: var(--accent); }.usage-header p { margin: 0; color: var(--text-muted); }
+.usage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
 .eyebrow { color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
 .totals article, .card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); padding: 16px; }
@@ -147,5 +151,5 @@ await Promise.all([load(), genStudioModels.refresh()])
 .plan-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }.plan-card h2 { margin: 4px 0 6px; }.plan-card p { max-width: 760px; margin: 0; color: var(--text-secondary); line-height: 1.5; }.plan-card button { flex: 0 0 auto; }
 .table-wrap { overflow-x: auto; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th, td { padding: 9px; border-bottom: 1px solid var(--border); text-align: left; } th { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; } td small { display: block; color: var(--text-muted); }.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity { list-style: none; margin: 0; padding: 0; }.activity li { display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }.activity small { display: block; color: var(--text-muted); }.activity-kind { text-transform: uppercase; font-size: var(--font-xs); font-weight: 700; }.activity-kind.credit, .activity-kind.return { color: var(--success); }.activity-kind.charge { color: var(--warning, #d97706); }
-@media (max-width: 760px) { .totals { grid-template-columns: repeat(2, 1fr); }.plan-card { align-items: stretch; flex-direction: column; }.plan-card button { width: 100%; } }
+@media (max-width: 760px) { .usage-header { flex-direction: column; }.usage-actions { width: 100%; justify-content: flex-start; }.totals { grid-template-columns: repeat(2, 1fr); }.plan-card { align-items: stretch; flex-direction: column; }.plan-card button { width: 100%; } }
 </style>

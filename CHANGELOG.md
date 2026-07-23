@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.691 — 2026-07-23
+
+**Large GenStudio jobs now stay readable at hundreds of items.**
+
+- Replaces the wall of per-item credit chips for batches of 12 or more with a
+  single settled, reserved, and returned-credit rollup.
+- Shows a segmented count of settled, active, queued, and failed remote items
+  so a 500-image run is understandable at a glance.
+- Keeps the audit trail available through a paginated item ledger, with a
+  one-click view of only active or failed items. Small jobs retain their
+  existing per-item chips.
+
+## v1.0.690 — 2026-07-23
+
+**GenStudio Usage loads authoritative credits again.**
+
+- Uses GenStudio's supported account pagination when loading recent jobs and
+  credit settlement activity.
+- Adds a visible **Back to projects** action so Usage never traps the operator
+  outside the project-selection workspace.
+
 ## v1.0.689 — 2026-07-23
 
 **Thumbnail Prompts now gives you simple title-design control again.**
