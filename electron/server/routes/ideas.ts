@@ -20,6 +20,8 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
+import { loadNiche } from '../services/niche-loader.js'
+import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -368,6 +370,87 @@ function parseIdeas(raw: string): any[] {
   if (start === -1 || end === -1) throw new Error('No JSON array found in AI response')
   return JSON.parse(text.slice(start, end + 1))
 }
+
+/**
+ * Queue a durable, navigation-safe Idea Campaign.
+ *
+ * The campaign id is generated once here and persisted in the job params.
+ * Retrying the job therefore reuses the same id, audits the ideas already
+ * saved for that campaign, and fills only the missing coverage slots.
+ */
+router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
+  try {
+    const { slug } = req.params
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+    const count = Math.round(Number(req.body?.count))
+    if (!Number.isFinite(count) || count < 1 || count > 100) {
+      return res.status(400).json({ detail: 'Idea Campaign count must be between 1 and 100.' })
+    }
+    const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+    if (!model) return res.status(400).json({ detail: 'Choose an AI model before queuing the campaign.' })
+
+    const rawFormula = req.body?.niche_id
+    let seriesFormulaId: string | undefined
+    if (typeof rawFormula === 'string') {
+      const value = rawFormula.trim()
+      seriesFormulaId = value && value !== '__none__' ? value : undefined
+    } else {
+      seriesFormulaId = project.niche_id
+    }
+
+    const topicPackIds: string[] | undefined = Array.isArray(req.body?.topic_pack_ids)
+      ? [...new Set<string>(req.body.topic_pack_ids
+        .filter((value: unknown): value is string => typeof value === 'string')
+        .map((value: string) => value.trim())
+        .filter(Boolean))]
+      : project.topic_pack_ids
+
+    if (seriesFormulaId) {
+      const formula = await loadNiche(seriesFormulaId)
+      if (!formula) return res.status(404).json({ detail: `Series Formula '${seriesFormulaId}' not found.` })
+      for (const packId of topicPackIds || []) {
+        const pack = await loadTopicPack(packId)
+        if (!pack) return res.status(404).json({ detail: `Topic Pack '${packId}' not found.` })
+        if (!isCompatible(pack, seriesFormulaId)) {
+          return res.status(400).json({
+            detail: `Topic Pack '${packId}' is not compatible with Series Formula '${seriesFormulaId}'.`,
+          })
+        }
+      }
+    } else if (topicPackIds?.length) {
+      return res.status(400).json({ detail: 'Choose a Series Formula before adding Topic Packs.' })
+    }
+
+    const campaignId = `idea-campaign-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const params = {
+      ...req.body,
+      count,
+      model,
+      campaign_id: campaignId,
+      series_formula_id: seriesFormulaId,
+      topic_pack_ids: topicPackIds,
+    }
+    delete (params as any).niche_id
+
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'idea_campaign',
+      episode_id: 'ideas',
+      title: `Idea Campaign — ${count} ideas`,
+      params,
+    })
+    return res.status(201).json(job)
+  } catch (e: any) {
+    if (e instanceof jq.DuplicateJobError) {
+      return res.status(409).json({
+        detail: 'An Idea Campaign is already queued or running for this project. Track it in Jobs, or wait for it to finish.',
+      })
+    }
+    return res.status(400).json(humanizeBackendError(e, 'Failed to queue Idea Campaign'))
+  }
+})
 
 router.post('/projects/:slug/generate/ideas', async (req, res) => {
   const { slug } = req.params

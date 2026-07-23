@@ -229,6 +229,7 @@ interface QueueState {
 }
 
 const queues: Record<JobType, QueueState> = {
+  idea_campaign: { pending: [], running: false, executor: null },
   broll_select: { pending: [], running: false, executor: null },
   // Legacy `script` queue removed in M1 — chapters and intro now flow
   // through `script-only` and `introduction-only` independently. The
@@ -348,7 +349,7 @@ const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
 const REMOTE_RENDER_GROUP = 'remote_render'
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
-  'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
+  'idea_campaign', 'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
 ])
 /** Which concurrency group a type belongs to: the shared LLM group, or its
  *  own singleton group (= the type name) so non-LLM types keep one slot. */

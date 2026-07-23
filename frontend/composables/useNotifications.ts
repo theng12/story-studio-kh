@@ -65,6 +65,7 @@ export interface ActivityItem {
 }
 
 const JOB_TYPE_LABELS: Record<string, string> = {
+  idea_campaign: 'Idea Campaign',
   'script-only': 'Script',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',

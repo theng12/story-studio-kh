@@ -374,6 +374,7 @@ describe('format-loader', () => {
       'sleep', 'listicle-explainer', 'pov-hustle', 'prayer', 'devotional',
       'preaching', 'history-narration', 'mindfulness', 'motivation',
       'animals', 'plants', 'fungi', 'insects', 'philosophy', 'psychology',
+      'business-economics',
     ]
     for (const id of COMPLETE_NICHES) {
       const niche = await nicheLoader.loadNiche(id)
@@ -391,6 +392,27 @@ describe('format-loader', () => {
       assert.equal(merged.idea.systemPromptRole, niche!.ideaSystemPromptRole,
         `${id}: idea persona wins on the shell`)
     }
+  })
+
+  test('Business Economics owns its case-study structure and annotated thumbnail layout', async () => {
+    const nicheLoader = await import('../services/niche-loader.js')
+    const shell = (await loader.loadFormat('scenes'))!
+    const niche = await nicheLoader.loadNiche('business-economics')
+    assert.ok(niche, 'business-economics must ship as a built-in niche')
+
+    const merged = loader.applyNicheToFormat(shell, niche!)
+    assert.equal(merged.script.defaultChapterCount, 10)
+    assert.deepEqual(merged.script.chapterCountRange, [8, 12])
+    assert.match(merged.script.pacingArc[0] || '', /owner's position/i)
+    assert.ok(merged.script.additionalRules.some(rule => /unit economics|revenue or cost number/i.test(rule)))
+    assert.ok((merged.idea.titleShapeRules || []).some(rule => /The Economics of Owning/i.test(rule)))
+
+    const thumbnail = merged.imagePrompts.thumbnail
+    assert.equal(thumbnail?.layout, 'annotated-collage')
+    assert.match(thumbnail?.conceptGuidance || '', /six to eight small/i)
+    assert.doesNotMatch(thumbnail?.conceptGuidance || '', /single dramatic focal subject/i)
+    assert.ok(thumbnail?.compositionRules?.some(rule => /red underline/i.test(rule)))
+    assert.equal(thumbnail?.defaultFontStyle, 'bold')
   })
 
   test('user-custom format in .formats/ shadows built-in by id', async () => {

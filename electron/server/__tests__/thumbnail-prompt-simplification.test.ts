@@ -37,6 +37,33 @@ test('auto title controls give the LLM freedom to vary the title treatment', () 
   assert.match(directive, /choose the font, text treatment, and placement/i)
 })
 
+test('annotated-collage niches get callout guidance without generic collage conflicts', () => {
+  const directive = buildThumbnailDirective({
+    thumbs: 3,
+    title: 'The Economics of Owning a Coffee Shop',
+    textStyle: 'auto',
+    fontStyle: 'auto',
+    textPosition: 'top',
+    fmt: {
+      layout: 'annotated-collage',
+      conceptGuidance: 'A coffee shop surrounded by operating-cost callouts.',
+      compositionRules: [
+        'One central storefront',
+        'Six small supporting callouts',
+      ],
+      defaultFontStyle: 'bold',
+      avoid: ['dark background'],
+    },
+  })
+
+  assert.match(directive, /annotated explainer cover/i)
+  assert.match(directive, /central anchor subject/i)
+  assert.match(directive, /Six small supporting callouts/i)
+  assert.match(directive, /bold sweeping sans-serif letters/i)
+  assert.doesNotMatch(directive, /busy collages or multiple competing subjects/i)
+  assert.match(directive, /dense undifferentiated montage/i)
+})
+
 test('thumbnail prompt repair preserves the aspect ratio and ready-to-use title', () => {
   const fixed = enforceThumbnailPromptElements('A storm-tossed ship lit by lightning.', {
     aspectRatio: '16:9',

@@ -1,0 +1,15 @@
+{
+  "id": "ancient-humans-technology",
+  "name": "Tools & Technology",
+  "description": "Material inventions and learned processes that changed prehistoric survival.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["ancient-humans"],
+  "subjects": [
+    "making fire", "knapping stone tools", "hafting a spear", "sewing fitted clothing", "weaving baskets",
+    "building shelters", "making cordage", "tanning hides", "using pigments", "constructing fish traps",
+    "making bone needles", "launching projectile weapons", "carving watercraft", "storing food", "making glue",
+    "lighting caves", "tracking animals", "processing toxic plants", "carrying water", "building snow shelters"
+  ],
+  "tags": ["technology", "tools", "experimental archaeology"]
+}

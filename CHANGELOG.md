@@ -4,6 +4,46 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.703 — 2026-07-24
+
+**Idea generation now scales through Series Formulas, Topic Packs, and durable campaigns.**
+
+- Evolves the flat niche system into a backward-compatible Series Formula plus
+  multi-select Topic Pack architecture, with built-in Business Economics,
+  Ancient Humans, and POV Life subject libraries.
+- Adds deterministic coverage planning and stable fingerprints so campaigns of
+  up to 100 ideas reserve genuinely distinct concepts before generation and
+  avoid recycling formula-level ideas across projects.
+- Runs Idea Campaigns through the durable Job Queue with progress, cancellation,
+  partial-result preservation, and Retry that fills only missing idea slots.
+- Packages built-in Topic Packs with the desktop app and exposes consistent
+  project defaults and per-campaign overrides in Settings and Ideas.
+
+## v1.0.702 — 2026-07-24
+
+**GenStudio catalogs now live with the account connection, not the project.**
+
+- Removes the misleading project-level Models tab and relocates its live,
+  read-only inventory beneath App & Connections.
+- Adds a compact account summary for connection health, plan, authoritative
+  credits, catalog counts, refresh time, and partial loading errors.
+- Keeps detailed model and voice inventory available in a collapsed diagnostic
+  view while generator pickers and presets continue consuming the live catalog.
+- Redirects older Settings `#models` links safely to App & Connections.
+
+## v1.0.701 — 2026-07-24
+
+**Business Economics channels now have a complete production voice.**
+
+- Adds a built-in Business Economics niche with ownership-focused ideas,
+  evidence-aware scripts, a ten-part operating-model structure, narrator
+  choices, title hooks, metadata rules, and reusable topic starters.
+- Lets niches replace the presentation format's thumbnail layout and
+  composition without taking ownership of the project's selected visual style.
+- Adds an annotated-collage thumbnail grammar for a central business, facility,
+  or asset surrounded by readable cost, revenue, staffing, supply-chain, risk,
+  and margin callouts.
+
 ## v1.0.700 — 2026-07-24
 
 **New channels now start cleanly on Continuity.**

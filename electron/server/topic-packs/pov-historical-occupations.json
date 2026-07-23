@@ -1,0 +1,16 @@
+{
+  "id": "pov-historical-occupations",
+  "name": "Historical Occupations",
+  "description": "Dangerous, strange, and status-heavy jobs whose full life cycle reveals a past society.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["pov-life"],
+  "subjects": [
+    "medieval executioner", "Roman gladiator", "Viking shipbuilder", "castle servant", "court jester",
+    "plague doctor", "Victorian chimney sweep", "samurai retainer", "Mongol messenger", "ancient Egyptian scribe",
+    "Roman legionary", "medieval guild apprentice", "royal food taster", "lighthouse keeper", "whaler",
+    "siege engineer", "caravan guard", "galley rower", "mine worker", "imperial eunuch",
+    "renaissance printer", "frontier stagecoach driver", "manorial reeve", "temple priest", "professional mourner"
+  ],
+  "tags": ["historical jobs", "occupations", "daily life"]
+}

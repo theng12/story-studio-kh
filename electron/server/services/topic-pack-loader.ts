@@ -1,0 +1,151 @@
+/**
+ * Topic Pack loader.
+ *
+ * Topic Packs are reusable subject inventories layered under a Series Formula
+ * (the legacy Niche object). Built-ins ship with the app; user packs live in
+ * `${PROJECTS_ROOT}/.topic-packs` and shadow built-ins by id.
+ */
+
+import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+import * as pm from './project-manager.js'
+import type { TopicPack } from '../models/types.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const require = createRequire(import.meta.url)
+
+function isPackagedApp(): boolean {
+  if (__dirname.includes('.asar')) return true
+  if (process.resourcesPath && !process.env.ELECTRON_RUN_AS_NODE) {
+    try {
+      const { app } = require('electron')
+      return app?.isPackaged === true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+function findRepoDir(start: string, maxDepth = 8): string | null {
+  let current = start
+  for (let i = 0; i < maxDepth; i++) {
+    const candidate = path.join(current, 'electron', 'server', 'topic-packs')
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return null
+}
+
+function resolveBuiltinDir(): string {
+  if (isPackagedApp() && process.resourcesPath) {
+    return path.join(process.resourcesPath, 'topic-packs')
+  }
+  return findRepoDir(__dirname) || path.resolve(__dirname, '..', 'topic-packs')
+}
+
+export const BUILTIN_TOPIC_PACKS_DIR = resolveBuiltinDir()
+
+function userDir(): string {
+  return path.join(pm.PROJECTS_ROOT, '.topic-packs')
+}
+
+const builtinCache = new Map<string, TopicPack>()
+const userCache = new Map<string, { mtimeMs: number; pack: TopicPack }>()
+
+function validate(pack: any, filePath: string): asserts pack is TopicPack {
+  const missing: string[] = []
+  if (typeof pack?.id !== 'string' || !pack.id) missing.push('id')
+  if (typeof pack?.name !== 'string' || !pack.name) missing.push('name')
+  if (typeof pack?.description !== 'string') missing.push('description')
+  if (pack?.schemaVersion !== 1) missing.push('schemaVersion (must be 1)')
+  if (!Array.isArray(pack?.compatibleNicheIds)) missing.push('compatibleNicheIds (array)')
+  if (!Array.isArray(pack?.subjects) || !pack.subjects.length) missing.push('subjects (non-empty array)')
+  if (missing.length) {
+    throw new Error(`Topic Pack at ${filePath} is missing required fields: ${missing.join(', ')}`)
+  }
+}
+
+async function readPack(filePath: string): Promise<TopicPack> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await fs.readFile(filePath, 'utf-8'))
+  } catch (error: any) {
+    throw new Error(`Topic Pack JSON parse failed at ${filePath}: ${error.message}`)
+  }
+  validate(parsed, filePath)
+  return parsed
+}
+
+export async function loadTopicPack(id: string): Promise<TopicPack | null> {
+  if (!id) return null
+  const customPath = topicPackFilePath(id)
+  if (existsSync(customPath)) {
+    const stat = await fs.stat(customPath)
+    const cached = userCache.get(customPath)
+    if (cached?.mtimeMs === stat.mtimeMs) return cached.pack
+    const pack = await readPack(customPath)
+    userCache.set(customPath, { mtimeMs: stat.mtimeMs, pack })
+    return pack
+  }
+  if (builtinCache.has(id)) return builtinCache.get(id)!
+  const builtinPath = path.join(BUILTIN_TOPIC_PACKS_DIR, `${id}.json`)
+  if (!existsSync(builtinPath)) return null
+  const pack = await readPack(builtinPath)
+  builtinCache.set(id, pack)
+  return pack
+}
+
+export async function listTopicPacks(): Promise<TopicPack[]> {
+  const found = new Map<string, TopicPack>()
+  if (existsSync(userDir())) {
+    for (const name of await fs.readdir(userDir()).catch(() => [] as string[])) {
+      if (!name.endsWith('.json')) continue
+      try {
+        const pack = await readPack(path.join(userDir(), name))
+        found.set(pack.id, pack)
+      } catch (error: any) {
+        console.warn(`[topic-pack-loader] skipping malformed user pack ${name}: ${error.message}`)
+      }
+    }
+  }
+  if (existsSync(BUILTIN_TOPIC_PACKS_DIR)) {
+    for (const name of await fs.readdir(BUILTIN_TOPIC_PACKS_DIR).catch(() => [] as string[])) {
+      if (!name.endsWith('.json')) continue
+      try {
+        const pack = await readPack(path.join(BUILTIN_TOPIC_PACKS_DIR, name))
+        if (!found.has(pack.id)) found.set(pack.id, pack)
+      } catch (error: any) {
+        console.warn(`[topic-pack-loader] skipping malformed built-in pack ${name}: ${error.message}`)
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export function topicPackFilePath(id: string): string {
+  return path.join(userDir(), `${id}.json`)
+}
+
+export async function ensureTopicPacksDir(): Promise<void> {
+  await fs.mkdir(userDir(), { recursive: true })
+}
+
+export function invalidateTopicPackCache(id?: string): void {
+  if (!id) {
+    builtinCache.clear()
+    userCache.clear()
+    return
+  }
+  builtinCache.delete(id)
+  userCache.delete(topicPackFilePath(id))
+}
+
+export function isCompatible(pack: TopicPack, nicheId: string): boolean {
+  return pack.compatibleNicheIds.length === 0 || pack.compatibleNicheIds.includes(nicheId)
+}

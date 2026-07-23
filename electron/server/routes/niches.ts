@@ -20,11 +20,12 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import * as nl from '../services/niche-loader.js'
+import * as tpl from '../services/topic-pack-loader.js'
 import * as pm from '../services/project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
-import { NicheSchema, SetProjectNicheSchema } from '../contracts/index.js'
-import type { Niche, ProjectMeta } from '../models/types.js'
+import { NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
+import type { Niche, ProjectMeta, TopicPack } from '../models/types.js'
 
 export const router = Router()
 
@@ -49,6 +50,101 @@ router.get('/niches', async (_req, res) => {
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list niches')
+  }
+})
+
+router.get('/topic-packs', async (req, res) => {
+  try {
+    const nicheId = typeof req.query.niche_id === 'string' ? req.query.niche_id : ''
+    const packs = await tpl.listTopicPacks()
+    res.json({
+      topic_packs: nicheId
+        ? packs.filter(pack => tpl.isCompatible(pack, nicheId))
+        : packs,
+    })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to list Topic Packs')
+  }
+})
+
+router.get('/topic-packs/:id', async (req, res) => {
+  try {
+    const pack = await tpl.loadTopicPack(req.params.id)
+    if (!pack) return res.status(404).json({ detail: 'Topic Pack not found' })
+    res.json(pack)
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to load Topic Pack')
+  }
+})
+
+router.post('/topic-packs', async (req, res) => {
+  try {
+    const parsed = TopicPackSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ detail: parsed.error.issues.map(issue => issue.message).join('; ') })
+    }
+    if (await tpl.loadTopicPack(parsed.data.id)) {
+      return res.status(409).json({ detail: `Topic Pack '${parsed.data.id}' already exists` })
+    }
+    await tpl.ensureTopicPacksDir()
+    const pack: TopicPack = { ...parsed.data, builtin: false }
+    await writeJsonAtomic(tpl.topicPackFilePath(pack.id), pack)
+    tpl.invalidateTopicPackCache(pack.id)
+    res.status(201).json(pack)
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to create Topic Pack')
+  }
+})
+
+router.put('/topic-packs/:id', async (req, res) => {
+  try {
+    const parsed = TopicPackSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ detail: parsed.error.issues.map(issue => issue.message).join('; ') })
+    }
+    if (parsed.data.id !== req.params.id) {
+      return res.status(400).json({ detail: 'id in path and body must match' })
+    }
+    await tpl.ensureTopicPacksDir()
+    const pack: TopicPack = { ...parsed.data, builtin: false }
+    await withLock(tpl.topicPackFilePath(pack.id), async () => {
+      await writeJsonAtomic(tpl.topicPackFilePath(pack.id), pack)
+    })
+    tpl.invalidateTopicPackCache(pack.id)
+    res.json(pack)
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to update Topic Pack')
+  }
+})
+
+router.delete('/topic-packs/:id', async (req, res) => {
+  try {
+    const filePath = tpl.topicPackFilePath(req.params.id)
+    if (!existsSync(filePath)) {
+      const existing = await tpl.loadTopicPack(req.params.id)
+      return res.status(existing?.builtin ? 400 : 404).json({
+        detail: existing?.builtin
+          ? `Topic Pack '${req.params.id}' is built-in and cannot be deleted`
+          : 'Topic Pack not found',
+      })
+    }
+    const projects = await pm.listProjects()
+    const inUse: string[] = []
+    for (const summary of projects) {
+      const project = await pm.getProject(summary.slug).catch(() => null)
+      if (project?.topic_pack_ids?.includes(req.params.id)) inUse.push(summary.slug)
+    }
+    if (inUse.length) {
+      return res.status(409).json({
+        detail: `Topic Pack is in use by ${inUse.length} project(s). Reassign or clear them first.`,
+        referencing_projects: inUse,
+      })
+    }
+    await fs.unlink(filePath)
+    tpl.invalidateTopicPackCache(req.params.id)
+    res.json({ ok: true, id: req.params.id })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to delete Topic Pack')
   }
 })
 
@@ -196,10 +292,17 @@ router.put('/projects/:slug/niche', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ detail: parsed.error.issues.map(i => i.message).join('; ') })
     }
-    const { niche_id } = parsed.data
+    const { niche_id, topic_pack_ids } = parsed.data
     if (niche_id) {
       const niche = await nl.loadNiche(niche_id)
       if (!niche) return res.status(404).json({ detail: `Niche '${niche_id}' not found` })
+      for (const packId of topic_pack_ids || []) {
+        const pack = await tpl.loadTopicPack(packId)
+        if (!pack) return res.status(404).json({ detail: `Topic Pack '${packId}' not found` })
+        if (!tpl.isCompatible(pack, niche_id)) {
+          return res.status(400).json({ detail: `Topic Pack '${packId}' is not compatible with Series Formula '${niche_id}'` })
+        }
+      }
     }
     const projectDir = pm.getProjectDir(req.params.slug)
     if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
@@ -212,14 +315,23 @@ router.put('/projects/:slug/niche', async (req, res) => {
       if (niche_id === null || niche_id === '') {
         delete (data as any).niche_id
         delete (data as any).niche_overrides
+        delete (data as any).topic_pack_ids
       } else {
         data.niche_id = niche_id
+        if (topic_pack_ids === undefined) delete (data as any).topic_pack_ids
+        else if (topic_pack_ids.length) data.topic_pack_ids = [...new Set(topic_pack_ids)]
+        else data.topic_pack_ids = []
       }
       await writeJsonAtomic(metaPath, data)
       updated = data
     })
     const finalNicheId = (updated as ProjectMeta | null)?.niche_id ?? null
-    res.json({ ok: true, slug: req.params.slug, niche_id: finalNicheId })
+    res.json({
+      ok: true,
+      slug: req.params.slug,
+      niche_id: finalNicheId,
+      topic_pack_ids: (updated as ProjectMeta | null)?.topic_pack_ids || [],
+    })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update project niche')
   }

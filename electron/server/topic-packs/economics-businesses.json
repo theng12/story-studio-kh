@@ -1,0 +1,26 @@
+{
+  "id": "economics-businesses",
+  "name": "Businesses & Companies",
+  "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["business-economics"],
+  "subjects": [
+    "coffee shop", "casino", "automobile workshop", "clothing brand", "Formula One team",
+    "five-star hotel", "automated car wash", "martial arts club", "restaurant", "convenience store",
+    "dental practice", "private school", "funeral home", "gym", "construction company",
+    "laundromat", "supermarket", "movie theater", "airline", "shipping company",
+    "data center", "solar farm", "game studio", "software company", "theme park",
+    "wedding venue", "brewery", "franchise restaurant", "warehouse", "commercial farm",
+    "daycare center", "veterinary clinic", "self-storage facility", "food truck", "bakery",
+    "nightclub", "record label", "animation studio", "private security company", "recycling plant"
+  ],
+  "ideaAxes": [
+    {
+      "id": "business-model",
+      "label": "Business model",
+      "values": ["high volume low margin", "low volume high margin", "subscription", "asset rental", "service labor", "inventory resale", "licensing", "platform fees"]
+    }
+  ],
+  "tags": ["business", "companies", "ownership", "operations"]
+}

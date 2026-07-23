@@ -1,0 +1,47 @@
+{
+  "id": "pov-life",
+  "name": "POV: Your Life As…",
+  "description": "Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recruitment, daily routine, hierarchy, danger, rewards, advancement, failure, and likely ending.",
+  "tagline": "Live the whole ladder from inside the role.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "kind": "series-formula",
+  "defaultTopicPackIds": ["pov-law-enforcement", "pov-criminal-hierarchies", "pov-historical-occupations"],
+  "compatibleTopicPackIds": ["pov-law-enforcement", "pov-criminal-hierarchies", "pov-historical-occupations"],
+  "ideaAxes": [
+    {
+      "id": "life-stage",
+      "label": "Life stage",
+      "values": ["entry and selection", "training", "ordinary duty", "first crisis", "advancement", "peak authority", "downfall or retirement"]
+    },
+    {
+      "id": "inside-lens",
+      "label": "Inside lens",
+      "values": ["daily routine", "hierarchy", "tools", "pay and rewards", "risk", "moral compromise", "survival odds", "public reputation"]
+    }
+  ],
+  "exampleTopics": [
+    "POV: Your Life in Every Tier of Law Enforcement",
+    "POV: Your Life in Every Tier of a Criminal Empire",
+    "POV: Your Life as an Executioner in the Middle Ages",
+    "POV: Your Life as a Roman Vigile",
+    "POV: Your Life as a Pirate Quartermaster"
+  ],
+  "vocabulary": {
+    "genre": ["immersive history", "role explainer", "second-person documentary", "hierarchy breakdown"],
+    "mood": ["immersive", "unsentimental", "tense", "curious", "grounded"],
+    "theme": ["hierarchy", "daily life", "risk", "status", "advancement", "survival", "power"],
+    "keyword": ["POV", "your life as", "every tier", "rank", "training", "duty", "promotion", "downfall"]
+  },
+  "audienceHint": "Viewers who enjoy immersive history, hierarchy explainers, career ladders, and second-person documentary storytelling.",
+  "scriptContext": "Address the viewer as 'you'. Move chronologically through entry, training, daily work, rank, danger, rewards, and ending. Make each tier materially different in authority, routine, incentives, and risk. Avoid game-stat language and empty cinematic roleplay; explain the real system from the inside.",
+  "scriptSystemPromptRole": "You are an evidence-led documentary writer specializing in immersive second-person life histories and institutional hierarchies.",
+  "ideaSystemPromptRole": "You design concrete second-person episode concepts where the viewer experiences a full role, hierarchy, or occupation from entry to exit.",
+  "ideaGuidanceText": "Every concept must promise a full lived system, not a costume tour. Titles should use 'POV: Your Life…' or a close second-person equivalent and name a concrete role or tiered institution.",
+  "titleShapeRules": [
+    "Prefer 'POV: Your Life as [specific role]' for one occupation.",
+    "Prefer 'POV: Your Life in Every Tier of [specific institution]' for a rank ladder.",
+    "Name the place or period when the role changes materially across contexts."
+  ],
+  "youtubeTagsHint": ["POV history", "your life as", "every tier explained", "immersive documentary", "historical jobs"]
+}

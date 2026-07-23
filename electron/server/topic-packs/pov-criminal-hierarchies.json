@@ -1,0 +1,16 @@
+{
+  "id": "pov-criminal-hierarchies",
+  "name": "Criminal Hierarchies",
+  "description": "Roles and ladders inside organized crime, smuggling, piracy, and outlaw networks.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["pov-life"],
+  "subjects": [
+    "pirate crew", "Prohibition-era bootlegging ring", "medieval bandit company", "smuggling network",
+    "organized crime family", "art theft crew", "highway robbery gang", "counterfeit coin operation",
+    "cattle rustling outfit", "river pirate crew", "black-market trading network", "prison hierarchy",
+    "cybercrime group", "drug trafficking cartel", "illegal gambling syndicate", "poaching ring",
+    "train robbery crew", "ancient tomb-robbing gang", "corsair fleet", "urban pickpocket network"
+  ],
+  "tags": ["crime", "hierarchy", "outlaws"]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "ancient-humans-environments",
+  "name": "Environments & Climate",
+  "description": "How prehistoric people adapted their routines and bodies to radically different landscapes.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["ancient-humans"],
+  "subjects": [
+    "Ice Age tundra", "open savanna", "dense rainforest", "high mountains", "coastal shore",
+    "desert interior", "river floodplain", "volcanic landscape", "temperate forest", "grassland steppe",
+    "island isolation", "seasonal wetlands", "cave systems", "monsoon climate", "permafrost",
+    "storm-prone coast", "salt marsh", "arid canyon", "glacial valley", "changing sea levels"
+  ],
+  "tags": ["climate", "environment", "adaptation"]
+}

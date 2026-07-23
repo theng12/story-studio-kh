@@ -176,6 +176,7 @@ export function normalizeGeneratedPromptItems(items: any[], expected: number): a
 
 /** Shape of `format.imagePrompts.thumbnail` (see ImagePromptFormat). */
 interface ThumbnailFmt {
+  layout?: 'hero' | 'annotated-collage'
   conceptGuidance?: string
   compositionRules?: string[]
   defaultTextStyle?: string
@@ -189,20 +190,18 @@ const GENERIC_THUMBNAIL_CONCEPT =
   'A bold, high-impact YouTube cover with ONE clear focal subject that signals the topic at a glance. ' +
   'Vivid saturated color, strong directional lighting, clear depth. This is a COVER designed to win the click — not a scene still.'
 
-// Universal YouTube CTR rules applied to every thumbnail regardless of format.
-const YOUTUBE_CTR_RULES = [
-  'One clear, bold focal subject that reads instantly.',
-  'High contrast with saturated, punchy color.',
-  'A large expressive face or one dominant object when it suits the topic.',
-  'Rule-of-thirds composition with strong, directional lighting and clear foreground/background separation.',
-  'Minimal clutter — must stay legible as a tiny mobile preview (~320px wide).',
-]
-
 const GENERIC_THUMBNAIL_AVOID = [
   'low contrast or washed-out / muddy color',
   'tiny details that vanish at preview size',
   'busy collages or multiple competing subjects',
   'flat, evenly-lit, boring framing',
+]
+
+const ANNOTATED_COLLAGE_AVOID = [
+  'a dense undifferentiated montage',
+  'supporting callouts that compete with the central anchor',
+  'tiny unreadable labels or long sentences',
+  'photographic depth that hides the diagram structure',
 ]
 
 /** Build a compact, opinionated thumbnail brief. The finished render carries
@@ -218,15 +217,26 @@ export function buildThumbnailDirective(opts: {
   creativeDirection?: string
 }): string {
   if (opts.thumbs <= 0) return ''
+  const annotatedCollage = opts.fmt?.layout === 'annotated-collage'
+  const layoutGuidance = annotatedCollage
+    ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover, not a cinematic scene.'
+    : 'Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.'
+  const universalAvoid = annotatedCollage ? ANNOTATED_COLLAGE_AVOID : GENERIC_THUMBNAIL_AVOID
   const lines = [
     `THUMBNAIL GOAL: create a distinct, professional YouTube cover, not a scene still. It must communicate the episode's emotional promise at a glance on mobile.`,
     `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
-    `Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.`,
-    `Avoid: ${[...(opts.fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}.`,
+    `LAYOUT: ${layoutGuidance}`,
+    `Avoid: ${[...(opts.fmt?.avoid || []), ...universalAvoid].join('; ')}.`,
     `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
   ]
-  const font = !opts.fontStyle || opts.fontStyle === 'auto' ? '' : resolveFontStyle(opts.fontStyle)
-  const text = !opts.textStyle || opts.textStyle === 'auto' ? '' : resolveTextStyle(opts.textStyle)
+  const fontStyle = !opts.fontStyle || opts.fontStyle === 'auto'
+    ? opts.fmt?.defaultFontStyle
+    : opts.fontStyle
+  const textStyle = !opts.textStyle || opts.textStyle === 'auto'
+    ? opts.fmt?.defaultTextStyle
+    : opts.textStyle
+  const font = fontStyle ? resolveFontStyle(fontStyle) : ''
+  const text = textStyle ? resolveTextStyle(textStyle) : ''
   const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
   if (!font && !text && !position) {
     lines.push(`TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.`)

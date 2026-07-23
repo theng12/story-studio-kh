@@ -26,16 +26,38 @@ export interface NicheVocabulary {
   keyword?: string[]
 }
 
+export interface NicheThumbnailProfile {
+  layout?: 'hero' | 'annotated-collage'
+  conceptGuidance?: string
+  compositionRules?: string[]
+  moodKeywords?: string[]
+  avoid?: string[]
+  defaultTextStyle?: string
+  defaultFontStyle?: string
+}
+
+export interface IdeaAxis {
+  id: string
+  label: string
+  values: string[]
+}
+
 export interface Niche {
   id: string
   name: string
   description: string
   builtin: boolean
   schemaVersion: 1
+  kind?: 'series-formula'
   tagline?: string
   exampleTopics: string[]
+  defaultTopicPackIds?: string[]
+  compatibleTopicPackIds?: string[]
+  ideaAxes?: IdeaAxis[]
   vocabulary?: NicheVocabulary
   visualStyleSheet?: string
+  thumbnailStyleSheet?: string
+  thumbnailProfile?: NicheThumbnailProfile
   defaultStyleKeywords?: string[]
   negativePromptAddendum?: string
   referenceImages?: NicheReferenceImage[]
@@ -47,9 +69,23 @@ export interface Niche {
   scriptSystemPromptRole?: string
   titleShapeRules?: string[]
   narratorStyles?: Array<{ id: string; label: string; description?: string }>
+  activeTopicPacks?: TopicPack[]
   /** Server-attached count of projects referencing this niche. Present on
    *  list responses, absent on single-niche reads. */
   project_count?: number
+}
+
+export interface TopicPack {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+  compatibleNicheIds: string[]
+  subjects: string[]
+  ideaAxes?: IdeaAxis[]
+  vocabulary?: NicheVocabulary
+  tags?: string[]
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────
@@ -103,9 +139,13 @@ export function useNiches() {
     return resp.niche
   }
 
-  /** Set or clear a project's niche association. */
-  async function setProjectNiche(slug: string, niche_id: string | null): Promise<void> {
-    await put(`/projects/${slug}/niche`, { niche_id })
+  /** Set or clear a project's Series Formula and its explicit Topic Packs. */
+  async function setProjectNiche(
+    slug: string,
+    niche_id: string | null,
+    topic_pack_ids?: string[],
+  ): Promise<void> {
+    await put(`/projects/${slug}/niche`, { niche_id, topic_pack_ids })
   }
 
   /** Create a brand-new user-custom niche. */

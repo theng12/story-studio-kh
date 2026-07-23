@@ -32,6 +32,7 @@ export type JobStats = JobListResponse['stats']
 // what made the Jobs panel + completion toasts read like internal slugs. Every
 // user-facing job type now has a human label.
 const JOB_TYPE_LABELS: Record<string, string> = {
+  idea_campaign: 'Idea Campaign',
   'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',

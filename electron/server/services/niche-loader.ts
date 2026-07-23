@@ -34,7 +34,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
-import type { Niche, DeepPartial, ProjectMeta } from '../models/types.js'
+import type { Niche, DeepPartial, ProjectMeta, TopicPack, IdeaAxis } from '../models/types.js'
+import * as topicPackLoader from './topic-pack-loader.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -98,7 +99,9 @@ async function loadNicheFile(filePath: string): Promise<Niche> {
     throw new Error(`Niche JSON parse failed at ${filePath}: ${e.message}`)
   }
   validateNicheShape(parsed, filePath)
-  return parsed as Niche
+  // Every legacy Niche is a valid Series Formula. The default keeps all
+  // existing project files working without a destructive migration.
+  return { ...parsed, kind: parsed.kind || 'series-formula' } as Niche
 }
 
 function validateNicheShape(n: any, filePath: string): void {
@@ -188,6 +191,107 @@ export function mergeNicheOverrides(base: Niche, overrides?: DeepPartial<Niche>)
   return deepMerge(base, overrides) as Niche
 }
 
+function uniqueStrings(...groups: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const group of groups) {
+    for (const value of group || []) {
+      const clean = value?.trim()
+      const key = clean?.toLowerCase()
+      if (!clean || !key || seen.has(key)) continue
+      seen.add(key)
+      result.push(clean)
+    }
+  }
+  return result
+}
+
+function mergeAxes(base: IdeaAxis[] | undefined, packs: TopicPack[]): IdeaAxis[] | undefined {
+  const byId = new Map<string, IdeaAxis>()
+  for (const axis of base || []) {
+    byId.set(axis.id, { ...axis, values: uniqueStrings(axis.values) })
+  }
+  for (const pack of packs) {
+    for (const axis of pack.ideaAxes || []) {
+      const prior = byId.get(axis.id)
+      byId.set(axis.id, {
+        id: axis.id,
+        label: prior?.label || axis.label,
+        values: uniqueStrings(prior?.values, axis.values),
+      })
+    }
+  }
+  return byId.size ? [...byId.values()] : undefined
+}
+
+/**
+ * Compose a Series Formula with reusable Topic Packs. Formula voice and
+ * structure remain dominant; packs supply subjects, vocabulary, examples, and
+ * domain constraints. Unknown or incompatible ids are ignored with warnings so
+ * deleting a custom pack never bricks an existing project.
+ */
+export async function composeNicheWithTopicPacks(
+  niche: Niche,
+  requestedIds?: string[],
+): Promise<Niche> {
+  const ids = requestedIds === undefined
+    ? (niche.defaultTopicPackIds || [])
+    : requestedIds
+  const allow = niche.compatibleTopicPackIds?.length
+    ? new Set(niche.compatibleTopicPackIds)
+    : null
+  const packs: TopicPack[] = []
+  for (const id of uniqueStrings(ids)) {
+    if (allow && !allow.has(id)) {
+      console.warn(`[niche-loader] topic pack '${id}' is not allowed by Series Formula '${niche.id}'`)
+      continue
+    }
+    const pack = await topicPackLoader.loadTopicPack(id)
+    if (!pack) {
+      console.warn(`[niche-loader] topic pack '${id}' not found for Series Formula '${niche.id}'`)
+      continue
+    }
+    if (!topicPackLoader.isCompatible(pack, niche.id)) {
+      console.warn(`[niche-loader] topic pack '${id}' is incompatible with Series Formula '${niche.id}'`)
+      continue
+    }
+    packs.push(pack)
+  }
+  if (!packs.length) return { ...niche, kind: 'series-formula', activeTopicPacks: [] }
+
+  const packContext = packs
+    .map(pack => `${pack.name}: ${pack.promptContext || pack.description}`)
+    .join('\n')
+  const contextBlock = `ACTIVE TOPIC PACKS — use these as the subject inventory and domain boundary:\n${packContext}`
+  const vocabulary = {
+    mood: uniqueStrings(niche.vocabulary?.mood, ...packs.map(pack => pack.vocabulary?.mood)),
+    theme: uniqueStrings(niche.vocabulary?.theme, ...packs.map(pack => pack.vocabulary?.theme)),
+    genre: uniqueStrings(niche.vocabulary?.genre, ...packs.map(pack => pack.vocabulary?.genre)),
+    keyword: uniqueStrings(niche.vocabulary?.keyword, ...packs.map(pack => pack.vocabulary?.keyword)),
+  }
+
+  return {
+    ...niche,
+    kind: 'series-formula',
+    activeTopicPacks: packs,
+    exampleTopics: uniqueStrings(
+      niche.exampleTopics,
+      ...packs.map(pack => pack.exampleTopics),
+      ...packs.map(pack => pack.subjects),
+    ),
+    ideaAxes: mergeAxes(niche.ideaAxes, packs),
+    vocabulary,
+    youtubeTagsHint: uniqueStrings(
+      niche.youtubeTagsHint,
+      ...packs.map(pack => pack.youtubeTagsHint),
+    ),
+    scriptContext: [niche.scriptContext, contextBlock].filter(Boolean).join('\n\n'),
+    ideaGuidanceText: [niche.ideaGuidanceText, contextBlock].filter(Boolean).join('\n\n'),
+    ideaSystemPromptRole: [niche.ideaSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
+    scriptSystemPromptRole: [niche.scriptSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
+  }
+}
+
 function deepMerge(target: any, source: any): any {
   if (source === null || source === undefined) return target
   if (Array.isArray(source)) return source.slice()
@@ -212,7 +316,10 @@ function deepMerge(target: any, source: any): any {
  *     rather than throwing — generators must keep working with their
  *     format-only behavior if a niche file gets renamed mid-flight).
  */
-export async function getEffectiveNicheFor(project: ProjectMeta): Promise<Niche | null> {
+export async function getEffectiveNicheFor(
+  project: ProjectMeta,
+  topicPackIdsOverride?: string[],
+): Promise<Niche | null> {
   if (!project.niche_id) return null
   let base: Niche | null = null
   try {
@@ -225,7 +332,11 @@ export async function getEffectiveNicheFor(project: ProjectMeta): Promise<Niche 
     console.warn(`[niche-loader] project '${project.slug}' references niche '${project.niche_id}' but no file found`)
     return null
   }
-  return mergeNicheOverrides(base, project.niche_overrides)
+  const requestedPackIds = topicPackIdsOverride === undefined
+    ? project.topic_pack_ids
+    : topicPackIdsOverride
+  const composed = await composeNicheWithTopicPacks(base, requestedPackIds)
+  return mergeNicheOverrides(composed, project.niche_overrides)
 }
 
 /** Same as getEffectiveNicheFor() but takes a slug. */

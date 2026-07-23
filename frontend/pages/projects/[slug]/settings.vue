@@ -56,16 +56,14 @@
       </span>
     </section>
 
-    <!-- App (per-machine): API Keys + Appearance + Server Mode.
+    <!-- App (per-machine): API Keys + Appearance + Server Mode + the
+         account-scoped GenStudio catalog summary.
          v1.0.185 (S2) — folded the standalone App-Settings modal into the
          "This Mac" zone here. Same <ThisMacSettings> component the modal now
          wraps, so there is one source of truth. It owns its own data
          lifecycle (loads on mount / when this tab is shown). -->
     <div v-if="activeTab === 'app'" class="card settings-panel settings-panel-embedded mt-2">
       <ThisMacSettings />
-    </div>
-
-    <div v-if="activeTab === 'models'" class="card settings-panel mt-2">
       <GenStudioCatalogSettings />
     </div>
 
@@ -394,15 +392,12 @@
     <div v-if="activeTab === 'niche'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
-          <h3>Niche</h3>
+          <h3>Series Formula + Topic Packs</h3>
           <p class="text-muted mt-1 mb-2">
-            Subject-domain layer — orthogonal to Format. Format decides
-            <em>what shape</em> the video takes (sleep-story, broll-narration,
-            listicle); niche decides <em>what subject</em> it covers (prayer,
-            motivation, plants, your own). Generators read both at runtime
-            and layer the niche's vocabulary, title rules, visual style, and
-            YouTube tag hints on top of the format's defaults.
-            <strong>Niche is optional</strong> — leave empty for format-default behavior.
+            The Series Formula defines the recurring hook, title style, script
+            flow, and channel voice. Topic Packs supply reusable subject lanes.
+            Mix one formula with several packs to expand without duplicating the
+            channel structure. Production Format remains a separate choice.
           </p>
         </div>
       </div>
@@ -411,7 +406,7 @@
         <button
           :class="['sub-tab', { active: nicheSubTab === 'project' }]"
           @click="nicheSubTab = 'project'"
-        >Project niche</button>
+        >Project formula</button>
         <button
           :class="['sub-tab', { active: nicheSubTab === 'library' }]"
           @click="nicheSubTab = 'library'"
@@ -420,21 +415,27 @@
 
       <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
       <div v-if="nicheSubTab === 'project'" class="sub-tab-body">
-        <h4 class="sub-tab-section-title">Pick the niche this project uses</h4>
+        <h4 class="sub-tab-section-title">Choose the formula and subject lanes this project uses</h4>
         <NichePicker v-model="nicheId" @change="onNicheChanged" />
+        <TopicPackPicker
+          v-model="topicPackIds"
+          class="mt-3"
+          :series-formula-id="nicheId"
+          :disabled="nicheSaving"
+        />
 
         <div class="mt-3 button-row">
           <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
-            {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
+            {{ nicheSaving ? 'Saving…' : 'Save formula settings' }}
           </button>
           <SaveIndicator v-bind="savedHintProps('niche')" />
           <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
         </div>
 
         <p class="text-muted text-xs mt-3">
-          <strong>Pro tip:</strong> picking a niche here locks every Ideas / Script / Metadata
-          generation on this project to that subject domain. To override for a single batch
-          without changing this saved value, use the Niche picker inside the
+          <strong>Pro tip:</strong> this formula and pack selection becomes the default for
+          Ideas / Script / Metadata generation. To override it for one campaign without
+          changing the project, use the controls inside the
           <NuxtLink :to="`/projects/${slug}/ideas`" class="link">Ideas Generator</NuxtLink>.
         </p>
         <p class="text-muted text-xs mt-1">
@@ -2841,7 +2842,7 @@ async function runMoveProject(): Promise<void> {
   }
 }
 
-const activeTab = ref('models')
+const activeTab = ref('app')
 const syncing = ref(false)
 const syncResults = ref<string[]>([])
 
@@ -2982,6 +2983,7 @@ async function saveFormatSettings() {
 // (browse / create custom / delete custom). One source for niche stuff.
 const {
   setProjectNiche,
+  find: findNicheProfile,
   niches: nicheLibList,
   isLoading: nicheLibLoading,
   error: nicheLibError,
@@ -2989,10 +2991,16 @@ const {
   deleteNiche: deleteNicheApi,
 } = useNiches()
 const nicheId = ref<string>('')
+const topicPackIds = ref<string[]>([])
 const nicheSaving = ref(false)
 const nicheSaveError = ref('')
 const nicheIdBaseline = ref<string>('')
-const nicheDirty = computed(() => nicheId.value !== nicheIdBaseline.value)
+const topicPackIdsBaseline = ref<string[]>([])
+const normalizePackIds = (values: string[]) => [...new Set(values)].sort()
+const nicheDirty = computed(() =>
+  nicheId.value !== nicheIdBaseline.value
+  || JSON.stringify(normalizePackIds(topicPackIds.value))
+    !== JSON.stringify(normalizePackIds(topicPackIdsBaseline.value)))
 // Sub-tab state for the merged Niche tab. Default to 'project' (the
 // picker) since that's the common case; 'library' is for browse/create.
 const nicheSubTab = ref<'project' | 'library'>('project')
@@ -3002,24 +3010,35 @@ function syncNicheFromProject() {
   const m = project.value as any
   if (!m) return
   nicheId.value = m.niche_id || ''
+  topicPackIds.value = Array.isArray(m.topic_pack_ids)
+    ? [...m.topic_pack_ids]
+    : [...(findNicheProfile(nicheId.value)?.defaultTopicPackIds || [])]
   nicheIdBaseline.value = nicheId.value
+  topicPackIdsBaseline.value = [...topicPackIds.value]
 }
 
 watch(project, syncNicheFromProject, { immediate: true })
+watch(nicheLibList, () => {
+  const meta = project.value as any
+  if (!meta?.niche_id || Array.isArray(meta.topic_pack_ids)) return
+  const defaults = findNicheProfile(meta.niche_id)?.defaultTopicPackIds || []
+  topicPackIds.value = [...defaults]
+  topicPackIdsBaseline.value = [...defaults]
+}, { immediate: true })
 
-function onNicheChanged(_n: any) {
-  // No-op for now — niche has no overrides UI in v1. Future Phase will
-  // mirror format's override editor for vocab and style-sheet tweaks.
+function onNicheChanged(n: any) {
+  topicPackIds.value = [...(n?.defaultTopicPackIds || [])]
 }
 
 async function saveNicheSettings() {
   nicheSaving.value = true
   nicheSaveError.value = ''
   try {
-    await setProjectNiche(slug.value, nicheId.value || null)
+    await setProjectNiche(slug.value, nicheId.value || null, topicPackIds.value)
     nicheIdBaseline.value = nicheId.value
+    topicPackIdsBaseline.value = [...topicPackIds.value]
     stampSaved('niche')
-    success(nicheId.value ? 'Niche set' : 'Niche cleared')
+    success(nicheId.value ? 'Series Formula and Topic Packs saved' : 'Series Formula cleared')
     await loadProject(slug.value)
   } catch (e: any) {
     nicheSaveError.value = e?.data?.detail || e?.message || 'Failed to save niche settings'
@@ -4047,10 +4066,11 @@ async function onYoutubeBackfillApply() {
 //
 // Scope verified by save target, not assumption:
 //   per-project (PUT /projects/:slug/settings/config or project storage):
-//     Models, Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
+//     Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
 //     Confirmations, Project, About
 //   per-machine (PUT /app-settings/*, /voicestudio/*, /imagestudio/*, FFmpeg installer):
-//     Local Models, FFmpeg, Notifications
+//     App & Connections (including the read-only GenStudio account catalog),
+//     FFmpeg, Notifications
 const tabZones = [
   {
     id: 'machine',
@@ -4060,7 +4080,7 @@ const tabZones = [
       { title: 'App', tabs: [
         // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
         // the old standalone App-Settings modal. One "Settings" surface now.
-        { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and API provider connections shared by every project on this Mac.' },
+        { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and the GenStudio account connection and live catalogs shared by every project on this Mac.' },
       ] },
       { title: 'Local & system', tabs: [
         { id: 'ffmpeg', label: 'FFmpeg', icon: '▶', description: 'Install and verify the media engine used for audio mixing, subtitles, effects, and final video exports.' },
@@ -4079,7 +4099,6 @@ const tabZones = [
         { id: 'standards', label: 'Standards', icon: '✓', description: 'Keep reusable creative rules, templates, and project-wide production instructions in one place.' },
       ] },
       { title: 'Generation', tabs: [
-        { id: 'models', label: 'Models', icon: '◈', description: 'Review the live GenStudio catalogs. Availability, quotes, reservations, and settlement remain authoritative in GenStudio.' },
         { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
       ] },
       { title: 'Files', tabs: [
@@ -4309,6 +4328,12 @@ function openExternal(url: string) {
 const _route = useRoute()
 function applyHash() {
   const h = (_route.hash || '').toLowerCase()
+  // Models are owned by the connected GenStudio account, not a project.
+  // Preserve old links while relocating their destination to App & Connections.
+  if (h === '#models') {
+    activeTab.value = 'app'
+    return
+  }
   if (h === '#ffmpeg') {
     activeTab.value = 'ffmpeg'
     refreshFfmpegStatus()

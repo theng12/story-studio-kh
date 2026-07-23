@@ -313,6 +313,9 @@ export async function getEffectiveFormat(
  */
 export interface EffectiveFormatOpts {
   nicheIdOverride?: string | null
+  /** undefined uses project packs (or the overridden formula's defaults);
+   *  [] explicitly disables packs for this generation. */
+  topicPackIdsOverride?: string[]
 }
 
 /**
@@ -383,6 +386,7 @@ export async function getEffectiveFormatFor(
   // a user with a saved project niche can still ask the Ideas Generator
   // to ignore it for one batch. Undefined falls through to project state.
   const hasOverride = opts && Object.prototype.hasOwnProperty.call(opts, 'nicheIdOverride')
+  const hasPackOverride = opts && Object.prototype.hasOwnProperty.call(opts, 'topicPackIdsOverride')
   const effectiveNicheId = hasOverride
     ? ((opts!.nicheIdOverride ?? '') || null)
     : (project.niche_id || null)
@@ -392,9 +396,17 @@ export async function getEffectiveFormatFor(
       // When overriding, load the override id directly. Otherwise use the
       // project-aware resolver (which applies project.niche_overrides on
       // top of the base niche file).
-      const niche = hasOverride
+      const packIds = hasPackOverride
+        ? opts!.topicPackIdsOverride
+        : hasOverride
+          ? undefined
+          : project.topic_pack_ids
+      const rawNiche = hasOverride
         ? await nicheLoader.loadNiche(effectiveNicheId)
-        : await nicheLoader.getEffectiveNicheFor(project)
+        : null
+      const niche = hasOverride
+        ? (rawNiche ? await nicheLoader.composeNicheWithTopicPacks(rawNiche, packIds) : null)
+        : await nicheLoader.getEffectiveNicheFor(project, packIds)
       if (niche) {
         base = applyNicheToFormat(base, niche)
       }
@@ -656,21 +668,24 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   if (niche.defaultStyleKeywords?.length) {
     stylePieces.push(`Niche keywords: ${niche.defaultStyleKeywords.join(', ')}`)
   }
-  // v1.0.332 — niche THUMBNAIL art style. Distinct from the scene
-  // `visualStyleSheet` (which only feeds `defaultStyleTag` above). When the
-  // niche sets `thumbnailStyleSheet`, append it to the thumbnail block's
-  // conceptGuidance so the thumbnail prompt builder (image-prompts.ts ->
-  // buildThumbnailDirective reads `conceptGuidance`) renders covers in the
-  // niche's dedicated thumbnail style — e.g. sketchy-ink covers over
-  // thick-paint scenes. Leaves the rest of the thumbnail block intact.
+  // Niche thumbnail direction has two independent layers:
+  //   - thumbnailProfile owns layout / composition / mood for this content.
+  //   - thumbnailStyleSheet appends optional rendering language.
+  // A profile field replaces the format shell's neutral value; unset fields
+  // fall through. This lets an annotated business diagram ride on Scenes
+  // without inheriting the shell's contradictory cinematic hero rules.
   const baseThumb = format.imagePrompts.thumbnail
-  const thumbnail = (baseThumb && niche.thumbnailStyleSheet)
+  const nicheThumb = niche.thumbnailProfile
+  const thumbnail = (baseThumb || nicheThumb || niche.thumbnailStyleSheet)
     ? {
-        ...baseThumb,
-        conceptGuidance: [baseThumb.conceptGuidance, `Niche thumbnail style: ${niche.thumbnailStyleSheet}`]
-          .filter(Boolean).join('\n\n'),
+        ...(baseThumb || { conceptGuidance: '' }),
+        ...(nicheThumb || {}),
+        conceptGuidance: [
+          nicheThumb?.conceptGuidance ?? baseThumb?.conceptGuidance ?? '',
+          niche.thumbnailStyleSheet ? `Niche thumbnail style: ${niche.thumbnailStyleSheet}` : '',
+        ].filter(Boolean).join('\n\n'),
       }
-    : baseThumb
+    : undefined
   // The spread preserves every other imagePrompts field — including the
   // v1.0.224 `thumbnail` art-direction block — so per-format thumbnail
   // guidance survives niche application. Only `defaultStyleTag` (scene style)

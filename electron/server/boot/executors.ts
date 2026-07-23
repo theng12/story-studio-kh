@@ -40,6 +40,7 @@ import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { runExpressionMarkupJob } from '../services/audio-expression.js'
+import { generateIdeaCampaign } from '../generators/idea-campaign.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 
 export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {
@@ -55,6 +56,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     await assertMediaRootReady(job.project_slug)
     await fn(job)
   }
+  registerExecutor('idea_campaign', generateIdeaCampaign)
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
   // in M1. Script and introduction are now two independent job types.
   registerExecutor('script-only', generateScriptOnly)

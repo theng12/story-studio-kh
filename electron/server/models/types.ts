@@ -129,6 +129,13 @@ export interface ProjectMeta {
    */
   niche_id?: string
   niche_overrides?: DeepPartial<Niche>
+  /**
+   * Reusable subject-domain packs layered under the Series Formula selected by
+   * `niche_id`. Empty / absent uses the formula's defaultTopicPackIds. This is
+   * additive and backward-compatible: every legacy flat niche is treated as a
+   * Series Formula with no required packs.
+   */
+  topic_pack_ids?: string[]
 
   /**
    * v1.0.270 — content mode. 'format' (default) = the video format shapes
@@ -474,6 +481,10 @@ export interface ImagePromptFormat {
    * generic high-CTR directive.
    */
   thumbnail?: {
+    /** Layout grammar used by the universal thumbnail prompt. Most formats
+     *  use a single hero subject; annotated-collage keeps one central anchor
+     *  while allowing small supporting callouts around it. */
+    layout?: 'hero' | 'annotated-collage'
     /** What the thumbnail IMAGE depicts (subject, composition, energy) —
      *  NOT the title text. */
     conceptGuidance: string
@@ -669,12 +680,61 @@ export interface NicheVocabulary {
   keyword?: string[]
 }
 
+export interface NicheThumbnailProfile {
+  /** Replaces the format's default thumbnail layout grammar. */
+  layout?: 'hero' | 'annotated-collage'
+  /** Replaces the format's concept guidance when set. */
+  conceptGuidance?: string
+  /** Replaces the format's composition rules when set. */
+  compositionRules?: string[]
+  /** Replaces the format's mood keywords when set. */
+  moodKeywords?: string[]
+  /** Replaces the format's avoid list when set. */
+  avoid?: string[]
+  /** Optional baked-title defaults understood by the thumbnail generator. */
+  defaultTextStyle?: string
+  defaultFontStyle?: string
+}
+
+export interface IdeaAxis {
+  /** Stable slug included in idea fingerprints, e.g. "economic-pressure". */
+  id: string
+  /** Human label shown in campaign coverage summaries. */
+  label: string
+  /** Reusable values supplied by the Series Formula itself. */
+  values: string[]
+}
+
+export interface TopicPack {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+  tagline?: string
+  /** Empty means compatible with every Series Formula. */
+  compatibleNicheIds: string[]
+  /** Primary subjects used by the deterministic Idea Campaign planner. */
+  subjects: string[]
+  /** Secondary dimensions composed with the primary subject. */
+  ideaAxes?: IdeaAxis[]
+  /** Strong examples appended to the Series Formula's example bar. */
+  exampleTopics?: string[]
+  /** Prompt context appended after the Series Formula's dominant voice. */
+  promptContext?: string
+  vocabulary?: NicheVocabulary
+  youtubeTagsHint?: string[]
+  tags?: string[]
+}
+
 export interface Niche {
   id: string
   name: string
   description: string
   builtin: boolean
   schemaVersion: 1
+  /** Every legacy niche is treated as a Series Formula when this is absent. */
+  kind?: 'series-formula'
 
   /** Short tagline shown on the niche card / picker. */
   tagline?: string
@@ -683,6 +743,15 @@ export interface Niche {
    *  niche" pass. Each entry is the canonical "subject" string (e.g.
    *  "Venus Flytrap", "Corpse Flower"). */
   exampleTopics: string[]
+  /** Built-in Topic Packs recommended when a project has not chosen any. */
+  defaultTopicPackIds?: string[]
+  /** Optional allow-list used by pickers. Empty / absent accepts any pack
+   *  whose compatibleNicheIds includes this formula. */
+  compatibleTopicPackIds?: string[]
+  /** Formula-owned axes composed with Topic Pack subjects for large campaigns. */
+  ideaAxes?: IdeaAxis[]
+  /** Present only on an effective, composed niche returned at runtime. */
+  activeTopicPacks?: TopicPack[]
 
   /** Vocabulary pools merged INTO the format's vocab pools at ideas-
    *  generation time. Niche keywords append to format keywords; the
@@ -694,6 +763,10 @@ export interface Niche {
    *  a niche can render thumbnails in a different art style than its scenes
    *  (e.g. sketchy-ink covers over thick-paint scenes). */
   thumbnailStyleSheet?: string
+  /** Niche-owned thumbnail layout and composition. This is separate from
+   *  visual style: Business Economics can ask for an annotated central-subject
+   *  diagram while still using any selected project art style. */
+  thumbnailProfile?: NicheThumbnailProfile
   /** Long-form style sheet appended after the format's `visualStyleHint`
    *  in image-prompt assembly. Use this to lock the rendering convention
    *  for every scene in this niche (e.g. "all plants drawn with soft
@@ -1267,6 +1340,8 @@ export interface CreateProjectRequest {
    * rather than rejecting the create, matching how format_id behaves.
    */
   niche_id?: string
+  /** Optional Topic Packs under niche_id; absent uses formula defaults. */
+  topic_pack_ids?: string[]
 }
 
 export interface UpdateProjectRequest {
@@ -1774,7 +1849,7 @@ export interface UpdateConfigRequest {
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
 export const JOB_TYPES = [
-  'broll_select', 'script-only', 'introduction-only', 'chapter-only',
+  'idea_campaign', 'broll_select', 'script-only', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'images',
   'scene_images', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
   'metadata', 'video', 'video_repair', 'video_assembly',
@@ -1953,6 +2028,15 @@ export interface StoryIdea {
   suggested_chapters: number
   suggested_length: string
   mood: string
+  /** Stable conceptual identity reserved before generation. */
+  idea_fingerprint?: string
+  /** Series Formula and Topic Packs that produced this concept. */
+  series_formula_id?: string
+  topic_pack_ids?: string[]
+  /** Reserved coverage dimensions used to make the idea distinct. */
+  idea_dimensions?: Record<string, string>
+  /** Durable queued campaign identity; Retry fills only this campaign's gaps. */
+  campaign_id?: string
 }
 
 export interface GenerateScriptRequest {

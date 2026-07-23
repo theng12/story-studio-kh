@@ -28,6 +28,11 @@ export interface StoredIdea {
   accepted_at: string | null
   batch_id: string  // Groups ideas from the same generation run
   model_used: string
+  idea_fingerprint?: string
+  series_formula_id?: string
+  topic_pack_ids?: string[]
+  idea_dimensions?: Record<string, string>
+  campaign_id?: string
   /**
    * Per-episode "this is done outside the app" overrides — supports two
    * cases:
@@ -185,11 +190,15 @@ export async function addIdeas(
   slug: string, ideas: Array<{
     title: string; logline: string; themes: string[];
     suggested_chapters: number; suggested_length: string; mood: string;
+    idea_fingerprint?: string; series_formula_id?: string;
+    topic_pack_ids?: string[]; idea_dimensions?: Record<string, string>;
+    campaign_id?: string;
   }>,
   model: string,
+  batchIdOverride?: string,
 ): Promise<StoredIdea[]> {
   return mutateStore(slug, (store) => {
-    const batchId = `batch-${Date.now()}`
+    const batchId = batchIdOverride || `batch-${Date.now()}`
     const now = new Date().toISOString()
 
     const newIdeas: StoredIdea[] = ideas.map((idea, i) => ({

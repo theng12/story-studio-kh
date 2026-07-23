@@ -1,0 +1,15 @@
+{
+  "id": "ancient-humans-social-life",
+  "name": "Social Life & Belief",
+  "description": "Family, cooperation, conflict, ritual, identity, and the rhythms of life inside small communities.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["ancient-humans"],
+  "subjects": [
+    "choosing a mate", "raising children", "caring for elders", "sharing food", "settling disputes",
+    "dealing with death", "organizing a hunt", "welcoming outsiders", "punishing rule breakers", "teaching skills",
+    "division of labor", "seasonal gatherings", "storytelling", "ritual and burial", "status and leadership",
+    "trade between bands", "adoption and orphan care", "jealousy and rivalry", "play and childhood", "moving camp"
+  ],
+  "tags": ["anthropology", "society", "daily life"]
+}

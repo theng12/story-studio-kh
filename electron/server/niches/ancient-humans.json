@@ -5,6 +5,21 @@
   "tagline": "How people survived before comfort existed.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "defaultTopicPackIds": ["ancient-humans-survival", "ancient-humans-environments", "ancient-humans-social-life", "ancient-humans-technology"],
+  "compatibleTopicPackIds": ["ancient-humans-survival", "ancient-humans-environments", "ancient-humans-social-life", "ancient-humans-technology"],
+  "ideaAxes": [
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": ["archaeological traces", "experimental archaeology", "anthropological comparison", "environmental reconstruction", "skeletal evidence", "tool wear and residue"]
+    },
+    {
+      "id": "human-stakes",
+      "label": "Human stakes",
+      "values": ["survival", "family", "cooperation", "fear", "status", "adaptation", "loss"]
+    }
+  ],
 
   "exampleTopics": [
     "How Did Ancient Humans Survive Without Medicine?",

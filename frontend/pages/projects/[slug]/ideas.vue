@@ -315,10 +315,15 @@
                   <div><strong>Topic and title shape</strong><small>Override only when this batch needs it.</small></div>
                 </div>
                 <div class="form-group">
-                  <label>Topic override</label>
-                  <NichePicker v-model="form.niche_id" />
+                  <label>Formula + Topic Pack override</label>
+                  <NichePicker v-model="form.niche_id" @change="onIdeaFormulaChanged" />
+                  <TopicPackPicker
+                    v-model="form.topic_pack_ids"
+                    class="mt-2"
+                    :series-formula-id="form.niche_id"
+                  />
                   <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
-                    <span class="banner-text">Using a batch-only topic. <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">Reset</a></span>
+                    <span class="banner-text">Using a campaign-only formula. <a class="banner-link" @click.prevent="resetIdeaFormula">Reset</a></span>
                   </div>
                 </div>
                 <div class="form-group">
@@ -360,16 +365,17 @@
         </div>
         <label class="idea-count-control">
           <span>Ideas</span>
-          <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
+          <input v-model.number="form.count" class="input" type="number" min="1" max="100" />
         </label>
         <div class="generator-actions-primary">
-          <button class="btn btn-primary" :disabled="generating" @click="generate">
-            <LoadingSpinner v-if="generating" size="sm" label="Generating ideas…" show-label />
-            <template v-else>Generate {{ form.count }} ideas</template>
+          <button class="btn btn-primary" :disabled="generating || ideaCampaignActive" @click="generate">
+            <LoadingSpinner v-if="generating" size="sm" label="Queuing campaign…" show-label />
+            <template v-else-if="ideaCampaignActive">Idea Campaign running…</template>
+            <template v-else>Queue {{ form.count }} ideas</template>
           </button>
           <button
             class="btn btn-secondary"
-            :disabled="generating"
+            :disabled="generating || ideaCampaignActive"
             title="Fills genre, theme, mood, audience, and keywords with random picks from the pools. Review or tweak before generating — no API cost."
             @click="randomizeForm"
           >
@@ -377,7 +383,7 @@
           </button>
           <button
             class="btn btn-secondary"
-            :disabled="generating"
+            :disabled="generating || ideaCampaignActive"
             title="Randomize the form AND generate immediately. Spends an API call on each click."
             @click="surpriseMe"
           >
@@ -1231,6 +1237,8 @@ const _router = useRouter()
 const slug = computed(() => projectSlug(route.params.slug))
 const { get, post, del, patch } = useApi()
 const { success, error: showError, successUndoable } = useToast()
+const { jobs: ideaJobs, isJobActiveFor } = useJobs()
+const ideaCampaignActive = computed(() => isJobActiveFor('ideas', ['idea_campaign']))
 
 // v1.0.117+ — Page tabs: Workflow (generator) vs Manage (catalog).
 // Same ?tab= sync pattern as image-prompts.vue (v1.0.88). Defaults to
@@ -1389,12 +1397,24 @@ const form = reactive({
   // touching the project meta. Empty string = "no niche for this batch"
   // (sent as `__none__` to force override even when the project has one).
   niche_id: '',
+  topic_pack_ids: [] as string[],
 })
 
 // Tracks the project's currently-saved niche so the UI can show
 // "Overriding saved niche '<name>'" when the picker doesn't match.
 // Empty string = project has no saved niche.
 const projectNicheId = ref<string>('')
+const projectTopicPackIds = ref<string[]>([])
+const projectTopicPacksExplicit = ref(false)
+
+function onIdeaFormulaChanged(niche: any) {
+  form.topic_pack_ids = [...(niche?.defaultTopicPackIds || [])]
+}
+
+function resetIdeaFormula() {
+  form.niche_id = projectNicheId.value
+  form.topic_pack_ids = [...projectTopicPackIds.value]
+}
 
 // v1.0.170 — Channel context strip disclosure. Collapsed by default so the
 // page opens straight onto the generator; the strip's one-line summary
@@ -1430,6 +1450,9 @@ const refinementCount = computed(() => [
   form.mood,
   form.keywords.length ? 'keywords' : '',
   form.niche_id !== projectNicheId.value ? 'topic' : '',
+  JSON.stringify([...form.topic_pack_ids].sort()) !== JSON.stringify([...projectTopicPackIds.value].sort())
+    ? 'topic packs'
+    : '',
   form.title_template,
   titleConfig.prefix || titleConfig.suffix,
   form.items_per_listicle,
@@ -1492,6 +1515,7 @@ const ideasPresets = usePresets<any>({
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
     niche_id: form.niche_id,
+    topic_pack_ids: [...form.topic_pack_ids],
     title_prefix: titleConfig.prefix,
     title_suffix: titleConfig.suffix,
   }),
@@ -1513,6 +1537,9 @@ const ideasPresets = usePresets<any>({
       form.items_per_listicle = data.items_per_listicle
     }
     if (typeof data.niche_id === 'string') form.niche_id = data.niche_id
+    if (Array.isArray(data.topic_pack_ids)) {
+      form.topic_pack_ids = data.topic_pack_ids.filter((value: unknown): value is string => typeof value === 'string')
+    }
     if (typeof data.title_prefix === 'string') titleConfig.prefix = data.title_prefix
     if (typeof data.title_suffix === 'string') titleConfig.suffix = data.title_suffix
   },
@@ -1750,11 +1777,16 @@ async function loadPatternPreferences(): Promise<boolean> {
       metaFormatLoaded = true
     }
     if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id
+    projectTopicPacksExplicit.value = Array.isArray(meta?.topic_pack_ids)
+    projectTopicPackIds.value = projectTopicPacksExplicit.value
+      ? meta.topic_pack_ids.filter((value: unknown): value is string => typeof value === 'string')
+      : []
   } catch (e: any) {
     hydrationError.value = { kind: 'project-fetch', detail: e?.data?.detail || e?.message || 'unknown error' }
     return false
   }
   projectNicheId.value = metaNiche
+  form.topic_pack_ids = [...projectTopicPackIds.value]
   // No format on the project meta → the page would silently fall back
   // to sleep-story. Surface this loudly via the banner; the user can
   // click through to Settings → Format to set one.
@@ -1781,6 +1813,7 @@ async function loadPatternPreferences(): Promise<boolean> {
       form.niche_id = cfg[LAST_NICHE_KEY]
     } else {
       form.niche_id = metaNiche
+      form.topic_pack_ids = [...projectTopicPackIds.value]
     }
     // v1.0.93+ — hydrate channel title prefix/suffix from the same keys
     // the Metadata Generator uses. One source of truth — editing in
@@ -1792,6 +1825,7 @@ async function loadPatternPreferences(): Promise<boolean> {
     // loaded above. Surface a soft warning + still set the niche default.
     hydrationError.value = { kind: 'config-fetch', detail: e?.data?.detail || e?.message || 'unknown error' }
     form.niche_id = metaNiche
+    form.topic_pack_ids = [...projectTopicPackIds.value]
   }
   patternHydrated = true
   return true
@@ -1908,6 +1942,15 @@ const customKeywords = ref<string[]>([])
 // the same way the backend does, so the chip input shows the full
 // union AND Randomize picks from the union.
 const { niches: allNichesList } = useNiches()
+watch([allNichesList, projectNicheId], () => {
+  if (projectTopicPacksExplicit.value || !projectNicheId.value) return
+  const formula = allNichesList.value?.find(niche => niche.id === projectNicheId.value)
+  if (!formula) return
+  projectTopicPackIds.value = [...(formula.defaultTopicPackIds || [])]
+  if (form.niche_id === projectNicheId.value && form.topic_pack_ids.length === 0) {
+    form.topic_pack_ids = [...projectTopicPackIds.value]
+  }
+}, { immediate: true })
 const activeNiche = computed(() => {
   const id = form.niche_id
   if (!id) return null
@@ -2744,6 +2787,7 @@ async function generate() {
     } else if (!form.niche_id) {
       body.niche_id = '__none__'
     }
+    body.topic_pack_ids = [...form.topic_pack_ids]
     // v1.0.93+ channel title wrap. Always sent (even when empty) so the
     // backend uses the form's current values rather than the project
     // config — keeps the live preview honest with what actually gets
@@ -2754,18 +2798,23 @@ async function generate() {
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
     // is enough.
-    const generated = await post<any[]>(`/projects/${slug.value}/generate/ideas`, body)
-    await loadIdeas()
-    page.value = 1; sortField.value = 'generated_at'; sortDir.value = 'desc'
-    const createdCount = Array.isArray(generated) ? generated.length : form.count
-    if (form.avoid_repeated_ideas && createdCount < form.count) {
-      success(`Generated ${createdCount} original idea${createdCount === 1 ? '' : 's'}; ${form.count - createdCount} repeat candidate${form.count - createdCount === 1 ? '' : 's'} blocked.`)
-    } else {
-      success(`${createdCount} idea${createdCount === 1 ? '' : 's'} generated`)
-    }
-  } catch (e: any) { showError(e.data?.detail || 'Failed to generate') }
+    await post(`/projects/${slug.value}/generate/ideas/campaign`, body)
+    success(`Idea Campaign queued for ${form.count} idea${form.count === 1 ? '' : 's'}. You can leave this page and track it in Jobs.`)
+  } catch (e: any) { showError(e.data?.detail || 'Failed to queue Idea Campaign') }
   finally { generating.value = false }
 }
+
+watch(
+  () => ideaJobs.value.find(job => job.type === 'idea_campaign' && job.episode_id === 'ideas')?.status,
+  async (status, previous) => {
+    if (status === 'done' && previous && previous !== 'done') {
+      await loadIdeas()
+      page.value = 1
+      sortField.value = 'generated_at'
+      sortDir.value = 'desc'
+    }
+  },
+)
 
 // ── Accept dialog: episode-code chooser ──────────────────────────────────
 //

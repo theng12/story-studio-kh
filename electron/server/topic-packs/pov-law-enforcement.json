@@ -1,0 +1,16 @@
+{
+  "id": "pov-law-enforcement",
+  "name": "Law Enforcement Hierarchies",
+  "description": "Ranks, specialist units, and policing systems across periods and societies.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["pov-life"],
+  "subjects": [
+    "modern city police department", "county sheriff's office", "federal investigative agency", "border patrol",
+    "coast guard law enforcement", "wildlife wardens", "railway police", "harbor police", "mounted police",
+    "detective bureau", "riot control unit", "forensic investigation unit", "ancient Roman vigiles",
+    "medieval town watch", "Victorian London police", "imperial Chinese constables", "Ottoman night watch",
+    "colonial customs service", "French gendarmerie", "royal bodyguard"
+  ],
+  "tags": ["law enforcement", "ranks", "police"]
+}

@@ -659,6 +659,7 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     // falls back to null on missing files so a stale id doesn't break
     // the project.
     ...(req.niche_id ? { niche_id: req.niche_id } : {}),
+    ...(req.topic_pack_ids?.length ? { topic_pack_ids: [...new Set(req.topic_pack_ids)] } : {}),
   }
 
   // Merge with any template defaults

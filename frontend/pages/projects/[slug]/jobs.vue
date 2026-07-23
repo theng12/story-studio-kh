@@ -1031,6 +1031,7 @@ function reviewFailures() {
 // Jobs page renders the raw type string (e.g. `video_assembly`) which
 // reads as a database key, not a feature name.
 const JOB_TYPE_LABELS: Record<string, string> = {
+  idea_campaign: 'Idea Campaign',
   'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',
@@ -1114,6 +1115,7 @@ const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
 const filterTabs = computed(() => {
   const types = [
     { type: 'all',                  label: 'All' },
+    { type: 'idea_campaign',        label: 'Ideas' },
     { type: 'script-only',          label: 'Scripts' },
     { type: 'introduction-only',    label: 'Introductions' },
     { type: 'chapter-only',         label: 'Chapter Regen' },

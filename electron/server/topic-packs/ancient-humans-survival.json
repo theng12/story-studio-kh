@@ -1,0 +1,16 @@
+{
+  "id": "ancient-humans-survival",
+  "name": "Survival Problems",
+  "description": "Concrete threats and necessities ancient humans had to solve without modern systems.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["ancient-humans"],
+  "subjects": [
+    "surviving winter", "finding safe drinking water", "treating injuries", "living without medicine",
+    "sleeping near predators", "enduring drought", "surviving famine", "crossing dangerous rivers",
+    "protecting fire", "avoiding food poisoning", "surviving childbirth", "raising infants while moving",
+    "escaping wildfires", "coping with parasites", "staying warm without houses", "preserving food",
+    "navigating without maps", "surviving extreme heat", "defending a camp", "recovering after a hunt"
+  ],
+  "tags": ["prehistory", "survival", "risk"]
+}

@@ -1,8 +1,8 @@
 <template>
   <div class="niche-picker">
     <label class="picker-label">
-      <span>Niche — your channel's content &amp; voice</span>
-      <span class="hint">The main creative choice: it decides what your videos say and how they feel — vocabulary, title style, narrator voice, emotional tone, and visual mood. Any niche pairs with any format.</span>
+      <span>Series Formula — the repeatable episode promise</span>
+      <span class="hint">Defines the recurring hook, title shape, script flow, narrator voice, and payoff. Topic Packs choose what the formula covers.</span>
     </label>
 
     <select
@@ -11,7 +11,7 @@
       :disabled="isLoading || disabled"
       @change="onSelect(($event.target as HTMLSelectElement).value)"
     >
-      <option value="">— No niche (generic voice — not recommended) —</option>
+      <option value="">— No Series Formula (generic generation) —</option>
       <option
         v-for="n in niches"
         :key="n.id"
@@ -23,7 +23,7 @@
     </select>
 
     <p v-if="!modelValue" class="niche-empty-note">
-      Without a niche, every video uses a generic voice — no distinct vocabulary, title style, or narrator. Pick a niche to give your channel its identity.
+      Without a Series Formula, Story Studio has no reusable hook or structure to keep a channel consistent.
     </p>
 
     <div v-if="selected" class="niche-card">
@@ -46,10 +46,10 @@
         </span>
       </div>
       <div v-if="ownsVoice" class="niche-owns" title="This niche provides its own complete voice, independent of the format.">
-        ✓ Owns its own voice<span v-if="selected.titleShapeRules?.length"> · title style</span><span v-if="selected.narratorStyles?.length"> · narrator picker</span>
+        ✓ Defines the series voice<span v-if="selected.titleShapeRules?.length"> · title style</span><span v-if="selected.narratorStyles?.length"> · narrator picker</span>
       </div>
       <details class="niche-preview">
-        <summary>Preview niche context</summary>
+        <summary>Preview formula context</summary>
         <div class="preview-grid">
           <div v-if="selected.scriptContext" class="preview-row">
             <span class="preview-key">Script context</span>
@@ -72,7 +72,7 @@
     </div>
 
     <div v-if="error" class="niche-error">
-      Failed to load niches: {{ formatErr(error) }}
+      Failed to load Series Formulas: {{ formatErr(error) }}
     </div>
   </div>
 </template>

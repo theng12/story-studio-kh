@@ -1,0 +1,23 @@
+{
+  "id": "economics-ancient-civilizations",
+  "name": "Ancient Civilizations & Empires",
+  "description": "Economic systems, institutions, infrastructure, and state power across ancient civilizations.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["business-economics"],
+  "subjects": [
+    "Roman Empire", "Ancient Egypt", "Achaemenid Persian Empire", "Han dynasty", "Mauryan Empire",
+    "Maya city-states", "Aztec Empire", "Inca Empire", "Mesopotamian temple economy", "Phoenician trade network",
+    "Athenian democracy", "Spartan state", "Carthaginian Empire", "Byzantine Empire", "Gupta Empire",
+    "Silk Road caravan trade", "Roman legion", "medieval castle", "East India Company", "British Empire",
+    "Mongol Empire", "Song dynasty", "Venetian Republic", "Ottoman tax system", "Viking trade network"
+  ],
+  "ideaAxes": [
+    {
+      "id": "civilization-system",
+      "label": "Economic system",
+      "values": ["taxation", "trade", "labor", "land ownership", "military finance", "food supply", "currency and credit", "infrastructure"]
+    }
+  ],
+  "tags": ["ancient economics", "civilizations", "empires", "trade"]
+}

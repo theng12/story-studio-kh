@@ -46,6 +46,7 @@ export const CreateProjectSchema = z.object({
   // format the project picks. Unset = no niche, format defaults
   // apply unchanged. Same length cap as niche route's id validator.
   niche_id: z.string().max(80).optional(),
+  topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
 }).strict()
 export type CreateProjectBody = z.infer<typeof CreateProjectSchema>
 
@@ -97,6 +98,22 @@ const NicheVocabularySchema = z.object({
   keyword: z.array(z.string().min(1).max(80)).max(100).optional(),
 }).strict()
 
+const NicheThumbnailProfileSchema = z.object({
+  layout: z.enum(['hero', 'annotated-collage']).optional(),
+  conceptGuidance: z.string().max(3000).optional(),
+  compositionRules: z.array(z.string().min(1).max(500)).max(20).optional(),
+  moodKeywords: z.array(z.string().min(1).max(80)).max(20).optional(),
+  avoid: z.array(z.string().min(1).max(300)).max(30).optional(),
+  defaultTextStyle: z.string().min(1).max(80).optional(),
+  defaultFontStyle: z.string().min(1).max(80).optional(),
+}).strict()
+
+const IdeaAxisSchema = z.object({
+  id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(120),
+  values: z.array(z.string().min(1).max(160)).min(1).max(300),
+}).strict()
+
 /** Body for POST /niches and PUT /niches/:id (full-document replace). */
 export const NicheSchema = z.object({
   id: z.string()
@@ -107,11 +124,16 @@ export const NicheSchema = z.object({
   description: z.string().min(1).max(1500),
   builtin: z.boolean().optional(),  // user-custom JSONs may omit; loader defaults false
   schemaVersion: z.literal(1),
+  kind: z.literal('series-formula').optional(),
   tagline: z.string().max(200).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
+  defaultTopicPackIds: z.array(z.string().min(1).max(80)).max(24).optional(),
+  compatibleTopicPackIds: z.array(z.string().min(1).max(80)).max(100).optional(),
+  ideaAxes: z.array(IdeaAxisSchema).max(20).optional(),
   vocabulary: NicheVocabularySchema.optional(),
   visualStyleSheet: z.string().max(3000).optional(),
   thumbnailStyleSheet: z.string().max(3000).optional(),
+  thumbnailProfile: NicheThumbnailProfileSchema.optional(),
   defaultStyleKeywords: z.array(z.string().min(1).max(120)).max(40).optional(),
   negativePromptAddendum: z.string().max(1500).optional(),
   referenceImages: z.array(NicheReferenceImageSchema).max(50).optional(),
@@ -121,9 +143,31 @@ export const NicheSchema = z.object({
 }).strict()
 export type NicheBody = z.infer<typeof NicheSchema>
 
+export const TopicPackSchema = z.object({
+  id: z.string()
+    .min(1, 'id is required')
+    .max(80)
+    .regex(/^[a-z0-9][a-z0-9_-]*$/, 'id must be a slug: lowercase letters, digits, dashes, underscores'),
+  name: z.string().min(1).max(120),
+  description: z.string().min(1).max(1500),
+  builtin: z.boolean().optional(),
+  schemaVersion: z.literal(1),
+  tagline: z.string().max(200).optional(),
+  compatibleNicheIds: z.array(z.string().min(1).max(80)).max(100),
+  subjects: z.array(z.string().min(1).max(200)).min(1).max(1000),
+  ideaAxes: z.array(IdeaAxisSchema).max(20).optional(),
+  exampleTopics: z.array(z.string().min(1).max(200)).max(200).optional(),
+  promptContext: z.string().max(3000).optional(),
+  vocabulary: NicheVocabularySchema.optional(),
+  youtubeTagsHint: z.array(z.string().min(1).max(60)).max(80).optional(),
+  tags: z.array(z.string().min(1).max(60)).max(80).optional(),
+}).strict()
+export type TopicPackBody = z.infer<typeof TopicPackSchema>
+
 /** Body for PUT /projects/:slug/niche. `null` clears the association. */
 export const SetProjectNicheSchema = z.object({
   niche_id: z.string().max(80).nullable(),
+  topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
 }).strict()
 export type SetProjectNicheBody = z.infer<typeof SetProjectNicheSchema>
 
@@ -146,6 +190,7 @@ export interface ProjectMetaResponse {
   project_id?: string
   format_id?: string
   niche_id?: string
+  topic_pack_ids?: string[]
 }
 
 /** Shape of `GET /projects` — list view summary, never includes keys. */

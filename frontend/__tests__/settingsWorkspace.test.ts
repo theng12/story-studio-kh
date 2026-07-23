@@ -12,7 +12,7 @@ describe('Settings workspace navigation', () => {
   test('every Settings surface uses the shared modern panel shell', () => {
     const activeTabPanels = [...settingsSource.matchAll(/activeTab === '([^']+)'[^>]+class="([^"]+)"/g)]
 
-    assert.equal(activeTabPanels.length, 14)
+    assert.equal(activeTabPanels.length, 13)
     for (const [, tabId, className] of activeTabPanels) {
       assert.match(className, /settings-panel/, `${tabId} must use the shared Settings panel`)
     }
@@ -48,6 +48,16 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /Save performance/)
     assert.doesNotMatch(settingsSource, /script-concurrency/)
     assert.doesNotMatch(settingsSource, /launch stagger/i)
+  })
+
+  test('GenStudio catalogs are account-scoped under App & Connections', () => {
+    assert.match(
+      settingsSource,
+      /activeTab === 'app'[\s\S]*?<ThisMacSettings \/>[\s\S]*?<GenStudioCatalogSettings \/>/,
+    )
+    assert.doesNotMatch(settingsSource, /activeTab === 'models'/)
+    assert.doesNotMatch(settingsSource, /id: 'models'/)
+    assert.match(settingsSource, /if \(h === '#models'\)[\s\S]*?activeTab\.value = 'app'/)
   })
 
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {
