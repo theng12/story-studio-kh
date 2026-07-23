@@ -29,10 +29,48 @@ beforeEach(async () => {
   // Reset app-settings and ffmpeg dir between tests
   await fs.rm(path.join(tempDir, 'app-settings.json'), { force: true })
   await fs.rm(path.join(tempDir, 'ffmpeg'), { recursive: true, force: true })
+  delete process.env.STORY_STUDIO_RESOURCES_DIR
   ff.clearFFmpegCache()
 })
 
 describe('getFFmpegPath() resolution order', () => {
+  test('release bundle wins over a stale saved or app-data binary', async () => {
+    const resourcesDir = path.join(tempDir, 'release-resources')
+    const bundledPath = path.join(resourcesDir, 'ffmpeg', 'ffmpeg')
+    const customPath = path.join(tempDir, 'custom-ffmpeg')
+    const localPath = path.join(tempDir, 'ffmpeg', 'ffmpeg')
+    await fs.mkdir(path.dirname(bundledPath), { recursive: true })
+    await fs.mkdir(path.dirname(localPath), { recursive: true })
+    await fs.writeFile(bundledPath, '#!/bin/sh\necho bundled\n')
+    await fs.writeFile(customPath, '#!/bin/sh\necho custom\n')
+    await fs.writeFile(localPath, '#!/bin/sh\necho local\n')
+    await Promise.all([
+      fs.chmod(bundledPath, 0o755),
+      fs.chmod(customPath, 0o755),
+      fs.chmod(localPath, 0o755),
+    ])
+    await settings.setAppSetting('ffmpeg_path', customPath)
+    process.env.STORY_STUDIO_RESOURCES_DIR = resourcesDir
+
+    ff.clearFFmpegCache()
+    assert.equal(await ff.getFFmpegPath(), bundledPath)
+  })
+
+  test('bundled ffprobe also wins over a stale saved path', async () => {
+    const resourcesDir = path.join(tempDir, 'release-resources')
+    const bundledPath = path.join(resourcesDir, 'ffmpeg', 'ffprobe')
+    const customPath = path.join(tempDir, 'custom-ffprobe')
+    await fs.mkdir(path.dirname(bundledPath), { recursive: true })
+    await fs.writeFile(bundledPath, '#!/bin/sh\necho bundled\n')
+    await fs.writeFile(customPath, '#!/bin/sh\necho custom\n')
+    await Promise.all([fs.chmod(bundledPath, 0o755), fs.chmod(customPath, 0o755)])
+    await settings.setAppSetting('ffprobe_path', customPath)
+    process.env.STORY_STUDIO_RESOURCES_DIR = resourcesDir
+
+    ff.clearFFmpegCache()
+    assert.equal(await ff.getFFprobePath(), bundledPath)
+  })
+
   test('respects custom path from app settings first', async () => {
     // Create a fake binary at a custom path
     const customPath = path.join(tempDir, 'custom-ffmpeg')
@@ -96,7 +134,7 @@ describe('getFFmpegStatus()', () => {
     }
     assert.equal(status.installed, true)
     assert.ok(status.version, 'should report a version')
-    assert.ok(['bundled', 'system'].includes(status.source), `unexpected source: ${status.source}`)
+    assert.ok(['bundled', 'app-data', 'system'].includes(status.source), `unexpected source: ${status.source}`)
   })
 
   test('returns installed=false for invalid binary', async () => {

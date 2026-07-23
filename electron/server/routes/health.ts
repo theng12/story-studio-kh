@@ -52,6 +52,20 @@ router.post('/ffmpeg/install', async (_req, res) => {
     })
   }
   try {
+    // A release DMG already carries the exact FFmpeg/FFprobe pair qualified
+    // for this Story Studio version. Never replace it with a user-data copy:
+    // doing so wastes bandwidth and lets a stale fallback outlive an app
+    // upgrade. The installer remains available only when the bundle is
+    // genuinely absent (development or damaged installation).
+    const existing = await getFFmpegStatus()
+    if (existing.installed && existing.source === 'bundled') {
+      return res.status(409).json({
+        detail: `Bundled FFmpeg ${existing.version || ''} is already verified and ready. No download is needed.`,
+        code: 'BUNDLED_FFMPEG_READY',
+        status: existing,
+      })
+    }
+
     // downloadFFmpeg internally writes to the same shared state we
     // return from GET /ffmpeg/install-progress, so the frontend sees
     // live phase / percent / message updates while this POST is still

@@ -1820,9 +1820,9 @@
       <h3>FFmpeg</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
         FFmpeg is the engine behind Audio Assembly and Video Assembly — it concatenates
-        narration chapters, mixes music, encodes the final MP4. Without it, those generators
-        will refuse to start. The button below downloads a pre-built binary directly into the
-        app's data folder; no admin password, no Homebrew, no Terminal needed.
+        narration chapters, mixes music, and encodes the final MP4. The Story Studio DMG
+        already includes the release-tested FFmpeg and FFprobe binaries. Re-check verifies
+        that bundled copy; no separate download or Homebrew install is normally required.
       </p>
 
       <!-- Live status -->
@@ -1835,6 +1835,9 @@
           <span v-if="ffmpegStatus.installed" class="badge badge-success">
             FFmpeg installed{{ ffmpegStatus.version ? ` (v${ffmpegStatus.version})` : '' }}
           </span>
+          <span v-if="ffmpegStatus.installed && ffmpegStatus.source === 'bundled'" class="badge badge-success">Bundled with app</span>
+          <span v-else-if="ffmpegStatus.installed && ffmpegStatus.source === 'app-data'" class="badge badge-warn">Recovery copy</span>
+          <span v-else-if="ffmpegStatus.installed && ffmpegStatus.source === 'system'" class="badge">System copy</span>
           <span v-else class="badge badge-error">Not installed</span>
           <span v-if="ffmpegStatus.installed && ffmpegStatus.has_drawtext" class="badge badge-success">drawtext</span>
           <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_drawtext" class="badge badge-warn">no drawtext</span>
@@ -1850,14 +1853,18 @@
         and/or <strong>libass</strong> (subtitle burn-in). The downloaded build below includes both.
       </p>
 
-      <!-- One-click install. When a working FFmpeg is already detected,
-           the install path is rarely useful — the bundled binary is what
-           the app actually uses, and re-running the download just kicks
-           off an unnecessary 80 MB hit. Collapse it behind a disclosure
-           in that case. The full inline card stays visible when FFmpeg
-           is genuinely missing OR while an install is in progress so
-           the user can monitor it. -->
+      <div v-if="ffmpegStatus?.installed && ffmpegStatus.source === 'bundled'" class="ffmpeg-bundled-ready mt-2">
+        <strong>Bundled and ready</strong>
+        <span>
+          This is the pinned build shipped and tested with Story Studio. It remains fixed
+          until the app itself is updated, preventing an incompatible FFmpeg upgrade.
+        </span>
+      </div>
+
+      <!-- Recovery installer only. A healthy release bundle must never invite
+           an unnecessary replacement download. -->
       <details
+        v-else
         :open="!ffmpegStatus?.installed || ffmpegInstalling"
         class="ffmpeg-install-block mt-2"
       >
@@ -1865,15 +1872,15 @@
           v-if="ffmpegStatus?.installed && !ffmpegInstalling"
           class="ffmpeg-install-summary"
         >
-          <span style="font-size: 13px;">Advanced: replace FFmpeg binary</span>
+          <span style="font-size: 13px;">Advanced: replace recovery FFmpeg</span>
           <span class="text-muted" style="font-size: 11px;">
-            (rarely needed — the bundled binary already works)
+            (only needed when the app bundle is unavailable)
           </span>
         </summary>
         <h4 v-else style="margin: 0 0 8px 0;">One-click install</h4>
         <p class="text-muted" style="font-size: 12px; margin: 8px 0;">
-          Downloads ffmpeg + ffprobe (~50 MB) from the official release mirror and installs them
-          into the app's user-data folder. Safe to run multiple times. No admin password required.
+          Downloads the same pinned FFmpeg + FFprobe release used by this app, verifies its
+          SHA-256 checksums, and installs it into the app's user-data folder as a recovery copy.
         </p>
         <button
           class="btn btn-primary"
@@ -1881,8 +1888,8 @@
           :disabled="ffmpegInstalling"
         >
           <span v-if="ffmpegInstalling">{{ ffmpegInstallMessage || 'Installing…' }} {{ ffmpegInstallProgress }}%</span>
-          <span v-else-if="ffmpegStatus?.installed">Re-install / update FFmpeg</span>
-          <span v-else>Install FFmpeg</span>
+          <span v-else-if="ffmpegStatus?.installed">Replace recovery copy</span>
+          <span v-else>Install recovery copy</span>
         </button>
         <div v-if="ffmpegInstallMessage && !ffmpegInstalling" class="mt-1" style="font-size: 12px;" :style="{ color: ffmpegInstallError ? 'var(--error)' : 'var(--text-muted)' }">
           {{ ffmpegInstallMessage }}
@@ -1934,7 +1941,7 @@
       </details>
 
       <!-- Manual install fallback -->
-      <details class="ffmpeg-manual mt-3">
+      <details v-if="ffmpegStatus?.source !== 'bundled'" class="ffmpeg-manual mt-3">
         <summary style="cursor: pointer; font-weight: 600; font-size: 13px;">
           Manual install (advanced)
         </summary>
@@ -4265,6 +4272,7 @@ const modelPricingViews: Array<{ id: ModelPricingView; label: string; icon: stri
 interface FfmpegStatus {
   installed: boolean
   version?: string
+  source?: 'bundled' | 'app-data' | 'system' | 'not-found'
   has_drawtext?: boolean
   has_libass?: boolean
   path?: string
@@ -4330,6 +4338,10 @@ async function refreshFfmpegStatus() {
 
 async function installFfmpeg() {
   if (ffmpegInstalling.value) return
+  if (ffmpegStatus.value?.installed && ffmpegStatus.value.source === 'bundled') {
+    success('Bundled FFmpeg is already verified — no download is needed')
+    return
+  }
   ffmpegInstalling.value = true
   ffmpegInstallProgress.value = 0
   ffmpegInstallError.value = false

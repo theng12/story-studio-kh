@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.673 — 2026-07-23
+
+**The bundled FFmpeg is now the only normal media engine—no redundant download required.**
+
+- Always resolves the release-pinned FFmpeg and FFprobe inside the application
+  bundle before stale custom, app-data, Homebrew, or PATH copies.
+- Distinguishes the bundled release from app-data recovery and system binaries
+  in status diagnostics.
+- Replaces the normal install/update prompt with a clear **Bundled and ready**
+  confirmation. Re-checking verifies the shipped copy without downloading.
+- Keeps the checksum-pinned downloader only as a recovery path when the
+  application bundle is genuinely unavailable, and rejects replacement
+  requests while the bundled copy is healthy.
+
 ## v1.0.672 — 2026-07-23
 
 **Presets now survive shared-workspace saves, and Ideas visibly prevents recycled concepts.**

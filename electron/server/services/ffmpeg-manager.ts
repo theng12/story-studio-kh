@@ -3,9 +3,10 @@
  * and downloads pre-built binaries if not found on the system.
  *
  * Resolution order:
- *   1. App user data directory ({userData}/ffmpeg/)
- *   2. System PATH (which ffmpeg)
- *   3. Not found → offer download
+ *   1. Binary bundled with the signed application release
+ *   2. Explicit/app-data recovery binary
+ *   3. System installation
+ *   4. Not found → offer the pinned recovery download
  */
 
 import { existsSync, accessSync, constants as fsConstants } from 'fs'
@@ -144,7 +145,7 @@ function getCommonInstallPaths(binary: string): string[] {
  * running the backend under tsx/node outside Electron — tests).
  */
 function getBundledBinaryPath(binary: string): string | null {
-  const root = process.resourcesPath
+  const root = process.env.STORY_STUDIO_RESOURCES_DIR || process.resourcesPath
   if (!root || typeof root !== 'string') return null
   const suffix = process.platform === 'win32' ? '.exe' : ''
   return path.join(root, 'ffmpeg', `${binary}${suffix}`)
@@ -152,38 +153,38 @@ function getBundledBinaryPath(binary: string): string | null {
 
 /**
  * Get the path to ffmpeg binary. Checks in order:
- * 1. Cached path (if still valid)
- * 2. Custom path from app settings (user-configured or downloaded)
- * 3. Bundled binary inside the .app's Contents/Resources/ffmpeg/
- *    (universal2 — works on every Mac)
+ * 1. Bundled binary inside the .app's Contents/Resources/ffmpeg/
+ *    (release-pinned and verified before the DMG ships)
+ * 2. Cached path (if still valid)
+ * 3. Custom path from app settings (user-configured or downloaded)
  * 4. App user data directory (auto-downloaded binary, fallback)
  * 5. Common system install locations (direct file checks)
  * 6. System PATH (via `which` — limited in GUI-launched apps)
  */
 export async function getFFmpegPath(): Promise<string> {
-  if (_ffmpegPath && existsSync(_ffmpegPath)) return _ffmpegPath
-
-  // 1. Saved custom path
-  const customPath = await getAppSetting('ffmpeg_path')
-  if (customPath && existsSync(customPath)) {
-    _ffmpegPath = customPath
-    return customPath
-  }
-
-  // 2. Bundled binary that ships inside the .app — added to extraResources
+  // The release bundle must win even when an older app version saved an
+  // app-data download as a custom path. Otherwise that stale binary can
+  // override the vetted copy shipped by a newer DMG.
   //    by electron-builder. `process.resourcesPath` points to
   //    Contents/Resources/ in production, and to {electron-install}/resources/
   //    in dev (where build/ffmpeg/ doesn't exist, so this no-ops and we
-  //    fall through to the app-downloaded path). Bundled wins over the
-  //    user-data download because the bundled build is always known-good
-  //    universal2; a stale download might be the wrong arch or corrupted.
+  //    fall through to the app-downloaded path).
   const bundledBin = getBundledBinaryPath('ffmpeg')
   if (bundledBin && existsSync(bundledBin)) {
     _ffmpegPath = bundledBin
     return bundledBin
   }
 
-  // 3. App-downloaded binary
+  if (_ffmpegPath && existsSync(_ffmpegPath)) return _ffmpegPath
+
+  // Saved custom/recovery path.
+  const customPath = await getAppSetting('ffmpeg_path')
+  if (customPath && existsSync(customPath)) {
+    _ffmpegPath = customPath
+    return customPath
+  }
+
+  // App-downloaded recovery binary.
   const localBin = path.join(getFFmpegDir(), 'ffmpeg')
   if (existsSync(localBin)) {
     _ffmpegPath = localBin
@@ -210,19 +211,19 @@ export async function getFFmpegPath(): Promise<string> {
 }
 
 export async function getFFprobePath(): Promise<string> {
+  // Bundled ffprobe has the same release-first precedence as ffmpeg.
+  const bundledBin = getBundledBinaryPath('ffprobe')
+  if (bundledBin && existsSync(bundledBin)) {
+    _ffprobePath = bundledBin
+    return bundledBin
+  }
+
   if (_ffprobePath && existsSync(_ffprobePath)) return _ffprobePath
 
   const customPath = await getAppSetting('ffprobe_path')
   if (customPath && existsSync(customPath)) {
     _ffprobePath = customPath
     return customPath
-  }
-
-  // Bundled ffprobe — same precedence as ffmpeg above.
-  const bundledBin = getBundledBinaryPath('ffprobe')
-  if (bundledBin && existsSync(bundledBin)) {
-    _ffprobePath = bundledBin
-    return bundledBin
   }
 
   const localBin = path.join(getFFmpegDir(), 'ffprobe')
@@ -252,7 +253,7 @@ export async function getFFprobePath(): Promise<string> {
 export interface FFmpegStatus {
   installed: boolean
   version?: string
-  source: 'bundled' | 'system' | 'not-found'
+  source: 'bundled' | 'app-data' | 'system' | 'not-found'
   path?: string
   has_drawtext: boolean
   has_libass: boolean   // needed to burn subtitles via the `subtitles=` filter
@@ -313,19 +314,18 @@ export async function getFFmpegStatus(): Promise<FFmpegStatus> {
   result.version = version
   result.path = ffmpegBin
 
-  // Determine source. "App-managed" = either the bundled binary that ships
-  // in Contents/Resources/ffmpeg/ (via electron-builder extraResources) OR
-  // the fallback binary we auto-downloaded into {userData}/ffmpeg/. Anything
-  // else — Homebrew, MacPorts, system PATH — is reported as 'system'.
-  // Matching only the userData dir (the previous check) mislabelled the
-  // real bundled binary as 'system', which confused the install UI.
+  // Keep the shipped bundle distinct from a recovery download. The Settings
+  // UI suppresses the downloader only for the immutable release bundle.
   const localDir = getFFmpegDir()
   const bundledBinPath = getBundledBinaryPath('ffmpeg')
   const bundledDir = bundledBinPath ? path.dirname(bundledBinPath) : null
-  const isAppManaged =
-    ffmpegBin.startsWith(localDir) ||
-    (bundledDir !== null && ffmpegBin.startsWith(bundledDir))
-  result.source = isAppManaged ? 'bundled' : 'system'
+  if (bundledDir !== null && ffmpegBin.startsWith(bundledDir)) {
+    result.source = 'bundled'
+  } else if (ffmpegBin.startsWith(localDir)) {
+    result.source = 'app-data'
+  } else {
+    result.source = 'system'
+  }
 
   // Spawn helper: shared across the filters + encoders probes below.
   // Returns stdout text on a clean exit, or '' on timeout/error so the
