@@ -213,7 +213,20 @@
 
         <!-- Connected account card (single) -->
         <div v-if="youtubeAccounts[0]" class="connected-account mt-2">
-          <img v-if="youtubeAccounts[0].thumbnail_url" :src="youtubeAccounts[0].thumbnail_url" class="channel-thumb-lg" />
+          <div
+            class="channel-avatar-lg"
+            role="img"
+            :aria-label="`${youtubeAccounts[0].remote_title} channel icon`"
+          >
+            <img
+              v-if="youtubeAccounts[0].thumbnail_url && !channelAvatarFailed"
+              :src="channelAvatarUrl"
+              alt=""
+              class="channel-thumb-lg"
+              @error="channelAvatarFailed = true"
+            />
+            <span v-else>{{ channelInitials }}</span>
+          </div>
           <div style="flex: 1; min-width: 0;">
             <strong style="display: block;">{{ youtubeAccounts[0].remote_title }}</strong>
             <div class="text-muted" style="font-size: var(--font-xs);">
@@ -2860,6 +2873,25 @@ const {
   triggerMetadataUpdate,
   triggerPlaylistUpdate,
 } = uploadApi
+
+const channelAvatarFailed = ref(false)
+const channelAvatarUrl = computed(() => {
+  const account = youtubeAccounts.value[0]
+  return account?.id
+    ? `/api/projects/${encodeURIComponent(slug.value)}/upload/accounts/${encodeURIComponent(account.id)}/avatar`
+    : ''
+})
+const channelInitials = computed(() => {
+  const title = youtubeAccounts.value[0]?.remote_title?.trim() || 'YouTube'
+  const words = title.split(/\s+/).filter(Boolean)
+  return (words.length > 1
+    ? `${words[0][0]}${words[words.length - 1][0]}`
+    : title.slice(0, 2)).toUpperCase()
+})
+watch(
+  () => [youtubeAccounts.value[0]?.id, youtubeAccounts.value[0]?.thumbnail_url],
+  () => { channelAvatarFailed.value = false },
+)
 
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
@@ -7119,7 +7151,22 @@ td.col-actions > a.btn {
   border-left: 3px solid #3fb950;
   border-radius: var(--radius-sm);
 }
-.channel-thumb-lg { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.channel-avatar-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(145deg, rgba(240, 198, 116, 0.24), rgba(63, 185, 128, 0.16));
+  border: 1px solid rgba(240, 198, 116, 0.35);
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+.channel-thumb-lg { width: 100%; height: 100%; object-fit: cover; }
 
 .default-radio { accent-color: #3fb950; cursor: pointer; }
 .default-radio:disabled { cursor: default; }

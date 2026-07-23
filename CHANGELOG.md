@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.680 — 2026-07-23
+
+**Connected YouTube channels now show their channel icon reliably.**
+
+- Serves the saved YouTube avatar through Story Studio's same-origin API so
+  the packaged app's strict remote-image policy no longer blocks it.
+- Restricts avatar downloads to approved Google image hosts, supported raster
+  formats, bounded file sizes, validated redirects, and a short local cache.
+- Replaces broken-image placeholders with a readable channel-initial fallback
+  if YouTube temporarily stops serving an icon.
+
 ## v1.0.679 — 2026-07-23
 
 **GenStudio now solely owns generation admission, account concurrency, and backpressure.**

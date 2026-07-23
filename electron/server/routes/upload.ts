@@ -32,6 +32,7 @@ import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
+import { fetchYouTubeChannelAvatar } from '../lib/youtube-channel-avatar.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
@@ -491,6 +492,23 @@ router.get('/projects/:slug/upload/accounts', async (req, res) => {
     res.json({ accounts, defaults })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list accounts'))
+  }
+})
+
+router.get('/projects/:slug/upload/accounts/:id/avatar', async (req, res) => {
+  try {
+    const account = (await store.listAccounts(req.params.slug, 'youtube'))
+      .find(item => item.id === req.params.id)
+    if (!account) return res.status(404).json({ detail: 'YouTube account not found.' })
+    if (!account.thumbnail_url) return res.status(404).json({ detail: 'This YouTube channel has no icon.' })
+
+    const avatar = await fetchYouTubeChannelAvatar(account.thumbnail_url)
+    res.setHeader('Content-Type', avatar.contentType)
+    res.setHeader('Content-Length', String(avatar.bytes.length))
+    res.setHeader('Cache-Control', 'private, max-age=3600, stale-while-revalidate=86400')
+    res.send(avatar.bytes)
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Failed to load YouTube channel icon'))
   }
 })
 
