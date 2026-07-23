@@ -136,7 +136,13 @@ onMounted(() => { void load() })
 </script>
 
 <style scoped>
-.this-mac-settings { display: grid; gap: 14px; }
+.this-mac-settings {
+  container-name: this-mac-settings;
+  container-type: inline-size;
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
 header h3, .panel h4 { margin: 3px 0; }
 header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .eyebrow { color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
@@ -146,6 +152,7 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .theme-picker button { border: 0; border-radius: 6px; padding: 6px 11px; background: transparent; color: var(--text-secondary); text-transform: capitalize; cursor: pointer; }
 .theme-picker button.active { background: var(--accent); color: var(--accent-on); }
 .connection { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(360px, 1.2fr); gap: 24px; }
+.connection > * { min-width: 0; }
 .fields { display: grid; gap: 7px; }
 .fields label { margin-top: 4px; font-size: var(--font-xs); font-weight: 700; color: var(--text-secondary); }
 .field-row { display: flex; gap: 7px; }
@@ -154,5 +161,13 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .result { font-size: var(--font-xs); }
 .result.ok { color: var(--success); } .result.warn { color: var(--warning, #d97706); } .result.err { color: var(--danger); }
 .security-note { margin: 0; }
-@media (max-width: 760px) { .connection { grid-template-columns: 1fr; } .field-row { flex-wrap: wrap; } }
+@container this-mac-settings (max-width: 760px) {
+  .connection { grid-template-columns: 1fr; }
+  .field-row { flex-wrap: wrap; }
+}
+@container this-mac-settings (max-width: 520px) {
+  .appearance { align-items: stretch; flex-direction: column; }
+  .theme-picker { align-self: flex-start; }
+  .field-row .btn { flex: 1 1 auto; }
+}
 </style>

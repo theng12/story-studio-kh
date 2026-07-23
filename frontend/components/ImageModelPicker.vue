@@ -13,11 +13,8 @@
       catalog-notice-href="/usage"
       @update:model-value="select"
     />
-    <p v-if="imageMode === 'img2img'" class="notice">
-      The current GenStudio image catalog is prompt-only. Switch to Prompt only to generate.
-    </p>
-    <p v-else-if="migrationMessage" class="notice">{{ migrationMessage }}</p>
-    <p v-else-if="error" class="notice">{{ error }}</p>
+    <p v-if="error" class="notice notice-error">{{ error }}</p>
+    <p v-if="migrationMessage" class="notice">{{ migrationMessage }}</p>
   </div>
 </template>
 
@@ -99,4 +96,5 @@ onMounted(() => {
 
 <style scoped>
 .notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.notice-error { color: var(--danger, #dc2626); }
 </style>

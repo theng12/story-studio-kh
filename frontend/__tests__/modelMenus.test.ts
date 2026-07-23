@@ -10,6 +10,7 @@ function source(path: string): string {
 const modelMenu = source('../components/ModelMenu.vue')
 const anchoredPanel = source('../composables/useAnchoredPanel.ts')
 const imagePicker = source('../components/ImageModelPicker.vue')
+const imageGenerator = source('../pages/projects/[slug]/images.vue')
 const voicePicker = source('../components/VoicePicker.vue')
 const modelSelector = source('../components/ModelSelector.vue')
 
@@ -35,6 +36,20 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /overflow-wrap:\s*anywhere/)
     assert.match(modelMenu, /badge\.title \|\| badge\.label/)
     assert.match(modelMenu, /catalogNoticeHref/)
+    assert.match(modelMenu, /selectableOptionCount/)
+  })
+
+  test('the image picker exposes catalog errors alongside stale saved selections', () => {
+    assert.match(imagePicker, /v-if="error"/)
+    assert.match(imagePicker, /v-if="migrationMessage"/)
+    assert.match(imagePicker, /notice-error/)
+  })
+
+  test('image-to-image is visibly coming soon and cannot restore an unsupported saved mode', () => {
+    assert.match(imageGenerator, /Reference-image generation is coming soon\./)
+    assert.match(imageGenerator, /:disabled="tab\.comingSoon"/)
+    assert.match(imageGenerator, /if \(m === 'img2img'\) return/)
+    assert.match(imageGenerator, /if \(mode === 'img2img'\) activeForm\.value\.image_mode = 'text2img'/)
   })
 
   test('floating menus avoid clipped cards and stay inside the viewport', () => {

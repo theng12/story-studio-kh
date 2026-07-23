@@ -7,7 +7,8 @@
        wrapper only manages visibility. -->
   <Modal
     :visible="modal.isOpen.value"
-    size="lg"
+    size="xxl"
+    dialog-class="app-settings-dialog"
     labelledby="app-settings-title"
     @close="modal.close()"
   >
@@ -24,7 +25,9 @@
 
     <!-- Re-mounted each open (:key) so the inner component re-fetches keys —
          reflects edits made elsewhere since last open. -->
-    <ThisMacSettings v-if="modal.isOpen.value" :key="openCount" />
+    <div class="modal-body">
+      <ThisMacSettings v-if="modal.isOpen.value" :key="openCount" />
+    </div>
 
     <footer class="modal-footer">
       <button type="button" class="btn btn-secondary" @click="modal.close()">Close</button>
@@ -50,11 +53,13 @@ watch(modal.isOpen, (now) => { if (now) openCount.value++ })
 
 <style scoped>
 .modal-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: -4px 0 4px;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--border);
 }
 .modal-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .modal-close {
@@ -69,11 +74,36 @@ watch(modal.isOpen, (now) => { if (now) openCount.value++ })
   transition: background 0.15s, color 0.15s;
 }
 .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.modal-body {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .modal-footer {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
-  margin-top: 16px;
-  padding-top: 16px;
+  padding: 12px 24px 20px;
   border-top: 1px solid var(--border);
+}
+
+@media (max-width: 680px) {
+  .modal-header { padding: 16px 16px 10px; }
+  .modal-body { padding: 12px 16px; }
+  .modal-footer { padding: 10px 16px 16px; }
+}
+</style>
+
+<style>
+.app-settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  overflow: hidden;
 }
 </style>

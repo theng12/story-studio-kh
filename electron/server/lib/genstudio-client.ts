@@ -65,6 +65,9 @@ export interface GenStudioTranscriptionModel {
   available_workers: number
   qualification_only: boolean
   unlimited_relaxed: boolean
+  credits_per_minute: number
+  minimum_credits: number
+  price_version: string
 }
 
 export interface GenStudioImageModel {
@@ -75,6 +78,10 @@ export interface GenStudioImageModel {
   qualification_only: boolean
   execution_label?: string
   unlimited_relaxed: boolean
+  credits_per_image: number | null
+  minimum_credits: number | null
+  price_version: string | null
+  chargeable: boolean
   aspect_ratios: string[]
   default_aspect_ratio: string
   default_steps: number
@@ -188,6 +195,21 @@ export interface GenStudioChatModel {
   controls: string[]
   activation_blockers: string[]
   unlimited_relaxed: boolean
+  input_credits_per_million_tokens: number
+  output_credits_per_million_tokens: number
+  minimum_credits: number
+  price_version: string
+}
+
+export interface GenStudioTtsQuote {
+  voice_id: string
+  billable_characters: number
+  speed: number
+  estimated_duration_ms: number
+  credits: number
+  credits_per_1000_characters: number
+  price_version: string
+  chargeable: boolean
 }
 
 export interface GenStudioVideoModel {
@@ -614,7 +636,56 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
       : [],
     unlimited_relaxed: value?.unlimited_relaxed === true,
+    input_credits_per_million_tokens: Number.isFinite(value?.input_credits_per_million_tokens)
+      ? Math.max(0, value.input_credits_per_million_tokens)
+      : 0,
+    output_credits_per_million_tokens: Number.isFinite(value?.output_credits_per_million_tokens)
+      ? Math.max(0, value.output_credits_per_million_tokens)
+      : 0,
+    minimum_credits: Number.isFinite(value?.minimum_credits)
+      ? Math.max(0, value.minimum_credits)
+      : 0,
+    price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
+}
+
+/**
+ * Get GenStudio's exact TTS quote. This deliberately keeps TTS pricing out of
+ * Story Studio: GenStudio owns the voice tier, character rules, price version,
+ * and the final settlement.
+ */
+export async function quoteTts(
+  apiKey: string,
+  input: { voiceId: string; text: string; speed: number },
+): Promise<GenStudioTtsQuote> {
+  const baseUrl = await getGenStudioUrl()
+  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/tts/quotes`, {
+    method: 'POST',
+    headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voice_id: input.voiceId, text: input.text, speed: input.speed }),
+    signal: AbortSignal.timeout(12_000),
+  })) as any
+  if (
+    typeof payload?.voice_id !== 'string'
+    || !Number.isFinite(payload?.credits)
+    || !Number.isFinite(payload?.billable_characters)
+    || !Number.isFinite(payload?.estimated_duration_ms)
+    || typeof payload?.price_version !== 'string'
+  ) {
+    throw new Error('GenStudio KH returned an invalid TTS quote')
+  }
+  return {
+    voice_id: payload.voice_id.trim(),
+    billable_characters: Math.max(0, payload.billable_characters),
+    speed: Number.isFinite(payload?.speed) ? payload.speed : input.speed,
+    estimated_duration_ms: Math.max(0, payload.estimated_duration_ms),
+    credits: Math.max(0, payload.credits),
+    credits_per_1000_characters: Number.isFinite(payload?.credits_per_1000_characters)
+      ? Math.max(0, payload.credits_per_1000_characters)
+      : 0,
+    price_version: payload.price_version.trim(),
+    chargeable: payload?.chargeable === true,
+  }
 }
 
 export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
@@ -959,6 +1030,13 @@ export async function listTranscriptionModels(
       : 0,
     qualification_only: value?.qualification_only !== false,
     unlimited_relaxed: value?.unlimited_relaxed === true,
+    credits_per_minute: Number.isFinite(value?.credits_per_minute)
+      ? Math.max(0, value.credits_per_minute)
+      : 0,
+    minimum_credits: Number.isFinite(value?.minimum_credits)
+      ? Math.max(0, value.minimum_credits)
+      : 0,
+    price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
   })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
 }
 
@@ -978,6 +1056,14 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
     qualification_only: value?.qualification_only !== false,
     execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
     unlimited_relaxed: value?.unlimited_relaxed === true || value?.execution_label === 'Local fleet',
+    credits_per_image: Number.isFinite(value?.credits_per_image)
+      ? Math.max(0, value.credits_per_image)
+      : null,
+    minimum_credits: Number.isFinite(value?.minimum_credits)
+      ? Math.max(0, value.minimum_credits)
+      : null,
+    price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : null,
+    chargeable: value?.chargeable === true,
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
       : [],

@@ -504,7 +504,11 @@ defineExpose({ reload: load })
 </script>
 
 <style scoped>
-.ssm-panel { min-width: 0; }
+.ssm-panel {
+  container-name: server-mode-settings;
+  container-type: inline-size;
+  min-width: 0;
+}
 .ssm-kicker {
   display: block;
   margin-bottom: 2px;
@@ -535,7 +539,7 @@ defineExpose({ reload: load })
 .ssm-loading { padding: 16px 0; color: var(--text-muted); font-size: 13px; }
 .ssm-config-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.82fr) minmax(420px, 1.18fr);
+  grid-template-columns: minmax(260px, 0.72fr) minmax(500px, 1.28fr);
   gap: 9px;
   margin-top: 12px;
 }
@@ -573,7 +577,7 @@ defineExpose({ reload: load })
 .ssm-inline-fields,
 .ssm-credential-grid { display: grid; gap: 7px; }
 .ssm-inline-fields { grid-template-columns: minmax(90px, 0.7fr) minmax(130px, 1.3fr); }
-.ssm-credential-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ssm-credential-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .ssm-inline-fields .ssm-field,
 .ssm-credential-grid .ssm-field { min-width: 0; }
 .ssm-inline-fields .ssm-input,
@@ -601,7 +605,7 @@ defineExpose({ reload: load })
 .ssm-quick-hint { flex: 1; min-width: 200px; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
 .ssm-diag-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 7px;
   margin-top: 3px;
 }
@@ -631,15 +635,17 @@ defineExpose({ reload: load })
 .ssm-diag-value code { padding: 2px 5px; border-radius: 3px; background: var(--bg-tertiary); font-size: var(--font-xs); }
 .ssm-diag-refresh { display: flex; align-items: baseline; gap: 9px; margin-top: 8px; flex-wrap: wrap; }
 
-@media (max-width: 1000px) {
+@container server-mode-settings (max-width: 820px) {
   .ssm-config-grid { grid-template-columns: 1fr; }
   .ssm-fieldset:nth-child(3) { grid-column: auto; }
-  .ssm-diag-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-@media (max-width: 680px) {
+@container server-mode-settings (max-width: 560px) {
   .ssm-credential-grid { grid-template-columns: 1fr; }
-  .ssm-diag-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ssm-inline-fields { grid-template-columns: 1fr; }
   .ssm-quick-actions { align-items: flex-start; flex-direction: column; }
+  .ssm-buttons { align-items: stretch; flex-direction: column; }
+  .ssm-buttons .btn { width: 100%; }
+  .ssm-input-narrow { max-width: none; }
 }
 </style>

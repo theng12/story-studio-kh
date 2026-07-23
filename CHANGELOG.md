@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.682 — 2026-07-23
+
+**Generation confirmation now uses only live GenStudio credits.**
+
+- Replaced the retired local provider-cost calculator and Kie credit-to-USD
+  conversion with GenStudio catalog-backed credit estimates and immutable price
+  versions for LLM, image, transcription, and video work.
+- TTS confirmation now requests exact GenStudio quotes for the selected voice,
+  narration, and speed, including long narration split into the same public API
+  request limit used for generation.
+- GenStudio remains authoritative at submission and settlement; Story Studio
+  now shows only estimated credits, the pricing basis, and any returned unused
+  reservation credits after completion.
+- Thumbnail and Scene Generator now show Image → Image as **Coming soon** until
+  GenStudio publishes reference-image support; stale saved selections heal to
+  supported prompt-only generation. The picker also no longer counts a disabled
+  historical model as available and now shows catalog errors beside migration guidance.
+
 ## v1.0.680 — 2026-07-23
 
 **Connected YouTube channels now show their channel icon reliably.**

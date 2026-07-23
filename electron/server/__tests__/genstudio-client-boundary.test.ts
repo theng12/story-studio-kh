@@ -29,6 +29,7 @@ import {
   listVideoModels,
   operationSignal,
   parseGenStudioRetryAfterMs,
+  quoteTts,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
   recoverTtsToFile,
@@ -205,7 +206,8 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
-          unlimited_relaxed: true,
+          unlimited_relaxed: true, input_credits_per_million_tokens: 10_000,
+          output_credits_per_million_tokens: 20_000, minimum_credits: 3, price_version: 'chat-price-v1',
         }])
       }
       if (url.endsWith('/v1/videos/models')) {
@@ -227,11 +229,49 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 32_768)
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.unlimited_relaxed, true)
+    assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
+    assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('GenStudio TTS quotes use the scoped API key and preserve the authoritative price version', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/quotes')
+      assert.equal(init?.method, 'POST')
+      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
+      assert.deepEqual(JSON.parse(String(init?.body)), {
+        voice_id: 'voice-1', text: 'A quiet morning.', speed: 0.9,
+      })
+      return Response.json({
+        voice_id: 'voice-1', billable_characters: 16, speed: 0.9, estimated_duration_ms: 2200,
+        credits: 5, credits_per_1000_characters: 5, price_version: 'tts-price-v2', chargeable: true,
+      })
+    }
+    const quote = await quoteTts('scoped-key', { voiceId: 'voice-1', text: 'A quiet morning.', speed: 0.9 })
+    assert.deepEqual(quote, {
+      voice_id: 'voice-1', billable_characters: 16, speed: 0.9, estimated_duration_ms: 2200,
+      credits: 5, credits_per_1000_characters: 5, price_version: 'tts-price-v2', chargeable: true,
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('generation confirmation is GenStudio-credit-only and keeps no legacy provider calculator', () => {
+  const route = readFileSync(new URL('../routes/jobs.ts', import.meta.url), 'utf8')
+  const dialog = readFileSync(new URL('../../../frontend/components/CostConfirmationDialog.vue', import.meta.url), 'utf8')
+  assert.match(route, /listChatModels/)
+  assert.match(route, /listImageModels/)
+  assert.match(route, /quoteTts/)
+  assert.doesNotMatch(route, /getModelPricing|getKieCredits|getFalBalance|estimated_cost|cost_unit/)
+  assert.match(dialog, /Estimated GenStudio credits/)
+  assert.doesNotMatch(dialog, /USD_PER_CREDIT|kie\.ai|usdEquivalent/)
 })
 
 test('GenStudio voice catalog preserves tiers and stored previews without generating audio', async () => {

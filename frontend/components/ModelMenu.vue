@@ -42,7 +42,7 @@
             <span>{{ kindLabel }}</span>
             <strong>{{ title }}</strong>
           </div>
-          <span class="model-menu-count">{{ filteredOptions.length }} available</span>
+          <span class="model-menu-count">{{ selectableOptionCount }} available</span>
         </div>
 
         <div class="model-menu-search-wrap">
@@ -187,6 +187,7 @@ const filteredOptions = computed(() => {
     return terms.every(term => haystack.includes(term))
   })
 })
+const selectableOptionCount = computed(() => filteredOptions.value.filter(option => !option.disabled).length)
 const groupedOptions = computed(() => {
   const groups = new Map<string, ModelMenuOption[]>()
   for (const option of filteredOptions.value) {

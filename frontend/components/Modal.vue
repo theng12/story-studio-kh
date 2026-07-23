@@ -36,14 +36,14 @@
  * Opinionated defaults:
  *   - `closeOnBackdrop` / `closeOnEscape` default to true — override only
  *     when the flow genuinely can't be abandoned (e.g., migration prompt).
- *   - `size` is 'sm' / 'md' / 'lg' mapped to max-widths; all dialogs honour
+ *   - `size` is 'sm' / 'md' / 'lg' / 'xl' / 'xxl' mapped to max-widths; all dialogs honour
  *     the same 24px internal padding so they feel like the same family.
  */
 const props = withDefaults(defineProps<{
   /** Drives render + focus trap. Parent owns the state. */
   visible: boolean
-  /** 'sm' 440px (default), 'md' 560px, 'lg' 720px, 'xl' 880px. */
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** 'sm' 440px (default), 'md' 560px, 'lg' 720px, 'xl' 880px, 'xxl' 1120px. */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
   /** Override z-index if a modal must stack above another. Default 2000. */
   zIndex?: number
   /** Cancel the dialog when the user clicks outside it. Default true. */
@@ -97,7 +97,9 @@ function handleBackdropClick() {
   padding: 24px;
   width: calc(100% - 48px);
   animation: popIn 0.18s ease-out;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -105,6 +107,15 @@ function handleBackdropClick() {
 .size-md { max-width: 560px; }
 .size-lg { max-width: 720px; }
 .size-xl { max-width: 880px; }
+.size-xxl { max-width: 1120px; }
+
+@media (max-width: 680px) {
+  .modal-dialog {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 18px;
+  }
+}
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes popIn {

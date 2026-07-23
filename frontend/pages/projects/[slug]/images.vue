@@ -51,21 +51,22 @@
       </p>
     </div>
 
-    <!-- Image mode tabs (Text → Image vs Image → Image). Mirrors the
-         video page's Text→Video / Image→Video pattern. Default is
-         text2img — the existing flow, unchanged. img2img surfaces an
-         additional reference-sources card and filters the model
-         dropdown to img2img-capable models. -->
+    <!-- Image mode tabs. GenStudio's current image catalog is prompt-only,
+         so Image → Image is intentionally visible but unavailable until the
+         catalog publishes a reference-image capability. -->
     <div class="mode-tabs workspace-stage-tabs" role="tablist" aria-label="Image generation pipeline">
       <button
         v-for="tab in imageModeTabs" :key="tab.id"
-        :class="['mode-tab', { active: activeForm.image_mode === tab.id }]"
+        :class="['mode-tab', { active: activeForm.image_mode === tab.id, 'is-coming-soon': tab.comingSoon }]"
         role="tab"
         :aria-selected="activeForm.image_mode === tab.id"
+        :aria-disabled="tab.comingSoon || undefined"
+        :disabled="tab.comingSoon"
+        :title="tab.comingSoon ? 'Coming soon — GenStudio image models do not support reference images yet.' : undefined"
         @click="selectImageMode(tab.id)"
       >
         <span class="mode-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-        <span class="mode-tab-label">{{ tab.label }}</span>
+        <span class="mode-tab-label">{{ tab.label }} <small v-if="tab.comingSoon">Coming soon</small></span>
         <span class="mode-tab-hint">{{ tab.hint }}</span>
       </button>
     </div>
@@ -122,24 +123,12 @@
             </template>
             <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
           </span>
-          <!-- Img2img mode: warn the user when their current model can't
-               actually consume references — kie.ai silently ignores the
-               field on text-only models, which would look like img2img
-               mode "doing nothing." -->
-          <span v-if="activeForm.image_mode === 'img2img' && !currentModelSupportsRefs"
-                class="text-danger text-xs"
-                title="In Image → Image mode this model will silently ignore reference images and behave as text-to-image. Pick a model with reference support (Flux Kontext, Nano Banana, Qwen Image 2, GPT Image 2)."
-          >
-            ⚠ This model doesn't support reference images — pick one of the img2img-capable models above.
-          </span>
         </div>
 
         <!-- Tier picker — only renders for variable-priced models that
              carry a `tiers[]` array (resolution/speed/etc.). Flat-priced
-             models hide it entirely. Inline cost preview ("8 cr · ~$0.04")
-             keeps the explain-as-you-go expectation: every option shows
-             both credits and rough USD so the user can compare without
-             pulling out a calculator. -->
+             models hide it entirely. Credits are quoted authoritatively by
+             GenStudio at confirmation and settlement. -->
         <div v-if="modelTiers.length > 0" class="form-group">
           <label>{{ modelTierLabel }}</label>
           <div class="tier-picker">
@@ -151,7 +140,7 @@
             >
               <input type="radio" :value="t.id" v-model="activeForm.tier" />
               <span class="tier-option-label">{{ t.label }}</span>
-              <span class="tier-option-cost">{{ t.credits }} cr · ~{{ formatUsd(t.credits) }}</span>
+              <span class="tier-option-cost">{{ t.credits }} GenStudio credits</span>
             </label>
           </div>
         </div>
@@ -282,11 +271,9 @@
 
     </div>
 
-    <!-- ── Image-to-image reference sources ───────────────────────────────
-         Only mounts in img2img mode. Surfaces the four configurable
-         reference sources (master / per-scene / characters / chain)
-         + the upload UI for the file-backed sources. Toggles bind to
-         activeForm.reference_sources which is sent to the backend on submit. -->
+    <!-- Legacy saved img2img settings remain readable and are healed to
+         prompt-only below. This card stays gated for a future catalog that
+         explicitly advertises reference-image support. -->
     <Img2ImgReferencesCard
       v-if="activeForm.image_mode === 'img2img' && form.episode_id"
       :project-slug="slug"
@@ -766,14 +753,6 @@ const {
 // downstream watch / computed (cap, tier, label) continues to fire
 // unchanged because the bound value type didn't change.
 
-// Surface a hint when the user's currently-selected model isn't in the
-// img2img-eligible list, so they aren't surprised by silent text2img
-// fallback. Read from the same supports_reference_images flag.
-const currentModelSupportsRefs = computed(() => {
-  const cfg = (config.value?.image_models || {} as any)[activeForm.value.model]
-  const params = cfg?.provider_params || cfg
-  return params?.supports_reference_images === true
-})
 const { success, error: showError } = useToast()
 const { imageGenerating, thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
@@ -904,18 +883,6 @@ const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
   refetchOnJobTypes: ['script-only', 'expand_chapters'],
 })
 
-// Per-credit USD rate at kie.ai (1 credit = $0.005, verified across the
-// 2026-04-28 pricing-page audit). Plumbed here so the dropdown labels
-// + tier picker share one source of truth — change in one place if the
-// rate shifts.
-const KIE_USD_PER_CREDIT = 0.005
-function formatUsd(credits: number): string {
-  if (!credits || credits <= 0) return ''
-  const usd = credits * KIE_USD_PER_CREDIT
-  // 3 decimals for sub-penny prices (z-image at $0.004), 2 otherwise.
-  return usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`
-}
-
 // v1.0.152 — `formatModelOption()` was the option-row formatter for
 // the old plain <select>. The new ImageModelPicker renders its own
 // rows with structured chips (cost / capability / size / gated
@@ -963,7 +930,7 @@ const allModelCaps = computed(() => {
     return {
       id,
       label: (m?.label as string) || id,
-      provider: (m?.provider as string) || 'kie',
+      provider: (m?.provider as string) || 'GenStudio KH',
       cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
       credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
       supportsRefs: !!m?.supports_reference_images,
@@ -1267,23 +1234,26 @@ const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> =
   { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
 ]
 
-// Image pipeline mode tabs (Text → Image vs Image → Image).
-// text2img is the existing flow, default. img2img surfaces the
-// references card + filters the model dropdown to ref-supporting
-// models. Both produce the same scene + thumbnail PNGs at the
-// same paths, so downstream stages (audio / video assembly) don't
-// care which pipeline was used.
-const imageModeTabs = computed<Array<{ id: ImageMode; label: string; icon: string; hint: string }>>(() => [
+// GenStudio currently offers text-to-image only. Keep the second surface
+// visible as an honest product affordance, but do not let it select a mode
+// that no live model can execute.
+const imageModeTabs = computed<Array<{ id: ImageMode; label: string; icon: string; hint: string; comingSoon?: boolean }>>(() => [
   { id: 'text2img', label: 'Text → Image', icon: '✏️',
     hint: 'Prompt-only generation (default).' },
   { id: 'img2img',  label: 'Image → Image', icon: '🔁',
-    hint: form.mode === 'thumbs'
-      ? 'Reference images can guide a thumbnail render.'
-      : 'Reference images guide each scene — continuity + character consistency.' },
+    hint: 'Reference-image generation is coming soon.', comingSoon: true },
 ])
 function selectImageMode(m: ImageMode) {
+  if (m === 'img2img') return
   activeForm.value.image_mode = m
 }
+
+// Previously saved presets/forms could still carry img2img. Heal them before
+// a submission so the disabled Coming soon tab cannot leave the generator in
+// an unsupported reference-image mode.
+watch(() => activeForm.value.image_mode, mode => {
+  if (mode === 'img2img') activeForm.value.image_mode = 'text2img'
+}, { immediate: true })
 
 // Friendly title fed to the references card so the backend can resolve
 // the right episode folder. Falls back to '' when no episode picked
@@ -2129,9 +2099,7 @@ async function submit() {
 .generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
 .generation-mode-option .text-muted { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px; }
 
-/* Tier picker — compact pill row sized to fit alongside the model
-   dropdown. Matches the generation-mode option look but without the
-   helper-text line, since each tier already shows credits + USD. */
+/* Tier picker — compact pill row sized to fit alongside the model dropdown. */
 .tier-picker {
   display: flex;
   flex-wrap: wrap;
@@ -2224,6 +2192,9 @@ async function submit() {
   transition: all 0.15s;
 }
 .mode-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.mode-tab:disabled { cursor: not-allowed; }
+.mode-tab.is-coming-soon { opacity: .62; }
+.mode-tab.is-coming-soon:hover { color: var(--text-secondary); background: transparent; }
 .mode-tab.active {
   background: var(--accent-dim);
   color: var(--accent);
@@ -2231,6 +2202,7 @@ async function submit() {
 }
 .mode-tab-icon { font-size: 18px; }
 .mode-tab-label { font-weight: 600; font-size: 13px; }
+.mode-tab-label small { margin-left: 5px; color: var(--accent); font-size: var(--font-xs); font-weight: 700; }
 .mode-tab-hint { font-size: var(--font-xs); color: var(--text-muted); }
 .mode-tab.active .mode-tab-hint { color: var(--accent); opacity: 0.8; }
 
