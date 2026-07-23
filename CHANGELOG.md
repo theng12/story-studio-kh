@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.705 — 2026-07-24
+
+**Large local job backlogs now survive restarts without losing queued work.**
+
+- Replaces the combined 100-record persistence cap with status-aware retention
+  that preserves every queued, running, paused, and recoverable job.
+- Bounds only terminal history to the newest 750 done, error, or cancelled
+  records per project, ordered by finish time with creation time as fallback.
+- Applies the same retention contract to incremental saves, project snapshots,
+  history clearing, and restart recovery while preserving FIFO queue positions.
+- Adds stress coverage for large and mixed queues, concurrent persistence,
+  checkpointed GenStudio recovery, restart restoration, and deduplication.
+
 ## v1.0.704 — 2026-07-24
 
 **DeepSeek idea generation now receives enough bounded output space to finish.**

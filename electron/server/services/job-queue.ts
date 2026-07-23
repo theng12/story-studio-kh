@@ -188,7 +188,38 @@ function emitCleared(projectSlug: string, jobIds: string[]): void {
   try { jobEvents.emit('cleared', { project_slug: projectSlug, job_ids: jobIds } satisfies JobsClearedEvent) } catch { /* noop */ }
 }
 
-const MAX_PERSISTED = 100
+// Live work is never subject to history retention. A project may intentionally
+// hold hundreds or thousands of queued jobs while GenStudio admits them at the
+// account's own pace. Only terminal history is bounded so jobs.json cannot grow
+// forever after completed runs.
+export const MAX_PERSISTED_TERMINAL_HISTORY = 750
+const TERMINAL_JOB_STATUSES = new Set(['done', 'error', 'cancelled'])
+
+function persistedJobTime(job: Pick<Job, 'finished_at' | 'created_at'>): number {
+  const raw = job.finished_at || job.created_at
+  const parsed = raw ? Date.parse(raw) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/**
+ * Preserve every live/nonterminal job and retain only the newest terminal
+ * history. The final filter keeps the source ordering intact, which is the
+ * durable FIFO order used when queued jobs are restored after restart.
+ */
+export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status' | 'finished_at' | 'created_at'>>(
+  records: T[],
+): T[] {
+  const terminal = records
+    .filter(job => TERMINAL_JOB_STATUSES.has(job.status))
+    .sort((a, b) => persistedJobTime(b) - persistedJobTime(a))
+    .slice(0, MAX_PERSISTED_TERMINAL_HISTORY)
+  const retainedTerminalIds = new Set(terminal.map(job => job.job_id))
+
+  return records.filter(job => (
+    !TERMINAL_JOB_STATUSES.has(job.status)
+    || retainedTerminalIds.has(job.job_id)
+  ))
+}
 
 // ── In-memory state ─────────────────────────────────────────────────────────
 
@@ -429,9 +460,9 @@ function jobsPath(projectSlug: string): string {
 async function persistProjectSnapshot(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   await withLock(p, async () => {
-    const remaining = Array.from(jobs.values())
+    const remaining = retainJobsForPersistence(Array.from(jobs.values())
       .filter(j => j.project_slug === projectSlug)
-      .map(j => safeJob(j))
+      .map(j => safeJob(j)))
     await writeJsonAtomic(p, { jobs: remaining })
   })
 }
@@ -464,9 +495,7 @@ async function persistJob(job: Job): Promise<void> {
       data.jobs.push(safeJob(job))
     }
 
-    if (data.jobs.length > MAX_PERSISTED) {
-      data.jobs = data.jobs.slice(-MAX_PERSISTED)
-    }
+    data.jobs = retainJobsForPersistence(data.jobs)
 
     await writeJsonAtomic(p, data)
   })
