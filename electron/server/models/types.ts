@@ -1596,19 +1596,6 @@ export interface ProjectConfig {
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
   video_pricing_last_updated?: string
-  /**
-   * Per-provider concurrency: how many in-flight TTS / video-gen requests
-   * inside one job. Clamped in the generator; unset = safe default (3 for
-   * audio, 2 for video). ElevenLabs tiers: Free 2 / Starter 3 / Creator 5
-   * / Pro 10 / Scale 15. fal.ai: scales 2→40 with account credits.
-   */
-  audio_concurrency?: number
-  video_concurrency?: number
-  /** Already-existing knob; kept here for symmetry + surfacing in the UI. */
-  image_concurrency?: number
-  /** Per-chapter subtitle transcription concurrency: 1–16, or 'auto' (match
-   *  the live Voice Studio pool / 3 for cloud). Default 'auto'. */
-  subtitle_concurrency?: number | 'auto'
   confirmation_preferences?: ConfirmationPreferences
 
   /**
@@ -1785,10 +1772,6 @@ export interface SafeProjectConfig {
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
   video_pricing_last_updated?: string
-  audio_concurrency?: number
-  video_concurrency?: number
-  image_concurrency?: number
-  subtitle_concurrency?: number | 'auto'
   confirmation_preferences?: ConfirmationPreferences
   broll_pool_id?: string
   broll_lookback?: number
@@ -1811,10 +1794,6 @@ export interface UpdateConfigRequest {
   voice_favourites?: string[]
   audio_models?: Record<string, AudioModelConfig>
   video_models?: Record<string, VideoModelConfig>
-  audio_concurrency?: number
-  video_concurrency?: number
-  image_concurrency?: number
-  subtitle_concurrency?: number | 'auto'
   confirmation_preferences?: ConfirmationPreferences
 }
 

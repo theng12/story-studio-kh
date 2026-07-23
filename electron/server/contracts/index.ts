@@ -215,6 +215,14 @@ export const UpdateConfigSchema = z.object({
   // GenStudio is now the sole voice catalog and TTS execution boundary.
   const current = { ...value }
   delete current.audio_models
+  delete current.audio_concurrency
+  delete current.video_concurrency
+  delete current.image_concurrency
+  delete current.subtitle_concurrency
+  delete current.image_launch_stagger_ms
+  delete current.audio_launch_stagger_ms
+  delete current.video_launch_stagger_ms
+  delete current.generation_timeouts
   return current
 })
 export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>

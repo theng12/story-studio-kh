@@ -19,7 +19,7 @@ import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
-import { resolveGenerationLaunchStaggerMs, resolvePerformanceConcurrency } from '../lib/performance-settings.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
@@ -472,22 +472,6 @@ export async function generateImages(job: Job): Promise<void> {
   const renderHeight = typeof req.height === 'number' && req.height > 0 ? req.height : undefined
   const force = req.force || false
   const errors: string[] = []
-  // GenStudio owns the physical fleet and provider queue. Story Studio limits
-  // only how many account jobs it submits concurrently.
-  const configConcurrency = resolvePerformanceConcurrency((config as any).image_concurrency)
-  const reqConcurrency = Number((req as any).concurrency) || 0
-  const concurrency = reqConcurrency
-    ? Math.max(1, Math.min(50, reqConcurrency))
-    : configConcurrency
-  // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
-  // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
-  // After the spread the rolling pool runs at full concurrency. New projects
-  // default to 2000 ms; an explicit 0 still disables it. Clamp 0..20000.
-  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
-    (config as any).image_launch_stagger_ms,
-    'cloud',
-  )
-
   // Read the per-folder task manifests once at the top so we can attempt
   // free recovery (existing-task poll) before issuing any fresh submit.
   // Best-effort — a missing/corrupt sidecar just means recovery isn't
@@ -697,16 +681,17 @@ export async function generateImages(job: Job): Promise<void> {
    *  work they already aborted — in-flight provider calls can't be
    *  interrupted but at least we won't start new ones.
    *
-   *  When `launchStaggerMs > 0`, the i-th worker delays its FIRST task by
-   *  `i * launchStaggerMs`. The sleep is broken into 200ms ticks so a
-   *  user-cancel during the stagger window unwinds promptly. */
+   */
   async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
     const isCancelled = () => jq.isCancelled(job.job_id)
     let cursor = 0
     let active = 0
     let launched = 0
     let settled = false
-    const maxWorkers = concurrency
+    // Stage independent Story assets promptly. The shared GenStudio admission
+    // pool applies the account's live paid concurrency; GenStudio owns its
+    // durable queue, rate limits, relaxed capacity, and provider execution.
+    const maxWorkers = resolveGenStudioLocalFanout(items.length)
 
     let resolveAll!: () => void
     const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
@@ -717,8 +702,7 @@ export async function generateImages(job: Job): Promise<void> {
       }
     }
 
-    async function next(workerIndex: number): Promise<void> {
-      if (launchStaggerMs > 0 && workerIndex > 0) await sleep(workerIndex * launchStaggerMs)
+    async function next(): Promise<void> {
       while (cursor < items.length) {
         if (isCancelled()) return
         const i = cursor++
@@ -727,9 +711,9 @@ export async function generateImages(job: Job): Promise<void> {
     }
 
     const spawnWorker = () => {
-      const workerIndex = launched++
+      launched++
       active++
-      void next(workerIndex).finally(() => {
+      void next().finally(() => {
         active--
         ensureWorkers()
         maybeFinish()
@@ -771,9 +755,7 @@ export async function generateImages(job: Job): Promise<void> {
       }
     } else {
       job.output_lines.push(
-        `Generating ${filteredScenes.length} scene image(s) with concurrency=${concurrency}` +
-        (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
-        '...',
+        `Staging ${filteredScenes.length} scene image request(s); GenStudio account admission is authoritative...`,
       )
       await runPool(filteredScenes, runScene)
     }
@@ -786,9 +768,7 @@ export async function generateImages(job: Job): Promise<void> {
     totalToProcess = thumbs.length
     processed = 0
     job.output_lines.push(
-      `Generating ${thumbs.length} thumbnail(s) with concurrency=${concurrency}` +
-      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
-      '...',
+      `Staging ${thumbs.length} thumbnail request(s); GenStudio account admission is authoritative...`,
     )
     await runPool(thumbs, runThumb)
   }
@@ -824,8 +804,4 @@ export async function generateImages(job: Job): Promise<void> {
   // they can see both scene + thumbnail folders side-by-side. Otherwise
   // drop them straight into the specific folder that just got populated.
   job.output_dir = mode === 'scenes' ? bgDir : mode === 'thumbs' ? thumbDir : resolvedEpDir
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

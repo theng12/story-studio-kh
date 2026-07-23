@@ -6,9 +6,15 @@ Run this once from the repository root before approving a Story Studio build:
 node scripts/qualify-genstudio-release.mjs
 ```
 
-This is the single pre-release command for the GenStudio client boundary. It
-runs the focused GenStudio contract suite and typechecks that suite plus its
-transitive production imports. A non-zero exit blocks qualification.
+This is the deterministic pre-release command for the GenStudio client
+boundary. It runs the focused GenStudio contract suite and typechecks that
+suite plus its transitive production imports. A non-zero exit blocks
+qualification.
+
+The Story Studio KH v1.0.679 release is paired with GenStudio KH v0.16.0
+(`396806d`). Its exact-release staging qualification
+`qrun_f27bf5a5bb4a4d64be05c0581e0691da` passed voice, image, and transcription
+on `terranash-tsh` with a zero-job backlog.
 
 ## Safety boundary
 
@@ -33,6 +39,8 @@ The qualification is deterministic and zero-spend:
 | Generation scopes | Missing `chat:generate`, `images:generate`, `tts:generate`, or `audio:transcribe` creates no GenStudio job. |
 | LLM, image, TTS, transcription | Submits every requested modality through the public GenStudio routes and verifies its terminal output. |
 | Polling and terminal states | Observes `accepted → reserved → dispatched → running → validating → succeeded`, plus terminal `failed`. |
+| Account admission | Reads canonical `paid_concurrency_limit`, queue, submission-rate, and Unlimited Relaxed metadata while leaving all execution admission authoritative in GenStudio. |
+| Backpressure | Honors GenStudio `Retry-After` guidance for retryable submission and polling responses without creating a second logical request. |
 | Credits | The mock ledger proves quoted, reserved, final, and returned credits. Story Studio payloads are rejected if they try to provide any settlement field; GenStudio alone owns billing. |
 | Idempotency | Drops the first accepted LLM response, then proves the client replays the same `Idempotency-Key`, receives the same job, and creates one provider submission. |
 | Cancellation | Proves pre-submit abort creates no job. After acceptance, cancellation stops polling; recovery uses the accepted job ID and never submits replacement work. |
@@ -62,3 +70,18 @@ cooperative client stop. Before acceptance it prevents submission. After
 acceptance it stops monitoring while preserving the durable GenStudio job ID;
 the same job can be recovered without duplicate work. Story Studio must not
 invent a direct-provider cancellation or fallback path.
+
+## Admission ownership
+
+Story Studio may stage a bounded number of HTTP requests so its own UI and
+local job queue remain responsive. It must not expose or enforce a second
+customer-facing generation policy. GenStudio alone owns:
+
+- generation submissions per minute;
+- active paid jobs and the durable account queue;
+- provider and local-worker capacity;
+- Unlimited Relaxed capacity after spendable credits are exhausted.
+
+A valid request accepted with HTTP 202 remains the same logical job across
+polling errors, app restarts, and artifact-download retries. Only GenStudio job
+state proves completion.

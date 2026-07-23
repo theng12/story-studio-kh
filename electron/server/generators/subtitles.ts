@@ -352,18 +352,10 @@ async function transcribePerChapter(
   // verification below names every missing section so Retry fills only gaps.
   const failures: Array<{ slug: string; error: string }> = []
 
-  // Story controls upload concurrency; GenStudio alone owns worker capacity
-  // and fleet routing behind its API boundary.
-  const { getConfig } = await import('../services/project-manager.js')
-  const subConfig = await getConfig(projectSlug)
-  const rawConc = (subConfig as any)?.subtitle_concurrency
-  const concurrency = rawConc === 'auto'
-    ? 3
-    : Math.max(1, Math.min(50, Math.floor(Number(rawConc ?? 3) || 3)))
-  const routingNote = rawConc === 'auto' ? ' (GenStudio default)' : ''
+  const { resolveGenStudioLocalFanout } = await import('../lib/genstudio-runtime.js')
+  const concurrency = resolveGenStudioLocalFanout(sections.length)
   job.output_lines.push(
-    `Transcribing ${sections.length} chapter(s)` +
-    (concurrency > 1 ? ` — up to ${concurrency} at a time${routingNote}` : ` (sequential${routingNote})`) + '…',
+    `Staging ${sections.length} transcription request(s); GenStudio account admission is authoritative…`,
   )
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)

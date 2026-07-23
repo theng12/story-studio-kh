@@ -18,14 +18,11 @@ import {
   rotateServerModeSessionSecret,
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
-  getScriptConcurrency, setScriptConcurrency,
-  SCRIPT_CONCURRENCY_DEFAULT, SCRIPT_CONCURRENCY_MIN, SCRIPT_CONCURRENCY_MAX,
   getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
   getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
 import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub } from '../lib/studiohub-client.js'
-import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
@@ -52,37 +49,6 @@ router.use((req, res, next) => {
     })
   }
   next()
-})
-
-// ── LLM-text generation concurrency (Settings → Performance) ───────────────
-// How many text-gen jobs (script outline/expansion, metadata, image prompts,
-// scene planning) run at once across all of them combined. Machine-level —
-// reflects local LM Studio pool capacity. The queue applies it immediately.
-router.get('/app-settings/script-concurrency', async (_req, res) => {
-  try {
-    res.json({
-      value: await getScriptConcurrency(),
-      default: SCRIPT_CONCURRENCY_DEFAULT,
-      min: SCRIPT_CONCURRENCY_MIN,
-      max: SCRIPT_CONCURRENCY_MAX,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to load concurrency setting'))
-  }
-})
-
-router.put('/app-settings/script-concurrency', async (req, res) => {
-  const raw = (req.body || {}).value
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
-    return res.status(400).json({ detail: 'value must be a number' })
-  }
-  try {
-    const value = await setScriptConcurrency(raw)
-    setLlmConcurrency(value)  // apply to the live queue without a restart
-    res.json({ value, min: SCRIPT_CONCURRENCY_MIN, max: SCRIPT_CONCURRENCY_MAX })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save concurrency setting'))
-  }
 })
 
 // ── Local generation backend (Settings → Local Models: Direct | Studio Hub) ─

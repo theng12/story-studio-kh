@@ -250,7 +250,13 @@ export interface GenStudioAccountOverview {
   credit_balance: number
   credits_used_30d: number
   subscription_plan_name: string
-  api_concurrency_limit: number
+  /** @deprecated GenStudio 0.16 compatibility alias. */
+  api_concurrency_limit?: number
+  paid_concurrency_limit: number
+  paid_active_jobs: number
+  paid_queued_jobs: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
   relaxed_concurrency_limit: number
   total_jobs: number
   active_jobs: number
@@ -308,12 +314,12 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey) => {
     '/v1/account/overview',
   )
   if (
-    !Number.isInteger(overview.api_concurrency_limit)
-    || overview.api_concurrency_limit < 1
+    !Number.isInteger(overview.paid_concurrency_limit)
+    || overview.paid_concurrency_limit < 1
   ) {
-    throw new Error('GenStudio account overview did not include a valid API concurrency limit')
+    throw new Error('GenStudio account overview did not include a valid paid concurrency limit')
   }
-  return overview.api_concurrency_limit
+  return overview.paid_concurrency_limit
 })
 
 export function genStudioAdmissionSnapshot() {
@@ -430,10 +436,27 @@ export function operationSignal(
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
 }
 
-async function retryDelay(attempt: number, request: GenStudioOperationContext, deadline: number): Promise<void> {
+export function parseGenStudioRetryAfterMs(value: string | null, now = Date.now()): number | null {
+  if (!value) return null
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000)
+  const retryAt = Date.parse(value)
+  if (!Number.isFinite(retryAt)) return null
+  return Math.max(0, retryAt - now)
+}
+
+async function retryDelay(
+  attempt: number,
+  request: GenStudioOperationContext,
+  deadline: number,
+  retryAfterMs?: number | null,
+): Promise<void> {
   if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
   if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
-  await new Promise(resolve => setTimeout(resolve, Math.min(4_000, 500 * (2 ** (attempt - 1)))))
+  const fallbackMs = Math.min(4_000, 500 * (2 ** (attempt - 1)))
+  const requestedMs = retryAfterMs == null ? fallbackMs : Math.max(0, retryAfterMs)
+  const delayMs = Math.min(requestedMs, Math.max(0, deadline - Date.now()))
+  await new Promise(resolve => setTimeout(resolve, delayMs))
 }
 
 async function requestJsonWithRetry(
@@ -444,6 +467,7 @@ async function requestJsonWithRetry(
 ): Promise<any> {
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     try {
       const response = await fetch(url, {
@@ -461,6 +485,7 @@ async function requestJsonWithRetry(
         const error = new GenStudioApiError(response.status, detail)
         if (!retryableStatus(response.status)) throw error
         lastError = error
+        retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
       } else {
         return body
       }
@@ -469,7 +494,9 @@ async function requestJsonWithRetry(
       lastError = error
       if (error instanceof GenStudioApiError && !retryableStatus(error.status)) throw error
     }
-    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+    if (attempt < NETWORK_RETRY_ATTEMPTS) {
+      await retryDelay(attempt, request, deadline, retryAfterMs)
+    }
   }
   throw lastError instanceof Error ? lastError : new Error('GenStudio KH request failed after reconnect attempts')
 }

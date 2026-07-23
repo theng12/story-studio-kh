@@ -28,11 +28,8 @@ import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
-import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import {
-  resolveGenerationConcurrency,
-  resolveGenerationLaunchStaggerMs,
-} from '../lib/performance-settings.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { GenerateVideoRequest, Job } from '../models/types.js'
@@ -237,30 +234,9 @@ export async function generateAiVideo(job: Job): Promise<void> {
   const errors: string[] = []
   const isCancelled = () => jq.isCancelled(job.job_id)
 
-  // ── Concurrency pool ───────────────────────────────────────────────────
-  // Video clips are expensive ($0.50–$2 each on Veo/Sora). Default to 3
-  // in flight; the user can bump this up
-  // up to 50 via Settings → Video → Concurrency once their provider account
-  // has the credits / quota to handle it.
-  const concurrency = resolveGenerationConcurrency(
-    (config as any).video_concurrency,
-    'cloud',
-    prompts.length,
-  )
-  // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
-  // so all workers don't hit Veo / fal / Kie in the same millisecond.
-  // New projects default to 2000 ms; an explicit 0 still disables it.
-  // Clamp 0..20000.
-  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
-    (config as any).video_launch_stagger_ms,
-    'cloud',
-  )
+  const concurrency = resolveGenStudioLocalFanout(prompts.length)
   if (prompts.length > 1) {
-    job.output_lines.push(
-      `Pool: ${Math.min(concurrency, prompts.length)} in parallel` +
-      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
-      ' (configure via Settings → Video)',
-    )
+    job.output_lines.push(`Staging ${prompts.length} motion request(s); GenStudio account admission is authoritative.`)
   }
 
   async function processPrompt(index: number): Promise<void> {
@@ -366,16 +342,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
   }
 
   let cursor = 0
-  // i-th worker delays its first submit by i * launchStaggerMs to smooth
-  // the initial-burst hit on Veo/fal/Kie. sleepCancellable breaks the
-  // sleep into 200ms ticks so a user cancel during the stagger window
-  // unwinds promptly.
-  async function worker(workerIndex: number): Promise<void> {
-    if (launchStaggerMs > 0 && workerIndex > 0) {
-      try {
-        await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
-      } catch { return /* cancelled mid-stagger */ }
-    }
+  async function worker(): Promise<void> {
     while (cursor < prompts.length) {
       if (isCancelled()) return
       const i = cursor++
@@ -385,7 +352,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
   await Promise.all(
     Array.from(
       { length: Math.min(concurrency, prompts.length) },
-      (_, i) => worker(i),
+      () => worker(),
     ),
   )
 

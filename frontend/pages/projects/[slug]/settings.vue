@@ -1312,145 +1312,6 @@
       </div>
     </div>
 
-    <!-- Performance -->
-    <div v-if="activeTab === 'performance'" class="card settings-panel performance-panel mt-2">
-      <header class="settings-section-head">
-        <div>
-          <span class="settings-section-kicker">GenStudio request safeguards</span>
-          <h3>Generation concurrency</h3>
-          <p>Control how many Story Studio jobs may call GenStudio at once. GenStudio remains authoritative for provider capacity, credits, and settlement.</p>
-        </div>
-        <span class="settings-section-count">{{ performanceProfileLabel }}</span>
-      </header>
-
-      <section class="performance-profile-strip" aria-label="Performance profiles">
-        <div class="performance-profile-copy">
-          <strong>Quick profiles</strong>
-          <span>Updates the controls below. Nothing changes until you save.</span>
-        </div>
-        <div class="performance-profile-actions">
-          <button
-            v-for="profile in performanceProfiles"
-            :key="profile.id"
-            type="button"
-            :class="['performance-profile-button', { active: activePerformanceProfile === profile.id }]"
-            @click="applyPerformanceProfile(profile.id)"
-          >
-            <strong>{{ profile.label }}</strong>
-            <small>{{ profile.summary }}</small>
-          </button>
-        </div>
-      </section>
-
-      <div class="performance-grid">
-        <article class="performance-card performance-card--text">
-          <header class="performance-card-head">
-            <span class="performance-card-icon" aria-hidden="true">Aa</span>
-            <div><h4>Scripts &amp; prompts</h4><p>App-wide capacity for GenStudio language-model requests.</p></div>
-            <span class="performance-value">{{ scriptConcurrency }} jobs</span>
-          </header>
-          <div class="performance-control">
-            <label>Concurrent GenStudio text jobs</label>
-            <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
-            <div class="performance-scale"><span>Serial</span><span>50 maximum</span></div>
-          </div>
-          <footer class="performance-card-foot"><span>This Mac</span><span>Every request still follows GenStudio account limits</span></footer>
-        </article>
-
-        <article class="performance-card performance-card--image">
-          <header class="performance-card-head">
-            <span class="performance-card-icon" aria-hidden="true">▧</span>
-            <div><h4>Images</h4><p>Parallel GenStudio image requests inside each Story job.</p></div>
-            <span class="performance-value">{{ imageConcurrency }} at once</span>
-          </header>
-          <div class="performance-control">
-            <label>GenStudio concurrency</label>
-            <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
-          </div>
-          <div class="performance-control compact">
-            <label>Launch spacing <span>{{ formatLaunchStagger(imageLaunchStaggerMs) }}</span></label>
-            <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-          </div>
-          <footer class="performance-card-foot"><span>This project</span><span>GenStudio chooses the qualified provider or fleet route</span></footer>
-        </article>
-
-        <article class="performance-card performance-card--audio">
-          <header class="performance-card-head">
-            <span class="performance-card-icon" aria-hidden="true">◖</span>
-            <div><h4>Audio &amp; TTS</h4><p>Parallel GenStudio narration requests plus the durable job wait limit.</p></div>
-            <span class="performance-value">{{ audioConcurrency }} at once</span>
-          </header>
-          <div class="performance-control">
-            <label>GenStudio concurrency</label>
-            <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
-          </div>
-          <div class="performance-control compact">
-            <label>Launch spacing <span>{{ formatLaunchStagger(audioLaunchStaggerMs) }}</span></label>
-            <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-          </div>
-          <div class="performance-timeout-row">
-            <label for="tts-timeout">TTS timeout</label>
-            <input id="tts-timeout" v-model.number="ttsTimeoutMinutes" type="number" min="1" max="120" step="1" class="input" :placeholder="ttsTimeoutPlaceholder" />
-            <span>minutes</span>
-          </div>
-          <footer class="performance-card-foot"><span>This project</span><span>{{ ttsTimeoutActiveLabel }}</span></footer>
-        </article>
-
-        <article class="performance-card performance-card--video">
-          <header class="performance-card-head">
-            <span class="performance-card-icon" aria-hidden="true">▶</span>
-            <div><h4>Motion clips</h4><p>Cloud image-to-video requests are expensive; raise this deliberately.</p></div>
-            <span class="performance-value">{{ videoConcurrency }} at once</span>
-          </header>
-          <div class="performance-control">
-            <label>GenStudio concurrency</label>
-            <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
-          </div>
-          <div class="performance-control compact">
-            <label>Launch spacing <span>{{ formatLaunchStagger(videoLaunchStaggerMs) }}</span></label>
-            <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="MAX_LAUNCH_STAGGER_MS" :step="100" />
-          </div>
-          <footer class="performance-card-foot"><span>This project</span><span>GenStudio quotes and settles each completed clip</span></footer>
-        </article>
-
-        <article class="performance-card performance-card--subtitle">
-          <header class="performance-card-head">
-            <span class="performance-card-icon" aria-hidden="true">CC</span>
-            <div><h4>Transcription</h4><p>Chapter-level GenStudio transcription requests.</p></div>
-            <span class="performance-value">{{ subtitleConcurrency === 'auto' ? 'Auto' : `${subtitleConcurrency} at once` }}</span>
-          </header>
-          <div class="performance-control">
-            <label>Concurrent GenStudio chapters</label>
-            <select v-model="subtitleConcurrency" class="select">
-              <option value="auto">Auto — 3 cloud requests</option>
-              <option value="1">1 (sequential)</option>
-              <option value="2">2</option><option value="3">3</option><option value="4">4</option>
-              <option value="6">6</option><option value="8">8</option><option value="12">12</option>
-              <option value="16">16</option><option value="24">24</option><option value="32">32</option><option value="50">50</option>
-            </select>
-          </div>
-          <footer class="performance-card-foot"><span>This project</span><span>GenStudio selects the qualified transcription route</span></footer>
-        </article>
-
-        <article class="performance-guidance-card">
-          <span class="settings-section-kicker">How to tune</span>
-          <h4>Tune Story Studio's request pressure</h4>
-          <p>Keep launch spacing near 2 seconds. Increase concurrency in small steps, then watch Jobs for throttling or timeout errors.</p>
-          <dl>
-            <div><dt>429 errors</dt><dd>Raise spacing or lower concurrency.</dd></div>
-            <div><dt>Fleet capacity</dt><dd>GenStudio and Studio Hub decide which qualified workers may accept each request.</dd></div>
-            <div><dt>Credits</dt><dd>Concurrency never bypasses GenStudio reservations, settlement, or exact returns.</dd></div>
-          </dl>
-        </article>
-      </div>
-
-      <div class="performance-save-bar">
-        <div><strong>Ready to apply</strong><span>One save updates this project's GenStudio request safeguards and this Mac's text-job capacity.</span></div>
-        <SaveIndicator v-bind="savedHintProps('performance')" />
-        <button class="btn btn-primary" @click="savePerformance">Save performance</button>
-      </div>
-    </div>
-
     <!-- Local Models tab. v1.0.149+ — was "Local TTS" (Chatterbox).
          Voice Studio KH is the only section today; future TTI / extra
          TTS modals will append below. v1.0.150 removed the legacy
@@ -4192,7 +4053,7 @@ async function onYoutubeBackfillApply() {
 // Scope verified by save target, not assumption:
 //   per-project (PUT /projects/:slug/settings/config or project storage):
 //     Models, Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
-//     Confirmations, Performance, Project, About
+//     Confirmations, Project, About
 //   per-machine (PUT /app-settings/*, /voicestudio/*, /imagestudio/*, FFmpeg installer):
 //     Local Models, FFmpeg, Notifications
 const tabZones = [
@@ -4225,7 +4086,6 @@ const tabZones = [
       { title: 'Generation', tabs: [
         { id: 'models', label: 'Models', icon: '◈', description: 'Review the live GenStudio catalogs. Availability, quotes, reservations, and settlement remain authoritative in GenStudio.' },
         { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
-        { id: 'performance', label: 'Performance', icon: '↯', description: 'Balance concurrency, launch staggering, and timeouts for reliable high-volume generation.' },
       ] },
       { title: 'Files', tabs: [
         { id: 'folders', label: 'Folders', icon: '▤', description: 'Control the portable episode folder structure used throughout the production pipeline.' },
@@ -5293,15 +5153,6 @@ watch(activeTab, async (tab) => {
   }
 })
 
-// ── Performance (image / audio / video concurrency + TTS timeout) ───────
-const PERFORMANCE_CONCURRENCY_DEFAULT = 3
-const LAUNCH_STAGGER_DEFAULT_MS = 2_000
-const MAX_LAUNCH_STAGGER_MS = 20_000
-const imageConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
-const audioConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
-const videoConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
-const subtitleConcurrency = ref<string>(String(PERFORMANCE_CONCURRENCY_DEFAULT))
-
 type LocalModelView = 'overview' | 'hub' | 'voice' | 'image' | 'chat'
 const localModelsView = ref<LocalModelView>('overview')
 const localModelViews: Array<{
@@ -5480,159 +5331,6 @@ async function studioAction(s: FleetStudio, action: 'start' | 'stop' | 'restart'
     const next = { ...fleetBusy.value }; delete next[s.id]; fleetBusy.value = next
   }
 }
-// App-level (per-machine): how many text-generation jobs run at once across
-// script outline/expansion + metadata + image-prompts + scene-planning,
-// combined. Stored in app-settings (not project config) — see GET/PUT
-// /app-settings/script-concurrency. Default 3; 1 = serial (old behaviour).
-const scriptConcurrency = ref(PERFORMANCE_CONCURRENCY_DEFAULT)
-// Launch stagger (ms) per modality. Default 2000; 0 disables it.
-// Values delay each pool worker's FIRST task by index*stagger to
-// smooth the initial-burst submit that triggers per-second 429s.
-const imageLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
-const audioLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
-const videoLaunchStaggerMs = ref(LAUNCH_STAGGER_DEFAULT_MS)
-// Empty string means "use provider default" (no override stored). We keep
-// the empty state distinct from 0 so users can clear it without saving 0.
-const ttsTimeoutMinutes = ref<number | ''>('')
-
-// Placeholder + status chip — surface the effective state so the user
-// always knows what's in force. Empty input = provider-default cascade
-// (the most common case for new projects); numeric input = explicit
-// override. Without this, "blank" looked indistinguishable from "I
-// haven't loaded yet" right after a save.
-const ttsTimeoutPlaceholder = computed(() =>
-  'e.g. 5 (leave blank for provider default)',
-)
-const ttsTimeoutActiveLabel = computed(() => {
-  const t = ttsTimeoutMinutes.value
-  if (typeof t === 'number' && t > 0) return `Active: ${t} min override (applies to every TTS provider)`
-  return 'Active: provider default — GenAIPro 20 min · fal.ai 5 min · ElevenLabs streams'
-})
-
-type PerformanceProfileId = 'gentle' | 'balanced' | 'fleet'
-interface PerformanceProfile {
-  id: PerformanceProfileId
-  label: string
-  summary: string
-  script: number
-  image: number
-  audio: number
-  video: number
-  subtitle: string
-  stagger: number
-}
-const performanceProfiles: PerformanceProfile[] = [
-  { id: 'gentle', label: 'Gentle', summary: '1 cloud request · widest spacing', script: 1, image: 1, audio: 1, video: 1, subtitle: '1', stagger: 3_000 },
-  { id: 'balanced', label: 'Balanced', summary: 'Recommended · 3 cloud requests', script: 3, image: 3, audio: 3, video: 3, subtitle: '3', stagger: 2_000 },
-  { id: 'fleet', label: 'Fleet', summary: 'Higher cloud throughput', script: 8, image: 6, audio: 6, video: 3, subtitle: 'auto', stagger: 1_200 },
-]
-const activePerformanceProfile = computed<PerformanceProfileId | 'custom'>(() => {
-  const matched = performanceProfiles.find(profile =>
-    scriptConcurrency.value === profile.script
-    && imageConcurrency.value === profile.image
-    && audioConcurrency.value === profile.audio
-    && videoConcurrency.value === profile.video
-    && subtitleConcurrency.value === profile.subtitle
-    && imageLaunchStaggerMs.value === profile.stagger
-    && audioLaunchStaggerMs.value === profile.stagger
-    && videoLaunchStaggerMs.value === profile.stagger,
-  )
-  return matched?.id || 'custom'
-})
-const performanceProfileLabel = computed(() => {
-  const active = performanceProfiles.find(profile => profile.id === activePerformanceProfile.value)
-  return active ? `${active.label} profile` : 'Custom profile'
-})
-
-function applyPerformanceProfile(id: PerformanceProfileId) {
-  const profile = performanceProfiles.find(item => item.id === id)
-  if (!profile) return
-  scriptConcurrency.value = profile.script
-  imageConcurrency.value = profile.image
-  audioConcurrency.value = profile.audio
-  videoConcurrency.value = profile.video
-  subtitleConcurrency.value = profile.subtitle
-  imageLaunchStaggerMs.value = profile.stagger
-  audioLaunchStaggerMs.value = profile.stagger
-  videoLaunchStaggerMs.value = profile.stagger
-}
-
-function formatLaunchStagger(value: number): string {
-  if (value <= 0) return 'Off'
-  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))} s`
-  return `${value} ms`
-}
-
-watch(config, (c) => {
-  if (c && (c as any).image_concurrency) {
-    imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
-  }
-  if (c && (c as any).audio_concurrency) {
-    audioConcurrency.value = Math.max(1, Math.min(50, Number((c as any).audio_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
-  }
-  if (c && (c as any).video_concurrency) {
-    videoConcurrency.value = Math.max(1, Math.min(50, Number((c as any).video_concurrency) || PERFORMANCE_CONCURRENCY_DEFAULT))
-  }
-  if (c && (c as any).subtitle_concurrency != null) {
-    subtitleConcurrency.value = String((c as any).subtitle_concurrency)  // 'auto' or a number
-  }
-  // Unset values use 2000 ms; preserve an explicit 0 (disabled).
-  const readStagger = (value: unknown) => {
-    if (value == null || value === '') return LAUNCH_STAGGER_DEFAULT_MS
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed)) return LAUNCH_STAGGER_DEFAULT_MS
-    return Math.max(0, Math.min(MAX_LAUNCH_STAGGER_MS, Math.floor(parsed)))
-  }
-  imageLaunchStaggerMs.value = readStagger((c as any)?.image_launch_stagger_ms)
-  audioLaunchStaggerMs.value = readStagger((c as any)?.audio_launch_stagger_ms)
-  videoLaunchStaggerMs.value = readStagger((c as any)?.video_launch_stagger_ms)
-  const t = (c as any)?.generation_timeouts?.tts_minutes
-  ttsTimeoutMinutes.value = typeof t === 'number' && t > 0 ? t : ''
-}, { immediate: true })
-
-async function savePerformance() {
-  try {
-    const body: Record<string, any> = {
-      image_concurrency: imageConcurrency.value,
-      audio_concurrency: audioConcurrency.value,
-      video_concurrency: videoConcurrency.value,
-      subtitle_concurrency: subtitleConcurrency.value === 'auto' ? 'auto' : Number(subtitleConcurrency.value),
-      image_launch_stagger_ms: imageLaunchStaggerMs.value,
-      audio_launch_stagger_ms: audioLaunchStaggerMs.value,
-      video_launch_stagger_ms: videoLaunchStaggerMs.value,
-    }
-    // Only persist the timeout when the user set one. An empty field means
-    // "use the provider default" — store null so we don't accumulate stale
-    // overrides in project configs.
-    const t = ttsTimeoutMinutes.value
-    body.generation_timeouts = {
-      tts_minutes: typeof t === 'number' && t > 0 ? Math.round(t) : null,
-    }
-    await put(`/projects/${slug.value}/settings/config`, body)
-    // Text-gen concurrency is a per-machine setting (app-settings), saved
-    // alongside the per-project performance config from the same button.
-    await put('/app-settings/script-concurrency', { value: scriptConcurrency.value })
-    await refreshConfig(slug.value)
-    stampSaved('performance')
-    success('Performance settings saved')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save performance settings')
-  }
-}
-
-// App-level text-gen concurrency lives in app-settings, not the project
-// config, so it loads via its own endpoint (the config watcher above won't
-// carry it). Default 2 stands if the read fails.
-async function loadScriptConcurrency() {
-  try {
-    const r = await get<{ value: number }>('/app-settings/script-concurrency')
-    if (r && typeof r.value === 'number') {
-      scriptConcurrency.value = Math.max(1, Math.min(50, Math.round(r.value)))
-    }
-  } catch { /* keep default */ }
-}
-onMounted(loadScriptConcurrency)
-
 // Sync project form. v1.0.45 — track the server-side season_size
 // separately so the Reseason flow can detect "user wants to change it"
 // and offer the rebalance preview, while the regular save flow filters
@@ -6647,102 +6345,6 @@ async function deleteProject() {
 .notification-save-bar span { color: var(--text-muted); font-size: var(--font-xs); }
 .notification-save-bar .error { color: var(--error); }
 
-/* ── Performance control center ─────────────────────────────────────── */
-.performance-panel { overflow: hidden; }
-.performance-profile-strip {
-  display: grid;
-  grid-template-columns: minmax(180px, .65fr) minmax(420px, 1.35fr);
-  gap: 16px;
-  align-items: center;
-  padding: 13px;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--settings-gold));
-  border-radius: 14px;
-  background: linear-gradient(120deg, rgba(227,180,90,.08), rgba(88,198,146,.05));
-}
-.performance-profile-copy { display: flex; flex-direction: column; gap: 3px; }
-.performance-profile-copy strong { font-size: 12px; }
-.performance-profile-copy span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
-.performance-profile-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.performance-profile-button {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
-  text-align: left;
-  cursor: pointer;
-  transition: .16s ease;
-}
-.performance-profile-button strong { color: var(--text-primary); font-size: var(--font-xs); }
-.performance-profile-button small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
-.performance-profile-button:hover { border-color: rgba(227,180,90,.45); transform: translateY(-1px); }
-.performance-profile-button.active { border-color: rgba(88,198,146,.55); background: rgba(88,198,146,.11); box-shadow: inset 0 0 0 1px rgba(88,198,146,.08); }
-.performance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
-.performance-card,
-.performance-guidance-card {
-  position: relative;
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
-  overflow: hidden;
-}
-.performance-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--performance-accent, var(--settings-green));
-}
-.performance-card--text { --performance-accent: #6fb19b; }
-.performance-card--image { --performance-accent: #d9a84f; }
-.performance-card--audio { --performance-accent: #75a8ce; }
-.performance-card--video { --performance-accent: #ce806f; }
-.performance-card--subtitle { --performance-accent: #8e9ed1; }
-.performance-card-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: start; margin-bottom: 16px; }
-.performance-card-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--performance-accent, var(--settings-green));
-  background: color-mix(in srgb, var(--performance-accent, var(--settings-green)) 12%, transparent);
-  font-size: var(--font-xs);
-  font-weight: 800;
-}
-.performance-card-head h4 { margin: 1px 0 3px; font-size: 13px; }
-.performance-card-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
-.performance-value { padding: 4px 7px; border-radius: 999px; color: var(--text-secondary); background: var(--bg-primary); font-size: var(--font-xs); font-weight: 700; white-space: nowrap; }
-.performance-control { margin-top: 12px; }
-.performance-control label { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
-.performance-control label span { color: var(--settings-gold); font-variant-numeric: tabular-nums; }
-.performance-control.compact { padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
-.performance-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--text-muted); font-size: var(--font-xs); }
-.performance-timeout-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.performance-timeout-row label { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
-.performance-timeout-row .input { min-width: 0; padding: 6px 8px; }
-.performance-timeout-row > span { color: var(--text-muted); font-size: var(--font-xs); }
-.performance-card-foot { display: flex; justify-content: space-between; gap: 10px; margin: 14px -16px -16px; padding: 9px 16px; color: var(--text-muted); background: color-mix(in srgb, var(--bg-primary) 45%, transparent); font-size: var(--font-xs); line-height: 1.35; }
-.performance-card-foot span:first-child { color: var(--performance-accent, var(--settings-green)); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
-.performance-card-foot span:last-child { text-align: right; }
-.performance-guidance-card { background: linear-gradient(145deg, rgba(24,72,55,.19), rgba(227,180,90,.05)); }
-.performance-guidance-card h4 { margin: 5px 0 7px; font-size: 14px; }
-.performance-guidance-card > p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
-.performance-guidance-card dl { display: grid; gap: 7px; margin: 14px 0 0; }
-.performance-guidance-card dl div { display: grid; grid-template-columns: 85px 1fr; gap: 8px; padding-top: 7px; border-top: 1px solid var(--border); font-size: var(--font-xs); }
-.performance-guidance-card dt { color: var(--text-primary); font-weight: 700; }
-.performance-guidance-card dd { margin: 0; color: var(--text-muted); }
-.performance-save-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(88,198,146,.25); border-radius: 13px; background: rgba(88,198,146,.055); }
-.performance-save-bar > div:first-child { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
-.performance-save-bar strong { font-size: var(--font-xs); }
-.performance-save-bar span { color: var(--text-muted); font-size: var(--font-xs); }
-
 /* ── Storage tab ─────────────────────────────────────────────────────── */
 .storage-panel { overflow: hidden; }
 .storage-section h4 {
@@ -7027,8 +6629,6 @@ async function deleteProject() {
   .notification-section--digest { grid-column: auto; }
   .notification-event-grid { grid-template-columns: 1fr; }
   .notification-digest-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .performance-profile-strip { grid-template-columns: 1fr; }
-  .performance-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .notification-setup-step { grid-template-columns: 25px minmax(0, 1fr); }
@@ -7039,11 +6639,6 @@ async function deleteProject() {
   .notification-digest-controls { grid-template-columns: 1fr; }
   .notification-save-bar { position: static; align-items: stretch; flex-direction: column; }
   .notification-save-bar .btn { width: 100%; }
-  .performance-profile-actions { grid-template-columns: 1fr; }
-  .performance-card-head { grid-template-columns: 34px minmax(0, 1fr); }
-  .performance-value { grid-column: 2; justify-self: start; }
-  .performance-save-bar { align-items: stretch; flex-direction: column; }
-  .performance-save-bar .btn { width: 100%; }
   .storage-advanced-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .storage-disclosure-summary { grid-template-columns: 28px minmax(0, 1fr) 18px; }
   .storage-disclosure-summary .overview-badge { grid-column: 2; justify-self: start; margin-left: 0; }

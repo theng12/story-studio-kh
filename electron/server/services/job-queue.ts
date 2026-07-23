@@ -359,9 +359,9 @@ export function unregisteredJobTypes(): JobType[] {
 // episodes are independent (separate folders; enqueue dedup already forbids
 // two jobs on the *same* episode+type), so several can safely run at once.
 //
-// Cloud jobs share ONE budget: `llmConcurrency` jobs at a time across all of
-// them COMBINED (not per-type). Local Chat Studio jobs enter an independent
-// lane immediately and let Studio Hub / Direct dispatchers own backpressure.
+// GenStudio-bound text jobs share one local staging lane across all types.
+// This is not an account execution limit: GenStudio's durable admission queue
+// remains authoritative for paid concurrency, submission rate, and capacity.
 const LLM_GROUP = 'llm'
 const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
@@ -408,10 +408,10 @@ function groupOf(type: JobType, job?: Job): string {
 /** Active (running) job count for the shared LLM group. Non-LLM types track
  *  their single slot via `QueueState.running` (unchanged). */
 const groupActive: Record<string, number> = {}
-/** Cap for the shared LLM group. Set from app-settings (`script_concurrency`)
- *  at boot + whenever the user changes it in Settings → Performance. */
-let llmConcurrency = 3
-let subtitleTranscribeConcurrency = 1
+/** A generous local staging cap keeps Story responsive without recreating a
+ * user-facing concurrency policy that can conflict with GenStudio. */
+let llmConcurrency = 50
+let subtitleTranscribeConcurrency = 50
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }

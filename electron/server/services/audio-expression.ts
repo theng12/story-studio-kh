@@ -18,7 +18,7 @@ import path from 'path'
 import { callAiWithRetry } from '../lib/ai-client.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
-import { getScriptConcurrency } from './app-settings.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from './job-completion.js'
 import { isLocalTextModel } from './job-retry-policy.js'
 
@@ -273,8 +273,7 @@ export function resolveExpressionTagConcurrency(
 /** Cloud expression tagging follows the saved provider limit. Local Chat
  * Studio work is released immediately to its own fleet scheduler. */
 export async function expressionTagConcurrency(model: string, itemCount: number): Promise<number> {
-  const configured = await getScriptConcurrency()
-  return resolveExpressionTagConcurrency(model, itemCount, configured)
+  return resolveExpressionTagConcurrency(model, itemCount, resolveGenStudioLocalFanout(itemCount))
 }
 
 /** Small bounded worker pool shared by background Tag All and audio auto-tag. */

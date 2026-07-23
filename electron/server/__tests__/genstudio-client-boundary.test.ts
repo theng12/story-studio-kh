@@ -28,6 +28,7 @@ import {
   listVoices,
   listVideoModels,
   operationSignal,
+  parseGenStudioRetryAfterMs,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
   recoverTtsToFile,
@@ -428,6 +429,11 @@ test('GenStudio preserves published Unlimited Relaxed account and transcription 
           credits_used_30d: 50,
           subscription_plan_name: 'Mekong Studio',
           api_concurrency_limit: 5,
+          paid_concurrency_limit: 5,
+          paid_active_jobs: 1,
+          paid_queued_jobs: 2,
+          max_queued_jobs: 250,
+          generation_submissions_per_minute: 240,
           relaxed_concurrency_limit: 10,
           total_jobs: 4,
           active_jobs: 1,
@@ -456,11 +462,23 @@ test('GenStudio preserves published Unlimited Relaxed account and transcription 
       listTranscriptionModels('scoped-key'),
     ])
     assert.equal(overview.subscription_plan_name, 'Mekong Studio')
+    assert.equal(overview.paid_concurrency_limit, 5)
+    assert.equal(overview.max_queued_jobs, 250)
     assert.equal(overview.relaxed_concurrency_limit, 10)
     assert.equal(models[0]?.unlimited_relaxed, true)
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('GenStudio Retry-After supports seconds and HTTP dates', () => {
+  assert.equal(parseGenStudioRetryAfterMs('2.5', 0), 2_500)
+  assert.equal(
+    parseGenStudioRetryAfterMs('Thu, 01 Jan 2026 00:00:05 GMT', Date.parse('2026-01-01T00:00:00Z')),
+    5_000,
+  )
+  assert.equal(parseGenStudioRetryAfterMs('invalid', 0), null)
+  assert.equal(parseGenStudioRetryAfterMs(null, 0), null)
 })
 
 test('GenStudio image generation sends catalog controls and returns a verified private PNG', async () => {

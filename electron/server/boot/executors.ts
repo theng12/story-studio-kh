@@ -7,8 +7,7 @@
  * grep across app.ts.
  */
 
-import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubJobsAtBoot, setLlmConcurrency, unregisteredJobTypes } from '../services/job-queue.js'
-import { getScriptConcurrency } from '../services/app-settings.js'
+import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
@@ -156,16 +155,10 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     throw new Error(`Job executor registration incomplete: ${missingExecutors.join(', ')}`)
   }
 
-  // Load the saved LLM-text concurrency (Settings → Performance) into the
-  // queue. Fire-and-forget: the queue defaults to 3 until this resolves
-  // (a few ms), and the PUT route applies live changes without a restart.
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()
       .then(() => resumeInterruptedHubJobsAtBoot())
       .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
-    void getScriptConcurrency()
-      .then(setLlmConcurrency)
-      .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
     // The durable recovery scan is chained after queue-hold restoration above,
     // so a user-paused queue cannot race and start work during app boot.
   }

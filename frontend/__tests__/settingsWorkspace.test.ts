@@ -12,7 +12,7 @@ describe('Settings workspace navigation', () => {
   test('every Settings surface uses the shared modern panel shell', () => {
     const activeTabPanels = [...settingsSource.matchAll(/activeTab === '([^']+)'[^>]+class="([^"]+)"/g)]
 
-    assert.equal(activeTabPanels.length, 15)
+    assert.equal(activeTabPanels.length, 14)
     for (const [, tabId, className] of activeTabPanels) {
       assert.match(className, /settings-panel/, `${tabId} must use the shared Settings panel`)
     }
@@ -43,19 +43,11 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /video_models: editVideoModels/)
   })
 
-  test('Performance exposes compact profiles without hiding individual controls', () => {
-    for (const profile of ['Gentle', 'Balanced', 'Fleet']) {
-      assert.match(settingsSource, new RegExp(`label: '${profile}'`))
-    }
-
-    for (const section of ['Scripts & prompts', 'Images', 'Audio & TTS', 'Motion clips', 'Transcription']) {
-      assert.match(settingsSource, new RegExp(section.replace('&', '&amp;')))
-    }
-    assert.match(settingsSource, /GenStudio request safeguards/)
-    assert.match(settingsSource, /GenStudio remains authoritative for provider capacity, credits, and settlement/)
-    assert.match(settingsSource, /GenStudio chooses the qualified provider or fleet route/)
-    assert.doesNotMatch(settingsSource, /Local Studio work automatically uses the available fleet/)
-    assert.match(settingsSource, /Save performance/)
+  test('GenStudio owns admission without a second Story performance policy', () => {
+    assert.doesNotMatch(settingsSource, /id: 'performance'/)
+    assert.doesNotMatch(settingsSource, /Save performance/)
+    assert.doesNotMatch(settingsSource, /script-concurrency/)
+    assert.doesNotMatch(settingsSource, /launch stagger/i)
   })
 
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {

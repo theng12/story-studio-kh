@@ -62,9 +62,27 @@ test('legacy audio_models payloads are accepted but stripped before persistence'
       'genstudio-standard-v1': { provider: 'elevenlabs' },
     },
     audio_concurrency: 2,
+    video_concurrency: 4,
+    image_concurrency: 8,
+    subtitle_concurrency: 'auto',
+    image_launch_stagger_ms: 2_000,
+    audio_launch_stagger_ms: 2_000,
+    video_launch_stagger_ms: 2_000,
+    generation_timeouts: { tts_minutes: 5 },
   })
   assert.equal('audio_models' in parsed, false)
-  assert.equal(parsed.audio_concurrency, 2)
+  for (const key of [
+    'audio_concurrency',
+    'video_concurrency',
+    'image_concurrency',
+    'subtitle_concurrency',
+    'image_launch_stagger_ms',
+    'audio_launch_stagger_ms',
+    'video_launch_stagger_ms',
+    'generation_timeouts',
+  ]) {
+    assert.equal(key in parsed, false)
+  }
 })
 
 test('generation, preview, and recovery source contain no direct TTS clients', () => {

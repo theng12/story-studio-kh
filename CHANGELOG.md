@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.679 — 2026-07-23
+
+**GenStudio now solely owns generation admission, account concurrency, and backpressure.**
+
+- Retires the project Performance workspace and its independent text, image,
+  TTS, transcription, and video concurrency, launch-spacing, and timeout
+  controls.
+- Keeps Story Studio responsible only for bounded local request staging while
+  GenStudio applies the account submission rate, paid concurrency, durable
+  queue limit, provider capacity, and separate Unlimited Relaxed capacity.
+- Honors GenStudio `202 Accepted` jobs and `Retry-After` guidance while
+  preserving idempotency keys, accepted job IDs, restart recovery, and explicit
+  manual recovery without creating a direct-provider or Studio Hub fallback.
+- Removes the hidden one-at-a-time subtitle admission override and strips
+  retired performance fields from legacy project configuration on the next
+  ordinary settings save.
+- Qualifies this desktop boundary against GenStudio KH `v0.16.0`
+  (`396806d`) and the passed exact-release staging run
+  `qrun_f27bf5a5bb4a4d64be05c0581e0691da`.
+
 ## v1.0.678 — 2026-07-23
 
 **Style previews now use the live GenStudio image catalog and one focused proof image.**

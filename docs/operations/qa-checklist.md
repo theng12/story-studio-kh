@@ -1,6 +1,8 @@
 # Story Studio KH — QA Checklist
 
-Use this checklist before shipping any release. Cover each phase end-to-end with real API keys.
+Use this checklist before shipping any release. Generation QA uses one
+GenStudio URL and API key; Story Studio contains no direct provider, local
+model, or Studio Hub generation fallback.
 
 ---
 
@@ -8,10 +10,10 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 - [ ] Quit any running instance of Story Studio KH
 - [ ] Backup or clear user data: `~/Library/Application Support/Story Studio KH/`
-- [ ] Gather valid API keys: OpenAI, Anthropic, kie.ai, fal.ai
+- [ ] Gather a valid GenStudio URL and API key with the scopes needed by the test
 - [ ] Confirm at least 5 GB free disk space
 - [ ] Internet connection is stable
-- [ ] For the FFmpeg flow, optionally uninstall ffmpeg (`brew uninstall ffmpeg`) to test the download dialog
+- [ ] Confirm the bundled FFmpeg and FFprobe pass Settings → FFmpeg validation
 
 ---
 
@@ -27,36 +29,35 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 - [ ] Drag the window by the dark bar at the top → window moves
 - [ ] Close (red dot) and relaunch from Dock → reopens to same state
 
-## Phase 2 — FFmpeg Detection
+## Phase 2 — Bundled FFmpeg Validation
 
 - [ ] Open any project → Audio Assembly tab (or any page that scans audio)
-- [ ] If ffmpeg is installed: green "FFmpeg installed" badge, no dialog, scan works
-- [ ] If ffmpeg is NOT installed: dialog prompts with "Download FFmpeg Automatically"
-- [ ] Click Download → progress indicator, then success
-- [ ] Retry the scan → now succeeds
+- [ ] Settings → FFmpeg reports the bundled media engine and exact version
+- [ ] Re-check status validates both FFmpeg and FFprobe without downloading a replacement
+- [ ] Audio and video probes use the bundled binaries after a clean installation
 
 ## Phase 4 — Project Creation
 
 - [ ] From home screen, click "+ New Project"
 - [ ] Step 1: name "QA Test Series", prefix "QA", season size 13
-- [ ] Step 2: paste all 4 API keys
+- [ ] Step 2: connect the GenStudio URL and API key
 - [ ] Step 3: choose output folder (or accept the default in `~/Library/Application Support/Story Studio KH/projects/`)
 - [ ] Review + Create
 - [ ] Land on project dashboard; project shows in home grid on return
 - [ ] Verify on disk: `~/Library/Application Support/Story Studio KH/projects/qa-test-series/` contains `project.json`, `config.json`, `production_standards.txt`, and an `episodes/` dir
 - [ ] Create a second project "Another QA" → coexists independently
 
-## Phase 5 — API Keys
+## Phase 5 — GenStudio Connection
 
-- [ ] Settings → API Keys tab
-- [ ] Saved keys show a "set" indicator
-- [ ] Click "Test" next to each key → valid ✓ or a descriptive error
-- [ ] Paste an invalid key → Test returns a clear error ("Invalid API key" or similar)
+- [ ] Settings → App & Connections shows the GenStudio URL and a saved-key indicator
+- [ ] Test connection reports the account, plan, scopes, and live catalogs
+- [ ] Paste an invalid key → Test returns a clear authentication or scope error
+- [ ] Verify project files and diagnostics never contain the API-key secret
 
 ## Phase 6 — Ideas Generator
 
 - [ ] Ideas tab → generator panel visible
-- [ ] Fill: Genre Fantasy, Mood contemplative, Count 3, Model claude-sonnet (or any)
+- [ ] Fill: Genre Fantasy, Mood contemplative, Count 3, and choose a published GenStudio LLM
 - [ ] Click Generate → job queues, ideas appear within ~60 s
 - [ ] Ideas table renders with columns (Code, Title, Status, Mood)
 - [ ] Expand a row → logline + themes shown
@@ -87,21 +88,15 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 - [ ] Edit one prompt inline → Save → persists on reload
 - [ ] Verify `{CODE}_Thumbnail_Prompts.docx` exists in `04 Thumbnail Prompts/`
 
-### Scene Prompts tab
-- [ ] Scene Prompts tab → select episode
-- [ ] Style tag, aspect ratio, scenes per chapter
-- [ ] Click Generate Scene Prompts → scene prompts appear for review
-- [ ] Verify `{CODE}_Scene_Prompts.docx` exists in `03 Scene Prompts/`
-
 ### Thumbnail Generator tab
 - [ ] Thumbnail Generator tab → select episode
 - [ ] Generate thumbnail images → wait for `done`
 - [ ] Verify PNGs in `06 Thumbnail Images/`
 
-### Scene Generator tab
-- [ ] Scene Generator tab → select episode
-- [ ] Generate scene images → wait for `done`
-- [ ] Verify PNGs in `05 Scene Images/`
+### Scene Plan and Scene Review
+- [ ] Scene Plan builds a deterministic narration timeline, then generates unique visual prompts
+- [ ] Scene Review generates only missing scene images through GenStudio and checkpoints each verified image
+- [ ] Incomplete or unapproved scenes remain pending and block Video Assembly
 
 ## Phase 9 — Audio Generator
 
@@ -157,8 +152,8 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 ## Phase 14 — Settings
 
-- [ ] Models tab: pricing table editable, save persists across reload
-- [ ] Voices tab: add/remove presets, save persists
+- [ ] Models tab: live GenStudio LLM, image, TTS, voice, transcription, and video counts load
+- [ ] Performance is absent; GenStudio account admission is authoritative
 - [ ] Standards tab: production standards + intro format editable, save persists, presets switchable
 - [ ] Folders tab: subfolder template shown; editing `{code}` templates works, revert to defaults
 - [ ] Confirmations tab: toggle per-generator cost dialog — confirm behavior matches
@@ -182,10 +177,11 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 ## Phase 17 — Error Scenarios
 
-- [ ] Paste a bad API key → attempt generation → red error banner with clear "invalid key" message
+- [ ] Paste a bad GenStudio key → attempt generation → red error banner with clear authentication message
 - [ ] Disable internet mid-generation → job marked as error with a network-ish message
-- [ ] Try generating scene images before creating scene prompts → clear "Could not find scene prompts for {code}. Generate the prompts first." error
-- [ ] Uninstall ffmpeg, try audio merge → FFmpeg download dialog appears
+- [ ] Retry a polling/download failure → the accepted GenStudio job ID and idempotency key are reused
+- [ ] Confirm an uncertain GenStudio job never falls back to another route
+- [ ] Try generating scene images before Scene Plan prompts exist → clear blocking error
 
 ## Phase 18 — Multi-Project & Cleanup
 
@@ -198,11 +194,13 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 ## Automated Tests
 
-Before manual QA, run `npm test` from project root. All automated tests must pass.
+Before manual QA, run the full verification and deterministic GenStudio
+qualification from the project root.
 
 ```bash
 cd /path/to/story-studio
-npm test
+npm run verify
+node scripts/qualify-genstudio-release.mjs
 ```
 
 Expected: all tests pass, 0 failures.

@@ -7,7 +7,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { enqueue, isDuplicate, setSubtitleTranscribeConcurrency } from '../services/job-queue.js'
+import { enqueue, isDuplicate } from '../services/job-queue.js'
 import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
@@ -989,10 +989,6 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
       detail: `GenStudio KH transcription model "${selectedModel.display_name}" has no ready workers.`,
     })
   }
-  // One Story subtitle job at a time; each job may upload several chapters in
-  // parallel while GenStudio owns fleet scheduling and backpressure.
-  setSubtitleTranscribeConcurrency(1)
-
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
     return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
   }

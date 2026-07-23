@@ -19,18 +19,14 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
-import {
-  resolveGenerationConcurrency,
-  resolveGenerationLaunchStaggerMs,
-  type GenerationExecution,
-} from '../lib/performance-settings.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
@@ -358,12 +354,9 @@ export async function generateAudio(job: Job): Promise<void> {
   const isCancelled = () => jq.isCancelled(job.job_id)
 
   // ── Flatten sections + chunks into a single task list ───────────────────
-  // Previously this was two nested `for` loops with `await` + 1-second
-  // pacing sleeps — a 10-chapter episode made 10 sequential TTS calls.
-  // We now collect every chunk to generate, decide skip-vs-write semantics
-  // up-front, then hand the whole list to a concurrency pool bounded by
-  // `config.audio_concurrency` (default 3 — ElevenLabs Starter tier's safe
-  // cap; user can go up to 15 for higher tiers).
+  // Collect every chunk, decide skip-vs-write semantics up-front, then stage
+  // the requests concurrently. GenStudio owns durable account admission and
+  // all provider/worker execution limits.
   interface ChunkTask {
     sectionLabel: string
     chunkText: string
@@ -534,34 +527,14 @@ export async function generateAudio(job: Job): Promise<void> {
     concatPlans.set(finalPath, intermediates)
   }
 
-  // GenStudio is the only execution boundary. Fleet/controller selection is
-  // internal to GenStudio and must never be reconstructed in Story Studio.
-  const execution: GenerationExecution = 'cloud'
-  const concurrency = resolveGenerationConcurrency(
-    (config as any).audio_concurrency,
-    execution,
-    tasks.length,
-    1,
-  )
+  const concurrency = resolveGenStudioLocalFanout(tasks.length)
 
   // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
   // section loop) so the chunkText() calls in the loop can reference it
   // without a forward-reference error. See the block annotated
   // "[per-model chunk-size cap]" above.
-  // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs`
-  // so all N workers don't submit to ElevenLabs/fal/GenAIPro in the same
-  // millisecond. New projects default to 2000 ms; an explicit 0 still
-  // disables it. Clamp 0..20000.
-  const launchStaggerMs = resolveGenerationLaunchStaggerMs(
-    (config as any).audio_launch_stagger_ms,
-    execution,
-  )
   if (tasks.length > 1) {
-    job.output_lines.push(
-      `Pool: ${Math.min(concurrency, tasks.length)} in parallel` +
-      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
-      ' (configure via Settings → Audio)',
-    )
+    job.output_lines.push(`Staging ${tasks.length} TTS request(s); GenStudio account admission is authoritative.`)
   }
 
   // AbortController fed from a 500 ms cancel watcher — matches the subtitles
@@ -692,15 +665,7 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   let cursor = 0
-  // i-th worker delays its first task by i * launchStaggerMs to smooth the
-  // initial-burst submit. sleepCancellable ticks every 200ms so a user
-  // cancel during the stagger window unwinds without hanging.
-  async function worker(workerIndex: number): Promise<void> {
-    if (launchStaggerMs > 0 && workerIndex > 0) {
-      try {
-        await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
-      } catch { return /* cancelled mid-stagger */ }
-    }
+  async function worker(): Promise<void> {
     while (cursor < tasks.length) {
       if (isCancelled()) return
       if (jq.isPauseRequested(job.job_id)) return
@@ -712,7 +677,7 @@ export async function generateAudio(job: Job): Promise<void> {
     await Promise.all(
       Array.from(
         { length: Math.min(concurrency, tasks.length) },
-        (_, i) => worker(i),
+        () => worker(),
       ),
     )
   } finally {

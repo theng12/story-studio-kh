@@ -1136,33 +1136,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // v1.0.518 — the project's active art style id. Echoed so a GET after a
     // save round-trips the value (updateConfig persists it via passthrough,
     // but without this echo the next GET would strip it and the picker's
-    // v-model would reset to blank — same trap as generation_timeouts below).
+    // v-model would reset to blank).
     active_style_preset_id: typeof (config as any).active_style_preset_id === 'string'
       ? (config as any).active_style_preset_id
       : undefined,
-    // Concurrency knobs (undefined = generator uses its safe default).
-    audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
-    video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,
-    image_concurrency: typeof (config as any).image_concurrency === 'number' ? (config as any).image_concurrency : undefined,
-    subtitle_concurrency: (typeof (config as any).subtitle_concurrency === 'number' || (config as any).subtitle_concurrency === 'auto') ? (config as any).subtitle_concurrency : undefined,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,
-    // Per-modality launch stagger (ms). 0 / undefined = no stagger; non-zero
-    // delays each pool worker's first task by index*stagger to smooth the
-    // initial-burst submit that triggers per-second 429s on Kie / fal /
-    // ElevenLabs / Veo. See generators/{images,audio,ai-video}.ts.
-    image_launch_stagger_ms: typeof (config as any).image_launch_stagger_ms === 'number' ? (config as any).image_launch_stagger_ms : undefined,
-    audio_launch_stagger_ms: typeof (config as any).audio_launch_stagger_ms === 'number' ? (config as any).audio_launch_stagger_ms : undefined,
-    video_launch_stagger_ms: typeof (config as any).video_launch_stagger_ms === 'number' ? (config as any).video_launch_stagger_ms : undefined,
-    // Per-generator timeout overrides (minutes). Currently only TTS is
-    // user-settable in the Performance tab; pass the whole map through so
-    // future generators can land here without another safe-config patch.
-    // Without this echo, a value saved via PUT /settings/config is
-    // persisted to disk but the next GET strips it, so the UI's v-model
-    // resets to blank — making it look like the save was lost.
-    generation_timeouts: (config as any).generation_timeouts && typeof (config as any).generation_timeouts === 'object'
-      ? (config as any).generation_timeouts
-      : undefined,
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)
       ? config.audio_models
       : { ...DEFAULT_AUDIO_MODELS },
@@ -1187,7 +1166,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   // Pass through every project-side-only key the UI uses:
   // - *_presets / *_last_preset (all generator tabs use usePresets())
   // - custom_* (ideas tab autocomplete pools)
-  // - image_concurrency, audio_merge_* (explicit older keys)
+  // - audio_merge_* (explicit older keys)
   // API keys are already filtered out via the safe shape above.
   const SENSITIVE = new Set([
     'kie_api_key', 'fal_api_key', 'openai_api_key', 'anthropic_api_key', 'genaipro_api_key', 'elevenlabs_api_key', 'google_api_key',
@@ -1211,8 +1190,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       key.endsWith('_templates') ||
       key.endsWith('_last_template') ||
       key.startsWith('custom_') ||
-      key === 'script_custom_styles' ||
-      key === 'image_concurrency'
+      key === 'script_custom_styles'
     if (shouldPassThrough) safe[key] = migratePresetField(key, raw[key])
   }
 
@@ -1254,6 +1232,18 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     // Retired custom-model storage. Any normal settings save permanently
     // prunes it from this project's config without requiring a bulk migration.
     delete data.models
+    for (const retiredKey of [
+      'audio_concurrency',
+      'video_concurrency',
+      'image_concurrency',
+      'subtitle_concurrency',
+      'image_launch_stagger_ms',
+      'audio_launch_stagger_ms',
+      'video_launch_stagger_ms',
+      'generation_timeouts',
+    ]) {
+      delete data[retiredKey]
+    }
     if (req.image_models) {
       data.image_models = req.image_models
       data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
