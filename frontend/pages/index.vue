@@ -10,7 +10,7 @@
         <NuxtLink
           to="/usage"
           class="home-settings-btn"
-          title="Cost dashboard — text-model API spend across all projects"
+          title="GenStudio account usage and credit settlement"
         >
           <span class="home-settings-icon" aria-hidden="true">$</span>
           <span class="home-settings-label">Usage</span>

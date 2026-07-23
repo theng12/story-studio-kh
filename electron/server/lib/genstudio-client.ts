@@ -233,6 +233,7 @@ interface GenStudioChatJob {
   state: GenStudioJob['state']
   model_id: string
   output_text?: string | null
+  finish_reason?: string | null
   failure_code?: string | null
   routing_status_code?: string | null
   credit_cost?: number
@@ -326,6 +327,32 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   idempotencyKey?: string
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+}
+
+/**
+ * GenStudio completed the HTTP/provider exchange but explicitly reported that
+ * its output is incomplete. The durable job remains failed and uncharged; the
+ * optional partial text is exposed only so a caller with a completion audit
+ * can preserve finished units before issuing one scoped repair request.
+ */
+export class GenStudioChatIncompleteError extends Error {
+  readonly jobId: string
+  readonly modelId: string
+  readonly partialText: string
+  readonly finishReason: string | null
+
+  constructor(job: GenStudioChatJob) {
+    const finishReason = typeof job.finish_reason === 'string' ? job.finish_reason : null
+    super(
+      `GenStudio KH reported incomplete chat output${finishReason ? ` (${finishReason})` : ''}. ` +
+      'The reservation was released; no direct provider or Studio Hub fallback was attempted.',
+    )
+    this.name = 'GenStudioChatIncompleteError'
+    this.jobId = job.id
+    this.modelId = job.model_id
+    this.partialText = typeof job.output_text === 'string' ? job.output_text : ''
+    this.finishReason = finishReason
+  }
 }
 
 type GenStudioOperation = GenStudioModelCapability['operation']
@@ -974,6 +1001,9 @@ async function callChatWithGenStudioAdmitted(
       await request.onState?.(current.state, current.id)
     }
     if (current.state === 'failed') {
+      if (current.failure_code === 'CHAT_PROVIDER_INCOMPLETE') {
+        throw new GenStudioChatIncompleteError(current)
+      }
       throw new Error(
         `GenStudio KH chat generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
         'No direct provider or Studio Hub fallback was attempted.',

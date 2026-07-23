@@ -28,6 +28,7 @@ import {
   sidecarPath,
   writeImportedOutline,
 } from '../lib/chunked-narration.js'
+import { GenStudioChatIncompleteError } from '../lib/genstudio-client.js'
 import { registry } from '../providers/registry.js'
 import type { Job, Format } from '../models/types.js'
 import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
@@ -44,6 +45,7 @@ let fakeCalls: FakeCall[] = []
 let fakeOutlineResponse: string = '[]'
 let fakeExpansionFor: (firstChapterN: number, batchSize: number) => string = () => ''
 let fakeAbortAfterNCalls: number = Infinity
+let fakeIncompleteExpansion: { partialText: string, finishReason: string } | null = null
 
 const FAKE_MODEL = 'genstudio-chat-test-chunked-v1'
 const DISPATCH_MODEL = `genstudio-chat:${FAKE_MODEL}`
@@ -64,6 +66,18 @@ const fakeProvider: TextProvider = {
       return fakeOutlineResponse
     }
     fakeCalls.push({ kind: 'expansion', userMessage: req.userMessage })
+    if (fakeIncompleteExpansion) {
+      const incomplete = fakeIncompleteExpansion
+      fakeIncompleteExpansion = null
+      throw new GenStudioChatIncompleteError({
+        id: 'chat_incomplete',
+        state: 'failed',
+        model_id: FAKE_MODEL,
+        output_text: incomplete.partialText,
+        finish_reason: incomplete.finishReason,
+        failure_code: 'CHAT_PROVIDER_INCOMPLETE',
+      })
+    }
     // Parse the SLOTS block — narrative + listicle prompts both render
     // their batch slots as "  Chapter N: Title" lines (no ##) under a
     // "SLOTS TO WRITE NOW:" / "SLOTS TO WRITE:" heading. The OUTPUT
@@ -91,6 +105,7 @@ after(() => { /* registry has no de-register; tests share the singleton */ })
 beforeEach(() => {
   fakeCalls = []
   fakeAbortAfterNCalls = Infinity
+  fakeIncompleteExpansion = null
 })
 
 // ── Test fixtures ─────────────────────────────────────────────────────────
@@ -190,6 +205,53 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(sidecar.mode, 'narrative')
     assert.equal(sidecar.chapters_done.length, 12)
     assert.equal(sidecar.outline.length, 12)
+  })
+
+  test('repairs only omitted chapters after a normal provider finish', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    let expansions = 0
+    fakeExpansionFor = (firstN, batchSize) => {
+      expansions++
+      return expansions === 1
+        ? buildExpansionFor(firstN, 1)
+        : buildExpansionFor(firstN, batchSize)
+    }
+    const job = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job, {
+      episode_id: 'EPREPAIR1', title: 'Omitted Chapter Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 2)
+    assert.match(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 2: Chapter 2/)
+    assert.match(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 3: Chapter 3/)
+    assert.doesNotMatch(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 1: Chapter 1/)
+    assert.ok(job.output_lines.some(line => /one bounded missing-chapter pass/.test(line)))
+    assert.equal(result.chaptersWritten, 3)
+  })
+
+  test('replaces an uncharged provider-incomplete batch once and preserves its partial files', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      partialText: buildExpansionFor(1, 1),
+      finishReason: 'error',
+    }
+    const job = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job, {
+      episode_id: 'EPREPAIR2', title: 'Incomplete Provider Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 2)
+    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(error\); preserved 1 parsed chapter/.test(line)))
+    assert.ok(job.output_lines.some(line => /one bounded replacement pass/.test(line)))
+    assert.equal(result.chaptersWritten, 3)
+    for (let n = 1; n <= 3; n++) {
+      assert.equal(existsSync(path.join(scriptDir, `EPREPAIR2_Chapter_${String(n).padStart(2, '0')}.md`)), true)
+    }
   })
 
   test('resume skips chapters already on disk + reuses cached outline', async () => {

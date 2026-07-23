@@ -13,9 +13,6 @@ import { getImagesReconcileStatus } from '../services/image-reconciler.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { getEffectiveNiche, getEffectiveNicheFor } from '../services/niche-loader.js'
-import { getEffectiveTemplateFor, loadTemplate } from '../services/thumbnail-template-loader.js'
-import { composeThumbnail, pickComposedFilename } from '../lib/thumbnail-composer.js'
 
 export const router = Router()
 
@@ -276,127 +273,6 @@ router.post('/projects/:slug/episodes/:code/thumbnails/pin', async (req, res) =>
     res.json({ ok: true, pinned: filename })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to pin thumbnail'))
-  }
-})
-
-// ── Niche-templated thumbnail composer (v1.0.104+) ─────────────────────────
-//
-// POST /api/projects/:slug/episodes/:code/thumbnails/compose
-// Body: {
-//   source_filename: string,        // required — existing PNG/JPG in thumb_dir
-//   title_text?: string,            // override episode title in the 'title' zone
-//   subtitle_text?: string,         // override niche default in the 'subtitle' zone
-//   logo_path?: string,             // optional local path to a logo PNG
-// }
-//
-// Returns: { filename, path, url }
-//
-// Uses the active niche's `thumbnailTemplate` to composite text + accent
-// strokes + (optionally) a logo over the source portrait. Output is a
-// new versioned file in the same thumb_dir so it can be pinned via the
-// existing /thumbnails/pin endpoint.
-router.post('/projects/:slug/episodes/:code/thumbnails/compose', async (req, res) => {
-  try {
-    const { slug, code } = req.params
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-
-    const sourceFilename = typeof req.body?.source_filename === 'string'
-      ? req.body.source_filename.trim()
-      : ''
-    if (!sourceFilename) {
-      return res.status(400).json({ detail: 'source_filename is required (existing thumbnail file to compose over)' })
-    }
-    if (!/\.(png|jpe?g)$/i.test(sourceFilename) || sourceFilename.includes('/') || sourceFilename.includes('\\')) {
-      return res.status(400).json({ detail: 'source_filename must be a bare PNG/JPG filename (no path separators)' })
-    }
-
-    // Resolve the effective template (v1.0.105+). Chain:
-    //   1. Body `template_id` (per-compose override from the dialog)
-    //   2. project.config.thumbnail_template_id (saved project override)
-    //   3. niche.defaultThumbnailTemplateId
-    //   4. niche.thumbnailTemplate (legacy inline bridge)
-    //   5. 422 — user picks a template in the dialog gallery
-    const project = await pm.getProject(slug)
-    const niche = project ? await getEffectiveNicheFor(project) : null
-    let template = null
-    const bodyTemplateId = typeof req.body?.template_id === 'string' ? req.body.template_id.trim() : ''
-    if (bodyTemplateId) {
-      template = await loadTemplate(bodyTemplateId)
-      if (!template) {
-        return res.status(404).json({ detail: `Template "${bodyTemplateId}" not found in the library.` })
-      }
-    } else if (project) {
-      template = await getEffectiveTemplateFor(project, niche)
-    }
-    if (!template) {
-      return res.status(422).json({
-        detail: 'No thumbnail template available. Open the Compose dialog\'s template gallery and pick one, or set a default in Settings → Thumbnail Templates.',
-      })
-    }
-
-    const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
-    const paths = await resolveEpisodePaths(slug, code, idea?.title || '')
-    const sourcePath = path.join(paths.thumb_dir, sourceFilename)
-    if (!existsSync(sourcePath)) {
-      return res.status(404).json({ detail: `Source thumbnail "${sourceFilename}" not found in ${paths.thumb_dir}` })
-    }
-
-    // Build substitution context from the idea, so {episode_title} /
-    // {episode_code} / {niche_name} resolve when a zone uses them.
-    const ctx = {
-      episode_title: idea?.title || '',
-      episode_code: code,
-      niche_name: niche?.name || niche?.id || '',
-    }
-
-    // Compose. Body fields override the niche's defaults per-zone — so
-    // the user can preview a different subtitle without editing the
-    // niche JSON.
-    const textByZone: Record<string, string> = {}
-    if (typeof req.body?.title_text === 'string' && req.body.title_text.trim()) {
-      textByZone.title = req.body.title_text.trim()
-    }
-    if (typeof req.body?.subtitle_text === 'string' && req.body.subtitle_text.trim()) {
-      textByZone.subtitle = req.body.subtitle_text.trim()
-    }
-
-    // Optional logo. Accept a local file path; validate it exists so
-    // we don't 500 inside sharp on a typo.
-    let logoArg: { path: string } | undefined
-    if (typeof req.body?.logo_path === 'string' && req.body.logo_path.trim()) {
-      const p = req.body.logo_path.trim()
-      if (!existsSync(p)) {
-        return res.status(404).json({ detail: `Logo file not found: ${p}` })
-      }
-      logoArg = { path: p }
-    }
-
-    const outBuf = await composeThumbnail({
-      sourcePath,
-      template,
-      textByZone,
-      context: ctx,
-      logo: logoArg,
-    })
-
-    // Output filename: derive a stem from the source so the composed
-    // file sorts beside its parent in the picker grid. Example:
-    // "thumb_v3.png" → "thumb_v3_composed_v1.png".
-    const sourceStem = sourceFilename.replace(/\.(png|jpe?g)$/i, '')
-    const outFilename = await pickComposedFilename(paths.thumb_dir, sourceStem)
-    const outPath = path.join(paths.thumb_dir, outFilename)
-    await fsp.writeFile(outPath, outBuf)
-
-    res.json({
-      filename: outFilename,
-      path: outPath,
-      // Relative URL the frontend uses to fetch the file. Uses the
-      // existing /video-editor/preview-image static-pass-through, which
-      // is how the Images-page picker grid already renders thumb files.
-      url: `/api/projects/${slug}/video-editor/preview-image?path=${encodeURIComponent(outPath)}`,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Thumbnail compose failed'))
   }
 })
 

@@ -46,6 +46,7 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
+import { GenStudioChatIncompleteError } from './genstudio-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
@@ -792,37 +793,99 @@ async function expandNarrativeSequential(
     const firstN = batch[0]!.n
     const lastN = batch[batch.length - 1]!.n
 
-    // Transition window: previous chapter's last 200 words from disk,
-    // when it exists. If we're starting at chapter 1 (or the prior
-    // chapter wasn't generated yet), no window.
-    const priorChapterN = firstN - 1
-    let transitionWindow = ''
-    if (priorChapterN >= 1) {
-      const priorPath = resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, priorChapterN))
-      if (existsSync(priorPath)) {
-        try {
-          const { narrationDocxToMarkdown } = await import('./docx-parser.js')
-          const md = await narrationDocxToMarkdown(priorPath)
-          const body = md.replace(/^##[^\n]*\n+/, '').trim()
-          const words = body.split(/\s+/)
-          transitionWindow = words.slice(Math.max(0, words.length - 200)).join(' ')
-        } catch { /* unreadable prior chapter — proceed without window */ }
-      }
-    }
-
     const useTOC = params.totalChapters > TOC_MODE_THRESHOLD
-    const prompt = narrativeBatchPrompt(params, outline, batch, transitionWindow, useTOC)
+    const prompt = narrativeBatchPrompt(
+      params, outline, batch, await narrativeTransitionWindow(params, firstN), useTOC,
+    )
 
     job.output_lines.push(`[chunked] Batch ${bi + 1}/${batches.length} — chapters ${firstN}-${lastN}…`)
     const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
-    const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+    let wrote: number[] = []
+    let incomplete: GenStudioChatIncompleteError | null = null
+    try {
+      const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+      wrote = await parseAndWriteBatch(params, batch, text)
+    } catch (error) {
+      if (!(error instanceof GenStudioChatIncompleteError)) throw error
+      incomplete = error
+      if (error.partialText.trim()) {
+        wrote = await parseAndWriteBatch(params, batch, error.partialText)
+      }
+      job.output_lines.push(
+        `[chunked]   → GenStudio reported incomplete output${error.finishReason ? ` (${error.finishReason})` : ''}; ` +
+        `preserved ${wrote.length} parsed chapter(s) and released the original reservation.`,
+      )
+    }
 
-    // Parse + write.
-    const wrote = await parseAndWriteBatch(params, batch, text)
     runningSidecar = markDone(runningSidecar, wrote)
     await writeSidecar(params.scriptDir, runningSidecar)
     job.output_lines.push(`[chunked]   → wrote ${wrote.length} chapter(s) (${wrote.join(', ')})`)
+
+    // A normal provider finish can still omit a requested block. For a
+    // provider-declared incomplete finish, replace the entire affected batch:
+    // its uncharged partial output is preserved for audit, but is never proof
+    // that a customer-facing batch completed. This is one deliberate, bounded
+    // repair submission—not the queue's generic auto-retry policy.
+    const repairBatch = incomplete
+      ? batch
+      : batch.filter(entry => !wrote.includes(entry.n))
+    if (!repairBatch.length) continue
+
+    job.output_lines.push(
+      `[chunked]   → repairing chapters ${repairBatch.map(entry => entry.n).join(', ')} ` +
+      `(one bounded ${incomplete ? 'replacement' : 'missing-chapter'} pass)…`,
+    )
+    const repairPrompt = narrativeRepairPrompt(
+      params,
+      outline,
+      repairBatch,
+      await narrativeTransitionWindow(params, repairBatch[0]!.n),
+      useTOC,
+    )
+    const repairText = await callAiWithRetry(
+      params.model, params.systemPrompt, repairPrompt, params.apiKeys, true, ctx,
+    )
+    const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
+    const allWrote = [...new Set([...wrote, ...repaired])].sort((a, b) => a - b)
+    runningSidecar = markDone(runningSidecar, repaired)
+    await writeSidecar(params.scriptDir, runningSidecar)
+    job.output_lines.push(`[chunked]   → repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
+
+    const stillMissing = batch.filter(entry => !allWrote.includes(entry.n)).map(entry => entry.n)
+    if (stillMissing.length) {
+      throw new Error(
+        `Narrative batch did not pass its one-repair completion check; missing ${stillMissing.join(', ')}. ` +
+        'Resume expansion to repair it.',
+      )
+    }
   }
+}
+
+async function narrativeTransitionWindow(
+  params: ChunkedNarrationParams, firstChapterN: number,
+): Promise<string> {
+  const priorChapterN = firstChapterN - 1
+  if (priorChapterN < 1) return ''
+  const priorPath = resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, priorChapterN))
+  if (!existsSync(priorPath)) return ''
+  try {
+    const { narrationDocxToMarkdown } = await import('./docx-parser.js')
+    const md = await narrationDocxToMarkdown(priorPath)
+    const body = md.replace(/^##[^\n]*\n+/, '').trim()
+    const words = body.split(/\s+/)
+    return words.slice(Math.max(0, words.length - 200)).join(' ')
+  } catch {
+    return ''
+  }
+}
+
+function narrativeRepairPrompt(
+  p: ChunkedNarrationParams, outline: OutlineEntry[], batch: OutlineEntry[],
+  transitionWindow: string, useTOC: boolean,
+): string {
+  return `${narrativeBatchPrompt(p, outline, batch, transitionWindow, useTOC)}
+
+RECOVERY INSTRUCTION: This is one bounded repair pass. Write every requested chapter in this response, and write no chapters outside the requested slots.`
 }
 
 function narrativeBatchPrompt(

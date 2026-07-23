@@ -367,8 +367,8 @@
          sample image of that exact prompt with the user's currently-
          selected model + aspect + tier. Per-prompt cache keyed by
          sha256(prompt+model+aspect+tier), so re-clicking the same combo
-         is free; switching any input invalidates and bills a fresh
-         render (~$0.005 on kie.ai).
+         is free; switching any input invalidates the preview and submits a
+         fresh GenStudio job.
 
          Hidden until prompts exist on disk and the user expands the
          card — keeps the page calm by default; the user opts in.
@@ -585,21 +585,6 @@
               Click any thumbnail and use 📌 Pin to lock a different one.
             </template>
           </span>
-          <!-- v1.0.104+ — niche-templated text overlay composer. Opens
-               a modal that POSTs to /thumbnails/compose with the active
-               niche's thumbnailTemplate. Disabled until at least one
-               thumbnail exists to compose over. -->
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary thumbnail-compose-btn"
-            :disabled="!editThumbs.length || !form.episode_id"
-            :title="!editThumbs.length
-              ? 'Generate at least one thumbnail first — Compose layers text over an existing image.'
-              : 'Layer the niche\'s title + subtitle + accent rule over one of these thumbnails.'"
-            @click="openComposeDialog"
-          >
-            ✏️ Compose with text…
-          </button>
         </div>
         <div class="edit-image-grid">
           <button
@@ -657,20 +642,6 @@
       @pin-toggle="onLightboxPinToggle"
     />
 
-    <!-- Niche-templated thumbnail composer (v1.0.104+). Opens from the -->
-    <!-- "✏️ Compose with text" button on the thumbnail grid header. -->
-    <!-- Pulls the niche's thumbnailTemplate on open, posts to the -->
-    <!-- /thumbnails/compose endpoint, optionally pins the result. -->
-    <ThumbnailComposeDialog
-      v-model="composeOpen"
-      :project-slug="slug"
-      :episode-code="composeEpisodeCode"
-      :thumbs="composeThumbs"
-      :default-title="composeDefaultTitle"
-      :initial-source-filename="composeInitialSource"
-      @composed="onComposeFinished"
-      @pinned="onComposePinned"
-    />
 
     <!-- Provider prompt-cap reference table. Mounts on demand from the
          "View all caps →" link beside the model selector. Sorted strict-
@@ -741,8 +712,8 @@ const {
   refresh: refreshGenStudioImageModels,
 } = useGenStudioImageModels()
 
-// All image models currently go via kie.ai. Grouping future-proofs the
-// dropdown for when a second provider is added.
+// Image models are loaded from the live GenStudio catalog. The picker keeps
+// its catalog handling in one place as the available routes evolve.
 //
 // v1.0.152 — the legacy `imageModelGroups` computed + the
 // `formatModelOption(m)` formatter that drove the old <optgroup>
@@ -808,9 +779,8 @@ const defaultSubForm = (): ImagesSubForm => ({
   // is purely a UI consolidation. Default 'skip' matches the prior
   // default behaviour (force=false).
   generation_mode: 'skip',
-  // Tier id for variable-priced kie.ai models (nano-banana-2 1k/2k/4k,
-  // ideogram-v3 turbo/balanced/quality, etc.). Flat-priced models ignore
-  // this. Reset on model switch via the watcher below.
+  // Catalog variant for models with selectable output sizes or qualities.
+  // Models without variants ignore it. Reset on model switch below.
   tier: '',
   // Image-to-image pipeline (Phase 4). Default text2img preserves
   // every prior behaviour exactly. img2img surfaces the references
@@ -1290,10 +1260,9 @@ const specificPlaceholder = computed(() => {
   return 'All'
 })
 
-// ── Render dimensions (v1.0.308 legacy + v1.0.478 model-driven) ───────────
-// LEGACY fallback table — used ONLY when the selected model doesn't report a
-// per-model `sizes` menu (older Image Studio builds; kie cloud models, which
-// take an aspect string, not pixels). Mirrors the provider's ASPECT_PRESETS.
+// ── Render dimensions ─────────────────────────────────────────────────────
+// Compatibility aspect presets for catalog entries that expose an aspect ratio
+// rather than explicit pixel dimensions.
 const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
   '1:1': [1024, 1024], '16:9': [1344, 768], '9:16': [768, 1344],
   '4:3': [1152, 864], '3:4': [864, 1152], '21:9': [1536, 640],
@@ -1319,9 +1288,8 @@ function isLocalModelId(model: string | undefined): boolean {
 }
 
 // v1.0.478 — Image Studio's per-model size menu (GET /imagestudio/models). When a
-// model reports `sizes`, the AR list + resolution come from it — so cloud models
-// can use their full higher-res range and presets resolve per model. Lazy-fetched;
-// empty (offline / older build) → the legacy table above.
+// model reports `sizes`, the AR list + resolution come from it. Lazy-fetched;
+// an empty response falls back to the compatibility table above.
 interface IsSize { aspect_ratio: string; label?: string; width: number; height: number; tier?: string; default?: boolean; fixed?: boolean }
 interface IsModel { id: string; sizes?: IsSize[]; default_aspect_ratio?: string; supports_custom_dimensions?: boolean }
 async function loadImageStudioCatalog() {
@@ -1330,7 +1298,7 @@ async function loadImageStudioCatalog() {
     const m = new Map<string, IsModel>()
     for (const x of (data.models || [])) if (x?.id) m.set(x.id, x)
     isCatalog.value = m
-  } catch { /* leave empty → legacy fallback */ }
+  } catch { /* leave empty → compatibility presets */ }
 }
 function modelSizes(modelId: string | undefined): IsSize[] | null {
   const info = modelId ? isCatalog.value.get(modelId) : undefined
@@ -1684,50 +1652,6 @@ async function loadEditScan() {
   }
 }
 
-// ── Niche-templated thumbnail composer (v1.0.104+) ───────────────────────
-//
-// Opens a dialog that POSTs to /thumbnails/compose with the active
-// niche's thumbnailTemplate. Composes are pure local file operations
-// (no API spend) so the dialog can be re-opened freely. Successful
-// composes append a new file to editThumbs via loadEditScan().
-const composeOpen = ref(false)
-const composeInitialSource = ref('')
-
-// The dialog reads these refs. We snapshot the current episode_id +
-// editThumbs at open-time so a mid-flow scan refresh doesn't yank the
-// list out from under the dialog.
-const composeEpisodeCode = computed(() => form.episode_id || '')
-const composeThumbs = computed(() => editThumbs.value.map(t => ({
-  filename: t.filename,
-  is_pinned: t.filename === pinnedThumbnailFilename.value,
-})))
-// images.vue doesn't load idea titles client-side, so we pass empty
-// — the backend substitutes the actual episode title via the ideas
-// service when the user submits with title_text blank.
-const composeDefaultTitle = computed(() => '')
-
-function openComposeDialog() {
-  // Default to the pinned thumbnail when one exists — most likely the
-  // user wants to recompose THAT image with the niche overlay. Falls
-  // back to the highest-version file (first in the sorted grid).
-  composeInitialSource.value = pinnedThumbnailFilename.value
-    || editThumbs.value[0]?.filename
-    || ''
-  composeOpen.value = true
-}
-
-function onComposeFinished(_filename: string) {
-  // Re-scan so the newly composited file appears in the grid. The
-  // dialog stays open with its in-line preview so the user can pin
-  // without scrolling back to the grid.
-  void loadEditScan()
-}
-
-function onComposePinned(filename: string) {
-  // Mirror the pin state locally without waiting for the next scan.
-  pinnedThumbnailFilename.value = filename
-}
-
 // ── Lightbox / carousel ──────────────────────────────────────────────────
 // Tile clicks open this fullscreen preview. The user browses with ← / →
 // and closes it with Escape.
@@ -1879,9 +1803,8 @@ function generationParams(forceOverride?: boolean, includeSpecific = true) {
   }
 
   // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
-  // model's own size menu when it has one (local OR cloud → full higher-res),
-  // falls back to the legacy local table, and returns null for menu-less cloud
-  // models (kie), which keep using the aspect string server-side.
+  // model's own size menu when it has one, falls back to the compatibility
+  // presets, and otherwise keeps the catalog aspect ratio server-side.
   const sz = sizeBodyFor(activeForm.value)
   if (sz) { params.width = sz.width; params.height = sz.height }
 

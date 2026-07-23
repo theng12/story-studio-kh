@@ -12,6 +12,7 @@ import {
   buildGenStudioImageIdempotencyKey,
   buildGenStudioSubmission,
   callChatWithGenStudio,
+  GenStudioChatIncompleteError,
   catalogHasVoice,
   downloadVoicePreview,
   generateTtsToFile,
@@ -186,6 +187,39 @@ test('GenStudio chat terminal failure never falls back to a direct provider', as
   }
 })
 
+test('GenStudio chat exposes preserved partial text only for an uncharged incomplete finish', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/chat\/responses$/)
+      return Response.json({
+        id: 'chat_incomplete',
+        state: 'failed',
+        model_id: 'genstudio-chat-local-v1',
+        output_text: '## Chapter 01: Complete enough to preserve',
+        finish_reason: 'error',
+        failure_code: 'CHAT_PROVIDER_INCOMPLETE',
+      }, { status: 202 })
+    }
+    await assert.rejects(
+      callChatWithGenStudio('scoped-key', {
+        modelId: 'genstudio-chat-local-v1',
+        system: '',
+        userMessage: 'Return a complete batch.',
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof GenStudioChatIncompleteError)
+        assert.equal(error.jobId, 'chat_incomplete')
+        assert.equal(error.partialText, '## Chapter 01: Complete enough to preserve')
+        assert.equal(error.finishReason, 'error')
+        return true
+      },
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('GenStudio publishes normalized capability, chat, and video catalogs', async () => {
   const originalFetch = globalThis.fetch
   try {
@@ -266,12 +300,16 @@ test('GenStudio TTS quotes use the scoped API key and preserve the authoritative
 test('generation confirmation is GenStudio-credit-only and keeps no legacy provider calculator', () => {
   const route = readFileSync(new URL('../routes/jobs.ts', import.meta.url), 'utf8')
   const dialog = readFileSync(new URL('../../../frontend/components/CostConfirmationDialog.vue', import.meta.url), 'utf8')
+  const dashboard = readFileSync(new URL('../../../frontend/pages/projects/[slug]/index.vue', import.meta.url), 'utf8')
+  const health = readFileSync(new URL('../routes/health.ts', import.meta.url), 'utf8')
   assert.match(route, /listChatModels/)
   assert.match(route, /listImageModels/)
   assert.match(route, /quoteTts/)
   assert.doesNotMatch(route, /getModelPricing|getKieCredits|getFalBalance|estimated_cost|cost_unit/)
   assert.match(dialog, /Estimated GenStudio credits/)
   assert.doesNotMatch(dialog, /USD_PER_CREDIT|kie\.ai|usdEquivalent/)
+  assert.doesNotMatch(dashboard, /Tracked API spend|total_api_cost|allTimeCost/)
+  assert.doesNotMatch(health, /usage-tracker\.js/)
 })
 
 test('GenStudio voice catalog preserves tiers and stored previews without generating audio', async () => {

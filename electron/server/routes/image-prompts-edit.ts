@@ -41,10 +41,8 @@ const RegenerateSchema = z.object({
   current_prompt: z.string().optional(),
   notes: z.string().max(2000).optional(),
   /** Thumbnail-only: lets the regenerated prompt carry the same guaranteed
-   *  ratio/title enforcement the bulk generator applies. When omitted we fall
-   *  back to 16:9 + inferring composite (text-free) mode from the prompt. */
+   *  ratio and ready-to-use title enforcement the bulk generator applies. */
   aspect_ratio: z.string().optional(),
-  title_mode: z.enum(['ai', 'composite']).optional(),
 })
 
 const UpdatePromptSchema = z.object({
@@ -134,22 +132,12 @@ router.post(
         return res.status(502).json({ detail: 'LLM returned an empty or too-short prompt' })
       }
 
-      // v1.0.416 — thumbnails: guarantee the regenerated prompt keeps the ratio +
-      // (AI mode) literal title, exactly like the bulk generator. If the caller
-      // didn't pass title_mode, infer "composite" only when the prompt is clearly
-      // text-free, so we never bake a title into a composite (overlay) thumbnail.
+      // Thumbnail prompts always keep the ratio and a ready-to-use in-image
+      // title, exactly like the bulk generator.
       if (kind === 'thumbnail') {
-        const looksComposite = /render no text|no text|text-free|reserved (?:text|title)|no lettering|clean[^.]*overlay/i
-          .test(`${currentPrompt}\n${next.prompt}`)
-        const titleMode = (req.body.title_mode as 'ai' | 'composite' | undefined)
-          ?? (looksComposite ? 'composite' : 'ai')
         next.prompt = enforceThumbnailPromptElements(next.prompt, {
-          title: titleParam || currentTitle || '',
-          titleMode,
           aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
-          fontStyle: 'serif',
-          textStyle: 'gold',
-          textPosition: 'center',
+          title: titleParam || currentTitle,
         })
       }
 

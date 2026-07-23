@@ -21,7 +21,6 @@ interface SessionEntry {
   descriptions_generated: number
   ideas_generated: number
   api_calls: number
-  api_cost: number
   time_saved_min: number
 }
 
@@ -78,7 +77,6 @@ function getOrCreateCurrentSession(slug: string): SessionEntry {
       descriptions_generated: 0,
       ideas_generated: 0,
       api_calls: 0,
-      api_cost: 0,
       time_saved_min: 0,
     })
   }
@@ -91,12 +89,10 @@ export async function trackGeneration(
   slug: string,
   type: 'script' | 'prompts' | 'image' | 'audio' | 'description' | 'ideas',
   count: number = 1,
-  apiCost: number = 0,
 ): Promise<void> {
   const session = getOrCreateCurrentSession(slug)
   session.last_active = new Date().toISOString()
   session.api_calls += 1
-  session.api_cost += apiCost
 
   switch (type) {
     case 'script': session.scripts_generated += count; session.time_saved_min += TIME_PER.script * count; break
@@ -131,7 +127,7 @@ export async function trackGeneration(
 export async function getSessionStats(slug: string): Promise<{
   current: SessionEntry
   previous: SessionEntry | null
-  all_time: { total_sessions: number; total_time_saved_min: number; total_api_cost: number; total_assets: number }
+  all_time: { total_sessions: number; total_time_saved_min: number; total_assets: number }
 }> {
   const store = await loadSessions(slug)
   const current = getOrCreateCurrentSession(slug)
@@ -146,7 +142,6 @@ export async function getSessionStats(slug: string): Promise<{
   const allTime = {
     total_sessions: allSessions.length,
     total_time_saved_min: allSessions.reduce((sum, s) => sum + s.time_saved_min, 0),
-    total_api_cost: allSessions.reduce((sum, s) => sum + s.api_cost, 0),
     total_assets: allSessions.reduce((sum, s) =>
       sum + s.scripts_generated + s.prompts_generated + s.images_generated +
       s.audio_generated + s.descriptions_generated + s.ideas_generated, 0),

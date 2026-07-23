@@ -9,7 +9,6 @@ import { listChatModels as listGenStudioChatModels } from '../lib/genstudio-clie
 import { getGenStudioAccountSnapshot, GenStudioApiError } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { legacyIdsForGenStudioModel } from '../services/genstudio-model-migration.js'
-import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
 import { getLogDir, logLine } from '../services/logger.js'
@@ -501,29 +500,6 @@ router.get('/models', async (req, res) => {
   res.json(models)
 })
 
-// Session usage stats
-router.get('/usage', (_req, res) => {
-  res.json(getSessionUsage())
-})
-
-router.get('/usage/pricing', (_req, res) => {
-  res.json(getModelPricing())
-})
-
-/** Cross-session cost rollup, sourced from the on-disk JSONL history.
- *  Powers the Cost dashboard. Date params are inclusive YYYY-MM-DD. */
-router.get('/usage/rollup', async (req, res) => {
-  try {
-    const { getUsageRollup } = await import('../services/usage-tracker.js')
-    const since = typeof req.query.since === 'string' ? req.query.since : undefined
-    const until = typeof req.query.until === 'string' ? req.query.until : undefined
-    const r = await getUsageRollup({ since, until })
-    res.json(r)
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to load usage rollup' })
-  }
-})
-
 }
 
 // Dashboard overview metadata. Episode completion and stage coverage come from
@@ -538,14 +514,11 @@ router.get('/projects/:slug/dashboard-stats', async (req, res) => {
   const im = await import('../services/idea-manager.js')
   const ideas = await im.getIdeas(slug)
   const accepted = ideas.filter(i => i.status === 'accepted')
-  const usage = getSessionUsage()
   const sessionStats = await getSessionStats(slug)
 
   res.json({
     ideas: { total: ideas.length, accepted: accepted.length, new: ideas.filter(i => i.status === 'new').length },
     session: {
-      api_cost: usage.total_cost,
-      calls: usage.entries,
       current: sessionStats.current,
       previous: sessionStats.previous,
       all_time: sessionStats.all_time,

@@ -34,7 +34,7 @@ import fs from 'fs/promises'
 // and ignoring the format. The thumbnail prompt now arrives from
 // generators/image-prompts.ts already carrying the correct (format-aware)
 // title-text directive — or, in composite mode, intentionally text-free for
-// the thumbnail composer. So the render path uses `thumb.prompt` verbatim.
+// a separate post-processing step. So the render path uses `thumb.prompt` verbatim.
 
 export type ThumbnailReferenceStrength = 'loose' | 'balanced' | 'strong'
 

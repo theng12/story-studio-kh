@@ -23,7 +23,6 @@ import {
   getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
 import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub } from '../lib/studiohub-client.js'
-import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
   listModelCapabilities as listGenStudioCapabilities,
@@ -810,8 +809,6 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, and video job access.',
       })
     }
-    const result = await testApiKey(providerId, apiKey)
-    res.json(result)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to test API key'))
   }

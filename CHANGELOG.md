@@ -4,6 +4,61 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.686 — 2026-07-23
+
+**Thumbnail Prompts now produces finished, titled thumbnails directly.**
+
+- Renders the exact episode title as large, legible text in every generated
+  thumbnail prompt, so the generated image is immediately usable.
+- Removes the post-generation Thumbnail Composer from the Images workflow and
+  retires its API endpoint; there is now one thumbnail result, not an artwork
+  background plus a second typography step.
+- Keeps the streamlined creation flow: choose a look, pick variations, add one
+  click-driving idea, and optionally take visual direction from a reference.
+
+## v1.0.685 — 2026-07-23
+
+**Thumbnail Prompts now focuses on one idea, one look, and optional inspiration.**
+
+- Replaces the stacked treatment, text, font, strategy, compatibility, and
+  overwrite controls with a short flow: choose a look, set variations, add one
+  click-driving idea, and optionally use a reference image.
+- Merges reference analysis into one thumbnail-specific flow that extracts
+  visual style and composition without asking the generator to copy text,
+  logos, or subjects.
+- Generates text-free thumbnail artwork with deliberate title-safe space so
+  the Composer remains the single reliable title-typography surface.
+- Keeps one Prompt Review surface for editing and regenerating individual
+  thumbnail prompts after the initial batch.
+
+## v1.0.684 — 2026-07-23
+
+**Chapter expansion now heals one known partial provider result automatically.**
+
+- Preserves any chapters parsed from a provider-declared incomplete response,
+  while GenStudio releases the original credit reservation instead of treating
+  that response as billable success.
+- Runs one bounded recovery pass: missing chapters only after a normal response
+  omission, or the affected batch after an explicit incomplete finish. The
+  result still fails loudly with exact missing chapter numbers if that repair is
+  incomplete, so no partial script can silently ship.
+- Records clear job-log milestones for the detected partial output, preserved
+  chapters, repair scope, and repair result.
+
+## v1.0.683 — 2026-07-23
+
+**Story Studio now has one credit authority: GenStudio.**
+
+- Removed the retired local API-cost tracker, USD rollup routes, and project
+  dashboard spend display. Production activity remains visible, while balance,
+  pricing, reservations, and settlement come only from GenStudio.
+- Removed legacy provider wording and dollar conversions from the image and
+  confirmation experiences. The visible estimate is always GenStudio credits,
+  its pricing basis, and its immutable price version.
+- TTS preflight now quotes precisely the narration sections selected for the
+  pending job, rather than estimating the full narration when only a subset
+  will be generated.
+
 ## v1.0.682 — 2026-07-23
 
 **Generation confirmation now uses only live GenStudio credits.**

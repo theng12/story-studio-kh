@@ -25,7 +25,6 @@ import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job } from '../models/types.js'
-import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
@@ -52,22 +51,9 @@ interface ImagePromptsParams {
    */
   chapter_count?: number
   thumb_count?: number
-  thumb_text_style?: string
-  thumb_text_style_custom?: string
-  thumb_text_position?: string
-  thumb_font_style?: string
-  thumb_font_style_custom?: string
-  /** v1.0.224 — free-text per-project art direction; overrides format + CTR. */
-  thumb_art_direction?: string
-  /** v1.0.224 — 'ai' bakes the title into the image (format-aware styling);
-   *  'composite' asks for a text-free background so a crisp title can be
-   *  overlaid afterward via the thumbnail composer. */
-  thumb_title_mode?: 'ai' | 'composite'
-  /** v1.0.224 — vision-extracted style descriptor from a reference thumbnail
-   *  the user wants to replicate. */
+  /** Vision-extracted direction from a reference image. */
   thumb_reference_style?: string
-  thumb_creative_mode?: 'strict' | 'guided' | 'open'
-  thumb_strategy?: 'auto' | 'character' | 'object' | 'environment' | 'typographic' | 'mystery' | 'documentary'
+  /** The one user-written thumbnail idea. */
   thumb_creative_direction?: string
   mode?: 'scenes' | 'thumbnails'
   /**
@@ -226,88 +212,27 @@ const GENERIC_THUMBNAIL_AVOID = [
   'flat, evenly-lit, boring framing',
 ]
 
-/**
- * Build the THUMBNAIL portion of the image-prompts request (v1.0.224). Layers,
- * later overriding earlier: (a) per-format art direction → (b) universal
- * YouTube CTR rules → (c) reference-style replication → (d) per-project
- * art-direction override. Then the title-text line branches on `titleMode`:
- * 'ai' bakes a format-aware title into the image; 'composite' demands a
- * text-free background for a crisp overlay added by the composer afterward.
- */
-function buildThumbnailDirective(opts: {
-  title: string
+/** Build a compact, opinionated thumbnail brief. The finished render carries
+ * its title so it can be used immediately without a second compose step. */
+export function buildThumbnailDirective(opts: {
   thumbs: number
-  titleMode: 'ai' | 'composite'
-  fontStyle: string
-  fontStyleCustom?: string
-  textStyle: string
-  textStyleCustom?: string
-  textPosition: string
-  artDirection?: string
+  title: string
   referenceStyle?: string
   fmt?: ThumbnailFmt | null
-  creativeMode?: 'strict' | 'guided' | 'open'
-  strategy?: string
   creativeDirection?: string
 }): string {
   if (opts.thumbs <= 0) return ''
-  const fmt = opts.fmt
-  const lines: string[] = []
-  const creativeMode = opts.creativeMode || 'guided'
-  lines.push(
-    `THUMBNAIL ART DIRECTION — the thumbnail is the single most important asset for click-through. ` +
-    `It is a COVER, not a scene still. Preserve the selected visual style as the artwork medium, ` +
-    `then apply the thumbnail-specific composition and title treatment below.`,
-  )
-  lines.push(
-    `THUMBNAIL GOAL: design a professional YouTube cover that feels intentional, premium, and instantly clickable. ` +
-    `The result must read at a glance on mobile and communicate the episode's emotional promise in under a second.`,
-  )
-  if (creativeMode !== 'open') lines.push(`CONCEPT: ${(fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`)
-  if (creativeMode !== 'open' && fmt?.compositionRules?.length) {
-    lines.push(`COMPOSITION:\n${fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
-  }
-  if (creativeMode !== 'open' && fmt?.moodKeywords?.length) lines.push(`MOOD: ${fmt.moodKeywords.join(', ')}`)
-  if (creativeMode === 'strict') {
-    lines.push(`YOUTUBE BEST-PRACTICES (apply to every thumbnail):\n${YOUTUBE_CTR_RULES.map(r => `  - ${r}`).join('\n')}`)
-    lines.push(`AVOID: ${[...(fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}`)
-    lines.push(`PROMPT CONTENT: explicitly describe the hero subject, emotional hook, camera distance, framing, negative space, background separation, lighting direction, color contrast, and title readability.`)
-  } else if (creativeMode === 'guided') {
-    lines.push(`Use YouTube readability principles selectively; prioritize a distinctive concept over checking every conventional CTR box.`)
-  } else {
-    lines.push(`OPEN CREATIVE MODE: choose the visual metaphor, focal hierarchy, framing, palette, and emotional hook freely. Avoid defaulting to generic YouTube thumbnail formulas.`)
-  }
-  if (opts.strategy && opts.strategy !== 'auto') {
-    lines.push(`CONCEPT STRATEGY: build each variation around a ${opts.strategy}-led concept, while varying the execution.`)
-  }
-  if (opts.creativeDirection?.trim()) {
-    lines.push(`USER CREATIVE DIRECTION — highest artistic priority: ${opts.creativeDirection.trim()}`)
-  }
-
-  // (c) reference-style replication — overrides the generic/format look.
-  const ref = (opts.referenceStyle || '').trim()
-  if (ref) lines.push(`REFERENCE STYLE — replicate this look as closely as possible (overrides the look above): ${ref}`)
-  // (d) per-project art direction — highest priority.
-  const ad = (opts.artDirection || '').trim()
-  if (ad) lines.push(`PRIORITY ART DIRECTION (overrides everything above on any conflict): ${ad}`)
-
-  // Title text — AI-baked (format-aware) vs composite (text-free background).
-  if (opts.titleMode === 'composite') {
-    lines.push(
-      `TITLE TEXT: Render NO text, title, lettering, watermark, or logo anywhere in the image. ` +
-      `Leave a clean, uncluttered area (consistent with the composition) where a crisp title will be overlaid afterward. ` +
-      `The prompt must still describe that reserved text-safe zone clearly so the composition feels designed around the future title.`,
-    )
-  } else {
-    const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
-    const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
-    lines.push(
-      `TITLE TEXT (MANDATORY — every thumbnail prompt): write the EXACT title words "${opts.title}" verbatim, in quotes, inside the prompt — do NOT paraphrase as "title text" or describe the treatment only. ` +
-      `State that this text is rendered IN the image as ${fontPhrase}, ${textPhrase}, ` +
-      `positioned at the ${opts.textPosition || 'center'} of the frame — large, bold, and legible with strong contrast against the background. ` +
-      `Treat the title as a core design element, not an afterthought: explain how the composition, lighting, and negative space make the words feel premium and easy to read.`,
-    )
-  }
+  const lines = [
+    `THUMBNAIL GOAL: create a distinct, professional YouTube cover, not a scene still. It must communicate the episode's emotional promise at a glance on mobile.`,
+    `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
+    `Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.`,
+    `Avoid: ${[...(opts.fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}.`,
+    `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
+  ]
+  if (opts.fmt?.compositionRules?.length) lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
+  if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
+  if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
+  if (opts.referenceStyle?.trim()) lines.push(`REFERENCE DIRECTION: ${opts.referenceStyle.trim()}`)
   return lines.join('\n\n')
 }
 
@@ -326,30 +251,10 @@ const RATIO_DESCRIPTIONS: Record<string, string> = {
 /**
  * v1.0.416 — GUARANTEE the non-negotiable thumbnail elements are present in a
  * generated prompt, regardless of whether the LLM obeyed the instructions.
- *
- * The instructions in buildThumbnailDirective/buildPrompt already ask for the
- * literal title, the aspect ratio, and "this is a YouTube thumbnail" framing —
- * but models routinely paraphrase ("Title text in monospace font…" with no
- * actual title words) or drop the ratio entirely, so ~half the renders came out
- * with random/no text. Rather than trust compliance, we append the missing
- * pieces deterministically:
- *   - the aspect ratio + "YouTube thumbnail" framing (always),
- *   - in AI (baked-text) mode only, the LITERAL episode title in quotes when it
- *     isn't already in the prompt.
- * Composite (text-free) mode never gets a title clause — its background must
- * stay clean for the overlay. A clause is only appended when actually missing,
- * so a well-behaved prompt isn't bloated.
+ * It ensures the selected aspect ratio, thumbnail framing, and the exact
+ * in-image episode title required for a ready-to-publish thumbnail.
  */
-export function enforceThumbnailPromptElements(prompt: string, opts: {
-  title: string
-  titleMode: 'ai' | 'composite'
-  aspectRatio: string
-  fontStyle: string
-  fontStyleCustom?: string
-  textStyle: string
-  textStyleCustom?: string
-  textPosition: string
-}): string {
+export function enforceThumbnailPromptElements(prompt: string, opts: { aspectRatio: string; title: string }): string {
   const out = (prompt || '').trim()
   if (!out) return out
   const ratio = opts.aspectRatio || '16:9'
@@ -363,17 +268,8 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
     clauses.push(`This is a YouTube thumbnail.`)
   }
 
-  // AI mode only: the literal title must be in the image.
-  if (opts.titleMode !== 'composite') {
-    const title = (opts.title || '').trim()
-    if (title && !out.toLowerCase().includes(title.toLowerCase())) {
-      const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
-      const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
-      clauses.push(
-        `The title text "${title}" must be clearly rendered in the image as ${fontPhrase}, ${textPhrase}, ` +
-        `positioned at the ${opts.textPosition || 'center'} — large, bold, and legible with strong contrast even at small preview sizes.`,
-      )
-    }
+  if (opts.title.trim() && !out.includes(opts.title.trim())) {
+    clauses.push(`Render the exact episode title "${opts.title.trim()}" inside the image as large, bold, highly legible display text. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
 
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
@@ -391,9 +287,8 @@ function buildPrompt(args: {
   aspect_ratio: string
   /** Full thumbnail instruction block from buildThumbnailDirective(); '' when thumbs===0. */
   thumbnailDirective: string
-  thumbnailCreativeMode?: 'strict' | 'guided' | 'open'
 }): string {
-  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective, thumbnailCreativeMode } = args
+  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective } = args
 
   const ratioInstruction = RATIO_DESCRIPTIONS[aspect_ratio] || 'wide landscape format'
 
@@ -413,12 +308,10 @@ function buildPrompt(args: {
     `mood + atmosphere, framing/composition, and any visible characters ` +
     `with concrete physical descriptions. Short one-line prompts are unusable.`,
   )
-  if (thumbs > 0 && thumbnailCreativeMode === 'strict') {
-    requirements.push(
-      `Thumbnail prompts must feel like professional thumbnail briefs, not scene prompts. ` +
-      `Each one must specify the click-driving focal image, emotional hook, title-safe composition, and the exact role of the title text or reserved text zone.`,
-    )
-  }
+  if (thumbs > 0) requirements.push(
+    `Thumbnail prompts must feel like professional thumbnail briefs, not scene prompts. ` +
+    `Each one must specify the click-driving focal image, emotional hook, and the exact episode title rendered as legible in-image typography.`,
+  )
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
   requirements.push(`Every prompt must specify composition for ${ratioInstruction}, and state the "${aspect_ratio}" aspect ratio explicitly.`)
   if (thumbs > 0) {
@@ -569,29 +462,18 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       thumbFmt = (fmt?.imagePrompts as any)?.thumbnail || null
     } catch { /* generic fallback */ }
   }
-  const titleMode: 'ai' | 'composite' = req.thumb_title_mode === 'composite' ? 'composite' : 'ai'
   const thumbnailDirective = buildThumbnailDirective({
-    title,
     thumbs,
-    titleMode,
-    fontStyle: req.thumb_font_style || thumbFmt?.defaultFontStyle || 'serif',
-    fontStyleCustom: req.thumb_font_style_custom,
-    textStyle: req.thumb_text_style || thumbFmt?.defaultTextStyle || 'gold',
-    textStyleCustom: req.thumb_text_style_custom,
-    textPosition: req.thumb_text_position || 'center',
-    artDirection: req.thumb_art_direction,
+    title,
     referenceStyle: req.thumb_reference_style,
     fmt: thumbFmt,
-    creativeMode: req.thumb_creative_mode,
-    strategy: req.thumb_strategy,
     creativeDirection: req.thumb_creative_direction,
   })
   if (thumbs > 0) {
     job.output_lines.push(
-      `Thumbnail art direction: ${thumbFmt ? 'format-specific' : 'generic high-CTR'}` +
-      `, title mode = ${titleMode}` +
+      `Thumbnail art direction: ${thumbFmt ? 'format-specific' : 'generic high-CTR'}, ready-to-use in-image title` +
       (req.thumb_reference_style ? ', reference style applied' : '') +
-      (req.thumb_art_direction ? ', custom art direction applied' : ''),
+      (req.thumb_creative_direction ? ', user idea applied' : ''),
     )
   }
 
@@ -633,7 +515,6 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     style_tag: styleTag,
     aspect_ratio: req.aspect_ratio || '16:9',
     thumbnailDirective,
-    thumbnailCreativeMode: req.thumb_creative_mode || 'guided',
   })
 
   // Negatives come from the active project art style when provided.
@@ -883,20 +764,14 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     thumbnails = thumbnails.map((t: any) => {
       const original = String(t?.prompt || '')
       const fixed = enforceThumbnailPromptElements(original, {
-        title,
-        titleMode,
         aspectRatio: req.aspect_ratio || '16:9',
-        fontStyle: req.thumb_font_style || thumbFmt?.defaultFontStyle || 'serif',
-        fontStyleCustom: req.thumb_font_style_custom,
-        textStyle: req.thumb_text_style || thumbFmt?.defaultTextStyle || 'gold',
-        textStyleCustom: req.thumb_text_style_custom,
-        textPosition: req.thumb_text_position || 'center',
+        title,
       })
       if (fixed !== original) enforced++
       return { ...t, prompt: fixed }
     })
     if (enforced > 0) {
-      job.output_lines.push(`Enforced ratio/title on ${enforced} thumbnail prompt(s) (${titleMode} mode).`)
+      job.output_lines.push(`Enforced ratio and ready-to-use in-image title on ${enforced} thumbnail prompt(s).`)
     }
   }
 

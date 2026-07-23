@@ -16,7 +16,7 @@ import {
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { resolveEpisodePaths } from '../services/utils.js'
-import { readArtifactRawText } from '../lib/episode-artifacts.js'
+import { parseNarrationDocx, type NarrationSection } from '../lib/docx-parser.js'
 
 export const router = Router()
 
@@ -360,9 +360,36 @@ function estimatedCredits(input: number, output: number, minimum: number): numbe
   )
 }
 
-async function getNarrationText(slug: string, episodeId: string, title?: string): Promise<string> {
+function selectedNarrationSections(allSections: NarrationSection[], requestedValue: unknown): NarrationSection[] {
+  const requested = typeof requestedValue === 'string' && requestedValue.trim()
+    ? requestedValue.trim()
+    : 'all'
+  if (requested === 'all') return allSections
+
+  const selected: NarrationSection[] = []
+  for (const value of requested.split(',').map(item => item.trim()).filter(Boolean)) {
+    if (['intro', 'introduction'].includes(value.toLowerCase())) {
+      selected.push(...allSections.filter(section => section.label.toLowerCase() === 'introduction'))
+      continue
+    }
+    const normalized = value.replace(/^0+/, '') || '0'
+    selected.push(...allSections.filter(section => {
+      const sectionNumber = section.slug.replace(/\D/g, '').replace(/^0+/, '') || '0'
+      return sectionNumber === normalized || section.slug === value || section.label === value
+    }))
+  }
+  return [...new Map(selected.map(section => [section.slug, section])).values()]
+}
+
+async function getNarrationText(
+  slug: string,
+  episodeId: string,
+  title?: string,
+  sections?: unknown,
+): Promise<string> {
   const paths = await resolveEpisodePaths(slug, episodeId, title || '')
-  return (await readArtifactRawText(paths.narration_docx)).trim()
+  const parsed = await parseNarrationDocx(paths.narration_docx)
+  return selectedNarrationSections(parsed, sections).map(section => section.text).join('\n').trim()
 }
 
 router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), async (req, res) => {
@@ -434,7 +461,7 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       if (typeof params?.voice !== 'string' || !params.voice.trim() || !params?.episode_id) {
         return res.json(unavailableEstimate('Choose a GenStudio voice and episode to calculate an exact TTS quote.'))
       }
-      const narration = await getNarrationText(slug, params.episode_id, params?.title)
+      const narration = await getNarrationText(slug, params.episode_id, params?.title, params?.sections)
       if (!narration) return res.json(unavailableEstimate('Generate the narration before requesting its TTS quote.'))
       const chunks = narration.match(/[\s\S]{1,15000}/g) || []
       const quotes = await Promise.all(chunks.map(text => quoteTts(apiKey, {

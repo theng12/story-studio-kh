@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Create · Art direction"
       title="Thumbnail Prompts"
-      description="Translate the episode into focused cover-art direction while Scene Plan continues to own narration-timed story visuals."
+      description="Create a few strong cover-art directions, then pick the one worth rendering."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Thumbnail prompt workspace context">
@@ -30,7 +30,7 @@
       @preset-deleted="success('Preset deleted')"
       />
       <p class="workspace-command-copy">
-        Create thumbnail-only prompts here. Narration-timed scene prompts remain authoritative in <strong>Scene Plan</strong>.
+        Pick a look, add one idea if you have it, then generate variations.
       </p>
     </div>
 
@@ -54,7 +54,9 @@
       </button>
     </div>
 
-    <div class="card workspace-section prompt-settings-panel">
+    <!-- Retained temporarily only to keep the old preset payload readable while
+         the streamlined surface below becomes the sole authoring flow. -->
+    <div v-if="false" class="card workspace-section prompt-settings-panel">
       <!-- v1.0.179 — character references are opt-in here too (matches the
            Script page). Off by default → the LLM describes scene subjects
            freely. Toggle on to fold a pinned cast's names + descriptions
@@ -578,7 +580,69 @@
       </div>
     </div>
 
-    <!-- ── Per-prompt Regenerate ──────────────────────────────────────────
+    <div class="card workspace-section prompt-settings-panel">
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Look</label>
+          <StylePicker
+            :slug="slug"
+            :active-style-bible="form.thumbnail.style_tag"
+            @apply="applyThumbnailVisualStyle"
+          />
+        </div>
+        <div class="form-group">
+          <label>Variations</label>
+          <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="6" />
+          <p class="text-muted text-xs hint-line">Start with three. You can refine or regenerate one prompt later.</p>
+        </div>
+      </div>
+
+      <div class="form-group mt-2">
+        <label>What should make someone click? <span class="text-muted">(optional)</span></label>
+        <textarea
+          v-model="form.thumbnail.thumb_creative_direction"
+          class="textarea"
+          rows="3"
+          placeholder="e.g. a lone ship against an impossible storm, urgent and mysterious"
+        />
+        <p class="text-muted text-xs hint-line">
+          The episode title is rendered directly into every thumbnail. Each result is ready to use as generated.
+        </p>
+      </div>
+
+      <div v-if="visionModels.length" class="form-group mt-2">
+        <label>Reference image <span class="text-muted">(optional)</span></label>
+        <div class="flex gap-2 items-center flex-wrap">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="extractingThumbRef"
+            @click="extractThumbReferenceStyle"
+          >
+            <LoadingSpinner v-if="extractingThumbRef" size="sm" />
+            <span v-else aria-hidden="true">📷</span>
+            {{ form.thumbnail.thumb_reference_style ? 'Change reference…' : 'Use a reference image…' }}
+          </button>
+          <button
+            v-if="form.thumbnail.thumb_reference_style"
+            type="button"
+            class="btn btn-ghost"
+            @click="form.thumbnail.thumb_reference_style = ''"
+          >
+            Remove reference
+          </button>
+        </div>
+        <p class="text-muted text-xs hint-line">
+          Story Studio extracts visual style and thumbnail composition. It does not copy the image's text, logo, or subject.
+        </p>
+      </div>
+
+      <div v-if="generating" class="progress-bar mt-2">
+        <div class="progress-fill" />
+      </div>
+    </div>
+
+    <!-- ── Per-prompt review ───────────────────────────────────────────── -->
          Reads whatever prompts are already on disk for the selected
          episode and lets the user fire a single-prompt regen for any
          row they don't like. Same docx is re-saved with that one
@@ -589,7 +653,7 @@
          badge against the documented prompt-character cap of whichever
          image model the user has configured below. Pass a different
          model id from the dropdown to recolour the badges for that cap. -->
-    <div v-if="form.episode_id" class="cap-preview-row">
+    <div v-if="false && form.episode_id" class="cap-preview-row">
       <label class="cap-preview-label">Char-count colours against image model:</label>
       <ModelMenu
         v-model="capPreviewModel"
@@ -609,16 +673,12 @@
       :title="selectedEpisode?.title || ''"
       :model="activeForm.model"
       :refresh-key="reviewRefreshKey"
-      :scene-prompt-cap="capPreviewInfo.cap"
-      :thumbnail-prompt-cap="capPreviewInfo.cap"
-      :scene-model-label="capPreviewInfo.label"
-      :thumbnail-model-label="capPreviewInfo.label"
-      :pool="formTab"
+      pool="thumbnails"
     />
 
     <!-- Provider prompt-cap reference table. Same modal shape as the
          Generator page so users see a consistent surface. -->
-    <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
+    <div v-if="false && showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
       <div class="caps-modal">
         <div class="caps-modal-head">
           <h3>Image model prompt-character caps</h3>
@@ -665,7 +725,7 @@
     </div>
 
     <!-- Tabs: Current / History -->
-    <div v-if="generatedPrompts || history.length > 0" class="mt-3">
+    <div v-if="false && (generatedPrompts || history.length > 0)" class="mt-3">
       <div class="tabs">
         <button :class="['tab', { active: activeTab === 'current' }]" @click="activeTab = 'current'">
           Current {{ generatedPrompts ? `(${formTab === 'thumbnails' ? generatedPrompts.thumbnails.length : generatedPrompts.scenes.length})` : '' }}
@@ -1066,7 +1126,7 @@ const form = reactive({
     aspect_ratio: '16:9',
     character_ids: [] as string[],
     force: false,
-    thumb_count: 5,
+    thumb_count: 3,
     thumb_treatment_preset: 'custom',
     thumb_text_style: 'gold',
     thumb_text_style_custom: '',
@@ -1874,16 +1934,9 @@ async function runGenerate(mode: PromptMode) {
       scenes_per_chapter: form.scene.scenes_per_chapter,
       chapter_count: effectiveChapterCount.value,
       thumb_count: form.thumbnail.thumb_count,
-      thumb_text_style: form.thumbnail.thumb_text_style,
-      thumb_text_style_custom: form.thumbnail.thumb_text_style_custom,
-      thumb_text_position: form.thumbnail.thumb_text_position,
-      thumb_font_style: form.thumbnail.thumb_font_style,
-      thumb_font_style_custom: form.thumbnail.thumb_font_style_custom,
-      thumb_title_mode: form.thumbnail.thumb_title_mode,
-      thumb_art_direction: form.thumbnail.thumb_art_direction,
+      // Thumbnail renders include the episode title directly in the image.
+      thumb_title_mode: 'ai',
       thumb_reference_style: form.thumbnail.thumb_reference_style,
-      thumb_creative_mode: form.thumbnail.thumb_creative_mode,
-      thumb_strategy: form.thumbnail.thumb_strategy,
       thumb_creative_direction: form.thumbnail.thumb_creative_direction,
       title: selectedEpisode.value?.title || '',
       mode,

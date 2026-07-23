@@ -183,7 +183,7 @@
       <WorkspaceSection
         eyebrow="Activity"
         title="Production pulse"
-        description="A compact view of tracked output and spend, without presenting rough time estimates as exact facts."
+        description="A compact view of tracked output and production activity. Credit balances and settlement live in GenStudio."
       >
         <div class="pulse-grid">
           <div class="pulse-stat">
@@ -197,9 +197,9 @@
             <small>production sessions</small>
           </div>
           <div class="pulse-stat">
-            <span>Tracked API spend</span>
-            <strong>${{ allTimeCost }}</strong>
-            <small>all recorded sessions</small>
+            <span>All outputs</span>
+            <strong>{{ overview?.session?.all_time?.total_assets || 0 }}</strong>
+            <small>tracked across sessions</small>
           </div>
           <div class="pulse-stat">
             <span>Accepted episodes</span>
@@ -256,7 +256,7 @@ interface DashboardOverview {
   session: {
     current?: Record<string, number>
     previous?: Record<string, number> | null
-    all_time?: { total_sessions: number; total_api_cost: number; total_assets: number }
+    all_time?: { total_sessions: number; total_assets: number }
   }
 }
 
@@ -406,7 +406,6 @@ const currentSessionSummary = computed(() => {
   ].filter(([, count]) => Number(count) > 0).map(([label, count]) => `${count} ${label}`)
   return parts.length ? `This session: ${parts.join(' · ')}` : 'No generation output has been tracked in this session yet.'
 })
-const allTimeCost = computed(() => Number(overview.value?.session?.all_time?.total_api_cost || 0).toFixed(2))
 
 const audit = ref<ProjectAudit | null>(null)
 const auditRunning = ref(false)
