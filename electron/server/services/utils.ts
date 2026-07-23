@@ -447,14 +447,6 @@ export async function assertBalanceAvailable(
     }
     return
   }
-  if (provider === 'elevenlabs') {
-    const bal = await getElevenLabsBalance(apiKey)
-    if (bal && bal.remaining <= 0) {
-      throw new Error(
-        `ElevenLabs character quota exhausted (${bal.character_count.toLocaleString()}/${bal.character_limit.toLocaleString()}) — wait for reset or upgrade tier.`,
-      )
-    }
-  }
 }
 
 export async function getKieCredits(apiKey: string): Promise<number | null> {
@@ -504,24 +496,6 @@ export type ElevenLabsBalance = {
   character_count: number
   character_limit: number
   remaining: number
-}
-
-export async function getGenaiproBalance(apiKey: string): Promise<number | null> {
-  if (!apiKey) return null
-  const cacheKey = hashKey('genaipro', apiKey)
-  const cached = getCached(cacheKey)
-  if (cached !== undefined) return cached
-  try {
-    // Dynamic import matches how other provider clients are loaded in this
-    // file — keeps the import graph shallow and avoids pulling the TTS
-    // client into the startup path when balance polling hasn't fired yet.
-    const { getCredits } = await import('../lib/genaipro-client.js')
-    const credits = await getCredits(apiKey)
-    setCache(cacheKey, credits)
-    return credits
-  } catch {
-    return getCached(cacheKey) ?? null
-  }
 }
 
 /**
@@ -575,31 +549,6 @@ export async function getDeepseekBalance(apiKey: string): Promise<DeepseekBalanc
       ? { currency: String(info.currency || 'USD'), total_balance: total } : null
     setCache(cacheKey, val)
     return val
-  } catch {
-    return getCached(cacheKey) ?? null
-  }
-}
-
-export async function getElevenLabsBalance(apiKey: string): Promise<ElevenLabsBalance | null> {
-  if (!apiKey) return null
-  const cacheKey = hashKey('eleven', apiKey)
-  const cached = getCached(cacheKey)
-  if (cached !== undefined) return cached
-  try {
-    const { getElevenLabsSubscription } = await import('../lib/elevenlabs-client.js')
-    const sub = await getElevenLabsSubscription(apiKey)
-    if (!sub) {
-      setCache(cacheKey, null)
-      return null
-    }
-    const balance: ElevenLabsBalance = {
-      tier: sub.tier,
-      character_count: sub.character_count,
-      character_limit: sub.character_limit,
-      remaining: Math.max(0, sub.character_limit - sub.character_count),
-    }
-    setCache(cacheKey, balance)
-    return balance
   } catch {
     return getCached(cacheKey) ?? null
   }

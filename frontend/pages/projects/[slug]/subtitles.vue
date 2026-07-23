@@ -130,7 +130,7 @@
       </WorkspaceSection>
 
       <WorkspaceSection
-        eyebrow="Alternatives"
+        eyebrow="Import"
         title="Import subtitles"
         description="Bring an existing subtitle track into this episode."
       >

@@ -3,18 +3,8 @@
  *
  * Two call shapes are supported:
  *
- *   1. Legacy: `callAi(model, system, user, apiKeys, stream?)` — the
- *      `apiKeys` bag is a `{anthropic_api_key, openai_api_key, kie_api_key}`
- *      object pre-populated by the caller (usually `aiCreds(config)`).
- *      Compat shim from Delivery 1 keeps those fields pointing at the
- *      default account for each provider.
- *
- *   2. Account-aware: the caller passes a `ctx` with a project `slug` and
- *      optional `jobId`. The client resolves the API key through the
- *      provider registry's account resolver, emitting the `[accounts]`
- *      log line that Delivery 3's end-to-end test reads. Falls back to
- *      the `apiKeys` bag if the secrets store has no account (e.g. in
- *      unit tests without a real project on disk).
+ * The apiKeys parameter remains for call-site compatibility but is ignored;
+ * GenStudio credentials are read from the app-level secure store.
  */
 
 import { registry } from '../providers/registry.js'
@@ -64,7 +54,7 @@ export async function callAi(
   model: string,
   system: string,
   userMsg: string,
-  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string },
+  _apiKeys: Record<string, string | undefined>,
   stream = false,
   ctx: CallAiContext = {},
 ): Promise<string> {
@@ -86,17 +76,8 @@ export async function callAi(
     throw new Error(`GenStudio text provider is unavailable for ${model}. No legacy provider fallback was attempted.`)
   }
 
-  // Resolve the API key in three tiers, most-specific first:
-  //   1. account-aware path (when the caller passed a real slug) — also
-  //      emits the [accounts] log line naming the exact account.
-  //   2. legacy apiKeys bag passed by the caller — but this bag only ever
-  //      carries {anthropic, openai, kie}, so it CANNOT hold a fal / google
-  //      / future-provider key. Any time tier 1 misses (slug-race sentinel,
-  //      account-store hiccup, slug-less job), relying on it alone would
-  //      fail for those providers.
-  //   3. v1.0.177 — read the app-level key store DIRECTLY for whichever
-  //      provider this model resolved to. App keys are per-machine + global,
-  //      so this works without a slug and covers every registered provider.
+  // GenStudio is the sole execution boundary; its encrypted app-level key is
+  // intentionally independent of old project configuration.
   const apiKey = await getApiKey('genstudio').catch(() => '')
 
   const effectiveSystem = system
@@ -206,8 +187,6 @@ export async function callAiWithRetry(
  * pre-flight guards so a user whose only key is app-level DeepSeek/OpenRouter
  * isn't falsely blocked. (Direct Anthropic was retired; kie.ai covers Claude.)
  */
-export async function hasAnyTextProviderKey(
-  _config?: { openai_api_key?: string; kie_api_key?: string } | null,
-): Promise<boolean> {
+export async function hasAnyTextProviderKey(_config?: unknown): Promise<boolean> {
   return !!(await getApiKey('genstudio').catch(() => ''))
 }

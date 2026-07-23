@@ -7,7 +7,6 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
-import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
@@ -791,22 +790,6 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     return res.status(410).json({ detail: 'Legacy Scene Prompts generation is retired. Generate visual prompts in Scene Plan.' })
   }
 
-  // Pre-flight API-key check — same set the inline route used. Surfacing
-  // this as a 400 from the route (rather than letting the executor fail
-  // mid-job) keeps the bad-key UX immediate instead of "queued then
-  // dies 10s later." `model` may be undefined on legacy presets; the
-  // executor falls back to a default in that case, so we only check
-  // when it's present.
-  if (model) {
-    const provider = SUPPORTED_MODELS[model]
-    if (provider === 'openai' && !config.openai_api_key) {
-      return res.status(400).json({ detail: 'No OpenAI key configured. Add one in Settings.' })
-    }
-    if (provider === 'kie' && !config.kie_api_key) {
-      return res.status(400).json({ detail: 'No kie.ai key configured. Add one in Settings.' })
-    }
-  }
-
   if (jq.isDuplicate(slug, episode_id, 'image_prompts')) {
     return res.status(409).json({
       detail: `Image-prompts generation already queued/running for ${episode_id}`,
@@ -918,20 +901,9 @@ async function readStoryContext(slug: string, episode_id: string, title: string,
   }
 }
 
-function checkProvider(model: string, config: any): string | null {
-  const provider = SUPPORTED_MODELS[model]
-  if (provider === 'openai' && !config.openai_api_key) return 'No OpenAI key'
-  if (provider === 'kie' && !config.kie_api_key) return 'No kie.ai key'
-  return null
-}
+function checkProvider(_model: string, _config: any): string | null { return null }
 
-function aiCreds(config: any) {
-  return {
-    anthropic_api_key: config.anthropic_api_key,
-    openai_api_key: config.openai_api_key,
-    kie_api_key: config.kie_api_key,
-  }
-}
+function aiCreds(_config: any) { return {} }
 
 // `buildDescriptionPrompt` is imported above from lib/metadata-prompt.ts
 // — that's the single source of truth for the section→prompt mapping.

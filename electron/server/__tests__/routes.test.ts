@@ -401,11 +401,11 @@ describe('Account endpoints', () => {
       .delete(`/api/projects/${slug}/settings/accounts/anthropic/default`))
   })
 
-  test('GET /settings/config remains credential-safe for historical account evidence', async () => {
+  test('GET /settings/config remains credential-safe and does not restore retired accounts', async () => {
     const res = await request(app).get(`/api/projects/${slug}/settings/config`)
     assert.equal(res.status, 200)
     assert.ok(res.body.accounts, 'accounts field present')
-    assert.ok(Array.isArray(res.body.accounts.openai))
+    assert.equal('openai' in res.body.accounts, false)
     assert.doesNotMatch(JSON.stringify(res.body), /sk-[a-z0-9-]+/i, 'no raw keys in safe config')
   })
 })

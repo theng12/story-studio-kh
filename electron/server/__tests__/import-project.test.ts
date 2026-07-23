@@ -173,7 +173,7 @@ describe('importProjectFromFolder — channel isolation', () => {
     // source folder should have made it into the app-level store either.
     const { readAppSecrets } = await import('../services/app-secrets-store.js')
     const appSecrets = await readAppSecrets()
-    assert.equal(appSecrets.providers.openai?.apiKey, undefined,
+    assert.equal(appSecrets.providers.genstudio?.apiKey, undefined,
       'no key from the source folder may leak into the app-level store')
   })
 })

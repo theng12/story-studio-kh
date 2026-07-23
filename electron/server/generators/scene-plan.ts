@@ -27,10 +27,8 @@ import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../servi
 import {
   parseScenePromptPackSetting,
   parseScenePromptTokenSetting,
-  resolveScenePromptCostTier,
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
-  type ScenePromptCostTier,
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
@@ -150,14 +148,10 @@ interface ScenePlanRunParams {
   opening_reserved_sec?: number
   /** Limit a manual run to the next N pending scenes. Omit for all pending. */
   prompt_limit?: number
-  /** Catalog tier used by adaptive prompt packs. The model id still wins when
-   *  it unambiguously identifies a local or direct-cloud model. */
-  model_cost_tier?: ScenePromptCostTier
-  /** Auto uses 10 scenes for local/free cloud and 20 for paid cloud.
-   * Explicit cloud packs accept any whole number from 1 through 50. */
+  /** The selected GenStudio model's published output limit determines Auto. */
   prompt_pack_size?: ScenePromptPackSetting
-  /** Auto uses 4K output for local/free cloud and 8K for paid cloud. */
-  prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192
+  /** Advanced override, clamped to the live GenStudio model maximum. */
+  prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192 | 12288 | 16384 | 24576 | 32768
   /** Single-pass visual interpretation controls. Strategies are assigned
    * locally across the full episode before existing prompt packs are sent. */
   creative_direction?: Partial<SceneCreativeDirection>
@@ -191,19 +185,27 @@ export function resolveScenePlanCatalogModel(
 }
 
 export async function requireScenePlanGenStudioModel(selectedModel: string): Promise<string> {
+  const model = await getScenePlanGenStudioModel(selectedModel)
+  return `genstudio-chat:${model.id}`
+}
+
+/** Resolve model identity and live limits together so batching cannot drift
+ * from the GenStudio catalog that will execute the request. */
+export async function getScenePlanGenStudioModel(selectedModel: string): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     throw new Error('Add the scoped GenStudio API key in Settings → This Mac before generating scene prompts.')
   }
   const catalog = await listGenStudioChatModels(apiKey)
   const modelId = resolveScenePlanCatalogModel(selectedModel, catalog)
-  if (!modelId) {
+  const model = modelId ? catalog.find(candidate => candidate.id === modelId) : null
+  if (!model) {
     throw new Error(
       `${unavailableLegacyModelMessage('chat', selectedModel)} `
       + 'Scene planning did not call a direct provider or Studio Hub.',
     )
   }
-  return `genstudio-chat:${modelId}`
+  return model
 }
 
 export function parseDirectPackResults(
@@ -319,13 +321,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   )
   if (!model && needsModel) throw new Error('model is required')
   if (!model) model = 'deterministic-timeline'
-  if (needsModel) model = await requireScenePlanGenStudioModel(model)
+  const promptModel = needsModel ? await getScenePlanGenStudioModel(model) : null
+  if (promptModel) model = `genstudio-chat:${promptModel.id}`
 
-  const promptCostTier = resolveScenePromptCostTier(model, params.model_cost_tier)
-  const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
-  const promptPackSize = resolveScenePromptPackSize(promptCostTier, promptPackSetting)
   const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
-  const visualMaxTokens = resolveScenePromptTokenBudget(promptCostTier, promptTokenSetting, promptPackSize)
+  const visualMaxTokens = resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
+  // Motion records are intentionally short; keeping their batches within 4K
+  // prevents a large visual-model allowance from creating truncated motion JSON.
+  const activePromptOutputBudget = params.stage === 'motion'
+    ? Math.min(4_096, visualMaxTokens)
+    : visualMaxTokens
+  const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
+  const promptPackSize = resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting)
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
@@ -335,13 +342,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const useResearch = params.use_research !== false  // default true
 
   // continuity-chain (v1.0.193): density pacing. The user sets the per-episode
-  // band on the Character Sheet page (continuity.json); fall back to a 2–8s
+  // band on the Character Sheet page (continuity.json); fall back to a 1–4s
   // "live" default when the format is continuity-chain but no config exists yet.
   let pacing: { min_sec: number; max_sec: number; mode: 'live' } | undefined
   try {
     const fmt = await getEffectiveFormat(job.project_slug)
     if (fmt?.visualSource === 'continuity-chain') {
-      pacing = { min_sec: 2, max_sec: 8, mode: 'live' }
+      pacing = { min_sec: 1, max_sec: 4, mode: 'live' }
       const continuityPath = path.join(paths.episode_dir, 'continuity.json')
       if (existsSync(continuityPath)) {
         try {
@@ -380,7 +387,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (!timelineOnly) {
     job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
     job.output_lines.push(
-      `Prompt batching: ${promptPackSize} scenes per pack (${promptCostTier} model${promptPackSetting === 'auto' ? ', adaptive' : ', override'})`,
+      `Prompt batching: ${promptPackSize} scenes per request (up to ${activePromptOutputBudget.toLocaleString()} output tokens${promptPackSetting === 'auto' ? ', automatic' : ', override'})`,
     )
     if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
     if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
@@ -605,7 +612,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         params: {
           temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
-          max_tokens: isMotion ? (promptPackSize > 10 ? 4096 : 2048) : visualMaxTokens,
+          max_tokens: isMotion ? activePromptOutputBudget : visualMaxTokens,
         },
       })
     }

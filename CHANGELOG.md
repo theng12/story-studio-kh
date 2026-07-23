@@ -4,6 +4,37 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.696 — 2026-07-23
+
+**Scene Plan now batches from live GenStudio limits, with a calmer workspace.**
+
+- Replaces retired local/free/paid pack rules with safe automatic batch sizes
+  calculated from the selected GenStudio model’s published output limit.
+- Shows the model context limit for reference, while correctly using output
+  capacity—not context size—to protect complete prompt JSON.
+- Simplifies batch controls behind an optional Advanced disclosure and replaces
+  cramped Creative and Motion sliders with readable direct choices.
+
+## v1.0.695 — 2026-07-23
+
+**The project sidebar footer is clearer, and continuity starts denser.**
+
+- Rebuilds the sidebar footer as distinct connection, credits, and release
+  cards with compact actions, a readable release date, and a dedicated
+  **What’s new** action.
+- New Character Sheet continuity settings now default to **1–4 seconds**,
+  encouraging more frequent scene-image coverage unless the range is changed.
+
+## v1.0.694 — 2026-07-23
+
+**Story Studio is GenStudio-only at the source level.**
+
+- Removes retired direct provider adapters, model catalogs, credential buckets,
+  pricing/balance helpers, migration aliases, and provider-only tests.
+- Rejects old saved model identifiers instead of silently routing or pricing
+  them through a retired provider.
+- Leaves GenStudio as the sole generation credential and catalog authority.
+
 ## v1.0.693 — 2026-07-23
 
 **GenStudio batch credit activity now has an expandable ledger.**

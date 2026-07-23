@@ -116,7 +116,8 @@ router.get('/models', async (_req, res) => {
       hint: model.description || null,
       supports_vision: false,
       unlimited_relaxed: model.unlimited_relaxed,
-      cost_tier: 'genstudio',
+      context_limit_tokens: model.context_limit_tokens,
+      max_output_tokens: model.max_output_tokens,
     }))
     res.json(models)
   } catch (error: any) {

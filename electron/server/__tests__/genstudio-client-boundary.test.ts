@@ -42,11 +42,10 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 
-test('legacy Qwen engine labels are absent from the Story-owned TTS defaults', () => {
+test('Story-owned TTS defaults are empty because GenStudio owns the catalog', () => {
   assert.equal(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], undefined)
   const voices = normalizeVoicePresets(DEFAULT_VOICE_PRESETS)
-  assert.equal(voiceSupportsProvider(voices, 'voice_qwen3_ryan', 'genstudio'), true)
-  assert.equal(voiceSupportsProvider(voices, 'voice_qwen3_aiden', 'genstudio'), true)
+  assert.equal(voices.length, 0)
 })
 
 test('GenStudio accepts exactly 15,000 characters as one public API request', () => {

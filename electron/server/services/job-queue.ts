@@ -160,13 +160,6 @@ function emitUpdate(job: Job): void {
   // queue's state machine. EventEmitter.emit is synchronous, so any throw
   // would propagate into the generator; swallow defensively.
   try { jobEvents.emit('update', safeJob(job)) } catch { /* noop */ }
-  // Terminal states mean credits were just spent (or confirmed not spent).
-  // Drop the provider balance cache so the next `getKieCredits` / etc. read
-  // goes live — the UI should show real numbers immediately, not the pre-job
-  // balance frozen for up to CREDIT_CACHE_TTL_MS.
-  if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
-    invalidateCreditCacheSoon()
-  }
 }
 
 // Stream running jobs' output_lines to SSE subscribers on a modest cadence.
@@ -189,18 +182,6 @@ setInterval(() => {
     emitUpdate(job)
   }
 }, LIVE_OUTPUT_FLUSH_MS).unref()
-
-// Lazy import to avoid a circular import between utils.ts (which imports
-// project-manager for PROJECTS_ROOT, which is also imported here) and this
-// module. Resolved once on first call.
-let _invalidateCache: (() => void) | null = null
-function invalidateCreditCacheSoon(): void {
-  if (_invalidateCache) return _invalidateCache()
-  import('./utils.js').then(mod => {
-    _invalidateCache = mod.invalidateCreditCache
-    _invalidateCache()
-  }).catch(() => { /* noop — cache invalidation is best-effort */ })
-}
 
 export interface JobsClearedEvent { project_slug: string; job_ids: string[] }
 function emitCleared(projectSlug: string, jobIds: string[]): void {

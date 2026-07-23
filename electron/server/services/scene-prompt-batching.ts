@@ -1,26 +1,24 @@
-export type ScenePromptCostTier = 'local' | 'free' | 'paid'
-/** An explicit pack size is deliberately flexible for cloud providers. */
+/**
+ * Scene prompts are structured, long-form outputs. The input context may be
+ * very large, but the safe number of scenes in one response is determined by
+ * the model's published output allowance, not its context window.
+ */
 export type ScenePromptPackSize = number
 export type ScenePromptPackSetting = 'auto' | ScenePromptPackSize
-export type ScenePromptTokenSetting = 'auto' | 4096 | 6144 | 8192
+export type ScenePromptTokenSetting = 'auto' | 4096 | 6144 | 8192 | 12288 | 16384 | 24576 | 32768
 
 export const SCENE_PROMPT_PACK_MIN = 1
 export const SCENE_PROMPT_PACK_MAX = 50
-const TOKEN_BUDGETS = new Set<number>([4096, 6144, 8192])
+export const DEFAULT_SCENE_PROMPT_MAX_OUTPUT_TOKENS = 8192
 
-/** The model id is authoritative where it exposes locality. Cloud models
- * proxied by Chat Studio need the catalog tier supplied by the caller; an
- * absent tier falls back to free-cloud limits rather than risking a large
- * request against an unknown provider. */
-export function resolveScenePromptCostTier(
-  model: string,
-  supplied?: unknown,
-): ScenePromptCostTier {
-  if (model.startsWith('chatstudio:provider:')) {
-    return supplied === 'paid' ? 'paid' : 'free'
-  }
-  if (model.startsWith('chatstudio:')) return 'local'
-  return 'paid'
+const TOKEN_BUDGETS = new Set<number>([4096, 6144, 8192, 12288, 16384, 24576, 32768])
+const TOKENS_PER_FULL_DETAIL_SCENE = 300
+const OUTPUT_SAFETY_FRACTION = 0.75
+
+function normalizeMaxOutputTokens(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_SCENE_PROMPT_MAX_OUTPUT_TOKENS
+  return Math.min(32_768, parsed)
 }
 
 export function parseScenePromptPackSetting(value: unknown): ScenePromptPackSetting {
@@ -36,22 +34,31 @@ export function parseScenePromptTokenSetting(value: unknown): ScenePromptTokenSe
   return TOKEN_BUDGETS.has(budget) ? budget as Exclude<ScenePromptTokenSetting, 'auto'> : 'auto'
 }
 
-export function resolveScenePromptPackSize(
-  tier: ScenePromptCostTier,
-  setting: ScenePromptPackSetting,
-): ScenePromptPackSize {
-  const requested = setting === 'auto' ? (tier === 'paid' ? 20 : 10) : setting
-  // Local and free-cloud workers keep the established 10-scene ceiling. Paid
-  // cloud packs may use a saved custom value up to the validated 50-scene max.
-  return Math.min(requested, tier === 'paid' ? SCENE_PROMPT_PACK_MAX : 10)
+/** The largest structured pack that leaves headroom for JSON and retries. */
+export function maxSafeScenePromptPackSize(maxOutputTokens?: unknown): ScenePromptPackSize {
+  const maxOutput = normalizeMaxOutputTokens(maxOutputTokens)
+  const scenes = Math.floor((maxOutput * OUTPUT_SAFETY_FRACTION) / TOKENS_PER_FULL_DETAIL_SCENE)
+  return Math.min(SCENE_PROMPT_PACK_MAX, Math.max(SCENE_PROMPT_PACK_MIN, scenes))
 }
 
 export function resolveScenePromptTokenBudget(
-  tier: ScenePromptCostTier,
+  modelMaxOutputTokens: unknown,
   setting: ScenePromptTokenSetting,
-  packSize: ScenePromptPackSize,
-): 4096 | 6144 | 8192 {
-  if (setting === 'auto') return tier === 'paid' ? 8192 : 4096
-  // Larger full-detail packs cannot reliably fit in 4K/6K output.
-  return packSize > 10 ? 8192 : setting
+): number {
+  const modelMaximum = normalizeMaxOutputTokens(modelMaxOutputTokens)
+  const requested = setting === 'auto' ? modelMaximum : setting
+  return Math.min(requested, modelMaximum)
+}
+
+/**
+ * Explicit choices remain available, but are clipped to what the selected
+ * GenStudio model can actually return as a complete, durable JSON response.
+ */
+export function resolveScenePromptPackSize(
+  outputBudget: unknown,
+  setting: ScenePromptPackSetting,
+): ScenePromptPackSize {
+  const safeMaximum = maxSafeScenePromptPackSize(outputBudget)
+  const requested = setting === 'auto' ? safeMaximum : setting
+  return Math.min(safeMaximum, Math.max(SCENE_PROMPT_PACK_MIN, requested))
 }

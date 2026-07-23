@@ -30,13 +30,13 @@ export const router = Router()
 export const CONTINUITY_FILENAME = 'continuity.json'
 
 /** Sensible defaults for a fresh episode — sequential continuity ON, all
- *  references on, a 2–8s "feels live" pacing band, mid denoise. */
+ *  references on, a dense 1–4s pacing band, mid denoise. */
 export function defaultContinuityConfig(): ContinuityConfig {
   return {
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
-    pacing: { min_sec: 2, max_sec: 8 },
+    pacing: { min_sec: 1, max_sec: 4 },
     references: { prev_render: true, sheet: true, characters: true, style: false, composition: false },
     denoise_strength: 0.5,
     style_bible: '',
@@ -103,8 +103,8 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
 export function buildContinuityConfig(body: Partial<ContinuityConfig> | undefined): ContinuityConfig {
   const b = body || {}
   // Coerce + clamp the numeric fields so a malformed client can't write junk.
-  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 2))
-  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 8))
+  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 1))
+  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 4))
   const denoise = Math.max(0, Math.min(1, Number(b.denoise_strength)))
   return {
     schema_version: 1,

@@ -9,7 +9,7 @@ import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { SUPPORTED_MODELS, type Format } from '../models/types.js'
+import { type Format } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 // v1.0.165 — loadPattern + the Pattern type are no longer used here;
 // the Pattern system's {X} title shape is a plain title_template string
@@ -378,15 +378,6 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
   const body: GenerateIdeasRequest = req.body
-  const provider = SUPPORTED_MODELS[body.model]
-
-  if (provider === 'openai' && !config.openai_api_key) {
-    return res.status(400).json({ detail: 'No OpenAI API key configured.' })
-  }
-  if (provider === 'kie' && !config.kie_api_key) {
-    return res.status(400).json({ detail: 'No kie.ai API key configured.' })
-  }
-
   const standards = await pm.getStandards(slug)
 
   // v1.0.92+ — per-call niche override. The Ideas Generator surfaces a

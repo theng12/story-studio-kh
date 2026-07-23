@@ -307,7 +307,7 @@ function defaults(): ContinuityConfig {
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
-    pacing: { min_sec: 2, max_sec: 8 },
+    pacing: { min_sec: 1, max_sec: 4 },
     references: { prev_render: true, sheet: true, characters: true, style: false },
     denoise_strength: 0.5,
     style_bible: '',

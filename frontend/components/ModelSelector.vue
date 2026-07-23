@@ -32,6 +32,8 @@ interface LlmModelRow {
   hint?: string | null
   supports_vision?: boolean
   unlimited_relaxed?: boolean
+  context_limit_tokens?: number
+  max_output_tokens?: number
   legacy_ids?: string[]
 }
 

@@ -15,8 +15,7 @@
  *   {
  *     schema_version: 3,
  *     providers: {
- *       openai:     { apiKey: '...' },
- *       anthropic:  { apiKey: '...' },
+ *       genstudio:  { apiKey: '...' },
  *       ...
  *     }
  *   }
@@ -35,51 +34,10 @@ import { getUserDataDir } from './project-manager.js'
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
 
 export const SECRET_PROVIDERS = [
-  'kie',
-  'fal',
-  'openai',
-  // v1.0.235+ — direct Anthropic was retired (replaced by kie.ai Claude) but
-  // the bucket id stays so any previously-stored key isn't orphaned; it just
-  // no longer has a Settings UI row or a registered text provider.
-  'anthropic',
-  // v1.0.235+ — DeepSeek official API + OpenRouter gateway (OpenAI-compatible
-  // text providers). App-level keys; resolved by callAi tier-3.
-  'deepseek',
-  'openrouter',
-  'genaipro',
-  // GenStudio KH uses a scoped bearer API key. It is intentionally separate
-  // from the local Studio Hub token: Story Studio must never send Hub access
-  // credentials to a cloud-facing service.
+  // GenStudio KH is the single generation credential.
   'genstudio',
-  'elevenlabs',
-  // v1.0.378+ — Fish Audio (direct cloud TTS, ~$0.015/1k chars; cheapest
-  // cloud option). Voices are picked by reference_id (incl. cloned voices),
-  // so there's no curated voice catalogue — the Audio Generator surfaces a
-  // free-text reference-id field. Key resolved via getApiKey('fishaudio').
-  'fishaudio',
+  // Non-generation integrations remain independent from GenStudio.
   'google',
-  // v1.0.149+ — Voice Studio KH (Pinokio-launched wrapper around
-  // VoxCPM-MLX + 11 other TTS engine families). The "apiKey" slot here
-  // carries the base URL of the Tailscale-reachable FastAPI server
-  // (e.g. http://100.120.246.10:47870), not a real secret — Tailscale
-  // handles auth at the network layer. Reusing the secrets store gives
-  // us per-machine semantics without spinning up a separate file.
-  // v1.0.150+ — the standalone 'chatterbox' provider slot was removed
-  // (Chatterbox is reachable through Voice Studio's chatterbox-mlx
-  // family if needed); existing stored values for 'chatterbox' become
-  // dead JSON keys and are ignored.
-  'voicestudio',
-  // v1.0.151+ — Image Studio KH (sibling of Voice Studio: Pinokio
-  // FastAPI wrapper hosting FLUX / Qwen / FIBO / Z-Image families on
-  // Apple Silicon MLX). Same "URL-as-secret" semantics — the apiKey
-  // slot carries the modal's Tailscale base URL (e.g.
-  // http://100.120.246.10:47868), Tailscale handles transport auth.
-  'imagestudio',
-  // Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM server). Same
-  // "URL-as-secret" semantics as voicestudio/imagestudio — the apiKey slot
-  // carries the local server's base URL (e.g. http://localhost:47871), no real
-  // secret. Resolved by callAi tier-3 for `chatstudio:` model ids.
-  'chatstudio',
   // v1.0.122+ — Free / CC stock-footage providers for the B-Roll Fetch
   // feature. Both expose a simple JSON search API and free tier; keys
   // are personal (one per Mac) and never shipped with the binary.
@@ -92,12 +50,6 @@ export const SECRET_PROVIDERS = [
   // Research phase in the timestamp-driven pipeline. Optional — the
   // LLM-only research source works with any configured text-provider key.
   'perplexity',
-  // v1.0.528+ — Studio Hub KH access token (X-Hub-Token). OPTIONAL: when Story
-  // Studio runs ON the Hub machine it reaches the Hub via loopback, which is
-  // token-exempt, so this stays empty. Only needed if Story Studio runs on a
-  // different Mac and points hub_url at the Hub's tailnet address. The Hub URL
-  // itself is a non-secret app-setting (hub_url); this slot holds only the token.
-  'hub',
 ] as const
 export type ProviderId = typeof SECRET_PROVIDERS[number]
 

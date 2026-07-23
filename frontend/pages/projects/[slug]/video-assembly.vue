@@ -3194,7 +3194,7 @@ const subtitlesStatus = ref<{
   has_libass: boolean
   has_merged_audio: boolean
   has_chapter_audio: boolean
-  has_openai_key: boolean
+  has_genstudio_key: boolean
   existing_srts: Array<{ path: string; filename: string; mtime: number }>
   subtitles_dir: string
 } | null>(null)

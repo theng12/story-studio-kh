@@ -141,8 +141,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     ? Math.max(0, Math.min(120, body.opening_reserved_sec)) : undefined
   const promptLimit = typeof body.prompt_limit === 'number'
     ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
-  const modelCostTier = body.model_cost_tier === 'local' || body.model_cost_tier === 'free' || body.model_cost_tier === 'paid'
-    ? body.model_cost_tier : undefined
   const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
   const creativeDirection = parseCreativeDirection(body.creative_direction)
@@ -176,7 +174,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       opening_mode: openingMode,
       opening_reserved_sec: openingReservedSec,
       prompt_limit: promptLimit,
-      model_cost_tier: modelCostTier,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
       creative_direction: creativeDirection,

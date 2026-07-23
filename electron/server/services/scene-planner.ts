@@ -24,11 +24,6 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
-import { getApiKey } from './app-secrets-store.js'
-import { parseEndpoints } from '../lib/endpoint-pool.js'
-import { resetChatstudioDispatcher } from '../lib/chatstudio-client.js'
-import { CHATSTUDIO_MODEL_PREFIX } from '../providers/text/chatstudio.js'
-import { isLocalTextModel } from './job-retry-policy.js'
 import {
   buildCreativeDirectionPrompt,
   CREATIVE_STRATEGY_INSTRUCTIONS,
@@ -1204,7 +1199,7 @@ export async function generatePromptsForScenes(
     creative_direction?: Partial<SceneCreativeDirection>
     neighbor_context_back?: number
     neighbor_context_forward?: number
-    apiKeys: { anthropic_api_key: string; openai_api_key: string; kie_api_key: string }
+    apiKeys: Record<string, string | undefined>
     slug?: string
     /** Local-only retries per scene on a thrown error OR an empty result.
      * Default 2 (→ up to 3 attempts). Cloud/API models always make one call. */
@@ -1224,29 +1219,8 @@ export async function generatePromptsForScenes(
   // A retry creates a second generation request. That is safe for our local
   // Chat Studio fleet, but cloud/API models must remain one-shot so a timeout
   // cannot silently spend again.
-  const maxRetries = isLocalTextModel(ctx.model) ? Math.max(0, ctx.max_retries ?? 2) : 0
-
-  // Derive concurrency from the Chat Studio pool size when the model is local.
-  // Cloud models stay sequential (no pool to spread across; cloud rate-limits
-  // make free parallelism risky). Single-endpoint Chat Studio also stays at 1.
-  // v1.0.497 — Chat Studio's cloud-PROXIED models (chatstudio:provider:*) also
-  // stay sequential: every endpoint proxies the same upstream free tier, so
-  // fanning out across the pool just multiplies 429s.
-  const isChatstudioCloudProxy = ctx.model.startsWith(`${CHATSTUDIO_MODEL_PREFIX}provider:`)
-  let concurrency = 1
-  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX) && !isChatstudioCloudProxy) {
-    const csStored = await getApiKey('chatstudio').catch(() => '')
-    // Clear stale "marked down" state so endpoints that recovered since the
-    // last connection error get a fair retry at the start of this workload.
-    resetChatstudioDispatcher(csStored)
-    concurrency = Math.max(1, parseEndpoints(csStored).length)
-    if (concurrency > 1) {
-      ctx.onWarn?.(
-        `Generating ${targetIndices.length} prompt(s) ${concurrency}× parallel across `
-        + `${concurrency} Chat Studio endpoints (assuming each has the model loaded).`,
-      )
-    }
-  }
+  const maxRetries = 0
+  const concurrency = 1
 
   let failed = 0
   let done = 0
@@ -1380,7 +1354,7 @@ export async function generateVisualPromptOnly(opts: {
   custom_instructions?: string
   creative_direction?: Partial<SceneCreativeDirection>
   creative_strategy?: SceneCreativeStrategy
-  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
+  apiKeys: Record<string, string | undefined>
   slug?: string
   /**
    * v1.0.291 — optional neighbor context for the two-pass planner. The
@@ -1489,7 +1463,7 @@ export async function generateMotionPromptOnly(opts: {
   motion_level?: number
   style_prompt?: string
   custom_instructions?: string
-  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
+  apiKeys: Record<string, string | undefined>
   slug?: string
 }): Promise<string> {
   const spec = MOTION_SPECS[opts.motion_level ?? 2] || MOTION_SPECS[2]!
@@ -1542,7 +1516,7 @@ export async function generateMotionPromptsForScenes(
     motion_level?: number
     style_prompt?: string
     custom_instructions?: string
-    apiKeys: { anthropic_api_key: string; openai_api_key: string; kie_api_key: string }
+    apiKeys: Record<string, string | undefined>
     slug?: string
     max_retries?: number
     should_cancel?: () => boolean
@@ -1553,21 +1527,8 @@ export async function generateMotionPromptsForScenes(
   },
 ): Promise<number> {
   if (!targetIndices.length) return 0
-  const maxRetries = isLocalTextModel(ctx.model) ? Math.max(0, ctx.max_retries ?? 2) : 0
-
-  // Same pool-derived concurrency as the visual-prompt pass.
-  let concurrency = 1
-  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
-    const csStored = await getApiKey('chatstudio').catch(() => '')
-    resetChatstudioDispatcher(csStored)
-    concurrency = Math.max(1, parseEndpoints(csStored).length)
-    if (concurrency > 1) {
-      ctx.onWarn?.(
-        `Generating ${targetIndices.length} motion prompt(s) ${concurrency}× parallel across `
-        + `${concurrency} Chat Studio endpoints.`,
-      )
-    }
-  }
+  const maxRetries = 0
+  const concurrency = 1
 
   let failed = 0
   let done = 0
@@ -1702,12 +1663,7 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
   opts.onProgress?.(0, scenes.length, scenes.length)
 
   // ── PASS 2: per-scene visual prompts ──────────────────────────────────
-  // Pull keys once; callAi picks the right one per call.
-  const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
-    getApiKey('anthropic').catch(() => ''),
-    getApiKey('openai').catch(() => ''),
-    getApiKey('kie').catch(() => ''),
-  ])
+  const apiKeys: Record<string, string | undefined> = {}
 
   // v1.0.458 — the windowed-parallel loop + per-scene retry + pool-size
   // concurrency all live in the shared `generatePromptsForScenes`, so the
@@ -1724,7 +1680,7 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
       custom_instructions: opts.custom_instructions,
       neighbor_context_back: opts.neighbor_context_back,
       neighbor_context_forward: opts.neighbor_context_forward,
-      apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },
+      apiKeys,
       onProgress: (doneCount) => opts.onProgress?.(doneCount, scenes.length, scenes.length),
       onWarn: opts.onWarn,
     },
@@ -1846,13 +1802,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   const coverEnd = range ? range.end_sec : totalDuration
   const windows = buildWindows(planCues, windowSec)
 
-  // Pull candidate keys once; callAi picks the right one per call.
-  const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
-    getApiKey('anthropic').catch(() => ''),
-    getApiKey('openai').catch(() => ''),
-    getApiKey('kie').catch(() => ''),
-  ])
-  const apiKeys = { anthropic_api_key, openai_api_key, kie_api_key }
+  const apiKeys: Record<string, string | undefined> = {}
 
   const allScenes: ScenePlanEntry[] = []
   let prevEnd = initialPrevEnd
@@ -1892,7 +1842,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
     // transient LLM failure (timeout, malformed JSON) used to collapse the
     // whole window into one giant filler scene.
     let winScenes: ScenePlanEntry[] = []
-    const MAX_ATTEMPTS = isLocalTextModel(opts.model) ? 2 : 1
+    const MAX_ATTEMPTS = 1
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && winScenes.length === 0; attempt++) {
       try {
         const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })
@@ -1934,20 +1884,9 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
 
   if (opts.cross_window_context === false && windows.length > 1) {
     // ── Independent windows → PARALLEL (story-so-far OFF) ──────────────────
-    // No rolling recap + fixed per-window bounds ⇒ windows don't depend on each
-    // other, so plan them concurrently. Concurrency is model-gated: direct paid
-    // cloud fans out; a local Chat Studio pool uses its endpoints; free/proxy
-    // tiers stay at 1 (parallel would just multiply 429s).
-    const isProxy = opts.model.startsWith(`${CHATSTUDIO_MODEL_PREFIX}provider:`)
-    let conc = 4
-    if (opts.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
-      if (isProxy) conc = 1
-      else {
-        const csStored = await getApiKey('chatstudio').catch(() => '')
-        resetChatstudioDispatcher(csStored)
-        conc = Math.max(1, parseEndpoints(csStored).length)
-      }
-    }
+    // GenStudio requests run sequentially here so a long plan has one clear
+    // authoritative route and settlement trail.
+    const conc = 1
     opts.onWarn?.(
       `Story-so-far continuity OFF — planning ${windows.length} segments ` +
       `${conc > 1 ? `${conc}× in parallel` : 'independently'} (faster; slightly weaker cross-seam continuity).`,

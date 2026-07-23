@@ -217,31 +217,7 @@
         </NuxtLink>
       </nav>
 
-      <div class="sidebar-credits">
-        <div class="credits-refresh-row" :title="`Balances auto-refresh every ${Math.round(pollIntervalMs / 1000)}s. Click ↻ to refresh now.`">
-          <button
-            type="button"
-            class="refresh-btn"
-            :class="{ spinning: isRefreshing }"
-            :disabled="isRefreshing"
-            aria-label="Refresh balances now"
-            title="Refresh all provider balances now"
-            @click="refreshNow"
-          >↻</button>
-          <span class="countdown-label">
-            <template v-if="isRefreshing">refreshing…</template>
-            <template v-else>auto · {{ Math.round(pollIntervalMs / 1000) }}s</template>
-          </span>
-          <button
-            v-if="anyCreditRow"
-            type="button"
-            class="refresh-btn credits-edit-btn"
-            :class="{ active: editingCredits }"
-            :aria-label="editingCredits ? 'Done choosing balances' : 'Choose which balances to show'"
-            :title="editingCredits ? 'Done — tap a balance to show or hide it' : 'Show / hide which provider balances appear here'"
-            @click="editingCredits = !editingCredits"
-          >{{ editingCredits ? '✓' : '⚙' }}</button>
-        </div>
+      <footer class="sidebar-credits" aria-label="Story Studio status">
         <div
           class="network-status"
           :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
@@ -250,41 +226,65 @@
             : (networkOnline ? 'App engine reachable — jobs run normally' : 'Can\'t reach the app engine — new jobs will wait until it\'s back')"
         >
           <span class="network-dot" />
-          <span class="network-label">{{ networkOnline ? 'Online' : 'Offline' }}</span>
+          <span class="network-label">{{ networkOnline ? 'All systems online' : 'Connection unavailable' }}</span>
           <span v-if="networkQueueSyncFailed" class="network-warn" aria-label="Queue state out of sync">⚠</span>
         </div>
-        <template v-for="row in creditRows" :key="row.id">
-          <div
-            v-if="row.show && (isCreditVisible(row.id) || editingCredits)"
-            class="credit-badge"
-            :class="{ 'credit-badge-editing': editingCredits, 'credit-badge-off': editingCredits && !isCreditVisible(row.id) }"
-            :title="editingCredits
-              ? (isCreditVisible(row.id) ? 'Tap to hide this balance from the sidebar' : 'Tap to show this balance in the sidebar')
-              : (row.title || undefined)"
-            @click="editingCredits && toggleCredit(row.id)"
-          >
-            <span class="credit-label">{{ row.label }}</span>
-            <span class="credit-value">
-              <span v-if="editingCredits" class="credit-eye">{{ isCreditVisible(row.id) ? '👁' : '🚫' }}</span>
-              {{ row.value }}
-            </span>
+
+        <section v-if="anyCreditRow" class="credit-card" aria-label="Credit balances">
+          <div class="credit-card-header">
+            <span>Credits</span>
+            <div class="credit-card-actions" :title="`Balances refresh automatically every ${Math.round(pollIntervalMs / 1000)} seconds.`">
+              <button
+                type="button"
+                class="footer-icon-button"
+                :class="{ spinning: isRefreshing }"
+                :disabled="isRefreshing"
+                aria-label="Refresh balances now"
+                title="Refresh balances now"
+                @click="refreshNow"
+              >↻</button>
+              <button
+                type="button"
+                class="footer-icon-button"
+                :class="{ active: editingCredits }"
+                :aria-label="editingCredits ? 'Done choosing balances' : 'Choose which balances to show'"
+                :title="editingCredits ? 'Done — tap a balance to show or hide it' : 'Choose which balances appear here'"
+                @click="editingCredits = !editingCredits"
+              >{{ editingCredits ? '✓' : '⚙' }}</button>
+            </div>
           </div>
-        </template>
-        <p v-if="editingCredits" class="credits-edit-hint">Tap a balance to show / hide it. ✓ when done.</p>
-        <!-- App version + build date — beta testers can quote this when
-             reporting an issue. Click to copy. Read at frontend build time
-             from the root package.json (see runtimeConfig in nuxt.config.ts).
-             v1.0.77 — paired with a "What's new?" affordance that opens the
-             changelog modal so users can review release notes on demand. -->
-        <div class="version-row">
+          <template v-for="row in creditRows" :key="row.id">
+            <button
+              v-if="row.show && (isCreditVisible(row.id) || editingCredits)"
+              type="button"
+              class="credit-badge"
+              :class="{ 'credit-badge-editing': editingCredits, 'credit-badge-off': editingCredits && !isCreditVisible(row.id) }"
+              :disabled="!editingCredits"
+              :title="editingCredits
+                ? (isCreditVisible(row.id) ? 'Hide this balance from the sidebar' : 'Show this balance in the sidebar')
+                : (row.title || undefined)"
+              @click="toggleCredit(row.id)"
+            >
+              <span class="credit-label">{{ row.label }}</span>
+              <strong class="credit-value">
+                <span v-if="editingCredits" class="credit-eye" aria-hidden="true">{{ isCreditVisible(row.id) ? '✓' : '—' }}</span>
+                {{ row.value }}
+              </strong>
+            </button>
+          </template>
+          <p v-if="editingCredits" class="credits-edit-hint">Choose the balances to keep visible.</p>
+        </section>
+
+        <div class="release-card">
           <button
             type="button"
             class="version-badge"
             :title="`Story Studio KH v${appVersion} · built ${buildDate} — click to copy`"
             @click="copyVersion"
           >
-            v{{ appVersion }}
-            <span class="version-build">· {{ buildDate }}</span>
+            <span class="version-product">Story Studio KH</span>
+            <strong>v{{ appVersion }}</strong>
+            <time v-if="buildDate" class="version-build" :datetime="buildDate">{{ buildDateLabel }}</time>
             <span v-if="versionCopied" class="version-copied" aria-live="polite">copied</span>
           </button>
           <button
@@ -292,9 +292,9 @@
             class="whats-new-link"
             title="What's new in this release?"
             @click="openWhatsNew"
-          >What's new?</button>
+          ><span aria-hidden="true">✦</span> What’s new</button>
         </div>
-      </div>
+      </footer>
     </aside>
 
     <main id="main-content" class="main-content" tabindex="-1">
@@ -678,6 +678,13 @@ onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
+const buildDateLabel = computed(() => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(buildDate.value)
+  if (!match) return buildDate.value
+  const [, year, month, day] = match
+  const monthName = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString(undefined, { month: 'short' })
+  return `${monthName} ${Number(day)}, ${year}`
+})
 const versionCopied = ref(false)
 async function copyVersion() {
   const txt = `Story Studio KH v${appVersion.value} · built ${buildDate.value}`
@@ -856,122 +863,134 @@ function openWhatsNew() { _whatsNew.open() }
 .nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-on); font-size: var(--font-xs); font-weight: 600; padding: 1px 6px; border-radius: 8px; }
 
 .sidebar-credits {
-  flex-shrink: 0;                   /* stay pinned at the bottom — never shrinks or scrolls off */
+  flex-shrink: 0;
   padding: 10px;
   border-top: 1px solid var(--border);
-  background: var(--bg-secondary);  /* opaque so nav content behind it never bleeds through */
-  display: flex; flex-direction: column; gap: 4px;
-}
-.credit-badge { display: flex; justify-content: space-between; font-size: var(--font-xs); }
-.credit-label { color: var(--text-muted); }
-.credit-value { color: var(--accent); font-weight: 500; }
-/* v1.0.380 — per-provider balance visibility toggle (edit mode). */
-.credit-badge-editing { cursor: pointer; border-radius: 4px; padding: 1px 3px; margin: 0 -3px; }
-.credit-badge-editing:hover { background: var(--bg-hover); }
-.credit-badge-off { opacity: 0.5; }
-.credit-badge-off .credit-value { color: var(--text-muted); text-decoration: line-through; }
-.credit-eye { margin-right: 3px; text-decoration: none; }
-.credits-edit-btn { margin-left: auto; }
-.credits-edit-btn.active { color: var(--accent); border-color: var(--accent); background: var(--bg-hover); }
-.credits-edit-hint { margin: 2px 0 0; font-size: var(--font-xs); color: var(--text-muted); line-height: 1.3; }
-
-/* Version badge — last item in the sidebar credits column.
-   Click to copy "Story Studio KH v1.0.11 · built 2026-04-27" so beta
-   testers can paste it into a bug report. Always visible. */
-.version-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 0 0;
-  margin-top: 2px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: var(--font-xs);
-  text-align: left;
-  cursor: pointer;
-  border-top: 1px dashed var(--border);
-  width: 100%;
-}
-.version-badge:hover { color: var(--text-secondary); }
-.version-build { opacity: 0.7; }
-.version-copied {
-  margin-left: auto;
-  color: var(--accent);
-  font-weight: 500;
-}
-
-/* v1.0.77 — paired version badge + What's-new link. */
-.version-row {
-  display: flex;
-  align-items: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-tertiary)), var(--bg-secondary));
+  display: grid;
   gap: 8px;
-  border-top: 1px dashed var(--border);
 }
-.version-row .version-badge { border-top: none; flex: 1; }
-.whats-new-link {
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  font-family: inherit;
-  font-size: var(--font-xs);
-  cursor: pointer;
-  padding: 4px 0 0;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.whats-new-link:hover { color: var(--accent-hover); text-decoration: underline; }
-
-.credits-refresh-row {
-  display: flex; align-items: center; gap: 6px;
-  font-size: var(--font-xs);
-  margin-bottom: 4px;
-}
-.refresh-btn {
-  width: 18px; height: 18px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: var(--font-xs); line-height: 1;
-  padding: 0;
-  transition: color 0.15s, background 0.15s;
-}
-.refresh-btn:hover:not(:disabled) { color: var(--accent); background: var(--bg-hover); }
-.refresh-btn:disabled { cursor: default; opacity: 0.7; }
-.refresh-btn.spinning { animation: creditSpin 0.7s linear infinite; }
-@keyframes creditSpin { to { transform: rotate(360deg); } }
-.countdown-label {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
 .network-status {
-  display: flex; align-items: center; gap: 6px;
-  font-size: var(--font-xs); padding: 2px 0; margin-bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  font-size: var(--font-xs);
 }
 .network-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   transition: background 0.2s;
 }
-.network-status.online .network-dot {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+.network-status.online { border-color: color-mix(in srgb, #22c55e 40%, var(--border)); }
+.network-status.online .network-dot { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.55); }
+.network-status.online .network-label { color: #8ee5ae; }
+.network-status.offline { border-color: color-mix(in srgb, #f87171 42%, var(--border)); }
+.network-status.offline .network-dot { background: #f87171; animation: networkPulse 1.5s ease-in-out infinite; }
+.network-status.offline .network-label { color: #fca5a5; font-weight: 650; }
+.network-status .network-warn { color: #fbbf24; }
+
+.credit-card,
+.release-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
 }
-.network-status.offline .network-dot {
-  background: #f87171;
-  animation: networkPulse 1.5s ease-in-out infinite;
-}
-.network-status.online .network-label { color: #22c55e; }
-.network-status.offline .network-label { color: #f87171; font-weight: 600; }
-.network-status .network-warn {
-  margin-left: 4px;
+.credit-card { padding: 8px; }
+.credit-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--text-muted);
   font-size: var(--font-xs);
-  color: #fbbf24;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
+.credit-card-actions { display: inline-flex; gap: 3px; }
+.footer-icon-button {
+  width: 21px;
+  height: 21px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.footer-icon-button:hover:not(:disabled), .footer-icon-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.footer-icon-button:disabled { cursor: default; opacity: .62; }
+.footer-icon-button.spinning { animation: creditSpin .7s linear infinite; }
+@keyframes creditSpin { to { transform: rotate(360deg); } }
+.credit-badge {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+}
+.credit-badge:disabled { cursor: default; }
+.credit-label { color: var(--text-secondary); font-size: 12px; }
+.credit-value { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+.credit-badge-editing { cursor: pointer; border-radius: 5px; padding: 4px 5px; margin: 0 -5px; }
+.credit-badge-editing:hover { background: var(--bg-hover); }
+.credit-badge-off { opacity: .5; }
+.credit-badge-off .credit-value { color: var(--text-muted); text-decoration: line-through; }
+.credit-eye { margin-right: 3px; text-decoration: none; }
+.credits-edit-hint { margin: 5px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
+
+.release-card { display: grid; overflow: hidden; }
+.version-badge {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.version-badge:hover { background: var(--bg-hover); }
+.version-product { color: var(--text-muted); font-size: var(--font-xs); }
+.version-badge strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.version-build { grid-column: 1; color: var(--text-muted); font-size: var(--font-xs); }
+.version-copied { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: var(--font-xs); font-weight: 650; }
+.whats-new-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 29px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--font-xs);
+  font-weight: 650;
+  cursor: pointer;
+}
+.whats-new-link:hover { background: var(--accent-dim); color: var(--accent-hover); }
 @keyframes networkPulse {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(248, 113, 113, 0.5); }
   50% { opacity: 0.5; box-shadow: 0 0 10px rgba(248, 113, 113, 0.8); }

@@ -30,7 +30,7 @@ test('scene motion resolves only available GenStudio video catalog entries', () 
   assert.equal(resolveSceneClipCatalogModel('unmapped-direct-provider-model', catalog), null)
 })
 
-test('scene planning resolves legacy ids only when the GenStudio model is live', () => {
+test('scene planning accepts only live GenStudio catalog ids', () => {
   const catalog = [
     {
       id: 'genstudio-chat-304c7e5dd2011f75a067-v1', display_name: 'DeepSeek', available: true,
@@ -42,10 +42,7 @@ test('scene planning resolves legacy ids only when the GenStudio model is live',
     },
   ] as any
 
-  assert.equal(
-    resolveScenePlanCatalogModel('deepseek-v4-flash', catalog),
-    'genstudio-chat-304c7e5dd2011f75a067-v1',
-  )
+  assert.equal(resolveScenePlanCatalogModel('deepseek-v4-flash', catalog), null)
   assert.equal(
     resolveScenePlanCatalogModel('genstudio-chat:genstudio-chat-304c7e5dd2011f75a067-v1', catalog),
     'genstudio-chat-304c7e5dd2011f75a067-v1',

@@ -111,7 +111,7 @@
     <WorkspaceSection
       eyebrow="Configuration"
       title="2. Scene workflow settings"
-      description="Choose the prompt model, opening behavior, pack size, motion pass, and episode guidance. Timeline construction itself uses no LLM."
+      description="Choose how Story Studio interprets the episode. Timeline construction is deterministic; GenStudio handles prompt batches."
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
@@ -142,38 +142,39 @@
 
         <div class="scene-setting-card">
           <div class="scene-setting-head">
-            <strong>Prompt packs</strong>
-            <span>Full-detail output</span>
+            <strong>Prompt batches</strong>
+            <span>Model-aware</span>
           </div>
-          <div class="scene-compact-fields">
-            <div class="form-group">
-              <label>Output budget</label>
-              <select v-model="form.prompt_max_tokens" class="select">
-                <option value="auto">Auto · {{ automaticTokenBudget.toLocaleString() }}</option>
-                <option :value="4096">4,096 tokens</option>
-                <option :value="6144">6,144 tokens</option>
-                <option :value="8192">8,192 tokens</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>{{ selectedModelCostTier === 'paid' ? 'Scenes per cloud pack' : 'Scenes per pack' }}</label>
-              <select v-model="promptPackPickerValue" class="select">
-                <option value="auto">Auto · {{ automaticPromptPackSize }} scenes</option>
-                <option v-for="size in PROMPT_PACK_PRESETS" :key="size" :value="String(size)" :disabled="size > 10 && selectedModelCostTier !== 'paid'">
-                  {{ size }} scenes{{ size > 10 ? ' · cloud' : '' }}
-                </option>
-                <option value="custom">Custom…</option>
-              </select>
-              <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
-                <input v-model.number="customPromptPackSize" class="input" type="number" min="1" max="50" step="1" @change="applyCustomPromptPackSize" />
-                <span class="text-xs text-muted">1–50 scenes</span>
+          <p class="scene-setting-help">Automatic keeps each full-detail JSON response complete, using the selected GenStudio model’s published output limit.</p>
+          <div class="scene-batch-summary">
+            <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
+            <span>up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
+          </div>
+          <details class="scene-advanced-batches">
+            <summary>Advanced batch controls</summary>
+            <div class="scene-compact-fields mt-1">
+              <div class="form-group">
+                <label>Output allowance</label>
+                <select v-model="form.prompt_max_tokens" class="select">
+                  <option value="auto">Automatic · model maximum</option>
+                  <option v-for="budget in availableOutputBudgets" :key="budget" :value="budget">{{ budget.toLocaleString() }} tokens</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Scenes per request</label>
+                <select v-model="promptPackPickerValue" class="select">
+                  <option value="auto">Automatic · {{ automaticPromptPackSize }} scenes</option>
+                  <option v-for="size in availablePromptPackPresets" :key="size" :value="String(size)">{{ size }} scenes</option>
+                  <option value="custom">Custom…</option>
+                </select>
+                <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
+                  <input v-model.number="customPromptPackSize" class="input" type="number" min="1" :max="maximumPromptPackSize" step="1" @change="applyCustomPromptPackSize" />
+                  <span class="text-xs text-muted">1–{{ maximumPromptPackSize }} scenes</span>
+                </div>
               </div>
             </div>
-          </div>
-          <p class="scene-setting-help">
-            {{ effectivePromptPackSize }} scenes · {{ effectivePromptTokenBudget.toLocaleString() }} tokens per {{ selectedModelTierLabel }} pack. Local and free-cloud models cap at 10 scenes; paid-cloud presets and custom packs allow up to 50.
-            The output budget is separate from the model's larger input/context window; supported cloud providers use JSON mode without paid reasoning for these packs.
-          </p>
+            <p class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
+          </details>
         </div>
 
         <div class="scene-setting-card scene-creative-card">
@@ -198,17 +199,14 @@
             </button>
           </div>
           <div class="scene-creative-controls">
-            <label class="form-group">
-              <span>Creative intensity <strong>{{ creativeIntensityLabel }}</strong></span>
-              <input v-model.number="form.creative_intensity" type="range" min="1" max="4" step="1" class="detail-slider" list="creative-intensity-stops" />
-              <datalist id="creative-intensity-stops">
-                <option value="1" label="Faithful"></option>
-                <option value="2" label="Balanced"></option>
-                <option value="3" label="Expressive"></option>
-                <option value="4" label="Experimental"></option>
-              </datalist>
-              <span class="detail-ticks"><span>Faithful</span><span>Balanced</span><span>Expressive</span><span>Experimental</span></span>
-            </label>
+            <fieldset class="form-group intensity-picker">
+              <legend>Creative intensity <strong>{{ creativeIntensityLabel }}</strong></legend>
+              <div role="radiogroup" aria-label="Creative intensity" class="intensity-options">
+                <button v-for="(label, index) in CREATIVE_INTENSITY_LABELS" :key="label" type="button" class="intensity-option" :class="{ active: form.creative_intensity === index + 1 }" role="radio" :aria-checked="form.creative_intensity === index + 1" @click="form.creative_intensity = index + 1">
+                  {{ label }}
+                </button>
+              </div>
+            </fieldset>
             <label class="form-group">
               <span>Recurring motifs <span class="text-muted text-xs">optional</span></span>
               <input v-model="form.creative_motifs" class="input" placeholder="e.g. lanterns, paths, gold light, open windows" />
@@ -247,32 +245,13 @@
             </label>
           </div>
           <div class="scene-motion-controls" :class="{ 'is-disabled': !form.generate_motion_prompts }">
-            <label>
-              Motion intensity
-              <span class="detail-pill">{{ motionMeta?.label }}</span>
-            </label>
-            <input
-              v-model.number="form.motion_level"
-              type="range"
-              min="1"
-              max="4"
-              step="1"
-              class="detail-slider"
-              list="motion-stops"
-              :disabled="!form.generate_motion_prompts"
-              @change="setMotionLevel(form.motion_level)"
-            />
-            <datalist id="motion-stops">
-              <option value="1" label="Still"></option>
-              <option value="2" label="Gentle"></option>
-              <option value="3" label="Moderate"></option>
-              <option value="4" label="Lively"></option>
-            </datalist>
-            <div class="detail-ticks">
-              <span :class="{ on: form.motion_level === 1 }">Still</span>
-              <span :class="{ on: form.motion_level === 2 }">Gentle</span>
-              <span :class="{ on: form.motion_level === 3 }">Moderate</span>
-              <span :class="{ on: form.motion_level === 4 }">Lively</span>
+            <div class="intensity-picker">
+              <span>Motion intensity <strong>{{ motionMeta?.label }}</strong></span>
+              <div role="radiogroup" aria-label="Motion intensity" class="intensity-options">
+                <button v-for="level in MOTION_LEVELS" :key="level.value" type="button" class="intensity-option" :class="{ active: form.motion_level === level.value }" role="radio" :aria-checked="form.motion_level === level.value" :disabled="!form.generate_motion_prompts" @click="form.motion_level = level.value; setMotionLevel(level.value)">
+                  {{ level.label }}
+                </button>
+              </div>
             </div>
             <p class="scene-setting-help">{{ form.generate_motion_prompts ? motionMeta?.hint : 'Enable motion prompts to use this intensity.' }}</p>
           </div>
@@ -330,13 +309,13 @@
             <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small>{{ effectivePromptPackSize }} scenes per {{ selectedModelTierLabel }} pack. Studio Hub distributes as many packs in parallel as the available compatible servers can handle.</small>
+          <small>{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectiveMotionPromptPackSize)">Next {{ effectiveMotionPromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
@@ -1037,7 +1016,7 @@ async function loadContinuity(): Promise<void> {
       `/projects/${slug.value}/continuity/${ep}`,
     )
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
-    continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
+    continuityPacing.value = r.config?.pacing || { min_sec: 1, max_sec: 4 }
     recipeEnabled.value = r.config?.recipe?.enabled === true
     recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
     characterSheetStyleBible.value = (r.config?.style_bible || '').trim()
@@ -1138,13 +1117,20 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
   markPlanDirty()
 }
 
-type PromptCostTier = 'local' | 'free' | 'paid'
 type PromptPackSetting = 'auto' | number
-type PromptTokenSetting = 'auto' | 4096 | 6144 | 8192
-interface SelectedModelMeta { id: string; cost_tier?: PromptCostTier }
+type PromptTokenSetting = 'auto' | 4096 | 6144 | 8192 | 12288 | 16384 | 24576 | 32768
+interface SelectedModelMeta {
+  id: string
+  context_limit_tokens?: number
+  max_output_tokens?: number
+}
 const PROMPT_PACK_PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 50] as const
 const PROMPT_PACK_MIN = 1
 const PROMPT_PACK_MAX = 50
+const OUTPUT_BUDGET_OPTIONS = [4096, 6144, 8192, 12288, 16384, 24576, 32768] as const
+const DEFAULT_OUTPUT_BUDGET = 8192
+const TOKENS_PER_FULL_DETAIL_SCENE = 300
+const OUTPUT_SAFETY_FRACTION = 0.75
 
 const selectedModelMeta = ref<SelectedModelMeta | null>(null)
 
@@ -1203,7 +1189,7 @@ function applyCustomPromptPackSize(): void {
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
 setPromptPackSetting(form.value.prompt_pack_size)
-if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
+if (!['auto', ...OUTPUT_BUDGET_OPTIONS].includes(form.value.prompt_max_tokens)) {
   form.value.prompt_max_tokens = 'auto'
 }
 if (!CREATIVE_PROFILES.some(profile => profile.id === form.value.creative_profile)) {
@@ -1241,28 +1227,35 @@ function creativeStrategyLabel(strategy?: CreativeStrategy): string {
   return strategy ? CREATIVE_STRATEGY_LABELS[strategy] : ''
 }
 
-const selectedModelCostTier = computed<PromptCostTier>(() => {
-  if (selectedModelMeta.value?.id === form.value.model && selectedModelMeta.value.cost_tier) {
-    return selectedModelMeta.value.cost_tier
-  }
-  if (form.value.model.startsWith('chatstudio:provider:')) return 'free'
-  if (form.value.model.startsWith('chatstudio:')) return 'local'
-  return 'paid'
+const selectedModelMaxOutput = computed(() => {
+  const value = selectedModelMeta.value?.id === form.value.model
+    ? Number(selectedModelMeta.value.max_output_tokens) : 0
+  return Number.isInteger(value) && value > 0 ? Math.min(32_768, value) : DEFAULT_OUTPUT_BUDGET
 })
-const selectedModelTierLabel = computed(() => selectedModelCostTier.value === 'local'
-  ? 'local' : selectedModelCostTier.value === 'free' ? 'free-cloud' : 'paid-cloud')
-const automaticPromptPackSize = computed<number>(() => selectedModelCostTier.value === 'paid' ? 20 : 10)
+const selectedModelContextLabel = computed(() => {
+  const value = selectedModelMeta.value?.id === form.value.model
+    ? Number(selectedModelMeta.value.context_limit_tokens) : 0
+  return Number.isInteger(value) && value > 0 ? `${value.toLocaleString()} tokens` : 'published by GenStudio when available'
+})
+const automaticTokenBudget = computed<number>(() => selectedModelMaxOutput.value)
+const effectivePromptTokenBudget = computed<number>(() => {
+  const requested = form.value.prompt_max_tokens === 'auto'
+    ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
+  return Math.min(selectedModelMaxOutput.value, Math.max(1, requested))
+})
+const maximumPromptPackSize = computed<number>(() => {
+  const scenes = Math.floor((effectivePromptTokenBudget.value * OUTPUT_SAFETY_FRACTION) / TOKENS_PER_FULL_DETAIL_SCENE)
+  return Math.min(PROMPT_PACK_MAX, Math.max(PROMPT_PACK_MIN, scenes))
+})
+const automaticPromptPackSize = computed<number>(() => maximumPromptPackSize.value)
 const effectivePromptPackSize = computed<number>(() => {
   const requested = form.value.prompt_pack_size === 'auto'
     ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
-  return Math.min(Math.max(PROMPT_PACK_MIN, requested), selectedModelCostTier.value === 'paid' ? PROMPT_PACK_MAX : 10)
+  return Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
 })
-const automaticTokenBudget = computed<4096 | 8192>(() => selectedModelCostTier.value === 'paid' ? 8192 : 4096)
-const effectivePromptTokenBudget = computed<4096 | 6144 | 8192>(() => {
-  const requested = form.value.prompt_max_tokens === 'auto'
-    ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
-  return (effectivePromptPackSize.value > 10 ? 8192 : requested) as 4096 | 6144 | 8192
-})
+const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
+const availableOutputBudgets = computed(() => OUTPUT_BUDGET_OPTIONS.filter(budget => budget <= selectedModelMaxOutput.value))
+const effectiveMotionPromptPackSize = computed<number>(() => Math.min(effectivePromptPackSize.value, 10))
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
@@ -1456,7 +1449,6 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
-      model_cost_tier: selectedModelCostTier.value,
       stage,
       prompt_limit: promptLimit,
       prompt_pack_size: form.value.prompt_pack_size,
@@ -1943,7 +1935,6 @@ const planPresets = usePresets<any>({
     use_research: form.value.use_research,
     opening_mode: openingMode.value,
     opening_reserved_sec: openingReservedSec.value,
-    model_cost_tier: selectedModelCostTier.value,
     prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
     creative_direction: creativeDirectionPayload.value,
@@ -1979,7 +1970,7 @@ const planPresets = usePresets<any>({
       openingPresetControlsActive.value = true
     }
     setPromptPackSetting(form.value.prompt_pack_size)
-    if (!['auto', 4096, 6144, 8192].includes(form.value.prompt_max_tokens)) {
+    if (!['auto', ...OUTPUT_BUDGET_OPTIONS].includes(form.value.prompt_max_tokens)) {
       form.value.prompt_max_tokens = 'auto'
     }
   },
@@ -2057,6 +2048,22 @@ onMounted(() => { void planPresets.load() })
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+.scene-batch-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-tertiary));
+  font-size: 12px;
+}
+.scene-batch-summary strong { color: var(--text-primary); font-size: 14px; }
+.scene-advanced-batches { color: var(--text-secondary); }
+.scene-advanced-batches summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+.scene-advanced-batches[open] summary { margin-bottom: 8px; }
 .scene-setting-help {
   margin: 0;
   color: var(--text-muted);
@@ -2241,22 +2248,39 @@ onMounted(() => { void planPresets.load() })
   border: 1px solid rgba(240, 198, 116, 0.25);
   border-radius: 999px;
 }
-.detail-slider { width: 100%; margin: 6px 0 2px; accent-color: var(--accent, #f0b429); cursor: pointer; }
-.detail-ticks {
-  display: flex; justify-content: space-between;
-  font-size: var(--font-xs); color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.03em;
+.intensity-picker { min-width: 0; }
+.intensity-picker > span, .intensity-picker legend {
+  display: block;
+  margin: 0 0 7px;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
-.detail-ticks span { flex: 1; text-align: center; transition: color 0.15s ease; }
-.detail-ticks span:first-child { text-align: left; }
-.detail-ticks span:last-child { text-align: right; }
-.detail-ticks span.on { color: var(--accent); font-weight: 600; }
+.intensity-picker strong { margin-left: 5px; color: var(--accent); }
+.intensity-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.intensity-option {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 7px;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.intensity-option:hover:not(:disabled) { color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.intensity-option.active { color: var(--text-primary); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary)); }
+.intensity-option:disabled { cursor: default; }
 
 /* Creative direction changes visual interpretation, never the Style Bible. */
 .scene-creative-card { border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }
 .creative-profile-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
@@ -2312,13 +2336,14 @@ onMounted(() => { void planPresets.load() })
   line-height: 1.2;
 }
 @media (max-width: 1100px) {
-  .creative-profile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .creative-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scene-creative-controls { grid-template-columns: 1fr 1fr; }
   .scene-creative-controls > :first-child { grid-column: 1 / -1; }
 }
 @media (max-width: 680px) {
   .creative-profile-grid, .scene-creative-controls { grid-template-columns: 1fr; }
   .scene-creative-controls > :first-child { grid-column: auto; }
+  .intensity-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .validation-msg {

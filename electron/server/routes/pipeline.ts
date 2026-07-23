@@ -724,8 +724,6 @@ export function resolveStepParams(
       episode_id: episodeId,
       title: title || '',
       model: data.model,
-      model_cost_tier: data.model_cost_tier === 'local' || data.model_cost_tier === 'free' || data.model_cost_tier === 'paid'
-        ? data.model_cost_tier : undefined,
       use_research: data.use_research !== false,
       detail_level: 4,
       ...((data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') ? {

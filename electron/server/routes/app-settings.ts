@@ -35,7 +35,6 @@ import {
   getGenStudioAccountSnapshot,
   GenStudioApiError,
 } from '../lib/genstudio-client.js'
-import { legacyIdsForGenStudioModel } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
@@ -487,7 +486,6 @@ router.get('/app-settings/genstudio/voice-models', async (_req, res) => {
         controls: model.controls,
         unlimited_relaxed: model.controls?.unlimited_relaxed === true
           || (Array.isArray(model.controls?.voice_tiers) && model.controls.voice_tiers.includes('regular')),
-        legacy_ids: legacyIdsForGenStudioModel('voice', model.id),
       }))
     res.json({ models })
   } catch (e: any) {
@@ -499,10 +497,7 @@ router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    const models = (await listGenStudioChatModels(apiKey)).map(model => ({
-      ...model,
-      legacy_ids: legacyIdsForGenStudioModel('chat', model.id),
-    }))
+    const models = await listGenStudioChatModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH chat models'))
@@ -513,10 +508,7 @@ router.get('/app-settings/genstudio/video-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    const models = (await listGenStudioVideoModels(apiKey)).map(model => ({
-      ...model,
-      legacy_ids: legacyIdsForGenStudioModel('video', model.id),
-    }))
+    const models = await listGenStudioVideoModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH video models'))
@@ -529,10 +521,7 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = (await listGenStudioTranscriptionModels(apiKey)).map(model => ({
-      ...model,
-      legacy_ids: legacyIdsForGenStudioModel('transcription', model.id),
-    }))
+    const models = await listGenStudioTranscriptionModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
@@ -548,10 +537,7 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = (await listGenStudioImageModels(apiKey)).map(model => ({
-      ...model,
-      legacy_ids: legacyIdsForGenStudioModel('image', model.id),
-    }))
+    const models = await listGenStudioImageModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(

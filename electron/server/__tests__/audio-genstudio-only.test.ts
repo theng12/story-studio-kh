@@ -48,9 +48,9 @@ test('project config healing exposes exactly the three customer-facing GenStudio
 })
 
 test('Story TTS tiers map to GenStudio capabilities while preserving voice tier validation', () => {
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-regular'), 'genstudio-standard-v1')
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-premium'), 'genstudio-clone-v1')
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-clone'), 'genstudio-clone-v1')
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-regular'), null)
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-premium'), null)
+  assert.equal(resolveStoryTtsModelId('genstudio-tts-clone'), null)
   assert.equal(storyTtsTierForModelId('genstudio-tts-regular'), 'regular')
   assert.equal(storyTtsTierForModelId('genstudio-tts-premium'), 'premium')
   assert.equal(storyTtsTierForModelId('genstudio-tts-clone'), 'cloned')

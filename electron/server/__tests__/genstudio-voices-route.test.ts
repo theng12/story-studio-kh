@@ -257,9 +257,9 @@ test('GenStudio usage requests supported account pagination and returns authorit
   assert.equal(response.body.overview.credit_balance, 900)
   assert.equal(response.body.jobs.page_size, 20)
   assert.equal(response.body.credit_activity.page_size, 20)
-  assert.deepEqual(visited, [
+  assert.deepEqual([...visited].sort(), [
     'http://127.0.0.1:8000/v1/account/overview',
     'http://127.0.0.1:8000/v1/account/jobs?page=1&page_size=20',
     'http://127.0.0.1:8000/v1/account/credit-activity?page=1&page_size=20',
-  ])
+  ].sort())
 })

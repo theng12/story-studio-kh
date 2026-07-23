@@ -17,7 +17,6 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { callAi, parseStructuredJson } from '../lib/ai-client.js'
-import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -97,20 +96,9 @@ function compactRanges(nums: number[]): string {
   return parts.join(', ')
 }
 
-function checkProvider(model: string, config: any): string | null {
-  const provider = SUPPORTED_MODELS[model]
-  if (provider === 'openai' && !config.openai_api_key) return 'No OpenAI key configured'
-  if (provider === 'kie' && !config.kie_api_key) return 'No kie.ai key configured'
-  return null
-}
+function checkProvider(_model: string, _config: any): string | null { return null }
 
-function aiCreds(config: any) {
-  return {
-    anthropic_api_key: config.anthropic_api_key,
-    openai_api_key: config.openai_api_key,
-    kie_api_key: config.kie_api_key,
-  }
-}
+function aiCreds(_config: any) { return {} }
 
 /**
  * Resolve the actual chapter count for an episode. Source-of-truth order:

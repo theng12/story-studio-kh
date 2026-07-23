@@ -3,36 +3,28 @@ import { describe, test } from 'node:test'
 import {
   parseScenePromptPackSetting,
   parseScenePromptTokenSetting,
-  resolveScenePromptCostTier,
+  maxSafeScenePromptPackSize,
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
 } from '../services/scene-prompt-batching.js'
 
 describe('adaptive scene prompt batching', () => {
-  test('classifies known local and cloud model ids conservatively', () => {
-    assert.equal(resolveScenePromptCostTier('chatstudio:mlx-community/model', 'paid'), 'local')
-    assert.equal(resolveScenePromptCostTier('chatstudio:provider:openrouter:model'), 'free')
-    assert.equal(resolveScenePromptCostTier('chatstudio:provider:openrouter:model', 'paid'), 'paid')
-    assert.equal(resolveScenePromptCostTier('openai:gpt-5'), 'paid')
+  test('uses the live GenStudio output allowance, not legacy provider tiers', () => {
+    assert.equal(maxSafeScenePromptPackSize(4_096), 10)
+    assert.equal(maxSafeScenePromptPackSize(8_192), 20)
+    assert.equal(maxSafeScenePromptPackSize(16_384), 40)
+    assert.equal(maxSafeScenePromptPackSize(32_768), 50)
+    assert.equal(resolveScenePromptPackSize(8_192, 'auto'), 20)
+    assert.equal(resolveScenePromptPackSize(4_096, 30), 10)
+    assert.equal(resolveScenePromptPackSize(16_384, 30), 30)
+    assert.equal(resolveScenePromptPackSize(8_192, 12), 12)
   })
 
-  test('defaults to 10 local/free and 20 paid with tier-specific hard caps', () => {
-    assert.equal(resolveScenePromptPackSize('local', 'auto'), 10)
-    assert.equal(resolveScenePromptPackSize('free', 'auto'), 10)
-    assert.equal(resolveScenePromptPackSize('paid', 'auto'), 20)
-    assert.equal(resolveScenePromptPackSize('local', 30), 10)
-    assert.equal(resolveScenePromptPackSize('free', 20), 10)
-    assert.equal(resolveScenePromptPackSize('paid', 30), 30)
-    assert.equal(resolveScenePromptPackSize('paid', 50), 50)
-    assert.equal(resolveScenePromptPackSize('paid', 12), 12)
-  })
-
-  test('uses adaptive output budgets and protects larger paid packs', () => {
-    assert.equal(resolveScenePromptTokenBudget('local', 'auto', 10), 4096)
-    assert.equal(resolveScenePromptTokenBudget('free', 'auto', 10), 4096)
-    assert.equal(resolveScenePromptTokenBudget('paid', 'auto', 20), 8192)
-    assert.equal(resolveScenePromptTokenBudget('paid', 4096, 20), 8192)
-    assert.equal(resolveScenePromptTokenBudget('paid', 6144, 10), 6144)
+  test('uses the model maximum automatically and never requests more than it publishes', () => {
+    assert.equal(resolveScenePromptTokenBudget(4_096, 'auto'), 4096)
+    assert.equal(resolveScenePromptTokenBudget(8_192, 'auto'), 8192)
+    assert.equal(resolveScenePromptTokenBudget(8_192, 16_384), 8192)
+    assert.equal(resolveScenePromptTokenBudget(16_384, 6144), 6144)
   })
 
   test('accepts every supported cloud preset and safe custom values', () => {
@@ -48,6 +40,7 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(parseScenePromptPackSetting(7.5), 'auto')
     assert.equal(parseScenePromptPackSetting('20'), 20)
     assert.equal(parseScenePromptTokenSetting(32000), 'auto')
+    assert.equal(parseScenePromptTokenSetting(32768), 32768)
     assert.equal(parseScenePromptTokenSetting('8192'), 8192)
   })
 })

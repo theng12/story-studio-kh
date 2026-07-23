@@ -174,23 +174,22 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     assert.equal(c, null)
   })
 
-  test('updateApiKeys persists keys; getConfig returns them', async () => {
+  test('updateApiKeys persists the GenStudio key; getConfig returns it', async () => {
     const p = await pm.createProject({ name: 'APITest' })
-    await pm.updateApiKeys(p.slug, { openai_api_key: 'sk-test123' })
+    await pm.updateApiKeys(p.slug, { genstudio_api_key: 'gs-test123' })
     const config = await pm.getConfig(p.slug)
-    assert.equal(config?.openai_api_key, 'sk-test123')
+    assert.equal(config?.genstudio_api_key, 'gs-test123')
   })
 
   test('getSafeConfig returns booleans for key presence, not values', async () => {
     const p = await pm.createProject({ name: 'SafeTest' })
-    await pm.updateApiKeys(p.slug, { openai_api_key: 'sk-secret', kie_api_key: 'k-secret' })
+    await pm.updateApiKeys(p.slug, { genstudio_api_key: 'gs-secret' })
     const safe = await pm.getSafeConfig(p.slug) as any
     // Should NOT contain actual keys
-    assert.ok(!JSON.stringify(safe).includes('sk-secret'), 'safe config must not leak openai key')
-    assert.ok(!JSON.stringify(safe).includes('k-secret'), 'safe config must not leak kie key')
+    assert.ok(!JSON.stringify(safe).includes('gs-secret'), 'safe config must not leak the GenStudio key')
   })
 
-  test('recognizes hyphenated typed preset pointers and migrates every preset family', () => {
+  test('recognizes hyphenated typed preset pointers without reviving retired model aliases', () => {
     assert.equal(pm.isPresetConfigKey('scene_plan_last_preset_scene-plan'), true)
     assert.equal(pm.isPresetConfigKey('scene_review_last_preset_scene-review'), true)
     assert.equal(pm.isPresetConfigKey('ordinary_setting'), false)
@@ -216,9 +215,9 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
 
     assert.equal(
       config.ideas_generator_presets[0].data.model,
-      'genstudio-chat:genstudio-chat-304c7e5dd2011f75a067-v1',
+      'deepseek-v4-flash-openrouter',
     )
-    assert.equal(config.scene_generator_presets[0].data.imageModel, 'genstudio-image-economy-v1')
+    assert.equal(config.scene_generator_presets[0].data.imageModel, 'z-image')
     assert.equal(
       config.audio_generator_presets[0].data.form.model_id,
       'genstudio-tts-regular',
@@ -228,7 +227,7 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     assert.equal(config['scene_plan_last_preset_scene-plan'], 'scene-plan-1')
   })
 
-  test('preserves live chat catalog ids and heals historical unprefixed ids in presets', () => {
+  test('preserves live chat catalog ids and leaves historical ids unavailable for explicit reselection', () => {
     const config = pm.migrateProjectPresetFields({
       metadata_presets: [{
         id: 'metadata',
@@ -249,8 +248,8 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     )
     assert.equal(
       config.thumbnail_prompts_presets[0].data.form.model,
-      'genstudio-chat:genstudio-chat-24dfe02e43ba87a7fd1a-v1',
-      'an old unprefixed capability id should heal to the current selector id',
+      'genstudio-chat-24dfe02e43ba87a7fd1a-v1',
+      'an old unprefixed capability id remains unavailable instead of being silently remapped',
     )
   })
 })

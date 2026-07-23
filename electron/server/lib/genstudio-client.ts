@@ -191,6 +191,7 @@ export interface GenStudioChatModel {
   description?: string
   available: boolean
   qualification_only: boolean
+  context_limit_tokens: number
   max_output_tokens: number
   controls: string[]
   activation_blockers: string[]
@@ -644,6 +645,9 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
+    context_limit_tokens: Number.isInteger(value?.context_limit_tokens)
+      ? Math.max(1, Math.min(500_000, value.context_limit_tokens))
+      : 0,
     max_output_tokens: Number.isInteger(value?.max_output_tokens)
       ? Math.max(1, Math.min(32_768, value.max_output_tokens))
       : 2_048,

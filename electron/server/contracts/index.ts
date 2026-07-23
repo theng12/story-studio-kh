@@ -233,12 +233,7 @@ export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
  * serving; never add a `*_api_key` field here.
  */
 export interface SafeProjectConfigResponse {
-  has_kie_key: boolean
-  has_fal_key: boolean
-  has_openai_key: boolean
-  has_anthropic_key: boolean
-  has_genaipro_key?: boolean
-  has_elevenlabs_key?: boolean
+  has_genstudio_key: boolean
   /**
    * Multi-account listing keyed by provider id. Added in Delivery 2; the
    * `has_*_key` booleans above are still populated (from the default account

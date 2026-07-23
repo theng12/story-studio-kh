@@ -19,16 +19,21 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /delete activeData\.style_prompt/)
   })
 
-  test('keeps prompt batching and motion controls visible', () => {
+  test('keeps GenStudio-aware prompt batching and readable intensity controls visible', () => {
     assert.match(scenePlan, /class="scene-workflow-grid/)
-    assert.match(scenePlan, /Scenes per cloud pack/)
+    assert.match(scenePlan, /Automatic keeps each full-detail JSON response complete/)
+    assert.match(scenePlan, /Advanced batch controls/)
+    assert.match(scenePlan, /selectedModelContextLabel/)
+    assert.doesNotMatch(scenePlan, /Scenes per cloud pack/)
+    assert.doesNotMatch(scenePlan, /Local and free-cloud models cap/)
     assert.match(scenePlan, /PROMPT_PACK_PRESETS = \[1, 3, 5, 10, 15, 20, 25, 30, 50\]/)
     assert.match(scenePlan, /value="custom"/)
     assert.match(scenePlan, /customPromptPackSize/)
     assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
-    assert.doesNotMatch(scenePlan, /<details[^>]*advanced-panel/)
+    assert.match(scenePlan, /class="scene-advanced-batches"/)
     assert.match(scenePlan, /class="scene-motion-controls"/)
     assert.match(scenePlan, /:disabled="!form\.generate_motion_prompts"/)
+    assert.match(scenePlan, /class="intensity-options"/)
     assert.doesNotMatch(scenePlan, /v-if="form\.generate_motion_prompts" class="mt-2"/)
   })
 

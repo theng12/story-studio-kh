@@ -20,7 +20,7 @@ import type {
   AudioModelConfig, CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
-import { migrateGenStudioPresetModels, resolveGenStudioModelId } from './genstudio-model-migration.js'
+import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
@@ -533,27 +533,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     if (softDeleted.has(slug)) return null  // hidden via soft-delete tombstone
     seenSlugs.add(slug)
 
-    // Read secrets + legacy-config check in parallel — each is an independent
-    // file read and the result is just a boolean for the summary flag.
-    const secretsP = readSecrets(slug)
-    let legacyConfigHasKeys = false
-    const [secrets, legacyKeys] = await Promise.all([
-      secretsP,
-      (async () => {
-        try {
-          const raw = await readJson(path.join(cand.dir, 'config.json'))
-          return !!(raw?.openai_api_key || raw?.anthropic_api_key)
-        } catch (e: any) {
-          if (e?.code !== 'ENOENT') {
-            console.warn(`[projects] listProjects: config.json unreadable for '${slug}' — ${e.message}`)
-          }
-          return false
-        }
-      })(),
-    ])
-    if (!secrets.openai_api_key && !secrets.anthropic_api_key) {
-      legacyConfigHasKeys = legacyKeys
-    }
+    const secrets = await readSecrets(slug)
 
     // Resolve output_root absolute for presence check. Relative paths live
     // inside the project dir and are always present; only an absolute user-
@@ -569,7 +549,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       slug,
       episode_prefix: meta.episode_prefix,
       created_at: meta.created_at,
-      has_api_keys: !!(secrets.openai_api_key || secrets.anthropic_api_key) || legacyConfigHasKeys,
+      has_api_keys: !!secrets.genstudio_api_key,
       // (Removed: portable field. All projects are equivalent now;
       // the synced badge it powered is gone.)
       output_root: outputRootAbs,
@@ -973,11 +953,8 @@ export function storyTtsTierForModelId(modelId: string): StoryTtsTier | null {
 /** Resolve a Story voice tier to the GenStudio capability that executes it. */
 export function resolveStoryTtsModelId(modelId: string): string | null {
   const value = modelId.trim()
-  if (value === 'genstudio-tts-regular' || value === 'genstudio-qwen3-standard') {
-    return 'genstudio-standard-v1'
-  }
-  if (value === 'genstudio-tts-premium' || value === 'genstudio-tts-clone') {
-    return 'genstudio-clone-v1'
+  if (value === 'genstudio-tts-regular' || value === 'genstudio-tts-premium' || value === 'genstudio-tts-clone') {
+    return null
   }
   return resolveGenStudioModelId('voice', value)
 }
@@ -986,11 +963,7 @@ export function isPresetConfigKey(key: string): boolean {
   return key.endsWith('_presets') || /_last_preset(?:_[a-z0-9-]+)?$/.test(key)
 }
 
-function migratePresetField(key: string, value: unknown): unknown {
-  return isPresetConfigKey(key)
-    ? migrateGenStudioPresetModels(value)
-    : value
-}
+function migratePresetField(_key: string, value: unknown): unknown { return value }
 
 /**
  * Migrate every reusable preset family, including future generators, instead
@@ -1044,25 +1017,10 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   // Never expose it to callers, even while an older config.json still carries it.
   delete raw.models
 
-  // Merge secrets in for callers that need the keys (generators, providers).
-  // This is an in-memory merge only — config.json on disk never carries keys.
-  // On first read of a legacy project, move any keys found in config.json
-  // into secrets.json. Callers never see a shape change.
-  const { readSecrets, migrateSecretsFromConfig } = await import('./secrets-store.js')
-  let configHadKeys = false
-  for (const k of ['kie_api_key', 'fal_api_key', 'openai_api_key', 'anthropic_api_key', 'genaipro_api_key', 'elevenlabs_api_key', 'google_api_key'] as const) {
-    if (k in raw) { configHadKeys = true; break }
-  }
-  if (configHadKeys) {
-    await migrateSecretsFromConfig(slug).catch(() => {})
-  }
+  // GenStudio credentials are app-level and never copied into project files.
+  const { readSecrets } = await import('./secrets-store.js')
   const secrets = await readSecrets(slug)
-  raw.kie_api_key = secrets.kie_api_key ?? ''
-  raw.fal_api_key = secrets.fal_api_key ?? ''
-  raw.openai_api_key = secrets.openai_api_key ?? ''
-  raw.anthropic_api_key = secrets.anthropic_api_key ?? ''
-  raw.genaipro_api_key = secrets.genaipro_api_key ?? ''
-  raw.elevenlabs_api_key = secrets.elevenlabs_api_key ?? ''
+  raw.genstudio_api_key = secrets.genstudio_api_key ?? ''
   raw.google_api_key = secrets.google_api_key ?? ''
   return raw
 }
@@ -1082,11 +1040,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
 
   const safe: any = {
     has_kie_key: !!config.kie_api_key,
-    has_fal_key: !!config.fal_api_key,
-    has_openai_key: !!config.openai_api_key,
-    has_anthropic_key: !!config.anthropic_api_key,
-    has_genaipro_key: !!(config as any).genaipro_api_key,
-    has_elevenlabs_key: !!(config as any).elevenlabs_api_key,
+    has_genstudio_key: !!config.genstudio_api_key,
     has_google_key: !!(config as any).google_api_key,
     // v1.0.150 — Chatterbox standalone provider removed. The
     // chatterbox_enabled / chatterbox_reference_id fields stay in the

@@ -1544,22 +1544,10 @@ export interface ConfirmationPreferences {
 }
 
 export interface ProjectConfig {
-  kie_api_key: string
-  fal_api_key: string
-  openai_api_key: string
-  anthropic_api_key: string
-  genaipro_api_key?: string
-  elevenlabs_api_key?: string
+  /** Historical project files may contain retired fields; Story ignores them. */
+  [key: string]: any
+  genstudio_api_key?: string
   google_api_key?: string
-  /**
-   * @deprecated v1.0.150 — The Chatterbox standalone provider was removed.
-   * Field kept on the type so existing project.json files don't fail to
-   * parse; value is no longer read anywhere. (Chatterbox-mlx is reachable
-   * through Voice Studio's family list if it's ever needed again.)
-   */
-  chatterbox_enabled?: boolean
-  /** @deprecated v1.0.150 — see chatterbox_enabled. */
-  chatterbox_reference_id?: string
   /**
    * YouTube videoCategories.list ID applied to every fresh upload
    * + metadata-only PATCH for this project. Default 24 ("Entertainment")
@@ -1752,12 +1740,7 @@ export interface MetadataTemplate {
 }
 
 export interface SafeProjectConfig {
-  has_kie_key: boolean
-  has_fal_key: boolean
-  has_openai_key: boolean
-  has_anthropic_key: boolean
-  has_genaipro_key?: boolean
-  has_elevenlabs_key?: boolean
+  has_genstudio_key: boolean
   has_google_key?: boolean
   /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
   chatterbox_enabled?: boolean
@@ -1779,12 +1762,8 @@ export interface SafeProjectConfig {
 }
 
 export interface UpdateApiKeysRequest {
-  kie_api_key?: string
-  fal_api_key?: string
-  openai_api_key?: string
-  anthropic_api_key?: string
-  genaipro_api_key?: string
-  elevenlabs_api_key?: string
+  [key: string]: string | undefined
+  genstudio_api_key?: string
   google_api_key?: string
 }
 
@@ -2826,96 +2805,6 @@ export interface AudioMergeRequest {
 }
 
 // ── AI Models ───────────────────────────────────────────────────────────────
-
-export type AiProvider = 'openai' | 'kie' | 'deepseek' | 'openrouter'
-
-export const SUPPORTED_MODELS: Record<string, AiProvider> = {
-  // OpenAI — current + legacy
-  'gpt-5': 'openai',
-  'gpt-5-mini': 'openai',
-  'gpt-4.1': 'openai',
-  'gpt-4.1-mini': 'openai',
-  'gpt-4.1-nano': 'openai',
-  'gpt-4o': 'openai',
-  'gpt-4o-mini': 'openai',
-  'o3': 'openai',
-  'o3-mini': 'openai',
-  'o4-mini': 'openai',
-  // DeepSeek (official API — api.deepseek.com)
-  'deepseek-v4-flash': 'deepseek',
-  'deepseek-v4-pro': 'deepseek',
-  // OpenRouter (curated)
-  'deepseek-v4-flash-openrouter': 'openrouter',
-  // v1.0.248 — kie.ai was removed as a TEXT/LLM provider (its chat endpoint
-  // was Cloudflare-blocked / throttled and unreliable). Use DeepSeek-direct or
-  // OpenRouter for text. kie.ai IMAGE + VIDEO generation are unaffected.
-}
-
-/** Display labels for the frontend model selectors */
-export const MODEL_LABELS: Record<string, string> = {
-  // DeepSeek official (the new default lives here)
-  'deepseek-v4-flash': 'DeepSeek V4 Flash [DeepSeek]',
-  'deepseek-v4-pro':   'DeepSeek V4 Pro [DeepSeek]',
-  // OpenRouter (curated)
-  'deepseek-v4-flash-openrouter': 'DeepSeek V4 Flash [OpenRouter]',
-  'gpt-5':             'GPT-5 [OpenAI]',
-  'gpt-5-mini':        'GPT-5 Mini [OpenAI]',
-  'gpt-4.1':           'GPT-4.1 [OpenAI]',
-  'gpt-4.1-mini':      'GPT-4.1 Mini [OpenAI]',
-  'gpt-4.1-nano':      'GPT-4.1 Nano [OpenAI]',
-  'gpt-4o':            'GPT-4o [OpenAI]',
-  'gpt-4o-mini':       'GPT-4o Mini [OpenAI]',
-  'o3':                'o3 [OpenAI reasoning]',
-  'o3-mini':           'o3 Mini [OpenAI reasoning]',
-  'o4-mini':           'o4 Mini [OpenAI reasoning]',
-  // (kie.ai chat catalog removed in v1.0.248 — kie is image/video only now.)
-}
-
-/**
- * Legacy → current model-id remap (v1.0.235+). When direct Anthropic and the
- * kie.ai DeepSeek models were retired, existing projects/jobs may still have a
- * removed id persisted in their config. callAi normalises through this map at
- * dispatch time so saved selections keep working without a disk migration.
- * The frontend ModelSelector self-heals separately (auto-falls-back to the
- * first available model), so this only matters for headless/pipeline paths.
- */
-export const LEGACY_MODEL_ALIASES: Record<string, string> = {
-  // v1.0.248 — kie.ai text was removed. Any persisted kie chat id (direct
-  // Anthropic ids that used to alias to kie Claude, plus the kie chat ids
-  // themselves) now degrades to the project-default DeepSeek model so saved
-  // selections / pipelines keep running on a working provider instead of
-  // hard-erroring with "Unsupported model".
-  'claude-opus-4-6':   'deepseek-v4-flash',
-  'claude-sonnet-4-6': 'deepseek-v4-flash',
-  'claude-haiku-4-5':  'deepseek-v4-flash',
-  'claude-opus-4-8-kie':   'deepseek-v4-flash',
-  'claude-opus-4-7-kie':   'deepseek-v4-flash',
-  'claude-opus-4-6-kie':   'deepseek-v4-flash',
-  'claude-opus-4-5-kie':   'deepseek-v4-flash',
-  'claude-sonnet-4-6-kie': 'deepseek-v4-flash',
-  'claude-sonnet-4-5-kie': 'deepseek-v4-flash',
-  'claude-haiku-4-5-kie':  'deepseek-v4-flash',
-  'gpt-5-2-kie':           'deepseek-v4-flash',
-  'gpt-5-4-kie':           'deepseek-v4-flash',
-  'gpt-5-5-kie':           'deepseek-v4-flash',
-  'gemini-3-pro-kie':      'deepseek-v4-flash',
-  'gemini-3-flash-kie':    'deepseek-v4-flash',
-  'gemini-3.1-pro-kie':    'deepseek-v4-flash',
-  'gemini-2-5-pro-kie':    'deepseek-v4-flash',
-  'gemini-2.5-flash-kie':  'deepseek-v4-flash',
-  // Retired kie.ai DeepSeek → official DeepSeek.
-  'deepseek-v3-kie':   'deepseek-v4-flash',
-  'deepseek-r1-kie':   'deepseek-v4-pro',
-}
-
-// Models that the OpenAI-key check would otherwise mark "available" but
-// the user's account can't actually call. The frontend treats any model
-// with a reason here as disabled and shows the reason as a tooltip.
-// Edit this map (or remove an entry) once account access changes.
-export const KNOWN_UNAVAILABLE_REASONS: Record<string, string> = {
-  'gpt-5':      'Your OpenAI account does not have GPT-5 access. Use GPT-4o or Claude.',
-  'gpt-5-mini': 'Your OpenAI account does not have GPT-5 access. Use GPT-4o-mini or Claude Haiku.',
-}
 
 // ── Research types (v1.0.142+ — timestamp-driven pipeline) ──────────────
 //
