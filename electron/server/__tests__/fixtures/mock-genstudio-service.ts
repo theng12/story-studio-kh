@@ -26,6 +26,7 @@ export type MockGenStudioScope =
   | 'audio:transcribe'
   | 'images:generate'
   | 'chat:generate'
+  | 'usage:read'
 
 export interface MockCreditSnapshot {
   quoted: number
@@ -92,6 +93,7 @@ const FULL_SCOPES: MockGenStudioScope[] = [
   'audio:transcribe',
   'images:generate',
   'chat:generate',
+  'usage:read',
 ]
 
 const OPERATION_NAME: Record<MockGenStudioOperation, string> = {
@@ -207,6 +209,7 @@ function requiredScope(pathname: string, method: string): MockGenStudioScope | n
   if (pathname === '/v1/voices') return 'voices:read'
   if (pathname === '/v1/transcription/models') return 'audio:transcribe'
   if (pathname === '/v1/image/models' || pathname === '/v1/images/models') return 'images:generate'
+  if (pathname === '/v1/account/overview') return 'usage:read'
   if (pathname.startsWith('/v1/chat/responses')) return 'chat:generate'
   if (pathname.startsWith('/v1/images')) return 'images:generate'
   if (pathname.startsWith('/v1/audio/transcriptions') || pathname.startsWith('/v1/transcriptions')) {
@@ -544,6 +547,21 @@ export class MockGenStudioService {
   }
 
   private handleCatalog(pathname: string, response: ServerResponse): boolean {
+    if (pathname === '/v1/account/overview') {
+      json(response, 200, {
+        credit_balance: 1_000,
+        credits_used_30d: 0,
+        subscription_plan_name: 'Angkor Pro',
+        api_concurrency_limit: 3,
+        total_jobs: this.jobs.size,
+        active_jobs: 0,
+        completed_jobs: this.jobs.size,
+        failed_jobs: 0,
+        available_assets: 0,
+        next_asset_expiration: null,
+      })
+      return true
+    }
     if (pathname === '/v1/models') {
       json(response, 200, [
         {

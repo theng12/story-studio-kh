@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.671 — 2026-07-23
+
+**Story Studio now queues every GenStudio request locally at the account's subscription concurrency.**
+
+- Loads the authoritative API concurrency limit from the signed-in GenStudio
+  account and applies one shared FIFO admission pool across LLM, image, video,
+  TTS, and transcription requests.
+- Keeps excess Story work in the local app until a subscription slot is free,
+  so thumbnail batches and other fan-out workflows cannot flood GenStudio.
+- Holds each slot through durable polling and verified artifact completion,
+  while preserving the existing GenStudio idempotency and accepted-job recovery
+  boundaries.
+- Removes a cancelled request from the local wait queue before submission. If
+  the entitlement lookup is unavailable or the key lacks `usage:read`, Story
+  Studio fails closed to one concurrent request instead of guessing.
+- Extends the deterministic GenStudio fixture with account-plan concurrency
+  evidence and adds regression tests for FIFO order, maximum parallelism,
+  cancellation, and the safe fallback.
+
 ## v1.0.670 — 2026-07-23
 
 **Story Studio voice selection now matches the three GenStudio products instead of exposing internal engines.**

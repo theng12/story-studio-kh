@@ -14,6 +14,7 @@ import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { getGenStudioUrl } from '../services/app-settings.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
+import { GenStudioAdmissionPool } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 
 const POLL_INTERVAL_MS = 1_000
@@ -244,6 +245,8 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
 export interface GenStudioAccountOverview {
   credit_balance: number
   credits_used_30d: number
+  subscription_plan_name: string
+  api_concurrency_limit: number
   total_jobs: number
   active_jobs: number
   completed_jobs: number
@@ -293,6 +296,32 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
 }
 
 type GenStudioOperation = GenStudioModelCapability['operation']
+
+const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey) => {
+  const overview = await readAccountJson<GenStudioAccountOverview>(
+    apiKey,
+    '/v1/account/overview',
+  )
+  if (
+    !Number.isInteger(overview.api_concurrency_limit)
+    || overview.api_concurrency_limit < 1
+  ) {
+    throw new Error('GenStudio account overview did not include a valid API concurrency limit')
+  }
+  return overview.api_concurrency_limit
+})
+
+export function genStudioAdmissionSnapshot() {
+  return genStudioAdmission.snapshot()
+}
+
+function withGenStudioAdmission<T>(
+  apiKey: string,
+  request: GenStudioOperationContext,
+  work: () => Promise<T>,
+): Promise<T> {
+  return genStudioAdmission.run(apiKey, request.signal, work)
+}
 
 async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenStudioJob): Promise<void> {
   const queue = await import('../services/job-queue.js')
@@ -623,7 +652,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
 }
 
 /** Submit image-to-video work only through GenStudio's durable video boundary. */
-export async function generateVideoWithGenStudio(
+async function generateVideoWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioVideoRequest,
 ): Promise<{
@@ -734,6 +763,25 @@ export async function generateVideoWithGenStudio(
   }
 }
 
+export async function generateVideoWithGenStudio(
+  apiKey: string,
+  request: GenStudioVideoRequest,
+): Promise<{
+  videoUrl: string
+  jobId: string
+  modelId: string
+  downloadHeaders: Record<string, string>
+  creditCost?: number
+  remainingCredits?: number
+  priceVersion?: string | null
+}> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => generateVideoWithGenStudioAdmitted(apiKey, request),
+  )
+}
+
 async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> {
   const baseUrl = await getGenStudioUrl()
   return readJson(await fetch(`${apiBase(baseUrl)}${pathName}`, {
@@ -773,7 +821,7 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
 }
 
 /** Submit once, then poll only GenStudio's durable chat job state. */
-export async function callChatWithGenStudio(
+async function callChatWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioChatRequest,
 ): Promise<{ text: string; jobId: string; modelId: string }> {
@@ -837,6 +885,17 @@ export async function callChatWithGenStudio(
     throw new Error('GenStudio KH chat job succeeded without usable output text')
   }
   return { text: current.output_text, jobId: current.id, modelId: current.model_id }
+}
+
+export async function callChatWithGenStudio(
+  apiKey: string,
+  request: GenStudioChatRequest,
+): Promise<{ text: string; jobId: string; modelId: string }> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => callChatWithGenStudioAdmitted(apiKey, request),
+  )
 }
 
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */
@@ -995,7 +1054,7 @@ async function downloadImageArtifact(
 }
 
 /** Reconnect to an already accepted image task. Never submits new work. */
-export async function recoverImageWithGenStudio(
+async function recoverImageWithGenStudioAdmitted(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
@@ -1013,8 +1072,20 @@ export async function recoverImageWithGenStudio(
   return { url, jobId: completed.id, modelId: completed.model_id }
 }
 
+export async function recoverImageWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
+): Promise<{ url: string; jobId: string; modelId: string }> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => recoverImageWithGenStudioAdmitted(apiKey, jobId, request),
+  )
+}
+
 /** Submit one durable GenStudio image task and return its verified private PNG. */
-export async function generateImageWithGenStudio(
+async function generateImageWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioImageRequest,
 ): Promise<{ url: string; jobId: string; modelId: string }> {
@@ -1070,6 +1141,17 @@ export async function generateImageWithGenStudio(
   const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
   return { url, jobId: completed.id, modelId: completed.model_id }
+}
+
+export async function generateImageWithGenStudio(
+  apiKey: string,
+  request: GenStudioImageRequest,
+): Promise<{ url: string; jobId: string; modelId: string }> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => generateImageWithGenStudioAdmitted(apiKey, request),
+  )
 }
 
 function transcriptionMediaType(filename: string): string {
@@ -1186,7 +1268,7 @@ async function downloadTranscriptionArtifact(
 }
 
 /** Reconnect to an already accepted transcription. Never submits new work. */
-export async function recoverTranscriptionWithGenStudio(
+async function recoverTranscriptionWithGenStudioAdmitted(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & {
@@ -1206,8 +1288,22 @@ export async function recoverTranscriptionWithGenStudio(
   return { srt, jobId: completed.id, modelId: completed.model_id }
 }
 
+export async function recoverTranscriptionWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioOperationContext & {
+    onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+  },
+): Promise<{ srt: string; jobId: string; modelId: string }> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => recoverTranscriptionWithGenStudioAdmitted(apiKey, jobId, request),
+  )
+}
+
 /** Submit private audio to GenStudio, poll its durable job, and return verified SRT text. */
-export async function transcribeWithGenStudio(
+async function transcribeWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioTranscriptionRequest,
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
@@ -1257,6 +1353,17 @@ export async function transcribeWithGenStudio(
   const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
   const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
   return { srt, jobId: completed.id, modelId: completed.model_id }
+}
+
+export async function transcribeWithGenStudio(
+  apiKey: string,
+  request: GenStudioTranscriptionRequest,
+): Promise<{ srt: string; jobId: string; modelId: string }> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => transcribeWithGenStudioAdmitted(apiKey, request),
+  )
 }
 
 async function waitForJob(
@@ -1356,7 +1463,7 @@ async function completeTtsJobToFile(
 }
 
 /** Reconnect to an already accepted TTS task. Never submits new work. */
-export async function recoverTtsToFile(
+async function recoverTtsToFileAdmitted(
   apiKey: string,
   outPath: string,
   jobId: string,
@@ -1373,8 +1480,21 @@ export async function recoverTtsToFile(
   await completeTtsJobToFile(baseUrl, apiKey, outPath, current, request, deadline)
 }
 
+export async function recoverTtsToFile(
+  apiKey: string,
+  outPath: string,
+  jobId: string,
+  request: GenStudioTtsRequest,
+): Promise<void> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => recoverTtsToFileAdmitted(apiKey, outPath, jobId, request),
+  )
+}
+
 /** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
-export async function generateTtsToFile(
+async function generateTtsToFileAdmitted(
   apiKey: string,
   outPath: string,
   request: GenStudioTtsRequest,
@@ -1400,4 +1520,16 @@ export async function generateTtsToFile(
   await recordGenStudioEvidence('voice.tts', submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
+}
+
+export async function generateTtsToFile(
+  apiKey: string,
+  outPath: string,
+  request: GenStudioTtsRequest,
+): Promise<void> {
+  return withGenStudioAdmission(
+    apiKey,
+    request,
+    () => generateTtsToFileAdmitted(apiKey, outPath, request),
+  )
 }
