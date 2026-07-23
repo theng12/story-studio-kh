@@ -63,6 +63,33 @@ export function resolveGenStudioModelId(modality: GenStudioModality, modelId: st
   return GENSTUDIO_LEGACY_MODEL_MAPS[modality][value] ?? null
 }
 
+/**
+ * Preset model selectors store the exact public catalog id shown by the UI.
+ * Chat is the only catalog whose public id carries a transport namespace
+ * (`genstudio-chat:<capability-id>`); execution adapters strip that namespace
+ * later. Removing it while saving made a newly-selected model immediately
+ * appear as an unavailable historical selection after the verification GET.
+ */
+function migratePresetModelId(modelId: string): string {
+  const value = modelId.trim()
+  if (!value) return modelId
+  if (value.startsWith(CHAT_PREFIX)) {
+    const capabilityId = stripGenStudioModelPrefix('chat', value)
+    return capabilityId ? `${CHAT_PREFIX}${capabilityId}` : value
+  }
+  if (value.startsWith('genstudio-chat-')) {
+    return `${CHAT_PREFIX}${value}`
+  }
+  if (value.startsWith('genstudio-')) return value
+
+  for (const modality of Object.keys(GENSTUDIO_LEGACY_MODEL_MAPS) as GenStudioModality[]) {
+    const mapped = GENSTUDIO_LEGACY_MODEL_MAPS[modality][value]
+    if (!mapped) continue
+    return modality === 'chat' ? `${CHAT_PREFIX}${mapped}` : mapped
+  }
+  return value
+}
+
 export function legacyIdsForGenStudioModel(modality: GenStudioModality, modelId: string): string[] {
   return Object.entries(GENSTUDIO_LEGACY_MODEL_MAPS[modality])
     .filter(([, target]) => target === modelId)
@@ -86,10 +113,7 @@ export function migrateGenStudioPresetModels(value: unknown): unknown {
       || normalizedKey.endsWith('_model')
       || normalizedKey.endsWith('_model_id')
     if (typeof child === 'string' && isModelSelector) {
-      const mapped = (Object.keys(GENSTUDIO_LEGACY_MODEL_MAPS) as GenStudioModality[])
-        .map(modality => resolveGenStudioModelId(modality, child))
-        .find(Boolean)
-      migrated[key] = mapped || child
+      migrated[key] = migratePresetModelId(child)
     } else {
       migrated[key] = migrateGenStudioPresetModels(child)
     }

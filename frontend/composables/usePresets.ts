@@ -122,6 +122,20 @@ function normalizePreset(value: Preset): Preset {
   return normalized
 }
 
+function stablePresetValue(value: any): any {
+  if (Array.isArray(value)) return value.map(stablePresetValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map(key => [key, stablePresetValue(value[key])]),
+  )
+}
+
+function presetDataMatches(expected: any, actual: any): boolean {
+  return JSON.stringify(stablePresetValue(expected)) === JSON.stringify(stablePresetValue(actual))
+}
+
 export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const { get, put } = useApi()
   const builtInPresets = opts.builtInPresets ?? []
@@ -137,6 +151,10 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   // sibling controller's newer save with its older in-memory array.
   const dirtyPresetIds = new Set<string>()
   const deletedPresetIds = new Set<string>()
+  // Native preset selection and Save can occur in adjacent UI ticks. Keep
+  // their read-modify-write cycles ordered so a slower stale response cannot
+  // overwrite the user's newer model/settings selection.
+  let persistTail: Promise<void> = Promise.resolve()
 
   const presetsKey = `${opts.configKey}_presets`
   // Active preset tracking is per-type so each section can remember its
@@ -199,7 +217,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     } catch { /* ignore */ }
   }
 
-  async function persist() {
+  async function persistNow() {
     // Merge against the latest authoritative list before every mutation.
     // updateConfig serializes the final read-modify-write on disk; this
     // client-side merge prevents separately-mounted preset controllers from
@@ -245,7 +263,15 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     for (const id of dirtyPresetIds) {
       const expected = localById.get(id)
       const saved = verifiedById.get(id)
-      if (expected && (!saved || saved.name !== expected.name)) {
+      const expectedData = expected
+        ? stripKeysDeep(expected.data, excludeKeys)
+        : undefined
+      if (expected && (
+        !saved
+        || saved.name !== expected.name
+        || saved.type !== expected.type
+        || !presetDataMatches(expectedData, saved.data)
+      )) {
         throw new Error(`Preset save could not be verified for "${expected.name}".`)
       }
     }
@@ -258,6 +284,12 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     allPresets.value = verified
     dirtyPresetIds.clear()
     deletedPresetIds.clear()
+  }
+
+  function persist(): Promise<void> {
+    const run = persistTail.then(persistNow, persistNow)
+    persistTail = run.then(() => undefined, () => undefined)
+    return run
   }
 
   function applyActive() {

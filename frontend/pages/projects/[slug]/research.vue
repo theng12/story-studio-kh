@@ -657,8 +657,15 @@ function bulkClaims(status: ResearchClaim['status']): void {
   for (const c of result.value.claims) c.status = status
 }
 
-// Hydrate on mount + episode change.
-onMounted(loadSources)
+// Hydrate both live source state and reusable setup. Research previously
+// omitted the shared preset load entirely, so saves reached config.json but
+// disappeared from the page after navigation.
+onMounted(async () => {
+  await Promise.all([
+    loadSources(),
+    researchPresets.load(),
+  ])
+})
 watch(episodeId, () => { void loadExisting() }, { immediate: true })
 
 // v1.0.148+ — race guard for the topic seed: useEpisodes may resolve

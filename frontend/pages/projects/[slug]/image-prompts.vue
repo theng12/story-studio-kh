@@ -1504,8 +1504,11 @@ onMounted(async () => {
   // either tab can immediately use saved presets without a tab-switch
   // first.
   await applyFormatDefaultsIfNoPreset()
-  void thumbnailPresets.load()
-  void loadVisionCaps()
+  await Promise.all([
+    thumbnailPresets.load(),
+    scenePresets.load(),
+    loadVisionCaps(),
+  ])
 })
 
 // ── Vision / style-extraction ──────────────────────────────────────────

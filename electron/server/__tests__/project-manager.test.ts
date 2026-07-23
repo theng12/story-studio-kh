@@ -216,7 +216,7 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
 
     assert.equal(
       config.ideas_generator_presets[0].data.model,
-      'genstudio-chat-304c7e5dd2011f75a067-v1',
+      'genstudio-chat:genstudio-chat-304c7e5dd2011f75a067-v1',
     )
     assert.equal(config.scene_generator_presets[0].data.imageModel, 'genstudio-image-economy-v1')
     assert.equal(
@@ -226,6 +226,32 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     )
     assert.equal('max_chunk_chars' in config.audio_generator_presets[0].data.form, false)
     assert.equal(config['scene_plan_last_preset_scene-plan'], 'scene-plan-1')
+  })
+
+  test('preserves live chat catalog ids and heals historical unprefixed ids in presets', () => {
+    const config = pm.migrateProjectPresetFields({
+      metadata_presets: [{
+        id: 'metadata',
+        name: 'Metadata',
+        data: { model: 'genstudio-chat:genstudio-chat-c1047d87b1971e8dd518-v1' },
+      }],
+      thumbnail_prompts_presets: [{
+        id: 'thumbnail',
+        name: 'Thumbnail prompts',
+        data: { form: { model: 'genstudio-chat-24dfe02e43ba87a7fd1a-v1' } },
+      }],
+    } as Record<string, any>)
+
+    assert.equal(
+      config.metadata_presets[0].data.model,
+      'genstudio-chat:genstudio-chat-c1047d87b1971e8dd518-v1',
+      'a live selector id must survive preset persistence byte-for-byte',
+    )
+    assert.equal(
+      config.thumbnail_prompts_presets[0].data.form.model,
+      'genstudio-chat:genstudio-chat-24dfe02e43ba87a7fd1a-v1',
+      'an old unprefixed capability id should heal to the current selector id',
+    )
   })
 })
 

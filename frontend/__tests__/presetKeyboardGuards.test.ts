@@ -50,4 +50,9 @@ describe('preset modal keyboard guards', () => {
       'the retired machine-label composable must not return',
     )
   })
+
+  test('the split prompt workspace hydrates both canonical preset stores', () => {
+    assert.match(imagePrompts, /thumbnailPresets\.load\(\)/)
+    assert.match(imagePrompts, /scenePresets\.load\(\)/)
+  })
 })

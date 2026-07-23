@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 // ── In-memory config store driving the stubbed $fetch ───────────────────────
 
 const configStore: Record<string, any> = {}
+let transformPutBody: ((body: any) => any) | null = null
 
 ;(globalThis as any).$fetch = async (url: string, options: any = {}) => {
   const match = url.match(/^\/api\/projects\/([^/]+)\/settings\/config$/)
@@ -28,7 +29,8 @@ const configStore: Record<string, any> = {}
   if (!configStore[slug]) configStore[slug] = {}
   if (!options.method || options.method === 'GET') return { ...configStore[slug] }
   if (options.method === 'PUT') {
-    Object.assign(configStore[slug], options.body)
+    const serialized = JSON.parse(JSON.stringify(options.body))
+    Object.assign(configStore[slug], transformPutBody ? transformPutBody(serialized) : serialized)
     return { ok: true }
   }
   throw new Error(`unexpected method: ${options.method}`)
@@ -38,6 +40,7 @@ const { usePresets } = await import('../composables/usePresets.js')
 
 beforeEach(() => {
   for (const k of Object.keys(configStore)) delete configStore[k]
+  transformPutBody = null
 })
 
 // Helper: construct a presets composable keyed to a snapshot/apply pair
@@ -183,6 +186,22 @@ describe('usePresets.saveAs() / overwrite() / remove() / setActive()', () => {
     assert.ok(updated)
     assert.equal(updated.data.value, 2)
     assert.equal(presets.presets.value.length, 1, 'no extra preset created')
+  })
+
+  test('rejects a save when the backend changes preset settings during persistence', async () => {
+    const { presets, form } = makeController('verify-data')
+    await presets.load()
+    form.value = 52
+    transformPutBody = (body) => {
+      body.script_presets[0].data.value = 7
+      return body
+    }
+
+    await assert.rejects(
+      () => presets.saveAs('Exact settings'),
+      /Preset save could not be verified/,
+      'the UI must not report success when only the preset name survived',
+    )
   })
 
   test('overwrite() is a no-op when no preset is active', async () => {

@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.676 — 2026-07-23
+
+**Reusable presets now retain the exact GenStudio model and settings that were saved.**
+
+- Preserves canonical live GenStudio LLM catalog IDs instead of rewriting them
+  into unavailable historical IDs after a preset save.
+- Repairs existing unprefixed GenStudio chat IDs when presets are loaded, so
+  Metadata, Research, Thumbnail Prompts, and other LLM-backed workspaces recover
+  their current model selections without a legacy fallback.
+- Loads Research presets whenever the workspace opens and preloads both split
+  Thumbnail and Scene Prompt preset stores.
+- Serializes overlapping preset updates and verifies the complete saved payload,
+  preventing a success message when any model or setting was altered or lost.
+- Adds regression coverage for exact model persistence, historical ID healing,
+  Research hydration, and failed full-payload verification.
+
 ## v1.0.675 — 2026-07-23
 
 **GenStudio jobs now show the real model used instead of opaque dispatch IDs.**
