@@ -244,4 +244,37 @@ describe('usePresets.saveAs() / overwrite() / remove() / setActive()', () => {
     assert.equal(fresh.presets.activeId.value, a.id)
     assert.equal(fresh.form.value, 1, 'loading auto-applies the newly-active preset')
   })
+
+  test('separate typed controllers preserve presets saved after their initial load', async () => {
+    const scriptForm = { value: 'script-v1' }
+    const introForm = { value: 'intro-v1' }
+    const script = usePresets({
+      slug: 'shared-pool',
+      configKey: 'script',
+      presetType: 'script',
+      snapshot: () => ({ ...scriptForm }),
+      apply: data => Object.assign(scriptForm, data),
+    })
+    const intro = usePresets({
+      slug: 'shared-pool',
+      configKey: 'script',
+      presetType: 'introduction',
+      snapshot: () => ({ ...introForm }),
+      apply: data => Object.assign(introForm, data),
+    })
+
+    // Both controllers capture the same initially-empty server state.
+    await Promise.all([script.load(), intro.load()])
+    const scriptPreset = await script.saveAs('Script setup')
+    const introPreset = await intro.saveAs('Opening setup')
+
+    const stored = configStore['shared-pool'].script_presets
+    assert.deepEqual(
+      stored.map((preset: any) => preset.id).sort(),
+      [scriptPreset.id, introPreset.id].sort(),
+      'the second stale controller must merge rather than erase the first save',
+    )
+    assert.equal(configStore['shared-pool'].script_last_preset_script, scriptPreset.id)
+    assert.equal(configStore['shared-pool'].script_last_preset_introduction, introPreset.id)
+  })
 })

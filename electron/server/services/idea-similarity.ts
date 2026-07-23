@@ -59,6 +59,8 @@ export interface SimilarityThresholds {
   title?: number
   /** Theme-set Jaccard above this → too similar. Default 0.6. */
   themes?: number
+  /** Combined title/logline/theme overlap above this → same concept. Default 0.5. */
+  concept?: number
 }
 
 /**
@@ -74,6 +76,7 @@ export function isTooSimilar(
 ): boolean {
   const tTitle = thresholds.title ?? 0.55
   const tThemes = thresholds.themes ?? 0.6
+  const tConcept = thresholds.concept ?? 0.5
 
   const titleSim = jaccard(tokenize(candidate.title), tokenize(existing.title))
   if (titleSim > tTitle) return true
@@ -83,6 +86,21 @@ export function isTooSimilar(
   if (aThemes.length >= 2 && bThemes.length >= 2) {
     const themeSim = jaccard(aThemes, bThemes)
     if (themeSim > tThemes) return true
+  }
+
+  const candidateConcept = tokenize([
+    candidate.title,
+    candidate.logline || '',
+    ...(candidate.themes || []),
+  ].join(' '))
+  const existingConcept = tokenize([
+    existing.title,
+    existing.logline || '',
+    ...(existing.themes || []),
+  ].join(' '))
+  if (candidateConcept.length >= 5 && existingConcept.length >= 5) {
+    const conceptSim = jaccard(candidateConcept, existingConcept)
+    if (conceptSim > tConcept) return true
   }
 
   if (candidate.logline && existing.title) {

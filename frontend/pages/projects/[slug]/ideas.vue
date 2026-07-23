@@ -248,6 +248,18 @@
           </div>
         </div>
 
+        <label class="originality-guard" :class="{ active: form.avoid_repeated_ideas }">
+          <input v-model="form.avoid_repeated_ideas" type="checkbox" />
+          <span class="originality-copy">
+            <strong>Prevent repeated ideas</strong>
+            <small>
+              Checks every saved idea in this project plus the current batch.
+              {{ allIdeas.length }} existing concept{{ allIdeas.length === 1 ? '' : 's' }} protected.
+            </small>
+          </span>
+          <span class="originality-state">{{ form.avoid_repeated_ideas ? 'On · recommended' : 'Off' }}</span>
+        </label>
+
         <AdvancedDisclosure
           v-model:open="ideaRefinementsOpen"
           label="Refine topic, audience, titles, and generation settings"
@@ -261,10 +273,10 @@
               :active-id="ideasPresets.activeId.value"
               @update:active-id="ideasPresets.setActive"
               @apply="onIdeasPresetApplied"
-              @overwrite="ideasPresets.overwrite(); success('Preset saved')"
-              @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-              @rename="(n: string) => ideasPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-              @delete="ideasPresets.remove(); success('Preset deleted')"
+              @overwrite="onIdeasPresetOverwrite"
+              @save-as="onIdeasPresetSaveAs"
+              @rename="onIdeasPresetRename"
+              @delete="onIdeasPresetDelete"
             />
 
             <div class="idea-refinement-grid">
@@ -1360,6 +1372,7 @@ const form = reactive({
   creative_mode: 'open' as CreativeMode,
   creative_direction: '',
   creative_lenses: [] as string[],
+  avoid_repeated_ideas: true,
   // v1.0.165+ — optional title template. Empty = LLM titles freely.
   // When set (e.g. "Fall asleep to {X}"), the backend instructs the
   // LLM to shape every generated title to it, substituting {X} with
@@ -1474,6 +1487,7 @@ const ideasPresets = usePresets<any>({
     creative_mode: form.creative_mode,
     creative_direction: form.creative_direction,
     creative_lenses: [...form.creative_lenses],
+    avoid_repeated_ideas: form.avoid_repeated_ideas,
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
     niche_id: form.niche_id,
@@ -1492,6 +1506,7 @@ const ideasPresets = usePresets<any>({
     if (['strict', 'guided', 'open'].includes(data.creative_mode)) form.creative_mode = data.creative_mode
     if (typeof data.creative_direction === 'string') form.creative_direction = data.creative_direction
     if (Array.isArray(data.creative_lenses)) form.creative_lenses = data.creative_lenses.filter((value: unknown) => typeof value === 'string')
+    if (typeof data.avoid_repeated_ideas === 'boolean') form.avoid_repeated_ideas = data.avoid_repeated_ideas
     if (typeof data.title_template === 'string') form.title_template = data.title_template
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle
@@ -1505,6 +1520,42 @@ const ideasPresets = usePresets<any>({
 function onIdeasPresetApplied() {
   ideasPresets.applyActive()
   success('Preset applied')
+}
+
+async function onIdeasPresetOverwrite() {
+  try {
+    await ideasPresets.overwrite()
+    success('Preset saved and verified')
+  } catch (error: any) {
+    showError(error?.message || 'Preset could not be saved')
+  }
+}
+
+async function onIdeasPresetSaveAs(name: string) {
+  try {
+    await ideasPresets.saveAs(name)
+    success(`Saved and verified: ${name}`)
+  } catch (error: any) {
+    showError(error?.message || 'Preset could not be saved')
+  }
+}
+
+async function onIdeasPresetRename(name: string) {
+  try {
+    await ideasPresets.rename(name)
+    success(`Renamed and verified: ${name}`)
+  } catch (error: any) {
+    showError(error?.message || 'Preset could not be renamed')
+  }
+}
+
+async function onIdeasPresetDelete() {
+  try {
+    await ideasPresets.remove()
+    success('Preset deletion verified')
+  } catch (error: any) {
+    showError(error?.message || 'Preset could not be deleted')
+  }
 }
 
 // ── Pattern + format wiring for the Ideas page ────────────────────────────
@@ -2698,10 +2749,15 @@ async function generate() {
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
     // is enough.
-    await post(`/projects/${slug.value}/generate/ideas`, body)
+    const generated = await post<any[]>(`/projects/${slug.value}/generate/ideas`, body)
     await loadIdeas()
     page.value = 1; sortField.value = 'generated_at'; sortDir.value = 'desc'
-    success('Ideas generated!')
+    const createdCount = Array.isArray(generated) ? generated.length : form.count
+    if (form.avoid_repeated_ideas && createdCount < form.count) {
+      success(`Generated ${createdCount} original idea${createdCount === 1 ? '' : 's'}; ${form.count - createdCount} repeat candidate${form.count - createdCount === 1 ? '' : 's'} blocked.`)
+    } else {
+      success(`${createdCount} idea${createdCount === 1 ? '' : 's'} generated`)
+    }
   } catch (e: any) { showError(e.data?.detail || 'Failed to generate') }
   finally { generating.value = false }
 }
@@ -3150,6 +3206,43 @@ async function confirmCompact() {
 }
 .creative-lens:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 .creative-lens.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.originality-guard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  cursor: pointer;
+}
+.originality-guard.active {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+  background: color-mix(in srgb, var(--success) 7%, var(--bg-secondary));
+}
+.originality-guard input { margin: 0; accent-color: var(--success); }
+.originality-copy { min-width: 0; }
+.originality-copy strong,
+.originality-copy small { display: block; }
+.originality-copy strong { color: var(--text-primary); font-size: 12px; }
+.originality-copy small { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.originality-state {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.originality-guard.active .originality-state {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
 .idea-composer :deep(.adv-disclosure) { margin-top: 12px; }
 .idea-composer :deep(.adv-disclosure-toggle) { padding: 9px 11px; background: color-mix(in srgb, var(--bg-primary) 70%, transparent); }
 .idea-refinement-shell { display: flex; flex-direction: column; gap: 10px; }
@@ -4116,6 +4209,8 @@ async function confirmCompact() {
   .generation-settings-grid { grid-template-columns: 1fr; }
   .idea-choice-heading { align-items: flex-start; flex-direction: column; }
   .idea-choice-heading small { text-align: left; }
+  .originality-guard { grid-template-columns: auto minmax(0, 1fr); }
+  .originality-state { grid-column: 2; justify-self: start; }
   .idea-launch-dock { align-items: stretch; flex-direction: column; }
   .idea-count-control { justify-content: space-between; }
   .generator-actions-primary { display: grid; grid-template-columns: 1fr; }

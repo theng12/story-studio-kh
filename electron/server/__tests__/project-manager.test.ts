@@ -189,6 +189,44 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     assert.ok(!JSON.stringify(safe).includes('sk-secret'), 'safe config must not leak openai key')
     assert.ok(!JSON.stringify(safe).includes('k-secret'), 'safe config must not leak kie key')
   })
+
+  test('recognizes hyphenated typed preset pointers and migrates every preset family', () => {
+    assert.equal(pm.isPresetConfigKey('scene_plan_last_preset_scene-plan'), true)
+    assert.equal(pm.isPresetConfigKey('scene_review_last_preset_scene-review'), true)
+    assert.equal(pm.isPresetConfigKey('ordinary_setting'), false)
+
+    const config = pm.migrateProjectPresetFields({
+      ideas_generator_presets: [{
+        id: 'ideas',
+        name: 'Ideas',
+        data: { model: 'deepseek-v4-flash-openrouter' },
+      }],
+      scene_generator_presets: [{
+        id: 'images',
+        name: 'Images',
+        data: { imageModel: 'z-image' },
+      }],
+      audio_generator_presets: [{
+        id: 'audio',
+        name: 'Audio',
+        data: { form: { model_id: 'genstudio-tts-regular', max_chunk_chars: 250 } },
+      }],
+      'scene_plan_last_preset_scene-plan': 'scene-plan-1',
+    } as Record<string, any>)
+
+    assert.equal(
+      config.ideas_generator_presets[0].data.model,
+      'genstudio-chat-304c7e5dd2011f75a067-v1',
+    )
+    assert.equal(config.scene_generator_presets[0].data.imageModel, 'genstudio-image-economy-v1')
+    assert.equal(
+      config.audio_generator_presets[0].data.form.model_id,
+      'genstudio-tts-regular',
+      'Story-facing product tiers remain stable instead of leaking an internal capability id',
+    )
+    assert.equal('max_chunk_chars' in config.audio_generator_presets[0].data.form, false)
+    assert.equal(config['scene_plan_last_preset_scene-plan'], 'scene-plan-1')
+  })
 })
 
 describe('Standards (production_standards.txt)', () => {

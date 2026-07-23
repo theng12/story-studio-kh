@@ -29,6 +29,14 @@ describe('Ideas freeform creative flow', () => {
     assert.match(ideas, /creative_lenses: \[\] as string\[\]/)
   })
 
+  test('keeps the full-history originality guard visible, enabled, and preset-backed', () => {
+    assert.match(ideas, /Prevent repeated ideas/)
+    assert.match(ideas, /avoid_repeated_ideas: true/)
+    assert.match(ideas, /avoid_repeated_ideas: form\.avoid_repeated_ideas/)
+    assert.match(ideas, /typeof data\.avoid_repeated_ideas === 'boolean'/)
+    assert.match(ideas, /saved and verified/i)
+  })
+
   test('keeps count and generation actions in a compact launch dock', () => {
     assert.match(ideas, /class="idea-launch-dock"/)
     assert.match(ideas, /Generate \{\{ form\.count \}\} ideas/)

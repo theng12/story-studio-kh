@@ -1960,6 +1960,12 @@ export interface GenerateIdeasRequest {
    * user's freeform brief. */
   creative_lenses?: string[]
   /**
+   * Compare generated concepts against the complete saved Ideas history and
+   * the current batch. Defaults to true. False is an explicit opt-out for a
+   * creator who intentionally wants a sequel, remake, or recurring topic.
+   */
+  avoid_repeated_ideas?: boolean
+  /**
    * v1.0.165+ — optional title template. When set (e.g. "Fall asleep to
    * {X}"), the idea-generator prompt instructs the LLM to shape EVERY
    * generated title to it, replacing the literal {X} with a concrete

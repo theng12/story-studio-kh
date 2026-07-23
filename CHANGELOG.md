@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.672 — 2026-07-23
+
+**Presets now survive shared-workspace saves, and Ideas visibly prevents recycled concepts.**
+
+- Makes every preset mutation merge with the latest project configuration,
+  preventing separately mounted controls from erasing presets saved by one
+  another.
+- Re-reads and verifies each saved, renamed, or deleted preset plus its
+  last-used pointer before the UI reports success.
+- Restores hyphenated typed preset pointers such as `scene-plan`,
+  `scene-review`, and `motion-review`, and migrates model selections across
+  every current and future preset family instead of Audio alone.
+- Adds a default-on, preset-saved **Prevent repeated ideas** control to Ideas.
+  The model sees up to 200 recent concepts while the deterministic completion
+  gate checks the complete project history and the current batch.
+- Refuses to refill a filtered batch with known repeats. When originality
+  filtering leaves fewer safe ideas, the result reports the smaller verified
+  count rather than silently recycling an episode concept.
+
 ## v1.0.671 — 2026-07-23
 
 **Story Studio now queues every GenStudio request locally at the account's subscription concurrency.**

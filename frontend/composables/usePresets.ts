@@ -131,6 +131,12 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const allPresets = ref<Preset[]>([])
   const activeId = ref('')
   const excludeKeys = opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS
+  // A page can mount several preset controllers over one shared config key
+  // (Video Assembly is the largest example). Track only the records this
+  // controller actually changed so a stale controller never replaces a
+  // sibling controller's newer save with its older in-memory array.
+  const dirtyPresetIds = new Set<string>()
+  const deletedPresetIds = new Set<string>()
 
   const presetsKey = `${opts.configKey}_presets`
   // Active preset tracking is per-type so each section can remember its
@@ -194,19 +200,64 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function persist() {
-    // A mutation is also the safe migration point for legacy records: clean
-    // the full list before writing, including entries owned by other types.
-    allPresets.value = allPresets.value.map((preset) => {
-      const normalized = normalizePreset(preset)
-      return {
+    // Merge against the latest authoritative list before every mutation.
+    // updateConfig serializes the final read-modify-write on disk; this
+    // client-side merge prevents separately-mounted preset controllers from
+    // sending a stale full-array replacement.
+    const latestConfig = await get<any>(`/projects/${opts.slug}/settings/config`)
+    const latestPresets = Array.isArray(latestConfig[presetsKey])
+      ? latestConfig[presetsKey].map(normalizePreset)
+      : []
+    const localById = new Map(allPresets.value.map(preset => [preset.id, preset]))
+    const mergedById = new Map(latestPresets.map(preset => [preset.id, preset]))
+
+    for (const id of deletedPresetIds) mergedById.delete(id)
+    for (const id of dirtyPresetIds) {
+      const local = localById.get(id)
+      if (!local) {
+        mergedById.delete(id)
+        continue
+      }
+      const normalized = normalizePreset(local)
+      mergedById.set(id, {
         ...normalized,
         data: stripKeysDeep(normalized.data, excludeKeys),
-      }
-    })
+      })
+    }
+
+    const merged = [...mergedById.values()]
     await put(`/projects/${opts.slug}/settings/config`, {
-      [presetsKey]: allPresets.value,
+      [presetsKey]: merged,
       [activeKey]: activeId.value,
     })
+
+    // A successful PUT alone is not proof that a preset survived the full
+    // persistence path. Re-read and verify the active pointer plus every
+    // record changed by this controller before reporting success to the UI.
+    const verifiedConfig = await get<any>(`/projects/${opts.slug}/settings/config`)
+    const verified = Array.isArray(verifiedConfig[presetsKey])
+      ? verifiedConfig[presetsKey].map(normalizePreset)
+      : []
+    const verifiedById = new Map(verified.map(preset => [preset.id, preset]))
+    if ((verifiedConfig[activeKey] || '') !== activeId.value) {
+      throw new Error('Preset save could not be verified: the last-used selection was not retained.')
+    }
+    for (const id of dirtyPresetIds) {
+      const expected = localById.get(id)
+      const saved = verifiedById.get(id)
+      if (expected && (!saved || saved.name !== expected.name)) {
+        throw new Error(`Preset save could not be verified for "${expected.name}".`)
+      }
+    }
+    for (const id of deletedPresetIds) {
+      if (verifiedById.has(id)) {
+        throw new Error('Preset deletion could not be verified.')
+      }
+    }
+
+    allPresets.value = verified
+    dirtyPresetIds.clear()
+    deletedPresetIds.clear()
   }
 
   function applyActive() {
@@ -217,7 +268,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function saveAs(name: string) {
-    const id = `preset-${Date.now()}`
+    const unique = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const id = `preset-${unique}`
     const fresh: Preset = {
       id,
       name,
@@ -231,6 +283,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     // mounted yet, which manifested as "I just saved but can't apply it".
     allPresets.value = [...allPresets.value, fresh]
     activeId.value = id
+    dirtyPresetIds.add(id)
+    deletedPresetIds.delete(id)
     // Let Vue commit the option list update before we fire the PUT.
     await nextTick()
     await persist()
@@ -245,6 +299,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     // If overwriting an untyped legacy preset from a typed instance, also
     // tag it so it stops appearing in other sections.
     if (opts.presetType && !p.type) p.type = opts.presetType
+    dirtyPresetIds.add(p.id)
+    deletedPresetIds.delete(p.id)
     await persist()
     return p
   }
@@ -254,6 +310,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     const p = allPresets.value.find(x => x.id === activeId.value)
     if (!p) return null
     allPresets.value = allPresets.value.filter(x => x.id !== activeId.value)
+    dirtyPresetIds.delete(p.id)
+    deletedPresetIds.add(p.id)
     activeId.value = ''
     await persist()
     return p
@@ -282,6 +340,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     if (!p) return null
     if (p.name === trimmed) return p   // no-op when the name didn't change
     p.name = trimmed
+    dirtyPresetIds.add(p.id)
+    deletedPresetIds.delete(p.id)
     await persist()
     return p
   }

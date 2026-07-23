@@ -56,7 +56,11 @@ interface AvoidItem { title: string; mood?: string; themes?: string[] }
 
 function buildAvoidSection(items: AvoidItem[]): string {
   if (!items.length) return ''
-  const lines = items.slice(0, 30).map(i => {
+  // The local post-generation gate checks the complete history. Supplying
+  // the latest 200 records here helps the model avoid wasting candidates
+  // before that gate without allowing a very old project to consume an
+  // unbounded prompt.
+  const lines = items.slice(0, 200).map(i => {
     const themes = (i.themes || []).filter(Boolean).slice(0, 4).join(', ')
     const parts = [`"${i.title}"`]
     if (i.mood) parts.push(`mood: ${i.mood}`)
@@ -167,12 +171,13 @@ function buildPrompt(
 
   const seed = Math.random().toString(36).slice(2, 10)
   const creativeMode = req.creative_mode || 'guided'
+  const avoidRepeatedIdeas = req.avoid_repeated_ideas !== false
   const levers = pickLevers(creativeMode === 'strict' ? 2 : creativeMode === 'guided' ? 1 : 0)
   const leverLines = levers
     .map((l, i) => `  ${i + 1}. ${l}`)
     .join('\n')
 
-  const avoidSection = creativeMode === 'open' ? '' : buildAvoidSection(avoid)
+  const avoidSection = avoidRepeatedIdeas ? buildAvoidSection(avoid) : ''
   const extraAvoid = extraAvoidNote
     ? `\nAlso avoid the concepts listed here (these came back too close to existing on the last attempt): ${extraAvoidNote}\n`
     : ''
@@ -344,7 +349,7 @@ ${themeInstruction}
 RULES:
 - Every idea must have a different angle / subject / emotional arc from the others in this batch.
 ${varietyRule}
-- ${creativeMode === 'open' ? 'Avoid exact duplicates of prior titles, but do not let history narrow the creative space.' : 'Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint.'}
+- ${avoidRepeatedIdeas ? 'Do not repeat, rephrase, sequel, or lightly remix anything in the AVOID list. New structure is not enough; the central subject and payoff must also be new.' : 'Originality history is intentionally disabled for this batch; within-batch ideas must still be distinct.'}
 - Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
 - TITLE-NUMBER CONSISTENCY: if your title contains a leading count number (e.g. "10 mysteries", "7 plane crashes", "12 paradoxes"), the suggested_chapters value MUST equal that number. Mismatch is the most common bug we see — pick a count first, then write the title to match.${pinned !== null ? `\n- Pinned for this batch: every title that uses a leading count number MUST use ${pinned}, and suggested_chapters MUST be ${pinned}.` : ''}
 - ${moodVocab}
@@ -519,18 +524,21 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} title{rules=${tRules},len=${tLen}} logline{rules=${lRules}} themes{rules=${thRules}} variety=${variety} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
     const firstRaw = await callAiWithRetry(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
+    const avoidRepeatedIdeas = body.avoid_repeated_ideas !== false
 
     // Filter against the project's history + within-batch dupes.
     const priorCandidates: SimilarityCandidate[] = prior.map(i => ({
       title: i.title, logline: i.logline, themes: i.themes, mood: i.mood,
     }))
-    const firstPass = filterGenerated<StoryIdea>(firstBatch, priorCandidates)
+    const firstPass = avoidRepeatedIdeas
+      ? filterGenerated<StoryIdea>(firstBatch, priorCandidates)
+      : { kept: firstBatch, rejected: [] }
 
     let kept = firstPass.kept.slice(0, wantedCount)
 
     // If filtering cost us too many, reprompt once for the shortfall with
     // the rejected titles added to the avoid list.
-    if (kept.length < wantedCount && isLocalTextModel(body.model)) {
+    if (avoidRepeatedIdeas && kept.length < wantedCount && isLocalTextModel(body.model)) {
       const shortfall = wantedCount - kept.length
       const rejectedTitles = firstPass.rejected
         .map(r => r.candidate.title)
@@ -550,12 +558,10 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
           retryBatch,
           [...priorCandidates, ...kept.map(k => ({ title: k.title, logline: k.logline, themes: k.themes, mood: k.mood }))],
         )
-        // Take up to shortfall from the retry's kept pool. If retry also
-        // came back thin, fall back to its raw output — we never block the
-        // user's click over a similarity miss.
-        const retryKept = retryPass.kept.length >= shortfall
-          ? retryPass.kept.slice(0, shortfall)
-          : [...retryPass.kept, ...retryBatch.slice(retryPass.kept.length)].slice(0, shortfall)
+        // Never reinsert rejected candidates merely to fill the requested
+        // count. A shorter genuinely-new batch is safer than silently
+        // recycling an existing episode.
+        const retryKept = retryPass.kept.slice(0, shortfall)
         kept = [...kept, ...retryKept]
       } catch (e: any) {
         console.warn('[ideas] retry generation failed:', e?.message || e)

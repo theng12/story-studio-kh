@@ -982,10 +982,32 @@ export function resolveStoryTtsModelId(modelId: string): string | null {
   return resolveGenStudioModelId('voice', value)
 }
 
+export function isPresetConfigKey(key: string): boolean {
+  return key.endsWith('_presets') || /_last_preset(?:_[a-z0-9-]+)?$/.test(key)
+}
+
 function migratePresetField(key: string, value: unknown): unknown {
-  return (key.endsWith('_presets') || /_last_preset(_[a-z]+)?$/.test(key))
+  return isPresetConfigKey(key)
     ? migrateGenStudioPresetModels(value)
     : value
+}
+
+/**
+ * Migrate every reusable preset family, including future generators, instead
+ * of maintaining a brittle allow-list. Audio presets also lose the retired
+ * per-job chunk override. This mutates the supplied config so any subsequent
+ * settings save persists the complete migration in one atomic write.
+ */
+export function migrateProjectPresetFields<T extends Record<string, any>>(config: T): T {
+  const mutable = config as Record<string, any>
+  for (const key of Object.keys(config)) {
+    if (!isPresetConfigKey(key)) continue
+    const clean = key === 'audio_generator_presets'
+      ? sanitizeAudioGeneratorPresets(mutable[key])
+      : mutable[key]
+    mutable[key] = migratePresetField(key, clean)
+  }
+  return config
 }
 
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
@@ -994,11 +1016,7 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   const configPath = path.join(projectDir, 'config.json')
   if (!existsSync(configPath)) return null
   const raw = await readJson(configPath)
-  if (Array.isArray(raw.audio_generator_presets)) {
-    raw.audio_generator_presets = migrateGenStudioPresetModels(
-      sanitizeAudioGeneratorPresets(raw.audio_generator_presets),
-    )
-  }
+  migrateProjectPresetFields(raw)
 
   // Merge defaults into each catalog so new default entries (e.g. new
   // ElevenLabs models) surface in existing projects without forcing
@@ -1055,6 +1073,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
   const raw = await readJson(path.join(projectDir, 'config.json'))
+  migrateProjectPresetFields(raw)
   // Account list (Delivery 2) — masked values only. The legacy `has_*_key`
   // booleans below stay populated from the default account for any UI
   // surface that hasn't migrated to the accounts map yet.
@@ -1188,8 +1207,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // reproduced on a beta-tester machine where the config had valid typed
     // pointers but the UI still showed "— none —".
     const shouldPassThrough =
-      key.endsWith('_presets') ||
-      /_last_preset(_[a-z]+)?$/.test(key) ||
+      isPresetConfigKey(key) ||
       key.endsWith('_templates') ||
       key.endsWith('_last_template') ||
       key.startsWith('custom_') ||
@@ -1232,11 +1250,7 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
-    if (Array.isArray(data.audio_generator_presets)) {
-      data.audio_generator_presets = migrateGenStudioPresetModels(
-        sanitizeAudioGeneratorPresets(data.audio_generator_presets),
-      )
-    }
+    migrateProjectPresetFields(data)
     // Retired custom-model storage. Any normal settings save permanently
     // prunes it from this project's config without requiring a bulk migration.
     delete data.models

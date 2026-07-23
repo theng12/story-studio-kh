@@ -80,7 +80,12 @@ export function migrateGenStudioPresetModels(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
   const migrated: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(value)) {
-    if (typeof child === 'string' && (key === 'model' || key === 'model_id' || key.endsWith('_model'))) {
+    const normalizedKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`)
+    const isModelSelector = normalizedKey === 'model'
+      || normalizedKey === 'model_id'
+      || normalizedKey.endsWith('_model')
+      || normalizedKey.endsWith('_model_id')
+    if (typeof child === 'string' && isModelSelector) {
       const mapped = (Object.keys(GENSTUDIO_LEGACY_MODEL_MAPS) as GenStudioModality[])
         .map(modality => resolveGenStudioModelId(modality, child))
         .find(Boolean)
