@@ -72,7 +72,10 @@ async function resolveGenStudioTranscription(
   try {
     models = await listTranscriptionModels(apiKey)
   } catch (error) {
-    throw new Error('Could not load transcription models. Check your connection and try again.')
+    throw new Error(
+      'Could not load transcription models after automatic reconnect attempts. ' +
+      'No transcription was submitted or charged; check your connection and Retry.',
+    )
   }
   const requestedModel = req.model?.trim() || ''
   const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
@@ -241,6 +244,9 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           state: 'accepted',
         })
         job.output_lines.push(`GenStudio task: merged -> ${providerJobId}`)
+      },
+      onReconnect: (providerJobId) => {
+        job.output_lines.push(`Connection interrupted; reconnecting accepted GenStudio task ${providerJobId}.`)
       },
     }
     const result = reusableTask?.task_id
@@ -477,6 +483,9 @@ async function transcribePerChapter(
             state: 'accepted',
           })
           job.output_lines.push(`  GenStudio task: ${sec.slug} -> ${providerJobId}`)
+        },
+        onReconnect: (providerJobId) => {
+          job.output_lines.push(`  ${sec.slug}: reconnecting accepted GenStudio task ${providerJobId}.`)
         },
       }
       const result = reusableTask?.task_id

@@ -11,40 +11,9 @@ import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } fro
 import { generateImageWithGenStudio, listImageModels } from '../../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
 
-const AUTOMATIC_STEPS_CACHE_MS = 30_000
-const automaticStepsByAccount = new Map<string, {
-  expiresAt: number
-  stepsByModel: Map<string, number>
-}>()
-const automaticStepsRefreshByAccount = new Map<string, Promise<Map<string, number>>>()
-
 async function automaticGenStudioSteps(apiKey: string, modelId: string): Promise<number> {
-  const now = Date.now()
-  let cached = automaticStepsByAccount.get(apiKey)
-  if (!cached || cached.expiresAt <= now) {
-    let refresh = automaticStepsRefreshByAccount.get(apiKey)
-    if (!refresh) {
-      refresh = listImageModels(apiKey).then(models => {
-        const next = {
-          expiresAt: Date.now() + AUTOMATIC_STEPS_CACHE_MS,
-          stepsByModel: new Map(models.map(model => [model.id, model.default_steps])),
-        }
-        automaticStepsByAccount.set(apiKey, next)
-        return next.stepsByModel
-      }).finally(() => {
-        if (automaticStepsRefreshByAccount.get(apiKey) === refresh) {
-          automaticStepsRefreshByAccount.delete(apiKey)
-        }
-      })
-      automaticStepsRefreshByAccount.set(apiKey, refresh)
-    }
-    const stepsByModel = await refresh
-    cached = automaticStepsByAccount.get(apiKey) || {
-      expiresAt: Date.now() + AUTOMATIC_STEPS_CACHE_MS,
-      stepsByModel,
-    }
-  }
-  const steps = cached.stepsByModel.get(modelId)
+  const models = await listImageModels(apiKey)
+  const steps = models.find(model => model.id === modelId)?.default_steps
   if (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 1) {
     throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
   }
@@ -84,6 +53,7 @@ const genstudioImageProvider: ImageProvider = {
       requestIdentity: request.idempotencyIdentity,
       isCancelled: request.isCancelled,
       onJobAccepted: request.onJobAccepted,
+      onReconnect: request.onReconnect,
     })
     return { urls: [result.url], taskId: result.jobId }
   },

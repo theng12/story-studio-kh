@@ -72,6 +72,8 @@ export interface ImageGenerationRequest {
    * task after a restart instead of submitting it again.
    */
   onJobAccepted?: (taskId: string, idempotencyKey: string) => void | Promise<void>
+  /** Called when Story Studio safely reconnects to an already accepted task. */
+  onReconnect?: (taskId: string, reason: string) => void | Promise<void>
   /** Probe for user cancel — provider should honour it in poll loops so an
    *  aborted batch stops burning provider calls per in-flight request. */
   isCancelled?: () => boolean

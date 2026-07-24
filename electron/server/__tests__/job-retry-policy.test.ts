@@ -10,7 +10,10 @@ function policy(type: JobType, params: Record<string, any> = {}) {
 describe('local auto-retry policy', () => {
   test('leaves GenStudio durable recovery to GenStudio and never duplicates provider work', () => {
     assert.equal(policy('subtitles_transcribe', { engine: 'genstudio' }).eligible, false)
-    assert.match(policy('subtitles_transcribe', { engine: 'genstudio' }).reason, /GenStudio owns durable/)
+    assert.match(
+      policy('subtitles_transcribe', { engine: 'genstudio' }).reason,
+      /reconnects accepted GenStudio tasks/,
+    )
     // Queued pre-migration values are also manual-only while the generator
     // heals them onto GenStudio.
     assert.equal(policy('subtitles_transcribe', { engine: 'voicestudio' }).eligible, false)

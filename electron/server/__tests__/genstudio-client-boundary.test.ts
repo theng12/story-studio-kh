@@ -680,6 +680,33 @@ test('GenStudio preserves published Unlimited Relaxed account and transcription 
   }
 })
 
+test('concurrent transcription catalog reads share bounded automatic reconnects', async () => {
+  const originalFetch = globalThis.fetch
+  let requests = 0
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/transcription\/models$/)
+      requests++
+      if (requests < 3) throw new TypeError('fetch failed')
+      return Response.json([{
+        id: 'genstudio-transcribe-fast-v1',
+        display_name: 'Whisper Fast',
+        provider: 'GenStudio KH',
+        language: 'multilingual',
+        available: true,
+      }])
+    }
+    const catalogs = await Promise.all(Array.from(
+      { length: 12 },
+      () => listTranscriptionModels('catalog-reconnect-test-key'),
+    ))
+    assert.equal(requests, 3)
+    assert.ok(catalogs.every(models => models[0]?.id === 'genstudio-transcribe-fast-v1'))
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('GenStudio Retry-After supports seconds and HTTP dates', () => {
   assert.equal(parseGenStudioRetryAfterMs('2.5', 0), 2_500)
   assert.equal(
@@ -760,6 +787,76 @@ test('accepted GenStudio image jobs can be reclaimed without a second submit', a
     assert.equal(posts, 0)
     assert.equal(result.jobId, 'image_existing')
     assert.match(result.url, /^data:image\/png;base64,/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('image generation automatically reconnects an accepted task after polling interruption', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  let polls = 0
+  let reconnects = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 2,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 0,
+        })
+      }
+      if (url.endsWith('/v1/images/generations')) {
+        posts++
+        return Response.json({
+          id: 'image_auto_reconnect',
+          state: 'running',
+          model_id: 'genstudio-image-fast-v1',
+          prompt: 'A resilient image request.',
+          width: 1024,
+          height: 576,
+          aspect_ratio: '16:9',
+          steps: 4,
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/images/image_auto_reconnect')) {
+        polls++
+        if (polls <= 4) {
+          return Response.json({ detail: 'temporary gateway loss' }, {
+            status: 503,
+            headers: { 'Retry-After': '0' },
+          })
+        }
+        return Response.json({
+          id: 'image_auto_reconnect',
+          state: 'succeeded',
+          model_id: 'genstudio-image-fast-v1',
+          prompt: 'A resilient image request.',
+          width: 1024,
+          height: 576,
+          aspect_ratio: '16:9',
+          steps: 4,
+          image_url: '/v1/images/image_auto_reconnect/file',
+        })
+      }
+      if (url.endsWith('/v1/images/image_auto_reconnect/file')) return new Response(ONE_PIXEL_PNG)
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await generateImageWithGenStudio('image-auto-reconnect-key', {
+      prompt: 'A resilient image request.',
+      modelId: 'genstudio-image-fast-v1',
+      aspectRatio: '16:9',
+      steps: 4,
+      requestIdentity: 'project:EP0001:scene:0001',
+      onReconnect: () => { reconnects++ },
+    })
+    assert.equal(posts, 1)
+    assert.equal(reconnects, 1)
+    assert.equal(result.jobId, 'image_auto_reconnect')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -853,6 +950,74 @@ test('accepted transcription IDs can be reclaimed without a second submit', asyn
     assert.match(result.srt, /Recovered\./)
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('transcription automatically reconnects an accepted task after polling interruption', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-auto-reconnect-'))
+  const audioPath = path.join(dir, 'chapter.wav')
+  await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  let polls = 0
+  let reconnects = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          paid_concurrency_limit: 2,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 25,
+          generation_submissions_per_minute: 30,
+          relaxed_concurrency_limit: 0,
+        })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes')) {
+        posts++
+        return Response.json({ id: 'quote_stt_auto_reconnect' }, { status: 201 })
+      }
+      if (url.endsWith('/v1/audio/transcriptions/quotes/quote_stt_auto_reconnect/confirm')) {
+        posts++
+        return Response.json({
+          id: 'stt_auto_reconnect',
+          state: 'running',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+        }, { status: 202 })
+      }
+      if (url.endsWith('/v1/transcriptions/stt_auto_reconnect')) {
+        polls++
+        if (polls <= 4) {
+          return Response.json({ detail: 'temporary gateway loss' }, {
+            status: 503,
+            headers: { 'Retry-After': '0' },
+          })
+        }
+        return Response.json({
+          id: 'stt_auto_reconnect',
+          state: 'succeeded',
+          model_id: 'mlx-community/whisper-large-v3-turbo',
+          srt_url: '/v1/transcriptions/stt_auto_reconnect/srt',
+        })
+      }
+      if (url.endsWith('/v1/transcriptions/stt_auto_reconnect/srt')) {
+        return new Response('1\n00:00:00,000 --> 00:00:01,000\nRecovered automatically.\n')
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const result = await transcribeWithGenStudio('stt-auto-reconnect-key', {
+      audioPath,
+      modelId: 'mlx-community/whisper-large-v3-turbo',
+      requestIdentity: 'project:EP0001:transcription:chapter-auto-reconnect.srt',
+      onReconnect: () => { reconnects++ },
+    })
+    assert.equal(posts, 2)
+    assert.equal(reconnects, 1)
+    assert.match(result.srt, /Recovered automatically/)
+  } finally {
+    globalThis.fetch = originalFetch
+    await fs.rm(dir, { recursive: true, force: true })
   }
 })
 

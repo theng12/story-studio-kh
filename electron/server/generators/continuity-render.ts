@@ -332,6 +332,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                     input_hash: expectedInputHash,
                   })
                 },
+                onReconnect: (taskId) => {
+                  job.output_lines.push(
+                    `Scene ${scene.scene_index}: reconnecting accepted GenStudio task ${taskId.slice(0, 12)}…`,
+                  )
+                },
               })
             if (!result.urls.length) throw new Error('GenStudio KH returned no image')
             if (result.taskId) {

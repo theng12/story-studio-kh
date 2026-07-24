@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.715 — 2026-07-24
+
+**Subtitle and Scene Review batches now recover from temporary GenStudio interruptions.**
+
+- Coalesces simultaneous image and transcription model-catalog reads, retries
+  those free requests automatically, and keeps a recent verified catalog
+  available during short service interruptions.
+- Prevents a single eight-second catalog timeout from failing every episode or
+  scene waiting in a large batch before any generation request is submitted.
+- When polling or downloading loses its connection after GenStudio has already
+  accepted a task, reconnects that exact task ID automatically instead of
+  submitting and charging for replacement work.
+- Keeps verified subtitle files and scene images checkpointed as they finish;
+  a manual Retry remains scoped to unresolved terminal items and never redoes
+  completed work.
+- Clarifies job history when whole-job replay is intentionally withheld: safe
+  network recovery has already run, while paid terminal work is never blindly
+  submitted twice.
+
 ## v1.0.714 — 2026-07-24
 
 **Scene prompt repairs now use efficient GenStudio batches.**

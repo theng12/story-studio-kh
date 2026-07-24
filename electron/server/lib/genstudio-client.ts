@@ -23,6 +23,10 @@ import { chunkText } from './text-chunker.js'
 
 const POLL_INTERVAL_MS = 1_000
 const NETWORK_RETRY_ATTEMPTS = 4
+const CATALOG_RETRY_ATTEMPTS = 3
+const CATALOG_REQUEST_TIMEOUT_MS = 8_000
+const CATALOG_FRESH_MS = 5 * 60_000
+const CATALOG_STALE_MS = 30 * 60_000
 export const GENSTUDIO_MAX_TTS_CHARACTERS = 15_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
@@ -45,6 +49,8 @@ interface GenStudioOperationContext {
   signal?: AbortSignal
   isCancelled?: () => boolean
   onQueueState?: (state: GenStudioQueueState, jobId?: string) => void | Promise<void>
+  /** A durable accepted task lost its live connection and is being reclaimed. */
+  onReconnect?: (jobId: string, reason: string) => void | Promise<void>
 }
 
 export interface GenStudioJob {
@@ -524,6 +530,16 @@ function retryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500
 }
 
+function shouldReconnectAcceptedTask(
+  error: unknown,
+  request: GenStudioOperationContext,
+): boolean {
+  if (request.isCancelled?.() || request.signal?.aborted) return false
+  if (error instanceof GenStudioApiError) return retryableStatus(error.status)
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  return /timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|invalid JSON/i.test(message)
+}
+
 export class GenStudioApiError extends Error {
   constructor(public readonly status: number, public readonly detail: string) {
     super(
@@ -652,6 +668,81 @@ async function readJson(response: Response): Promise<any> {
     throw new GenStudioApiError(response.status, detail)
   }
   return body
+}
+
+interface CatalogCacheEntry<T> {
+  value: T
+  freshUntil: number
+  staleUntil: number
+}
+
+const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
+const catalogRefreshes = new Map<string, Promise<unknown>>()
+
+function catalogCacheKey(kind: string, baseUrl: string, apiKey: string): string {
+  return `${kind}:${createHash('sha256').update(`${baseUrl}\0${apiKey}`).digest('hex')}`
+}
+
+async function fetchCatalogJson(url: string, apiKey: string): Promise<unknown> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await readJson(await fetch(url, {
+        headers: authorization(apiKey),
+        signal: AbortSignal.timeout(CATALOG_REQUEST_TIMEOUT_MS),
+      }))
+    } catch (error) {
+      lastError = error
+      if (error instanceof GenStudioApiError && !retryableStatus(error.status)) throw error
+    }
+    if (attempt < CATALOG_RETRY_ATTEMPTS) {
+      await new Promise(resolve => setTimeout(resolve, 300 * (2 ** (attempt - 1))))
+    }
+  }
+  throw new Error(
+    'GenStudio KH model catalog could not be reached after automatic reconnect attempts.',
+    { cause: lastError },
+  )
+}
+
+/**
+ * Catalog reads are free and idempotent. Share one refresh across concurrent
+ * jobs, keep a successful snapshot warm for normal generation, and use that
+ * snapshot during a short service interruption. Authentication and scope
+ * failures never fall back to stale account data.
+ */
+async function cachedCatalog<T>(
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  const now = Date.now()
+  const cached = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
+  if (cached && cached.freshUntil > now) return cached.value
+
+  let refresh = catalogRefreshes.get(key) as Promise<T> | undefined
+  if (!refresh) {
+    refresh = load().then(value => {
+      const loadedAt = Date.now()
+      catalogCache.set(key, {
+        value,
+        freshUntil: loadedAt + CATALOG_FRESH_MS,
+        staleUntil: loadedAt + CATALOG_STALE_MS,
+      })
+      return value
+    }).finally(() => {
+      if (catalogRefreshes.get(key) === refresh) catalogRefreshes.delete(key)
+    })
+    catalogRefreshes.set(key, refresh)
+  }
+
+  try {
+    return await refresh
+  } catch (error) {
+    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) throw error
+    const fallback = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
+    if (fallback && fallback.staleUntil > Date.now()) return fallback.value
+    throw error
+  }
 }
 
 /** Fetch the account-visible catalog so callers never need to know voice IDs. */
@@ -1118,43 +1209,42 @@ export async function listTranscriptionModels(
   apiKey: string,
 ): Promise<GenStudioTranscriptionModel[]> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/transcription/models`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
-  if (!Array.isArray(payload)) {
-    throw new Error('GenStudio KH returned an invalid transcription model catalog')
-  }
-  return payload.map((value: any) => ({
-    id: typeof value?.id === 'string' ? value.id.trim() : '',
-    display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
-    provider: typeof value?.provider === 'string' ? value.provider.trim() : 'GenStudio KH',
-    language: typeof value?.language === 'string' ? value.language.trim() : 'multilingual',
-    available: value?.available === true,
-    available_workers: Number.isInteger(value?.available_workers)
-      ? Math.max(0, value.available_workers)
-      : 0,
-    qualification_only: value?.qualification_only !== false,
-    unlimited_relaxed: value?.unlimited_relaxed === true,
-    credits_per_minute: Number.isFinite(value?.credits_per_minute)
-      ? Math.max(0, value.credits_per_minute)
-      : 0,
-    minimum_credits: Number.isFinite(value?.minimum_credits)
-      ? Math.max(0, value.minimum_credits)
-      : 0,
-    price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
-  })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
+  const key = catalogCacheKey('transcription', baseUrl, apiKey)
+  return cachedCatalog(key, async () => {
+    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
+    if (!Array.isArray(payload)) {
+      throw new Error('GenStudio KH returned an invalid transcription model catalog')
+    }
+    return payload.map((value: any) => ({
+      id: typeof value?.id === 'string' ? value.id.trim() : '',
+      display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+      provider: typeof value?.provider === 'string' ? value.provider.trim() : 'GenStudio KH',
+      language: typeof value?.language === 'string' ? value.language.trim() : 'multilingual',
+      available: value?.available === true,
+      available_workers: Number.isInteger(value?.available_workers)
+        ? Math.max(0, value.available_workers)
+        : 0,
+      qualification_only: value?.qualification_only !== false,
+      unlimited_relaxed: value?.unlimited_relaxed === true,
+      credits_per_minute: Number.isFinite(value?.credits_per_minute)
+        ? Math.max(0, value.credits_per_minute)
+        : 0,
+      minimum_credits: Number.isFinite(value?.minimum_credits)
+        ? Math.max(0, value.minimum_credits)
+        : 0,
+      price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
+    })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
+  })
 }
 
 /** Fetch the account-visible image catalog owned by GenStudio. */
 export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/image/models`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
-  return payload.map((value: any) => ({
+  const key = catalogCacheKey('image', baseUrl, apiKey)
+  return cachedCatalog(key, async () => {
+    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
+    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
+    return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
@@ -1192,7 +1282,8 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
           default: size.default === true,
         }))
       : undefined,
-  })).filter((model: GenStudioImageModel) => model.id && model.display_name)
+    })).filter((model: GenStudioImageModel) => model.id && model.display_name)
+  })
 }
 
 export function buildGenStudioImageIdempotencyKey(input: {
@@ -1381,9 +1472,15 @@ async function generateImageWithGenStudioAdmitted(
   await recordGenStudioEvidence('image.generation', submitted)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
-  const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
-  const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
-  return { url, jobId: completed.id, modelId: completed.model_id }
+  try {
+    const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
+    const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
+    return { url, jobId: completed.id, modelId: completed.model_id }
+  } catch (error) {
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    return recoverImageWithGenStudioAdmitted(apiKey, submitted.id, request)
+  }
 }
 
 export async function generateImageWithGenStudio(
@@ -1616,9 +1713,15 @@ async function transcribeWithGenStudioAdmitted(
   await recordGenStudioEvidence('audio.transcription', submitted)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
-  const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
-  const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
-  return { srt, jobId: completed.id, modelId: completed.model_id }
+  try {
+    const completed = await waitForTranscriptionJob(baseUrl, apiKey, submitted, request, deadline)
+    const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
+    return { srt, jobId: completed.id, modelId: completed.model_id }
+  } catch (error) {
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    return recoverTranscriptionWithGenStudioAdmitted(apiKey, submitted.id, request)
+  }
 }
 
 export async function transcribeWithGenStudio(

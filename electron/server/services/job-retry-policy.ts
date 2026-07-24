@@ -110,7 +110,7 @@ export function resolveJobAutoRetryPolicy(
   if (job.type === 'subtitles_transcribe') {
     return {
       ...MANUAL_ONLY,
-      reason: 'GenStudio owns durable submission and recovery; a new provider job is started only by manual Retry after terminal failure.',
+      reason: 'Story Studio already retries free catalog/network reads and reconnects accepted GenStudio tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
     }
   }
 
@@ -144,7 +144,14 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (IMAGE_MODEL_TYPES.has(job.type)) {
-    return isLocalImageModel(value(params, 'model'))
+    const model = value(params, 'model')
+    if (model.startsWith('genstudio-image')) {
+      return {
+        ...MANUAL_ONLY,
+        reason: 'Story Studio already retries free catalog/network reads and reconnects accepted GenStudio tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
+      }
+    }
+    return isLocalImageModel(model)
       ? localPolicy('Image Studio generation runs on the local fleet and preserves completed images.')
       : MANUAL_ONLY
   }
