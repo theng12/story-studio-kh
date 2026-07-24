@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.719 — 2026-07-24
+
+**Thumbnail Prompts no longer carries retired scene-prompt work, and failed audio chapters recover cleanly.**
+
+- Makes the Thumbnail Prompts executor thumbnail-only: its GenStudio request,
+  response schema, verification, saved output, and job log contain no scene
+  prompt array or misleading `0/0 scenes` counters.
+- Strips retired scene-count fields from older Pipeline presets before a
+  thumbnail job is queued. Scene Plan remains the only source of scene visual
+  prompts.
+- When a GenStudio audio task has terminally failed, a manual Retry now creates
+  one fresh durable request instead of polling the same failed task forever.
+  Accepted unfinished tasks still reconnect safely without duplicate work.
+
+## v1.0.718 — 2026-07-24
+
+**Audio Retry now replaces terminal GenStudio failures instead of polling them forever.**
+
+- Keeps the original idempotency key only for accepted but unfinished GenStudio
+  tasks, where reconnecting is the safe recovery action.
+- A failed provider task now receives one fresh, durable request identity when
+  you press Retry or start a new Audio job for the same missing chapter.
+- Preserves completed chapter audio and never sends work to VoiceStudio or a
+  direct provider fallback.
+
 ## v1.0.717 — 2026-07-24
 
 **Pipeline batches now stop safely when a GenStudio release is not generation-ready.**

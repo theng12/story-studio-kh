@@ -1,14 +1,9 @@
 /**
- * Image-prompts generator — batch job executor.
+ * Thumbnail-prompt job executor.
  *
- * Mirrors the synchronous POST /generate/image-prompts + POST
- * /generate/image-prompts/save flow in routes/scripts.ts, but collapses
- * the generate-then-save steps into a single job. Used by the Pipeline
- * batch runner so overnight chains can produce the Scene/Thumbnail
- * prompt docx files without waiting for user review.
- *
- * The interactive route in routes/scripts.ts is untouched — this is an
- * additive batch path.
+ * Scene visuals are planned exclusively in Scene Plan. This executor owns
+ * only the separate YouTube-thumbnail prompt asset used by the Thumbnail
+ * Generator and Pipeline.
  */
 
 import fs from 'fs/promises'
@@ -25,156 +20,27 @@ import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
-import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
+import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
-import { isLocalTextModel } from '../services/job-retry-policy.js'
 
-// Preset shape we expect in job.params (from the Image Prompts page's
-// usePresets snapshot { form: {...} }, unwrapped by routes/pipeline.ts).
-interface ImagePromptsParams {
+interface ThumbnailPromptsParams {
   episode_id: string
   title?: string
   model?: string
-  style_preset?: string
   style_tag?: string
   aspect_ratio?: string
-  scenes_per_chapter?: number
-  total_scenes?: number
-  /**
-   * Explicit chapter count from the form. When set, the generator
-   * multiplies scenes_per_chapter by this value (NOT by an auto-
-   * resolved sidecar count) so the LLM is told to produce exactly
-   * the number the user saw in the form. Falls back to sidecar
-   * resolution when absent. Lets the user override the auto-detected
-   * chapter count without having to drop into Custom-total mode.
-   */
-  chapter_count?: number
   thumb_count?: number
-  /** Optional title controls. "auto" deliberately lets the LLM vary it. */
   thumb_text_style?: string
   thumb_text_position?: string
   thumb_font_style?: string
-  /** Vision-extracted direction from a reference image. */
   thumb_reference_style?: string
-  /** The one user-written thumbnail idea. */
   thumb_creative_direction?: string
-  mode?: 'scenes' | 'thumbnails'
-  /**
-   * Cast for this episode — passed through from a saved Image Prompts
-   * preset (the form field added in image-prompts.vue). The batch
-   * executor resolves these to Character records and folds the cast
-   * block into the prompt so the LLM has the names + descriptions to
-   * inline per scene. Empty / missing → today's "no cast" path.
-   */
+  mode?: 'thumbnails'
   character_ids?: string[]
-  /**
-   * v1.0.308 — fill-gaps (smart Retry). When true, load the scene/thumbnail
-   * prompts already on disk and generate ONLY the scenes that are missing,
-   * then merge — instead of regenerating all `sceneCount` from scratch and
-   * overwriting the file. The Jobs-page Retry sends this so a partial failure
-   * ("10 scenes missing: 11-20") is repaired cheaply, preserving the prompts
-   * that already succeeded. Absent/false → full regeneration (the page's
-   * Generate button path, unchanged).
-   */
   fill_gaps?: boolean
 }
 
-/** Compact a sorted list of ints into "1-3, 7, 11-20" for log/error output. */
-function compactRanges(nums: number[]): string {
-  if (!nums.length) return ''
-  const sorted = [...nums].sort((a, b) => a - b)
-  const parts: string[] = []
-  let start = sorted[0]!
-  let prev = sorted[0]!
-  for (let i = 1; i <= sorted.length; i++) {
-    const n = sorted[i]
-    if (n === prev + 1) { prev = n; continue }
-    parts.push(start === prev ? `${start}` : `${start}-${prev}`)
-    if (n !== undefined) { start = n; prev = n }
-  }
-  return parts.join(', ')
-}
-
-function checkProvider(_model: string, _config: any): string | null { return null }
-
-function aiCreds(_config: any) { return {} }
-
-/**
- * Resolve the actual chapter count for an episode. Source-of-truth order:
- *   1. Sidecar's `total_chapters` (set when outline_only / script-only built).
- *   2. On-disk `_Chapter_NN.docx` count (handles legacy episodes whose
- *      sidecar predates the field, or episodes manually rebuilt with
- *      different counts that didn't go through the chunked flow).
- *   3. Fallback constant 10 — only when neither exists, which means the
- *      episode is purely idea-stage with no script content yet, and the
- *      generator likely shouldn't be running anyway. The earlier hardcoded
- *      `× 10` was the culprit for "I picked 1 prompt per scene with 20
- *      chapters but only got 10 prompts" — generator silently capped at
- *      10 regardless of how many chapters were actually on disk.
- */
-async function resolveChapterCount(
-  slug: string, episode_id: string, title: string,
-): Promise<number> {
-  try {
-    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const { readSidecar } = await import('../lib/chunked-narration.js')
-    const sidecar = await readSidecar(paths.script_dir, episode_id)
-    if (sidecar && typeof sidecar.total_chapters === 'number' && sidecar.total_chapters > 0) {
-      return sidecar.total_chapters
-    }
-    // No sidecar — count chapter files on disk as a fallback (.md or legacy .docx).
-    let entries: string[] = []
-    try { entries = await fs.readdir(paths.script_dir) } catch { /* missing dir */ }
-    const count = entries.filter(n => matchChapterFile(n, episode_id) !== null).length
-    if (count > 0) return count
-    // v1.0.102+ — last-resort: format default. Previously hardcoded 10
-    // (sleep-story median); now reads format.script.defaultChapterCount
-    // so broll-narration / prayer projects get 1 (single continuous
-    // narration), listicles get their format's default, etc.
-    try {
-      const { getEffectiveFormat } = await import('../services/format-loader.js')
-      const fmt = await getEffectiveFormat(slug)
-      const dcc = fmt?.script?.defaultChapterCount
-      if (typeof dcc === 'number' && dcc > 0) return dcc
-    } catch { /* fall through to legacy 10 */ }
-  } catch { /* fall through */ }
-  return 10
-}
-
-// Read up to 3000 chars of narration for grounding the LLM.
-async function readStoryContext(slug: string, episode_id: string, title: string): Promise<string> {
-  try {
-    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const raw = await readArtifactRawText(paths.narration_docx)
-    return raw.slice(0, 3000)
-  } catch {
-    return `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
-  }
-}
-
-/**
- * Parse the LLM's image-prompts JSON response, tolerating markdown
- * fences and stray prose. Throws if no JSON object is recognisable.
- * Used by both the single-call and chunked paths.
- */
-function parseImagePromptsJson(raw: string): { scenes?: any[]; thumbnails?: any[] } {
-  const obj = parseStructuredJson(raw) as Record<string, unknown>
-  if (!obj || Array.isArray(obj)) throw new Error('LLM returned no JSON object')
-  return {
-    scenes: Array.isArray(obj.scenes) ? obj.scenes : [],
-    thumbnails: Array.isArray(obj.thumbnails) ? obj.thumbnails : [],
-  }
-}
-
-export function normalizeGeneratedPromptItems(items: any[], expected: number): any[] {
-  return (Array.isArray(items) ? items : [])
-    .filter(item => item && typeof item.prompt === 'string' && item.prompt.trim())
-    .slice(0, Math.max(0, expected))
-    .map((item, index) => ({ ...item, number: index + 1, prompt: item.prompt.trim() }))
-}
-
-/** Shape of `format.imagePrompts.thumbnail` (see ImagePromptFormat). */
 interface ThumbnailFmt {
   layout?: 'hero' | 'annotated-collage'
   conceptGuidance?: string
@@ -185,10 +51,9 @@ interface ThumbnailFmt {
   avoid?: string[]
 }
 
-// Fallback thumbnail concept for any format that ships no `thumbnail` block.
 const GENERIC_THUMBNAIL_CONCEPT =
-  'A bold, high-impact YouTube cover with ONE clear focal subject that signals the topic at a glance. ' +
-  'Vivid saturated color, strong directional lighting, clear depth. This is a COVER designed to win the click — not a scene still.'
+  'A bold, high-impact YouTube cover with one clear focal subject that signals the topic at a glance. ' +
+  'Use vivid saturated color, strong directional lighting, clear depth, and a composition designed to win the click.'
 
 const GENERIC_THUMBNAIL_AVOID = [
   'low contrast or washed-out / muddy color',
@@ -204,8 +69,47 @@ const ANNOTATED_COLLAGE_AVOID = [
   'photographic depth that hides the diagram structure',
 ]
 
-/** Build a compact, opinionated thumbnail brief. The finished render carries
- * its title so it can be used immediately without a second compose step. */
+const RATIO_DESCRIPTIONS: Record<string, string> = {
+  '16:9': 'wide 16:9 landscape format with cinematic framing',
+  '1:1': 'square 1:1 format with centered composition',
+  '9:16': 'tall 9:16 portrait format with vertical composition',
+  '4:3': 'classic 4:3 format',
+  '3:4': 'portrait 3:4 format',
+  '21:9': 'ultrawide 21:9 cinematic format',
+}
+
+function aiCreds(_config: unknown) {
+  return {}
+}
+
+async function readStoryContext(
+  slug: string,
+  episodeId: string,
+  title: string,
+): Promise<string> {
+  try {
+    const paths = await resolveEpisodePaths(slug, episodeId, title || '')
+    const raw = await readArtifactRawText(paths.narration_docx)
+    return raw.slice(0, 3000)
+  } catch {
+    return `Episode: ${episodeId}, Title: ${title || 'Unknown'}`
+  }
+}
+
+function parseThumbnailPromptsJson(raw: string): any[] {
+  const parsed = parseStructuredJson(raw) as Record<string, unknown>
+  if (!parsed || Array.isArray(parsed)) throw new Error('LLM returned no JSON object')
+  return Array.isArray(parsed.thumbnails) ? parsed.thumbnails : []
+}
+
+export function normalizeGeneratedPromptItems(items: any[], expected: number): any[] {
+  return (Array.isArray(items) ? items : [])
+    .filter(item => item && typeof item.prompt === 'string' && item.prompt.trim())
+    .slice(0, Math.max(0, expected))
+    .map((item, index) => ({ ...item, number: index + 1, prompt: item.prompt.trim() }))
+}
+
+/** Build a compact, opinionated thumbnail brief. */
 export function buildThumbnailDirective(opts: {
   thumbs: number
   title: string
@@ -219,11 +123,11 @@ export function buildThumbnailDirective(opts: {
   if (opts.thumbs <= 0) return ''
   const annotatedCollage = opts.fmt?.layout === 'annotated-collage'
   const layoutGuidance = annotatedCollage
-    ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover, not a cinematic scene.'
+    ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover.'
     : 'Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.'
   const universalAvoid = annotatedCollage ? ANNOTATED_COLLAGE_AVOID : GENERIC_THUMBNAIL_AVOID
   const lines = [
-    `THUMBNAIL GOAL: create a distinct, professional YouTube cover, not a scene still. It must communicate the episode's emotional promise at a glance on mobile.`,
+    `THUMBNAIL GOAL: create a distinct, professional YouTube cover. It must communicate the episode's emotional promise at a glance on mobile.`,
     `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
     `LAYOUT: ${layoutGuidance}`,
     `Avoid: ${[...(opts.fmt?.avoid || []), ...universalAvoid].join('; ')}.`,
@@ -239,35 +143,19 @@ export function buildThumbnailDirective(opts: {
   const text = textStyle ? resolveTextStyle(textStyle) : ''
   const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
   if (!font && !text && !position) {
-    lines.push(`TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.`)
+    lines.push('TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.')
   } else {
     lines.push(`TITLE DESIGN: ${font ? `use ${font}` : 'choose the font'}; ${text ? `use ${text}` : 'choose the text treatment'}; ${position ? `place it at the ${position}` : 'choose the strongest placement'}.`)
   }
-  if (opts.fmt?.compositionRules?.length) lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
+  if (opts.fmt?.compositionRules?.length) {
+    lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(rule => `  - ${rule}`).join('\n')}`)
+  }
   if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
   if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
   if (opts.referenceStyle?.trim()) lines.push(`REFERENCE DIRECTION: ${opts.referenceStyle.trim()}`)
   return lines.join('\n\n')
 }
 
-// Aspect-ratio → human phrase. Shared by buildPrompt (LLM instruction) and
-// enforceThumbnailPromptElements (deterministic post-processing) so both speak
-// the same language.
-const RATIO_DESCRIPTIONS: Record<string, string> = {
-  '16:9': 'wide 16:9 landscape format with cinematic framing',
-  '1:1': 'square 1:1 format with centered composition',
-  '9:16': 'tall 9:16 portrait format with vertical composition',
-  '4:3': 'classic 4:3 format',
-  '3:4': 'portrait 3:4 format',
-  '21:9': 'ultrawide 21:9 cinematic format',
-}
-
-/**
- * v1.0.416 — GUARANTEE the non-negotiable thumbnail elements are present in a
- * generated prompt, regardless of whether the LLM obeyed the instructions.
- * It ensures the selected aspect ratio, thumbnail framing, and the exact
- * in-image episode title required for a ready-to-publish thumbnail.
- */
 export function enforceThumbnailPromptElements(prompt: string, opts: {
   aspectRatio: string
   title: string
@@ -280,604 +168,270 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   const ratio = opts.aspectRatio || '16:9'
   const ratioPhrase = RATIO_DESCRIPTIONS[ratio] || `${ratio} format`
   const clauses: string[] = []
-
-  // Always: chosen ratio + explicit "YouTube thumbnail" framing.
   if (!out.includes(ratio)) {
     clauses.push(`Rendered as a ${ratioPhrase} — this is a YouTube thumbnail (${ratio}).`)
   } else if (!/thumbnail/i.test(out)) {
-    clauses.push(`This is a YouTube thumbnail.`)
+    clauses.push('This is a YouTube thumbnail.')
   }
-
   if (opts.title.trim() && !out.includes(opts.title.trim())) {
-    const font = !opts.fontStyle || opts.fontStyle === 'auto' ? 'a font chosen to suit the concept' : resolveFontStyle(opts.fontStyle)
-    const text = !opts.textStyle || opts.textStyle === 'auto' ? 'a treatment chosen to suit the concept' : resolveTextStyle(opts.textStyle)
-    const position = !opts.textPosition || opts.textPosition === 'auto' ? 'the strongest placement for the composition' : opts.textPosition
+    const font = !opts.fontStyle || opts.fontStyle === 'auto'
+      ? 'a font chosen to suit the concept'
+      : resolveFontStyle(opts.fontStyle)
+    const text = !opts.textStyle || opts.textStyle === 'auto'
+      ? 'a treatment chosen to suit the concept'
+      : resolveTextStyle(opts.textStyle)
+    const position = !opts.textPosition || opts.textPosition === 'auto'
+      ? 'the strongest placement for the composition'
+      : opts.textPosition
     clauses.push(`Render the exact episode title "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
-
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
 }
 
-function buildPrompt(args: {
-  episode_id: string
+export function buildThumbnailPrompt(args: {
+  episodeId: string
   title: string
   storyContext: string
-  /** Pre-rendered cast block from castImagePromptBlock(). Empty string when no cast. */
   castBlock: string
-  sceneCount: number
-  thumbs: number
-  style_tag: string
-  aspect_ratio: string
-  /** Full thumbnail instruction block from buildThumbnailDirective(); '' when thumbs===0. */
+  count: number
+  styleTag: string
+  aspectRatio: string
   thumbnailDirective: string
+  targetNumbers: number[]
 }): string {
-  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective } = args
+  const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
+  return `Create exactly ${args.count} distinct YouTube thumbnail briefs for this story episode.
 
-  const ratioInstruction = RATIO_DESCRIPTIONS[aspect_ratio] || 'wide landscape format'
-
-  const requirements: string[] = []
-  if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
-  if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
-  // Per-prompt length floor + structural guidance. Without this the LLM
-  // happily ships 1-sentence prompts ("a forest at dusk") that under-
-  // specify the image — user complaint that "the prompts are short."
-  // The image generator quality scales with descriptor density, so
-  // pinning a 60+ word floor and naming the slots the model should fill
-  // (subject, setting, lighting, composition, mood, character detail)
-  // produces consistently usable prompts without hand-tuning.
-  requirements.push(
-    `Each prompt must be DETAILED — 60–120 words, 3–5 sentences. ` +
-    `Cover: subject + action, setting + props, lighting + time of day, ` +
-    `mood + atmosphere, framing/composition, and any visible characters ` +
-    `with concrete physical descriptions. Short one-line prompts are unusable.`,
-  )
-  if (thumbs > 0) requirements.push(
-    `Thumbnail prompts must feel like professional thumbnail briefs, not scene prompts. ` +
-    `Each one must specify the click-driving focal image, emotional hook, and the exact episode title rendered as legible in-image typography.`,
-  )
-  requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
-  requirements.push(`Every prompt must specify composition for ${ratioInstruction}, and state the "${aspect_ratio}" aspect ratio explicitly.`)
-  if (thumbs > 0) {
-    requirements.push(`Every THUMBNAIL prompt must explicitly say it is a YouTube thumbnail in the "${aspect_ratio}" aspect ratio.`)
-  }
-  requirements.push(`Every prompt must include inline character descriptions.`)
-
-  return `Generate image prompts for a story episode.
-
-Episode: ${episode_id} — ${title}
+Episode: ${args.episodeId} — ${args.title}
 
 Story context:
-${storyContext}
-${castBlock}
+${args.storyContext}
+${args.castBlock}
 REQUIREMENTS:
-${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-${sceneCount === 0 ? '\nDo NOT generate any scene prompts. Only generate thumbnail prompts.' : ''}
-${thumbs === 0 ? '\nDo NOT generate any thumbnail prompts. Only generate scene prompts.' : ''}
+1. Return entries for thumbnail numbers ${args.targetNumbers.join(', ')} in that order.
+2. Each prompt must be detailed: 60–120 words across 3–5 sentences.
+3. Specify the click-driving focal image, emotional hook, subject, setting, props, lighting, atmosphere, framing, and composition.
+4. Render the exact episode title as legible in-image typography.
+5. End every prompt with this style tag: "${args.styleTag}".
+6. Compose every prompt for ${ratioInstruction} and explicitly state the "${args.aspectRatio}" aspect ratio.
+7. Include concrete inline descriptions for every visible recurring character.
 
-FORMAT — return ONLY a JSON object:
+FORMAT — return only this JSON object:
 {
-  "scenes": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}],
-  "thumbnails": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}]
+  "thumbnails": [
+    {"number": ${args.targetNumbers[0] || 1}, "title": "Brief Title", "prompt": "Full prompt text..."}
+  ]
 }
-${thumbs > 0 ? `\n${thumbnailDirective}\n` : ''}
-No markdown, no commentary, just valid JSON.`
+
+${args.thumbnailDirective}
+
+No markdown and no commentary.`
+}
+
+async function loadExistingThumbnails(
+  projectSlug: string,
+  episodeId: string,
+  title: string,
+): Promise<any[]> {
+  try {
+    const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+    const paths = await resolveEpisodePaths(projectSlug, episodeId, title)
+    let episodeDir = paths.episode_dir.replace(/\/$/, '')
+    const actualDir = await resolveEpisodeDir(path.dirname(episodeDir), episodeId)
+    if (actualDir) episodeDir = actualDir
+    const names = await resolveSubfolderNames(projectSlug, episodeId)
+    const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
+    if (!thumbDir) return []
+    const filename = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
+    await fs.access(filename)
+    const parsed = await parseImagePromptsDocx(filename)
+    return Array.isArray(parsed.thumbnails) ? parsed.thumbnails : []
+  } catch {
+    return []
+  }
 }
 
 export async function generateImagePrompts(job: Job): Promise<void> {
-  const { project_slug, episode_id, params } = job
-  const req = params as ImagePromptsParams
+  const { project_slug: projectSlug, episode_id: episodeId, params } = job
+  const req = params as ThumbnailPromptsParams
+  if (req.mode && req.mode !== 'thumbnails') {
+    throw new Error('Legacy visual-prompt generation is retired. Generate visual prompts in Scene Plan.')
+  }
 
-  const config = await pm.getConfig(project_slug)
+  const config = await pm.getConfig(projectSlug)
   if (!config) throw new Error('Project config not found')
 
-  // v1.0.509 — prefer the request's model; else the project's fast "prompt
-  // model" (motion + thumbnail prompts share it); else the historical default.
+  const title = req.title || episodeId
   const model = req.model || ((config as any).prompt_model || '').trim() || 'deepseek-v4-flash'
-  const credErr = checkProvider(model, config)
-  if (credErr) throw new Error(credErr)
-
-  const title = req.title || episode_id
-  const mode = req.mode || 'thumbnails'
-  if (mode !== 'scenes' && mode !== 'thumbnails') {
-    throw new Error('Prompt generation mode must be "scenes" or "thumbnails"; merged all-mode generation is no longer supported.')
-  }
-
-  // Prefer scenes_per_chapter when present (matches UI semantics: that
-  // field is the primary control, total_scenes is the "custom total"
-  // escape hatch used only when scenes_per_chapter === 0). Falling through
-  // to total_scenes first used to let a stale preset value shadow a
-  // freshly-saved scenes_per_chapter=1.
-  //
-  // Chapter count source of truth, in order of preference:
-  //   1. Explicit `chapter_count` from the request (form's editable
-  //      Chapter count input — what the user saw + can override).
-  //   2. Sidecar's total_chapters (what's actually on disk).
-  //   3. 10 fallback (last resort, for idea-stage episodes with no
-  //      script yet).
-  // The earlier hardcoded `× 10` — and the not-yet-fixed default form
-  // value of 10 — produced exactly the user-reported case: 20-chapter
-  // outline, "1 per chapter" → only 10 prompts because nothing in the
-  // pipeline knew about the real count. The form now makes the count
-  // explicit and editable; sending it through here makes the user's
-  // typed value authoritative.
-  const explicitCount = Number(req.chapter_count)
-  const chapterCount = Number.isFinite(explicitCount) && explicitCount > 0
-    ? Math.round(explicitCount)
-    : await resolveChapterCount(project_slug, episode_id, title)
-  const spc = Number(req.scenes_per_chapter)
-  const sceneCount = mode === 'thumbnails'
-    ? 0
-    : (Number.isFinite(spc) && spc > 0
-      ? spc * chapterCount
-      : (req.total_scenes || (req.scenes_per_chapter || 1) * chapterCount))
-  const thumbs = mode === 'scenes' ? 0 : (req.thumb_count || 5)
-  const countSource = Number.isFinite(explicitCount) && explicitCount > 0
-    ? '(from form)'
-    : '(from outline)'
-  job.output_lines.push(
-    `Target: ${sceneCount} scene prompt(s) for ${chapterCount} chapter(s) ${countSource}` +
-    (thumbs > 0 ? ` + ${thumbs} thumbnail(s)` : ''),
-  )
-
-  // v1.0.308 — fill-gaps (smart Retry). Read the prompts already on disk so we
-  // can generate ONLY the missing scenes below and merge, instead of redoing
-  // all of them and overwriting the file. Read from the same files the save
-  // step writes. On any read problem we leave the maps empty and fall back to
-  // full regeneration (safe — never worse than today).
+  const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
   const fillGaps = req.fill_gaps === true
-  const existingSceneMap = new Map<number, any>()
-  let existingThumbs: any[] = []
-  if (fillGaps) {
-    try {
-      const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
-      const { existsSync } = await import('fs')
-      const paths0 = await resolveEpisodePaths(project_slug, episode_id, title)
-      let episodeDir0 = paths0.episode_dir.replace(/\/$/, '')
-      const actualDir0 = await resolveEpisodeDir(path.dirname(episodeDir0), episode_id)
-      if (actualDir0) episodeDir0 = actualDir0
-      const names0 = await resolveSubfolderNames(project_slug, episode_id)
-      const sceneDir0 = await resolveSubfolder(episodeDir0, names0.scene_prompts)
-      const thumbDir0 = await resolveSubfolder(episodeDir0, names0.thumb_prompts)
-      const sceneFile0 = sceneDir0 ? path.join(sceneDir0, `${episode_id}_Scene_Prompts.md`) : ''
-      const thumbFile0 = thumbDir0 ? path.join(thumbDir0, `${episode_id}_Thumbnail_Prompts.md`) : ''
-      if (sceneFile0 && existsSync(sceneFile0)) {
-        const parsed = await parseImagePromptsDocx(sceneFile0)
-        for (const s of (parsed.scenes || [])) {
-          const n = Number(s.number)
-          if (Number.isFinite(n) && n > 0) existingSceneMap.set(n, s)
-        }
-      }
-      if (thumbFile0 && existsSync(thumbFile0)) {
-        const parsed = await parseImagePromptsDocx(thumbFile0)
-        existingThumbs = parsed.thumbnails || []
-      }
-      job.output_lines.push(
-        `[fill-gaps] ${existingSceneMap.size} scene + ${existingThumbs.length} thumbnail prompt(s) already on disk — only missing ones will be generated.`,
-      )
-    } catch (e: any) {
-      job.output_lines.push(`⚠ [fill-gaps] couldn't read existing prompts (${e?.message || e}); generating all.`)
-    }
-  }
+  job.output_lines.push(`Target: ${count} thumbnail prompt(s).`)
 
-  job.output_lines.push(`Reading narration for story context…`)
-  const storyContext = await readStoryContext(project_slug, episode_id, title)
-
-  // Resolve cast for this episode → cast block. Empty array (or missing
-  // field on legacy presets) → empty string injected → today's behaviour
-  // unchanged.
-  const characters = Array.isArray(req.character_ids) && req.character_ids.length
-    ? await cm.resolveCharacters(project_slug, req.character_ids)
+  const existing = fillGaps
+    ? (await loadExistingThumbnails(projectSlug, episodeId, title))
+      .filter(item => {
+        const number = Number(item?.number)
+        return Number.isInteger(number) && number >= 1 && number <= count &&
+          typeof item?.prompt === 'string' && item.prompt.trim()
+      })
+      .map(item => ({ ...item, number: Number(item.number), prompt: item.prompt.trim() }))
     : []
-  if (characters.length) {
-    job.output_lines.push(`Cast: ${characters.map(c => c.name).join(', ')}`)
+  const existingByNumber = new Map(existing.map(item => [Number(item.number), item]))
+  const targetNumbers = Array.from({ length: count }, (_, index) => index + 1)
+    .filter(number => !existingByNumber.has(number))
+  if (fillGaps) {
+    job.output_lines.push(
+      targetNumbers.length
+        ? `[repair] ${existingByNumber.size}/${count} verified on disk; requesting only ${targetNumbers.length} missing thumbnail prompt(s).`
+        : `[repair] all ${count} thumbnail prompts are already verified on disk.`,
+    )
   }
-  const castBlock = castImagePromptBlock(characters)
 
-  // v1.0.224 — resolve per-format thumbnail art direction (best-effort; a
-  // missing format falls back to the generic high-CTR directive). The AI
-  // title styling defaults to the FORMAT's defaults, not a hardcoded
-  // serif/gold (the old sleep-story bias).
-  let thumbFmt: ThumbnailFmt | null = null
-  if (thumbs > 0) {
+  let thumbnails = [...existingByNumber.values()]
+  if (targetNumbers.length > 0) {
+    const storyContext = await readStoryContext(projectSlug, episodeId, title)
+    const characters = Array.isArray(req.character_ids) && req.character_ids.length
+      ? await cm.resolveCharacters(projectSlug, req.character_ids)
+      : []
+    const castBlock = castImagePromptBlock(characters)
+    if (characters.length) job.output_lines.push(`Cast: ${characters.map(character => character.name).join(', ')}`)
+
+    let thumbnailFormat: ThumbnailFmt | null = null
     try {
       const { getEffectiveFormat } = await import('../services/format-loader.js')
-      const fmt = await getEffectiveFormat(project_slug)
-      thumbFmt = (fmt?.imagePrompts as any)?.thumbnail || null
-    } catch { /* generic fallback */ }
-  }
-  const thumbnailDirective = buildThumbnailDirective({
-    thumbs,
-    title,
-    textStyle: req.thumb_text_style || 'auto',
-    fontStyle: req.thumb_font_style || 'auto',
-    textPosition: req.thumb_text_position || 'auto',
-    referenceStyle: req.thumb_reference_style,
-    fmt: thumbFmt,
-    creativeDirection: req.thumb_creative_direction,
-  })
-  if (thumbs > 0) {
+      const format = await getEffectiveFormat(projectSlug)
+      thumbnailFormat = (format?.imagePrompts as any)?.thumbnail || null
+    } catch {
+      // The generic thumbnail direction remains valid without a format file.
+    }
+    const thumbnailDirective = buildThumbnailDirective({
+      thumbs: targetNumbers.length,
+      title,
+      textStyle: req.thumb_text_style || 'auto',
+      fontStyle: req.thumb_font_style || 'auto',
+      textPosition: req.thumb_text_position || 'auto',
+      referenceStyle: req.thumb_reference_style,
+      fmt: thumbnailFormat,
+      creativeDirection: req.thumb_creative_direction,
+    })
     job.output_lines.push(
-      `Thumbnail art direction: ${thumbFmt ? 'format-specific' : 'generic high-CTR'}, ready-to-use in-image title` +
+      `Thumbnail art direction: ${thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ready-to-use in-image title` +
       (req.thumb_reference_style ? ', reference style applied' : '') +
       (req.thumb_creative_direction ? ', user idea applied' : ''),
     )
-  }
 
-  // v1.0.518 — unified Project Art Style. Style-tag precedence:
-  //   1. Explicit per-run override (req.style_tag typed/picked in the page).
-  //   2. The project's active art style (a saved preset) — auto-applied to
-  //      every prompt, and
-  //      it REPLACES the format+niche merged tag rather than stacking with it.
-  //   3. The effective format+niche merged `defaultStyleTag` (legacy).
-  // An explicit override is treated as a full replace: it also skips the
-  // project art style's negatives + reference image (the reference is
-  // applied later at image-generation time, generators/images.ts).
-  const explicitStyleTag = (req.style_tag || '').trim()
-  const artStyle = explicitStyleTag ? null : await resolveProjectArtStyle(project_slug)
-  let styleTag = explicitStyleTag || artStyle?.description || ''
-  if (!styleTag) {
-    // No override + no project art style → fall back to the format+niche
-    // merged tag (what routes/pipeline.ts used to inject for batch runs).
-    try {
-      const { getEffectiveFormat } = await import('../services/format-loader.js')
-      const fmt = await getEffectiveFormat(project_slug)
-      styleTag = (((fmt?.imagePrompts as any)?.defaultStyleTag) || '').trim()
-    } catch { /* fall through to empty style tag */ }
-  }
-  if (artStyle) {
-    job.output_lines.push(
-      `Art style applied (${artStyle.source}${artStyle.name ? `: ${artStyle.name}` : ''}) — replaces format/niche style` +
-      (artStyle.referenceImagePaths.length ? '; reference image will reinforce img2img renders' : ''),
-    )
-  }
-
-  const basePrompt = buildPrompt({
-    episode_id,
-    title,
-    storyContext,
-    castBlock,
-    sceneCount,
-    thumbs,
-    style_tag: styleTag,
-    aspect_ratio: req.aspect_ratio || '16:9',
-    thumbnailDirective,
-  })
-
-  // Negatives come from the active project art style when provided.
-  let prompt = basePrompt
-  const negatives = artStyle?.negatives || []
-  if (negatives.length) {
-    prompt = `${prompt}\n\nAvoid in all images: ${negatives.join(', ')}`
-  }
-
-  // v1.0.108+ — image-prompts-scope recency. Prepends the niche's
-  // avoidance instruction when its rule covers 'image_prompts'. No-op
-  // for niches that don't ship recencyAvoidance or don't include
-  // 'image_prompts' in their scopes (most niches today). Most niches
-  // won't track image prompts — but a niche that wants to avoid e.g.
-  // "the same lighting setup" or "the same character archetype" can
-  // declare it in the JSON without any code changes here.
-  try {
-    const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
-    prompt = await prependAvoidanceToPrompt(project_slug, 'image_prompts', prompt)
-  } catch { /* recency must never break image-prompt generation */ }
-
-  // v1.0.71+: scene-prompt chunking. Each scene prompt costs ~150 output
-  // tokens; at ≥50 scenes the single-call path approaches the 16k cap.
-  // Above the threshold, we split scene generation into parallel batches
-  // of 10 (scenes are independent — no transition glue needed) and
-  // produce thumbnails in a separate single call. Single-call path stays
-  // unchanged below the threshold so the common case is untouched.
-  const SCENE_CHUNK_THRESHOLD = 50
-  const SCENE_BATCH_SIZE = 10
-  const SCENE_CONCURRENCY = 4
-  // Which scene numbers still need generating. In fill-gaps mode that's only
-  // the ones not already on disk; otherwise it's all of them.
-  const allSceneNumbers = Array.from({ length: sceneCount }, (_, i) => i + 1)
-  const missingSceneNumbers = fillGaps
-    ? allSceneNumbers.filter(n => !existingSceneMap.has(n))
-    : allSceneNumbers
-  const thumbsNeeded = fillGaps ? existingThumbs.length < thumbs : thumbs > 0
-  if (fillGaps) {
-    job.output_lines.push(
-      missingSceneNumbers.length
-        ? `[fill-gaps] generating ${missingSceneNumbers.length} missing scene(s): ${compactRanges(missingSceneNumbers)}` +
-          (thumbsNeeded ? ' + thumbnails.' : ' (thumbnails already present — kept).')
-        : `[fill-gaps] all ${sceneCount} scene(s) already present` +
-          (thumbsNeeded ? '; generating thumbnails only.' : ' and thumbnails present — nothing to regenerate.'),
-    )
-  }
-  // fill-gaps always uses the chunked/batch path so the per-batch filter + merge
-  // apply regardless of total count (and the small-count single-call path can't
-  // do a partial run).
-  const useChunkedScenes = sceneCount > SCENE_CHUNK_THRESHOLD || fillGaps
-
-  const controller = new AbortController()
-  const cancelWatcher = setInterval(() => {
-    if (jq.isCancelled(job.job_id)) controller.abort()
-  }, 500)
-
-  let scenes: any[] = []
-  let thumbnails: any[] = []
-  // v1.0.304 — batches that failed every retry. Surfaced at the end so the job
-  // reports honestly (it used to print "Done." even when most batches failed).
-  let failedSceneBatches: Array<{ from: number; to: number }> = []
-
-  try {
-    if (useChunkedScenes) {
+    const explicitStyleTag = (req.style_tag || '').trim()
+    const artStyle = explicitStyleTag ? null : await resolveProjectArtStyle(projectSlug)
+    let styleTag = explicitStyleTag || artStyle?.description || ''
+    if (!styleTag) {
+      try {
+        const { getEffectiveFormat } = await import('../services/format-loader.js')
+        const format = await getEffectiveFormat(projectSlug)
+        styleTag = (((format?.imagePrompts as any)?.defaultStyleTag) || '').trim()
+      } catch {
+        // An empty style tag is explicit and does not restore a legacy style.
+      }
+    }
+    if (artStyle) {
       job.output_lines.push(
-        fillGaps
-          ? `[fill-gaps] generating missing scenes in parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`
-          : `[chunked] ${sceneCount} scenes > ${SCENE_CHUNK_THRESHOLD} threshold — splitting into parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`,
+        `Art style applied (${artStyle.source}${artStyle.name ? `: ${artStyle.name}` : ''})` +
+        (artStyle.referenceImagePaths.length ? '; reference image available to image generation' : ''),
       )
-      // Build batch ranges [1..10], [11..20], …, plus thumbnails as a
-      // separate single call. Each scene batch reuses the same buildPrompt
-      // shape but pinned to "scenes numbered K to K+N-1 (do NOT generate
-      // others)".
-      const allBatches: Array<{ from: number; to: number }> = []
-      for (let from = 1; from <= sceneCount; from += SCENE_BATCH_SIZE) {
-        allBatches.push({ from, to: Math.min(from + SCENE_BATCH_SIZE - 1, sceneCount) })
-      }
-      // In fill-gaps mode run only the batches that contain a missing scene; a
-      // batch with any gap is regenerated whole (keeps the range complete and
-      // batch-aligned for the LLM). Fully-present batches are skipped, so a
-      // "10 scenes missing: 11-20" failure costs exactly one batch, not 100.
-      const missingSet = new Set(missingSceneNumbers)
-      const batches = fillGaps
-        ? allBatches.filter((b) => {
-          for (let n = b.from; n <= b.to; n++) if (missingSet.has(n)) return true
-          return false
-        })
-        : allBatches
-      if (fillGaps) {
-        job.output_lines.push(
-          `[fill-gaps] ${batches.length} batch(es) to run; ${allBatches.length - batches.length} already-complete batch(es) skipped.`,
-        )
-      }
-
-      let cursor = 0
-      let aborted = false
-      let completed = 0
-      const collected: any[] = []
-      const failed: Array<{ from: number; to: number }> = []
-      // Local Chat Studio packs can safely retry across another Mac. Cloud
-      // packs are one-shot because another completion may be billable.
-      const MAX_BATCH_ATTEMPTS = isLocalTextModel(model) ? 3 : 1
-      const RETRY_BACKOFF_MS = 800
-
-      async function sceneWorker(workerId: number): Promise<void> {
-        while (!aborted) {
-          if (jq.isCancelled(job.job_id)) { aborted = true; return }
-          const idx = cursor++
-          if (idx >= batches.length) return
-          const { from, to } = batches[idx]!
-          // Patch the base prompt: ask only for scenes in this range, no
-          // thumbnails. The rest of the prompt (style tag, character cast,
-          // story context, format) is unchanged.
-          const batchPrompt = prompt.replace(
-            /Generate exactly \d+ scene prompts\./,
-            `Generate exactly ${to - from + 1} scene prompts numbered ${from} through ${to} (do NOT generate scenes outside this range, do NOT generate thumbnails).`,
-          ) + `\n\nIMPORTANT: This response must contain ONLY scenes ${from}..${to}. The "thumbnails" array MUST be empty.`
-
-          let done = false
-          let bestGot: any[] = []
-          for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS && !aborted; attempt++) {
-            if (jq.isCancelled(job.job_id)) { aborted = true; return }
-            try {
-              const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
-                {
-                  slug: project_slug, jobId: job.job_id, signal: controller.signal,
-                  jsonMode: true, disableReasoning: true, temperature: 0.35,
-                })
-              const obj = parseImagePromptsJson(raw)
-              // v1.0.86+: don't filter by `s.number` matching the requested
-              // from..to range — LLMs frequently renumber every batch 1..N.
-              // Take the first (to-from+1) parseable scenes and RENUMBER them
-              // to this batch's expected range; drop entries with no usable
-              // prompt string.
-              const rawScenes = (obj.scenes || []).filter((s: any) =>
-                s && typeof s.prompt === 'string' && s.prompt.trim().length > 0,
-              )
-              const expected = to - from + 1
-              const got = rawScenes.slice(0, expected).map((s: any, i: number) => ({
-                ...s,
-                number: from + i,
-              }))
-              if (got.length > bestGot.length) bestGot = got
-              const tail = rawScenes.length > expected ? ` (truncated from ${rawScenes.length})` : ''
-              const retryNote = attempt > 1 ? ` (recovered on retry ${attempt - 1})` : ''
-              job.output_lines.push(
-                `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${expected}${tail}${retryNote} (${completed}/${batches.length} batches done)`,
-              )
-              if (got.length !== expected) {
-                throw new Error(`model returned ${got.length}/${expected} usable scene prompts`)
-              }
-              collected.push(...got)
-              completed++
-              done = true
-              break
-            } catch (e: any) {
-              if (jq.isCancelled(job.job_id) || controller.signal.aborted) { aborted = true; return }
-              const isLast = attempt === MAX_BATCH_ATTEMPTS
-              job.output_lines.push(
-                `[chunked]   [w${workerId}] scenes ${from}-${to} attempt ${attempt}/${MAX_BATCH_ATTEMPTS} failed: ${e?.message || e}` +
-                (isLast ? ' — giving up on this batch.' : ' — retrying…'),
-              )
-              if (!isLast) await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS))
-            }
-          }
-          if (!done && !aborted) {
-            collected.push(...bestGot)
-            failed.push({ from, to })
-          }
-        }
-      }
-
-      await Promise.all(
-        Array.from({ length: Math.min(SCENE_CONCURRENCY, batches.length) }, (_, i) => sceneWorker(i + 1)),
-      )
-
-      if (aborted) throw new Error('Cancelled by user')
-      failedSceneBatches = failed.sort((a, b) => a.from - b.from)
-      // Sort by number so the docx output is in deterministic order
-      // regardless of which worker finished a given batch first. In fill-gaps
-      // mode, merge: keep the existing scenes from skipped batches and overlay
-      // the freshly-regenerated ones (same number → regenerated wins).
-      if (fillGaps && existingSceneMap.size > 0) {
-        const merged = new Map<number, any>(existingSceneMap)
-        for (const s of collected) {
-          const n = Number(s.number)
-          if (Number.isFinite(n)) merged.set(n, s)
-        }
-        scenes = [...merged.values()].sort((a, b) => Number(a.number) - Number(b.number))
-      } else {
-        scenes = collected.sort((a, b) => Number(a.number) - Number(b.number))
-      }
-
-      // Thumbnails: single call (typical thumbs <= 10, fits easily). In fill-
-      // gaps mode only regenerate when some are missing; otherwise `thumbnails`
-      // stays [] and the save step leaves the existing thumbnail file untouched.
-      if (thumbsNeeded) {
-        const thumbsOnlyPrompt = prompt
-          .replace(/Generate exactly \d+ scene prompts\./, '')
-          + `\n\nIMPORTANT: This response must contain ONLY thumbnails (the "scenes" array MUST be empty).`
-        const raw = await callAi(model, '', thumbsOnlyPrompt, aiCreds(config), false,
-          {
-            slug: project_slug, jobId: job.job_id, signal: controller.signal,
-            jsonMode: true, disableReasoning: true, temperature: 0.35,
-          })
-        const obj = parseImagePromptsJson(raw)
-        thumbnails = obj.thumbnails || []
-      }
-    } else {
-      job.output_lines.push(`Calling ${model} (mode=${mode}, scenes=${sceneCount}, thumbs=${thumbs})…`)
-      const raw = await callAi(model, '', prompt, aiCreds(config), false,
-        {
-          slug: project_slug, jobId: job.job_id, signal: controller.signal,
-          jsonMode: true, disableReasoning: true, temperature: 0.35,
-        })
-      const parsed = parseImagePromptsJson(raw)
-      scenes = parsed.scenes || []
-      thumbnails = parsed.thumbnails || []
     }
-  } finally {
-    clearInterval(cancelWatcher)
-  }
 
-  if (sceneCount > 0) scenes = normalizeGeneratedPromptItems(scenes, sceneCount)
-  if (thumbs > 0) {
-    const generatedThumbs = normalizeGeneratedPromptItems(thumbnails, thumbs)
-    if (fillGaps) {
-      const merged = new Map<number, any>()
-      for (const item of normalizeGeneratedPromptItems(existingThumbs, thumbs)) merged.set(item.number, item)
-      for (const item of generatedThumbs) merged.set(item.number, item)
-      thumbnails = [...merged.values()].sort((a, b) => a.number - b.number)
-    } else {
-      thumbnails = generatedThumbs
-    }
-  }
-  const missingScenes = Array.from({ length: sceneCount }, (_, i) => i + 1)
-    .filter(number => !scenes.some(scene => scene.number === number && scene.prompt?.trim()))
-  const missingThumbnails = Array.from({ length: thumbs }, (_, i) => i + 1)
-    .filter(number => !thumbnails.some(thumb => thumb.number === number && thumb.prompt?.trim()))
-  job.output_lines.push(`Parsed ${scenes.length}/${sceneCount} scene(s), ${thumbnails.length}/${thumbs} thumbnail(s).`)
-
-  // v1.0.416 — GUARANTEE every thumbnail prompt carries the aspect ratio, the
-  // "YouTube thumbnail" framing, and (AI mode) the literal title — appending
-  // only what the LLM left out. Stops the "random image, no text" renders.
-  if (thumbnails.length > 0) {
-    let enforced = 0
-    thumbnails = thumbnails.map((t: any) => {
-      const original = String(t?.prompt || '')
-      const fixed = enforceThumbnailPromptElements(original, {
-        aspectRatio: req.aspect_ratio || '16:9',
-        title,
-        textStyle: req.thumb_text_style || 'auto',
-        fontStyle: req.thumb_font_style || 'auto',
-        textPosition: req.thumb_text_position || 'auto',
-      })
-      if (fixed !== original) enforced++
-      return { ...t, prompt: fixed }
+    let prompt = buildThumbnailPrompt({
+      episodeId,
+      title,
+      storyContext,
+      castBlock,
+      count: targetNumbers.length,
+      styleTag,
+      aspectRatio: req.aspect_ratio || '16:9',
+      thumbnailDirective,
+      targetNumbers,
     })
-    if (enforced > 0) {
-      job.output_lines.push(`Enforced ratio and ready-to-use in-image title on ${enforced} thumbnail prompt(s).`)
+    if (artStyle?.negatives.length) {
+      prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
+    }
+    try {
+      const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
+      prompt = await prependAvoidanceToPrompt(projectSlug, 'image_prompts', prompt)
+    } catch {
+      // Recency enrichment cannot block generation.
+    }
+
+    const controller = new AbortController()
+    const cancelWatcher = setInterval(() => {
+      if (jq.isCancelled(job.job_id)) controller.abort()
+    }, 500)
+    try {
+      job.output_lines.push(`Calling ${model} for ${targetNumbers.length} thumbnail prompt(s)…`)
+      const raw = await callAi(model, '', prompt, aiCreds(config), false, {
+        slug: projectSlug,
+        jobId: job.job_id,
+        signal: controller.signal,
+        jsonMode: true,
+        disableReasoning: true,
+        temperature: 0.35,
+      })
+      const generated = normalizeGeneratedPromptItems(
+        parseThumbnailPromptsJson(raw),
+        targetNumbers.length,
+      ).map((item, index) => ({ ...item, number: targetNumbers[index] }))
+      for (const item of generated) existingByNumber.set(Number(item.number), item)
+      thumbnails = [...existingByNumber.values()].sort((a, b) => Number(a.number) - Number(b.number))
+    } finally {
+      clearInterval(cancelWatcher)
     }
   }
 
-  // v1.0.108+ — image-prompts-scope recency. Scan the joined text of
-  // every generated prompt for matches and append to the log. Fail-
-  // soft: a regex error or unreadable config logs a warning but never
-  // fails the parent job.
+  thumbnails = thumbnails.map(item => ({
+    ...item,
+    prompt: enforceThumbnailPromptElements(String(item.prompt || ''), {
+      aspectRatio: req.aspect_ratio || '16:9',
+      title,
+      textStyle: req.thumb_text_style || 'auto',
+      fontStyle: req.thumb_font_style || 'auto',
+      textPosition: req.thumb_text_position || 'auto',
+    }),
+  }))
+  const missing = Array.from({ length: count }, (_, index) => index + 1)
+    .filter(number => !thumbnails.some(item => Number(item.number) === number && item.prompt?.trim()))
+  job.output_lines.push(`Verified ${count - missing.length}/${count} thumbnail prompt(s).`)
+
   try {
     const { recordUsageForScope } = await import('../services/recency-tracker.js')
-    const joined = [
-      ...scenes.map((s: any) => `${s.title || ''}\n${s.prompt || ''}`),
-      ...thumbnails.map((t: any) => `${t.title || ''}\n${t.prompt || ''}`),
-    ].join('\n\n')
-    await recordUsageForScope(project_slug, episode_id, 'image_prompts', joined)
-  } catch (e: any) {
-    job.output_lines.push(`⚠ recency record (image_prompts) skipped: ${e?.message || e}`)
+    const joined = thumbnails.map(item => `${item.title || ''}\n${item.prompt || ''}`).join('\n\n')
+    await recordUsageForScope(projectSlug, episodeId, 'image_prompts', joined)
+  } catch (error: any) {
+    job.output_lines.push(`Recency tracking skipped: ${error?.message || error}`)
   }
 
-  // Resolve episode dir on disk (real folder, not the stale-title one).
-  const paths = await resolveEpisodePaths(project_slug, episode_id, title)
+  const paths = await resolveEpisodePaths(projectSlug, episodeId, title)
   let episodeDir = paths.episode_dir.replace(/\/$/, '')
-  const seasonDir = path.dirname(episodeDir)
-  const actualDir = await resolveEpisodeDir(seasonDir, episode_id)
+  const actualDir = await resolveEpisodeDir(path.dirname(episodeDir), episodeId)
   if (actualDir) episodeDir = actualDir
-
-  const names = await resolveSubfolderNames(project_slug, episode_id)
-
-  // Save scenes
-  if (sceneCount > 0) {
-    const sceneDir = await resolveSubfolder(episodeDir, names.scene_prompts)
-    if (!sceneDir) throw new Error(`Scene prompts folder not found: ${names.scene_prompts}`)
-    if (scenes.length > 0) {
-      let sceneText = `# Scene Prompts\n\n`
-      for (const s of scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
-      const outPath = path.join(sceneDir, `${episode_id}_Scene_Prompts.md`)
-      await buildImagePromptsDocx(sceneText, episode_id, title, outPath)
-      job.output_lines.push(`Saved scenes → ${path.basename(outPath)}`)
+  const names = await resolveSubfolderNames(projectSlug, episodeId)
+  const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
+  if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
+  if (thumbnails.length > 0) {
+    let output = '# Thumbnail Prompts\n\n'
+    for (const item of thumbnails) {
+      output += `## Thumbnail ${item.number}: ${item.title || `Variation ${item.number}`}\n\n${item.prompt}\n\n`
     }
-    await writePromptCompletionManifest(sceneDir, episode_id, 'scene', sceneCount)
+    const outputPath = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
+    await buildImagePromptsDocx(output, episodeId, title, outputPath)
+    job.output_lines.push(`Saved thumbnails → ${path.basename(outputPath)}`)
   }
+  await writePromptCompletionManifest(thumbDir, episodeId, 'thumbnail', count)
+  await trackGeneration(projectSlug, 'prompts').catch(() => {})
 
-  // Save thumbnails
-  if (thumbs > 0) {
-    const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
-    if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
-    if (thumbnails.length > 0) {
-      let thumbText = `# Thumbnail Prompts\n\n`
-      for (const t of thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
-      const outPath = path.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`)
-      await buildImagePromptsDocx(thumbText, episode_id, title, outPath)
-      job.output_lines.push(`Saved thumbnails → ${path.basename(outPath)}`)
-    }
-    await writePromptCompletionManifest(thumbDir, episode_id, 'thumbnail', thumbs)
-  }
-
-  await trackGeneration(project_slug, 'prompts').catch(() => {})
-
-  // v1.0.304 — honest completion. The chunked path used to print "Done." even
-  // when most batches failed (e.g. 30/100 scenes saved, job shown green). Now,
-  // If any batch failed its allowed attempts, surface an ERROR with the exact
-  // counts — the partial scenes are already saved above (preserved, not lost),
-  // so the user can re-run to fill only the gaps once the endpoint is back.
-  if (failedSceneBatches.length > 0) {
-    job.output_lines.push(`Failed scene ranges after ${isLocalTextModel(model) ? 3 : 1} attempt(s): ${failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')}`)
-  }
-  if (mode === 'scenes') {
-    requireJobCompletion(job, {
-      label: 'Scene prompt generation', expected: sceneCount, completed: sceneCount - missingScenes.length,
-      missing: missingScenes.map(number => `Scene ${number}`),
-      retry_hint: 'Successful prompts were saved; Retry generates only the missing prompts.',
-    })
-  } else {
-    requireJobCompletion(job, {
-      label: 'Thumbnail prompt generation', expected: thumbs, completed: thumbs - missingThumbnails.length,
-      missing: missingThumbnails.map(number => `Thumbnail ${number}`),
-      retry_hint: 'Successful prompts were saved; Retry fills the remaining thumbnail prompts.',
-    })
-  }
-  job.output_lines.push(`Done.`)
+  requireJobCompletion(job, {
+    label: 'Thumbnail prompt generation',
+    expected: count,
+    completed: count - missing.length,
+    missing: missing.map(number => `Thumbnail ${number}`),
+    retry_hint: 'Verified prompts were saved; Retry requests only the missing thumbnail prompts.',
+  })
+  job.output_lines.push('Done.')
 }

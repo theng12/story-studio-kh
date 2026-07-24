@@ -48,6 +48,18 @@ export function resolveAudioProvider(
 }
 
 /**
+ * An accepted GenStudio task can be safely reconnected after a restart or a
+ * lost network response. A terminal provider failure cannot: its idempotency
+ * key intentionally resolves to the same failed GenStudio job forever.
+ */
+export function isTerminalGenStudioTaskFailure(entry: {
+  task_id?: string
+  last_state?: string
+} | null | undefined): boolean {
+  return Boolean(entry?.task_id && entry.last_state === 'failed')
+}
+
+/**
  * Thrown by findNarrationFile when the expected `_Script_Narration.docx`
  * isn't on disk yet. Carries `code: 'NARRATION_MISSING'` so the frontend
  * can match on a stable string instead of regex-parsing the message.
@@ -573,31 +585,44 @@ export async function generateAudio(job: Job): Promise<void> {
           || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
         ? manifestEntry
         : null
+      const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
+      const recoveryEntry = terminalFailure ? null : reusableEntry
       const prepared = buildGenStudioSubmission({
         text: task.chunkText,
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
-        requestIdentity,
+        // A manual Story Studio retry owns a new queue job. Give only a
+        // terminal external failure a fresh GenStudio identity; unfinished
+        // accepted work must retain its original key for safe recovery.
+        requestIdentity: terminalFailure
+          ? `${requestIdentity}:manual-retry:${job.job_id}`
+          : requestIdentity,
       })
-      const idempotencyKey = reusableEntry?.idempotency_key || prepared.idempotencyKey
-      const submittedAt = reusableEntry?.submitted_at || new Date().toISOString()
+      const idempotencyKey = recoveryEntry?.idempotency_key || prepared.idempotencyKey
+      const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
+
+      if (terminalFailure) {
+        job.output_lines.push(
+          `  Previous GenStudio task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
+        )
+      }
 
       // Persist identity before POST. Legacy manifest entries are deliberately
       // ignored unless they already represent this exact GenStudio request.
       await recordTaskStrict(audioDir, chunkFilename, {
         provider: 'genstudio',
-        task_id: reusableEntry?.task_id || '',
+        task_id: recoveryEntry?.task_id || '',
         submitted_at: submittedAt,
         input_hash: inputHash,
         idempotency_key: idempotencyKey,
         operation: 'tts',
-        last_state: reusableEntry?.last_state || 'prepared',
+        last_state: recoveryEntry?.last_state || 'prepared',
       })
       await checkpointGenStudioAsset(job, chunkFilename, {
         operation: 'tts',
         idempotency_key: idempotencyKey,
-        ...(reusableEntry?.task_id ? { job_id: reusableEntry.task_id } : {}),
-        state: (reusableEntry?.last_state || 'prepared') as GenStudioRecoveryState,
+        ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
+        state: (recoveryEntry?.last_state || 'prepared') as GenStudioRecoveryState,
       })
       job.output_lines.push(`  GenStudio request: ${task.sectionLabel} -> ${idempotencyKey}`)
       const request = {
@@ -645,9 +670,9 @@ export async function generateAudio(job: Job): Promise<void> {
           })
         },
       }
-      if (reusableEntry?.task_id) {
-        job.output_lines.push(`  Reclaiming accepted GenStudio task ${reusableEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
-        await recoverTtsGenStudio(apiKey, task.outputPath, reusableEntry.task_id, request)
+      if (recoveryEntry?.task_id) {
+        job.output_lines.push(`  Reclaiming accepted GenStudio task ${recoveryEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+        await recoverTtsGenStudio(apiKey, task.outputPath, recoveryEntry.task_id, request)
       } else {
         await generateTtsGenStudio(apiKey, task.outputPath, request)
       }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  buildThumbnailPrompt,
   buildThumbnailDirective,
   enforceThumbnailPromptElements,
 } from '../generators/image-prompts.js'
@@ -73,4 +74,23 @@ test('thumbnail prompt repair preserves the aspect ratio and ready-to-use title'
   assert.match(fixed, /YouTube thumbnail \(16:9\)/i)
   assert.match(fixed, /The Impossible Storm/)
   assert.match(fixed, /inside the image/i)
+})
+
+test('the thumbnail executor sends a thumbnail-only response contract', () => {
+  const prompt = buildThumbnailPrompt({
+    episodeId: 'EP0057',
+    title: 'A Better Thumbnail',
+    storyContext: 'A concise story summary.',
+    castBlock: '',
+    count: 3,
+    styleTag: 'editorial illustration',
+    aspectRatio: '16:9',
+    thumbnailDirective: 'Keep one dominant focal subject.',
+    targetNumbers: [1, 2, 3],
+  })
+
+  assert.match(prompt, /exactly 3 distinct YouTube thumbnail briefs/i)
+  assert.match(prompt, /"thumbnails"/)
+  assert.doesNotMatch(prompt, /scene prompts/i)
+  assert.doesNotMatch(prompt, /"scenes"/)
 })

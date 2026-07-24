@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { UpdateConfigSchema } from '../contracts/index.js'
-import { resolveAudioProvider } from '../generators/audio.js'
+import { isTerminalGenStudioTaskFailure, resolveAudioProvider } from '../generators/audio.js'
 import {
   genStudioOnlyAudioModels,
   resolveStoryTtsModelId,
@@ -20,6 +20,12 @@ test('arbitrary project audio_models cannot select a direct TTS provider', () =>
   assert.equal(resolveAudioProvider('genstudio-standard-v1', malicious), 'genstudio')
   assert.equal(resolveAudioProvider('fishaudio-s2.1-pro', malicious), 'genstudio')
   assert.equal(resolveAudioProvider('voicestudio-qwen3-tts', malicious), 'genstudio')
+})
+
+test('a terminal GenStudio task failure starts a new manual recovery request', () => {
+  assert.equal(isTerminalGenStudioTaskFailure({ task_id: 'job_failed', last_state: 'failed' }), true)
+  assert.equal(isTerminalGenStudioTaskFailure({ task_id: 'job_running', last_state: 'running' }), false)
+  assert.equal(isTerminalGenStudioTaskFailure({ task_id: '', last_state: 'failed' }), false)
 })
 
 test('project config healing exposes exactly the three customer-facing GenStudio TTS tiers', () => {

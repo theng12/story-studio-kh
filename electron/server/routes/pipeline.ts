@@ -373,9 +373,9 @@ export function findActivePreset(
   config: any, step: BatchStep,
 ): { preset: StoredPreset | null; missingReason: string | null } {
   const keys = PRESET_KEYS[step]
-  // Some legacy steps can resolve across more than one preset pool. Split
-  // prompt steps intentionally do not: thumbnail and scene prompt presets are
-  // independent and must never fall through to each other.
+  // Some legacy steps can resolve across more than one preset pool. Thumbnail
+  // prompts intentionally use only their own preset pool; scene visual
+  // planning belongs to Scene Plan.
   const listKeys = Array.isArray(keys.list) ? keys.list : [keys.list]
   const list: StoredPreset[] = listKeys.flatMap(k => (Array.isArray(config?.[k]) ? config[k] : []))
   // Walk activeKeys in order; the first key that points at an existing preset
@@ -483,42 +483,25 @@ export function resolveStepParams(
     }
   }
   if (step === 'image_prompts') {
-    // image_prompts preset shape: { form: {...} } from image-prompts.vue.
-    // v1.0.373: Pipeline prompt steps are hard-split. Thumbnail Prompts
-    // always runs mode='thumbnails'; Scene Prompts always runs mode='scenes'.
-    // There is no Pipeline path that runs mode='all'.
+    // This Pipeline step owns YouTube-thumbnail prompts only. Scene visuals
+    // come from Scene Plan and must never be inferred from legacy prompt
+    // preset fields.
     const form = data.form || {}
-    const { title: _t, episode_id: _e, ...rest } = form
-    // Mirror the UI's submit normalization (image-prompts.vue:705-706):
-    // when scenes_per_chapter > 0, drop any stale total_scenes so the
-    // generator's fallback derives total from scenes_per_chapter. Without
-    // this, a preset saved earlier as {scenes_per_chapter: 3, total_scenes: 30}
-    // would keep using 30 even after the user saved it down to 1.
-    const spc = Number((rest as any).scenes_per_chapter)
-    if (Number.isFinite(spc) && spc > 0) {
-      delete (rest as any).total_scenes
-    }
-    // Format-aware fallback (v1.0.72): a stale preset saved before the
-    // format-defaults rollout — or one snapshotted from the page before
-    // the user opened it — may be missing total_scenes / thumb_count.
-    // Without this fallback, the backend hardcodes 10 scenes / 5 thumbs
-    // (sleep-story values) regardless of channel format. The frontend
-    // page seeds these from the format on first boot, so this layer
-    // mostly helps batch runs from older presets and programmatic
-    // enqueues.
+    const {
+      title: _t,
+      episode_id: _e,
+      scenes_per_chapter: _legacyScenesPerChapter,
+      total_scenes: _legacyTotalScenes,
+      chapter_count: _legacyChapterCount,
+      chapter_count_override: _legacyChapterCountOverride,
+      scene: _legacySceneSettings,
+      ...rest
+    } = form
+
+    // Older presets may not contain thumbnail defaults. Heal only fields
+    // that remain authoritative for the thumbnail surface.
     const fmtIp = format?.imagePrompts
     if (fmtIp) {
-      // Derive scene count: only set total_scenes if the preset doesn't
-      // already pin a way to compute it (scenes_per_chapter or
-      // total_scenes already non-zero).
-      const hasScenesSignal = (Number.isFinite(spc) && spc > 0) ||
-        (Number((rest as any).total_scenes) > 0)
-      if (!hasScenesSignal && Array.isArray(fmtIp.defaultScenesTotalRange) &&
-          fmtIp.defaultScenesTotalRange.length === 2 &&
-          typeof fmtIp.defaultScenesTotalRange[0] === 'number') {
-        ;(rest as any).total_scenes = fmtIp.defaultScenesTotalRange[0]
-        ;(rest as any).scenes_per_chapter = 0  // signals "use total_scenes"
-      }
       if (!Number((rest as any).thumb_count) && typeof fmtIp.defaultThumbnails === 'number' &&
           fmtIp.defaultThumbnails > 0) {
         ;(rest as any).thumb_count = fmtIp.defaultThumbnails
@@ -527,12 +510,6 @@ export function resolveStepParams(
           fmtIp.recommendedAspect) {
         ;(rest as any).aspect_ratio = fmtIp.recommendedAspect
       }
-      // v1.0.518 — style_tag is intentionally NOT auto-filled from the
-      // format default here anymore. The generator (generators/image-prompts.ts)
-      // now owns the full precedence: explicit override → project art style
-      // → format+niche merged tag. Pre-filling the format default here would
-      // masquerade as a user override and suppress the project art style on
-      // batch/pipeline runs.
     }
     return {
       ...rest,

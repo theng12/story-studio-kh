@@ -767,7 +767,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
 //
 // Now the route enqueues an `image_prompts` job and returns `{ job }`.
 // The executor in `generators/image-prompts.ts` is the single source of
-// truth: it handles chunking, writes the docx to disk, and reports
+// truth for thumbnail prompts: it writes the document to disk and reports
 // progress + errors via the standard Jobs SSE stream. The frontend
 // watches the returned job_id via useJobs and refreshes the
 // PromptReviewPanel when the job lands in `done`.
@@ -804,8 +804,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     // The executor reads params straight off this object — see
     // ImagePromptsParams in generators/image-prompts.ts. Pass the body
     // through verbatim so any field the form sends (style_tag, aspect_
-    // ratio, scenes_per_chapter, total_scenes, chapter_count, thumb_*,
-    // mode, character_ids) flows untouched.
+    // ratio, thumb_*, mode, character_ids) flows untouched.
     params: { ...req.body, mode: req.body.mode || 'thumbnails' },
   })
 
@@ -1440,10 +1439,9 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
   }
 })
 
-// M4: `POST /generate/image-prompts-only` removed. Zero frontend callers
-// (verified by grep across the frontend tree). The image-prompts page
-// uses `/generate/image-prompts` with `mode: 'scenes' | 'thumbnails'`
-// for granular generation. Pipeline batch uses `image_prompts` step.
+// `POST /generate/image-prompts-only` is retired. Thumbnail Prompts uses the
+// thumbnail-only `/generate/image-prompts` contract; Scene Plan owns all
+// scene visual prompts.
 
 // ── Legacy narration normaliser (Part 3 of mark-done plan) ─────────────────
 //

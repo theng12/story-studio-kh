@@ -108,14 +108,24 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.words_per_chapter, 500)
   })
 
-  test('image_prompts step normalises scenes_per_chapter > 0 to drop stale total_scenes', () => {
+  test('image_prompts step strips every retired scene-planning field', () => {
     const preset = fakePreset({
-      form: { scenes_per_chapter: 3, total_scenes: 30 },
+      form: {
+        scenes_per_chapter: 3,
+        total_scenes: 30,
+        chapter_count: 10,
+        chapter_count_override: 12,
+        scene: { visual_detail: 4 },
+        thumb_count: 3,
+      },
     })
     const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
-    assert.equal(params.scenes_per_chapter, 3)
-    assert.equal(params.total_scenes, undefined,
-      'total_scenes must be dropped when scenes_per_chapter > 0 (UI normalisation)')
+    assert.equal(params.scenes_per_chapter, undefined)
+    assert.equal(params.total_scenes, undefined)
+    assert.equal(params.chapter_count, undefined)
+    assert.equal(params.chapter_count_override, undefined)
+    assert.equal(params.scene, undefined)
+    assert.equal(params.thumb_count, 3)
     assert.equal(params.mode, 'thumbnails')
   })
 
@@ -142,17 +152,13 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
   })
 
   test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {
-    // Stale preset (saved before the user touched the form): empty form.
-    // Pre-fix: backend hardcoded 10 scenes / 5 thumbs / 16:9 / storybook
-    // — sleep-story values. Post-fix: listicle's format defaults flow
-    // through unchanged (10 scenes from defaultScenesTotalRange[0]=10,
-    // 3 thumbs from defaultThumbnails, 16:9 aspect, format-tuned style).
+    // Stale preset (saved before the user touched the thumbnail form).
+    // Only thumbnail defaults may be healed here; scene timing belongs to
+    // Scene Plan and is deliberately absent.
     const preset = fakePreset({ form: {} })
     const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
-    assert.equal(params.total_scenes, 10,
-      'should seed listicle defaultScenesTotalRange[0]')
-    assert.equal(params.scenes_per_chapter, 0,
-      'scenes_per_chapter=0 signals "use total_scenes"')
+    assert.equal(params.total_scenes, undefined)
+    assert.equal(params.scenes_per_chapter, undefined)
     assert.equal(params.thumb_count, 3,
       'should seed listicle defaultThumbnails')
     assert.equal(params.aspect_ratio, '16:9',
@@ -169,7 +175,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
       },
     })
     const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
-    assert.equal(params.scenes_per_chapter, 4)
+    assert.equal(params.scenes_per_chapter, undefined)
     assert.equal(params.thumb_count, 8)
     assert.equal(params.aspect_ratio, '9:16')
     assert.equal(params.style_tag, 'My personal style')
