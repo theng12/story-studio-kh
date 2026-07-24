@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.722 — 2026-07-25
+
+**The first subtitle Retry now replaces an already-expired request immediately.**
+
+- When a previous Story Studio version saved a transcription as accepted but
+  GenStudio later reports that its quote expired, Retry now retires the stale
+  identity and submits one fresh replacement in the same action.
+- A replacement that itself reaches a terminal provider state remains marked
+  terminal and awaits the next deliberate Retry; accepted work is still only
+  reconnected, never duplicated.
+
+---
+
 ## v1.0.721 — 2026-07-25
 
 **Subtitle Retry now replaces expired GenStudio transcription requests.**

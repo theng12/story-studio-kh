@@ -19,5 +19,6 @@ test('terminal GenStudio transcription tasks receive a fresh manual-retry identi
   assert.match(source, /const recoveryTask = terminalFailure \? null : reusableTask/)
   assert.match(source, /manual-retry:\$\{job\.job_id\}/)
   assert.match(source, /previous GenStudio transcription task failed terminally; submitting one fresh recovery task/i)
-  assert.match(source, /next manual Retry will submit one fresh replacement/i)
+  assert.match(source, /saved GenStudio transcription request had expired; submitting one fresh replacement now/i)
+  assert.match(source, /if \(!recoveryTask\)/)
 })

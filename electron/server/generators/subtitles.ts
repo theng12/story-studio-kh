@@ -73,6 +73,32 @@ export function isTerminalGenStudioTranscriptionProviderError(error: unknown): b
   return /(?:transcription|task|quote).*(?:failed|expired|cancelled|rejected)|(?:failed|expired|cancelled|rejected).*(?:transcription|task|quote)/i.test(message)
 }
 
+async function markTerminalTranscriptionRequest(input: {
+  job: Job
+  outDir: string
+  manifestKey: string
+  inputHash: string
+  idempotencyKey: string
+  submittedAt: string
+  taskId?: string
+}): Promise<void> {
+  await recordTaskStrict(input.outDir, input.manifestKey, {
+    provider: 'genstudio',
+    task_id: input.taskId || '',
+    submitted_at: input.submittedAt,
+    input_hash: input.inputHash,
+    idempotency_key: input.idempotencyKey,
+    operation: 'transcription',
+    last_state: 'failed',
+  })
+  await checkpointGenStudioAsset(input.job, input.manifestKey, {
+    operation: 'transcription',
+    idempotency_key: input.idempotencyKey,
+    ...(input.taskId ? { job_id: input.taskId } : {}),
+    state: 'failed',
+  })
+}
+
 async function hashTranscriptionAudio(audioPath: string): Promise<string> {
   const audio = await fs.readFile(audioPath)
   return `sha256:${createHash('sha256').update(audio).digest('hex')}`
@@ -199,7 +225,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
     const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
     const recoveryTask = terminalFailure ? null : reusableTask
-    const idempotencyKey = recoveryTask?.idempotency_key
+    let idempotencyKey = recoveryTask?.idempotency_key
       || buildGenStudioTranscriptionIdempotencyKey({
         // A manual Retry needs a new GenStudio identity only after the old
         // provider task reached a terminal state. Accepted unfinished work
@@ -209,7 +235,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
         modelId: genstudio.modelId,
         language: req.language || 'en',
       })
-    const submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
+    let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
     if (terminalFailure) {
       job.output_lines.push('Previous GenStudio transcription task failed terminally; submitting one fresh recovery task.')
     }
@@ -296,22 +322,46 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       // durable key terminal either way, so the next manual Retry makes one
       // fresh request rather than replaying an expired quote forever.
       if (isTerminalGenStudioTranscriptionProviderError(error)) {
+        await markTerminalTranscriptionRequest({
+          job, outDir, manifestKey, inputHash: currentInputHash,
+          idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
+        })
+        if (!recoveryTask) {
+          job.output_lines.push('GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.')
+          throw error
+        }
+        // Older releases saved an accepted task even when its quote had later
+        // expired. The failed recovery above is proof that request is dead, so
+        // replace it immediately in this manual Retry rather than asking for a
+        // second click.
+        idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
+          requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
+          fileSha256: currentAudioHash.slice('sha256:'.length),
+          modelId: genstudio.modelId,
+          language: req.language || 'en',
+        })
+        submittedAt = new Date().toISOString()
+        transcriptionRequest.idempotencyKey = idempotencyKey
         await recordTaskStrict(outDir, manifestKey, {
-          provider: 'genstudio',
-          task_id: recoveryTask?.task_id || '',
-          submitted_at: submittedAt,
-          input_hash: currentInputHash,
-          idempotency_key: idempotencyKey,
-          operation: 'transcription',
-          last_state: 'failed',
+          provider: 'genstudio', task_id: '', submitted_at: submittedAt,
+          input_hash: currentInputHash, idempotency_key: idempotencyKey,
+          operation: 'transcription', last_state: 'prepared',
         })
         await checkpointGenStudioAsset(job, manifestKey, {
-          operation: 'transcription',
-          idempotency_key: idempotencyKey,
-          ...(recoveryTask?.task_id ? { job_id: recoveryTask.task_id } : {}),
-          state: 'failed',
+          operation: 'transcription', idempotency_key: idempotencyKey, state: 'prepared',
         })
-        job.output_lines.push('GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.')
+        job.output_lines.push('The saved GenStudio transcription request had expired; submitting one fresh replacement now.')
+        try {
+          result = await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
+        } catch (replacementError) {
+          if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
+            await markTerminalTranscriptionRequest({
+              job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
+            })
+          }
+          throw replacementError
+        }
+        return await finalizeTranscript(job, project_slug, episode_id, result.srt)
       }
       throw error
     }
@@ -480,7 +530,7 @@ async function transcribePerChapter(
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
       const recoveryTask = terminalFailure ? null : reusableTask
-      const idempotencyKey = recoveryTask?.idempotency_key
+      let idempotencyKey = recoveryTask?.idempotency_key
         || buildGenStudioTranscriptionIdempotencyKey({
           // Only a terminal provider task receives a fresh identity. This
           // prevents a quote-expired chapter from being replayed forever,
@@ -490,7 +540,7 @@ async function transcribePerChapter(
           modelId: genstudio.modelId,
           language: req.language || 'en',
         })
-      const submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
+      let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
       if (terminalFailure) {
         job.output_lines.push(`  ${sec.slug}: previous GenStudio transcription task failed terminally; submitting one fresh recovery task.`)
       }
@@ -566,24 +616,44 @@ async function transcribePerChapter(
           : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
       } catch (error) {
         if (isTerminalGenStudioTranscriptionProviderError(error)) {
+          await markTerminalTranscriptionRequest({
+            job, outDir, manifestKey, inputHash: currentInputHash,
+            idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
+          })
+          if (!recoveryTask) {
+            job.output_lines.push(`  ${sec.slug}: GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.`)
+            throw error
+          }
+          idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
+            requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
+            fileSha256: currentAudioHash.slice('sha256:'.length),
+            modelId: genstudio.modelId,
+            language: req.language || 'en',
+          })
+          submittedAt = new Date().toISOString()
+          transcriptionRequest.idempotencyKey = idempotencyKey
           await recordTaskStrict(outDir, manifestKey, {
-            provider: 'genstudio',
-            task_id: recoveryTask?.task_id || '',
-            submitted_at: submittedAt,
-            input_hash: currentInputHash,
-            idempotency_key: idempotencyKey,
-            operation: 'transcription',
-            last_state: 'failed',
+            provider: 'genstudio', task_id: '', submitted_at: submittedAt,
+            input_hash: currentInputHash, idempotency_key: idempotencyKey,
+            operation: 'transcription', last_state: 'prepared',
           })
           await checkpointGenStudioAsset(job, manifestKey, {
-            operation: 'transcription',
-            idempotency_key: idempotencyKey,
-            ...(recoveryTask?.task_id ? { job_id: recoveryTask.task_id } : {}),
-            state: 'failed',
+            operation: 'transcription', idempotency_key: idempotencyKey, state: 'prepared',
           })
-          job.output_lines.push(`  ${sec.slug}: GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.`)
+          job.output_lines.push(`  ${sec.slug}: saved GenStudio request had expired; submitting one fresh replacement now.`)
+          try {
+            result = await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
+          } catch (replacementError) {
+            if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
+              await markTerminalTranscriptionRequest({
+                job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
+              })
+            }
+            throw replacementError
+          }
+        } else {
+          throw error
         }
-        throw error
       }
       const { srt, cues, warnings } = normalizeSrtOrVtt(result.srt)
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
