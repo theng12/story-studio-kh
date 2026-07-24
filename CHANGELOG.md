@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.721 — 2026-07-25
+
+**Subtitle Retry now replaces expired GenStudio transcription requests.**
+
+- Detects terminal transcription states—including an expired GenStudio quote
+  that fails before a provider task ID exists—and retires that old request
+  identity.
+- The next manual Retry creates exactly one fresh request for only the missing
+  chapter. It keeps every verified chapter SRT already on disk, so an episode
+  with 9/10 subtitles retries just the unresolved chapter instead of replaying
+  the same expired task forever.
+
+---
+
 ## v1.0.720 — 2026-07-24
 
 **Job credits now clearly distinguish amounts on hold, charged, and returned.**
