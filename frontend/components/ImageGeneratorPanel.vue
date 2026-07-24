@@ -21,29 +21,29 @@
 -->
 <template>
   <div v-if="episodeId" class="igp">
-    <!-- Header: title + bulk Generate All button + total count -->
+    <!-- Header: a compact board summary and a missing-only bulk action. -->
     <div class="igp-head">
       <div class="igp-title-row">
-        <h3 class="igp-title">{{ kindLabel }} Generator</h3>
+        <h3 class="igp-title">{{ kind === 'thumbnail' ? 'Thumbnail board' : 'Scene generator' }}</h3>
         <span class="text-muted text-xs">
-          {{ prompts.length }} {{ kindLabelLower }}{{ prompts.length === 1 ? '' : 's' }} on disk
-          <template v-if="renderedCount > 0">
-            · {{ renderedCount }} rendered
-          </template>
+          {{ renderedCount }} / {{ prompts.length }} ready
+          <template v-if="missingCount"> · {{ missingCount }} missing</template>
         </span>
       </div>
       <button
         type="button"
         class="btn btn-sm btn-primary"
-        :disabled="bulkDisabled || !prompts.length"
+        :disabled="bulkDisabled || !prompts.length || (!isRegenerateMode && missingCount === 0)"
         :title="bulkDisabled
           ? `Render in flight — wait for it to finish or cancel via the Jobs panel`
-          : `Render every ${kindLabelLower}. Skips already-rendered ones unless Force is on.`"
+          : isRegenerateMode
+            ? `Re-render every ${kindLabelLower} for this episode.`
+            : `Generate only the ${kindLabelLower}s that are still missing.`"
         @click="runBulk"
       >
         <LoadingSpinner v-if="bulkDisabled" size="sm" />
         <span v-else aria-hidden="true">✨</span>
-        {{ bulkDisabled ? 'Bulk rendering…' : `Generate All ${prompts.length} ${kindLabelLower}${prompts.length === 1 ? '' : 's'}` }}
+        {{ bulkDisabled ? 'Rendering…' : bulkActionLabel }}
       </button>
     </div>
 
@@ -84,7 +84,9 @@
           :key="`${kind}-${row.number}`"
           :row="row"
           :prefix="kindLabel"
-          :image-path="imagePathByNumber.get(row.number) || null"
+          :image-path="imageByNumber.get(row.number)?.path || null"
+          :show-pin="kind === 'thumbnail'"
+          :pinned-for-upload="imageByNumber.get(row.number)?.filename === pinnedFilename"
           :slug="projectSlug"
           :cache-key="cacheKey"
           :busy="busy.has(row.number)"
@@ -92,6 +94,7 @@
           :cap="promptCharCap ?? null"
           :model-label="modelLabel"
           @generate="runOne(row.number)"
+          @pin-toggle="togglePinForRow(imageByNumber.get(row.number)?.filename || null)"
           @open-preview="(p) => $emit('open-preview', p)"
         />
       </div>
@@ -134,12 +137,9 @@ const props = defineProps<{
    *  match what the parent images.vue shows. */
   model?: string
   aspectRatio?: string
-  generationMode?: 'skip' | 'regenerate' | 'new_version'
-  imageMode?: 'text2img' | 'img2img'
+  generationMode?: 'skip' | 'regenerate'
   tier?: string
   seed?: number | null
-  referenceSources?: Record<string, any>
-  referenceStrength?: 'loose' | 'balanced' | 'strong'
   /** v1.0.308 — explicit render dimensions for LOCAL models. Set by the parent
    *  only when the model is an Image Studio model + a sub-Full size is picked;
    *  undefined for cloud models (which render from the aspect string). Sent on
@@ -156,6 +156,8 @@ const props = defineProps<{
   promptCharCap?: number | null
   /** Friendly model label for the cap tooltip. */
   modelLabel?: string
+  /** The thumbnail currently selected for upload, if the user pinned one. */
+  pinnedFilename?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -164,6 +166,7 @@ const emit = defineEmits<{
    *  the parent invalidate any sibling caches (e.g. the Edit gallery's
    *  scan list). */
   (e: 'refresh'): void
+  (e: 'pin-toggle', filename: string): void
 }>()
 
 const { get, post } = useApi()
@@ -242,8 +245,8 @@ const SCENE_NUMBER_REGEX = /_Scene(\d+)_v\d+/i
 const THUMB_NUMBER_REGEX = /_Thumb(\d+)_v\d+/i
 const EDITED_REGEX = /_edited_v\d+/i
 
-const imagePathByNumber = computed<Map<number, string>>(() => {
-  const m = new Map<number, string>()
+const imageByNumber = computed<Map<number, ScannedImage>>(() => {
+  const m = new Map<number, ScannedImage>()
   for (const img of renderedImages.value) {
     if (EDITED_REGEX.test(img.filename)) continue
     let n: number | null = typeof img.number === 'number' ? img.number : null
@@ -255,12 +258,25 @@ const imagePathByNumber = computed<Map<number, string>>(() => {
     if (n == null || !Number.isFinite(n)) continue
     // First match wins (the scan endpoint should already deduplicate, but
     // be defensive — keep the canonical _v1 path stable).
-    if (!m.has(n)) m.set(n, img.path)
+    if (!m.has(n)) m.set(n, img)
   }
   return m
 })
 
-const renderedCount = computed(() => imagePathByNumber.value.size)
+const renderedCount = computed(() => imageByNumber.value.size)
+const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
+const isRegenerateMode = computed(() => props.generationMode === 'regenerate')
+const bulkActionLabel = computed(() => {
+  if (isRegenerateMode.value) {
+    return `Regenerate ${prompts.value.length} ${kindLabelLower.value}${prompts.value.length === 1 ? '' : 's'}`
+  }
+  if (missingCount.value === 0) return `All ${kindLabelLower.value}s ready`
+  return `Generate ${missingCount.value} missing`
+})
+
+function togglePinForRow(filename: string | null): void {
+  if (filename) emit('pin-toggle', filename)
+}
 
 // ── Pagination ─────────────────────────────────────────────────────────────
 
@@ -321,9 +337,7 @@ function sharedJobParams() {
     aspect_ratio: props.aspectRatio,
     tier: props.tier,
     ...(typeof props.seed === 'number' ? { seed: props.seed } : {}),
-    image_mode: props.imageMode,
-    reference_sources: props.referenceSources,
-    reference_strength: props.referenceStrength,
+    image_mode: 'text2img',
     // v1.0.308 — local render size. Only included when the parent supplies both
     // (local model + sub-Full tier); cloud models omit them and use the aspect.
     ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'
@@ -393,12 +407,14 @@ async function runBulk(): Promise<void> {
     const job: any = await post(`/projects/${props.projectSlug}/generate/images`, {
       ...sharedJobParams(),
       mode: props.kind === 'scene' ? 'scenes' : 'thumbs',
-      // Bulk respects generation_mode → force mapping the parent page
-      // already does (skip vs regenerate vs new_version). Default skip
-      // so a partial batch resume doesn't redo everything.
-      force: props.generationMode === 'regenerate' || props.generationMode === 'new_version',
+      // Default is missing-only. Regeneration is the sole explicit overwrite
+      // action, so recovery never re-pays for artwork already on disk.
+      force: props.generationMode === 'regenerate',
     })
-    success(`Queued all ${prompts.value.length} ${kindLabelLower.value}s — job ${job.job_id}`)
+    const requested = props.generationMode === 'regenerate'
+      ? `all ${prompts.value.length}`
+      : `${missingCount.value} missing`
+    success(`Queued ${requested} ${kindLabelLower.value}s — job ${job.job_id}`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'error') {
       throw new Error(completed.error || 'Bulk job failed (see Jobs panel for details)')
@@ -410,7 +426,7 @@ async function runBulk(): Promise<void> {
     await loadScan()
     cacheKey.value++
     emit('refresh')
-    success(`Bulk render of ${prompts.value.length} ${kindLabelLower.value}s done`)
+    success(`${kindLabel.value} board refreshed`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Bulk render failed')
   } finally {

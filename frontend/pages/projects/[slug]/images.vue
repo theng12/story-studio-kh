@@ -10,7 +10,7 @@
       <template #aside>
         <div class="workspace-metrics" aria-label="Image generator context">
           <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'"><strong>{{ form.episode_id || 'No episode' }}</strong> target</span>
-          <span class="workspace-metric" data-tone="info"><strong>{{ activeForm.image_mode === 'img2img' ? 'Image → Image' : 'Text → Image' }}</strong> mode</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ form.mode === 'thumbs' ? 'Thumbnail artwork' : 'Scene artwork' }}</strong> workflow</span>
           <span class="workspace-metric" :data-tone="activeMissingCount ? 'warning' : 'success'"><strong>{{ activeMissingCount }}</strong> missing</span>
         </div>
       </template>
@@ -48,38 +48,6 @@
       </p>
     </div>
 
-    <!-- Image mode tabs. GenStudio's current image catalog is prompt-only,
-         so Image → Image is intentionally visible but unavailable until the
-         catalog publishes a reference-image capability. -->
-    <div class="mode-tabs workspace-stage-tabs" role="tablist" aria-label="Image generation pipeline">
-      <button
-        v-for="tab in imageModeTabs" :key="tab.id"
-        :class="['mode-tab', { active: activeForm.image_mode === tab.id, 'is-coming-soon': tab.comingSoon }]"
-        role="tab"
-        :aria-selected="activeForm.image_mode === tab.id"
-        :aria-disabled="tab.comingSoon || undefined"
-        :disabled="tab.comingSoon"
-        :title="tab.comingSoon ? 'Coming soon — GenStudio image models do not support reference images yet.' : undefined"
-        @click="selectImageMode(tab.id)"
-      >
-        <span class="mode-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-        <span class="mode-tab-label">{{ tab.label }} <small v-if="tab.comingSoon">Coming soon</small></span>
-        <span class="mode-tab-hint">{{ tab.hint }}</span>
-      </button>
-    </div>
-
-    <!-- v1.0.201 — the in-page Thumbnail/Scene switcher was removed so each
-         sidebar entry (Thumbnail Generator / Scene Generator) is its own
-         focused view. The mode is set by the sidebar's ?tab=; switch via the
-         sidebar. Formats that don't use scenes (broll, timestamp, continuity-
-         chain) only show Thumbnail Generator in the sidebar, so no scene
-         controls leak in here. -->
-    <div class="generator-mode-head">
-      <span class="generator-mode-icon" aria-hidden="true">{{ form.mode === 'thumbs' ? '📸' : '🎬' }}</span>
-      <strong>{{ form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator' }}</strong>
-      <span class="text-muted text-xs">{{ form.mode === 'thumbs' ? 'YouTube thumbnails' : 'Story artwork (scene images)' }}</span>
-    </div>
-
     <div class="card workspace-section generator-settings-panel">
       <div class="grid-2">
         <div class="form-group">
@@ -96,7 +64,7 @@
             v-model="activeForm.model"
             :project-slug="slug"
             :image-models="config?.image_models || {}"
-            :image-mode="activeForm.image_mode"
+            image-mode="text2img"
           />
           <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
             Tip: Use a higher-quality model for eye-catching thumbnails
@@ -206,24 +174,9 @@
             <template v-else>Full resolution.</template>
           </p>
         </div>
-        <div class="form-group">
-          <label>Specific # (optional)</label>
-          <input
-            v-model.number="specificNum"
-            class="input"
-            type="number"
-            min="1"
-            :placeholder="specificPlaceholder"
-          />
-        </div>
       </div>
 
-      <!-- Generation Mode (M6): single tri-state replaces the `force`
-           checkbox. Backend payload is unchanged — translation happens at
-           submit. NOTE: today the image generator skips existing files by
-           default, so 'skip' and 'new_version' behave identically until
-           generators/images.ts learns _v2 naming. The UI option is kept
-           visible so the surface is consistent with audio. -->
+      <!-- The two choices map directly to the real file behavior. -->
       <div class="form-group">
         <label>Generation Mode</label>
         <div class="generation-mode-row">
@@ -241,40 +194,18 @@
               <span class="text-muted">Overwrite existing variants in place.</span>
             </div>
           </label>
-          <label class="generation-mode-option">
-            <input type="radio" value="new_version" v-model="activeForm.generation_mode" />
-            <div>
-              <strong>New version</strong>
-              <span class="text-muted">Currently behaves like Skip — _v2 image variants are planned.</span>
-            </div>
-          </label>
         </div>
       </div>
 
     </div>
 
-    <!-- Legacy saved img2img settings remain readable and are healed to
-         prompt-only below. This card stays gated for a future catalog that
-         explicitly advertises reference-image support. -->
-    <Img2ImgReferencesCard
-      v-if="activeForm.image_mode === 'img2img' && form.episode_id"
-      :project-slug="slug"
-      :episode-id="form.episode_id"
-      :title="ep2imgTitle"
-      :kind="form.mode === 'thumbs' ? 'thumbnail' : 'scene'"
-      :value="activeForm.reference_sources"
-      :reference-strength="activeForm.reference_strength"
-      @update:value="activeForm.reference_sources = $event"
-      @update:reference-strength="activeForm.reference_strength = $event"
-    />
-
     <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────
          Each panel lists the episode's prompts for ONE kind (scene or
          thumbnail), shows the rendered image inline per row, and exposes
-         per-row Generate / Regenerate buttons plus a top "Generate All N"
+         per-row Generate / Regenerate buttons plus a missing-only bulk action.
          bulk button. Replaces the old all-or-nothing top Generate flow as
          the PRIMARY interaction surface. Form fields above (model, aspect
-         ratio, generation_mode, reference sources) flow into both panels.
+         ratio, and generation mode) flow into both panels.
          v-show toggles based on the existing mode tabs so the panel
          matches whichever tab is active. -->
     <ImageGeneratorPanel
@@ -286,18 +217,17 @@
       :model="form.thumbnail.model"
       :aspect-ratio="form.thumbnail.aspect_ratio"
       :generation-mode="form.thumbnail.generation_mode"
-      :image-mode="form.thumbnail.image_mode"
       :tier="form.thumbnail.tier"
       :seed="form.thumbnail.seed"
-      :reference-sources="form.thumbnail.reference_sources"
-      :reference-strength="form.thumbnail.reference_strength"
       :render-width="thumbnailRenderSize?.width"
       :render-height="thumbnailRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
+      :pinned-filename="pinnedThumbnailFilename"
       @open-preview="openLightboxAt"
       @refresh="onPanelRefresh"
+      @pin-toggle="toggleThumbnailPin"
     />
     <ImageGeneratorPanel
       v-show="form.mode === 'scenes' && form.episode_id"
@@ -308,11 +238,8 @@
       :model="form.scene.model"
       :aspect-ratio="form.scene.aspect_ratio"
       :generation-mode="form.scene.generation_mode"
-      :image-mode="form.scene.image_mode"
       :tier="form.scene.tier"
       :seed="form.scene.seed"
-      :reference-sources="form.scene.reference_sources"
-      :reference-strength="form.scene.reference_strength"
       :render-width="sceneRenderSize?.width"
       :render-height="sceneRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
@@ -334,7 +261,7 @@
          Hidden until prompts exist on disk and the user expands the
          card — keeps the page calm by default; the user opts in.
     -->
-    <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-preview-heading">
+    <div v-if="form.episode_id && form.mode === 'scenes'" class="card workspace-section" aria-labelledby="image-preview-heading">
       <button
         type="button"
         class="preview-card-toggle"
@@ -346,11 +273,11 @@
           Preview what will be generated
         </h3>
         <span v-if="activePromptRows.length" class="text-muted text-xs">
-          {{ activePromptRows.length }} {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompt(s) on disk
+          {{ activePromptRows.length }} scene prompt(s) on disk
         </span>
       </button>
       <p v-if="previewOpen" class="text-muted text-sm preview-card-blurb">
-        Inspect the {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompts that will be sent to the image provider,
+        Inspect the scene prompts that will be sent to the image provider,
         and render a single sample of any one to gut-check the visual style before kicking off the full batch.
         <strong>Cached app-wide</strong> by prompt + model + aspect + tier — same
         combo across episodes / projects re-uses the cached render and
@@ -365,11 +292,11 @@
       </div>
       <template v-else-if="previewOpen">
         <ul v-if="activePromptRows.length" class="preview-list" role="list">
-          <li class="preview-list-section">{{ form.mode === 'thumbs' ? 'Thumbnails' : 'Scenes' }}</li>
+          <li class="preview-list-section">Scenes</li>
           <li v-for="row in activePromptRows" :key="`${activePreviewKind}-${row.number}`" class="preview-row">
             <PreviewPromptRow
               :row="row"
-              :prefix="form.mode === 'thumbs' ? 'Thumbnail' : 'Scene'"
+              prefix="Scene"
               :state="previewState[previewKey(activePreviewKind, row.number)] || null"
               @preview="renderPromptPreview(activePreviewKind, row)"
             />
@@ -377,19 +304,21 @@
         </ul>
         <div v-if="!activePromptRows.length" class="text-muted text-md">
           No prompts found yet. Generate them on the
-          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink> page first.
+          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=scenes`">Scene Prompts</NuxtLink> page first.
         </div>
       </template>
     </div>
 
-    <!-- Image integrity pill + Repair. Generators skip existing non-empty -->
-    <!-- files natively, so Repair = re-submit the same form with force=false. -->
+    <!-- Recovery is scoped to the active artwork pool. It only reclaims an
+         accepted GenStudio result; fresh work remains an explicit action. -->
     <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-integrity-heading">
-      <h3 id="image-integrity-heading" class="integrity-title">Image integrity</h3>
+      <h3 id="image-integrity-heading" class="integrity-title">
+        {{ form.mode === 'thumbs' ? 'Recovery & completeness' : 'Image integrity' }}
+      </h3>
       <p class="text-muted text-sm integrity-blurb">
-        Check whether every expected image is on disk. <strong>Repair</strong> only
-        retrieves already-paid provider tasks at no credit cost. A file with no stored
-        task ID must be generated fresh; existing images are skipped.
+        Check the expected {{ activePoolLabel }} against files on disk. <strong>Recover prior result(s)</strong>
+        downloads only accepted GenStudio jobs without charging again. Missing artwork with no saved job ID
+        needs a fresh generation; existing files are never overwritten in missing-only mode.
       </p>
 
       <div v-if="imageStatus.loading" class="text-muted text-md">
@@ -414,14 +343,14 @@
              leaving the user with images for 7 of 20 expected chapters
              and burning credits to find out. -->
         <span
-          v-if="promptsStaleVsOutline.stale"
+          v-if="form.mode === 'scenes' && promptsStaleVsOutline.stale"
           class="integrity-pill warn"
           :title="`The outline has ${promptsStaleVsOutline.chapterCount} chapters but only ${promptsStaleVsOutline.promptCount} scene prompts exist on disk. Regenerate Scene Prompts at the new chapter count first — otherwise images will only cover ${promptsStaleVsOutline.promptCount} of the ${promptsStaleVsOutline.chapterCount} chapters.`"
         >
           ⚠ Prompts stale: {{ promptsStaleVsOutline.promptCount }} / {{ promptsStaleVsOutline.chapterCount }} chapters
         </span>
         <NuxtLink
-          v-if="promptsStaleVsOutline.stale"
+          v-if="form.mode === 'scenes' && promptsStaleVsOutline.stale"
           :to="`/projects/${slug}/image-prompts`"
           class="btn btn-sm btn-secondary"
           title="Regenerate Scene Prompts at the current chapter count before generating images."
@@ -438,19 +367,19 @@
         <button
           v-if="activeRecoverableCount > 0"
           class="btn btn-sm btn-secondary"
-          :disabled="submitting || generating || promptsStaleVsOutline.stale"
-          :title="promptsStaleVsOutline.stale
+          :disabled="submitting || generating || (form.mode === 'scenes' && promptsStaleVsOutline.stale)"
+          :title="form.mode === 'scenes' && promptsStaleVsOutline.stale
             ? 'Prompts are stale vs the outline — regenerate prompts first so the repair targets the right chapter count.'
             : `Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
           @click="repairMissing"
         >
-          Repair recoverable ({{ activeRecoverableCount }})
+          Recover prior result{{ activeRecoverableCount === 1 ? '' : 's' }} ({{ activeRecoverableCount }})
         </button>
 
         <button
           v-if="activeFreshCount > 0"
           class="btn btn-sm btn-primary"
-          :disabled="submitting || generating || promptsStaleVsOutline.stale"
+          :disabled="submitting || generating || (form.mode === 'scenes' && promptsStaleVsOutline.stale)"
           :title="`Creates only the ${activeFreshCount} missing ${activePoolLabel}; existing files are skipped. This submits new provider work and may use credits.`"
           @click="generateMissingFresh"
         >
@@ -462,7 +391,8 @@
         </button>
       </div>
 
-      <div v-if="activeMissingList" class="missing-detail mt-2">
+      <details v-if="activeMissingList" class="missing-detail mt-2">
+        <summary>Technical recovery details ({{ activeMissingCount }} missing)</summary>
         <div class="text-muted text-sm">
           Missing {{ activePoolLabel }}: {{ activeMissingList }}
         </div>
@@ -473,7 +403,7 @@
           </span>
           <span v-else class="repair-task-none">Provider task ID: not recorded · fresh generation required</span>
         </div>
-      </div>
+      </details>
 
       <div v-if="lastRepairJob" class="repair-job-result mt-2" :class="lastRepairJobClass">
         <span>
@@ -484,9 +414,29 @@
       </div>
     </div>
 
+    <div
+      v-if="form.mode === 'thumbs' && form.episode_id && activePoolStatus && activeMissingCount === 0"
+      class="card workspace-section thumbnail-handoff"
+    >
+      <div>
+        <p class="section-eyebrow">Upload readiness</p>
+        <h3>Thumbnail set ready</h3>
+        <p class="text-muted text-sm">
+          {{ pinnedThumbnailFilename
+            ? `${pinnedThumbnailFilename} is pinned for upload.`
+            : autoThumbnailFilename
+              ? `${autoThumbnailFilename} will be selected automatically for upload.`
+              : 'All thumbnail artwork is ready. Choose one from the board before uploading if you want to pin it.' }}
+        </p>
+      </div>
+      <button type="button" class="btn btn-primary" @click="navigateTo(`/projects/${slug}/upload`)">
+        Open YouTube Upload →
+      </button>
+    </div>
+
     <!-- Browse the active image pool without exposing the retired direct
          provider image-edit path. -->
-    <div v-if="form.episode_id" class="card workspace-section">
+    <div v-if="form.episode_id && form.mode === 'scenes'" class="card workspace-section">
       <div class="card-header">
         <h3>Browse Existing Images</h3>
         <button
@@ -528,46 +478,6 @@
               :manual-retry="false"
             />
             <span class="edit-image-label">S{{ scn.scene_number ?? '?' }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Thumbnails -->
-      <div v-if="form.mode === 'thumbs' && editThumbs.length" class="mt-2">
-        <div class="edit-grid-heading-row">
-          <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
-          <span class="text-muted" style="font-size: var(--font-xs);">
-            <template v-if="pinnedThumbnailFilename">
-              📌 <strong>{{ pinnedThumbnailFilename }}</strong> will be uploaded.
-              <button class="link-btn" type="button" @click="setThumbnailPin(null)">Unpin</button>
-            </template>
-            <template v-else-if="autoThumbnailFilename">
-              Auto-picking <strong>{{ autoThumbnailFilename }}</strong> for upload (highest version).
-              Click any thumbnail and use 📌 Pin to lock a different one.
-            </template>
-          </span>
-        </div>
-        <div class="edit-image-grid">
-          <button
-            v-for="(thumb, ti) in editThumbs"
-            :key="thumb.path"
-            type="button"
-            :class="['edit-image-tile', { 'is-pinned-thumb': thumb.filename === pinnedThumbnailFilename }]"
-            :title="thumb.filename === pinnedThumbnailFilename
-              ? `📌 Pinned for upload — ${thumb.filename}. Click to preview, or use the Unpin button to revert to auto-pick.`
-              : `Preview ${thumb.filename}`"
-            @click="openLightboxAt(thumb.path)"
-          >
-            <ResilientImage
-              :src="getImagePreviewUrlImages(thumb.path)"
-              :alt="thumb.filename"
-              class="edit-image-thumb"
-              loading="lazy"
-              compact
-              :manual-retry="false"
-            />
-            <span class="edit-image-label">T{{ ti + 1 }}</span>
-            <span v-if="thumb.filename === pinnedThumbnailFilename" class="pinned-badge" aria-label="Pinned for upload">📌</span>
           </button>
         </div>
       </div>
@@ -630,7 +540,6 @@
                 <th>Model</th>
                 <th class="caps-th-right">Prompt cap</th>
                 <th class="caps-th-right">Credits / image</th>
-                <th>Refs?</th>
                 <th>Provider</th>
               </tr>
             </thead>
@@ -644,10 +553,6 @@
                 </td>
                 <td class="caps-td-right">
                   <template v-if="row.credits != null">{{ row.credits }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td>
-                  <span v-if="row.supportsRefs" title="Supports reference / img2img images">✓</span>
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td class="text-muted">{{ row.provider }}</td>
@@ -691,34 +596,27 @@ const { confirmGeneration } = useConfirmation()
 const { isJobActiveFor, jobs } = useJobs()
 
 const submitting = ref(false)
-const specificNum = ref<number | null>(null)
 
 type Mode = 'scenes' | 'thumbs'
 
-type ImageMode = 'text2img' | 'img2img'
-interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean; thumbnail: boolean }
-
 // v1.0.88+: form is split into two completely independent per-kind
 // sub-objects (form.thumbnail + form.scene). Each carries its own model,
-// aspect_ratio, tier, image_mode, generation_mode, and reference_sources.
+// aspect ratio, quality, seed, and generation mode.
 // `mode` and `episode_id` stay at the top level — they're the tab
 // selector and the episode pick, both inherently page-level.
 //
 // `activeForm` below is a computed proxy returning the sub-object that
 // matches the active tab; template bindings on shared-field controls
-// (Model picker, Aspect Ratio dropdown, Generation Mode radios, img2img
-// references card) all flow through this so editing the visible control
+// (Model picker, Aspect Ratio dropdown, and Generation Mode radios) all flow
+// through this so editing the visible control
 // updates only the active kind's state. Switching tabs swaps the entire
 // surface — Thumbnail tab's Flux Kontext model and 1:1 aspect ratio
 // won't leak into the Scene tab's seedream + 16:9 setup.
 type ImagesSubForm = {
   model: string
   aspect_ratio: string
-  generation_mode: 'skip' | 'regenerate' | 'new_version'
+  generation_mode: 'skip' | 'regenerate'
   tier: string
-  image_mode: ImageMode
-  reference_sources: ReferenceSources
-  reference_strength: 'loose' | 'balanced' | 'strong'
   // v1.0.308 — LEGACY render-size scale (100 = Full, 75 = Balanced, 50 = Light)
   // for models that DON'T expose a per-model size menu. Scales the aspect's base
   // pixels. Superseded by render_tier when the model reports `sizes`.
@@ -743,24 +641,6 @@ const defaultSubForm = (): ImagesSubForm => ({
   // Catalog variant for models with selectable output sizes or qualities.
   // Models without variants ignore it. Reset on model switch below.
   tier: '',
-  // Image-to-image pipeline (Phase 4). Default text2img preserves
-  // every prior behaviour exactly. img2img surfaces the references
-  // card and forwards reference_sources to the backend so the
-  // generator can resolve master / per-scene / character / chain
-  // refs and pass them through to provider.generateImage's
-  // referenceImagePaths.
-  image_mode: 'text2img',
-  reference_sources: {
-    // master + per_scene off by default — they require the user to
-    // upload images. characters defaults ON (matches Phase 8 default).
-    // chain off by default — it forces serial execution.
-    master: false,
-    per_scene: false,
-    characters: true,
-    chain: false,
-    thumbnail: false,
-  },
-  reference_strength: 'balanced',
   // Local render size: Full by default so existing behaviour is unchanged.
   render_scale: 100,
   // v1.0.478 — model-menu quality tier. Balanced = a sensible default (e.g. 1080p
@@ -784,7 +664,7 @@ const generatorPageTitle = computed(() => form.mode === 'thumbs' ? 'Thumbnail Ge
 useAppTitle(generatorPageTitle)
 
 // v1.0.259 — remember each tab's render settings (model / aspect / tier /
-// image_mode / reference_sources) across reloads. `mode` is deliberately NOT
+// generation mode) across reloads. `mode` is deliberately NOT
 // remembered: it comes from the sidebar's ?tab= so the split Thumbnail/Scene
 // entries always land on the right tab.
 useRememberedForm('images', slug, form, { include: ['thumbnail', 'scene'] })
@@ -798,12 +678,7 @@ const activeForm = computed<ImagesSubForm>(() =>
 
 // Hydrate the selected episode so child components + computeds can read
 // the human-readable title (resolveEpisodePaths needs it on the prompt-
-// list fetch and the Img2ImgReferencesCard threads it through to its
-// reference uploads). The Phase-4 image-to-image commit added
-// selectedEpisode references at lines 708 / 823 but forgot to actually
-// wire the composable that brings it into scope — flipping into img2img
-// mode threw "selectedEpisode is not defined" on the first render of
-// the references card.
+// list fetch).
 const episodeIdRef = computed(() => form.episode_id)
 const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
   // Refetch when an upstream script job lands so the page picks up the
@@ -855,7 +730,6 @@ const allModelCaps = computed(() => {
       provider: (m?.provider as string) || 'GenStudio KH',
       cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
       credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
-      supportsRefs: !!m?.supports_reference_images,
     }
   }).sort((a, b) => {
     if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
@@ -919,7 +793,7 @@ watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
 // v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
 // scene_generator). Each tab maintains its own preset list so a
 // "seedream + 16:9 + skip" thumbnail preset can't accidentally
-// overwrite a "Flux Kontext + img2img + chain on" scene preset, and
+// overwrite a separate scene preset, and
 // vice versa. The TopActionBar binds to whichever preset object
 // matches the active tab via the `imgPresets` computed below.
 //
@@ -938,8 +812,18 @@ function imageGeneratorPresetForm(value: ImagesSubForm): Omit<ImagesSubForm, 'im
 
 function applyImageGeneratorPreset(target: ImagesSubForm, data: any): void {
   if (!data?.form) return
-  const { image_quality: _quality, image_steps: _steps, ...saved } = data.form
-  Object.assign(target, saved)
+  const {
+    image_quality: _quality,
+    image_steps: _steps,
+    image_mode: _imageMode,
+    reference_sources: _referenceSources,
+    reference_strength: _referenceStrength,
+    specific_number: _specificNumber,
+    generation_mode: savedGenerationMode,
+    ...saved
+  } = data.form
+  const generation_mode = savedGenerationMode === 'regenerate' ? 'regenerate' : 'skip'
+  Object.assign(target, saved, { generation_mode })
 }
 
 const thumbnailGeneratorPresets = usePresets<any>({
@@ -1148,31 +1032,11 @@ const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> =
   { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
 ]
 
-// GenStudio currently offers text-to-image only. Keep the second surface
-// visible as an honest product affordance, but do not let it select a mode
-// that no live model can execute.
-const imageModeTabs = computed<Array<{ id: ImageMode; label: string; icon: string; hint: string; comingSoon?: boolean }>>(() => [
-  { id: 'text2img', label: 'Text → Image', icon: '✏️',
-    hint: 'Prompt-only generation (default).' },
-  { id: 'img2img',  label: 'Image → Image', icon: '🔁',
-    hint: 'Reference-image generation is coming soon.', comingSoon: true },
-])
-function selectImageMode(m: ImageMode) {
-  if (m === 'img2img') return
-  activeForm.value.image_mode = m
-}
-
-// Previously saved presets/forms could still carry img2img. Heal them before
-// a submission so the disabled Coming soon tab cannot leave the generator in
-// an unsupported reference-image mode.
-watch(() => activeForm.value.image_mode, mode => {
-  if (mode === 'img2img') activeForm.value.image_mode = 'text2img'
+// Old presets could contain the retired "new version" mode. It has no safe
+// distinct behavior, so migrate it to missing-only generation on load.
+watch(() => activeForm.value.generation_mode as string, mode => {
+  if (mode !== 'skip' && mode !== 'regenerate') activeForm.value.generation_mode = 'skip'
 }, { immediate: true })
-
-// Friendly title fed to the references card so the backend can resolve
-// the right episode folder. Falls back to '' when no episode picked
-// (the card is only mounted when episode_id is set anyway).
-const ep2imgTitle = computed(() => selectedEpisode.value?.title || '')
 
 const aspectRatios = computed(() => {
   if (activeGenStudioModel.value?.aspect_ratios?.length) {
@@ -1196,12 +1060,6 @@ const aspectRatios = computed(() => {
     { value: '3:4',   label: 'Tall' },
     { value: '21:9',  label: 'Ultrawide' },
   ]
-})
-
-const specificPlaceholder = computed(() => {
-  if (form.mode === 'scenes') return 'All scenes'
-  if (form.mode === 'thumbs') return 'All thumbnails'
-  return 'All'
 })
 
 // ── Render dimensions ─────────────────────────────────────────────────────
@@ -1333,15 +1191,6 @@ const imageJobActiveForEpisode = computed(() =>
     form.mode === 'thumbs' ? ['thumb_images'] : ['scene_images'],
   ),
 )
-
-function selectMode(m: Mode) {
-  form.mode = m
-  specificNum.value = null
-  // Reset aspect ratio to the default for this mode
-  if (m === 'thumbs' && !['16:9', '1:1', '4:3'].includes(activeForm.value.aspect_ratio)) {
-    activeForm.value.aspect_ratio = '16:9'
-  }
-}
 
 // v1.0.88+: keep form.mode in sync with the route's ?tab= query so the
 // sidebar's split "Thumbnail Generator" / "Scene Generator" entries
@@ -1535,7 +1384,7 @@ async function repairMissing() {
 }
 
 async function generateMissingFresh() {
-  await queueGeneration(false, false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel.value}.`)
+  await queueGeneration(false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel.value}.`)
 }
 
 // ── Edit-existing-images grid (audit pain-point #14) ─────────────────────
@@ -1693,6 +1542,10 @@ async function setThumbnailPin(filename: string | null) {
   }
 }
 
+async function toggleThumbnailPin(filename: string) {
+  await setThumbnailPin(filename === pinnedThumbnailFilename.value ? null : filename)
+}
+
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
   await setThumbnailPin(payload.pin ? payload.filename : null)
 }
@@ -1720,16 +1573,18 @@ watch(() => form.episode_id, (v) => {
   }
 }, { immediate: true })
 
-function generationParams(forceOverride?: boolean, includeSpecific = true) {
-  // Translate Generation Mode (M6) → backend `force`. The image generator
-  // doesn't have _v2 file naming yet, so 'new_version' currently maps to
-  // 'skip' until that lands; the radio option is documented to that effect.
+function generationParams(forceOverride?: boolean) {
+  // Missing-only is the safe default. Regeneration is the one explicit
+  // overwrite action exposed by the thumbnail and scene boards.
   const force = forceOverride ?? activeForm.value.generation_mode === 'regenerate'
   const params: any = {
     episode_id: form.episode_id,
     model: activeForm.value.model,
     mode: form.mode,
     aspect_ratio: activeForm.value.aspect_ratio,
+    // Image-to-image is retired from this workspace. Persisted legacy values
+    // are healed above, and every new request is explicitly prompt-to-image.
+    image_mode: 'text2img',
     force,
   }
   // Forward a tier only when the active model has tiers.
@@ -1744,28 +1599,11 @@ function generationParams(forceOverride?: boolean, includeSpecific = true) {
   const sz = sizeBodyFor(activeForm.value)
   if (sz) { params.width = sz.width; params.height = sz.height }
 
-  // Image-to-image plumbing. Default text2img mode sends nothing extra —
-  // the backend's resolveSceneReferenceImages then operates as it has
-  // for the existing flow. img2img mode forwards the explicit pipeline
-  // marker + the four-toggle reference_sources object so the generator
-  // can resolve master / per-scene / characters / chain refs.
-  if (activeForm.value.image_mode === 'img2img') {
-    params.image_mode = 'img2img'
-    params.reference_sources = { ...activeForm.value.reference_sources }
-    params.reference_strength = activeForm.value.reference_strength
-  }
-
-  // Send the right optional # field per mode
-  if (includeSpecific && specificNum.value) {
-    if (form.mode === 'thumbs') params.thumb_number = specificNum.value
-    else params.scene_number = specificNum.value
-  }
-
   return params
 }
 
-async function queueGeneration(forceOverride?: boolean, includeSpecific = true, queuedMessage = 'Image generation queued!') {
-  const params = generationParams(forceOverride, includeSpecific)
+async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
+  const params = generationParams(forceOverride)
   if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
 
   submitting.value = true
@@ -2032,6 +1870,20 @@ async function submit() {
 .repair-job-result.busy { color: var(--text-muted); }
 .repair-job-result.ok { color: rgb(34, 197, 94); border-color: rgba(34, 197, 94, .35); }
 .repair-job-result.warn { color: rgb(245, 158, 11); border-color: rgba(245, 158, 11, .4); }
+
+.thumbnail-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-color: rgba(34, 197, 94, .4);
+  background: linear-gradient(110deg, rgba(34, 197, 94, .09), var(--bg-secondary) 58%);
+}
+.thumbnail-handoff h3 { margin: 0 0 4px; }
+.thumbnail-handoff p { margin: 0; max-width: 720px; }
+@media (max-width: 720px) {
+  .thumbnail-handoff { align-items: stretch; flex-direction: column; }
+}
 
 /* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
 .generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

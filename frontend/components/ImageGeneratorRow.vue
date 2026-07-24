@@ -70,6 +70,17 @@
         <span v-else aria-hidden="true">{{ imagePath ? '🔁' : '✨' }}</span>
         {{ busy ? 'Generating…' : (imagePath ? 'Regenerate' : 'Generate') }}
       </button>
+      <button
+        v-if="showPin && imagePath"
+        type="button"
+        :class="['btn btn-sm igr-pin-btn', { 'is-pinned': pinnedForUpload }]"
+        :title="pinnedForUpload
+          ? 'Pinned for upload. Click to return to automatic thumbnail selection.'
+          : 'Use this thumbnail for the next YouTube upload.'"
+        @click="$emit('pin-toggle')"
+      >
+        {{ pinnedForUpload ? 'Pinned for upload' : 'Pin for upload' }}
+      </button>
     </div>
 
     <div v-if="expanded" class="igr-prompt">{{ row.prompt }}</div>
@@ -89,6 +100,10 @@ const props = defineProps<{
    *  Drives the thumbnail vs. placeholder branch + Generate vs. Regenerate
    *  button copy. */
   imagePath: string | null
+  /** Thumbnail selection belongs beside the generated artwork, not in a
+   *  separate gallery. Scene rows never receive this control. */
+  showPin?: boolean
+  pinnedForUpload?: boolean
   /** Slug + cache-bust key used to assemble the preview URL. Centralised
    *  here so the parent doesn't have to build the URL itself for every row. */
   slug: string
@@ -106,6 +121,7 @@ const props = defineProps<{
 defineEmits<{
   (e: 'generate'): void
   (e: 'open-preview', path: string): void
+  (e: 'pin-toggle'): void
 }>()
 
 const expanded = ref(false)
@@ -243,6 +259,15 @@ const charBadgeTooltip = computed(() => {
 .igr-status-error { background: rgba(226, 92, 92, 0.16); color: rgb(226, 92, 92); }
 
 .igr-action-btn { white-space: nowrap; }
+.igr-pin-btn {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.igr-pin-btn.is-pinned {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 
 .igr-chars {
   flex: 0 0 auto;

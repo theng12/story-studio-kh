@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.723 — 2026-07-24
+
+**Thumbnail generation is now a focused, recoverable artwork board.**
+
+- Replaces the old mixed image controls with a single prompt-to-image thumbnail
+  flow: missing-only generation by default, with explicit regeneration only
+  when you ask for it.
+- Shows each thumbnail's upload selection directly beside the rendered artwork,
+  including a clear pin/unpin action and a ready-to-upload handoff once the
+  thumbnail set is complete.
+- Moves provider recovery details behind an optional technical disclosure while
+  keeping the missing count and recovery action clear in normal use.
+- Removes retired reference-image, "new version", and per-number bulk controls
+  from thumbnail generation and strips those values from legacy presets.
+
+---
+
 ## v1.0.722 — 2026-07-25
 
 **The first subtitle Retry now replaces an already-expired request immediately.**
