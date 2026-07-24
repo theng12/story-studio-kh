@@ -39,8 +39,8 @@
         <label>Model</label>
         <ModelSelector v-model="model" :project-slug="slug" />
         <p class="text-muted hint">
-          Larger models (gpt-4o, claude-sonnet-4) follow the format-preservation
-          rules more reliably. Smaller models occasionally paraphrase paragraphs.
+          Choose a live GenStudio model with enough context for the narration.
+          The original file is retained as a backup before any rewrite.
         </p>
       </div>
 

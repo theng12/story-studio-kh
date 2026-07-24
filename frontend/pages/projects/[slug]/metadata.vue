@@ -655,7 +655,9 @@ const { success, error: showError } = useToast()
 const { metaGenerating } = useGenerating()
 
 const episodeId = ref('')
-const model = ref('gpt-4o')
+// A live GenStudio catalog picker chooses the first usable model. Never seed
+// a retired direct-provider id into saved metadata settings.
+const model = ref('')
 
 // v1.0.182 — Phase-2 scaffold. The three section editors collapse behind the
 // shared <AdvancedDisclosure>; this key persists the open state per project.

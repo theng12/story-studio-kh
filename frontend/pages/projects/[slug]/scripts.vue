@@ -1165,8 +1165,8 @@ useRememberedForm('scripts', slug, form, {
 
 // Saved model ids are only preferences. Keep every generation action disabled
 // until ModelSelector has confirmed a currently usable GenStudio catalog entry.
-// This prevents an old persisted `gpt-4o` value from enqueueing a job before
-// the picker replaces it with the live fallback.
+// This prevents an old persisted model id from enqueueing a job before the
+// picker replaces it with the live fallback.
 const scriptModelReady = ref(false)
 function onScriptModelMeta(model: unknown): void {
   scriptModelReady.value = !!model
@@ -1979,8 +1979,7 @@ watch(
  * Rough cost estimate for chunked-mode script generation (v1.0.71+).
  *
  * Used for the pre-submission confirmation dialog. Numbers are
- * deliberately ROUGH — Anthropic / OpenAI pricing changes, model
- * choice (Sonnet vs Opus vs gpt-4o) shifts the bill, and per-call
+ * deliberately ROUGH — catalog pricing changes, model choice, and per-call
  * input/output token counts vary with format and characters. We
  * present a min-max range based on Sonnet rates ($3/Mtok in,
  * $15/Mtok out) since that's the most common script-gen model;

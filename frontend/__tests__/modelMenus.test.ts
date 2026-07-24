@@ -40,10 +40,11 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /selectableOptionCount/)
   })
 
-  test('the image picker exposes catalog errors alongside stale saved selections', () => {
+  test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
     assert.match(imagePicker, /v-if="error"/)
-    assert.match(imagePicker, /v-if="migrationMessage"/)
     assert.match(imagePicker, /notice-error/)
+    assert.match(imagePicker, /selectLiveGenStudioModel/)
+    assert.doesNotMatch(imagePicker, /Unavailable saved selection|migration required|Historical/)
   })
 
   test('image-to-image is visibly coming soon and cannot restore an unsupported saved mode', () => {

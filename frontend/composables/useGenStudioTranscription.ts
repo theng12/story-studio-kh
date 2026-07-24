@@ -56,10 +56,11 @@ export function useGenStudioTranscriptionModels() {
         refreshAccess(),
       ])
       models.value = Array.isArray(response.models) ? response.models : []
-      if (!models.value.some(model => model.id === modelId.value)) {
-        modelId.value = (
-          models.value.find(model => model.available) || models.value[0]
-        )?.id || ''
+      // A remembered id is only a preference. Never leave a retired or
+      // temporarily unavailable model selected just because it still exists
+      // in an old preset; choose a currently usable catalog model instead.
+      if (!models.value.some(model => model.id === modelId.value && model.available)) {
+        modelId.value = models.value.find(model => model.available)?.id || ''
       }
       if (!models.value.length) {
         error.value = 'No transcription models are available right now.'

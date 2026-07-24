@@ -56,6 +56,15 @@ test('Story TTS tiers map to GenStudio capabilities while preserving voice tier 
   assert.equal(storyTtsTierForModelId('genstudio-tts-clone'), 'cloned')
 })
 
+test('virtual Story TTS tiers are validated against the GenStudio voice catalog, not rejected as retired models', () => {
+  const generator = readFileSync(new URL('../generators/audio.ts', import.meta.url), 'utf8')
+  const route = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
+
+  assert.match(route, /requestedTier \? requestedModel\.trim\(\) : pm\.resolveStoryTtsModelId\(requestedModel\)/)
+  assert.match(route, /if \(!requestedTier\) \{\s*const capabilities = await listGenStudioCapabilities\(apiKey\)/)
+  assert.match(generator, /requestedTier \? req\.model\.trim\(\) : pm\.resolveStoryTtsModelId\(req\.model\)/)
+})
+
 test('legacy audio_models payloads are accepted but stripped before persistence', () => {
   const parsed = UpdateConfigSchema.parse({
     audio_models: {

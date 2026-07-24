@@ -141,7 +141,7 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(modelSelector, /get<LlmModelRow\[]>\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
   assert.match(motionReview, /genstudio-video:\$\{model\.id\}/)
   assert.match(motionReview, /GenStudio owns reservation and settlement/)
-  assert.match(motionReview, /no legacy provider fallback will run/)
+  assert.doesNotMatch(motionReview, /Unavailable saved selection|migration required|Historical/)
   assert.match(providerGroups, /category: 'mix'/)
   assert.match(providerGroups, /sole catalog, job, and credit boundary/i)
   assert.doesNotMatch(providerGroups, /openai|anthropic|kie|fal|elevenlabs|studio hub/i)

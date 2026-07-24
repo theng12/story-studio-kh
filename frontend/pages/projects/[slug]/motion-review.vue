@@ -252,26 +252,15 @@ const i2vModels = computed(() => {
       disabledReason: model.available ? undefined : 'This video model is not available in GenStudio KH.',
       badges: [{ label: 'GenStudio I2V', tone: 'info' as const }],
     }))
-  if (videoModel.value && !discovered.some(model => model.id === videoModel.value)) {
-    discovered.unshift({
-      id: videoModel.value,
-      label: `${videoModel.value} (migration required)`,
-      group: 'Unavailable saved selection',
-      provider: 'Historical',
-      meta: 'No fallback',
-      description: 'This saved model is not available in the GenStudio catalog. Choose a live GenStudio model.',
-      disabled: true,
-      disabledReason: 'Unavailable in GenStudio; no legacy provider fallback will run.',
-      badges: [{ label: 'unavailable', tone: 'info' as const }],
-    })
-  }
   return discovered
 })
 watch(i2vModels, (models) => {
-  if (!videoModel.value) return
+  if (!models.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
+  const exact = genStudioVideoModels.value.find(model => model.available && model.id === raw)
   const mapped = genStudioVideoModels.value.find(model => model.available && model.legacy_ids?.includes(raw))
-  if (mapped) videoModel.value = `genstudio-video:${mapped.id}`
+  const fallback = exact || mapped || genStudioVideoModels.value.find(model => model.available && model.modes.includes('image-to-video'))
+  if (fallback) videoModel.value = `genstudio-video:${fallback.id}`
 }, { immediate: true })
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))

@@ -17,8 +17,7 @@
       catalog-notice-href="/usage"
       @update:model-value="selectModel"
     />
-    <p v-if="migrationMessage" class="migration-message">{{ migrationMessage }}</p>
-    <p v-else-if="loadError" class="migration-message">{{ loadError }}</p>
+    <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
   </div>
 </template>
 
@@ -60,12 +59,6 @@ const loading = ref(false)
 const loadError = ref('')
 const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
-const current = computed(() => allModels.value.find(model => model.id === props.modelValue))
-const migrationMessage = computed(() => {
-  if (!props.modelValue || current.value) return ''
-  return `Saved model “${props.modelValue}” is unavailable in the live GenStudio catalog. Choose a GenStudio model; no legacy fallback will run.`
-})
-
 function isDisabled(model: LlmModelRow): boolean {
   return !isUsableLiveGenStudioModel(model, props.requireVision === true)
 }
@@ -87,18 +80,6 @@ const menuOptions = computed(() => {
       ],
     }
   })
-  if (props.modelValue && !allModels.value.some(model => model.id === props.modelValue)) {
-    rows.unshift({
-      id: props.modelValue,
-      label: `${props.modelValue} (migration required)`,
-      group: 'Unavailable saved selection',
-      provider: 'Historical',
-      description: migrationMessage.value,
-      disabled: true,
-      disabledReason: migrationMessage.value,
-      badges: [{ label: 'unavailable', tone: 'info' as const }],
-    })
-  }
   return rows
 })
 
@@ -150,5 +131,5 @@ watch(() => props.modelValue, syncModelSelection)
 
 <style scoped>
 .loading { margin-left: 8px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
-.migration-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.catalog-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
 </style>

@@ -121,8 +121,8 @@ const props = defineProps<{
   /** Episode title — required by resolveEpisodePaths backend-side to find
    *  the right folder. Without it, the GET 404s. */
   title?: string
-  /** LLM model to use for regeneration. Falls back to gpt-4o backend-side
-   *  when omitted; pass the same model used for the bulk batch so style
+  /** LLM model to use for regeneration. Pass the same live GenStudio model
+   *  used for the bulk batch so style
    *  + voice stay consistent. */
   model?: string
   /** Bumped by the parent (e.g. when the bulk image-prompts job

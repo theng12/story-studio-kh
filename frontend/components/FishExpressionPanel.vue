@@ -24,14 +24,11 @@
     <div v-else-if="loadError" class="fish-expr-error">{{ loadError }}</div>
     <template v-else>
       <div class="fish-expr-row">
-        <ModelMenu
+        <ModelSelector
           v-model="markupModel"
           class="fish-expr-model"
-          :options="markupModelOptions"
-          media-type="llm"
-          title="Expression markup model"
-          search-placeholder="Search text models…"
-          aria-label="Expression markup model"
+          :project-slug="projectSlug"
+          label="Expression markup model"
         />
         <button type="button" class="btn btn-sm" :disabled="!!busy || jobActive || !sections.length" @click="generateAll">
           {{ jobActive ? `Tagging… (${taggedCount}/${sections.length})` : '✨ Tag all with AI' }}
@@ -87,10 +84,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useApi } from '~/composables/useApi'
-import { PROVIDER_DISPLAY } from '~/composables/useModelGroups'
 
 interface ExprSection { slug: string; label: string; original: string; expressive: string }
-interface ModelRow { id: string; label: string; provider: string; available: boolean }
 
 const props = defineProps<{
   projectSlug: string
@@ -115,54 +110,11 @@ const dialect = computed<'fish' | 'elevenlabs'>(() =>
   (props.audioModel === 'eleven-v3' || props.audioModel === 'genaipro-v3') ? 'elevenlabs' : 'fish')
 const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs v3' : 'Fish S2')
 
-// Text models for the tagging pass — pulled live from /models so every
-// configured provider (DeepSeek, OpenAI/ChatGPT, OpenRouter, kie Claude/GPT/
-// Gemini, LM Studio) is offered, grouped + labelled. Models without a key show
-// disabled. Defaults to the cheap DeepSeek Flash when it's available.
+// Text models for the tagging pass come only from the live GenStudio catalog.
 const markupModel = computed<string>({
   get: () => props.expressionModel || '',
   set: (value) => emit('update:expressionModel', value),
 })
-const modelGroups = ref<Array<{ provider: string; label: string; items: ModelRow[] }>>([])
-const markupModelOptions = computed(() => modelGroups.value.flatMap(group => group.items.map(model => ({
-  id: model.id,
-  label: model.label,
-  group: group.label,
-  provider: group.label,
-  disabled: !model.available,
-  disabledReason: model.available ? undefined : 'Add this provider\'s API key to enable it.',
-  badges: model.provider === 'chatstudio'
-    ? [{ label: 'Local', tone: 'local' as const }, { label: 'Free', tone: 'free' as const }]
-    : [{ label: 'Cloud', tone: 'paid' as const }],
-}))))
-const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'chatstudio']
-
-async function loadModels() {
-  try {
-    const rows = await get<ModelRow[]>(`/models?project=${props.projectSlug}`)
-    const byProv = new Map<string, ModelRow[]>()
-    for (const m of rows) {
-      if (!byProv.has(m.provider)) byProv.set(m.provider, [])
-      byProv.get(m.provider)!.push(m)
-    }
-    const provs = [...byProv.keys()].sort((a, b) => {
-      const ai = PROV_ORDER.indexOf(a), bi = PROV_ORDER.indexOf(b)
-      if (ai !== -1 && bi !== -1) return ai - bi
-      if (ai !== -1) return -1
-      if (bi !== -1) return 1
-      return a.localeCompare(b)
-    })
-    modelGroups.value = provs.map(p => ({ provider: p, label: PROVIDER_DISPLAY[p] || p, items: byProv.get(p)! }))
-    // Keep the current choice if still usable; else fall back to the first
-    // available (preferring the cheap DeepSeek default when present).
-    if (!rows.some(m => m.id === markupModel.value && m.available)) {
-      const pref = rows.find(m => m.id === 'deepseek-v4-flash' && m.available)
-      const firstAvail = pref || rows.find(m => m.available)
-      if (firstAvail) markupModel.value = firstAvail.id
-    }
-  } catch { /* leave the default single option */ }
-}
-
 // Quick-insert palette — dialect-specific so the chips match the chosen model
 // (Fish uses -ing verbs + short/long pause; ElevenLabs v3 uses -s verbs + pause).
 const FISH_TAGS = [
@@ -288,7 +240,7 @@ function insertTag(tag: string) {
   })
 }
 
-onMounted(() => { void loadModels(); void load() })
+onMounted(() => { void load() })
 watch(() => props.episodeId, () => { activeSlug.value = ''; void load() })
 onUnmounted(stopPolling)
 </script>

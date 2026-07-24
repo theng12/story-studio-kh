@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.708 — 2026-07-24
+
+**Every generator now heals old model selections to the live GenStudio catalog.**
+
+- Removes stale direct-provider defaults from prompt, image, metadata, script,
+  expression, and motion workflows.
+- Makes LLM, image, video, and transcription pickers silently retain a valid
+  live choice or replace an unavailable saved id with a usable GenStudio model.
+- Removes historical-provider rows and selector language from customer-facing
+  picker menus, keeps audio on the three GenStudio voice tiers, and updates
+  channel character voice profiles to the same catalog-only boundary.
+
+## v1.0.707 — 2026-07-24
+
+**Premium GenStudio voices now validate and generate correctly.**
+
+- Treats Story Studio's Regular, Premium, and Clone TTS selections as the
+  customer-facing tiers they are, rather than as retired physical model IDs.
+- Verifies the chosen voice and its tier against the live GenStudio catalog;
+  GenStudio remains authoritative for the quote and final generation request.
+- Keeps the live capability check for non-tier model IDs, preserving the guard
+  against genuinely unavailable or legacy models.
+
 ## v1.0.706 — 2026-07-24
 
 **Script Generator no longer gets stuck on retired GPT-4o defaults.**

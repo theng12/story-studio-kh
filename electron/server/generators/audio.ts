@@ -190,7 +190,11 @@ export async function generateAudio(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  const resolvedVoiceModel = pm.resolveStoryTtsModelId(req.model)
+  // Story's Regular, Premium, and Clone choices are virtual commercial tiers.
+  // A GenStudio voice ID (not a physical TTS capability ID) is authoritative
+  // for submission, so keep a valid tier selection intact.
+  const requestedTier = pm.storyTtsTierForModelId(req.model || '')
+  const resolvedVoiceModel = requestedTier ? req.model.trim() : pm.resolveStoryTtsModelId(req.model)
   if (!resolvedVoiceModel) throw new Error(unavailableLegacyModelMessage('voice', req.model || '(none)'))
   req.model = resolvedVoiceModel
 

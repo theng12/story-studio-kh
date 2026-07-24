@@ -3334,11 +3334,16 @@ async function draftReplies(thread: CommentThreadShape) {
   draftCandidates[thread.id] = []
   try {
     const { post: apiPost } = useApi()
-    // Reuse whichever text model the metadata generator is on. The
-    // user's most-recent metadata model selection is on safe-config;
-    // fall back to a known-good Anthropic default.
+    // Reuse the metadata preference only when it is a current GenStudio
+    // catalog id. Old provider IDs are healed to the first usable live model
+    // before this helper sends a generation request.
     const cfg = await useApi().get<any>(`/projects/${slug.value}/settings/config`).catch(() => null)
-    const model = cfg?.metadata_last_model || cfg?.last_text_model || 'claude-sonnet-4-6'
+    const savedModel = cfg?.metadata_last_model || cfg?.last_text_model || ''
+    const liveModels = await useApi().get<Array<{ id: string; available: boolean }>>(`/models?project=${slug.value}`).catch(() => [])
+    const model = liveModels.find(entry => entry.id === savedModel && entry.available)?.id
+      || liveModels.find(entry => entry.available)?.id
+      || ''
+    if (!model) throw new Error('No GenStudio text model is currently available.')
     // Best-effort: lookup the queue item by video_id to feed the LLM
     // a real video title for context. Falls back to undefined if the
     // user is querying a video outside their queue.

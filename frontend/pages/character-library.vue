@@ -175,7 +175,7 @@
             <div class="section-number">03</div>
             <div class="section-body">
               <h3>Channel voice profiles</h3>
-              <p class="section-help">Each channel may use a different provider, saved voice, and delivery note for this same character.</p>
+              <p class="section-help">Each channel may use a different GenStudio voice and delivery note for this same character.</p>
               <div class="voice-profile-list">
                 <div v-for="slug in [...selectedChannels]" :key="slug" class="voice-profile-card">
                   <div class="voice-profile-title">
@@ -183,18 +183,6 @@
                     <span :class="['profile-state', { ready: profileFor(slug).voiceId }]">{{ profileFor(slug).voiceId ? 'Voice set' : 'Uses default' }}</span>
                   </div>
                   <div class="voice-fields">
-                    <label class="form-group">
-                      <span>Provider</span>
-                      <select v-model="profileFor(slug).voiceProvider" class="select">
-                        <option value="">Project default</option>
-                        <option value="elevenlabs">ElevenLabs</option>
-                        <option value="fishaudio">Fish Audio</option>
-                        <option value="genaipro">GenAIPro</option>
-                        <option value="fal">fal.ai</option>
-                        <option value="voicestudio">Voice Studio</option>
-                        <option value="macos">macOS voices</option>
-                      </select>
-                    </label>
                     <label class="form-group voice-picker-field">
                       <span>Voice</span>
                       <VoicePicker
@@ -202,8 +190,8 @@
                         :project-slug="slug"
                         :custom-voices="channelConfigs[slug]?.voice_presets || []"
                         :custom-voices-loaded="!!channelConfigs[slug]"
-                        :audio-model-provider="profileFor(slug).voiceProvider || ''"
-                        :audio-model-id="voiceModelId(profileFor(slug).voiceProvider)"
+                        audio-model-provider="genstudio"
+                        audio-model-id="genstudio-tts-regular"
                         default-label="Use channel default"
                         @update:model-value="profileFor(slug).voiceId = $event || undefined"
                       />
@@ -356,12 +344,6 @@ async function loadChannelConfig(slug: string) {
   catch { channelConfigs[slug] = {} }
 }
 
-function voiceModelId(provider?: string): string {
-  if (provider === 'voicestudio') return 'voicestudio-qwen3-tts'
-  if (provider === 'macos') return 'macos-say'
-  return provider || ''
-}
-
 async function saveCharacter() {
   if (!canSave.value) return
   saving.value = true
@@ -369,7 +351,9 @@ async function saveCharacter() {
     const profiles: NonNullable<Character['channel_profiles']> = {}
     for (const slug of selectedChannels.value) {
       const speech = voiceProfiles[slug]
-      if (speech && Object.values(speech).some(Boolean)) profiles[slug] = { speech: { ...speech } }
+      if (speech && Object.values(speech).some(Boolean)) {
+        profiles[slug] = { speech: { ...speech, voiceProvider: 'genstudio' } }
+      }
     }
     const payload: Partial<Character> & Pick<Character, 'name' | 'description'> = {
       name: draft.name.trim(),

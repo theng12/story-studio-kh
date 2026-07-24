@@ -162,7 +162,7 @@
           placeholder="Describe the visual style…" />
 
         <!-- Reference-image style extraction (pain-point #7). Upload an -->
-        <!-- image → Claude/GPT-4o returns a style-only description that -->
+        <!-- image → a vision-capable GenStudio model returns a style-only description that -->
         <!-- populates the textarea above. Re-analyze lets users iterate on -->
         <!-- the focus hint without re-picking the file. -->
         <div v-if="visionModels.length" class="style-extract mt-2">
@@ -1019,20 +1019,23 @@ const customStyles = computed<StylePresetMeta[]>(
 )
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
-interface VisionModelCap { id: string; provider: 'anthropic' | 'openai' | 'unknown'; has_key: boolean }
+interface VisionModelCap { id: string; available: boolean }
 const extracting = ref(false)
 const referenceImagePath = ref<string | null>(null)
 const lastAnalyzedAt = ref<string | null>(null)
 const lastAnalysisModel = ref<string | null>(null)
 const visionModels = ref<VisionModelCap[]>([])
-const visionModel = ref<string>('claude-sonnet-4-6')
+// Vision analysis is unavailable until GenStudio publishes image-input chat.
+// Keep this empty so an old direct-provider id cannot be revived if that
+// capability returns later.
+const visionModel = ref<string>('')
 const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
   id: model.id,
   label: model.id,
-  group: model.provider === 'anthropic' ? 'Anthropic' : model.provider === 'openai' ? 'OpenAI' : 'Vision models',
-  provider: model.provider,
-  disabled: !model.has_key,
-  disabledReason: model.has_key ? undefined : 'Add this provider\'s API key to enable it.',
+  group: 'GenStudio KH',
+  provider: 'GenStudio KH',
+  disabled: !model.available,
+  disabledReason: model.available ? undefined : 'This GenStudio model is currently unavailable.',
   badges: [{ label: 'Vision', tone: 'info' as const }],
 })))
 
@@ -1168,7 +1171,7 @@ type SceneForm = SharedFormFields & {
 const form = reactive({
   episode_id: '',
   thumbnail: {
-    model: 'gpt-4o',
+    model: '',
     style_preset: 'storybook',
     style_tag: STYLE_PRESETS['storybook'],
     aspect_ratio: '16:9',
@@ -1189,7 +1192,7 @@ const form = reactive({
     thumb_creative_direction: '',
   } as ThumbnailForm,
   scene: {
-    model: 'gpt-4o',
+    model: '',
     style_preset: 'storybook',
     style_tag: STYLE_PRESETS['storybook'],
     aspect_ratio: '16:9',
@@ -1621,12 +1624,6 @@ onMounted(async () => {
 })
 
 // ── Vision / style-extraction ──────────────────────────────────────────
-const VISION_CAPABLE = new Set<string>([
-  'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-3-5-sonnet-latest',
-  'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229',
-  'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-5',
-])
-
 const referencePreviewUrl = computed(() => {
   if (!referenceImagePath.value) return ''
   return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}`
@@ -1651,15 +1648,14 @@ async function loadVisionCaps() {
       `/projects/${slug.value}/vision/caps`,
     )
     visionModels.value = data.models || []
-    // Default: current image-prompts model if it's vision-capable AND has a
-    // key, else the first vision-capable model that has a key, else the
-    // server-suggested default.
+    // Keep the current live selection when possible; otherwise choose the
+    // first published GenStudio vision model or the server's suggested default.
     const current = activeForm.value.model
-    if (VISION_CAPABLE.has(current) && visionModels.value.find(m => m.id === current && m.has_key)) {
+    if (visionModels.value.find(m => m.id === current && m.available)) {
       visionModel.value = current
     } else {
-      const firstWithKey = visionModels.value.find(m => m.has_key)
-      visionModel.value = firstWithKey?.id || data.default
+      const firstAvailable = visionModels.value.find(m => m.available)
+      visionModel.value = firstAvailable?.id || data.default
     }
   } catch { /* tolerate — keep default */ }
 }

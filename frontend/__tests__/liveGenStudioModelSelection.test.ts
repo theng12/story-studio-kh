@@ -28,3 +28,26 @@ test('Script Generator has no hardcoded GPT-4o default and waits for a live mode
   assert.match(scriptPage, /@model-meta="onScriptModelMeta"/)
   assert.match(scriptPage, /!scriptModelReady/)
 })
+
+test('every generator picker strips stale selections instead of displaying a legacy route', () => {
+  const imagePicker = readFileSync(new URL('../components/ImageModelPicker.vue', import.meta.url), 'utf8')
+  const modelPicker = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
+  const imagesPage = readFileSync(new URL('../pages/projects/[slug]/images.vue', import.meta.url), 'utf8')
+  const promptsPage = readFileSync(new URL('../pages/projects/[slug]/image-prompts.vue', import.meta.url), 'utf8')
+  const metadataPage = readFileSync(new URL('../pages/projects/[slug]/metadata.vue', import.meta.url), 'utf8')
+  const motionPage = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
+  const transcription = readFileSync(new URL('../composables/useGenStudioTranscription.ts', import.meta.url), 'utf8')
+
+  for (const source of [imagePicker, modelPicker, motionPage]) {
+    assert.doesNotMatch(source, /Unavailable saved selection|migration required|Historical/)
+  }
+  assert.match(imagePicker, /selectLiveGenStudioModel/)
+  assert.match(imagesPage, /model: '',/)
+  assert.match(promptsPage, /thumbnail:\s*\{\s*model: '',/)
+  assert.match(promptsPage, /scene:\s*\{\s*model: '',/)
+  assert.match(promptsPage, /group: 'GenStudio KH'/)
+  assert.doesNotMatch(promptsPage, /claude-sonnet-4-6|gpt-4o-mini|gpt-4-turbo/)
+  assert.match(metadataPage, /const model = ref\(''\)/)
+  assert.match(motionPage, /const fallback = exact \|\| mapped \|\|/)
+  assert.doesNotMatch(transcription, /\|\| models\.value\[0\]/)
+})

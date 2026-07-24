@@ -10,7 +10,7 @@ export interface LiveGenStudioModel {
   available: boolean
   disabled_reason?: string | null
   supports_vision?: boolean
-  legacy_ids?: string[]
+  legacy_ids?: readonly string[]
 }
 
 export function isUsableLiveGenStudioModel(

@@ -1674,7 +1674,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
     } else if (stillEmpty > 0 && filled > 0) {
       success(`Bulk regen finished. Filled ${filled}, ${stillEmpty} still empty. Re-run the button to retry, or fill the rest in manually.`)
     } else if (stillEmpty > 0 && filled === 0) {
-      showError(`Bulk regen finished with 0 prompts filled. Your model couldn't produce prompts — try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or check your Chat Studio endpoints are reachable.`)
+      showError('Bulk regen finished with 0 prompts filled. Choose another available GenStudio model and retry.')
     } else {
       success(`Regenerated ${filled} visual prompt${filled === 1 ? '' : 's'} across your pool.`)
     }

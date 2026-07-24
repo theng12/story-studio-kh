@@ -733,7 +733,9 @@ type ImagesSubForm = {
   seed: number | null
 }
 const defaultSubForm = (): ImagesSubForm => ({
-  model: 'grok-imagine',
+  // The live GenStudio image catalog selects a usable model on mount. This
+  // must stay empty so retired image-provider ids cannot leak into renders.
+  model: '',
   aspect_ratio: '16:9',
   // Unified Generation Mode (M6) — replaces the standalone `force` checkbox.
   // Translated to `force` at submit time; the backend's image generator

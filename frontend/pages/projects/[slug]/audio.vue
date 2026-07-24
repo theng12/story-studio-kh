@@ -442,9 +442,9 @@ const form = reactive({
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
   // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
   use_expression: false,
-  // Text LLM used to insert emotion/performance tags. Saved with the audio
-  // preset so unattended Pipeline runs use the same local/cloud choice.
-  expression_model: 'deepseek-v4-flash',
+  // Kept empty until the GenStudio-only expression surface selects a live
+  // chat model. Never retain a retired direct-provider id in audio presets.
+  expression_model: '',
   // Fish Audio delivery controls. 0.8 starts a touch above Fish's own 0.7
   // default for livelier (less monotone) delivery; autopace inserts pause tags
   // so the voice doesn't rush through periods.
