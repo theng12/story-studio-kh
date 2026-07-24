@@ -3,9 +3,10 @@
     <div class="gs-batch-head">
       <span class="meta-label">GenStudio batch:</span>
       <strong>{{ remoteJobs.length.toLocaleString() }} items</strong>
-      <span class="gs-batch-credit">{{ settledLabel }}</span>
-      <span v-if="reservedCredits > 0" class="gs-batch-credit muted">{{ reservedCredits.toLocaleString() }} reserved</span>
+      <span v-if="chargedCredits > 0" class="gs-batch-credit">{{ chargedCredits.toLocaleString() }} charged</span>
+      <span v-if="heldCredits > 0" class="gs-batch-credit held">{{ heldCredits.toLocaleString() }} on hold</span>
       <span v-if="returnedCredits > 0" class="gs-batch-credit returned">{{ returnedCredits.toLocaleString() }} returned</span>
+      <span v-if="chargedCredits === 0 && heldCredits === 0 && returnedCredits === 0" class="gs-batch-credit muted">Awaiting settlement</span>
     </div>
 
     <div class="gs-batch-progress" aria-label="Remote item status distribution">
@@ -30,6 +31,8 @@
       </button>
     </div>
 
+    <GenStudioCreditSettlementHint :remote-jobs="remoteJobs" />
+
     <div v-if="ledgerOpen" class="gs-batch-ledger">
       <div class="gs-batch-ledger-head">
         <span>{{ showingExceptions ? 'Active or failed items' : 'All remote items' }}</span>
@@ -39,8 +42,9 @@
         <li v-for="remote in pageItems" :key="remote.id">
           <span>{{ remote.operation }}</span>
           <strong :class="stateClass(remote)">{{ displayState(remote) }}</strong>
-          <span v-if="settledFor(remote) !== null">{{ settledFor(remote)!.toLocaleString() }} credits</span>
-          <span v-else-if="numeric(remote.reserved_credits) > 0">{{ numeric(remote.reserved_credits).toLocaleString() }} reserved</span>
+          <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} charged</span>
+          <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} on hold</span>
+          <span v-else-if="numeric(remote.returned_credits) > 0">{{ numeric(remote.returned_credits).toLocaleString() }} returned</span>
           <span v-else>—</span>
         </li>
       </ul>
@@ -92,23 +96,25 @@ function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'fail
   return 'active'
 }
 
-function settledFor(remote: RemoteJob): number | null {
+function chargedFor(remote: RemoteJob): number {
   const settled = numeric(remote.settled_credits)
   if (settled > 0) return settled
-  const reported = numeric(remote.credit_cost)
-  return reported > 0 ? reported : null
+  return stateBucket(remote) === 'settled' ? numeric(remote.credit_cost) : 0
+}
+
+function heldFor(remote: RemoteJob): number {
+  if (chargedFor(remote) > 0 || numeric(remote.returned_credits) > 0) return 0
+  const held = numeric(remote.reserved_credits)
+  return held > 0 ? held : numeric(remote.credit_cost)
 }
 
 const settledCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'settled').length)
 const activeCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'active').length)
 const queuedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'queued').length)
 const failedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed').length)
-const settledCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + (settledFor(remote) || 0), 0))
-const reservedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + numeric(remote.reserved_credits), 0))
+const chargedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + chargedFor(remote), 0))
+const heldCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + heldFor(remote), 0))
 const returnedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + numeric(remote.returned_credits), 0))
-const settledLabel = computed(() => settledCredits.value > 0
-  ? `${settledCredits.value.toLocaleString()} charged`
-  : 'Awaiting settlement')
 const exceptionJobs = computed(() => props.remoteJobs.filter(remote => {
   const bucket = stateBucket(remote)
   return bucket === 'active' || bucket === 'failed'
@@ -164,7 +170,7 @@ watch([visibleJobs, pageCount], () => {
 .gs-batch-head, .gs-batch-statuses, .gs-batch-actions, .gs-batch-ledger-head, .gs-batch-pagination { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gs-batch-head { font-size: var(--font-xs); color: var(--text-secondary); }
 .gs-batch-credit { color: var(--success, #3fb950); font-variant-numeric: tabular-nums; }
-.gs-batch-credit.muted { color: var(--text-muted); }.gs-batch-credit.returned { color: var(--success, #3fb950); }
+.gs-batch-credit.muted { color: var(--text-muted); }.gs-batch-credit.held { color: var(--accent); }.gs-batch-credit.returned { color: var(--success, #3fb950); }
 .gs-batch-progress { display: flex; height: 6px; overflow: hidden; margin-top: 8px; border-radius: 999px; background: var(--bg-primary); }
 .gs-batch-progress span { min-width: 2px; }.gs-batch-progress .settled { background: var(--success, #3fb950); }.gs-batch-progress .active { background: var(--accent); }.gs-batch-progress .queued { background: #64748b; }.gs-batch-progress .failed { background: var(--danger, #f85149); }
 .gs-batch-statuses { margin-top: 6px; font-size: var(--font-xs); }.gs-batch-statuses .settled { color: var(--success, #3fb950); }.gs-batch-statuses .active { color: var(--accent); }.gs-batch-statuses .queued { color: var(--text-muted); }.gs-batch-statuses .failed { color: var(--danger, #f85149); }

@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.720 — 2026-07-24
+
+**Job credits now clearly distinguish amounts on hold, charged, and returned.**
+
+- Stops presenting an in-progress or failed provider amount as a final charge.
+  The Job Queue now shows it as **on hold** until GenStudio settles it.
+- Shows final **charged** and **returned** amounts separately whenever
+  GenStudio supplies them, including in both batch and compact job ledgers.
+- Adds a clear settlement note for pending and failed work: it is not a second
+  charge, and GenStudio automatically returns unused held credits. The note
+  links directly to the authoritative Credits & settlement activity.
+
+---
+
 ## v1.0.719 — 2026-07-24
 
 **Thumbnail Prompts no longer carries retired scene-prompt work, and failed audio chapters recover cleanly.**

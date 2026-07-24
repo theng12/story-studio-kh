@@ -444,15 +444,18 @@
           v-if="isLargeGenStudioBatch(job)"
           :remote-jobs="job.genstudio_jobs!"
         />
-        <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
-          <span class="meta-label">GenStudio:</span>
-          <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-            {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-            <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
-            <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
-            <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
-          </span>
-        </div>
+        <template v-else-if="job.genstudio_jobs?.length">
+          <div class="job-accounts genstudio-diagnostics">
+            <span class="meta-label">GenStudio:</span>
+            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
+              {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
+              <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
+              <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
+              <template v-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
+            </span>
+          </div>
+          <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
+        </template>
 
         <!-- Row 3: Running progress / Summary -->
         <div v-if="job.status === 'running' && job.output_lines?.length" class="job-live-output">
@@ -630,15 +633,18 @@
             v-if="isLargeGenStudioBatch(job)"
             :remote-jobs="job.genstudio_jobs!"
           />
-          <div v-else-if="job.genstudio_jobs?.length" class="job-accounts genstudio-diagnostics">
-            <span class="meta-label">GenStudio:</span>
-            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-              {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-              <template v-if="remote.settled_credits !== undefined"> · settled {{ remote.settled_credits }}</template>
-              <template v-else-if="remote.credit_cost !== undefined"> · reported {{ remote.credit_cost }} credits</template>
-              <template v-if="remote.returned_credits !== undefined"> · returned {{ remote.returned_credits }}</template>
-            </span>
-          </div>
+          <template v-else-if="job.genstudio_jobs?.length">
+            <div class="job-accounts genstudio-diagnostics">
+              <span class="meta-label">GenStudio:</span>
+              <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
+                {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
+                <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
+                <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
+                <template v-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
+              </span>
+            </div>
+            <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
+          </template>
 
           <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
             <span class="summary-icon">&#10003;</span>
@@ -838,6 +844,33 @@ function genStudioQueueLabel(
 ): string {
   const state = remote.queue_state || remote.state || 'unknown'
   return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
+}
+
+function genStudioNumeric(value: unknown): number {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function genStudioCreditState(remote: NonNullable<RJob['genstudio_jobs']>[number]): string {
+  return String(remote.queue_state || remote.state || '').toLowerCase()
+}
+
+function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
+  const settled = genStudioNumeric(remote.settled_credits)
+  if (settled > 0) return settled
+  return /success|succeed|complete|done|settled/.test(genStudioCreditState(remote))
+    ? genStudioNumeric(remote.credit_cost)
+    : 0
+}
+
+function genStudioReturnedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
+  return genStudioNumeric(remote.returned_credits)
+}
+
+function genStudioHeldCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
+  if (genStudioChargedCredits(remote) > 0 || genStudioReturnedCredits(remote) > 0) return 0
+  const reserved = genStudioNumeric(remote.reserved_credits)
+  return reserved > 0 ? reserved : genStudioNumeric(remote.credit_cost)
 }
 
 const expanded = ref<string | null>(null)
