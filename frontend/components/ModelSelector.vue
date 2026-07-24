@@ -75,7 +75,7 @@ const menuOptions = computed(() => {
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
       badges: [
-        { label: 'GenStudio', tone: 'info' as const },
+        { label: 'GenStudio KH', tone: 'info' as const },
         ...(unlimited ? [unlimited] : []),
       ],
     }

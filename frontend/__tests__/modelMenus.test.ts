@@ -14,6 +14,8 @@ const imageGenerator = source('../pages/projects/[slug]/images.vue')
 const voicePicker = source('../components/VoicePicker.vue')
 const modelSelector = source('../components/ModelSelector.vue')
 const transcriptionCatalog = source('../composables/useGenStudioTranscription.ts')
+const imageCatalog = source('../composables/useGenStudioImageModels.ts')
+const appSettings = source('../../electron/server/routes/app-settings.ts')
 
 const modelSurfaces = {
   audio: source('../pages/projects/[slug]/audio.vue'),
@@ -45,6 +47,22 @@ describe('shared model menus', () => {
     assert.match(imagePicker, /notice-error/)
     assert.match(imagePicker, /selectLiveGenStudioModel/)
     assert.doesNotMatch(imagePicker, /Unavailable saved selection|migration required|Historical/)
+  })
+
+  test('customer model menus expose one GenStudio KH boundary without execution topology', () => {
+    for (const source of [
+      imagePicker,
+      modelSelector,
+      transcriptionCatalog,
+      modelSurfaces.audio,
+      modelSurfaces.motion,
+    ]) {
+      assert.match(source, /GenStudio KH/)
+      assert.doesNotMatch(source, /provider:\s*model\.execution_label|provider:\s*'GenStudio'/)
+    }
+    assert.doesNotMatch(imagePicker, /model\.execution_label|model\.description/)
+    assert.doesNotMatch(imageCatalog, /execution_label/)
+    assert.match(appSettings, /delete customerModel\.execution_label/)
   })
 
   test('image-to-image is visibly coming soon and cannot restore an unsupported saved mode', () => {

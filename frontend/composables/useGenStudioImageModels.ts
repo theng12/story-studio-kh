@@ -12,7 +12,6 @@ export interface GenStudioImageModelInfo {
   description?: string
   available: boolean
   qualification_only: boolean
-  execution_label?: string
   unlimited_relaxed?: boolean
   aspect_ratios: string[]
   default_aspect_ratio: string

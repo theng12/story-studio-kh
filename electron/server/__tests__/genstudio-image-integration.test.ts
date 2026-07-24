@@ -79,6 +79,76 @@ test('GenStudio image adapter always submits the live model default instead of a
   }
 })
 
+test('concurrent GenStudio images share one model-default catalog refresh', async () => {
+  const originalFetch = globalThis.fetch
+  let catalogRequests = 0
+  let generationRequests = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/image/models')) {
+        catalogRequests++
+        await new Promise(resolve => setTimeout(resolve, 20))
+        return Response.json([{
+          id: 'genstudio-image-fast-v1',
+          display_name: 'FLUX Fast',
+          available: true,
+          qualification_only: false,
+          aspect_ratios: ['16:9'],
+          default_aspect_ratio: '16:9',
+          default_steps: 4,
+          min_steps: 2,
+          max_steps: 8,
+        }])
+      }
+      if (url.endsWith('/v1/account/overview')) {
+        return Response.json({
+          credit_balance: 100,
+          credits_used_30d: 0,
+          subscription_plan_name: 'Test',
+          paid_concurrency_limit: 25,
+          paid_active_jobs: 0,
+          paid_queued_jobs: 0,
+          max_queued_jobs: 100,
+          generation_submissions_per_minute: 100,
+          relaxed_concurrency_limit: 0,
+        })
+      }
+      if (url.endsWith('/v1/images/generations')) {
+        generationRequests++
+        const body = JSON.parse(String(init?.body || '{}'))
+        const id = `coalesced-image-${generationRequests}`
+        return Response.json({
+          id, state: 'succeeded', model_id: body.model_id,
+          prompt: body.prompt, width: 1024, height: 576, aspect_ratio: '16:9',
+          steps: body.steps, image_url: `/v1/images/${id}/file`,
+        }, { status: 202 })
+      }
+      if (/\/v1\/images\/coalesced-image-\d+\/file$/.test(url)) {
+        return new Response(Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
+          'base64',
+        ), { headers: { 'Content-Type': 'image/png' } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const provider = registry.getImageProvider('genstudio-image')
+    assert.ok(provider)
+    await Promise.all(Array.from({ length: 25 }, (_, index) => provider.generateImage({
+      prompt: `Scene ${index + 1}: a distinct cinematic landscape.`,
+      apiKey: 'coalesced-steps-test-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: `coalesced-steps-scene-${index + 1}`,
+    })))
+    assert.equal(catalogRequests, 1)
+    assert.equal(generationRequests, 25)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('style preview cache separates GenStudio steps and deterministic seeds', () => {
   const base = {
     styleTag: 'textured paper collage',

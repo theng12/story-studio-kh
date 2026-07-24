@@ -27,7 +27,8 @@ export function useGenStudioTranscriptionModels() {
     return {
       id: model.id,
       label: model.display_name,
-      group: 'Transcription',
+      group: 'GenStudio KH',
+      provider: 'GenStudio KH',
       meta: model.language,
       description: model.qualification_only
         ? 'Available for qualified accounts.'

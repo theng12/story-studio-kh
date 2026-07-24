@@ -538,7 +538,13 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = await listGenStudioImageModels(apiKey)
+    const models = (await listGenStudioImageModels(apiKey)).map(model => {
+      // Execution topology is operational metadata, not a customer-facing
+      // model attribute. Story Studio presents one GenStudio KH boundary.
+      const customerModel = { ...model }
+      delete customerModel.execution_label
+      return customerModel
+    })
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(

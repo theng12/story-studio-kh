@@ -247,10 +247,10 @@ const i2vModels = computed(() => {
       group: 'GenStudio KH',
       provider: 'GenStudio KH',
       meta: 'Quote at submission',
-      description: model.description || 'GenStudio owns reservation and settlement.',
+      description: 'Image-to-video generation through GenStudio KH.',
       disabled: !model.available,
       disabledReason: model.available ? undefined : 'This video model is not available in GenStudio KH.',
-      badges: [{ label: 'GenStudio I2V', tone: 'info' as const }],
+      badges: [{ label: 'GenStudio KH', tone: 'info' as const }],
     }))
   return discovered
 })

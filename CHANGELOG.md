@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.712 — 2026-07-24
+
+**Large Scene Review image batches now start reliably.**
+
+- Prevents every scene in a batch from requesting the same GenStudio image
+  model catalog at once before generation begins.
+- Shares one in-flight model-default refresh across the full batch, removing
+  the request surge that could time out every scene before GenStudio accepted
+  any image task.
+- Standardizes image, language, audio, video, and transcription model menus on
+  the single **GenStudio KH** label and hides fleet or cloud execution details.
+- Keeps GenStudio in control of live generation concurrency while Story Studio
+  continues checkpointing completed images and narrowing Retry to unresolved
+  scenes.
+
 ## v1.0.711 — 2026-07-24
 
 **Scene Review is now one clean, recoverable GenStudio image workflow.**

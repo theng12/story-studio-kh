@@ -43,8 +43,8 @@ const options = computed(() => {
       id: model.id,
       label: model.display_name,
       group: 'GenStudio KH',
-      provider: model.execution_label || 'GenStudio KH',
-      description: model.description || 'Pricing is quoted and settled by GenStudio.',
+      provider: 'GenStudio KH',
+      description: 'Image generation through GenStudio KH.',
       disabled: !model.available || props.imageMode === 'img2img',
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'
@@ -52,7 +52,7 @@ const options = computed(() => {
           ? 'This catalog currently supports prompt-only generation.'
           : '',
       badges: [
-        { label: 'GenStudio', tone: 'info' as const },
+        { label: 'GenStudio KH', tone: 'info' as const },
         ...(unlimited ? [unlimited] : []),
       ],
     }

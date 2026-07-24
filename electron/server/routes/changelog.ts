@@ -28,6 +28,7 @@ import { fileURLToPath } from 'url'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
+export const MAX_WHATS_NEW_ENTRIES = 20
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -62,7 +63,13 @@ interface ChangelogEntry {
   body_markdown: string
 }
 
-function parseChangelog(raw: string): ChangelogEntry[] {
+export function parseChangelog(
+  raw: string,
+  limit = MAX_WHATS_NEW_ENTRIES,
+): ChangelogEntry[] {
+  const boundedLimit = Math.max(0, Math.floor(limit))
+  if (boundedLimit === 0) return []
+
   // Split on `## ` lines that look like version headers. Match v1.0.77,
   // 1.0.77, etc. Date is the trailing token after a `—` or `-`.
   const lines = raw.split(/\r?\n/)
@@ -75,6 +82,7 @@ function parseChangelog(raw: string): ChangelogEntry[] {
       if (current) {
         current.body_markdown = current.body_markdown.trimEnd()
         entries.push(current)
+        if (entries.length >= boundedLimit) break
       }
       current = { version: m[1], date: m[2] || null, body_markdown: '' }
       continue
@@ -85,7 +93,7 @@ function parseChangelog(raw: string): ChangelogEntry[] {
       current.body_markdown += line + '\n'
     }
   }
-  if (current) {
+  if (current && entries.length < boundedLimit) {
     current.body_markdown = current.body_markdown.trimEnd()
     entries.push(current)
   }

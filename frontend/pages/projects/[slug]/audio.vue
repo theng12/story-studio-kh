@@ -391,8 +391,8 @@ const audioModelOptions = computed(() => GENSTUDIO_TTS_TIER_OPTIONS.map((option)
   return {
     id: option.id,
     label: option.label,
-    group: 'GenStudio TTS',
-    provider: 'GenStudio',
+    group: 'GenStudio KH',
+    provider: 'GenStudio KH',
     meta: `${option.tier[0]?.toUpperCase()}${option.tier.slice(1)} voice catalog`,
     description: option.description,
     badges: [
