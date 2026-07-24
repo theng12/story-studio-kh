@@ -27,6 +27,10 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
+import {
+  inspectAudioAssemblyReadiness,
+  requireAudioAssemblyReady,
+} from '../services/audio-workflow-readiness.js'
 
 export const router = Router()
 
@@ -736,9 +740,10 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const [assets, libass] = await Promise.all([
+    const [assets, libass, assembly] = await Promise.all([
       scanEpisodeAssets(slug, episodeId),
       hasLibass(),
+      inspectAudioAssemblyReadiness(slug, episodeId),
     ])
 
     const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
@@ -761,8 +766,10 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
 
     res.json({
       has_libass: libass,
-      has_merged_audio: assets.merged_audio.length > 0,
-      has_chapter_audio: assets.audio_sections.length > 0,
+      has_merged_audio: assembly.merged_audio_ready,
+      has_chapter_audio: assembly.ready,
+      audio_assembly_ready: assembly.audio_assembly_ready,
+      audio_assembly_issues: assembly.issues,
       existing_srts: existingSrts,
       subtitles_dir: subtitlesDir,
       // v1.0.396 — the user-pinned subtitle to burn (null = AUTO: prefer the
@@ -809,6 +816,14 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
  *  poll /jobs/:id for progress. */
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
+
+  try {
+    await requireAudioAssemblyReady(slug, episodeId)
+  } catch (error: any) {
+    return res.status(409).json({
+      detail: error?.message || 'Transcription requires a completed Audio Assembly first.',
+    })
+  }
 
   const { getApiKey } = await import('../services/app-secrets-store.js')
   const apiKey = await getApiKey('genstudio').catch(() => '')

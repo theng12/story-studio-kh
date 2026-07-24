@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.716 — 2026-07-24
+
+**Audio Assembly and transcription now enforce the correct prerequisite chain.**
+
+- Blocks Audio Assembly until every narration section expected by the approved
+  script has a usable chapter-audio file, naming any missing sections before
+  FFmpeg starts.
+- Always assembles the complete authoritative chapter set on disk instead of
+  trusting a stale or partial caller selection.
+- Blocks subtitle transcription until Audio Assembly has produced both merged
+  narration and a complete positive-duration `audio_chapters.json` timeline.
+- Prevents an episode with existing SRT files but no verified assembly timeline
+  from launching a misleading `0/0 sections ready` transcription job.
+- Shows the same prerequisite guidance in Subtitles and B-Roll so users can
+  repair Audio or Audio Assembly before any GenStudio request is submitted.
+
 ## v1.0.715 — 2026-07-24
 
 **Subtitle and Scene Review batches now recover from temporary GenStudio interruptions.**

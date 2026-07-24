@@ -645,6 +645,8 @@ const subtitlesStatus = ref<{
   has_libass: boolean
   has_merged_audio: boolean
   has_chapter_audio: boolean
+  audio_assembly_ready: boolean
+  audio_assembly_issues: string[]
   existing_srts: Array<{
     path: string
     filename: string
@@ -725,7 +727,7 @@ const brollExistingWhisperSrtName = computed(() => {
 })
 
 const canTranscribeBroll = computed(() => {
-  if (!form.episode_id || !subtitlesStatus.value?.has_merged_audio) return false
+  if (!form.episode_id || !subtitlesStatus.value?.audio_assembly_ready) return false
   return brollGenstudioModelReady.value
 })
 

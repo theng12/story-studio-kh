@@ -14,6 +14,10 @@ import { getAudioMergeStatus } from '../services/asset-status.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
+import {
+  inspectChapterAudioReadiness,
+  requireChapterAudioReady,
+} from '../services/audio-workflow-readiness.js'
 
 export const router = Router()
 
@@ -44,8 +48,11 @@ router.get('/projects/:slug/audio-editor/scan/:episodeId', async (req, res) => {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
-    const assets = await scanEpisodeAudioAssets(slug, episodeId)
-    res.json(assets)
+    const [assets, chapterAudioReadiness] = await Promise.all([
+      scanEpisodeAudioAssets(slug, episodeId),
+      inspectChapterAudioReadiness(slug, episodeId),
+    ])
+    res.json({ ...assets, chapter_audio_readiness: chapterAudioReadiness })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Asset scan failed'))
   }
@@ -58,8 +65,10 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
 
   const { episode_id, chapters, gap_duration, normalize_volume, music, background_noise, narration_volume } = req.body
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
-  if (!chapters || !Array.isArray(chapters) || chapters.length === 0) {
-    return res.status(400).json({ detail: 'At least one chapter file path is required' })
+  try {
+    await requireChapterAudioReady(slug, episode_id)
+  } catch (error: any) {
+    return res.status(409).json({ detail: error?.message || 'All required audio must be generated first.' })
   }
 
   // Apply defaults — precedence: request body → format → legacy hardcoded.
@@ -86,7 +95,7 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     project_slug: slug,
     type: 'audio_merge',
     episode_id,
-    title: `Audio merge (${chapters.length} chapters)`,
+    title: `Audio merge (${Array.isArray(chapters) ? chapters.length : 'all'} chapters)`,
     params: req.body,
   })
   res.status(201).json(job)

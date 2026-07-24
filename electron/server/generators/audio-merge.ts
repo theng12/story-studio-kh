@@ -30,6 +30,7 @@ import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
 
 // ── Run FFmpeg and capture stderr (needed for loudnorm measurement) ────────
 
@@ -328,21 +329,21 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   const req = params as AudioMergeRequest
   const code = episode_id.toUpperCase()
 
-  // Batch pipeline support: if the caller queued this job without an
-  // explicit chapter list (e.g. as part of a chained audio → audio_merge
-  // run where the chapters don't exist yet at chain-submission time),
-  // auto-resolve them from disk now that the preceding audio step has
-  // finished. scanEpisodeAudioAssets returns the same sorted list the
-  // interactive Audio-Merge page shows.
-  if (!Array.isArray(req.chapters) || req.chapters.length === 0) {
-    job.output_lines.push('No chapter list provided — auto-scanning audio folder…')
-    const scanned = await scanEpisodeAudioAssets(project_slug, episode_id)
-    if (!scanned.chapters.length) {
-      throw new Error(`No audio chapters found for ${code}. Run the Audio step first.`)
-    }
-    req.chapters = scanned.chapters.map(c => c.path)
-    job.output_lines.push(`Auto-resolved ${req.chapters.length} chapter(s) from disk`)
+  // Submission routes preflight this too, but Pipeline jobs can enqueue
+  // internally and files may change while a job waits. Re-prove the complete
+  // expected audio set immediately before FFmpeg starts.
+  const readiness = await requireChapterAudioReady(project_slug, code)
+  const scanned = await scanEpisodeAudioAssets(project_slug, code)
+  if (!scanned.chapters.length) {
+    throw new Error(`Audio Assembly is blocked: no chapter audio files were found for ${code}.`)
   }
+  // Never trust a stale or user-trimmed caller list. Once coverage is proven,
+  // merge the complete ordered set currently on disk.
+  req.chapters = scanned.chapters.map(chapter => chapter.path)
+  job.output_lines.push(
+    `Audio preflight passed: ${readiness.present_files.length}/${readiness.expected_files.length} required file(s) ready`,
+  )
+  job.output_lines.push(`Resolved ${req.chapters.length} ordered chapter file(s) from disk`)
 
   // 1. Validate chapter files exist
   const validChapters: string[] = []

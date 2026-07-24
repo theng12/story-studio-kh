@@ -13,7 +13,7 @@
       :generate-label="generateLabel"
       loading-label="Merging…"
       :generate-loading="generating || mergeJobActiveForEpisode"
-      :generate-disabled="!chapters.length"
+      :generate-disabled="!chapterAudioReady"
       :generate-status="(generating || mergeJobActiveForEpisode) ? `Merging audio for ${selectedEpisode?.title || episodeId}…` : ''"
       @generate="onGenerateClick"
       @episode-selected="onEpisodeSelected"
@@ -52,6 +52,27 @@
           One-click installer in Settings · no admin needed
         </span>
       </template>
+    </div>
+
+    <div
+      v-if="episodeId && scannedAssets && !scanning && chapters.length && !chapterAudioReady"
+      class="card mt-2 no-audio-warning"
+    >
+      <div class="warning-icon">⚠️</div>
+      <div class="warning-body">
+        <h3 class="warning-title">Audio Assembly is waiting for every chapter</h3>
+        <p class="text-muted mt-1">
+          {{ chapterAudioIssues.join(' ') }}
+        </p>
+        <div class="flex gap-2 mt-2">
+          <NuxtLink :to="`/projects/${slug}/audio?episode=${episodeId}`" class="btn btn-primary btn-sm">
+            Repair missing audio →
+          </NuxtLink>
+          <button class="btn btn-sm btn-secondary" @click="scanAssets" :disabled="scanning">
+            Re-scan
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Apply-time path-check banner. Missing linked files are shown in a
@@ -715,6 +736,12 @@ const ffmpegStatus = ref<{ installed: boolean; version?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 const generating = ref(false)
+const chapterAudioReady = computed(
+  () => scannedAssets.value?.chapter_audio_readiness?.ready === true,
+)
+const chapterAudioIssues = computed<string[]>(
+  () => scannedAssets.value?.chapter_audio_readiness?.issues || [],
+)
 
 // v1.0.307 — keep Generate disabled for the WHOLE queued merge job, not just
 // the brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).

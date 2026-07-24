@@ -59,6 +59,14 @@
             <NuxtLink :to="`/projects/${slug}/audio`" class="inline-link">Audio Generator</NuxtLink>
             first — subtitles are built from it.
           </p>
+          <p v-else-if="!status?.audio_assembly_ready" class="validation-msg text-sm mt-2">
+            ⚠ Audio chapters are ready, but Audio Assembly is not complete.
+            Open <NuxtLink :to="`/projects/${slug}/audio-merge`" class="inline-link">Audio Assembly</NuxtLink>
+            and generate the merged timeline before transcription.
+            <span v-if="status?.audio_assembly_issues?.length">
+              {{ status.audio_assembly_issues.join(' ') }}
+            </span>
+          </p>
           <div v-else class="mt-2 text-sm">
             <div class="sub-coverage">
               <span class="sub-coverage-bar" aria-hidden="true">
@@ -257,6 +265,8 @@ interface SubtitleStatus {
   has_libass: boolean
   has_merged_audio: boolean
   has_chapter_audio: boolean
+  audio_assembly_ready: boolean
+  audio_assembly_issues: string[]
   existing_srts: ExistingSrt[]
   completion?: {
     complete: boolean
@@ -382,13 +392,14 @@ const transcribeJobActive = computed(() =>
 const transcribeLabel = computed(() => 'Transcribe')
 
 const canTranscribe = computed(() => {
-  if (!episodeId.value || !status.value?.has_chapter_audio) return false
+  if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false
   if (transcribing.value || transcribeJobActive.value) return false
   return genstudioModelReady.value
 })
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
+  if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
   if (genstudioModelsLoading.value) return 'Loading transcription models'
   if (genstudioModelsError.value) return genstudioModelsError.value
   if (!genstudioModel.value) return 'No transcription model is available'

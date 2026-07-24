@@ -28,6 +28,7 @@ import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../servic
 import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
+import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
 
 export interface TranscribeSubtitlesRequest {
   episode_id: string
@@ -99,6 +100,14 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
 
   job.progress = 0
   job.output_lines.push(`Starting transcription for ${code}`)
+
+  // Subtitle coverage is defined by Audio Assembly's verified section
+  // timeline. Gate before any catalog lookup, upload, or paid submission so a
+  // missing merge/manifest cannot become a misleading 0/0 completion error.
+  const assembly = await requireAudioAssemblyReady(project_slug, code)
+  job.output_lines.push(
+    `Audio Assembly verified: ${assembly.timeline_sections.length}/${assembly.expected_sections.length} timeline section(s) ready`,
+  )
 
   // v1.0.216+ — Per-chapter mode (audio-paced pipeline). Routed before the
   // merged-audio path: transcribe each chapter's clean narration into
@@ -585,26 +594,14 @@ async function transcribePerChapter(
     ` · ${generatedSections} generated now · ${totalCues} new cues → ${outDir}`,
   )
 
-  // v1.0.251 — auto-stitch cascade. Scene Plan reads the STITCHED SRT, and
+  // Auto-stitch cascade. The prerequisite gate above guarantees the exact
+  // Audio Assembly sidecar is already present; never reconstruct guessed
+  // timing after transcription.
   // users kept forgetting to re-stitch after a (re-)transcribe — leaving the
   // planner on a stale timeline. Roll the fresh per-chapter SRTs up into
-  // {CODE}_stitched.srt right here. Best-effort: a missing prerequisite (e.g.
-  // audio not merged yet) logs a note but never fails the transcribe job.
+  // {CODE}_stitched.srt right here. A stitch failure remains visible because
+  // downstream Scene Plan must never consume a stale or partial timeline.
   try {
-    // v1.0.398 — self-heal a missing audio_chapters.json (episodes merged
-    // before the sidecar was written reliably) by rebuilding it from the
-    // per-chapter audio on disk, so both the lead-in read below AND the stitch
-    // succeed without forcing a re-merge. No-op when the sidecar exists.
-    try {
-      const { ensureAudioChaptersSidecar } = await import('../lib/audio-chapters-reconstruct.js')
-      const note = await ensureAudioChaptersSidecar({
-        episodeDir: epaths.episode_dir,
-        audioDir: epaths.audio_dir,
-        mergedAudioDir: epaths.merged_audio_dir,
-        episodeCode: code,
-      })
-      if (note) job.output_lines.push(`ℹ ${note}`)
-    } catch { /* best-effort; the stitch below will report if the sidecar is still missing */ }
     // v1.0.397 — offset the stitched timeline by the intro lead-in so the
     // burned captions line up with the merged audio (which plays the intro
     // before any narration). Read-only against the merged file + sidecar.
