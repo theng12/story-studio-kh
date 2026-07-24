@@ -154,15 +154,20 @@
 
         <div class="cs-settings mt-2">
           <div class="form-group">
-            <label>Scene length range (seconds)</label>
-            <div class="cs-range-row">
+            <label>Visual pacing</label>
+            <select v-model="pacingPreset" class="select" @change="applyPacingPreset">
+              <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
+              <option value="custom">Custom range…</option>
+            </select>
+            <div v-if="pacingPreset === 'custom'" class="cs-range-row mt-1">
               <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
               <span class="text-muted">to</span>
               <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
             </div>
             <span class="text-muted text-xs">
-              The planner cuts more often where the narration is busy, keeping
-              each scene inside this band — shorter = more "live".
+              This is a strict maximum where the narration can be safely split.
+              Long subtitle cues are divided at word or sentence boundaries with
+              proportional timing; Story Studio never cuts through a word.
             </span>
           </div>
 
@@ -302,6 +307,15 @@ interface ContinuityConfig {
   negative_prompt?: string
   updated_at?: string
 }
+
+const PACING_PRESETS = [
+  { id: 'rapid', min: 1, max: 3, label: '1–3 seconds — Rapid & lively' },
+  { id: 'lively', min: 1, max: 4, label: '1–4 seconds — Lively storytelling' },
+  { id: 'balanced', min: 3, max: 6, label: '3–6 seconds — Balanced narrative' },
+  { id: 'cinematic', min: 2, max: 8, label: '2–8 seconds — Cinematic & robust' },
+  { id: 'slow', min: 5, max: 10, label: '5–10 seconds — Slow & deliberate' },
+  { id: 'contemplative', min: 8, max: 15, label: '8–15 seconds — Contemplative / ambient' },
+] as const
 function defaults(): ContinuityConfig {
   return {
     schema_version: 1,
@@ -336,6 +350,17 @@ function normalizeConfig(value?: Partial<ContinuityConfig> | null): ContinuityCo
 }
 
 const config = ref<ContinuityConfig>(defaults())
+const pacingPreset = ref<string>('lively')
+function syncPacingPreset(): void {
+  pacingPreset.value = PACING_PRESETS.find(preset =>
+    preset.min === config.value.pacing.min_sec && preset.max === config.value.pacing.max_sec,
+  )?.id || 'custom'
+}
+function applyPacingPreset(): void {
+  const preset = PACING_PRESETS.find(entry => entry.id === pacingPreset.value)
+  if (preset) config.value.pacing = { min_sec: preset.min, max_sec: preset.max }
+}
+watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec], syncPacingPreset, { immediate: true })
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the fragmented style controls the user had to manage separately. A channel's

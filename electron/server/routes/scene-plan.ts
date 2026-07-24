@@ -476,13 +476,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
     const repaired = repairOverlongScenesDeterministically({
       scenes: plan.scenes || [],
       cues,
-      threshold_sec: 20,
+      threshold_sec: maxSec,
       min_sec: minSec,
       max_sec: maxSec,
     })
     if (!repaired.repairedCount) {
       return res.status(400).json({
-        detail: 'No long scene could be repaired. If subtitles were just restored, stitch them again before retrying.',
+        detail: `No scenes exceed the selected ${maxSec}-second pacing cap. If subtitles were just restored, stitch them again before retrying.`,
       })
     }
     plan.scenes = repaired.scenes

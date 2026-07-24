@@ -13,9 +13,12 @@ let parsePlannerJson: (raw: string) => { scenes?: any[] }
 let buildWindows: (cues: any[], windowSec: number) => Array<{ start: number; end: number; cues: any[] }>
 let buildStorySoFar: (scenes: any[], live: boolean) => string
 let assignDensityToUntagged: (scenes: any[], density: number) => void
+let splitScenesDeterministically: (opts: any) => any[]
+let splitCueForStrictVisualPacing: (cue: any, maxSec: number) => any[]
+let repairOverlongScenesDeterministically: (opts: any) => any
 
 before(async () => {
-  ;({ parsePlannerJson, buildWindows, buildStorySoFar, assignDensityToUntagged } = await import('../services/scene-planner.js'))
+  ;({ parsePlannerJson, buildWindows, buildStorySoFar, assignDensityToUntagged, splitScenesDeterministically, splitCueForStrictVisualPacing, repairOverlongScenesDeterministically } = await import('../services/scene-planner.js'))
 })
 
 const scene = (i: number) =>
@@ -92,6 +95,49 @@ describe('buildWindows — chunked planning (v1.0.226)', () => {
 
   test('empty cue list yields no windows', () => {
     assert.deepEqual(buildWindows([], 60), [])
+  })
+})
+
+describe('strict continuity pacing', () => {
+  const longCue = {
+    index: 1,
+    start_sec: 0,
+    end_sec: 6.4,
+    text: 'A storm gathered over the dark sea while the crew watched the horizon.',
+  }
+
+  test('splits an over-long subtitle cue at word boundaries and preserves timing coverage', () => {
+    const pieces = splitCueForStrictVisualPacing(longCue, 4)
+    assert.equal(pieces.length, 2)
+    assert.equal(pieces[0]!.start_sec, 0)
+    assert.equal(pieces[pieces.length - 1]!.end_sec, 6.4)
+    assert.ok(pieces.every(piece => piece.end_sec - piece.start_sec <= 4.0001))
+    assert.equal(pieces.map(piece => piece.text).join(' '), longCue.text)
+    assert.ok(pieces[0]!.text.endsWith('sea'), 'the nearest safe word boundary is used')
+  })
+
+  test('makes the selected maximum strict in the deterministic timeline', () => {
+    const scenes = splitScenesDeterministically({
+      cues: [longCue], min_sec: 1, max_sec: 4, target_sec: 2.5,
+    })
+    assert.ok(scenes.every(scene => scene.end_sec - scene.start_sec <= 4.0001))
+    assert.equal(scenes.map(scene => scene.transcript_segment).join(' '), longCue.text)
+  })
+
+  test('does not cut a one-word cue mid-word merely to meet the maximum', () => {
+    const pieces = splitCueForStrictVisualPacing({ index: 1, start_sec: 0, end_sec: 6, text: 'Thunderclap' }, 4)
+    assert.equal(pieces.length, 1)
+    assert.equal(pieces[0]!.text, 'Thunderclap')
+  })
+
+  test('repairs an existing out-of-range scene that contains one long subtitle cue', () => {
+    const repaired = repairOverlongScenesDeterministically({
+      scenes: [{ id: 'scene-1', scene_index: 1, start_sec: 0, end_sec: 6.4, transcript_segment: longCue.text, visual_prompt: 'existing prompt' }],
+      cues: [longCue], threshold_sec: 4, min_sec: 1, max_sec: 4,
+    })
+    assert.equal(repaired.repairedCount, 1)
+    assert.equal(repaired.scenes.length, 2)
+    assert.ok(repaired.scenes.every((scene: any) => scene.end_sec - scene.start_sec <= 4.0001))
   })
 })
 

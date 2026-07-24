@@ -355,12 +355,12 @@
                 : dirty ? 'Save your edits first' : 'Split abnormal long scenes against current subtitle cues; then generate only the new pending prompts.'"
               @click="repairLongScenes"
             >
-              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} long scene${overlongSceneCount === 1 ? '' : 's'}` }}
+              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} out-of-range scene${overlongSceneCount === 1 ? '' : 's'}` }}
             </button>
             <template #content>
-              <div class="popover-title">Repair long scenes</div>
-              <p><strong>Use when:</strong> one or more scenes are over 20 seconds, especially a 100–300 second hold caused by an older plan that skipped narration.</p>
-              <p><strong>What it does:</strong> splits only those ranges against the verified subtitle cues. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
+              <div class="popover-title">Repair out-of-range scenes</div>
+              <p><strong>Use when:</strong> one or more scenes exceed the selected continuity pacing maximum, especially after changing the pace on Character Sheet.</p>
+              <p><strong>What it does:</strong> splits only those ranges against the verified subtitle text at safe word boundaries. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
               <p><strong>Next:</strong> run Visual prompts → All pending, then generate the new missing images in Scene Review.</p>
             </template>
           </Popover>
@@ -1300,12 +1300,12 @@ const sceneDiagnostics = computed(() => {
     if (visualReady && scene.motion_prompt?.trim()) motionDone++
     if (visualReady && !scene.motion_prompt?.trim()) motionPending++
     const duration = scene.end_sec - scene.start_sec
-    if (duration > OVERLONG_SEC) overlong++
+    if (duration > pacingMaximumSec.value + 0.001) overlong++
     const reasons: string[] = []
     if (!scene.visual_prompt?.trim()) reasons.push('no prompt')
     else if (duplicates.has(scene.id)) reasons.push('duplicate prompt')
     if (sceneOverlapsMissingSubtitles(scene)) reasons.push('missing subtitle narration')
-    else if (duration > OVERLONG_SEC) reasons.push(`${duration.toFixed(0)}s long`)
+    else if (duration > pacingMaximumSec.value + 0.001) reasons.push(`${duration.toFixed(0)}s exceeds pace`)
     if (reasons.length) {
       problems.push({ scene, index: i + 1, reasons })
       problemIds.add(scene.id)
@@ -1528,7 +1528,7 @@ async function pollUntilPlanLanded(
 // ── Plan health + deterministic repair guidance ─────────────────────────
 // Flag scenes that look broken so they're findable without scrolling. An exact
 // duplicate is pending work, not a valid prompt for another scene.
-const OVERLONG_SEC = 20
+const pacingMaximumSec = computed(() => continuityPacing.value?.max_sec || 20)
 const problemScenes = computed(() => sceneDiagnostics.value.problems)
 const problemIds = computed(() => sceneDiagnostics.value.problemIds)
 const overlongSceneCount = computed(() => sceneDiagnostics.value.overlong)
@@ -1760,9 +1760,9 @@ const repairingLongScenes = ref(false)
 async function repairLongScenes(): Promise<void> {
   if (!episodeId.value || repairingLongScenes.value || !subtitleTimelineComplete.value) return
   const ok = await ask({
-    title: `Repair ${overlongSceneCount.value} long scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
-    message: 'Uses the restored subtitle cues to split only abnormal long ranges. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.',
-    confirmLabel: 'Repair long scenes',
+    title: `Repair ${overlongSceneCount.value} out-of-range scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
+    message: `Uses the subtitle text to split only scenes over the selected ${pacingMaximumSec.value}-second pacing cap. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.`,
+    confirmLabel: 'Repair scenes',
   })
   if (!ok) return
   repairingLongScenes.value = true

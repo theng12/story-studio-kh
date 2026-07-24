@@ -104,9 +104,20 @@ describe('shared model menus', () => {
     assert.match(transcriptionCatalog, /temporarily unavailable/)
   })
 
-  test('the format wizard no longer restores a hardcoded paid model list', () => {
+test('the format wizard no longer restores a hardcoded paid model list', () => {
     assert.match(modelSurfaces.formatWizard, /<ModelSelector/)
     assert.doesNotMatch(modelSurfaces.formatWizard, /<option value="gpt-4o"/)
     assert.match(modelSurfaces.formatWizard, /const model = ref\(''\)/)
   })
+})
+
+test('Character Sheet exposes strict visual-pacing presets with a custom range', () => {
+  const characterSheet = read('pages/projects/[slug]/character-sheet.vue')
+  assert.match(characterSheet, /Visual pacing/)
+  assert.match(characterSheet, /1–3 seconds — Rapid & lively/)
+  assert.match(characterSheet, /1–4 seconds — Lively storytelling/)
+  assert.match(characterSheet, /2–8 seconds — Cinematic & robust/)
+  assert.match(characterSheet, /5–10 seconds — Slow & deliberate/)
+  assert.match(characterSheet, /Custom range…/)
+  assert.match(characterSheet, /strict maximum/)
 })

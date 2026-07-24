@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.709 — 2026-07-24
+
+**Continuity pacing is now strict, readable, and easy to choose.**
+
+- Replaces free-form scene-length defaults with visual-pacing presets—from
+  rapid 1–3-second cuts to contemplative 8–15-second holds—plus Custom.
+- Enforces the selected maximum during deterministic Scene Plan creation by
+  splitting long subtitle cues at safe word or sentence boundaries.
+- Keeps split timestamps proportional and continuous while never cutting a
+  word; only an indivisible one-word caption may remain longer than its cap.
+
 ## v1.0.708 — 2026-07-24
 
 **Every generator now heals old model selections to the live GenStudio catalog.**

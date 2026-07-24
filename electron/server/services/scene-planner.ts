@@ -14,10 +14,9 @@
  *   - Numeric milestones (dates, statistics, percentages)
  *   - Tonal pivots (explanation → counterargument, setup → punchline)
  *
- * Output is constrained to scenes between 3-10 seconds (avoids "every
- * sentence is a scene" cost explosion AND avoids "one image for 60s"
- * dead-air). LLM may break this; we post-validate + nudge boundaries
- * before persisting.
+ * Output is constrained to the chosen continuity pacing range. The
+ * deterministic timeline stage treats its maximum as strict whenever a
+ * subtitle cue can be split at a word boundary; it never cuts mid-word.
  */
 
 import fs from 'fs/promises'
@@ -986,6 +985,10 @@ export function splitScenesDeterministically(opts: {
   const maxSec = opts.max_sec ?? MAX_SCENE_SEC
   const targetSec = Math.max(minSec, Math.min(maxSec, opts.target_sec ?? (minSec + maxSec) / 2))
   const idGen = opts.idGen || ((i: number) => `scene-${i + 1}`)
+  // Subtitle readability and visual pacing are separate concerns. Expand a
+  // long caption into visual-only timing fragments so the selected maximum is
+  // honoured without asking transcription to emit unnaturally short captions.
+  const cues = opts.cues.flatMap(cue => splitCueForStrictVisualPacing(cue, maxSec))
 
   const scenes: ScenePlanEntry[] = []
   let bucketStart = opts.initial_start_sec ?? opts.cues[0]!.start_sec
@@ -1009,7 +1012,7 @@ export function splitScenesDeterministically(opts: {
     bucketStart = end
   }
 
-  for (const cue of opts.cues) {
+  for (const cue of cues) {
     bucketCues.push(cue)
     const durSoFar = cue.end_sec - bucketStart
     if (durSoFar >= targetSec) {
@@ -1036,6 +1039,66 @@ export function splitScenesDeterministically(opts: {
   scenes.forEach((s, i) => { s.scene_index = i + 1 })
 
   return scenes
+}
+
+/**
+ * Split one over-long subtitle cue into visual timing fragments. Boundaries
+ * are always between words (with a nearby sentence ending preferred) and the
+ * timestamps follow the text's proportional position while never exceeding
+ * `maxSec`. A one-word cue is the intentional exception: cutting inside a
+ * word would make both the visual transcript and timing dishonest.
+ */
+export function splitCueForStrictVisualPacing(cue: SrtCue, maxSec: number): SrtCue[] {
+  const duration = cue.end_sec - cue.start_sec
+  if (!Number.isFinite(maxSec) || maxSec <= 0 || duration <= maxSec + 0.0001) return [cue]
+
+  const words = cue.text.trim().split(/\s+/u).filter(Boolean)
+  const partCount = Math.ceil(duration / maxSec)
+  if (words.length < partCount) return [cue]
+
+  const boundaries: number[] = []
+  let previous = 0
+  for (let part = 1; part < partCount; part++) {
+    const desired = Math.round((words.length * part) / partCount)
+    const low = Math.max(previous + 1, desired - 2)
+    const high = Math.min(words.length - (partCount - part), desired + 2)
+    let chosen = low
+    for (let candidate = low; candidate <= high; candidate++) {
+      const betterDistance = Math.abs(candidate - desired) < Math.abs(chosen - desired)
+      const sentenceEnd = /[.!?…]["')\]]*$/u.test(words[candidate - 1] || '')
+      const chosenSentenceEnd = /[.!?…]["')\]]*$/u.test(words[chosen - 1] || '')
+      if ((sentenceEnd && !chosenSentenceEnd) || (sentenceEnd === chosenSentenceEnd && betterDistance)) chosen = candidate
+    }
+    boundaries.push(chosen)
+    previous = chosen
+  }
+
+  const wordParts = boundaries
+    .concat(words.length)
+    .map((end, index) => words.slice(index === 0 ? 0 : boundaries[index - 1]!, end))
+  const weights = wordParts.map(part => part.join(' ').length)
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
+  const pieces: SrtCue[] = []
+  let consumedWeight = 0
+  let start = cue.start_sec
+  for (let index = 0; index < wordParts.length; index++) {
+    consumedWeight += weights[index]!
+    const remainingParts = wordParts.length - index - 1
+    const naturalEnd = cue.start_sec + (duration * consumedWeight) / totalWeight
+    const earliestEnd = cue.end_sec - remainingParts * maxSec
+    const latestEnd = start + maxSec
+    const end = index === wordParts.length - 1
+      ? cue.end_sec
+      : Math.min(latestEnd, Math.max(earliestEnd, naturalEnd))
+    pieces.push({
+      ...cue,
+      start_sec: start,
+      end_sec: end,
+      text: wordParts[index]!.join(' '),
+    })
+    start = end
+  }
+  return pieces
 }
 
 export interface RepairOverlongScenesResult {
@@ -1073,7 +1136,7 @@ export function repairOverlongScenesDeterministically(opts: {
     const cues = opts.cues.filter(cue =>
       cue.end_sec > scene.start_sec + 0.01 && cue.start_sec < scene.end_sec - 0.01,
     )
-    if (cues.length < 2) {
+    if (!cues.length) {
       result.push({ ...scene })
       continue
     }
