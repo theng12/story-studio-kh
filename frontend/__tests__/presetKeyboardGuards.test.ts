@@ -30,9 +30,9 @@ describe('preset modal keyboard guards', () => {
   })
 
   test('the shared toolbar renames the active preset in place with the same keyboard guard', () => {
-    assert.match(topActionBar, />Rename<\/button>/)
+    assert.match(topActionBar, /presetActionLabel\('rename', 'Rename', 'Renaming…', '✓ Renamed'\)/)
     assert.match(topActionBar, /@keyup\.enter\.stop\.prevent="confirmRename"/)
-    assert.match(topActionBar, /await props\.presets\?\.rename\(name\)/)
+    assert.match(topActionBar, /runPresetAction\('rename', \(\) => props\.presets\?\.rename\(name\)/)
     assert.match(topActionBar, /emit\('preset-renamed'\)/)
   })
 

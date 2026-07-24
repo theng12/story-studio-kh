@@ -33,7 +33,6 @@
         @episode-selected="onEpisodeSelected"
         @preset-applied="onBundleApplied"
         @preset-saved="onBundleSaved"
-        @preset-deleted="success('Bundle deleted')"
       >
         <template #actions>
           <EpisodeImportButton
@@ -3744,14 +3743,12 @@ async function runBundlePathCheck() {
 }
 
 function onBundleApplied() {
-  success('Bundle applied — all 5 steps updated')
   void (async () => {
     await normalizeVideoAssemblyPathsInState()
     await runBundlePathCheck()
   })()
 }
 function onBundleSaved() {
-  success('Bundle saved')
   // After save the snapshot just captured whatever the form currently
   // has — re-check so the banner reflects the saved state, not the state
   // before the user fixed any paths via the row buttons.

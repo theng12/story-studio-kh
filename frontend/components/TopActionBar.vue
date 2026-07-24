@@ -59,38 +59,39 @@
       <div class="preset-actions" role="group" aria-label="Preset actions">
         <button
           type="button"
-          class="btn btn-sm btn-secondary"
-          :disabled="!hasActivePreset"
+          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'apply' }]"
+          :disabled="!hasActivePreset || presetActionBusy"
           title="Load the preset's saved values into this page's form."
           @click="onApply"
-        >Apply</button>
+        >{{ presetActionLabel('apply', 'Apply', 'Applying…', '✓ Applied') }}</button>
         <button
           type="button"
-          class="btn btn-sm btn-secondary"
-          :disabled="!hasActivePreset"
+          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'save' }]"
+          :disabled="!hasActivePreset || presetActionBusy"
           title="Save the page's current values back into the active preset."
           @click="onOverwrite"
-        >Save</button>
+        >{{ presetActionLabel('save', 'Save', 'Saving…', '✓ Saved') }}</button>
         <button
           type="button"
-          class="btn btn-sm btn-secondary"
+          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'save-as' }]"
+          :disabled="presetActionBusy"
           title="Snapshot the current values under a new preset name."
           @click="openSaveAs"
-        >Save as…</button>
+        >{{ presetActionLabel('save-as', 'Save as…', 'Saving…', '✓ Saved') }}</button>
         <button
           type="button"
-          class="btn btn-sm btn-secondary"
-          :disabled="!hasActivePreset"
+          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'rename' }]"
+          :disabled="!hasActivePreset || presetActionBusy"
           title="Change the active preset's name without changing its saved settings."
           @click="openRename"
-        >Rename</button>
+        >{{ presetActionLabel('rename', 'Rename', 'Renaming…', '✓ Renamed') }}</button>
         <button
           type="button"
-          class="btn btn-sm btn-danger"
-          :disabled="!hasActivePreset"
+          :class="['btn btn-sm btn-danger', { 'preset-action-success': presetActionSuccess === 'delete' }]"
+          :disabled="!hasActivePreset || presetActionBusy"
           title="Remove the active preset from this project."
           @click="onDelete"
-        >Delete</button>
+        >{{ presetActionLabel('delete', 'Delete', 'Deleting…', '✓ Deleted') }}</button>
       </div>
     </div>
 
@@ -228,6 +229,7 @@ import EpisodeSelector from './EpisodeSelector.vue'
 import Modal from './Modal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import Popover from './Popover.vue'
+import { useToast } from '../composables/useToast.js'
 // v1.0.119 — Removed OverflowMenu import + OverflowItem shape: preset
 // actions inlined as buttons in the template, no kebab fallback.
 
@@ -293,6 +295,47 @@ const showRename = ref(false)
 const renamePresetName = ref('')
 const renamePresetNameInput = ref<HTMLInputElement | null>(null)
 const renamingPreset = ref(false)
+type PresetAction = 'apply' | 'save' | 'save-as' | 'rename' | 'delete'
+const presetActionPending = ref<PresetAction | null>(null)
+const presetActionSuccess = ref<PresetAction | null>(null)
+const presetActionBusy = computed(() => presetActionPending.value !== null)
+const { success: showSuccess, error: showError } = useToast()
+let presetSuccessTimer: ReturnType<typeof setTimeout> | null = null
+
+function presetActionLabel(action: PresetAction, idle: string, pending: string, complete: string): string {
+  if (presetActionPending.value === action) return pending
+  if (presetActionSuccess.value === action) return complete
+  return idle
+}
+
+function errorMessage(error: any, fallback: string): string {
+  return error?.data?.detail || error?.message || fallback
+}
+
+async function runPresetAction(
+  action: PresetAction,
+  work: () => unknown | Promise<unknown>,
+  message: string,
+): Promise<boolean> {
+  if (presetActionBusy.value) return false
+  presetActionPending.value = action
+  presetActionSuccess.value = null
+  try {
+    await work()
+    presetActionSuccess.value = action
+    showSuccess(message)
+    if (presetSuccessTimer) clearTimeout(presetSuccessTimer)
+    presetSuccessTimer = setTimeout(() => {
+      if (presetActionSuccess.value === action) presetActionSuccess.value = null
+    }, 1_600)
+    return true
+  } catch (error: any) {
+    showError(errorMessage(error, `Preset ${action} failed.`))
+    return false
+  } finally {
+    presetActionPending.value = null
+  }
+}
 
 // Active episode (captured from EpisodeSelector's emit) — used by the
 // hover popover to show per-section status icons.
@@ -366,14 +409,14 @@ function onPresetSelect(id: string) {
   props.presets?.setActive(id)
 }
 
-function onApply() {
-  props.presets?.applyActive()
-  emit('preset-applied')
+async function onApply() {
+  const succeeded = await runPresetAction('apply', () => props.presets?.applyActive(), 'Preset applied.')
+  if (succeeded) emit('preset-applied')
 }
 
 async function onOverwrite() {
-  await props.presets?.overwrite()
-  emit('preset-saved')
+  const succeeded = await runPresetAction('save', () => props.presets?.overwrite(), 'Preset saved.')
+  if (succeeded) emit('preset-saved')
 }
 
 async function onDelete() {
@@ -387,8 +430,8 @@ async function onDelete() {
     danger: true,
   })
   if (!ok) return
-  await props.presets?.remove()
-  emit('preset-deleted')
+  const succeeded = await runPresetAction('delete', () => props.presets?.remove(), 'Preset deleted.')
+  if (succeeded) emit('preset-deleted')
 }
 
 function openSaveAs() {
@@ -403,10 +446,12 @@ async function confirmSaveAs() {
   if (!name || savingPreset.value) return
   savingPreset.value = true
   try {
-    await props.presets?.saveAs(name)
-    newPresetName.value = ''
-    showSaveAs.value = false
-    emit('preset-saved')
+    const succeeded = await runPresetAction('save-as', () => props.presets?.saveAs(name), 'Preset saved.')
+    if (succeeded) {
+      newPresetName.value = ''
+      showSaveAs.value = false
+      emit('preset-saved')
+    }
   } finally {
     savingPreset.value = false
   }
@@ -427,14 +472,20 @@ async function confirmRename() {
   if (!name || !activePreset.value || renamingPreset.value) return
   renamingPreset.value = true
   try {
-    await props.presets?.rename(name)
-    renamePresetName.value = ''
-    showRename.value = false
-    emit('preset-renamed')
+    const succeeded = await runPresetAction('rename', () => props.presets?.rename(name), 'Preset renamed.')
+    if (succeeded) {
+      renamePresetName.value = ''
+      showRename.value = false
+      emit('preset-renamed')
+    }
   } finally {
     renamingPreset.value = false
   }
 }
+
+onUnmounted(() => {
+  if (presetSuccessTimer) clearTimeout(presetSuccessTimer)
+})
 
 // ── Episode status helpers ──────────────────────────────────────────────
 function episodeStatusDone(ep: any, key: string): boolean {
@@ -504,6 +555,13 @@ function episodeStatusClass(ep: any, key: string) {
 .preset-actions .btn {
   min-height: var(--control-height-sm);
   white-space: nowrap;
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+}
+.preset-actions .btn.preset-action-success {
+  border-color: color-mix(in srgb, var(--success) 70%, var(--border));
+  background: color-mix(in srgb, var(--success) 16%, var(--bg-secondary));
+  color: var(--success);
+  transform: translateY(-1px);
 }
 .episode-region {
   flex: 1 1 280px;

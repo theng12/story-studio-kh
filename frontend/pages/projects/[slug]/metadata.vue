@@ -26,9 +26,6 @@
       :generate-status="metadataBusy ? `Generating metadata for ${episodeId}…` : scriptGateReason"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
       />
       <p class="workspace-command-copy">
         Generate the complete publishing package at once, or open the section editor below to refine individual outputs.

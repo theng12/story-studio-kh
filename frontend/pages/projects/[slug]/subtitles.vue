@@ -37,9 +37,6 @@
       :generate-disabled="!canTranscribe"
       :generate-status="transcribeJobActive ? `Transcribing ${episodeId}…` : (canTranscribe ? '' : transcribeDisabledReason)"
       @generate="transcribe"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
     />
 
     <WorkspaceNotice v-if="!episodeId" tone="info" title="Choose an episode">

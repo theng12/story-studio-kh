@@ -111,7 +111,7 @@
           <div><span>01</span><strong>Render settings</strong></div>
           <small>Controls used for missing images and re-renders</small>
         </div>
-        <div class="sr-model-grid">
+        <div class="sr-model-grid is-single">
           <div class="sr-model-field">
             <div class="sr-field-heading">
               <label class="sr-ratio-label">Image model</label>
@@ -121,14 +121,9 @@
               v-model="form.model"
               :project-slug="slug"
               :image-models="config?.image_models || {}"
-              :image-mode="promptOnly ? 'text2img' : (isContinuity ? 'img2img' : 'text2img')"
+              image-mode="text2img"
               default-label="Pick an image model…"
             />
-          </div>
-          <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). -->
-          <div class="sr-model-field sr-llm-pick" title="Used only when you choose Rewrite with AI. It does not generate images.">
-            <ModelSelector v-model="textModel" :project-slug="slug" label="Rewrite LLM" />
-            <small>Only used for optional prompt rewrites</small>
           </div>
         </div>
 
@@ -144,42 +139,7 @@
               </option>
             </select>
           </div>
-          <!-- v1.0.241 — parallel-mode pool size. Only relevant to "⚡ Render in
-               parallel"; sequential mode ignores it. -->
-          <div v-if="isContinuity" class="sr-ratio-pick" title="How many scenes the parallel (⚡) render works on at once. Auto = match the number of online Image Studio servers (1 Mac → ×1, 3 Macs → ×3). Or pick a fixed count; local modals may prefer 2–3 per Mac.">
-            <label class="sr-ratio-label" for="sr-concurrency">Parallel</label>
-            <select id="sr-concurrency" v-model="form.concurrency" class="select sr-ratio-select sr-conc-select">
-              <option value="auto">Auto</option>
-              <option value="2">×2</option>
-              <option value="3">×3</option>
-              <option value="4">×4</option>
-              <option value="6">×6</option>
-              <option value="8">×8</option>
-              <option value="12">×12</option>
-              <option value="16">×16</option>
-              <option value="24">×24</option>
-              <option value="50">×50</option>
-            </select>
-          </div>
-          <!-- v1.0.254 — render mode for continuity projects: img2img (references)
-               vs text2img (prompt only, no references). -->
-          <div v-if="isContinuity" class="sr-ratio-pick" title="References = img2img (character sheet + style + characters anchor every scene). Prompt only = text2img: no references sent, each scene rendered from its text prompt alone — cheaper/faster on local, but consistency rides entirely on the prompt + Style Bible.">
-            <label class="sr-ratio-label" for="sr-mode">Mode</label>
-            <select id="sr-mode" v-model="form.render_mode" class="select sr-ratio-select">
-              <option value="refs">References (img2img)</option>
-              <option value="prompt">Prompt only (text2img)</option>
-            </select>
-          </div>
-          <!-- Exact pixel sizes are currently published by Image Studio only. -->
-          <div v-if="isLocalModel" class="sr-ratio-pick" title="Output resolution for the local model. Smaller cuts GPU/VAE memory (fewer out-of-memory crashes), renders faster, and writes smaller files. Cloud models ignore this and use the aspect ratio. Shows the exact pixels sent.">
-            <label class="sr-ratio-label" for="sr-size">Resolution</label>
-            <select id="sr-size" v-model.number="form.render_scale" class="select sr-ratio-select sr-size-select">
-              <option v-for="rs in renderSizes" :key="rs.value" :value="rs.value">
-                {{ rs.label }} — {{ dimsLabel(rs.value) }}
-              </option>
-            </select>
-          </div>
-          <div v-else-if="selectedGenStudioSizes.length" class="sr-ratio-pick" title="Pixel dimensions published by the selected GenStudio model for this aspect ratio.">
+          <div v-if="selectedGenStudioSizes.length" class="sr-ratio-pick" title="Pixel dimensions published by the selected GenStudio model for this aspect ratio.">
             <label class="sr-ratio-label" for="sr-gen-size">Resolution</label>
             <select id="sr-gen-size" v-model="form.genstudio_size" class="select sr-ratio-select sr-size-select">
               <option v-for="size in selectedGenStudioSizes" :key="genStudioSizeKey(size)" :value="genStudioSizeKey(size)">
@@ -249,68 +209,15 @@
           >
             ↺ Reset
           </button>
-          <!-- v1.0.194 — continuity-chain only: sequential render of every scene. -->
-          <button
-            v-if="isContinuity"
-            class="btn btn-sm btn-secondary"
-            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
-            @click="renderContinuity()"
-            title="SEQUENTIAL — render every scene in order, each anchored to the PREVIOUS render + your character sheet/characters. Best frame-to-frame continuity, but slow (one scene at a time). Resumes where it left off. Runs in the Jobs panel."
-          >
-            🎬 Render sequentially
-          </button>
-          <button
-            v-if="isContinuity && stats.with_image > 0"
-            class="btn btn-sm btn-ghost"
-            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
-            @click="renderContinuity({ force: true })"
-            title="Re-render ALL scenes sequentially from scratch (discards current renders)."
-          >
-            ↻ Re-render all
-          </button>
-          <!-- v1.0.241 — independent / parallel render. Drops the previous-render
-               reference so scenes are mutually independent and run concurrently. -->
-          <button
-            v-if="isContinuity"
-            class="btn btn-sm btn-primary"
-            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
-            @click="renderContinuity({ independent: true })"
-            title="PARALLEL — render scenes concurrently using ONLY the style image + character sheet/characters (no previous-render reference). Much faster, but loses frame-to-frame continuity. Fills in any scene that's still missing an image."
-          >
-            ⚡ Render in parallel
-          </button>
-          <button
-            v-if="isContinuity && stats.with_image > 0"
-            class="btn btn-sm btn-ghost"
-            :disabled="!sceneInputsComplete || !form.model || continuityRendering || isRendering"
-            @click="renderContinuity({ independent: true, force: true })"
-            title="Re-render ALL scenes in parallel from scratch (style + sheet only, no prev-render). Fast bulk re-roll."
-          >
-            ⚡↻ Re-render all (parallel)
-          </button>
-          <!-- v1.0.344 — re-roll a CHOSEN set (checkboxes on the scenes below) or
-               all unapproved, as ONE parallel job spread across the Mac pool —
-               instead of clicking per-scene Regenerate (which queues serial,
-               one-Mac-at-a-time jobs). -->
+          <!-- Re-roll a chosen set as one durable GenStudio batch. -->
           <button
             v-if="isContinuity && selectedCount > 0"
             class="btn btn-sm btn-primary"
-            :disabled="!form.model || continuityRendering || isRendering || bulkRewriting"
+            :disabled="!form.model || continuityRendering || isRendering"
             @click="regenerateSelected"
-            title="Re-render the selected scenes in ONE parallel job across the whole Mac pool."
+            title="Re-render the selected scenes in one durable GenStudio batch."
           >
-            ⚡ Regenerate selected ({{ selectedCount }})
-          </button>
-          <!-- v1.0.360 — bulk AI re-prompt of the selected scenes (one at a time;
-               rewrite is one job per episode). Images stay until you Regenerate. -->
-          <button
-            v-if="isContinuity && selectedCount > 0"
-            class="btn btn-sm btn-secondary"
-            :disabled="!textModel || bulkRewriting || isRendering"
-            @click="rewriteSelectedAI"
-            :title="!textModel ? 'Pick a Rewrite LLM above first' : 'Re-write every selected scene\'s prompt with the chosen LLM, one at a time. Review, then Regenerate selected.'"
-          >
-            {{ bulkRewriting ? '⏳ ' + bulkRewriteProgress : `✏️ Rewrite selected with AI (${selectedCount})` }}
+            Regenerate selected ({{ selectedCount }})
           </button>
           <button
             v-if="isContinuity && selectedCount > 0"
@@ -328,9 +235,7 @@
           >
             ☑ Select unapproved
           </button>
-          <!-- v1.0.359 — stale images: rendered from an older prompt (you
-               re-prompted in Scene Plan or edited the prompt here without
-               re-rendering). One click ticks them all for a parallel re-render. -->
+          <!-- Stale images were rendered from an older prompt. -->
           <button
             v-if="isContinuity && selectedCount === 0 && staleCount > 0"
             class="btn btn-sm btn-warn"
@@ -344,18 +249,15 @@
             class="btn btn-sm btn-ghost"
             :disabled="!form.model || continuityRendering || isRendering"
             @click="regenerateUnapproved"
-            title="Re-render every not-yet-approved scene in ONE parallel job across the pool."
+            title="Re-render every not-yet-approved scene in one durable GenStudio batch."
           >
-            ⚡ Regenerate all unapproved
+            Regenerate all unapproved
           </button>
         </div>
       </div>
     </section>
 
-    <!-- v1.0.358 — the Render preset (model, aspect ratio, parallel pool size)
-         moved to the page-level preset row at the top (TopActionBar), matching
-         every other generator tab. Still auto-applies your last preset on load
-         via srPresets.load() in onMounted. -->
+    <!-- Render presets are owned by the page-level TopActionBar. -->
 
     <section v-if="!stats && !plan && !loading" class="card mt-3">
       <p class="text-muted text-sm">
@@ -383,67 +285,23 @@
            episode is active, with overall progress + the current scene. -->
       <div v-if="isRendering" class="review-render-banner mt-2">
         <span class="review-spinner" aria-hidden="true" />
-        <span v-if="renderStatus?.mode === 'independent'">
-          ⚡ Rendering in parallel<template v-if="renderStatus.concurrency"> (×{{ renderStatus.concurrency }})</template>
-          <template v-if="parallelInFlight.size"> — {{ parallelInFlight.size }} scene{{ parallelInFlight.size === 1 ? '' : 's' }} in flight</template>
+        <span>
+          Rendering with GenStudio
+          <template v-if="batchInFlight.size"> — {{ batchInFlight.size }} scene{{ batchInFlight.size === 1 ? '' : 's' }} in flight</template>
           <template v-if="renderProgress != null"> · {{ renderProgress }}% done</template>
-          <span class="text-muted"> — images appear here as each one finishes.</span>
-        </span>
-        <span v-else>
-          Rendering<template v-if="renderingSceneIndex"> scene {{ renderingSceneIndex }} of {{ scenes.length }}</template>…
-          <template v-if="renderProgress != null"> · {{ renderProgress }}% overall</template>
-          <span class="text-muted"> — images appear here as each one finishes.</span>
+          <span class="text-muted"> — GenStudio schedules the batch and images appear here as each one finishes.</span>
         </span>
         <span v-if="renderProgress != null" class="review-render-bar" aria-hidden="true">
           <span class="review-render-fill" :style="{ width: renderProgress + '%' }" />
         </span>
-        <button
-          v-if="renderStatus?.active"
-          type="button"
-          class="review-live-toggle"
-          @click="showLivePreview = !showLivePreview"
-          :title="showLivePreview ? 'Hide the live reference preview' : 'Show which images are being fed into the model'"
-        >{{ showLivePreview ? '👁 Hide preview' : '👁 Show preview' }}</button>
         <button
           v-if="activeContinuityRenderJob"
           type="button"
           class="review-stop-btn"
           :disabled="cancelingRender"
           @click="cancelActiveRender"
-          title="Stop the active continuity render. Finished scene images stay on disk; re-run Render sequentially later to resume missing scenes."
+          title="Stop the active batch. Finished scene images stay on disk; Generate all missing resumes only unresolved scenes."
         >{{ cancelingRender ? 'Stopping…' : 'Stop render' }}</button>
-      </div>
-
-      <!-- v1.0.233 — live "what's being fed in" preview. Shows the exact
-           reference images the current scene is sending to the model. -->
-      <div
-        v-if="isRendering && showLivePreview && renderStatus?.active && renderStatus.references?.length"
-        class="review-live-panel mt-2"
-      >
-        <div class="review-live-head">
-          <span class="review-spinner" aria-hidden="true" />
-          <strong v-if="renderStatus.mode === 'independent'">
-            ⚡ Parallel render — {{ renderStatus.rendered_so_far || 0 }}/{{ renderStatus.to_render || renderStatus.total }} done<template v-if="parallelInFlight.size">, {{ parallelInFlight.size }} in flight</template>
-          </strong>
-          <strong v-else>Rendering scene {{ renderStatus.scene_index }} of {{ renderStatus.total }}</strong>
-          <span class="text-muted">→ {{ renderStatus.model }}
-            <em v-if="renderStatus.endpoint">({{ renderStatus.endpoint }})</em>
-          </span>
-        </div>
-        <p v-if="renderStatus.prompt" class="review-live-prompt">“{{ renderStatus.prompt }}”</p>
-        <div class="review-live-flow">
-          <span class="review-live-label">{{ renderStatus.mode === 'independent' ? 'Shared refs:' : 'Feeding in:' }}</span>
-          <figure v-for="(r, i) in renderStatus.references" :key="i" class="review-live-ref" :title="r.label">
-            <img :src="r.url" :alt="r.label" loading="lazy" />
-            <figcaption>{{ r.label }}</figcaption>
-          </figure>
-          <span class="review-live-arrow" aria-hidden="true">➜</span>
-          <div class="review-live-out">
-            <span class="review-spinner" aria-hidden="true" />
-            <small v-if="renderStatus.mode === 'independent'">{{ parallelInFlight.size || 1 }} scene{{ parallelInFlight.size === 1 ? '' : 's' }}</small>
-            <small v-else>scene {{ renderStatus.scene_index }}</small>
-          </div>
-        </div>
       </div>
 
       <!-- Plan-health banner. Missing and duplicated prompts are blocking work;
@@ -498,7 +356,7 @@
                 loading="lazy"
                 title="Click to preview full size"
               />
-              <!-- Re-render overlay (force / from-here / per-scene regen). -->
+              <!-- Per-scene generation overlay. -->
               <div v-if="isSceneGenerating(scene)" class="review-thumb-overlay">
                 <span class="review-spinner" aria-hidden="true" />
                 <small>Rendering…</small>
@@ -513,7 +371,7 @@
                 @click.stop="openClipPreview(scene)"
               >{{ scene.clip_stale ? '🎬⚠' : '🎬' }}</span>
             </template>
-            <!-- Empty + currently generating (sequential render is on this one). -->
+            <!-- Empty scene currently generating in the batch. -->
             <div v-else-if="isSceneGenerating(scene)" class="review-thumb-generating" :style="{ aspectRatio: thumbAspect }">
               <span class="review-spinner" aria-hidden="true" />
               <small>Generating…</small>
@@ -527,12 +385,12 @@
           <div class="review-body-cell">
             <div class="review-row-head">
               <input
-                v-if="isContinuity"
-                type="checkbox"
-                class="review-select"
-                :checked="selectedIds.has(scene.id)"
-                @change="toggleSelected(scene.id)"
-                title="Select for a parallel re-render (⚡ Regenerate selected)"
+              v-if="isContinuity"
+              type="checkbox"
+              class="review-select"
+              :checked="selectedIds.has(scene.id)"
+              @change="toggleSelected(scene.id)"
+              title="Select for batch regeneration"
               />
               <strong>#{{ scene.scene_index }}</strong>
               <button class="review-time-btn" @click="seekTo(scene.start_sec)" title="Jump audio to this scene">
@@ -563,38 +421,10 @@
               class="btn btn-sm btn-secondary"
               :disabled="!form.model || regeneratingId === scene.id"
               @click="generateOne(scene)"
-              :title="!form.model ? 'Pick a model in the Greenlight panel first' : (isContinuity ? 'Generate a fresh continuity image for just this scene with its references. Existing images are regenerated from scratch.' : 'Generate / regenerate just this image (resets approval)')"
+              :title="!form.model ? 'Pick a model in the Render settings first' : 'Generate or regenerate this scene image with GenStudio'"
             >
-              {{ regeneratingId === scene.id ? '⏳' : (isContinuity ? '🎬' : '↻') }}
-              {{ isContinuity ? (scene.image_filename ? 'Regenerate' : 'Generate (refs)') : 'Regenerate' }}
-            </button>
-            <button
-              v-if="isContinuity && !scene.image_filename"
-              class="btn btn-sm btn-ghost"
-              :disabled="!form.model || regeneratingId === scene.id"
-              @click="repairOne(scene)"
-              title="Recover a missing continuity image from an already-submitted provider task first. If nothing is recoverable, queue a single-scene repair render."
-            >
-              🛠 Repair
-            </button>
-            <!-- v1.0.232 — set this scene's image from an uploaded file. -->
-            <button
-              class="btn btn-sm btn-ghost"
-              :disabled="regeneratingId === scene.id"
-              @click="uploadOne(scene)"
-              title="Upload your own image for this scene (e.g. a free image from the web) instead of generating one."
-            >
-              ⬆ Upload
-            </button>
-            <!-- v1.0.195 — continuity re-chain from this scene onward. -->
-            <button
-              v-if="isContinuity"
-              class="btn btn-sm btn-ghost"
-              :disabled="!form.model || continuityRendering || isRendering"
-              @click="renderContinuity({ fromSceneId: scene.id })"
-              title="Re-render THIS scene and every scene after it, re-chaining downstream (each anchored to the previous render). Use after editing this scene's prompt, or when the look drifted from here on."
-            >
-              ⛓ From here
+              {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
+              {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
             </button>
             <button
               :class="['btn btn-sm', scene.approved ? 'btn-primary' : 'btn-secondary']"
@@ -604,6 +434,10 @@
             >
               {{ approvingId === scene.id ? '⏳' : (scene.approved ? '✓ Approved' : 'Approve') }}
             </button>
+            <OverflowMenu
+              :items="sceneOverflowItems(scene)"
+              :aria-label="`More actions for scene ${scene.scene_index}`"
+            />
           </div>
         </li>
       </ul>
@@ -667,12 +501,6 @@
           <span class="sr-lb-actions">
             <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from here</button>
             <button
-              class="btn btn-sm btn-ghost"
-              :disabled="!textModel || rewritingId === previewScene.id || bulkRewriting"
-              @click.stop="rewritePromptAI(previewScene)"
-              :title="!textModel ? 'Pick a Rewrite LLM in the toolbar first (or set an API key / Chat Studio in Settings → Models)' : `Re-write this scene's prompt with ${textModel} (kept on-style via the episode Style Bible), then Regenerate to apply it`"
-            >{{ rewritingId === previewScene.id ? '⏳ Rewriting…' : '✏️ Rewrite with AI' }}</button>
-            <button
               v-if="promptDirty"
               class="btn btn-sm btn-secondary"
               :disabled="savingPrompt || !editPrompt.trim()"
@@ -685,13 +513,12 @@
               @click.stop="regenerateFromPreview(previewScene)"
               :title="!form.model ? 'Pick a model in the Greenlight panel first' : 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
-            <!-- v1.0.359 — tick THIS scene for the parallel "Regenerate selected"
-                 batch without leaving the preview. Keyboard: Shift+Y. -->
+            <!-- Tick this scene for the selected-scene batch without leaving the preview. -->
             <button
               v-if="isContinuity"
               :class="['btn btn-sm', previewSelected ? 'btn-primary' : 'btn-ghost']"
               @click.stop="toggleSelected(previewScene.id)"
-              title="Mark this scene for a parallel re-render (⚡ Regenerate selected). Keyboard: Shift+Y"
+              title="Mark this scene for batch regeneration. Keyboard: Shift+Y"
             >{{ previewSelected ? '☑ Selected' : '☐ Select for re-render' }}<span class="sr-lb-kbd">⇧Y</span></button>
             <button
               :class="['btn btn-sm', previewScene.approved ? 'btn-primary' : 'btn-secondary']"
@@ -816,21 +643,12 @@ interface PlanMeta {
   total_duration_sec: number
   research_used: boolean
 }
-// v1.0.233 — live render status (which images are being fed into the model).
-interface RenderRef { kind: string; label: string; url: string }
 interface RenderStatus {
   active: boolean
   provider?: string
   model?: string
-  endpoint?: string
-  scene_id?: string
-  scene_index?: number
   total?: number
-  prompt?: string
-  references?: RenderRef[]
-  // v1.0.241 — parallel/independent mode fields.
-  mode?: 'independent' | string
-  concurrency?: number
+  mode?: 'batch'
   to_render?: number
   rendered_so_far?: number
   in_flight?: number[]
@@ -855,54 +673,26 @@ const loading = ref(false)
 const renderStatus = ref<RenderStatus | null>(null)
 const activeRenderJobFromReview = ref<any | null>(null)
 const cancelingRender = ref(false)
-// Live-preview panel toggle — persisted per browser, default on.
-const showLivePreview = ref(true)
-if (typeof window !== 'undefined') {
-  showLivePreview.value = window.localStorage.getItem('sceneReviewLivePreview') !== 'off'
-}
-watch(showLivePreview, (v) => {
-  if (typeof window !== 'undefined') window.localStorage.setItem('sceneReviewLivePreview', v ? 'on' : 'off')
-})
 
 const form = ref({
-  model: '',  // ModelSelector auto-picks first usable
+  model: '',
   aspect_ratio: '16:9',
-  // v1.0.256 — parallel pool size as a string: 'auto' matches the number of
-  // online servers, or '2'..'8' for a fixed count. Auto is the smart default.
-  concurrency: 'auto' as string,
-  // v1.0.254 — render mode for continuity projects. 'refs' = img2img (sheet +
-  // style + characters); 'prompt' = text2img (no references, prompt only —
-  // cheaper/faster on local Image Studio, any text2img model).
-  render_mode: 'refs' as 'refs' | 'prompt',
-  // v1.0.261 — output-size tier for LOCAL Image Studio models (% of the aspect
-  // preset). Smaller = far less GPU/VAE memory (fewer OOM crashes), faster,
-  // smaller files. Cloud models ignore it (they use the aspect string). 100 =
-  // the historical full size, so existing behaviour is unchanged by default.
-  render_scale: 100 as number,
   image_quality: 'balanced' as 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom',
   image_steps: 4,
   genstudio_size: '',
   seed: '' as string | number,
 })
-// v1.0.259 — remember the render settings per-Mac across reloads (an active
-// render preset still auto-applies on top; the model picker self-heals a
-// removed model).
-useRememberedForm('scene-review', slug, form)
-const promptOnly = computed(() => isContinuity.value && form.value.render_mode === 'prompt')
+// GenStudio-only state intentionally uses a new key. Retired reference,
+// provider, and manual-concurrency settings are not read or migrated.
+useRememberedForm('scene-review-genstudio', slug, form)
 // Safety-sensitive and intentionally separate from remembered form state:
 // this turns on only when the user applies a preset that explicitly saved it.
 const autoApproveGenerated = ref(false)
 
-// v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
-// parallel pool size and AUTO-APPLIES the last-used preset on load (default
-// autoApplyOnLoad), so the chosen model is restored instead of re-picked each
-// visit. Uses the same local PresetPicker pattern as the Scene Plan page.
+// Scene Review presets contain only current GenStudio render controls.
 const srPresets = usePresets<{
   model: string
   aspect_ratio: string
-  concurrency: string
-  render_mode?: 'refs' | 'prompt'
-  render_scale?: number
   image_quality?: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
   image_steps?: number
   genstudio_size?: string
@@ -910,14 +700,11 @@ const srPresets = usePresets<{
   auto_approve_generated?: boolean
 }>({
   slug: slug.value,
-  configKey: 'scene_review',
+  configKey: 'scene_review_genstudio',
   presetType: 'scene-review',
   snapshot: () => ({
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
-    concurrency: form.value.concurrency,
-    render_mode: form.value.render_mode,
-    render_scale: form.value.render_scale,
     image_quality: form.value.image_quality,
     image_steps: form.value.image_steps,
     genstudio_size: form.value.genstudio_size,
@@ -925,7 +712,12 @@ const srPresets = usePresets<{
     auto_approve_generated: autoApproveGenerated.value,
   }),
   apply: (data) => {
-    Object.assign(form.value, data)
+    if (typeof data.model === 'string') form.value.model = data.model
+    if (typeof data.aspect_ratio === 'string') form.value.aspect_ratio = data.aspect_ratio
+    if (typeof data.image_quality === 'string') form.value.image_quality = data.image_quality
+    if (typeof data.image_steps === 'number') form.value.image_steps = data.image_steps
+    if (typeof data.genstudio_size === 'string') form.value.genstudio_size = data.genstudio_size
+    if (typeof data.seed === 'string' || typeof data.seed === 'number') form.value.seed = data.seed
     autoApproveGenerated.value = data.auto_approve_generated === true
   },
 })
@@ -1000,38 +792,6 @@ watch([selectedGenStudioModel, () => form.value.aspect_ratio], ([model]) => {
 // CSS aspect-ratio string ("16:9" → "16 / 9") so the thumbnail boxes re-shape
 // to whatever ratio is selected — making the enforced frame visible.
 const thumbAspect = computed(() => form.value.aspect_ratio.replace(':', ' / '))
-
-// ── v1.0.261 — render-size tier (LOCAL Image Studio models only) ─────────
-// A local model id is `imagestudio:<repo>`. Cloud models take an aspect string,
-// not pixels, so the Size control is hidden + not sent for them.
-const isLocalModel = computed(() => form.value.model.startsWith('imagestudio:'))
-// Mirror of the provider's ASPECT_PRESETS (electron/.../providers/image/
-// imagestudio.ts). The selected tier scales these; result is rounded to /16.
-const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
-  '1:1': [1024, 1024], '16:9': [1344, 768], '9:16': [768, 1344],
-  '4:3': [1152, 864], '3:4': [864, 1152], '21:9': [1536, 640],
-  '3:2': [1216, 832], '2:3': [832, 1216],
-}
-const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16)
-function dimsForScale(scale: number): { width: number; height: number } {
-  const base = LOCAL_ASPECT_PRESETS[form.value.aspect_ratio] ?? [1024, 1024]
-  const s = (scale || 100) / 100
-  return { width: round16(base[0]! * s), height: round16(base[1]! * s) }
-}
-function dimsLabel(scale: number): string {
-  const d = dimsForScale(scale)
-  return `${d.width}×${d.height}`
-}
-const renderSizes = [
-  { value: 100, label: 'Full' },
-  { value: 75, label: 'Balanced' },
-  { value: 50, label: 'Light' },
-]
-const renderDims = computed(() => dimsForScale(form.value.render_scale))
-// Spread into every local render request so the size is explicit ("what you see
-// is what's sent"); empty for cloud models so they fall back to the aspect.
-const localSizeBody = computed(() =>
-  isLocalModel.value ? { width: renderDims.value.width, height: renderDims.value.height } : {})
 
 const audioEl = ref<HTMLAudioElement | null>(null)
 const currentTime = ref(0)
@@ -1161,7 +921,7 @@ const bulkStatus = computed(() => {
   if (promptIntegrity.value && !promptIntegrity.value.complete) return 'Repair missing or duplicated prompts first'
   const missing = stats.value.total_scenes - stats.value.with_image
   if (missing === 0) return 'All scenes have images'
-  return `${missing} scene${missing === 1 ? '' : 's'} missing — queue ${missing} job${missing === 1 ? '' : 's'}`
+  return `${missing} scene${missing === 1 ? '' : 's'} missing — queue one recoverable batch`
 })
 
 function imageUrl(scene: ReviewScene): string {
@@ -1223,20 +983,8 @@ watch(scenes, (list) => {
 // reload of the SAME scene so an in-progress edit isn't clobbered.
 const editPrompt = ref('')
 const savingPrompt = ref(false)
-const rewritingId = ref<string | null>(null)
-// v1.0.343 — "Rewrite with AI" is an LLM task, so it needs a TEXT model — NOT
-// the image model in `form.model` (passing that timed out as "Unsupported
-// model"). Resolve the first usable text model the same way ModelSelector does.
-// v1.0.360 — the LLM used for "Rewrite with AI" (single + bulk). Previously
-// auto-picked the first available model silently ("some model I don't
-// remember"); now the user can choose it from a picker. We keep the full list
-// and only auto-fill a default when nothing is chosen yet — a reload / episode
-// switch won't clobber the user's pick.
-const textModel = ref('')
 
-// v1.0.344 — multi-select to re-roll a CHOSEN set of scenes in ONE parallel job
-// across the Mac pool (instead of N serial single-scene jobs that run one Mac
-// at a time). Selection is by scene id and survives reloads.
+// Multi-select for one durable selected-scene GenStudio batch.
 const selectedIds = ref<Set<string>>(new Set())
 const selectedCount = computed(() => selectedIds.value.size)
 function toggleSelected(id: string): void {
@@ -1258,18 +1006,18 @@ function selectAllStale(): void {
 /** Is the currently-previewed scene ticked for re-render? (modal selection.) */
 const previewSelected = computed(() =>
   !!previewScene.value && selectedIds.value.has(previewScene.value.id))
-/** Re-render the checked scenes as ONE parallel pool job. */
+/** Re-render the checked scenes as one durable GenStudio batch. */
 async function regenerateSelected(): Promise<void> {
   const ids = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt).map(s => s.id)
   if (!ids.length) { showError('Select at least one scene that has a prompt'); return }
   await renderContinuity({ sceneIds: ids })
   clearSelection()
 }
-/** Re-render every not-yet-approved scene as ONE parallel pool job. */
+/** Re-render every not-yet-approved scene as one durable GenStudio batch. */
 async function regenerateUnapproved(): Promise<void> {
   const ids = scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id)
   if (!ids.length) { showError('No unapproved scenes to regenerate'); return }
-  if (!await ask({ title: 'Re-render unapproved scenes?', message: `Re-render all ${ids.length} unapproved scene(s) in parallel? Existing images for those scenes are replaced.`, confirmLabel: `Re-render ${ids.length}`, danger: true })) return
+  if (!await ask({ title: 'Re-render unapproved scenes?', message: `Re-render all ${ids.length} unapproved scene(s) as a GenStudio batch? Existing images for those scenes are replaced.`, confirmLabel: `Re-render ${ids.length}`, danger: true })) return
   await renderContinuity({ sceneIds: ids })
 }
 watch(() => previewScene.value?.id, (id) => {
@@ -1304,89 +1052,6 @@ async function savePromptOnly(scene: ReviewScene): Promise<boolean> {
 async function regenerateFromPreview(scene: ReviewScene): Promise<void> {
   if (promptDirty.value && !(await savePromptOnly(scene))) return
   await generateOne(scene)
-}
-
-/** Ask the LLM to re-write this scene's prompt (the original generation issue).
- *  Runs as a scene-plan job; poll the plan until the prompt changes, then load
- *  it into the editor for review before the user re-renders. */
-// Core: queue ONE scene's prompt rewrite and poll until the plan reflects the
-// new prompt (the regenerate-prompt job shares the one-per-episode lane, so
-// callers run these serially). Returns true on success. Shared by the single
-// "Rewrite with AI" button and the bulk "Rewrite selected" loop.
-async function rewriteOneAndWait(scene: ReviewScene): Promise<boolean> {
-  const before = scene.visual_prompt
-  const ep = episodeId.value
-  try {
-    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/regenerate-prompt`, {
-      scene_id: scene.id,
-      model: textModel.value,   // LLM model — NOT the image model (form.model)
-    })
-  } catch (e: any) {
-    showError(e?.data?.detail || `Failed to start rewrite for scene ${scene.scene_index}`)
-    return false
-  }
-  for (let i = 0; i < 40 && episodeId.value === ep; i++) {
-    await new Promise((r) => setTimeout(r, 1500))
-    await loadReview()
-    const fresh = scenes.value.find((s) => s.id === scene.id)
-    if (fresh?.visual_prompt && fresh.visual_prompt !== before) {
-      return true
-    }
-  }
-  return false
-}
-
-async function rewritePromptAI(scene: ReviewScene): Promise<void> {
-  if (!textModel.value) {
-    showError('No rewrite model selected — pick one from the LLM dropdown (or set an API key / Chat Studio in Settings → Models).')
-    return
-  }
-  rewritingId.value = scene.id
-  try {
-    const ok = await rewriteOneAndWait(scene)
-    if (ok) {
-      const fresh = scenes.value.find((s) => s.id === scene.id)
-      if (fresh) editPrompt.value = fresh.visual_prompt
-      success(`Prompt re-written for scene ${scene.scene_index} — review it, then Regenerate.`)
-    } else {
-      showError('Prompt rewrite is taking a while — check the Jobs panel; it\'ll update here when done.')
-    }
-  } finally {
-    rewritingId.value = null
-  }
-}
-
-// v1.0.360 — bulk: re-write the prompts for every SELECTED scene with the
-// chosen LLM, one at a time (the rewrite job is one-per-episode). Lets the user
-// fix a batch of stale/off scenes without opening each. Images are untouched —
-// re-review then ⚡ Regenerate selected.
-const bulkRewriting = ref(false)
-const bulkRewriteProgress = ref('')
-async function rewriteSelectedAI(): Promise<void> {
-  if (!textModel.value) {
-    showError('No rewrite model selected — pick one from the LLM dropdown first.')
-    return
-  }
-  const targets = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt)
-  if (!targets.length) { showError('Select at least one scene that has a prompt'); return }
-  if (!await ask({ title: 'Rewrite selected prompts?', message: `Rewrite ${targets.length} selected scene prompt(s) with "${textModel.value}"? Existing prompts are replaced and provider usage may be charged. Images remain until regenerated.`, confirmLabel: `Rewrite ${targets.length}`, danger: true })) return
-  bulkRewriting.value = true
-  let done = 0
-  try {
-    for (const scene of targets) {
-      if (!bulkRewriting.value) break   // user cancelled
-      bulkRewriteProgress.value = `Rewriting ${done + 1}/${targets.length} — scene #${scene.scene_index}…`
-      rewritingId.value = scene.id
-      const ok = await rewriteOneAndWait(scene)
-      rewritingId.value = null
-      if (ok) done++
-    }
-    success(`Re-wrote ${done}/${targets.length} prompt(s) — review them, then ⚡ Regenerate selected.`)
-  } finally {
-    bulkRewriting.value = false
-    bulkRewriteProgress.value = ''
-    rewritingId.value = null
-  }
 }
 
 // ── Audio / seek ────────────────────────────────────────────────────
@@ -1461,10 +1126,8 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         aspect_ratio: form.value.aspect_ratio,
         single_scene_id: scene.id,
         force: !!scene.image_filename,
-        prompt_only: promptOnly.value,
         auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
-        ...localSizeBody.value,
       })
       success(`${scene.image_filename ? 'Regeneration' : 'Generation'} queued for scene ${scene.scene_index} — it'll update above.`)
     } else {
@@ -1474,7 +1137,6 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
-        ...localSizeBody.value,
       })
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
       await pollUntilImageReady(scene.id, ep)
@@ -1486,37 +1148,16 @@ async function generateOne(scene: ReviewScene): Promise<void> {
   }
 }
 
-async function repairOne(scene: ReviewScene): Promise<void> {
-  if (!form.value.model) {
-    showError('Pick a model in the Greenlight panel before repairing')
-    return
-  }
-  regeneratingId.value = scene.id
-  try {
-    const r = await post<{ recovered?: boolean; queued?: boolean }>(`/projects/${slug.value}/scene-review/${episodeId.value}/repair-image/${scene.id}`, {
-      model: form.value.model,
-      aspect_ratio: form.value.aspect_ratio,
-      prompt_only: promptOnly.value,
-      auto_approve_generated: autoApproveGenerated.value,
-      ...genStudioImageBody.value,
-      ...localSizeBody.value,
-    })
-    if (r.recovered) {
-      success(`Recovered scene ${scene.scene_index} from the existing provider task.`)
-      cacheBuster.value = Date.now()
-      await loadReview()
-    } else {
-      success(`Repair queued for scene ${scene.scene_index} — it'll update above.`)
-    }
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to repair scene image')
-  } finally {
-    regeneratingId.value = null
-  }
+function sceneOverflowItems(scene: ReviewScene) {
+  return [{
+    label: 'Upload replacement…',
+    disabled: regeneratingId.value === scene.id,
+    title: 'Replace this scene with an image from your computer.',
+    onClick: () => uploadOne(scene),
+  }]
 }
 
-// v1.0.232 — set a scene's image directly from an uploaded file (e.g. a free
-// image from the web) instead of generating it.
+// Set a scene's image directly from an uploaded file.
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -1597,12 +1238,8 @@ async function generateAllMissing(): Promise<void> {
       {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
-        independent: true,
-        concurrency: form.value.concurrency,
-        prompt_only: promptOnly.value,
         auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
-        ...localSizeBody.value,
       },
     )
     success(r.reused
@@ -1617,8 +1254,6 @@ async function generateAllMissing(): Promise<void> {
   }
 }
 
-// v1.0.194 — continuity-chain sequential render. The "Render sequentially"
-// button only shows for continuity-chain projects.
 const isContinuity = ref(false)
 const renderingEpisode = ref<string | null>(null)
 const continuityRendering = computed(() => renderingEpisode.value === episodeId.value)
@@ -1630,45 +1265,26 @@ async function loadContinuityFlag(): Promise<void> {
   } catch { isContinuity.value = false }
 }
 
-async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; independent?: boolean; sceneIds?: string[] } = {}): Promise<void> {
+async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
   if (!sceneInputsComplete.value) {
     showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
     return
   }
   if (!form.value.model) { showError('Pick a model in the Greenlight panel first'); return }
   const selection = opts.sceneIds && opts.sceneIds.length ? opts.sceneIds : undefined
-  // A full force-re-render of EVERY scene needs a confirm; an explicit selection
-  // is already a deliberate choice, so it doesn't.
-  if (opts.force && !selection) {
-    const msg = opts.independent
-      ? 'Re-render EVERY scene in parallel from scratch? This discards the current renders (style + sheet only, no previous-render continuity).'
-      : 'Re-render EVERY scene from scratch? This discards the current renders and runs the full sequential chain again.'
-    if (!await ask({ title: 'Re-render every scene?', message: msg, confirmLabel: 'Re-render all', danger: true })) return
-  }
+  if (!selection) return
   const ep = episodeId.value
   renderingEpisode.value = ep
   try {
     await post(`/projects/${slug.value}/scene-review/${ep}/continuity-render`, {
       model: form.value.model,
       aspect_ratio: form.value.aspect_ratio,
-      force: !!opts.force,
-      from_scene_id: opts.fromSceneId,
-      // A selection always renders in parallel (one job across the pool).
-      independent: !!opts.independent || !!selection,
+      force: true,
       scene_ids: selection,
-      concurrency: (opts.independent || selection) ? form.value.concurrency : undefined,
-      prompt_only: promptOnly.value,
       auto_approve_generated: autoApproveGenerated.value,
       ...genStudioImageBody.value,
-      ...localSizeBody.value,
     })
-    success(selection
-      ? `Queued ${selection.length} scene(s) to re-render in parallel across the pool (${form.value.concurrency === 'auto' ? 'auto — matches online Macs' : '×' + form.value.concurrency}) — watch the Jobs panel.`
-      : opts.independent
-        ? `Parallel render queued (${form.value.concurrency === 'auto' ? 'auto — matches online servers' : '×' + form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
-        : opts.fromSceneId
-          ? 'Re-rendering from this scene onward — watch the Jobs panel.'
-          : 'Continuity render queued — watch the Jobs panel. It renders scene-by-scene and can take a while.')
+    success(`Queued ${selection.length} scene(s) for GenStudio — images land as each finishes.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start render')
   } finally {
@@ -1716,37 +1332,15 @@ const renderProgress = computed<number | null>(() => {
   const p = (activeRenderJob.value as any)?.progress
   return typeof p === 'number' ? p : null
 })
-/** scene_index the active job is currently rendering, parsed from its log. */
-const renderingSceneIndex = computed<number | null>(() => {
-  const lines = (activeRenderJob.value as any)?.output_lines as string[] | undefined
-  if (!lines?.length) return null
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i]!.match(/Scene\s+(\d+)\s*\/\s*\d+/i)
-    if (m) return parseInt(m[1]!, 10)
-  }
-  return null
-})
-const renderingSceneId = computed<string | null>(() => {
-  if (!isRendering.value) return null
-  const idx = renderingSceneIndex.value
-  if (idx != null) {
-    const s = scenes.value.find(sc => sc.scene_index === idx)
-    if (s) return s.id
-  }
-  // Fallback: the first scene still missing an image (sequential render).
-  return scenes.value.find(s => !s.image_filename)?.id ?? null
-})
-// Scenes currently in-flight in parallel mode (by scene_index from the sidecar).
-const parallelInFlight = computed<Set<number>>(() => {
+// Scenes currently staged by the recoverable GenStudio batch.
+const batchInFlight = computed<Set<number>>(() => {
   const s = renderStatus.value
-  if (!s?.active || s.mode !== 'independent' || !Array.isArray(s.in_flight)) return new Set()
+  if (!s?.active || s.mode !== 'batch' || !Array.isArray(s.in_flight)) return new Set()
   return new Set(s.in_flight)
 })
 function isSceneGenerating(scene: ReviewScene): boolean {
   if (regeneratingId.value === scene.id) return true
-  if (parallelInFlight.value.has(scene.scene_index)) return true
-  // Sequential mode: only the single chained scene shows the spinner.
-  return renderStatus.value?.mode !== 'independent' && renderingSceneId.value === scene.id
+  return batchInFlight.value.has(scene.scene_index)
 }
 
 async function cancelActiveRender(): Promise<void> {
@@ -1757,7 +1351,7 @@ async function cancelActiveRender(): Promise<void> {
   cancelingRender.value = true
   try {
     await del(`/projects/${slug.value}/jobs/${job.job_id}`)
-    success('Continuity render stopped. Completed images were kept.')
+    success('Scene image batch stopped. Completed images were kept.')
     activeRenderJobFromReview.value = null
     cacheBuster.value = Date.now()
     await loadReview()
@@ -2040,6 +1634,7 @@ watch(episodeId, () => {
   gap: 12px;
   margin-bottom: 14px;
 }
+.sr-model-grid.is-single { grid-template-columns: minmax(0, 1fr); }
 .sr-model-field {
   display: flex;
   min-width: 0;
@@ -2052,14 +1647,6 @@ watch(episodeId, () => {
 }
 .sr-field-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
 .sr-field-heading small, .sr-model-field > small { color: var(--text-muted); font-size: var(--font-xs); }
-.sr-llm-pick :deep(.form-group) { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 7px; margin: 0; }
-.sr-llm-pick :deep(.form-group > label) {
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  font-weight: 750;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-}
 .sr-settings-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2110,8 +1697,7 @@ watch(episodeId, () => {
   text-transform: uppercase;
   letter-spacing: .07em;
 }
-.sr-ratio-select, .sr-conc-select, .sr-size-select, .sr-llm-select { width: 100%; min-width: 0; }
-.sr-llm-label { color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.sr-ratio-select, .sr-size-select { width: 100%; min-width: 0; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {
@@ -2287,13 +1873,8 @@ watch(episodeId, () => {
   background: var(--bg-tertiary); border-radius: 999px; overflow: hidden;
 }
 .review-render-fill { display: block; height: 100%; background: var(--accent, #f0b429); transition: width 0.4s ease; }
-.review-live-toggle {
-  margin-left: auto;
-  background: none; border: 1px solid var(--border); border-radius: 6px;
-  padding: 2px 10px; font-size: var(--font-xs); color: var(--text-secondary); cursor: pointer;
-}
-.review-live-toggle:hover { color: var(--text-primary); border-color: var(--text-secondary); }
 .review-stop-btn {
+  margin-left: auto;
   background: rgba(220, 80, 80, 0.16);
   border: 1px solid rgba(220, 80, 80, 0.55);
   border-radius: 6px;
@@ -2304,36 +1885,6 @@ watch(episodeId, () => {
 }
 .review-stop-btn:hover:not(:disabled) { background: rgba(220, 80, 80, 0.26); color: #ffd0d0; }
 .review-stop-btn:disabled { opacity: 0.6; cursor: default; }
-
-/* "Now rendering — these images are feeding in" preview panel */
-.review-live-panel {
-  padding: 12px 14px;
-  border: 1px solid rgba(240, 180, 41, 0.4);
-  background: rgba(240, 180, 41, 0.06);
-  border-radius: var(--radius-md, 8px);
-}
-.review-live-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
-.review-live-head em { font-style: normal; color: var(--accent, #f0b429); font-weight: 600; }
-.review-live-prompt { margin: 8px 0 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; font-style: italic; }
-.review-live-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.review-live-label { font-size: var(--font-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.review-live-ref {
-  margin: 0; width: 84px; display: flex; flex-direction: column; gap: 4px; align-items: center;
-}
-.review-live-ref img {
-  width: 84px; height: 84px; object-fit: cover; border-radius: 6px;
-  border: 1px solid var(--border); background: var(--bg-tertiary);
-  animation: sr-pulse 1.6s ease-in-out infinite;
-}
-@keyframes sr-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(240,180,41,0.0); } 50% { box-shadow: 0 0 0 3px rgba(240,180,41,0.35); } }
-.review-live-ref figcaption { font-size: var(--font-xs); color: var(--text-muted); text-align: center; line-height: 1.25; max-width: 84px; }
-.review-live-arrow { font-size: 22px; color: var(--accent, #f0b429); }
-.review-live-out {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  width: 84px; height: 84px; border-radius: 6px;
-  border: 1px dashed rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.08);
-}
-.review-live-out small { font-size: var(--font-xs); color: var(--text-secondary); }
 
 /* v1.0.245 — Plan-health banner + flagged rows. */
 .sr-health {

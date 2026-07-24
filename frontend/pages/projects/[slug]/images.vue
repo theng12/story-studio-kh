@@ -31,9 +31,6 @@
       :generate-disabled="!form.episode_id"
       :generate-status="(generating || imageJobActiveForEpisode) ? `${generatingLabel} for ${form.episode_id}…` : ''"
       @generate="submit"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
     >
       <template #actions>
         <EpisodeImportButton

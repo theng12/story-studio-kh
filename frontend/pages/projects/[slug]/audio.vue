@@ -27,9 +27,6 @@
       :generate-disabled="!form.episode_id || !scriptReady || !form.voice || !selectedVoiceCompatible"
       :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? `This voice is not labelled for ${currentAudioProviderLabel}.` : '')))"
       @generate="submit"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
     >
       <template #actions>
         <EpisodeImportButton

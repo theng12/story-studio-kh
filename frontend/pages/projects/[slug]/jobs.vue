@@ -1753,7 +1753,7 @@ async function retryJob(job: RJob) {
     },
     scene_images_batch: {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
-      params: { ...job.params, independent: true },
+      params: job.params,
     },
     scene_image_generate: {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-image`,

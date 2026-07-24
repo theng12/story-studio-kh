@@ -88,7 +88,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.subtitles, /media-type="transcription"/)
     assert.match(modelSurfaces.broll, /media-type="transcription"/)
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
-    assert.match(modelSurfaces.sceneReview, /<ModelSelector[^>]+label="Rewrite LLM"/)
+    assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
     assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })

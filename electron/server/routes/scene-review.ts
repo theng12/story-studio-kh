@@ -17,20 +17,15 @@ import express, { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync, createReadStream } from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
-import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
 import { requireSceneClipGenStudioModel, resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { decodeUploadBuffer } from './image-references.js'
-import { readManifest } from '../services/task-manifest.js'
-import { resolveApiKeyForProvider } from '../providers/registry.js'
-import { registry } from '../providers/registry.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import {
   assertScenePromptsRenderable,
   clearLegacyPlannerFallbackReasons,
@@ -41,7 +36,6 @@ import {
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -259,7 +253,7 @@ function enqueueContinuityRender(
     project_slug: slug,
     type: 'continuity_render' as JobType,
     episode_id: episodeId,
-    title: singleSceneId ? `Repair scene — ${episodeId}` : `Continuity render — ${episodeId}`,
+    title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
     dedupeParams,
     params: {
       episode_id: episodeId,
@@ -271,17 +265,14 @@ function enqueueContinuityRender(
       image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
       seed: Number.isInteger(body.seed) ? body.seed : undefined,
       force: body.force === true,
-      from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
+      render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
+        ? body.render_attempt_id.trim()
+        : (body.force === true ? randomUUID() : undefined),
       single_scene_id: singleSceneId,
       scene_ids: Array.isArray(body.scene_ids)
         ? body.scene_ids.filter((s: any) => typeof s === 'string')
         : undefined,
       missing_only: body.missing_only === true,
-      independent: body.independent === true,
-      concurrency: body.concurrency === 'auto'
-        ? 'auto'
-        : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
-      prompt_only: body.prompt_only === true,
       auto_approve_generated: body.auto_approve_generated === true,
     },
   })
@@ -380,7 +371,6 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
         aspect_ratio,
         width,
         height,
-        independent: true,
         scene_ids: missing.map((s) => s.id),
         missing_only: true,
       })
@@ -541,15 +531,9 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
 })
 
 // ── POST /scene-review/:ep/continuity-render ──────────────────────────
-// continuity-chain only — enqueue ONE render job. Two modes:
-//   - sequential (default): every scene in order, each img2img-anchored to the
-//     previous render + the character sheet/characters (per continuity.json).
-//   - independent (body.independent === true): every scene against the static
-//     references only (sheet + style + characters, NO prev-render), rendered
-//     concurrently through a bounded pool (body.concurrency, default 3) — much
-//     faster, trades frame-to-frame continuity for speed.
-// Resumable in both modes: pass { force: true } to re-render scenes that
-// already have an image.
+// Queue one GenStudio-owned text-to-image batch. The route name and job type
+// remain stable internal identifiers; reference chaining and caller-selected
+// concurrency no longer exist.
 router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
@@ -565,13 +549,8 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Scene images are not ready to render'))
   }
-  // v1.0.244 — scene-aware dedupe. The queue runs ONE continuity_render at a
-  // time, so multiple jobs just queue and run back-to-back. A per-scene render
-  // (the "Generate (refs)" button → single_scene_id) should therefore only
-  // conflict with another render of the SAME scene — different scenes can be
-  // fired off in sequence and will queue. A full/parallel render (no
-  // single_scene_id) still dedupes against another full render. The old guard
-  // blocked ANY second render per episode, which 409'd the per-scene workflow.
+  // Scene-aware dedupe allows different single-scene corrections to queue while
+  // preserving one canonical owner for a full episode batch.
   const dedupeParams = singleSceneId
     ? (p: any) => p.single_scene_id === singleSceneId
     : (p: any) => !p.single_scene_id
@@ -593,7 +572,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
       project_slug: slug,
       type: 'continuity_render' as JobType,
       episode_id: episodeId,
-      title: singleSceneId ? `Render scene — ${episodeId}` : `Continuity render — ${episodeId}`,
+      title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
       // Atomic backstop for the pre-check above (the queue's single
       // serialisation point): same scene-aware predicate so concurrent route
       // hits can't both enqueue the same scene.
@@ -603,23 +582,16 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         title: typeof body.title === 'string' ? body.title : '',
         model,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-        // v1.0.261 — explicit render size (local Image Studio models only).
         width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
         height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+        image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
+        seed: Number.isInteger(body.seed) ? body.seed : undefined,
         force: body.force === true,
-        from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
+        render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
+          ? body.render_attempt_id.trim()
+          : (body.force === true ? randomUUID() : undefined),
         single_scene_id: singleSceneId,
-        // v1.0.344 — render an explicit SET of scenes in one parallel job (Scene
-        // Review "Regenerate selected ⚡" / "all unapproved ⚡"). Distributes
-        // across the whole Mac pool instead of N serial single-scene jobs.
         scene_ids: requestedSceneIds,
-        // v1.0.241 — independent/parallel mode (no prev-render reference).
-        independent: body.independent === true,
-        concurrency: body.concurrency === 'auto'
-          ? 'auto'
-          : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
-        // v1.0.254 — prompt-only (text2img): send no reference images at all.
-        prompt_only: body.prompt_only === true,
         auto_approve_generated: body.auto_approve_generated === true,
       },
     })
@@ -640,80 +612,6 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     throw e
   }
   res.status(201).json(job)
-})
-
-// ── POST /scene-review/:ep/repair-image/:sceneId ─────────────────────
-// Continuity-chain repair for one missing scene. If a provider task_id was
-// recorded, try to recover/download that already-paid result first. If there
-// is no recoverable task, queue a fresh single-scene continuity render with
-// the usual reference stack.
-router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', async (req, res) => {
-  const { slug, episodeId, sceneId } = req.params
-  if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
-  const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-
-  try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    const scene = plan.scenes.find(s => s.id === sceneId)
-    if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
-
-    // v1.0.457 — recover into the unified named folder; treat an image in either
-    // the named or legacy flat folder as "already has one".
-    const outDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-    const outPath = path.join(outDir, `${sceneId}.png`)
-    const legacyOut = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER, `${sceneId}.png`)
-    const hasImage = existsSync(outPath) || existsSync(legacyOut)
-    if (hasImage) {
-      return res.status(400).json({ detail: 'Scene already has an image. Use Regenerate to create a fresh one.' })
-    }
-
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(404).json({ detail: 'Project config not found' })
-    const modelConfig = resolveImageModelConfig(config, model)
-    if (!modelConfig) return res.status(400).json({ detail: `Unknown image model: ${model}` })
-    const providerId = (modelConfig as any).provider || 'kie'
-    const imageProvider = registry.getImageProvider(providerId)
-    const apiKey = imageProvider
-      ? await resolveApiKeyForProvider(slug, imageProvider.meta, { model })
-      : ''
-    const manifest = await readManifest(outDir)
-    const entry = manifest.tasks[`${sceneId}.png`] || null
-    const recovered = await tryRecoverImageFromManifest(entry, apiKey, modelConfig)
-    if (recovered?.urls?.length) {
-      await fs.mkdir(outDir, { recursive: true })
-      await saveGenStudioImage(recovered.urls[0]!, outPath)
-      await checkpointSceneImage(
-        planPath,
-        sceneId,
-        outPath,
-        scene.visual_prompt || '',
-        body.auto_approve_generated === true,
-      )
-      return res.json({
-        ok: true,
-        recovered: true,
-        scene_id: sceneId,
-        task_id: recovered.taskId,
-      })
-    }
-
-    const job = enqueueContinuityRender(slug, episodeId, {
-      ...body,
-      force: true,
-      single_scene_id: sceneId,
-    }, { singleSceneId: sceneId })
-    res.status(201).json({ ok: true, recovered: false, queued: true, job })
-  } catch (e: any) {
-    if (e instanceof jq.DuplicateJobError) {
-      return res.status(409).json({ detail: `That scene is already queued/rendering for ${episodeId}.` })
-    }
-    res.status(500).json(humanizeBackendError(e, 'Failed to repair continuity scene image'))
-  }
 })
 
 // ── POST /scene-review/:ep/upload-image/:sceneId ──────────────────────

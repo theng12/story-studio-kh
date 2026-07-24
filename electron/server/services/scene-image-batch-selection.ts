@@ -1,31 +1,29 @@
-export interface IndependentRenderScene {
+export interface SceneImageBatchItem {
   id: string
   scene_index: number
   visual_prompt?: string
 }
 
-export interface IndependentRenderSelection {
+export interface SceneImageBatchSelection {
   sceneIds?: string[]
   missingOnly?: boolean
   singleIndex?: number
   force?: boolean
-  fromIndex?: number
   hasRenderedImage: (sceneId: string) => boolean
 }
 
-/** Selects the exact work for an independent render attempt.
+/** Selects the exact work for a durable GenStudio image batch.
  *
  * Explicit selections normally mean "regenerate these scenes", including
  * existing images. Missing-only selections are different: they are durable
  * repair scopes, so every retry must re-check disk and omit recovered items.
  */
-export function selectIndependentRenderScenes<T extends IndependentRenderScene>(
+export function selectSceneImageBatch<T extends SceneImageBatchItem>(
   scenes: T[],
-  selection: IndependentRenderSelection,
+  selection: SceneImageBatchSelection,
 ): T[] {
   const selectedIds = selection.sceneIds?.length ? new Set(selection.sceneIds) : null
   const singleIndex = selection.singleIndex || 0
-  const fromIndex = selection.fromIndex || 0
 
   return scenes.filter((scene) => {
     if (!scene.visual_prompt?.trim()) return false
@@ -37,8 +35,6 @@ export function selectIndependentRenderScenes<T extends IndependentRenderScene>(
       ? scene.scene_index === singleIndex
       : selection.force === true
         ? true
-        : fromIndex > 0
-          ? scene.scene_index >= fromIndex
-          : !selection.hasRenderedImage(scene.id)
+        : !selection.hasRenderedImage(scene.id)
   })
 }

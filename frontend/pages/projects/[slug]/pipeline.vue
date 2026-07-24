@@ -554,8 +554,8 @@ async function loadVisualSource(): Promise<void> {
   } catch { /* leave on the modern audio-paced default */ }
 }
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
-// v1.0.187+ — continuity-chain shares the audio-paced (timestamp) chain
-// but inserts a Character Sheet node and renders scenes sequentially.
+// Continuity-chain shares the audio-paced chain and adds Character Sheet
+// context to each GenStudio text-to-image scene prompt.
 const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
 // v1.0.300 — narrated-scenes: transcript-driven scene plan for STORY/fiction
 // (sleep stories). It keeps Research available as an explicit optional stage
@@ -657,7 +657,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'subtitles',         label: 'Subtitles',         icon: '💬', link: '/subtitles',      presetList: 'subtitles_generator_presets', presetActive: 'subtitles_generator_last_preset' },
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
-  { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_presets',  presetActive: 'scene_review_last_preset_scene-review' },
+  { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_genstudio_presets', presetActive: 'scene_review_genstudio_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
 ]
@@ -829,7 +829,6 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
   'introduction-only': 'script_last_preset',
   // v1.0.363 — typed-preset steps: untyped pointer as the legacy fallback.
   scene_plan: 'scene_plan_last_preset',
-  scene_review: 'scene_review_last_preset',
   motion_review: 'motion_review_last_preset',
   character_sheet: 'continuity_page_last_preset',
 }

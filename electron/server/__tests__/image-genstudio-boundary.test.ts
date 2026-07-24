@@ -49,3 +49,16 @@ test('manual image repair only reconnects GenStudio job identities', async () =>
   assert.match(source, /recoverImageWithGenStudio/)
   assert.doesNotMatch(source, /fetchImageUrlsByTaskId|fetch\s*\(|getApiKey\(['"]kie['"]\)/)
 })
+
+test('Scene Review batches recover accepted work and leave scheduling to GenStudio', async () => {
+  const generator = await fs.readFile(path.join(serverRoot, 'generators/continuity-render.ts'), 'utf8')
+  const route = await fs.readFile(path.join(serverRoot, 'routes/scene-review.ts'), 'utf8')
+
+  assert.match(generator, /resolveGenStudioLocalFanout\(scenes\.length\)/)
+  assert.match(generator, /tryRecoverImageFromManifest[\s\S]*imageProvider\.generateImage/)
+  assert.match(generator, /manifestEntry\?\.input_hash === expectedInputHash/)
+  assert.match(generator, /render_attempt_id/)
+  assert.match(generator, /GenStudio controls account concurrency and execution/)
+  assert.doesNotMatch(route, /repair-image|body\.concurrency|body\.prompt_only|body\.from_scene_id/)
+  assert.doesNotMatch(route, /resolveApiKeyForProvider|getImageProvider\(providerId\)/)
+})

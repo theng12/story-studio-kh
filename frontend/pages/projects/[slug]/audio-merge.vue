@@ -19,7 +19,6 @@
       @episode-selected="onEpisodeSelected"
       @preset-applied="onPresetApplied"
       @preset-saved="onPresetSaved"
-      @preset-deleted="success('Preset deleted')"
     >
       <template #actions>
         <EpisodeImportButton
@@ -1175,9 +1174,6 @@ async function browseIntroFile() {
 // ── Toast for save — names the preset so the user has unambiguous feedback
 // that the save worked AND that the preset is now the active selection.
 function onPresetSaved() {
-  const activeId = mergePresets.activeId.value
-  const p = mergePresets.presets.value.find(x => x.id === activeId)
-  success(p ? `Saved: ${p.name} (now active)` : 'Preset saved')
   // The form state has just been re-snapshotted; re-validate to clear any
   // banner rows for paths the user fixed via the form's own Browse buttons
   // (i.e. paths repaired outside the Pick-replacement flow).
@@ -1233,7 +1229,6 @@ async function runPresetPathCheck() {
  *  inside TopActionBar; the page only sees the @preset-applied event, so
  *  the form state IS already updated when this fires. */
 function onPresetApplied() {
-  success('Preset applied')
   void (async () => {
     await normalizeAudioMergePathsInState()
     await runPresetPathCheck()

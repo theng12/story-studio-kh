@@ -20,7 +20,7 @@ describe('Research workspace flow', () => {
   test('keeps presets in the shared command bar and run controls visible without a settings disclosure', () => {
     assert.match(research, /:presets="researchPresets"/)
     assert.match(research, /researchPresets\.load\(\)/)
-    assert.match(research, /@preset-renamed="success\('Research preset renamed'\)"/)
+    assert.doesNotMatch(research, /@preset-(?:applied|saved|renamed|deleted).*success/)
     assert.match(research, /class="research-setup-surface"/)
     assert.match(research, /Tune the evidence run/)
     assert.match(research, /<ModelSelector v-model="form\.source_model"/)

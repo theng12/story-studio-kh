@@ -33,9 +33,6 @@
       :generate-disabled="!subscribedPool || !form.episode_id || picking"
       :generate-status="picking ? `Selecting clips for ${form.episode_id}…` : ''"
       @generate="pickClips"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
     />
 
     <p class="text-muted text-sm mt-2">

@@ -25,9 +25,6 @@
       :generate-disabled="!form.episode_id || (scriptGateApplies && !scriptReady)"
       :generate-status="(generating || promptsJobActiveForEpisode) ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
       @generate="generate"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
       />
       <p class="workspace-command-copy">
         Pick a look, add one idea if you have it, then generate variations.

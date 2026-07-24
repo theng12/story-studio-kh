@@ -1,22 +1,9 @@
 /**
- * Sequential continuity renderer for the continuity-chain pipeline (v1.0.194+).
+ * Durable Scene Review image batch.
  *
- * Renders EVERY scene in scene_plan.json in order, one at a time, each one
- * img2img-anchored to references chosen on the Character Sheet page
- * (continuity.json):
- *   - scene 1 (establishing): the character sheet + anchor characters only.
- *   - scene N: the PREVIOUS scene's render (continuity) + the sheet + anchor
- *     characters, per the per-toggle reference_sources.
- *
- * This is ONE long serial job (the chain forces serial — scene N depends on
- * scene N-1's render). It's resumable: scenes whose image already exists on
- * disk are skipped (their render still seeds the next scene), so a crashed or
- * cancelled run continues where it left off. Re-rendering everything is opt-in
- * via `force`.
- *
- * Writes <episode_dir>/scene_images/<scene_id>.png + the scene's image_path
- * back into scene_plan.json (resetting approval), exactly like the per-scene
- * generator — so Scene Review + unified Video Assembly pick the images up unchanged.
+ * Story Studio owns the verified scene list, per-image checkpoints, and retry
+ * scope. GenStudio owns text-to-image admission, account concurrency, queueing,
+ * and execution. No reference-chain or direct-provider mode exists here.
  */
 
 import fs from 'fs/promises'
@@ -28,17 +15,19 @@ import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { recordTask, hashInput } from '../services/task-manifest.js'
-import { getCharacter, referenceImagePath } from '../services/character-manager.js'
-import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
+import { recordTask, hashInput, readManifest } from '../services/task-manifest.js'
+import { getCharacter } from '../services/character-manager.js'
+import { resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
-import { selectIndependentRenderScenes } from '../services/continuity-render-selection.js'
+import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -48,83 +37,40 @@ interface ContinuityRenderParams {
   /** Re-render scenes that already have an image on disk (default: false —
    *  skip them so a cancelled/crashed run resumes). */
   force?: boolean
-  /** Re-render from this scene onward (its scene_index and all later scenes),
-   *  re-chaining downstream after a single-scene re-roll. Earlier scenes are
-   *  kept and their renders seed the chain. */
-  from_scene_id?: string
-  /** v1.0.232 — render ONLY this one scene (with the full reference stack:
-   *  sheet + style + characters + the previous scene's render). The rest of
-   *  the chain is left untouched. Powers the per-scene "Generate with refs". */
+  /** Stable identity for one deliberate regeneration action and all retries. */
+  render_attempt_id?: string
+  /** Render only this stable scene ID. */
   single_scene_id?: string
-  /** v1.0.344 — render an explicit SET of scenes in ONE parallel job (Scene
-   *  Review's "Regenerate selected ⚡" / "all unapproved ⚡"). Forces independent
-   *  mode and renders exactly these ids (existing images included), distributing
-   *  them across the whole Mac pool instead of N serial single-scene jobs. */
+  /** Render an explicit stable-ID set in one durable batch. */
   scene_ids?: string[]
   /** Keep an explicit scene selection as the repair scope, but re-check disk
    *  before every attempt and render only IDs that are still missing. Used by
    *  Generate All Missing and its automatic local retries. */
   missing_only?: boolean
-  /** v1.0.241 — INDEPENDENT / PARALLEL mode. Render each scene against the
-   *  static references only (character sheet + style + anchor characters) and
-   *  DROP the previous-render reference, so scenes no longer depend on one
-   *  another and can be rendered concurrently through a bounded pool. Much
-   *  faster; trades frame-to-frame continuity for speed + parallelism. The
-   *  sequential chain remains the default. */
-  independent?: boolean
-  /** Max concurrent provider calls in independent mode (clamped 1–8, default 3). */
-  concurrency?: number | 'auto'
-  /** v1.0.254 — PROMPT-ONLY (text-to-image): send NO reference images at all
-   *  (no sheet / style / characters / prev-render), rendering each scene from
-   *  its composed text prompt alone. Cheaper + faster (no img2img), and lets
-   *  any text2img model render a continuity-chain episode. Consistency then
-   *  rides entirely on the prompt (detail level + Style Bible + character
-   *  text), so dial those in. */
-  prompt_only?: boolean
   /** Approve each image only after its verified media checkpoint succeeds. */
   auto_approve_generated?: boolean
-  /** v1.0.261 — explicit output pixel size (local Image Studio models only).
-   *  When set, overrides the aspect-ratio preset so the user can render at a
-   *  smaller resolution — far less VAE/GPU memory (fewer OOM crashes) + faster.
-   *  Cloud providers ignore these. */
+  /** Optional provider-published output dimensions. */
   width?: number
   height?: number
-  /** v1.0.381 — local Image Studio render scale as a PERCENT of the aspect
-   *  preset (100 = full). Used by the Pipeline batch path, which carries the
-   *  Scene Review preset's `render_scale` instead of explicit px. Resolved to
-   *  width/height here when explicit px aren't supplied. Cloud providers ignore. */
-  render_scale?: number
   /** Provider-published inference steps and optional reproducible seed. */
   image_steps?: number
   seed?: number
-  /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
-  hub_repair_only?: boolean
 }
 
 interface ContinuityCfg {
   anchor_character_ids: string[]
-  use_episode_sheet: boolean
-  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean; composition: boolean }
-  denoise_strength: number
-  /** v1.0.243 — render-time style text appended to every scene's prompt. */
   style_bible: string
-  /** v1.0.243 — negative prompt forwarded where the provider supports it. */
   negative_prompt: string
 }
 function defaultCfg(): ContinuityCfg {
   return {
     anchor_character_ids: [],
-    use_episode_sheet: false,
-    references: { prev_render: true, sheet: true, characters: true, style: false, composition: false },
-    denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
   }
 }
 
-/** v1.0.233 — live render-status sidecar. The renderer writes the current
- *  scene + the exact reference images it's feeding into the model before each
- *  render; Scene Review reads it to show a "Now rendering" preview panel. */
+/** Live render-status sidecar for Scene Review progress. */
 export const RENDER_STATUS_FILENAME = '.render_status.json'
 
 export async function runContinuityRenderJob(job: Job): Promise<void> {
@@ -147,8 +93,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const scenes = [...plan.scenes].sort((a, b) => a.scene_index - b.scene_index)
   if (!scenes.length) throw new Error('scene_plan.json has no scenes.')
 
-  // Continuity config (anchors, reference toggles, denoise). Defaults when the
-  // Character Sheet hasn't been saved yet.
+  // Character Sheet contributes text context only. Reference-image execution
+  // is intentionally absent until GenStudio publishes that capability.
   let cfg = defaultCfg()
   const continuityPath = path.join(paths.episode_dir, 'continuity.json')
   if (existsSync(continuityPath)) {
@@ -156,15 +102,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       const raw = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
       cfg = {
         anchor_character_ids: Array.isArray(raw?.anchor_character_ids) ? raw.anchor_character_ids : [],
-        use_episode_sheet: !!raw?.use_episode_sheet,
-        references: {
-          prev_render: raw?.references?.prev_render !== false,
-          sheet: raw?.references?.sheet !== false,
-          characters: raw?.references?.characters !== false,
-          style: raw?.references?.style === true,
-          composition: raw?.references?.composition === true,
-        },
-        denoise_strength: Number.isFinite(Number(raw?.denoise_strength)) ? Number(raw.denoise_strength) : 0.5,
         style_bible: typeof raw?.style_bible === 'string' ? raw.style_bible.trim() : '',
         negative_prompt: typeof raw?.negative_prompt === 'string' ? raw.negative_prompt.trim() : '',
       }
@@ -182,86 +119,22 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
-  // v1.0.232 — forward the FULL provider-params set (mirrors generators/images.ts).
-  // The previous shape dropped api_model_i2i / refs_field / supports_reference_images,
-  // so the kie provider never switched to the image-to-image endpoint — every
-  // continuity scene rendered text-to-image and SILENTLY IGNORED the references
-  // (character sheet, style, previous render). That's why kie.ai history showed
-  // gpt-image-2-text-to-image instead of -image-to-image.
-  const providerParams = (modelConfig as any).provider_params || {
-    endpoint: modelConfig.endpoint,
-    poll: modelConfig.poll,
-    type: modelConfig.type,
-    api_model: modelConfig.api_model,
-    api_model_i2i: (modelConfig as any).api_model_i2i,
-    refs_field: (modelConfig as any).refs_field,
-    refs_upload: (modelConfig as any).refs_upload === true,
-    aspect_field: (modelConfig as any).aspect_field,
-    supports_reference_images: modelConfig.supports_reference_images === true,
-  }
-  // Forward the denoise/strength for providers that read it (best-effort —
-  // most current providers don't expose an explicit img2img strength, so the
-  // continuity itself comes from the reference images, not this value).
-  ;(providerParams as any).denoise_strength = cfg.denoise_strength
-  // v1.0.243 — forward the negative prompt. Providers that support it (local
-  // ImageStudio) read providerParams.negative_prompt; cloud providers ignore it.
+  const providerParams = { ...((modelConfig as any).provider_params || {}) }
   if (cfg.negative_prompt) (providerParams as any).negative_prompt = cfg.negative_prompt
 
   const apiKey = await getApiKey('genstudio')
   if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
-  // v1.0.254 — prompt-only (text2img): drop ALL reference images.
-  const promptOnly = params.prompt_only === true
-  if (promptOnly) job.output_lines.push('Prompt-only mode — no reference images sent (text-to-image).')
-  if ((providerParams as any).supports_reference_images !== true) {
-    job.output_lines.push(
-      `⚠ Model "${model}" doesn't declare reference-image support — scenes will render prompt-only and won't visually chain. Pick a reference-capable model (e.g. Flux Kontext, Nano Banana) for true continuity.`,
-    )
-  }
-
-  // v1.0.233 — each reference carries a frontend-resolvable URL + label so the
-  // Scene Review "Now rendering" panel can show exactly what's being fed in.
-  const slug = job.project_slug
-  const sheetUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/master.png`
-  const styleUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/style.png`
-  const compositionUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/composition.png`
-  const charRefUrl = (id: string, fn: string) =>
-    `/api/projects/${slug}/characters/${id}/reference-image/${encodeURIComponent(fn)}`
-  const sceneImgUrl = (sceneId: string) =>
-    `/api/projects/${slug}/scene-review/${episode_id}/image/${sceneId}`
-
-  // Pre-resolve the static references (sheet + style + characters) once.
-  const sheetPath = path.join(paths.episode_dir, 'img2img-references', 'master.png')
-  const useSheet = cfg.references.sheet && cfg.use_episode_sheet && existsSync(sheetPath)
-  // v1.0.229 — optional style reference: the look/palette every scene matches.
-  const stylePath = path.join(paths.episode_dir, 'img2img-references', 'style.png')
-  const useStyle = cfg.references.style && existsSync(stylePath)
-  // v1.0.260 — optional composition template: the explainer LAYOUT (subject
-  // framed centrepiece + guide character at the side) every scene is structured
-  // against. Pushed FIRST in the reference stack so it dominates the layout.
-  const compositionPath = path.join(paths.episode_dir, 'img2img-references', 'composition.png')
-  const useComposition = cfg.references.composition && existsSync(compositionPath)
-
-  const characterRefs: Array<{ abs: string; url: string; label: string }> = []
-  // v1.0.243 — anchor character TEXT descriptors, gathered alongside the image
-  // references. Reinforces identity in the prompt (helps text-weighted models
-  // and the no-reference text2img fallback), not just via the image.
+  // Anchor character descriptions reinforce identity as text.
   const characterDescs: Array<{ name: string; description: string }> = []
-  if (cfg.references.characters) {
-    for (const id of cfg.anchor_character_ids) {
-      try {
-        const ch = await getCharacter(job.project_slug, id)
-        const name = (ch as any)?.name || id
-        const desc = typeof (ch as any)?.description === 'string' ? (ch as any).description.trim() : ''
-        if (desc) characterDescs.push({ name, description: desc })
-        for (const fn of ch?.references?.images || []) {
-          const abs = referenceImagePath(job.project_slug, id, fn)
-          if (existsSync(abs)) characterRefs.push({ abs, url: charRefUrl(id, fn), label: `Character: ${name}` })
-        }
-      } catch { /* skip a missing/corrupt character */ }
-    }
+  for (const id of cfg.anchor_character_ids) {
+    try {
+      const ch = await getCharacter(job.project_slug, id)
+      const name = (ch as any)?.name || id
+      const desc = typeof (ch as any)?.description === 'string' ? (ch as any).description.trim() : ''
+      if (desc) characterDescs.push({ name, description: desc })
+    } catch { /* skip a missing/corrupt character */ }
   }
-  const characterRefPaths = characterRefs.map(c => c.abs)
 
   // v1.0.243 — compose the final render prompt: [scene action/setting from the
   // planner] + [anchor character descriptors] + [Style Bible]. Sections are
@@ -293,19 +166,12 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
 
-  // v1.0.457 — resume/skip-existing must also see the LEGACY flat scene_images/
-  // folder, so an episode that hasn't been consolidated yet isn't needlessly
-  // re-rendered from scratch (it already has its images, just in the old place).
-  const legacySceneDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
   // Resume only from images that fully decode. A non-empty but truncated file
   // must re-enter the missing-scene scope; otherwise every Retry keeps
   // skipping the same corrupt asset and Video Assembly fails later.
   const usableRenderedIds = new Set<string>()
   for (const scene of scenes) {
-    const candidates = [
-      path.join(outDir, `${scene.id}.png`),
-      path.join(legacySceneDir, `${scene.id}.png`),
-    ]
+    const candidates = [path.join(outDir, `${scene.id}.png`)]
     for (const candidate of candidates) {
       if (!existsSync(candidate)) continue
       if (await isDecodableImage(candidate)) {
@@ -318,40 +184,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
 
   const aspectRatio = params.aspect_ratio || '16:9'
-  // v1.0.261 — explicit render size (local Image Studio only). When provided,
-  // the imagestudio provider renders at this resolution instead of the aspect
-  // preset; cloud providers ignore it. Smaller = far less GPU memory + faster.
-  let renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
-  let renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
+  const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
+  const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   if (renderWidth && renderHeight) {
     job.output_lines.push(`Requested render size: ${renderWidth}×${renderHeight}.`)
   }
   const force = params.force === true
-  // v1.0.344 — an explicit scene selection always renders in parallel.
-  const sceneIdSet = Array.isArray(params.scene_ids) && params.scene_ids.length
-    ? new Set(params.scene_ids)
-    : null
-  // v1.0.241 — independent / parallel mode: drop the prev-render reference so
-  // scenes are mutually independent and can render concurrently.
-  const independent = params.independent === true || sceneIdSet !== null
-  // v1.0.256 — 'auto' concurrency matches the number of ONLINE endpoints (one
-  // worker per Mac); falls back to 1 for a single local modal, 3 for cloud.
-  // v1.0.391 — ceiling raised 8→50 for large local Image Studio pools.
-  const concurrency = params.concurrency === 'auto'
-    ? 3
-    : Math.max(1, Math.min(50, Math.floor(Number(params.concurrency) || 3)))
-  if (params.concurrency === 'auto') {
-    job.output_lines.push(`Auto concurrency → ×${concurrency} (matched to online server${concurrency === 1 ? '' : 's'}).`)
-  }
-  // Re-render from a given scene onward (a single-scene re-roll re-chains the
-  // downstream scenes that referenced the old render). 0 = not a from-render.
-  let fromIndex = 0
-  if (params.from_scene_id) {
-    const fromScene = scenes.find(s => s.id === params.from_scene_id)
-    if (fromScene) fromIndex = fromScene.scene_index
-  }
-  // v1.0.232 — render exactly ONE scene (with the full reference stack). Earlier
-  // scenes' existing renders still seed prev_render as the loop passes them.
+  // Render exactly one stable scene ID when requested.
   let singleIndex = 0
   if (params.single_scene_id) {
     const one = scenes.find(s => s.id === params.single_scene_id)
@@ -364,18 +203,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       ? `single scene ${singleIndex}`
       : force
         ? 'force re-render'
-        : fromIndex > 0
-          ? `from scene ${fromIndex}`
-          : 'resume (skip existing)'
+        : 'resume (skip existing)'
 
-  let rendered = 0
-  let skipped = 0
   const failedSceneIds: string[] = []
   const successfulSceneIds = new Set<string>()
 
   // Live status sidecar — written before each render, cleared when the job ends.
-  // Serialise writes through a tiny promise chain so concurrent workers in
-  // independent mode never interleave partial JSON on disk.
+  // Serialise writes so concurrent batch workers never interleave partial JSON.
   const statusPath = path.join(paths.episode_dir, RENDER_STATUS_FILENAME)
   let statusChain: Promise<void> = Promise.resolve()
   const writeStatus = (s: Record<string, unknown>): Promise<void> => {
@@ -386,8 +220,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   }
 
   // Persist a rendered image_path back to scene_plan.json. Serialised through a
-  // promise chain (re-reading fresh each time) so concurrent independent-mode
-  // workers can't clobber each other's writes to the shared plan file.
+  // promise chain so concurrent workers cannot clobber the shared plan file.
   let planChain: Promise<void> = Promise.resolve()
   const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
     const operation = planChain.catch(() => {}).then(async () => {
@@ -397,109 +230,50 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     return operation
   }
 
-  // v1.0.336 — per-scene reference stack. Character scenes get the full anchor
-  // stack (composition + sheet + character refs + optional prev-render + style).
-  // Non-character scenes DROP the character-bearing refs (sheet / characters /
-  // prev-render) so the guide isn't img2img'd into them — they keep composition
-  // + style and add a "no people" negative. `prevCharRender` is the previous
-  // CHARACTER scene's render (null in parallel mode); only character scenes use
-  // it, so the guide's continuity survives the non-character cutaways between.
-  const buildSceneRefs = (
-    scene: ScenePlanEntry,
-    prevCharRender: { path: string; id: string; index: number } | null,
-  ): {
-    refPaths: string[]
-    descs: Array<{ kind: string; label: string; url: string }>
+  const buildScenePromptContext = (scene: ScenePlanEntry): {
     params: typeof providerParams
     includeCharacter: boolean
   } => {
     const isChar = isCharacterScene(scene)
-    const refs: string[] = []
-    const descs: Array<{ kind: string; label: string; url: string }> = []
-    if (useComposition) { refs.push(compositionPath); descs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
-    if (isChar) {
-      if (useSheet) { refs.push(sheetPath); descs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
-      if (cfg.references.characters) {
-        for (const c of characterRefs) { refs.push(c.abs); descs.push({ kind: 'character', label: c.label, url: c.url }) }
-      }
-      if (cfg.references.prev_render && prevCharRender && existsSync(prevCharRender.path)) {
-        refs.push(prevCharRender.path)
-        descs.push({ kind: 'prev', label: `Previous render (scene ${prevCharRender.index})`, url: sceneImgUrl(prevCharRender.id) })
-      }
-    }
-    if (useStyle) { refs.push(stylePath); descs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    // GenStudio currently exposes prompt-only image generation. Keep reference
-    // descriptions for the live UI and fold identity into the prompt, but never
-    // send local files around GenStudio to a provider or Studio Hub.
-    const refPaths: string[] = []
     const params = isChar
       ? providerParams
       : { ...providerParams, negative_prompt: [(providerParams as any).negative_prompt, NONCHARACTER_NEGATIVE].filter(Boolean).join(', ') }
-    return { refPaths, descs, params, includeCharacter: isChar }
+    return { params, includeCharacter: isChar }
   }
 
-  // ── INDEPENDENT / PARALLEL mode ─────────────────────────────────────
-  // Each scene renders against the static references only (sheet + style +
-  // characters); NO previous-render reference, so scenes don't chain and a
-  // bounded pool can run several at once. Far faster than the serial chain.
-  if (independent) {
-    // The shared reference stack — identical for every scene (no prev_render).
-    const sharedRefs: string[] = []
-    const sharedRefDescs: Array<{ kind: string; label: string; url: string }> = []
-    if (useComposition) { sharedRefs.push(compositionPath); sharedRefDescs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
-    if (useSheet) { sharedRefs.push(sheetPath); sharedRefDescs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
-    if (cfg.references.characters) {
-      for (const c of characterRefs) { sharedRefs.push(c.abs); sharedRefDescs.push({ kind: 'character', label: c.label, url: c.url }) }
-    }
-    if (useStyle) { sharedRefs.push(stylePath); sharedRefDescs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    // v1.0.254 — prompt-only drops every reference image (pure text2img).
-    const sharedRefPaths: string[] = []
-    const endpoint = 'text-to-image'
+  const concurrency = resolveGenStudioLocalFanout(scenes.length)
 
-    // Explicit manual selections overwrite their chosen images. Missing-only
-    // selections are durable repair scopes: retries re-check disk and submit
-    // only IDs that still lack a verified image.
-    const repairOnly = params.hub_repair_only === true
-    if (repairOnly) {
-      throw new Error(
-        'Legacy Studio Hub batch repair is retired. No Hub request was made. ' +
-        'Use image Repair for a saved GenStudio job, or Retry to create deliberate new GenStudio work.',
-      )
-    }
-    const toRender = selectIndependentRenderScenes(scenes, {
+  // GenStudio-owned text-to-image batch.
+    const toRender = selectSceneImageBatch(scenes, {
       sceneIds: params.scene_ids,
       missingOnly: params.missing_only,
       singleIndex,
       force,
-      fromIndex,
       hasRenderedImage,
     })
-    skipped = scenes.length - toRender.length
+    const skipped = scenes.length - toRender.length
 
     job.output_lines.push(
-      `Independent render (parallel ×${concurrency}) — ${imageProvider.meta.name} / ${model} · ` +
-      `${toRender.length}/${scenes.length} scene(s) · refs: ` +
-      `${[useComposition && 'composition', useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
-      ` · ${mode} · NO prev-render (scenes independent)`,
+      `GenStudio image batch — ${imageProvider.meta.name} / ${model} · ` +
+      `${toRender.length}/${scenes.length} scene(s) · ${mode}. ` +
+      'GenStudio controls account concurrency and execution.',
     )
 
     const inFlight = new Set<number>()
     let done = 0
     const pushStatus = () => writeStatus({
       active: true,
-      mode: 'independent',
+      mode: 'batch',
       provider: imageProvider.meta.name,
       model,
-      endpoint,
-      concurrency,
       total: scenes.length,
       to_render: toRender.length,
       rendered_so_far: done,
       in_flight: [...inFlight].sort((a, b) => a - b),
-      references: sharedRefDescs,
       updated_at: new Date().toISOString(),
     })
 
+    const taskManifest = await readManifest(outDir)
     const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
     try {
       let idx = 0
@@ -518,49 +292,65 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           if (jq.isCancelled(job.job_id)) return
           const scene = fallbackTargets[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
-          // Per-scene refs — character scenes get the anchor stack, non-character
-          // scenes drop it (no prev-render in parallel mode either way).
-          const sref = buildSceneRefs(scene, null)
+          const sref = buildScenePromptContext(scene)
+          const finalPrompt = composePrompt(scene.visual_prompt, sref.includeCharacter)
           inFlight.add(scene.scene_index)
           await pushStatus()
           try {
-            const result = await imageProvider.generateImage({
-              prompt: composePrompt(scene.visual_prompt, sref.includeCharacter),
+            const filename = `${scene.id}.png`
+            const requestScope = force
+              ? (params.render_attempt_id || job.job_id)
+              : 'missing'
+            const expectedInputHash = hashInput(`${requestScope}\n${finalPrompt}`)
+            const manifestEntry = taskManifest.tasks[filename] || null
+            const recoverable = manifestEntry?.input_hash === expectedInputHash ? manifestEntry : null
+            const recovered = await tryRecoverImageFromManifest(
+              recoverable,
               apiKey,
-              aspectRatio,
-              modelId: modelConfig.api_model || model,
-              providerParams: sref.params,
-              width: renderWidth,
-              height: renderHeight,
-              steps: params.image_steps,
-              seed: params.seed,
-              idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
-              isCancelled: () => jq.isCancelled(job.job_id),
-              onJobAccepted: async (taskId) => {
-                await recordTask(outDir, `${scene.id}.png`, {
-                  provider: imageProvider.meta.providerId || imageProvider.meta.id,
-                  task_id: taskId,
-                  submitted_at: new Date().toISOString(),
-                  input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
-                })
-              },
-            })
+              modelConfig,
+              () => jq.isCancelled(job.job_id),
+            )
+            const result = recovered
+              ? { urls: recovered.urls, taskId: recovered.taskId }
+              : await imageProvider.generateImage({
+                prompt: finalPrompt,
+                apiKey,
+                aspectRatio,
+                modelId: modelConfig.api_model || model,
+                providerParams: sref.params,
+                width: renderWidth,
+                height: renderHeight,
+                steps: params.image_steps,
+                seed: params.seed,
+                idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`,
+                isCancelled: () => jq.isCancelled(job.job_id),
+                onJobAccepted: async (taskId) => {
+                  await recordTask(outDir, filename, {
+                    provider: imageProvider.meta.providerId || imageProvider.meta.id,
+                    task_id: taskId,
+                    submitted_at: new Date().toISOString(),
+                    input_hash: expectedInputHash,
+                  })
+                },
+              })
             if (!result.urls.length) throw new Error('GenStudio KH returned no image')
             if (result.taskId) {
-              await recordTask(outDir, `${scene.id}.png`, {
+              await recordTask(outDir, filename, {
                 provider: imageProvider.meta.providerId || imageProvider.meta.id,
                 task_id: result.taskId,
                 submitted_at: new Date().toISOString(),
-                input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
+                input_hash: expectedInputHash,
               })
             }
             await saveGenStudioImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath, scene.visual_prompt)
             successfulSceneIds.add(scene.id)
-            rendered++
-            job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sref.refPaths.length} ref(s)${sref.includeCharacter ? '' : ' · no-character'}`)
+            job.output_lines.push(
+              `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓` +
+              `${recovered ? ` — recovered task ${recovered.taskId.slice(0, 12)}…` : ''}`,
+            )
           } catch (e: any) {
-            // Independent scenes don't block each other — log + keep going.
+            // One failed scene does not block the rest of the durable batch.
             failedSceneIds.push(scene.id)
             job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
           } finally {
@@ -573,11 +363,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         } finally { active--; maybeFinish() }
       }
 
-      // v1.0.341 — growable worker pool. Start at the live count; a periodic
-      // re-probe brings recovered/booted Macs back into rotation (markUp) and
-      // scales the pool UP to the live count — never beyond it, so we keep the
-      // "one inference per Mac" guarantee. 'auto' may grow to the full
-      // configured pool; an explicit concurrency is a hard cap. No idle Macs.
+      // Stage enough work to keep the account busy. The shared GenStudio
+      // admission pool—not this worker count—enforces live account capacity,
+      // submission rate, and queue headroom.
       const maxWorkers = concurrency
       const ensureWorkers = () => {
         if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
@@ -594,7 +382,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
     job.output_dir = outDir
     job.progress = 100
-    const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir, legacySceneDir])
+    const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir])
     const invalid = new Set<string>(mediaAudit.invalid)
     for (const sceneId of failedSceneIds) invalid.add(sceneId)
     for (const scene of toRender) if (!successfulSceneIds.has(scene.id)) invalid.add(scene.id)
@@ -607,161 +395,12 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       job.params.missing_only = false
     }
     requireJobCompletion(job, {
-      label: 'Continuity scene rendering', expected: toRender.length,
+      label: 'Scene image generation', expected: toRender.length,
       completed: toRender.length - unresolved.size,
       missing: mediaAudit.missing,
       invalid: [...invalid],
       retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
     })
-    job.output_lines.push(`Done (parallel) — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
+    job.output_lines.push(`Done — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
     return
-  }
-
-  job.output_lines.push(
-    `Continuity render — ${imageProvider.meta.name} / ${model} · ${scenes.length} scene(s) · refs: ` +
-    `${[useComposition && 'composition', cfg.references.prev_render && 'prev', useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
-    ` · ${mode}`,
-  )
-
-  // Tracks the previous CHARACTER scene's render so the guide chains across the
-  // non-character cutaways between his appearances. Non-character scenes never
-  // set or consume it.
-  let prevCharRender: { path: string; id: string; index: number } | null = null
-  const sequentialTargetIds = scenes.filter(scene => {
-    if (singleIndex > 0) return scene.scene_index === singleIndex
-    if (force) return true
-    if (fromIndex > 0) return scene.scene_index >= fromIndex
-    return !hasRenderedImage(scene.id)
-  }).map(scene => scene.id)
-
-  try {
-  for (let i = 0; i < scenes.length; i++) {
-    if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-    const scene = scenes[i]!
-    const outPath = path.join(outDir, `${scene.id}.png`)
-
-    // Decide whether THIS scene renders:
-    //   - single       → only the one requested scene (re-roll, refs included)
-    //   - force        → every scene
-    //   - from-render  → this scene's index and all later ones
-    //   - resume       → only scenes that don't have an image yet
-    const renderThis = singleIndex > 0
-      ? scene.scene_index === singleIndex
-      : force
-        ? true
-        : fromIndex > 0
-          ? scene.scene_index >= fromIndex
-          : !hasRenderedImage(scene.id)
-
-    if (!renderThis) {
-      // Skipped — but an existing CHARACTER render still seeds the guide chain.
-      if (existsSync(outPath) && isCharacterScene(scene)) { prevCharRender = { path: outPath, id: scene.id, index: scene.scene_index } }
-      skipped++
-      job.progress = Math.round(((i + 1) / scenes.length) * 100)
-      continue
-    }
-    if (!scene.visual_prompt?.trim()) {
-      job.output_lines.push(`Scene ${scene.scene_index}: no visual_prompt — skipped.`)
-      skipped++
-      continue
-    }
-
-    // Per-scene references (character vs non-character) + the live-panel
-    // descriptor list. Character scenes chain off the previous character render.
-    const { refPaths: referenceImagePaths, descs: refDescs, params: sceneParams, includeCharacter } = buildSceneRefs(scene, prevCharRender)
-
-    job.output_lines.push(
-      `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) — ${referenceImagePaths.length} ref(s)` +
-      `${includeCharacter ? (prevCharRender ? '' : ' · establishing') : ' · no-character'}`,
-    )
-
-    // Publish the live status BEFORE the (slow) API call so the panel shows
-    // exactly which images are feeding into which endpoint right now.
-    // v1.0.237 — base the label on whether references are actually attached to
-    // a ref-capable model, not on the kie-specific `api_model_i2i` (the OpenAI
-    // and OpenRouter providers do image-to-image via /edits / image_url blocks
-    // and have no api_model_i2i, so they were mislabelled "text-to-image").
-    const endpoint = 'text-to-image'
-    await writeStatus({
-      active: true,
-      provider: imageProvider.meta.name,
-      model,
-      endpoint,
-      scene_id: scene.id,
-      scene_index: scene.scene_index,
-      total: scenes.length,
-      rendered_so_far: rendered,
-      prompt: composePrompt(scene.visual_prompt, includeCharacter),
-      references: refDescs,
-      updated_at: new Date().toISOString(),
-    })
-
-    const result = await imageProvider.generateImage({
-      prompt: composePrompt(scene.visual_prompt, includeCharacter),
-      apiKey,
-      aspectRatio,
-      modelId: modelConfig.api_model || model,
-      providerParams: sceneParams,
-      width: renderWidth,
-      height: renderHeight,
-      steps: params.image_steps,
-      seed: params.seed,
-      idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
-      isCancelled: () => jq.isCancelled(job.job_id),
-      onJobAccepted: async (taskId) => {
-        await recordTask(outDir, `${scene.id}.png`, {
-          provider: imageProvider.meta.providerId || imageProvider.meta.id,
-          task_id: taskId,
-          submitted_at: new Date().toISOString(),
-          input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
-        })
-      },
-    })
-    if (!result.urls.length) {
-      throw new Error(`${imageProvider.meta.name} returned no image for scene ${scene.scene_index} (${scene.id}).`)
-    }
-    if (result.taskId) {
-      await recordTask(outDir, `${scene.id}.png`, {
-        provider: imageProvider.meta.providerId || imageProvider.meta.id,
-        task_id: result.taskId,
-        submitted_at: new Date().toISOString(),
-        input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
-      })
-    }
-    await saveGenStudioImage(result.urls[0]!, outPath)
-
-    await checkpointSceneImage(planPath, scene.id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
-    successfulSceneIds.add(scene.id)
-
-    // Only character scenes seed the guide-continuity chain; cutaways don't,
-    // so the next character scene anchors off the last character render.
-    if (includeCharacter) prevCharRender = { path: outPath, id: scene.id, index: scene.scene_index }
-    rendered++
-    job.progress = Math.round(((i + 1) / scenes.length) * 100)
-  }
-  } finally {
-    // Clear the live panel whenever the render stops (done / error / cancel).
-    await writeStatus({ active: false, updated_at: new Date().toISOString() })
-  }
-
-  job.output_dir = outDir
-  job.progress = 100
-  const mediaAudit = await auditSceneImageCompletion(planPath, sequentialTargetIds, [outDir, legacySceneDir])
-  const invalid = new Set<string>(mediaAudit.invalid)
-  for (const sceneId of sequentialTargetIds) if (!successfulSceneIds.has(sceneId)) invalid.add(sceneId)
-  const unresolved = new Set(mediaAudit.missing)
-  for (const item of invalid) unresolved.add(item.replace(/ \(.+\)$/, ''))
-  if (unresolved.size > 0) {
-    job.params.scene_ids = sequentialTargetIds.filter(sceneId => unresolved.has(sceneId))
-    job.params.missing_only = false
-    job.params.independent = true
-  }
-  requireJobCompletion(job, {
-    label: 'Continuity scene rendering', expected: sequentialTargetIds.length,
-    completed: sequentialTargetIds.length - unresolved.size,
-    missing: mediaAudit.missing,
-    invalid: [...invalid],
-    retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
-  })
-  job.output_lines.push(`Done — ${sequentialTargetIds.length}/${sequentialTargetIds.length} target image(s) verified; ${skipped} skipped.`)
 }

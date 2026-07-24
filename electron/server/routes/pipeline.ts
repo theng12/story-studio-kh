@@ -55,8 +55,8 @@ export const router = Router()
 //   - subtitles       → enqueues `subtitles_transcribe` (per-chapter SRTs)
 //   - scene_plan       → enqueues `scene_plan_run` (places scenes on the audio
 //                        timeline; transcript/continuity formats)
-//   - scene_review     → enqueues `continuity_render` (renders every planned
-//                        scene image, parallel across the server pool)
+//   - scene_review     → enqueues one durable `continuity_render` batch;
+//                        GenStudio owns account admission and execution
 //   - video_assembly   → enqueues the unified full editor renderer. Scene Plan
 //                        timing is applied automatically and remains strict.
 //   - character_sheet  → NOT a job. Config-only: applies the saved
@@ -94,7 +94,7 @@ export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'in
 // translated before jq.enqueue() — otherwise enqueue pushes to a non-existent
 // queue lane (`queues[type].pending`) and throws a TypeError, which surfaces to
 // the user as "Scene Review always errors out". (scene_review runs the
-// continuity renderer in independent/parallel mode across the Mac pool.)
+// GenStudio-owned image batch.)
 export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   research: 'research_run',
   broll: 'broll_select',
@@ -153,7 +153,7 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // legacy untyped pointer as fallback. Subtitles has no presetType.
   subtitles:           { list: 'subtitles_generator_presets', activeKeys: ['subtitles_generator_last_preset'] },
   scene_plan:          { list: 'scene_plan_presets',       activeKeys: ['scene_plan_last_preset_scene-plan', 'scene_plan_last_preset'] },
-  scene_review:        { list: 'scene_review_presets',     activeKeys: ['scene_review_last_preset_scene-review', 'scene_review_last_preset'] },
+  scene_review:        { list: 'scene_review_genstudio_presets', activeKeys: ['scene_review_genstudio_last_preset_scene-review'] },
   motion_review:       { list: 'motion_review_presets',    activeKeys: ['motion_review_last_preset_motion-review', 'motion_review_last_preset'] },
   // Character Sheet's whole-page preset (anchor characters, refs, style bible).
   // Not a job — the run-batch loop writes it to continuity.json inline.
@@ -747,24 +747,15 @@ export function resolveStepParams(
     }
   }
   if (step === 'scene_review') {
-    // scene_review preset (scene-review.vue): { model, aspect_ratio, concurrency,
-    // render_mode?, render_scale? }. Batch renders EVERY planned scene (no
-    // scene_ids) in parallel across the server pool — independent + concurrency
-    // is exactly the "pick the model, let it run on my pool" mode.
+    // Scene Review is GenStudio-owned text-to-image generation. Story Studio
+    // supplies the durable item list; GenStudio owns admission and execution.
     return {
       episode_id: episodeId,
       title: title || '',
       model: data.model,
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
-      independent: true,
-      concurrency: data.concurrency === undefined ? 'auto' : data.concurrency,
-      // Honor the preset's render mode: 'prompt' → text-to-image (no reference
-      // images), matching the Scene Review page's "Prompt only" toggle.
-      prompt_only: data.render_mode === 'prompt',
-      // Honor the preset's render scale (% of the aspect preset). Local Image
-      // Studio models resolve this to explicit px in continuity-render; cloud
-      // models ignore it and use the aspect ratio.
-      render_scale: typeof data.render_scale === 'number' ? data.render_scale : undefined,
+      image_steps: Number.isInteger(data.image_steps) ? data.image_steps : undefined,
+      seed: Number.isInteger(data.seed) ? data.seed : undefined,
       auto_approve_generated: data.auto_approve_generated === true,
     }
   }

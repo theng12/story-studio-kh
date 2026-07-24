@@ -40,10 +40,6 @@
         :generate-disabled="!canRun"
         :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
         @generate="runResearch"
-        @preset-applied="success('Research preset applied')"
-        @preset-saved="success('Research preset saved')"
-        @preset-renamed="success('Research preset renamed')"
-        @preset-deleted="success('Research preset deleted')"
       />
       <div class="research-flow-rail" aria-label="Research workflow">
         <span class="research-flow-step" :class="{ active: !result }"><b>1</b> Brief</span>

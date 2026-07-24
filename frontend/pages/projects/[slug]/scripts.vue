@@ -26,9 +26,6 @@
       :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : ''"
       @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
-      @preset-applied="success('Preset applied')"
-      @preset-saved="success('Preset saved')"
-      @preset-deleted="success('Preset deleted')"
       />
       <p class="workspace-command-copy">
         Start with <strong>Outline</strong>, expand and repair chapters in <strong>Script</strong>, then finish the optional opening in <strong>Introduction</strong>.

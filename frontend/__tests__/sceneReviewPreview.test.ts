@@ -17,21 +17,22 @@ const videoAssemblySource = readFileSync(
 )
 
 describe('Scene Review image preview', () => {
-  test('render controls use balanced model columns and one GenStudio quality control', () => {
-    assert.match(sceneReviewSource, /class="sr-model-grid"[\s\S]*Image model[\s\S]*Rewrite LLM/)
-    assert.match(sceneReviewSource, /\.sr-model-grid\s*{[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/)
+  test('render controls expose one GenStudio image model and one quality control', () => {
+    assert.match(sceneReviewSource, /class="sr-model-grid is-single"[\s\S]*Image model/)
+    assert.match(sceneReviewSource, /image-mode="text2img"/)
+    assert.doesNotMatch(sceneReviewSource, /Rewrite LLM|Rewrite with AI|<ModelSelector/)
+    assert.match(sceneReviewSource, /\.sr-model-grid\.is-single\s*{\s*grid-template-columns:\s*minmax\(0, 1fr\)/)
     assert.match(sceneReviewSource, /id="sr-gen-quality"[\s\S]*Custom steps…/)
     assert.match(sceneReviewSource, /v-if="form\.image_quality === 'custom'"[\s\S]*for="sr-gen-steps">Custom steps/)
-    assert.doesNotMatch(sceneReviewSource, /\.sr-llm-pick\s*{\s*display:\s*inline-flex/)
   })
 
-  test('resolution ownership is explicit instead of inventing cloud pixel controls', () => {
-    assert.match(sceneReviewSource, /v-if="isLocalModel"[\s\S]*for="sr-size">Resolution/)
+  test('resolution ownership comes only from the live GenStudio catalog', () => {
     assert.match(sceneReviewSource, /id="sr-gen-size"[\s\S]*selectedGenStudioSizes/)
     assert.match(sceneReviewSource, /Managed by GenStudio/)
     assert.match(sceneReviewSource, /pixel sizes not published/)
     assert.match(sceneReviewSource, /genstudio_size: form\.value\.genstudio_size/)
     assert.match(sceneReviewSource, /width: selectedGenStudioSize\.value\.width, height: selectedGenStudioSize\.value\.height/)
+    assert.doesNotMatch(sceneReviewSource, /isLocalModel|render_scale|imagestudio:/)
   })
 
   test('generated-image auto approval is opt-in, preset-saved, and sent through every render action', () => {
@@ -40,9 +41,20 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /autoApproveGenerated\.value = data\.auto_approve_generated === true/)
     assert.match(sceneReviewSource, /Auto-approve generated images/)
     assert.ok(
-      (sceneReviewSource.match(/auto_approve_generated: autoApproveGenerated\.value/g) || []).length >= 5,
-      'single, repair, missing, continuity, and selected render requests must carry the preset choice',
+      (sceneReviewSource.match(/auto_approve_generated: autoApproveGenerated\.value/g) || []).length >= 3,
+      'single, missing, and selected render requests must carry the preset choice',
     )
+  })
+
+  test('legacy render modes and duplicate actions are removed at the surface', () => {
+    assert.doesNotMatch(sceneReviewSource, /render_mode|form\.concurrency|Render sequentially|Render in parallel|Generate \(refs\)|🛠 Repair|⛓ From here|showLivePreview|mode === 'independent'/)
+    assert.match(sceneReviewSource, /generate-label="Generate all missing"/)
+    assert.match(sceneReviewSource, /Generate image/)
+    assert.match(sceneReviewSource, /Regenerate image/)
+    assert.match(sceneReviewSource, /Upload replacement…/)
+    assert.match(sceneReviewSource, /Approve/)
+    assert.match(sceneReviewSource, /configKey: 'scene_review_genstudio'/)
+    assert.doesNotMatch(sceneReviewSource, /configKey: 'scene_review'/)
   })
 
   test('the full thumbnail cell opens the preview for mouse and keyboard users', () => {

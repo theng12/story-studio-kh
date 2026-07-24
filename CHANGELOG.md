@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.711 — 2026-07-24
+
+**Scene Review is now one clean, recoverable GenStudio image workflow.**
+
+- Makes text-to-image the only Scene Review mode and removes the Rewrite LLM,
+  reference-chain controls, manual concurrency, and duplicate sequential or
+  parallel render actions.
+- Keeps one **Generate all missing** batch plus focused per-scene Generate,
+  Regenerate, Upload, and Approve actions; old Scene Review presets are not
+  migrated into the new GenStudio-only preset family.
+- Lets GenStudio enforce the account's live concurrency and queue capacity,
+  while Story Studio checkpoints each completed image and reconnects accepted
+  tasks before any retry can submit replacement work.
+- Adds shared pending, success, and error feedback to Apply, Save, Save as,
+  Rename, and Delete so preset actions confirm immediately in every module.
+
 ## v1.0.710 — 2026-07-24
 
 **Scene Plan now repairs small GenStudio prompt defects automatically.**

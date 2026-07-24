@@ -591,14 +591,12 @@ export interface Format {
    * generator the Video Assembly button triggers.
    *
    *   'continuity-chain' (v1.0.187+) — like 'timestamp-driven' (audio →
-   *     subtitles → timed scene plan), but scenes render SEQUENTIALLY via
-   *     img2img: a dropped-in character sheet anchors identity and each
-   *     scene can reference the previous scene's render for visual
-   *     continuity. User-set pacing guardrails (min/max seconds) drive a
-   *     "feels live" cut density. Same sidebar gating as 'timestamp-driven'
-   *     (Scene Plan / Scene Review / unified Video Assembly) PLUS a Character
-   *     Sheet page. Research is available too (optional — handy when the
-   *     niche is factual).
+   *     subtitles → timed scene plan), with Character Sheet identity and
+   *     style context folded into each independent GenStudio text-to-image
+   *     prompt. User-set pacing guardrails (min/max seconds) drive a "feels
+   *     live" cut density. Same sidebar gating as 'timestamp-driven' (Scene
+   *     Plan / Scene Review / unified Video Assembly) PLUS a Character Sheet
+   *     page. Research is available too (optional when the niche is factual).
    */
   visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
 
