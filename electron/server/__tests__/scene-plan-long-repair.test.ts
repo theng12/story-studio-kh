@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  removeNonRenderableScenes,
   repairOverlongScenesDeterministically,
   repairPlanCoverageWithSubtitleCues,
 } from '../services/scene-planner.js'
@@ -124,5 +125,30 @@ describe('deterministic long-scene repair', () => {
       assert.equal(restored.approved, false)
     }
     assert.ok(result.changes.some(change => /cue-aligned scene/.test(change)))
+  })
+
+  test('removes zero-duration repair artifacts and keeps their narration with the next real scene', () => {
+    const result = removeNonRenderableScenes([
+      {
+        id: 'before', scene_index: 1, start_sec: 0, end_sec: 5,
+        transcript_segment: 'Before', visual_prompt: 'Before prompt',
+      },
+      {
+        id: 'zero-artifact', scene_index: 2, start_sec: 5, end_sec: 5,
+        transcript_segment: 'A missing beat', visual_prompt: 'Unrenderable prompt',
+        boundary_reason: 'deterministic repair (restored subtitle cues)',
+      },
+      {
+        id: 'after', scene_index: 3, start_sec: 5, end_sec: 10,
+        transcript_segment: 'After', visual_prompt: '',
+      },
+    ])
+
+    assert.deepEqual(result.removed_ids, ['zero-artifact'])
+    assert.deepEqual(result.removed_prompt_ids, ['zero-artifact'])
+    assert.deepEqual(result.scenes.map(scene => scene.id), ['before', 'after'])
+    assert.equal(result.scenes[1]?.transcript_segment, 'A missing beat After')
+    assert.ok(result.scenes.every(scene => scene.end_sec > scene.start_sec))
+    assert.deepEqual(result.scenes.map(scene => scene.scene_index), [1, 2])
   })
 })

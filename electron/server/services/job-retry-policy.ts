@@ -132,6 +132,12 @@ export function resolveJobAutoRetryPolicy(
 
   if (TEXT_MODEL_TYPES.has(job.type) || job.type === 'scene_plan_run') {
     const model = value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
+    if (job.type === 'scene_plan_run' && model.startsWith('genstudio-chat:')) {
+      return {
+        ...MANUAL_ONLY,
+        reason: 'Scene Plan already performs bounded, ID-scoped GenStudio prompt repair before it fails; a further provider submission requires a manual Retry.',
+      }
+    }
     return isLocalTextModel(model)
       ? localPolicy('Chat Studio inference runs on the local fleet and preserves completed items.')
       : MANUAL_ONLY

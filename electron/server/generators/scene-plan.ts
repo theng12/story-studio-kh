@@ -9,7 +9,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -160,9 +160,29 @@ interface ScenePlanRunParams {
 interface ScenePromptPack {
   pack_id: string
   scene_ids: string[]
-  messages: Array<{ role: 'system' | 'user'; content: string }>
   params: { temperature: number; max_tokens: number }
 }
+
+interface ScenePromptPayload {
+  scene_id: string
+  start_sec: number
+  end_sec: number
+  narration: string
+  visual_prompt?: string
+  creative_strategy?: SceneCreativeStrategy
+  introduction_remainder?: boolean
+}
+
+export type ScenePromptCompletionIssueKind = 'provider-omitted' | 'duplicate-prompt' | 'checkpoint-failed' | 'not-durable'
+
+export interface ScenePromptCompletionIssue {
+  scene_id: string
+  kind: ScenePromptCompletionIssueKind
+  detail: string
+}
+
+const MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS = 2
+const MAX_SINGLE_SCENE_REPAIRS_PER_PACK = 3
 
 // Older planner helpers still accept this shaped argument, but callAi ignores
 // it and resolves only the scoped GenStudio key at the generation boundary.
@@ -303,6 +323,48 @@ export async function checkpointPackPromptResults(
     }
   }
   return errors
+}
+
+/** Explain why a durable completion audit rejected a requested scene. This is
+ * deliberately derived from the saved plan rather than trusting a provider
+ * count, so the job log distinguishes a model omission from a duplicate that
+ * Story Studio correctly refused to accept. */
+export function diagnoseScenePromptCompletionIssues(input: {
+  plan: Pick<ScenePlan, 'scenes'>
+  requestedIds: readonly string[]
+  missingIds: readonly string[]
+  providerResults: ReadonlyMap<string, string>
+  checkpointErrors?: readonly string[]
+}): ScenePromptCompletionIssue[] {
+  const duplicateSourceById = new Map<string, string>()
+  for (const group of inspectScenePromptIntegrity(input.plan.scenes).duplicate_groups) {
+    const [source, ...duplicates] = group.scene_ids
+    if (!source) continue
+    for (const id of duplicates) duplicateSourceById.set(id, source)
+  }
+  const checkpointErrorById = new Map<string, string>()
+  for (const error of input.checkpointErrors || []) {
+    const id = input.requestedIds.find(candidate => error.startsWith(`${candidate}:`))
+    if (id) checkpointErrorById.set(id, error)
+  }
+  return input.missingIds.map(sceneId => {
+    const duplicateSource = duplicateSourceById.get(sceneId)
+    if (duplicateSource) {
+      return {
+        scene_id: sceneId,
+        kind: 'duplicate-prompt',
+        detail: `duplicate prompt matches ${duplicateSource}`,
+      }
+    }
+    const checkpointError = checkpointErrorById.get(sceneId)
+    if (checkpointError) {
+      return { scene_id: sceneId, kind: 'checkpoint-failed', detail: checkpointError }
+    }
+    if (!input.providerResults.has(sceneId)) {
+      return { scene_id: sceneId, kind: 'provider-omitted', detail: 'provider omitted the scene ID from its response' }
+    }
+    return { scene_id: sceneId, kind: 'not-durable', detail: 'prompt was returned but did not verify on disk' }
+  })
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -446,7 +508,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           `near ${previous.end_sec.toFixed(1)}s. Re-open Subtitles, transcribe any missing chapters, and stitch again.`,
         )
       }
-      const scenes = splitScenesDeterministically({
+      const splitScenes = splitScenesDeterministically({
         cues,
         min_sec: minSec,
         max_sec: maxSec,
@@ -454,6 +516,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         initial_start_sec: openingReserved,
         idGen: i => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`,
       })
+      const timelineCleanup = removeNonRenderableScenes(splitScenes)
+      const scenes = timelineCleanup.scenes
       let totalDuration = allCues[allCues.length - 1]!.end_sec
       try {
         const assets = await scanEpisodeAssets(job.project_slug, episode_id)
@@ -486,6 +550,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       job.output_lines.push(
         `Timeline ready: ${scenes.length} cue-aligned scene(s), starting at ${openingReserved.toFixed(1)}s. No LLM was used.`,
       )
+      if (timelineCleanup.removed_ids.length) {
+        job.output_lines.push(
+          `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s) before prompt generation.`,
+        )
+      }
       if (!pipelineAutoVisual) {
         job.progress = 100
         return
@@ -499,6 +568,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
     if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
     const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const timelineCleanup = removeNonRenderableScenes(plan.scenes)
+    if (timelineCleanup.removed_ids.length) {
+      plan.scenes = timelineCleanup.scenes
+      await writeJsonAtomic(outPath, plan)
+      job.output_lines.push(
+        `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s)`
+        + (timelineCleanup.removed_prompt_ids.length
+          ? ` and discarded ${timelineCleanup.removed_prompt_ids.length} unusable prompt checkpoint(s).`
+          : '.'),
+      )
+    }
     clearLegacyPlannerFallbackReasons(plan.scenes)
     // Preserve a useful timeline timestamp when an older empty-prompt plan is
     // resumed. Once generated_at starts advancing with prompt saves it can no
@@ -571,10 +651,48 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
 
     if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
+    const task = isMotion
+      ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
+      : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
+    const payloadBySceneId = new Map<string, ScenePromptPayload>()
+    const buildPackMessages = (
+      scenePayloads: ScenePromptPayload[],
+      recoveryIssues: readonly ScenePromptCompletionIssue[] = [],
+    ): Array<{ role: 'system' | 'user'; content: string }> => {
+      const recovery = recoveryIssues.length > 0
+      const rejectedPrompts = recoveryIssues
+        .filter(issue => issue.kind === 'duplicate-prompt')
+        .map(issue => {
+          const prompt = plan.scenes.find(scene => scene.id === issue.scene_id)?.visual_prompt?.trim()
+          return prompt ? `${issue.scene_id}: ${prompt}` : ''
+        })
+        .filter(Boolean)
+      return [
+        {
+          role: 'system',
+          content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is an automatic repair: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+        },
+        {
+          role: 'user',
+          content: [
+            effectiveStyle ? `STYLE BIBLE:\n${effectiveStyle}` : '',
+            !isMotion && creativeDirection ? buildCreativeDirectionPrompt(creativeDirection) : '',
+            !isMotion && creativeDirection ? `STRATEGY GLOSSARY:\n${buildStrategyGlossary(scenePayloads.map(scene => scene.creative_strategy).filter((strategy): strategy is SceneCreativeStrategy => !!strategy))}` : '',
+            params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
+            !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
+            researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
+            !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
+            recovery ? `AUTOMATIC RECOVERY:\nRepair only the supplied scene IDs. A previous response was rejected for: ${recoveryIssues.map(issue => `${issue.scene_id} (${issue.detail})`).join('; ')}. Give each scene a new, concrete composition; do not repeat a rejected prompt verbatim.` : '',
+            rejectedPrompts.length ? `REJECTED PROMPTS — DO NOT REUSE:\n${rejectedPrompts.join('\n')}` : '',
+            `SCENES:\n${JSON.stringify(scenePayloads)}`,
+          ].filter(Boolean).join('\n\n'),
+        },
+      ]
+    }
     const packs: ScenePromptPack[] = []
     for (let offset = 0; offset < targets.length; offset += promptPackSize) {
       const group = targets.slice(offset, offset + promptPackSize)
-      const scenePayload = group.map(({ scene }) => ({
+      const scenePayloads = group.map(({ scene }) => ({
         scene_id: scene.id,
         start_sec: scene.start_sec,
         end_sec: scene.end_sec,
@@ -582,32 +700,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         visual_prompt: isMotion ? scene.visual_prompt : undefined,
         creative_strategy: !isMotion ? scene.creative_strategy : undefined,
         introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
-      }))
-      const task = isMotion
-        ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
-        : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
+      } satisfies ScenePromptPayload))
+      for (const payload of scenePayloads) payloadBySceneId.set(payload.scene_id, payload)
       packs.push({
         pack_id: `${stage}-${String(offset / promptPackSize + 1).padStart(4, '0')}`,
         scene_ids: group.map(({ scene }) => scene.id),
-        messages: [
-          {
-            role: 'system',
-            content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.`,
-          },
-          {
-            role: 'user',
-            content: [
-              effectiveStyle ? `STYLE BIBLE:\n${effectiveStyle}` : '',
-              !isMotion && creativeDirection ? buildCreativeDirectionPrompt(creativeDirection) : '',
-              !isMotion && creativeDirection ? `STRATEGY GLOSSARY:\n${buildStrategyGlossary(group.map(({ scene }) => scene.creative_strategy).filter((strategy): strategy is SceneCreativeStrategy => !!strategy))}` : '',
-              params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
-              !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
-              researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
-              !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
-              `SCENES:\n${JSON.stringify(scenePayload)}`,
-            ].filter(Boolean).join('\n\n'),
-          },
-        ],
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         params: {
@@ -648,6 +745,52 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
       throw new Error(`Could not save ${sceneId} after 5 attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
     }
+    const requestPromptPack = async (input: {
+      sceneIds: string[]
+      saved: Set<string>
+      requestLabel: string
+      maxTokens: number
+      recoveryIssues?: readonly ScenePromptCompletionIssue[]
+    }) => {
+      const payloads = input.sceneIds.map(sceneId => payloadBySceneId.get(sceneId)).filter((payload): payload is ScenePromptPayload => !!payload)
+      if (payloads.length !== input.sceneIds.length) {
+        throw new Error(`Cannot repair unknown scene IDs: ${input.sceneIds.filter(sceneId => !payloadBySceneId.has(sceneId)).join(', ')}`)
+      }
+      let diagnostics: TextGenerationDiagnostics | undefined
+      let results = new Map<string, string>()
+      let checkpointErrors: string[] = []
+      let requestError = ''
+      try {
+        const messages = buildPackMessages(payloads, input.recoveryIssues)
+        const raw = await callAi(
+          model,
+          messages[0]!.content,
+          messages.slice(1).map(message => message.content).join('\n\n'),
+          GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+          false,
+          {
+            slug: job.project_slug,
+            jobId: `${job.job_id}:${input.requestLabel}`,
+            requestIdentity: `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
+            maxTokens: input.maxTokens,
+            jsonMode: true,
+            disableReasoning: true,
+            temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
+            onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
+          },
+        )
+        results = parseDirectPackResults(raw, input.sceneIds, isMotion ? 'motion' : 'visual')
+        checkpointErrors = await checkpointPackPromptResults(
+          results,
+          new Set(input.sceneIds),
+          input.saved,
+          persistPrompt,
+        )
+      } catch (error: any) {
+        requestError = error?.message || String(error)
+      }
+      return { results, checkpointErrors, diagnostics, requestError }
+    }
     job.output_lines.push(`Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
     const incompletePacks: string[] = []
     for (const pack of packs) {
@@ -656,49 +799,95 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // or count those rows again.
       const saved = new Set(pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)))
       const missing = pack.scene_ids.filter(id => !saved.has(id))
-      let diagnostics: TextGenerationDiagnostics | undefined
-      let lastError: string
-      try {
-        const raw = await callAi(
-          model,
-          pack.messages[0]!.content,
-          pack.messages.slice(1).map(message => message.content).join('\n\n'),
-          GENSTUDIO_ONLY_LEGACY_KEY_BAG,
-          false,
-          {
-            slug: job.project_slug,
-            jobId: `${job.job_id}:${pack.pack_id}`,
-            maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
-            jsonMode: true,
-            disableReasoning: true,
-            temperature: Number(pack.params.temperature) || 0.5,
-            onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
-          },
-        )
-        const results = parseDirectPackResults(raw, missing, isMotion ? 'motion' : 'visual')
-        const checkpointErrors = await checkpointPackPromptResults(
-          results,
-          new Set(pack.scene_ids),
-          saved,
-          persistPrompt,
-        )
-        const finish = diagnostics?.finishReason || diagnostics?.nativeFinishReason
-        const tokenSummary = diagnostics?.completionTokens != null
-          ? `; ${diagnostics.completionTokens.toLocaleString()} completion tokens${diagnostics.reasoningTokens ? `, ${diagnostics.reasoningTokens.toLocaleString()} reasoning` : ''}`
-          : ''
-        lastError = results.size
-          ? `response ${finish === 'length' ? 'hit its output limit and ' : ''}omitted ${pack.scene_ids.length - saved.size} scene(s)${tokenSummary}`
-          : `response was not valid scene-result JSON${finish ? ` (finish: ${finish}${tokenSummary})` : ''}`
-        if (checkpointErrors.length) lastError += `; checkpoint errors: ${checkpointErrors.join(' | ')}`
-      } catch (error: any) {
-        lastError = error?.message || String(error)
-      }
-      const receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
+      const initial = await requestPromptPack({
+        sceneIds: missing,
+        saved,
+        requestLabel: pack.pack_id,
+        maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
+      })
+      let receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
       syncMemoryPlan(receipt.plan)
       for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
+      let issues = diagnoseScenePromptCompletionIssues({
+        plan: receipt.plan,
+        requestedIds: pack.scene_ids,
+        missingIds: receipt.missing_ids,
+        providerResults: initial.results,
+        checkpointErrors: initial.checkpointErrors,
+      })
+      const initialFinish = initial.diagnostics?.finishReason || initial.diagnostics?.nativeFinishReason
+      const initialTokenSummary = initial.diagnostics?.completionTokens != null
+        ? `${initial.diagnostics.completionTokens.toLocaleString()} completion tokens${initial.diagnostics.reasoningTokens ? `, ${initial.diagnostics.reasoningTokens.toLocaleString()} reasoning` : ''}`
+        : ''
+      let lastError = initial.requestError
+        || [
+          issues.map(issue => `${issue.scene_id}: ${issue.detail}`).join('; '),
+          initialFinish === 'length' ? `provider hit its output limit${initialTokenSummary ? ` (${initialTokenSummary})` : ''}` : '',
+        ].filter(Boolean).join('; ')
+        || 'provider response did not verify on disk'
+
+      // Once GenStudio has completed the original pack, a bounded repair
+      // request is deliberate new work, but it is strictly
+      // scoped to the IDs that failed the durable audit. Small leftovers use
+      // one-scene requests for maximum schema adherence; a broadly malformed
+      // pack is retried compactly to avoid turning one failure into 20 calls.
+      let automaticRepairAttempts = 0
+      for (let attempt = 1; !initial.requestError && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
+        automaticRepairAttempts = attempt
+        const outstanding = [...receipt.missing_ids]
+        const repairGroups = outstanding.length <= MAX_SINGLE_SCENE_REPAIRS_PER_PACK
+          ? outstanding.map(sceneId => [sceneId])
+          : [outstanding]
+        job.output_lines.push(
+          `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only.`,
+        )
+        const repairResults = new Map<string, string>()
+        const repairCheckpointErrors: string[] = []
+        const repairRequestErrors: string[] = []
+        for (const group of repairGroups) {
+          if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+          const groupIssues = issues.filter(issue => group.includes(issue.scene_id))
+          const repair = await requestPromptPack({
+            sceneIds: group,
+            saved,
+            requestLabel: `${pack.pack_id}:repair-${attempt}:${group.join(',')}`,
+            maxTokens: Math.min(
+              isMotion ? activePromptOutputBudget : visualMaxTokens,
+              Math.max(2_048, group.length * 768),
+            ),
+            recoveryIssues: groupIssues,
+          })
+          for (const [sceneId, prompt] of repair.results) repairResults.set(sceneId, prompt)
+          repairCheckpointErrors.push(...repair.checkpointErrors)
+          if (repair.requestError) repairRequestErrors.push(repair.requestError)
+        }
+        receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
+        syncMemoryPlan(receipt.plan)
+        for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
+        issues = diagnoseScenePromptCompletionIssues({
+          plan: receipt.plan,
+          requestedIds: pack.scene_ids,
+          missingIds: receipt.missing_ids,
+          providerResults: repairResults,
+          checkpointErrors: repairCheckpointErrors,
+        })
+        if (!receipt.missing_ids.length) {
+          job.output_lines.push(`✓ GenStudio prompt repair verified ${pack.scene_ids.length}/${pack.scene_ids.length} prompts for ${pack.pack_id}.`)
+          break
+        }
+        const repairDetails = [
+          ...repairRequestErrors,
+          ...issues.map(issue => `${issue.scene_id}: ${issue.detail}`),
+        ]
+        lastError = repairDetails.join('; ') || lastError
+      }
       if (receipt.missing_ids.length) {
         incompletePacks.push(`${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length}; missing ${receipt.missing_ids.join(', ')} (${lastError})`)
-        job.output_lines.push(`Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Retry requests only the missing scene IDs through GenStudio.`)
+        job.output_lines.push(
+          initial.requestError
+            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Automatic repair was not started because the original GenStudio request did not finish safely; Manual Retry requests only the missing scene IDs.`
+            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Manual Retry requests only the missing scene IDs through GenStudio.`,
+        )
       } else {
         job.output_lines.push(`Checkpointed ${pack.pack_id}: ${receipt.completed_ids.length}/${pack.scene_ids.length} prompts verified on disk.`)
       }
@@ -711,7 +900,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       requireJobCompletion(job, {
         label: 'Visual prompt generation', expected: targets.length, completed: completion.completed_ids.length,
         missing: completion.missing_ids,
-        retry_hint: 'Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
+        retry_hint: 'Automatic GenStudio repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
       })
     } else {
       requireJobCompletion(job, {

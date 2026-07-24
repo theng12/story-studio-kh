@@ -20,7 +20,7 @@ test('coverage repair revalidates the shared Pending-only episode list', () => {
 })
 
 test('repair actions explain when to use them and what to do next', () => {
-  assert.match(source, /<div class="popover-title">Repair long scenes<\/div>/)
+  assert.match(source, /<div class="popover-title">Repair out-of-range scenes<\/div>/)
   assert.match(source, /run Visual prompts → All pending/)
   assert.match(source, /<div class="popover-title">Repair coverage<\/div>/)
   assert.match(source, /larger narrated ranges as cue-aligned scenes/)

@@ -1041,6 +1041,55 @@ export function splitScenesDeterministically(opts: {
   return scenes
 }
 
+export interface NonRenderableSceneCleanup {
+  scenes: ScenePlanEntry[]
+  removed_ids: string[]
+  removed_prompt_ids: string[]
+}
+
+/**
+ * A scene with no positive duration cannot be rendered, cannot cover narration,
+ * and gives a prompt model an ambiguous instruction. They historically leaked
+ * out of coverage repair when a restored cue landed exactly on an existing
+ * boundary. Keep its narration with the adjacent real scene, then remove the
+ * non-renderable row before any prompt or image work sees it.
+ */
+export function removeNonRenderableScenes(scenes: ScenePlanEntry[]): NonRenderableSceneCleanup {
+  const source = scenes.map(scene => ({ ...scene }))
+  const removed = source.filter(scene =>
+    !Number.isFinite(scene.start_sec)
+    || !Number.isFinite(scene.end_sec)
+    || scene.end_sec <= scene.start_sec + 0.0001,
+  )
+  if (!removed.length) {
+    source.forEach((scene, index) => { scene.scene_index = index + 1 })
+    return { scenes: source, removed_ids: [], removed_prompt_ids: [] }
+  }
+
+  const kept = source.filter(scene => !removed.includes(scene))
+  const normalize = (text: string | undefined) => (text || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+  for (const removedScene of removed) {
+    const transcript = removedScene.transcript_segment?.trim()
+    if (!transcript) continue
+    const next = kept.find(scene => scene.start_sec >= removedScene.end_sec - 0.0001)
+    const previous = [...kept].reverse().find(scene => scene.end_sec <= removedScene.start_sec + 0.0001)
+    const neighbor = next || previous
+    if (!neighbor) continue
+    const existing = normalize(neighbor.transcript_segment)
+    const addition = normalize(transcript)
+    if (!addition || existing.includes(addition)) continue
+    neighbor.transcript_segment = next
+      ? `${transcript} ${neighbor.transcript_segment || ''}`.trim()
+      : `${neighbor.transcript_segment || ''} ${transcript}`.trim()
+  }
+  kept.forEach((scene, index) => { scene.scene_index = index + 1 })
+  return {
+    scenes: kept,
+    removed_ids: removed.map(scene => scene.id),
+    removed_prompt_ids: removed.filter(scene => !!scene.visual_prompt?.trim()).map(scene => scene.id),
+  }
+}
+
 /**
  * Split one over-long subtitle cue into visual timing fragments. Boundaries
  * are always between words (with a nearby sentence ending preferred) and the
@@ -1179,11 +1228,11 @@ export function repairOverlongScenesDeterministically(opts: {
     repairedIds.push(scene.id)
   }
 
-  result.forEach((scene, index) => { scene.scene_index = index + 1 })
+  const cleaned = removeNonRenderableScenes(result)
   return {
-    scenes: result,
+    scenes: cleaned.scenes,
     repairedCount: repairedIds.length,
-    addedCount: Math.max(0, result.length - opts.scenes.length),
+    addedCount: Math.max(0, cleaned.scenes.length - opts.scenes.length),
     repairedIds,
   }
 }

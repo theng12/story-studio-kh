@@ -5,7 +5,11 @@ import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
-import { checkpointPackPromptResults, parseDirectPackResults } from '../generators/scene-plan.js'
+import {
+  checkpointPackPromptResults,
+  diagnoseScenePromptCompletionIssues,
+  parseDirectPackResults,
+} from '../generators/scene-plan.js'
 import type { ScenePlan } from '../models/types.js'
 
 const tempDirs: string[] = []
@@ -139,6 +143,24 @@ describe('scene prompt checkpoints', () => {
     const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'visual')
     assert.deepEqual(audit.completed_ids, ['scene-1'])
     assert.deepEqual(audit.missing_ids, ['scene-2'])
+  })
+
+  it('labels duplicate prompt rejection separately from a provider omission', async () => {
+    const file = await makePlan()
+    await checkpointScenePrompt(file, 'scene-1', 'Repeated visual prompt', 'visual')
+    await checkpointScenePrompt(file, 'scene-2', 'Repeated visual prompt', 'visual')
+    const plan = JSON.parse(await fs.readFile(file, 'utf-8')) as ScenePlan
+    const issues = diagnoseScenePromptCompletionIssues({
+      plan,
+      requestedIds: ['scene-1', 'scene-2', 'scene-3'],
+      missingIds: ['scene-2', 'scene-3'],
+      providerResults: new Map([['scene-1', 'Repeated visual prompt'], ['scene-2', 'Repeated visual prompt']]),
+    })
+
+    assert.deepEqual(issues, [
+      { scene_id: 'scene-2', kind: 'duplicate-prompt', detail: 'duplicate prompt matches scene-1' },
+      { scene_id: 'scene-3', kind: 'provider-omitted', detail: 'provider omitted the scene ID from its response' },
+    ])
   })
 
   it('audits motion prompts independently from visual prompt state', async () => {

@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.710 — 2026-07-24
+
+**Scene Plan now repairs small GenStudio prompt defects automatically.**
+
+- Removes non-renderable zero-duration scene artifacts before they can reach
+  prompt or image generation, retaining their narration with an adjacent real
+  scene.
+- Identifies whether a prompt pack omitted an ID, produced a duplicate prompt,
+  failed to save, or otherwise failed durable verification.
+- Automatically makes up to two bounded, ID-only GenStudio repair passes before
+  failing; completed prompts remain untouched and image rendering stays blocked
+  until every remaining scene has a distinct verified prompt.
+
 ## v1.0.709 — 2026-07-24
 
 **Continuity pacing is now strict, readable, and easy to choose.**

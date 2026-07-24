@@ -39,6 +39,12 @@ describe('local auto-retry policy', () => {
 
   test('retries deterministic timeline and explicitly local assembly work', () => {
     assert.equal(policy('scene_plan_run', { stage: 'timeline' }).eligible, true)
+    const genStudioPromptRun = policy('scene_plan_run', {
+      stage: 'visual',
+      model: 'genstudio-chat:genstudio-chat-test-v1',
+    })
+    assert.equal(genStudioPromptRun.eligible, false)
+    assert.match(genStudioPromptRun.reason, /ID-scoped GenStudio prompt repair/)
     assert.equal(policy('audio_merge').eligible, true)
     assert.equal(policy('video_assembly', { render_target: 'local' }).eligible, true)
     assert.equal(policy('video_assembly', { render_target: 'remote' }).eligible, false)
