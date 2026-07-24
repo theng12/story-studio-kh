@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.714 — 2026-07-24
+
+**Scene prompt repairs now use efficient GenStudio batches.**
+
+- Replaces the obsolete one-request-per-scene repair path with the same bounded
+  prompt packs used by normal Visual and Motion prompt generation.
+- A 322-scene repair at 50 scenes per request now uses seven initial GenStudio
+  requests instead of 322, reducing repeated instruction and context overhead.
+- Keeps completed prompts and deterministic timing unchanged, checkpoints every
+  valid scene by stable ID, and packs any automatic retry around only the
+  unresolved IDs.
+- Preserves visual continuity context during repairs and consistently applies
+  the chosen motion-intensity contract to packed Motion prompts.
+
 ## v1.0.713 — 2026-07-24
 
 **Visual and Motion prompt stages now share one saved batch size.**

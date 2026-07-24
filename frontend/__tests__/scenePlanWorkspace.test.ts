@@ -40,6 +40,14 @@ describe('Scene Plan workspace', () => {
     assert.doesNotMatch(scenePlan, /v-if="form\.generate_motion_prompts" class="mt-2"/)
   })
 
+  test('repairs missing prompts in the saved GenStudio pack size', () => {
+    assert.match(scenePlan, /packs of up to \$\{effectivePromptPackSize\.value\} scenes per GenStudio request/)
+    assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
+    assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)
+    assert.match(scenePlan, /Prompt repair queued in durable GenStudio packs/)
+    assert.doesNotMatch(scenePlan, /one scene per endpoint|Chat Studio pool|model pool/)
+  })
+
   test('condenses configuration responsively without hiding controls', () => {
     assert.match(scenePlan, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
     assert.match(scenePlan, /@media \(max-width: 900px\)/)

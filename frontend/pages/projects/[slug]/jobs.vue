@@ -1578,7 +1578,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'SAFE HUB RECOVERY — Repair reconnects to the accepted Studio Hub batch and downloads completed images without submitting anything new. Retry reuses the saved idempotency identity, then submits only verified-missing images if the old batch is terminal.'
   }
   if (jobType === 'scene_plan_run') {
-    return 'SMART RETRY — Keeps every prompt already verified on disk and requests only missing or duplicated stable scene IDs. Paid cloud models make one manual request per remaining pack; local models use bounded free retries.'
+    return 'SMART RETRY — Keeps every prompt already verified on disk and sends only missing or duplicated stable scene IDs in bounded GenStudio packs.'
   }
   if (jobType === 'image_prompts') {
     const mode = (job.params as any)?.mode

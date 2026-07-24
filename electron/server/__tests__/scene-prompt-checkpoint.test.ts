@@ -8,6 +8,7 @@ import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/s
 import {
   checkpointPackPromptResults,
   diagnoseScenePromptCompletionIssues,
+  packScenePromptItems,
   parseDirectPackResults,
 } from '../generators/scene-plan.js'
 import type { ScenePlan } from '../models/types.js'
@@ -41,6 +42,15 @@ afterEach(async () => {
 })
 
 describe('scene prompt checkpoints', () => {
+  it('packs a 322-scene repair into seven bounded GenStudio requests', () => {
+    const sceneIds = Array.from({ length: 322 }, (_, index) => `scene-${index + 1}`)
+    const packs = packScenePromptItems(sceneIds, 50)
+
+    assert.equal(packs.length, 7)
+    assert.deepEqual(packs.map(pack => pack.length), [50, 50, 50, 50, 50, 50, 22])
+    assert.deepEqual(packs.flat(), sceneIds)
+  })
+
   it('recovers completed scene rows from truncated cloud JSON', () => {
     const truncated = '{"results":[{"scene_id":"scene-1","visual_prompt":"First"},{"scene_id":"scene-2","visual_prompt":"Second"},{"scene_id":"scene-3","visual_prompt":"cut off'
     assert.deepEqual(

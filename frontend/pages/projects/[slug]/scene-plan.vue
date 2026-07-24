@@ -493,7 +493,7 @@
               ></div>
             </div>
             <div class="bulk-progress-text">
-              Regenerating {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in parallel across your model pool ·
+              Repairing {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in durable GenStudio packs ·
               {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
               <button class="link-btn-danger" @click="cancelBulkReplan">Cancel</button>
             </div>
@@ -1612,16 +1612,7 @@ async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
   }
 }
 
-/**
- * v1.0.458 — bulk regenerate prompts for every empty-prompt scene in ONE
- * backend job that fans the work out across the whole LM Studio pool (one
- * scene per endpoint, in parallel) and retries transient disconnects.
- *
- * This replaces the old v1.0.288 loop that fired one regenerate-prompt job
- * per scene and awaited each before queuing the next — which forced 47 empty
- * scenes through a single endpoint, serially, wasting the rest of the pool
- * and the user's time. Now a 3-endpoint setup regenerates ~3 scenes at once.
- */
+/** Repair every missing or duplicated prompt in bounded GenStudio packs. */
 async function regenAllEmptyPrompts(): Promise<void> {
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (bulkReplan.value.active) return
@@ -1637,16 +1628,15 @@ async function regenAllEmptyPrompts(): Promise<void> {
   const ok = await ask({
     title: `Repair ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
     message:
-      `Rewrites every missing or duplicated visual prompt in a single job that fans out across your Chat Studio pool `
-      + `(one scene per endpoint, in parallel) and retries transient disconnects. Time boundaries + transcript_segment stay exactly as-is. `
-      + `Much faster than the old one-at-a-time loop when you have more than one endpoint configured.`
+      `Rewrites only missing or duplicated visual prompts in packs of up to ${effectivePromptPackSize.value} scenes per GenStudio request. `
+      + `Time boundaries, transcripts, and completed prompts stay exactly as-is.`
       + `${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
     confirmLabel: `Repair all ${empty.length}`,
   })
   if (!ok) return
 
   bulkReplan.value = {
-    active: true, parallel: true, completed: 0, total: empty.length,
+    active: true, completed: 0, total: empty.length,
     currentSceneIndex: null, cancelRequested: false, jobId: null,
   }
 
@@ -1655,11 +1645,14 @@ async function regenAllEmptyPrompts(): Promise<void> {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-empty-prompts`, {
       model: form.value.model,
       detail_level: 4,
+      prompt_pack_size: form.value.prompt_pack_size,
+      prompt_max_tokens: form.value.prompt_max_tokens,
+      use_research: form.value.use_research,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     bulkReplan.value.jobId = job?.job_id || null
-    success('Bulk prompt regen queued — fanning out across your model pool. Watch the Jobs panel for detail.')
+    success('Prompt repair queued in durable GenStudio packs. Watch the Jobs panel for detail.')
     // One long job: extend the deadline well past the 120s default and let the
     // job's % drive the progress bar.
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 1_800_000, trackJobId: job?.job_id || null })
@@ -1681,7 +1674,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start bulk regen')
   } finally {
-    bulkReplan.value = { active: false, parallel: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
+    bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
   }
 }
 
@@ -1692,20 +1685,17 @@ const bulkReplan = ref<{
   total: number
   currentSceneIndex: number | null
   cancelRequested: boolean
-  /** True while the backend fans prompt packs across the model pool. */
-  parallel?: boolean
-  /** v1.0.458 — backend job id for the parallel run, so Cancel can stop it. */
+  /** Backend job id for the packed repair, so Cancel can stop it. */
   jobId?: string | null
 }>({ active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false })
 
 function cancelBulkReplan(): void {
   if (!bulkReplan.value.active) return
   bulkReplan.value.cancelRequested = true
-  // v1.0.458 — the parallel bulk regen is a single backend job; cancelling the
-  // frontend poll alone would leave it churning. Tell the server to stop it
-  // The generator polls isCancelled() between chunks.
+  // The packed repair is one backend job. Cancelling the frontend poll alone
+  // would leave it running, so tell the server to stop between packs.
   const jobId = bulkReplan.value.jobId
-  if (bulkReplan.value.parallel && jobId) {
+  if (jobId) {
     void del(`/projects/${slug.value}/jobs/${jobId}`).catch(() => { /* already finished — harmless */ })
   }
 }

@@ -64,3 +64,16 @@ test('scene motion and planning source contain no executable direct provider or 
   assert.match(clip, /no fal\.ai, Kie\.ai, or Studio Hub fallback was attempted/)
   assert.match(plan, /Scene planning did not call a direct provider or Studio Hub/)
 })
+
+test('bulk visual and motion repairs use bounded GenStudio packs instead of per-scene generation', () => {
+  const plan = readFileSync(path.join(serverRoot, 'generators/scene-plan.ts'), 'utf8')
+  const planRoute = readFileSync(path.join(serverRoot, 'routes/scene-plan.ts'), 'utf8')
+
+  assert.match(plan, /const packedRepairStage:[\s\S]*regenerate_empty_motion_prompts[\s\S]*regenerate_empty_prompts/)
+  assert.match(plan, /const targetPacks = packScenePromptItems\(targets, promptPackSize\)/)
+  assert.match(plan, /const repairGroups = \[outstanding\]/)
+  assert.doesNotMatch(plan, /if \(params\.regenerate_empty_prompts\) \{[\s\S]*generatePromptsForScenes/)
+  assert.doesNotMatch(plan, /if \(params\.regenerate_empty_motion_prompts\) \{[\s\S]*generateMotionPromptsForScenes/)
+  assert.match(planRoute, /regenerate_empty_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)
+  assert.match(planRoute, /regenerate_empty_motion_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)
+})

@@ -9,7 +9,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -96,8 +96,9 @@ interface ScenePlanRunParams {
   /** v1.0.468 — REGENERATE just this scene's motion_prompt (keeps visual_prompt
    *  and everything else). Mutually exclusive with the other regenerate flags. */
   regenerate_motion_prompt_scene_id?: string
-  /** v1.0.468 — BULK regenerate every EMPTY motion_prompt (scenes that already
-   *  have a visual_prompt). Fans out across the Chat Studio pool. */
+  /** Bulk-repair every empty motion_prompt (for scenes that already have a
+   * visual_prompt) through the same durable GenStudio packs as normal motion
+   * generation. */
   regenerate_empty_motion_prompts?: boolean
   /** v1.0.242 — global visual-style guidance woven into every visual_prompt. */
   style_prompt?: string
@@ -122,12 +123,9 @@ interface ScenePlanRunParams {
    *  structured JSON output) — works reliably on smaller local models
    *  that fail full-planner JSON. Mutually exclusive with replan_scene_id. */
   regenerate_prompt_scene_id?: string
-  /** v1.0.458 — BULK regenerate EVERY empty visual_prompt in one job that
-   *  fans out across the LM Studio pool (concurrency = pool size) and
-   *  retries transient connection failures. Replaces the old frontend loop
-   *  that fired one regenerate-prompt job per scene through a single
-   *  endpoint. Time ranges + transcripts are untouched. Mutually exclusive
-   *  with regenerate_prompt_scene_id / replan_scene_id. */
+  /** Bulk-repair every missing or duplicated visual_prompt through the same
+   * durable GenStudio packs as normal visual generation. Time ranges and
+   * transcripts are untouched. */
   regenerate_empty_prompts?: boolean
   /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
    *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
@@ -171,6 +169,8 @@ interface ScenePromptPayload {
   visual_prompt?: string
   creative_strategy?: SceneCreativeStrategy
   introduction_remainder?: boolean
+  previous_visual_prompts?: string[]
+  upcoming_narration?: string[]
 }
 
 export type ScenePromptCompletionIssueKind = 'provider-omitted' | 'duplicate-prompt' | 'checkpoint-failed' | 'not-durable'
@@ -182,7 +182,18 @@ export interface ScenePromptCompletionIssue {
 }
 
 const MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS = 2
-const MAX_SINGLE_SCENE_REPAIRS_PER_PACK = 3
+
+/** Split prompt work into bounded provider requests. Keeping this pure makes
+ * request counts explicit and regression-testable (322 scenes at 50 per pack
+ * is seven GenStudio requests, never 322). */
+export function packScenePromptItems<T>(items: readonly T[], packSize: number): T[][] {
+  const size = Math.max(1, Math.floor(packSize))
+  const packs: T[][] = []
+  for (let offset = 0; offset < items.length; offset += size) {
+    packs.push(items.slice(offset, offset + size))
+  }
+  return packs
+}
 
 // Older planner helpers still accept this shaped argument, but callAi ignores
 // it and resolves only the scoped GenStudio key at the generation boundary.
@@ -374,9 +385,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const { episode_id } = params
   let model = params.model || ''
   if (!episode_id) throw new Error('episode_id is required')
+  const packedRepairStage: 'visual' | 'motion' | undefined = params.regenerate_empty_motion_prompts
+    ? 'motion'
+    : params.regenerate_empty_prompts
+      ? 'visual'
+      : undefined
+  const requestedStage = packedRepairStage || params.stage
   // Only an explicitly requested timeline-only run is model-free. A Pipeline
   // run omits `stage`, which means timeline + all required visual prompts.
-  const needsModel = params.stage !== 'timeline' || !!(
+  const needsModel = requestedStage !== 'timeline' || !!(
     params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
     || params.replan_scene_id
@@ -390,7 +407,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const visualMaxTokens = resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
   // Motion records are intentionally short; keeping their batches within 4K
   // prevents a large visual-model allowance from creating truncated motion JSON.
-  const activePromptOutputBudget = params.stage === 'motion'
+  const activePromptOutputBudget = requestedStage === 'motion'
     ? Math.min(4_096, visualMaxTokens)
     : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
@@ -466,15 +483,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // prompts are durable adaptive Hub packs keyed by stable scene IDs, with direct generation as
   // a connection-only fallback. This branch is intentionally before all legacy
   // re-plan modes so those remain available for repairing old plans.
-  const isLegacyRepair = !!(
-    params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
-    || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
+  const isSingleSceneRepair = !!(
+    params.regenerate_prompt_scene_id
+    || params.regenerate_motion_prompt_scene_id
     || params.replan_scene_id
   )
   await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
-  if (params.stage || !isLegacyRepair) {
-    const pipelineAutoVisual = params.stage == null && !isLegacyRepair
-    let stage: 'timeline' | 'visual' | 'motion' = params.stage || 'timeline'
+  if (requestedStage || !isSingleSceneRepair) {
+    const pipelineAutoVisual = requestedStage == null && !isSingleSceneRepair
+    let stage: 'timeline' | 'visual' | 'motion' = requestedStage || 'timeline'
     if (stage === 'timeline') {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
@@ -622,6 +639,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       job.output_lines.push(isMotion ? 'No pending motion prompts.' : 'No pending visual prompts.')
       return
     }
+    const isPackedRepair = packedRepairStage === stage
+    const targetPacks = packScenePromptItems(targets, promptPackSize)
+    if (isPackedRepair) {
+      job.output_lines.push(
+        `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable GenStudio pack(s) `
+        + `(up to ${promptPackSize} scenes per request). Timeline boundaries and completed prompts stay unchanged.`,
+      )
+    }
 
     const effectiveStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
     const allCues = parseSrt(await fs.readFile(stitchedSrt, 'utf-8'))
@@ -651,15 +676,26 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
 
     if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
+    let packedMotionLevel = 2
+    if (isMotion) {
+      let projectDefaultMotion: number | undefined
+      try { projectDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
+      packedMotionLevel = resolveMotionLevel(params.motion_level, projectDefaultMotion)
+      const motionSpec = MOTION_SPECS[packedMotionLevel] || MOTION_SPECS[2]!
+      job.output_lines.push(
+        `Motion intensity: ${motionSpec.label} (level ${packedMotionLevel}) · ${motionSpec.allow}`,
+      )
+    }
+    const motionSpec = MOTION_SPECS[packedMotionLevel] || MOTION_SPECS[2]!
     const task = isMotion
-      ? 'Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image.'
+      ? `Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image. Motion intensity — ${motionSpec.label}: ${motionSpec.allow} Camera: ${motionSpec.camera}`
       : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
     const payloadBySceneId = new Map<string, ScenePromptPayload>()
     const buildPackMessages = (
       scenePayloads: ScenePromptPayload[],
       recoveryIssues: readonly ScenePromptCompletionIssue[] = [],
     ): Array<{ role: 'system' | 'user'; content: string }> => {
-      const recovery = recoveryIssues.length > 0
+      const recovery = isPackedRepair || recoveryIssues.length > 0
       const rejectedPrompts = recoveryIssues
         .filter(issue => issue.kind === 'duplicate-prompt')
         .map(issue => {
@@ -670,7 +706,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return [
         {
           role: 'system',
-          content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is an automatic repair: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+          content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
         },
         {
           role: 'user',
@@ -681,18 +717,24 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
             !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
             researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
+            isPackedRepair && !isMotion
+              ? 'REPAIR CONTINUITY: Each scene may include previous_visual_prompts and upcoming_narration. Use them only to preserve recurring subjects, wardrobe, locations, and visual flow; write a new prompt only for that scene_id.'
+              : '',
             !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
-            recovery ? `AUTOMATIC RECOVERY:\nRepair only the supplied scene IDs. A previous response was rejected for: ${recoveryIssues.map(issue => `${issue.scene_id} (${issue.detail})`).join('; ')}. Give each scene a new, concrete composition; do not repeat a rejected prompt verbatim.` : '',
+            recoveryIssues.length
+              ? `AUTOMATIC RECOVERY:\nRepair only the supplied scene IDs. A previous response was rejected for: ${recoveryIssues.map(issue => `${issue.scene_id} (${issue.detail})`).join('; ')}. Give each scene a new, concrete composition; do not repeat a rejected prompt verbatim.`
+              : '',
             rejectedPrompts.length ? `REJECTED PROMPTS — DO NOT REUSE:\n${rejectedPrompts.join('\n')}` : '',
             `SCENES:\n${JSON.stringify(scenePayloads)}`,
           ].filter(Boolean).join('\n\n'),
         },
       ]
     }
+    const contextBack = Math.max(0, Math.min(10, params.neighbor_context_back ?? 2))
+    const contextForward = Math.max(0, Math.min(10, params.neighbor_context_forward ?? 1))
     const packs: ScenePromptPack[] = []
-    for (let offset = 0; offset < targets.length; offset += promptPackSize) {
-      const group = targets.slice(offset, offset + promptPackSize)
-      const scenePayloads = group.map(({ scene }) => ({
+    for (const [packIndex, group] of targetPacks.entries()) {
+      const scenePayloads = group.map(({ scene, index }) => ({
         scene_id: scene.id,
         start_sec: scene.start_sec,
         end_sec: scene.end_sec,
@@ -700,10 +742,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         visual_prompt: isMotion ? scene.visual_prompt : undefined,
         creative_strategy: !isMotion ? scene.creative_strategy : undefined,
         introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
+        previous_visual_prompts: isPackedRepair && !isMotion
+          ? plan.scenes
+            .slice(Math.max(0, index - contextBack), index)
+            .map(item => item.visual_prompt?.trim() || '')
+            .filter(Boolean)
+          : undefined,
+        upcoming_narration: isPackedRepair && !isMotion
+          ? plan.scenes
+            .slice(index + 1, index + 1 + contextForward)
+            .map(item => item.transcript_segment?.trim() || '')
+            .filter(Boolean)
+          : undefined,
       } satisfies ScenePromptPayload))
       for (const payload of scenePayloads) payloadBySceneId.set(payload.scene_id, payload)
       packs.push({
-        pack_id: `${stage}-${String(offset / promptPackSize + 1).padStart(4, '0')}`,
+        pack_id: `${stage}-${String(packIndex + 1).padStart(4, '0')}`,
         scene_ids: group.map(({ scene }) => scene.id),
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
@@ -828,16 +882,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
       // Once GenStudio has completed the original pack, a bounded repair
       // request is deliberate new work, but it is strictly
-      // scoped to the IDs that failed the durable audit. Small leftovers use
-      // one-scene requests for maximum schema adherence; a broadly malformed
-      // pack is retried compactly to avoid turning one failure into 20 calls.
+      // scoped to the IDs that failed the durable audit. Outstanding IDs stay
+      // together in one compact repair pack so a partial provider response can
+      // never fan back out into one paid request per scene.
       let automaticRepairAttempts = 0
       for (let attempt = 1; !initial.requestError && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
         automaticRepairAttempts = attempt
         const outstanding = [...receipt.missing_ids]
-        const repairGroups = outstanding.length <= MAX_SINGLE_SCENE_REPAIRS_PER_PACK
-          ? outstanding.map(sceneId => [sceneId])
-          : [outstanding]
+        const repairGroups = [outstanding]
         job.output_lines.push(
           `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only.`,
         )
@@ -987,97 +1039,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     return
   }
 
-  // ── v1.0.458 — BULK regenerate every invalid visual_prompt in ONE job ───
-  // Same per-scene prose call as the single regenerate above, but it finds
-  // EVERY empty-prompt scene (with a non-empty transcript) and generates them
-  // in one job that fans out across the LM Studio pool — replacing the old
-  // frontend loop that fired one job per scene serially through a single
-  // endpoint. Transient connection failures are retried, so a brief local-
-  // model hiccup no longer leaves prompts permanently blank.
-  if (params.regenerate_empty_prompts) {
-    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate prompts for — run the full planner first.')
-    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    clearLegacyPlannerFallbackReasons(existing.scenes)
-    const duplicateIds = new Set(inspectScenePromptIntegrity(existing.scenes).duplicate_ids)
-    const targetIndices: number[] = []
-    existing.scenes.forEach((s, i) => {
-      const noPrompt = !s.visual_prompt || !s.visual_prompt.trim()
-      const hasTranscript = !!(s.transcript_segment && s.transcript_segment.trim())
-      if ((noPrompt || duplicateIds.has(s.id)) && hasTranscript) targetIndices.push(i)
-    })
-    if (!targetIndices.length) {
-      job.progress = 100
-      job.output_lines.push('No missing or duplicated prompts to regenerate — every scene has a unique prompt.')
-      job.output_dir = paths.episode_dir
-      return
-    }
-    job.output_lines.push(
-      `Bulk-regenerating ${targetIndices.length} missing or duplicated visual prompt(s) of ${existing.scenes.length} scene(s) — `
-      + `time ranges + transcripts unchanged, prompts that already exist serve as continuity context.`,
-    )
-    // Keep the rewrites ON-STYLE — same Style Bible fallback the single
-    // regenerate and the full plan use (v1.0.364).
-    const stylePromptForRewrite = await resolveEffectiveStyle(
-      params.style_prompt, paths.episode_dir,
-      () => job.output_lines.push('Using the episode Style Bible to keep the rewrites on-style.'),
-    )
-    const creativeDirectionForRepair = assignCreativeStrategies(
-      existing.scenes,
-      existing.creative_direction || params.creative_direction,
-      `${job.project_slug}:${episode_id}`,
-      true,
-    )
-    existing.creative_direction = creativeDirectionForRepair
-    // Checkpoints read the plan back from disk for every completed scene. Save
-    // the creative snapshot first so a partial repair cannot lose its strategy.
-    await writeJsonAtomic(outPath, existing)
-    const failed = await generatePromptsForScenes(existing.scenes, targetIndices, {
-      model,
-      detail_level: params.detail_level,
-      style_prompt: stylePromptForRewrite,
-      custom_instructions: params.custom_instructions,
-      creative_direction: creativeDirectionForRepair,
-      neighbor_context_back: params.neighbor_context_back,
-      neighbor_context_forward: params.neighbor_context_forward,
-      apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
-      slug: job.project_slug,
-      should_cancel: () => isCancelled(job.job_id),
-      onWarn: (m) => job.output_lines.push(m),
-      onProgress: (done, total) => {
-        // Map into the 10–95 band the job reserves for the work.
-        job.progress = 10 + Math.round((done / Math.max(1, total)) * 85)
-      },
-      onResult: async (index, prompt) => {
-        const sceneId = existing.scenes[index]!.id
-        await checkpointScenePrompt(outPath, sceneId, prompt, 'visual')
-        job.output_lines.push(`Checkpointed scene #${index + 1} (${sceneId}); later failures cannot discard it.`)
-      },
-    })
-    const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    job.output_dir = paths.episode_dir
-    const remainingTargetIds = new Set(inspectScenePromptIntegrity(persisted.scenes).invalid_ids)
-    const stillInvalidIds = targetIndices
-      .map(index => existing.scenes[index]!.id)
-      .filter(sceneId => remainingTargetIds.has(sceneId))
-    const succeeded = targetIndices.length - stillInvalidIds.length
-    job.output_lines.push(
-      `✓ Bulk regen complete — ${succeeded} prompt(s) filled`
-      + (stillInvalidIds.length ? `, ${stillInvalidIds.length} still missing or duplicated.` : '.'),
-    )
-    requireJobCompletion(job, {
-      label: 'Visual prompt repair',
-      expected: targetIndices.length,
-      completed: succeeded,
-      missing: stillInvalidIds,
-      retry_hint: 'Valid prompts were saved immediately. Retry repair to request only the remaining scene IDs.',
-    })
-    if (failed && !stillInvalidIds.length) {
-      job.output_lines.push('All target prompts are durable despite transient worker failures reported during generation.')
-    }
-    job.progress = 100
-    return
-  }
-
   // ── v1.0.468 — REGENERATE just one scene's motion_prompt ────────────────
   // Keeps visual_prompt + everything else; rewrites only the motion instruction.
   if (params.regenerate_motion_prompt_scene_id) {
@@ -1114,65 +1075,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_dir = paths.episode_dir
     job.progress = 100
     job.output_lines.push(`✓ Motion prompt regenerated (${newMotion.length} chars). Other scenes untouched.`)
-    return
-  }
-
-  // ── v1.0.468 — BULK regenerate every EMPTY motion_prompt ────────────────
-  if (params.regenerate_empty_motion_prompts) {
-    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate motion prompts for — run the full planner first.')
-    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    const targetIndices: number[] = []
-    existing.scenes.forEach((s, i) => {
-      const hasVisual = !!(s.visual_prompt && s.visual_prompt.trim())
-      const noMotion = !s.motion_prompt || !s.motion_prompt.trim()
-      if (hasVisual && noMotion) targetIndices.push(i)
-    })
-    if (!targetIndices.length) {
-      job.progress = 100
-      job.output_lines.push('No empty motion prompts to regenerate — every scene with a visual prompt already has one.')
-      job.output_dir = paths.episode_dir
-      return
-    }
-    let projDefaultMotion: number | undefined
-    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
-    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
-    job.output_lines.push(`Bulk-regenerating ${targetIndices.length} empty motion prompt(s) — intensity level ${motionLevel}; visual prompts + timing unchanged.`)
-    const motionStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
-    const failed = await generateMotionPromptsForScenes(existing.scenes, targetIndices, {
-      model,
-      motion_level: motionLevel,
-      style_prompt: motionStyle,
-      custom_instructions: params.custom_instructions,
-      apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
-      slug: job.project_slug,
-      should_cancel: () => isCancelled(job.job_id),
-      onWarn: (m) => job.output_lines.push(m),
-      onProgress: (done, total) => { job.progress = 10 + Math.round((done / Math.max(1, total)) * 85) },
-      onResult: async (index, prompt) => {
-        const sceneId = existing.scenes[index]!.id
-        await checkpointScenePrompt(outPath, sceneId, prompt, 'motion')
-        job.output_lines.push(`Checkpointed motion for scene #${index + 1} (${sceneId}).`)
-      },
-    })
-    const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    job.output_dir = paths.episode_dir
-    const stillMissingIds = targetIndices
-      .map(index => existing.scenes[index]!.id)
-      .filter(sceneId => !persisted.scenes.find(scene => scene.id === sceneId)?.motion_prompt?.trim())
-    const succeeded = targetIndices.length - stillMissingIds.length
-    job.output_lines.push(
-      `✓ Bulk motion regen complete — ${succeeded} prompt(s) filled`
-      + (stillMissingIds.length ? `, ${stillMissingIds.length} still empty.` : '.'),
-    )
-    requireJobCompletion(job, {
-      label: 'Motion prompt repair', expected: targetIndices.length, completed: succeeded,
-      missing: stillMissingIds,
-      retry_hint: 'Existing motion prompts were saved immediately; Retry fills only the remaining gaps.',
-    })
-    if (failed && !stillMissingIds.length) {
-      job.output_lines.push('All target motion prompts are durable despite transient worker failures reported during generation.')
-    }
-    job.progress = 100
     return
   }
 

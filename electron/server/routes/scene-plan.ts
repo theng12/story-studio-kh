@@ -248,12 +248,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
 })
 
 // ── POST /scene-plan/:ep/regenerate-empty-prompts ─────────────────────
-// v1.0.458 — bulk-regenerate EVERY missing or duplicated visual_prompt in one job
-// out across the LM Studio pool (concurrency = pool size) and retries
-// transient connection failures. Replaces the old frontend loop that fired
-// one regenerate-prompt job per scene, serially, through a single endpoint —
-// which wasted the pool and the user's time on a 47-scene reprompt. Shares
-// the scene_plan_run lane, so it won't run alongside a full plan / re-plan.
+// Repair every missing or duplicated visual prompt through the same bounded,
+// durable GenStudio packs used by normal prompt generation.
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', async (req, res) => {
   const { slug, episodeId } = req.params
 
@@ -276,6 +272,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   const creativeDirection = parseCreativeDirection(body.creative_direction)
+  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
+  const useResearch = body.use_research !== false
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
@@ -294,6 +293,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       creative_direction: creativeDirection,
+      prompt_pack_size: promptPackSize,
+      prompt_max_tokens: promptMaxTokens,
+      use_research: useResearch,
     },
   })
   res.status(201).json(job)
@@ -627,9 +629,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
 })
 
 // ── POST /scene-plan/:ep/regenerate-empty-motion-prompts ──────────────
-// v1.0.468 — bulk-regenerate EVERY empty motion_prompt (scenes that have a
-// visual_prompt), fanning out across the Chat Studio pool. Mirrors the
-// visual-prompt bulk regen.
+// Repair every missing motion prompt through the same bounded, durable
+// GenStudio packs used by normal motion generation.
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
@@ -645,6 +646,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   }
   const motionLevel = typeof body.motion_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
+  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
@@ -653,8 +655,14 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
-    title: `Regen empty motion prompts — ${episodeId}`,
-    params: { episode_id: episodeId, model, regenerate_empty_motion_prompts: true, motion_level: motionLevel },
+    title: `Repair motion prompts — ${episodeId}`,
+    params: {
+      episode_id: episodeId,
+      model,
+      regenerate_empty_motion_prompts: true,
+      motion_level: motionLevel,
+      prompt_pack_size: promptPackSize,
+    },
   })
   res.status(201).json(job)
 })
