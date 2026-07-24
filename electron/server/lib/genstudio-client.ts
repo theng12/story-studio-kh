@@ -546,10 +546,22 @@ export class GenStudioApiError extends Error {
       status === 401 || status === 403
         ? `GenStudio KH rejected the scoped API key (HTTP ${status}): ${detail}. ` +
           'Verify this key belongs to the intended account and includes the scope required by this operation.'
+        : isGenStudioReleaseGenerationUnavailable(status, detail)
+          ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
+            'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +
+            'charging in GenStudio, then Retry to repair only unfinished work.'
         : `GenStudio KH request failed: ${detail}`,
     )
     this.name = 'GenStudioApiError'
   }
+}
+
+export function isGenStudioReleaseGenerationUnavailable(
+  status: number,
+  detail: string,
+): boolean {
+  return status === 503
+    && /generation is unavailable until charging is enabled for this exact release/i.test(detail)
 }
 
 export function operationSignal(
@@ -610,6 +622,13 @@ async function requestJsonWithRetry(
       if (!response.ok) {
         const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
         const error = new GenStudioApiError(response.status, detail)
+        if (isGenStudioReleaseGenerationUnavailable(response.status, detail)) {
+          const retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+          genStudioAdmission.noteGlobalFailure(error, retryAfterMs ?? undefined)
+          await request.onQueueState?.('failed')
+          throw error
+        }
+        if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (response.status === 402) {
           await request.onQueueState?.('waiting_credits')
           throw error
@@ -629,6 +648,7 @@ async function requestJsonWithRetry(
           retryAfterMs = retryBaseMs + jitterMs
         }
       } else {
+        if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (body && typeof body === 'object') {
           body.location ||= response.headers.get('location')
           body.http_status ||= response.status
@@ -638,7 +658,15 @@ async function requestJsonWithRetry(
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
-      if (error instanceof GenStudioApiError && !retryableStatus(error.status)) throw error
+      if (
+        error instanceof GenStudioApiError
+        && (
+          isGenStudioReleaseGenerationUnavailable(error.status, error.detail)
+          || !retryableStatus(error.status)
+        )
+      ) {
+        throw error
+      }
     }
     if (attempt < NETWORK_RETRY_ATTEMPTS) {
       await retryDelay(attempt, request, deadline, retryAfterMs)

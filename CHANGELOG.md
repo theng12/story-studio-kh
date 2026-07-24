@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.717 — 2026-07-24
+
+**Pipeline batches now stop safely when a GenStudio release is not generation-ready.**
+
+- Recognizes GenStudio's authoritative exact-release charging gate as one
+  account-wide outage instead of treating every episode and modality as an
+  unrelated generation failure.
+- Stops every locally queued, not-yet-submitted request after the first gate
+  response, while accepted GenStudio jobs keep polling and verified partial
+  outputs remain checkpointed for recovery.
+- Skips generic network retries for this structural response, preventing large
+  Pipeline runs from repeatedly submitting work that GenStudio cannot accept.
+- Shows the blocked submission state and its reason in Project Jobs and All
+  Jobs so the required GenStudio release action is visible before Retry.
+- Preserves stable idempotency keys, durable GenStudio job IDs, and the
+  GenStudio-only boundary; retrying repairs unfinished work without a direct
+  provider fallback.
+
 ## v1.0.716 — 2026-07-24
 
 **Audio Assembly and transcription now enforce the correct prerequisite chain.**

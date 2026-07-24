@@ -18,6 +18,8 @@ export interface GenStudioAdmissionSnapshot extends GenStudioAccountCapacity {
   available_paid_slots: number
   submissions_in_window: number
   queue_near_capacity: boolean
+  submissions_blocked: boolean
+  submission_block_reason: string | null
   retry_after_ms: number
   refreshed_at: string | null
   limitSource: 'account-overview' | 'safe-fallback'
@@ -37,6 +39,7 @@ interface AdmissionWaiter {
 const WINDOW_MS = 60_000
 const DEFAULT_REFRESH_MS = 15_000
 const QUEUED_REFRESH_MS = 5_000
+const DEFAULT_GLOBAL_FAILURE_RETRY_MS = 60_000
 const SAFE_FALLBACK: GenStudioAccountCapacity = {
   paid_concurrency_limit: 1,
   paid_active_jobs: 0,
@@ -77,6 +80,8 @@ export class GenStudioAdmissionPool {
   private refreshPromise: Promise<void> | null = null
   private submitting = 0
   private holdUntil = 0
+  private globalFailure: Error | null = null
+  private globalFailureUntil = 0
   private readonly submissionTimes: number[] = []
   private readonly waiters: AdmissionWaiter[] = []
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
@@ -101,7 +106,9 @@ export class GenStudioAdmissionPool {
       ),
       submissions_in_window: this.submissionTimes.length,
       queue_near_capacity: this.queueNearCapacity(),
-      retry_after_ms: Math.max(0, this.holdUntil - now),
+      submissions_blocked: Boolean(this.globalFailure && this.globalFailureUntil > now),
+      submission_block_reason: this.globalFailure?.message || null,
+      retry_after_ms: Math.max(0, this.holdUntil - now, this.globalFailureUntil - now),
       refreshed_at: this.refreshedAt ? new Date(this.refreshedAt).toISOString() : null,
       limitSource: this.limitSource,
     }
@@ -155,6 +162,33 @@ export class GenStudioAdmissionPool {
     this.holdUntil = Math.max(this.holdUntil, Date.now() + Math.max(0, retryAfterMs) + jitterMs)
     await this.refreshNow(apiKey).catch(() => undefined)
     this.scheduleWake()
+  }
+
+  /**
+   * Stop every not-yet-submitted request after GenStudio reports an
+   * account/release-wide generation gate. Accepted jobs are not represented
+   * here and continue polling through their durable GenStudio IDs.
+   */
+  noteGlobalFailure(
+    error: Error,
+    retryAfterMs = DEFAULT_GLOBAL_FAILURE_RETRY_MS,
+  ): void {
+    this.globalFailure = error
+    this.globalFailureUntil = Math.max(
+      this.globalFailureUntil,
+      Date.now() + Math.max(1_000, retryAfterMs),
+    )
+    const queued = this.waiters.splice(0)
+    for (const waiter of queued) this.rejectWaiter(waiter, error)
+    this.clearWake()
+  }
+
+  /** Any non-gated submission response proves the release gate is open again. */
+  noteSubmissionReachable(): void {
+    if (!this.globalFailure) return
+    this.globalFailure = null
+    this.globalFailureUntil = 0
+    this.drain()
   }
 
   private async refresh(apiKey: string): Promise<void> {
@@ -219,6 +253,12 @@ export class GenStudioAdmissionPool {
       return
     }
     const now = Date.now()
+    if (this.globalFailure && this.globalFailureUntil > now) {
+      const blocked = this.waiters.splice(0)
+      for (const waiter of blocked) this.rejectWaiter(waiter, this.globalFailure)
+      this.clearWake()
+      return
+    }
     const delay = this.nextDelay(now)
     if (delay > 0) {
       const state: GenStudioAdmissionState = this.queueNearCapacity()
@@ -228,6 +268,7 @@ export class GenStudioAdmissionPool {
       this.scheduleWake(delay)
       return
     }
+    const probingAfterGlobalFailure = Boolean(this.globalFailure)
     while (
       this.waiters.length
       && this.submitting < this.dispatchLimit()
@@ -246,12 +287,16 @@ export class GenStudioAdmissionPool {
       this.submissionTimes.push(Date.now())
       void this.setWaiterState(waiter, 'submitting')
       void waiter.work().then(
-        value => waiter.resolve(value),
+        value => {
+          if (probingAfterGlobalFailure) this.noteSubmissionReachable()
+          waiter.resolve(value)
+        },
         error => waiter.reject(error instanceof Error ? error : new Error(String(error))),
       ).finally(() => {
         this.submitting = Math.max(0, this.submitting - 1)
         this.drain()
       })
+      if (probingAfterGlobalFailure) break
     }
     if (this.waiters.length) this.scheduleWake(this.retryMs)
   }
@@ -263,6 +308,13 @@ export class GenStudioAdmissionPool {
     if (waiter.state === state) return
     waiter.state = state
     await waiter.onState?.(state)
+  }
+
+  private rejectWaiter(waiter: AdmissionWaiter, error: Error): void {
+    if (waiter.signal && waiter.abort) {
+      waiter.signal.removeEventListener('abort', waiter.abort)
+    }
+    waiter.reject(error)
   }
 
   private scheduleWake(delay = this.retryMs): void {

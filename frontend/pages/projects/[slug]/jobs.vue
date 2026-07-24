@@ -25,6 +25,14 @@
             class="genstudio-capacity-summary"
             aria-label="GenStudio account capacity"
           >
+            <span
+              v-if="genStudioAdmission.submissions_blocked"
+              class="capacity-error"
+              :title="genStudioAdmission.submission_block_reason || undefined"
+            >
+              <strong>Submissions stopped</strong>
+              GenStudio release not ready
+            </span>
             <span>
               <strong>{{ genStudioAdmission.local_waiting }}</strong>
               submissions waiting locally
@@ -724,6 +732,8 @@ interface GenStudioAdmissionSnapshot {
   available_paid_slots: number
   submissions_in_window: number
   queue_near_capacity: boolean
+  submissions_blocked: boolean
+  submission_block_reason: string | null
   retry_after_ms: number
   refreshed_at: string | null
   limitSource: 'account-overview' | 'safe-fallback'
@@ -1923,6 +1933,14 @@ async function clearFinished() {
 .genstudio-capacity-summary .capacity-warning {
   border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
   color: var(--warning);
+}
+.genstudio-capacity-summary .capacity-error {
+  border-color: color-mix(in srgb, var(--danger) 65%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-primary));
+  color: var(--danger);
+}
+.genstudio-capacity-summary .capacity-error strong {
+  color: var(--danger);
 }
 .job-scope-switch {
   display: inline-grid;

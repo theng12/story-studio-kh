@@ -29,6 +29,7 @@ import {
   listVoices,
   listVideoModels,
   operationSignal,
+  isGenStudioReleaseGenerationUnavailable,
   parseGenStudioRetryAfterMs,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
@@ -46,6 +47,27 @@ test('Story-owned TTS defaults are empty because GenStudio owns the catalog', ()
   assert.equal(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], undefined)
   const voices = normalizeVoicePresets(DEFAULT_VOICE_PRESETS)
   assert.equal(voices.length, 0)
+})
+
+test('only the authoritative exact-release charging failure opens the global submission breaker', () => {
+  assert.equal(
+    isGenStudioReleaseGenerationUnavailable(
+      503,
+      'generation is unavailable until charging is enabled for this exact release',
+    ),
+    true,
+  )
+  assert.equal(
+    isGenStudioReleaseGenerationUnavailable(503, 'temporary provider capacity unavailable'),
+    false,
+  )
+  assert.equal(
+    isGenStudioReleaseGenerationUnavailable(
+      402,
+      'generation is unavailable until charging is enabled for this exact release',
+    ),
+    false,
+  )
 })
 
 test('GenStudio accepts exactly 15,000 characters as one public API request', () => {

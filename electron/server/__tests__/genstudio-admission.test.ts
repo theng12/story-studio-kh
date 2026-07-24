@@ -164,3 +164,31 @@ test('rolling account submission limit prevents local bursts across every modali
   controller.abort()
   await assert.rejects(second, /Cancelled by user/)
 })
+
+test('one account-wide release failure rejects every unsent modality', async () => {
+  const pool = new GenStudioAdmissionPool(async () => capacity({ paid_concurrency_limit: 1 }))
+  const firstGate = deferred()
+  const first = pool.run('same-account', undefined, async () => firstGate.promise)
+  let imageSubmitted = false
+  let transcriptionSubmitted = false
+  const image = pool.run('same-account', undefined, async () => {
+    imageSubmitted = true
+  })
+  const transcription = pool.run('another-key-same-account', undefined, async () => {
+    transcriptionSubmitted = true
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const releaseError = new Error('GenStudio release is not generation-ready')
+  pool.noteGlobalFailure(releaseError, 60_000)
+
+  await assert.rejects(image, /not generation-ready/)
+  await assert.rejects(transcription, /not generation-ready/)
+  assert.equal(imageSubmitted, false)
+  assert.equal(transcriptionSubmitted, false)
+  assert.equal(pool.snapshot().submissions_blocked, true)
+  assert.match(pool.snapshot().submission_block_reason || '', /not generation-ready/)
+
+  firstGate.resolve()
+  await first
+})
