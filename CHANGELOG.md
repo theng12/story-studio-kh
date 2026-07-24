@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.713 — 2026-07-24
+
+**Visual and Motion prompt stages now share one saved batch size.**
+
+- Makes the optional Motion prompt pass follow the same model-aware scene count
+  selected for Visual prompts, including Automatic and custom preset values.
+- Removes the hidden 10-scene Motion clamp so the workflow cards and submitted
+  GenStudio requests consistently use the batch size shown in Scene Plan.
+
 ## v1.0.712 — 2026-07-24
 
 **Large Scene Review image batches now start reliably.**

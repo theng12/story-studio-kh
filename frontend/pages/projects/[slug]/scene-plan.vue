@@ -315,9 +315,10 @@
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectiveMotionPromptPackSize)">Next {{ effectiveMotionPromptPackSize }}</button>
+            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
+          <small v-if="form.generate_motion_prompts">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
@@ -1255,7 +1256,6 @@ const effectivePromptPackSize = computed<number>(() => {
 })
 const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
 const availableOutputBudgets = computed(() => OUTPUT_BUDGET_OPTIONS.filter(budget => budget <= selectedModelMaxOutput.value))
-const effectiveMotionPromptPackSize = computed<number>(() => Math.min(effectivePromptPackSize.value, 10))
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
