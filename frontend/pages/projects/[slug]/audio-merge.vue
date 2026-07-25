@@ -194,17 +194,26 @@
       </div>
     </div>
 
-    <!-- v1.0.182 — the five layering cards (intro / normalization / music /
-         ambience / ambient layers) collapse behind the shared
-         AdvancedDisclosure so the page opens onto Narration Chapters →
-         Generate. Open state remembered per project via persist-key. -->
-    <AdvancedDisclosure
-      v-if="chapters.length"
-      label="Audio layers (intro · normalization · music · ambience)"
-      :persist-key="MERGE_ADV_KEY"
-    >
+    <!-- Mix settings stay visible: the usual narration controls should not
+         be hidden behind an "advanced" gate. Optional layers reveal their
+         controls only when enabled, keeping the default surface compact. -->
+    <section v-if="chapters.length" class="card mt-2 audio-mix-card">
+      <header class="audio-mix-header">
+        <div>
+          <span class="workspace-section-kicker">Mix settings</span>
+          <h3>Voice, pacing, and optional layers</h3>
+          <p class="text-muted text-sm">Start with the narration, then add only the layers this episode needs.</p>
+        </div>
+        <div class="audio-mix-states" aria-label="Current mix settings">
+          <span class="audio-mix-state">Voice {{ narrationVolume }}%</span>
+          <span class="audio-mix-state" :class="{ active: normalizeVolume }">Normalize {{ normalizeVolume ? 'on' : 'off' }}</span>
+          <span class="audio-mix-state" :class="{ active: music.enabled }">Music {{ music.enabled ? 'on' : 'off' }}</span>
+          <span class="audio-mix-state" :class="{ active: backgroundNoise.enabled || ambientTracks.length > 0 }">Atmosphere {{ backgroundNoise.enabled || ambientTracks.length ? 'on' : 'off' }}</span>
+        </div>
+      </header>
+
     <!-- Intro Audio -->
-    <div class="card mt-2">
+    <div class="audio-mix-section audio-mix-section--intro">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="intro.enabled" />
@@ -239,12 +248,19 @@
       </div>
     </div>
 
-    <!-- Narration Volume (v1.0.333) — base voiceover level, independent of music/noise/ambient -->
-    <div v-if="chapters.length" class="card mt-2">
-      <h3>Narration Volume</h3>
-      <p class="text-muted text-sm mt-1">
-        Base loudness of the voiceover itself — independent of the music, noise, and ambient beds below (those keep their own sliders). Raise this if the narration is coming across too soft.
-      </p>
+    <!-- The voice controls are one compact group: gain and normalization are
+         both choices about the narration master, not two unrelated panels. -->
+    <div class="audio-mix-section audio-mix-section--voice">
+      <div class="audio-mix-section-heading">
+        <div>
+          <h3>Narration</h3>
+          <p class="text-muted text-sm">Set the voice level, then normalize it for an even result across chapters.</p>
+        </div>
+        <label class="compact-toggle" @click.stop>
+          <input type="checkbox" v-model="normalizeVolume" />
+          <span>Normalize</span>
+        </label>
+      </div>
       <div class="form-group mt-2">
         <label>Level ({{ narrationVolume }}%)</label>
         <SliderWithNumber v-model="narrationVolume" :min="50" :max="200" :step="5" suffix="%" />
@@ -257,27 +273,13 @@
           Applied on top of normalization if that's also on.
         </p>
       </div>
-    </div>
-
-    <!-- Volume Normalization -->
-    <div v-if="chapters.length" class="card mt-2">
-      <div class="flex gap-2 items-center">
-        <label class="checkbox-label" @click.stop>
-          <input type="checkbox" v-model="normalizeVolume" />
-        </label>
-        <h3>Volume Normalization</h3>
-      </div>
-      <p class="text-muted mt-1">
-        Equalize volume levels across all chapters using FFmpeg's loudnorm filter (EBU R128 standard).
-        This ensures consistent volume throughout the narration.
-      </p>
       <p v-if="normalizeVolume" class="text-muted text-sm mt-1">
-        Two-pass normalization: first measures each chapter, then applies corrections. Adds processing time.
+        Uses a two-pass EBU R128 measurement, then applies corrections. It adds processing time but keeps chapter loudness consistent.
       </p>
     </div>
 
     <!-- Background Music -->
-    <div v-if="chapters.length" class="card mt-2">
+    <div class="audio-mix-section audio-mix-section--music">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="music.enabled" />
@@ -414,7 +416,7 @@
     </div>
 
     <!-- Background Noise -->
-    <div v-if="chapters.length" class="card mt-2">
+    <div class="audio-mix-section audio-mix-section--atmosphere">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="backgroundNoise.enabled" />
@@ -481,7 +483,7 @@
     </div>
 
     <!-- Multi-track ambient layers (v1.0.55+) -->
-    <div v-if="chapters.length" class="card mt-2">
+    <div class="ambient-layers-panel">
       <div class="flex gap-2 items-center">
         <h3 style="margin: 0;">Ambient Layers</h3>
         <span class="text-muted text-xs">
@@ -614,7 +616,7 @@
         </div>
       </div>
     </div>
-    </AdvancedDisclosure>
+    </section>
 
     <!-- Generate -->
     <div v-if="chapters.length" class="card mt-2">
@@ -667,6 +669,14 @@
             <span class="text-muted">Silence Gaps</span>
             <span>{{ gapDuration }}s between each chapter</span>
           </div>
+          <div v-if="chunkTransitionsTotal" class="summary-row">
+            <span class="text-muted">Chunk pauses</span>
+            <span>{{ chunkSilenceSec.toFixed(1) }}s between {{ chunkTransitionsTotal }} split-chapter transition{{ chunkTransitionsTotal === 1 ? '' : 's' }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="text-muted">Intro</span>
+            <span>{{ intro.enabled && intro.file ? intro.file.split('/').pop() : 'None' }}</span>
+          </div>
           <div class="summary-row">
             <span class="text-muted">Narration Volume</span>
             <span>{{ narrationVolume }}%{{ narrationVolume === 100 ? ' (unchanged)' : '' }}</span>
@@ -683,35 +693,32 @@
             <span class="text-muted">Noise</span>
             <span>{{ backgroundNoise.enabled ? (backgroundNoise.mode === 'preset' ? backgroundNoise.preset.replace(/-/g, ' ') : 'Custom') + ', ' + backgroundNoise.volume + '% vol' : 'None' }}</span>
           </div>
+          <div class="summary-row">
+            <span class="text-muted">Ambient layers</span>
+            <span>{{ ambientTracks.filter(track => track.enabled && track.source_path).length || 'None' }}</span>
+          </div>
         </div>
       </div>
 
-    </div>
+      <div v-if="episodeId" class="merge-output-status mt-2" aria-labelledby="merge-integrity-heading">
+        <div>
+          <h4 id="merge-integrity-heading">Output status</h4>
+          <p class="text-muted text-sm">The merged file is the verified audio source for subtitles and video assembly.</p>
+        </div>
+        <div v-if="mergeStatus.loading" class="text-muted text-md"><LoadingSpinner size="sm" /> Checking…</div>
+        <div v-else-if="mergeStatus.error" class="text-danger text-md">
+          {{ mergeStatus.error }}
+          <button class="btn btn-sm btn-ghost ml-2" @click="refreshMergeStatus">Retry</button>
+        </div>
+        <div v-else class="flex items-center gap-2 flex-wrap">
+          <span class="integrity-pill" :class="mergeStatus.present ? 'ok' : 'warn'">
+            <template v-if="mergeStatus.present">✓ Ready: {{ mergeStatus.file }}</template>
+            <template v-else>Needs a merge</template>
+          </span>
+          <button class="btn btn-sm btn-ghost" :disabled="mergeStatus.loading" @click="refreshMergeStatus">Refresh</button>
+        </div>
+      </div>
 
-    <!-- Merged-audio integrity pill. One merged file per episode, so "missing" -->
-    <!-- = no {code}_merged_audio*.mp3 with content. Refresh-only here; use the -->
-    <!-- Generate button above to actually create the file. -->
-    <div v-if="episodeId" class="card mt-2" aria-labelledby="merge-integrity-heading">
-      <h3 id="merge-integrity-heading" class="merge-integrity-title">Merged audio integrity</h3>
-      <p class="text-muted text-sm merge-integrity-blurb">
-        Quick check on whether a final merged track exists for this episode — useful after restarting the app or syncing from another machine.
-      </p>
-      <div v-if="mergeStatus.loading" class="text-muted text-md">
-        <LoadingSpinner size="sm" /> Checking…
-      </div>
-      <div v-else-if="mergeStatus.error" class="text-danger text-md">
-        {{ mergeStatus.error }}
-        <button class="btn btn-sm btn-ghost ml-2" @click="refreshMergeStatus">Retry</button>
-      </div>
-      <div v-else class="flex items-center gap-2 flex-wrap">
-        <span class="integrity-pill" :class="mergeStatus.present ? 'ok' : 'warn'">
-          <template v-if="mergeStatus.present">✓ Merged audio present ({{ mergeStatus.file }})</template>
-          <template v-else>⚠ Merged audio not yet generated</template>
-        </span>
-        <button class="btn btn-sm btn-ghost" :disabled="mergeStatus.loading" @click="refreshMergeStatus">
-          Refresh
-        </button>
-      </div>
     </div>
 
   </div>
@@ -747,12 +754,6 @@ const chapterAudioIssues = computed<string[]>(
 // the brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
 const { isJobActiveFor } = useJobs()
 const mergeJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.value, ['audio_merge']))
-
-// v1.0.182 — Phase-2 scaffold. The five layering cards (intro clip, volume
-// normalization, background music, ambience, ambient layers) collapse behind
-// the shared <AdvancedDisclosure>. Open state is remembered per project via
-// this key; the component owns the localStorage read/write now.
-const MERGE_ADV_KEY = `audio_merge_advanced_open_${slug.value}`
 
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
 // `generating` ref is normally true only during the POST window (it's
@@ -1672,9 +1673,82 @@ onUnmounted(() => {
  * the full card on wide screens. */
 .gap-duration-field { max-width: 300px; }
 
-/* Title above the merged-audio integrity pill. */
-.merge-integrity-title { margin-bottom: 4px; }
-.merge-integrity-blurb { margin-bottom: 10px; }
+/* One compact, always-visible mix surface replaces the old advanced
+   disclosure plus five disconnected full-width cards. */
+.audio-mix-card { padding: 0 20px; }
+.audio-mix-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 18px 0 14px;
+}
+.audio-mix-header h3 { margin: 3px 0 4px; }
+.audio-mix-header p { margin: 0; }
+.workspace-section-kicker {
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.audio-mix-states { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.audio-mix-state {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+.audio-mix-state.active { border-color: rgba(74, 222, 128, .35); color: var(--success); background: rgba(74, 222, 128, .08); }
+.audio-mix-section {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.audio-mix-section > :first-child { margin-top: 0; }
+.audio-mix-section--intro { display: grid; grid-template-columns: minmax(170px, .6fr) minmax(0, 1.4fr); column-gap: 18px; align-items: start; }
+.audio-mix-section--intro > .mt-2 { margin-top: 0; }
+.audio-mix-section--intro > .flex { padding-top: 2px; }
+.audio-mix-section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.audio-mix-section-heading h3 { margin: 0; }
+.audio-mix-section-heading p { margin: 4px 0 0; }
+.compact-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.compact-toggle:has(input:checked) { border-color: rgba(74, 222, 128, .4); color: var(--success); background: rgba(74, 222, 128, .08); }
+.audio-mix-section--music > .flex:first-child,
+.audio-mix-section--atmosphere > .flex:first-child { margin-bottom: 4px; }
+.ambient-layers-panel { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.ambient-layers-panel > .flex:first-child { margin-bottom: 4px; }
+.merge-output-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.merge-output-status h4 { margin: 0 0 3px; font-size: 13px; }
+.merge-output-status p { margin: 0; }
+@media (max-width: 760px) {
+  .audio-mix-card { padding: 0 14px; }
+  .audio-mix-header, .merge-output-status { flex-direction: column; align-items: stretch; }
+  .audio-mix-states { justify-content: flex-start; }
+  .audio-mix-section--intro { grid-template-columns: 1fr; row-gap: 10px; }
+}
 
 .btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 4px; line-height: 1; }
 .btn-icon:hover { color: var(--text-primary); }

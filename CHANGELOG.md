@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.739 — 2026-07-25
+
+**Audio Assembly now keeps its useful controls visible without a wall of cards.**
+
+- Replaces the collapsed advanced audio-layers area with one compact,
+  always-visible mix workspace for voice, pacing, intro, music, and atmosphere.
+- Combines narration gain and normalization into one clear voice section and
+  keeps optional layer details hidden until that layer is enabled.
+- Folds merged-audio verification into the output summary, removing a
+  redundant final card while preserving the same integrity check.
+
+---
+
 ## v1.0.738 — 2026-07-25
 
 **Audio now states the real GenStudio TTS request boundary without a dead Settings link.**
