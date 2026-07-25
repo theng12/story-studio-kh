@@ -76,14 +76,13 @@ test('thumbnail prompt repair preserves the aspect ratio and ready-to-use title'
   assert.match(fixed, /inside the image/i)
 })
 
-test('composite recipes reserve a text-free generation and keep the title for Story Studio overlay', () => {
+test('recipe thumbnails instruct the image model to render the complete episode title', () => {
   const directive = buildThumbnailDirective({
     thumbs: 1,
     title: 'The Economics of a Coffee Shop',
     textStyle: 'shadow',
     fontStyle: 'bold',
     textPosition: 'top',
-    titleMode: 'composite',
     fmt: {
       layout: 'annotated-collage',
       conceptGuidance: 'One central storefront with operating objects.',
@@ -94,14 +93,11 @@ test('composite recipes reserve a text-free generation and keep the title for St
   const fixed = enforceThumbnailPromptElements('A central coffee storefront.', {
     aspectRatio: '16:9',
     title: 'The Economics of a Coffee Shop',
-    titleMode: 'composite',
   })
 
-  assert.match(directive, /do NOT render any letters, words, numerals, logos, labels, or watermarks/i)
+  assert.match(directive, /render this exact episode title inside the image/i)
   assert.match(directive, /six supporting operating objects/i)
-  assert.doesNotMatch(directive, /render “The Economics of a Coffee Shop”/i)
-  assert.match(fixed, /do not render letters, words, numbers, labels, logos, watermarks, or fake typography/i)
-  assert.doesNotMatch(fixed, /inside the image/i)
+  assert.match(fixed, /Render the exact episode title "The Economics of a Coffee Shop" inside the image/i)
 })
 
 test('the thumbnail executor sends a thumbnail-only response contract', () => {

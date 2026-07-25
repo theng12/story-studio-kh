@@ -6,7 +6,7 @@
           <div>
             <p class="recipe-eyebrow">Thumbnail Catalog</p>
             <h2>Choose a reusable thumbnail format</h2>
-            <p>Each card shows real generated examples. The recipe directs the composition; Story Studio composites the headline afterward for reliable text.</p>
+            <p>Each card shows real generated examples. The recipe directs the composition and tells your selected image model how to render the complete headline.</p>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" @click="close">Close</button>
         </header>
@@ -41,7 +41,6 @@
                   @click.stop="setPreview(recipe.id, index)"
                 />
               </div>
-              <span v-if="recipe.recipe?.titleMode === 'composite'" class="recipe-safe">Safe text overlay</span>
             </div>
             <div class="recipe-content">
               <div class="recipe-title-row">
@@ -65,7 +64,7 @@
         </div>
 
         <footer class="recipe-footer">
-          <p v-if="selectedRecipe">{{ selectedRecipe.name }} will set the composition and title-overlay defaults. Your visual art style remains independent.</p>
+          <p v-if="selectedRecipe">{{ selectedRecipe.name }} will set the composition and complete model-rendered headline guidance. Your visual art style remains independent.</p>
           <p v-else>Choose a recipe to continue.</p>
           <button type="button" class="btn btn-primary" :disabled="!selectedRecipe" @click="confirm">Use selected recipe</button>
         </footer>
@@ -87,7 +86,7 @@ interface ThumbnailRecipe {
   previewImages?: string[]
   recipe?: {
     layout?: string
-    titleMode?: 'ai' | 'composite'
+    titleMode?: 'ai'
     defaultTextStyle?: string
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom'
@@ -150,7 +149,7 @@ watch(() => props.selectedRecipeId, id => { if (id) draftId.value = id })
 .recipe-toolbar { display:flex; gap:10px; padding:16px 26px; }.recipe-toolbar .input { flex:1; }.recipe-toolbar .select { width:190px; }
 .recipe-status { padding:45px 26px; text-align:center; color:var(--text-muted,#a1a1aa); }.recipe-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:16px; padding:0 26px 24px; }
 .recipe-card { overflow:hidden; border:2px solid var(--border,#40404a); border-radius:12px; background:var(--surface-elevated,#26262e); cursor:pointer; transition:border-color .15s,transform .15s; }.recipe-card:hover { transform:translateY(-2px); border-color:rgba(110,168,254,.65); }.recipe-card.is-selected { border-color:var(--accent,#6ea8fe); box-shadow:0 0 0 1px var(--accent,#6ea8fe) inset; }
-.recipe-preview { position:relative; aspect-ratio:16/9; background:#121212; }.recipe-preview img { width:100%; height:100%; object-fit:cover; display:block; }.recipe-safe { position:absolute; top:9px; left:9px; border-radius:99px; padding:4px 7px; background:rgba(11,85,55,.9); color:#d6ffe7; font-size:var(--font-xs); font-weight:700; }.recipe-dots { position:absolute; bottom:9px; left:50%; transform:translateX(-50%); display:flex; gap:5px; }.recipe-dots button { width:7px; height:7px; border:0; border-radius:50%; background:rgba(255,255,255,.5); padding:0; cursor:pointer; }.recipe-dots button.active { background:#fff; transform:scale(1.25); }
+.recipe-preview { position:relative; aspect-ratio:16/9; background:#121212; }.recipe-preview img { width:100%; height:100%; object-fit:cover; display:block; }.recipe-dots { position:absolute; bottom:9px; left:50%; transform:translateX(-50%); display:flex; gap:5px; }.recipe-dots button { width:7px; height:7px; border:0; border-radius:50%; background:rgba(255,255,255,.5); padding:0; cursor:pointer; }.recipe-dots button.active { background:#fff; transform:scale(1.25); }
 .recipe-content { padding:14px; }.recipe-title-row { display:flex; gap:8px; align-items:start; justify-content:space-between; }.recipe-content h3 { margin:0; font-size:16px; }.recipe-content p { margin:8px 0 11px; min-height:52px; color:var(--text-muted,#a1a1aa); font-size:12px; line-height:1.4; }.recipe-headlines { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 10px; }.recipe-headlines strong { width:100%; color:var(--text-muted,#a1a1aa); font-size:var(--font-xs); text-transform:uppercase; letter-spacing:.05em; }.recipe-headlines span { border-left:2px solid #ef3f35; padding-left:5px; color:var(--text,#f4f4f5); font-size:var(--font-xs); font-weight:700; }.recipe-category,.recipe-tags span { border-radius:99px; background:rgba(255,255,255,.08); padding:3px 6px; font-size:var(--font-xs); white-space:nowrap; }.recipe-tags { display:flex; flex-wrap:wrap; gap:5px; }.recipe-select-line { display:flex; justify-content:space-between; margin-top:13px; color:var(--accent,#6ea8fe); font-size:var(--font-xs); font-weight:700; text-transform:capitalize; }
 .recipe-footer { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:16px 26px; border-top:1px solid var(--border,#40404a); }.recipe-footer p { margin:0; color:var(--text-muted,#a1a1aa); font-size:12px; }
 @media (max-width:640px) { .recipe-backdrop { padding:0; }.recipe-modal { max-height:100vh; border-radius:0; }.recipe-header,.recipe-footer { padding:18px; }.recipe-toolbar,.recipe-grid { padding-left:18px; padding-right:18px; }.recipe-toolbar { flex-direction:column; }.recipe-toolbar .select { width:100%; }.recipe-footer { align-items:flex-start; flex-direction:column; }.recipe-footer .btn { width:100%; } }

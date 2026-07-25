@@ -7,10 +7,10 @@ const root = resolve(process.cwd(), '..')
 const templatePath = resolve(root, 'electron/server/thumbnail-templates/annotated-business-board.json')
 const businessNichePath = resolve(root, 'electron/server/niches/business-economics.json')
 
-test('annotated business board ships a compositing recipe and three real browseable examples', () => {
+test('annotated business board ships an AI-headline recipe and three real browseable examples', () => {
   const recipe = JSON.parse(readFileSync(templatePath, 'utf8'))
   assert.equal(recipe.id, 'annotated-business-board')
-  assert.equal(recipe.recipe.titleMode, 'composite')
+  assert.equal(recipe.recipe.titleMode, 'ai')
   assert.equal(recipe.recipe.layout, 'annotated-collage')
   assert.ok(recipe.recipe.requiredElements.length >= 3)
   assert.equal(recipe.previewImages.length, 3)

@@ -485,20 +485,10 @@
           </div>
         </div>
 
-        <!-- v1.0.224 — title-text mode + dynamic art direction ─────────── -->
         <div class="form-group mt-2">
           <label>Title text</label>
-          <select v-model="form.thumbnail.thumb_title_mode" class="select">
-            <option value="ai">Render the title into the image (AI)</option>
-            <option value="composite">Text-free background — overlay the title afterward (Compose)</option>
-          </select>
           <p class="text-muted text-xs hint-line">
-            <template v-if="form.thumbnail.thumb_title_mode === 'composite'">
-              The thumbnail is generated WITHOUT any text. After rendering, use the Compose dialog to overlay a crisp, perfectly legible title via your thumbnail template — the text / font / position pickers above are ignored in this mode.
-            </template>
-            <template v-else>
-              The AI renders the episode title into the image using the text / font / position above (defaulting to this format's recommended style). Quick, but lettering can occasionally come out imperfect — switch to Compose for guaranteed-legible text.
-            </template>
+            Your selected image model renders the exact episode title directly in the thumbnail using the text, font, and position controls above.
           </p>
         </div>
 
@@ -1166,8 +1156,7 @@ type ThumbnailForm = SharedFormFields & {
   thumb_text_position: string
   thumb_font_style: string
   thumb_font_style_custom: string
-  // v1.0.224 — dynamic thumbnail direction (auto-saved via the preset snapshot).
-  thumb_title_mode: 'ai' | 'composite'
+  thumb_title_mode: 'ai'
   thumb_art_direction: string
   thumb_reference_style: string
   thumb_creative_mode: 'strict' | 'guided' | 'open'
@@ -1228,7 +1217,6 @@ const THUMBNAIL_TREATMENTS = [
   { id: 'cinematic-minimal', label: 'Cinematic Minimal' },
   { id: 'cozy-story', label: 'Cozy Story' },
   { id: 'documentary-impact', label: 'Documentary Impact' },
-  { id: 'text-free-compose', label: 'Text-Free Compose' },
 ] as const
 
 function applyThumbnailVisualStyle(data: { style_bible: string; negative_prompt: string }): void {
@@ -1243,7 +1231,6 @@ type SelectedThumbnailRecipe = {
   id: string
   name: string
   recipe?: {
-    titleMode?: 'ai' | 'composite'
     defaultTextStyle?: string
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom'
@@ -1255,7 +1242,7 @@ async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<
   form.thumbnail.thumbnail_template_id = template.id
   selectedThumbnailRecipeName.value = template.name
   const recipe = template.recipe
-  if (recipe?.titleMode) form.thumbnail.thumb_title_mode = recipe.titleMode
+  form.thumbnail.thumb_title_mode = 'ai'
   if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
   if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
   if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
@@ -1301,13 +1288,6 @@ function applyThumbnailTreatment(): void {
       thumb_text_position: 'bottom',
       thumb_art_direction: 'High-impact documentary cover with a strong factual focal image, clear visual stakes, dramatic but credible lighting, restrained annotation energy, sharp silhouette separation and mobile-readable hierarchy.',
     },
-    'text-free-compose': {
-      thumb_title_mode: 'composite',
-      thumb_text_style: 'white',
-      thumb_font_style: 'bold',
-      thumb_text_position: 'center',
-      thumb_art_direction: 'Text-free thumbnail background designed for later title compositing, one strong focal subject, clean uncluttered negative-space region, high subject/background separation and no lettering inside the generated image.',
-    },
   }
   Object.assign(form.thumbnail, treatments[id] || {})
 }
@@ -1318,6 +1298,7 @@ function applyThumbnailTreatment(): void {
 // re-overwrite on the next visit.
 useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] })
 form.thumbnail.force = false
+form.thumbnail.thumb_title_mode = 'ai'
 form.scene.force = false
 
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
@@ -2036,7 +2017,7 @@ async function runGenerate(mode: PromptMode) {
       chapter_count: effectiveChapterCount.value,
       thumb_count: form.thumbnail.thumb_count,
       thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
-      thumb_title_mode: form.thumbnail.thumb_title_mode,
+      thumb_title_mode: 'ai',
       thumb_text_style: form.thumbnail.thumb_text_style,
       thumb_text_position: form.thumbnail.thumb_text_position,
       thumb_font_style: form.thumbnail.thumb_font_style,

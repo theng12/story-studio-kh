@@ -80,7 +80,7 @@ interface ThumbnailTemplateLite {
   previewImages?: string[]
   category?: string
   tags?: string[]
-  recipe?: { titleMode?: 'ai' | 'composite' }
+  recipe?: { titleMode?: 'ai' }
 }
 
 const props = defineProps<{

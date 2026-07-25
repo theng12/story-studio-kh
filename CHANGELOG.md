@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.725 — 2026-07-25
+
+**Thumbnail recipes now render complete AI-generated thumbnails.**
+
+- Removes the text-free and post-render title-overlay path from the Thumbnail
+  Recipe Catalog. The selected image model now renders the complete, exact
+  episode headline as part of every generated thumbnail.
+- Updates the catalog guidance and the three Annotated Business Board previews
+  so the gallery shows genuine model-rendered headlines, not composited text.
+- Keeps the recipe focused on its repeatable visual grammar—title band, central
+  hero, and supporting economics objects—while your project art style remains
+  independent.
+
+---
+
 ## v1.0.724 — 2026-07-25
 
 **Thumbnail formats are now reusable, previewable recipes.**

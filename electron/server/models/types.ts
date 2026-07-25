@@ -1073,11 +1073,10 @@ export interface ThumbnailTemplate {
   recommendedNicheIds?: string[]
 
   /**
-   * v1.0.724+ — thumbnail recipes extend a pure text-overlay template with
-   * a repeatable AI-art composition contract and real finished examples.
-   * Keep the template type for backwards compatibility: legacy templates
-   * remain valid overlays, while a template with `recipe` appears in the
-   * browsable Thumbnail Recipe Catalog.
+   * v1.0.724+ — thumbnail recipes add a repeatable AI-art composition
+   * contract and real finished examples. Keep the template type for backwards
+   * compatibility: legacy templates remain valid for manual composition,
+   * while a template with `recipe` appears in the browsable catalog.
    */
   category?: string
   /** Search aliases for the catalog; describe the click grammar, not a channel. */
@@ -1117,9 +1116,9 @@ export interface ThumbnailTemplate {
 }
 
 /**
- * The image-generation half of a ThumbnailTemplate. Text zones remain owned
- * by the template above, while this profile tells the prompt generator what
- * visual system it must build before Story Studio composites readable text.
+ * The image-generation half of a ThumbnailTemplate. This profile tells the
+ * prompt generator the visual system, including the complete headline, that
+ * the selected image model must render.
  */
 export interface ThumbnailRecipeProfile {
   layout: 'hero' | 'annotated-collage'
@@ -1127,13 +1126,12 @@ export interface ThumbnailRecipeProfile {
   compositionRules?: string[]
   requiredElements?: string[]
   avoid?: string[]
-  /** `composite` means generated artwork must contain no lettering. */
-  titleMode?: 'ai' | 'composite'
+  /** The selected image model renders the complete title inside the image. */
+  titleMode?: 'ai'
   defaultTextStyle?: string
   defaultFontStyle?: string
   defaultTextPosition?: 'top' | 'center' | 'bottom'
-  /** Reusable editorial headline shapes shown in the catalog. The exact
-   * episode title is still composited rather than copied blindly. */
+  /** Reusable editorial headline shapes shown in the catalog. */
   headlineFormats?: string[]
   /** Optional visual-language hint; never replaces the project art style. */
   visualStyleGuidance?: string
