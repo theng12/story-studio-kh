@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.740 — 2026-07-26
+
+**Audio Assembly now makes the music and opening choices unambiguous.**
+
+- Separates the project Music Pool from a hand-picked episode playlist, so a
+  pool choice never silently mixes with saved manual tracks.
+- Makes the two opening options explicit: use a standalone intro clip for a
+  jingle or tag, or a Music lead-in for the first seconds of the same track.
+- Replaces the misleading pool **Pick another** control with **Refresh**;
+  a refresh does not advance a pool cursor before a successful merge.
+
+---
+
 ## v1.0.739 — 2026-07-25
 
 **Audio Assembly now keeps its useful controls visible without a wall of cards.**

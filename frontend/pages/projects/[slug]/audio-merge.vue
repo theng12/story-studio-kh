@@ -212,16 +212,17 @@
         </div>
       </header>
 
-    <!-- Intro Audio -->
+    <!-- A standalone opening is distinct from the music lead-in below: this
+         accepts a dedicated jingle, spoken tag, or any other clip. -->
     <div class="audio-mix-section audio-mix-section--intro">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="intro.enabled" />
         </label>
-        <h3>Intro Audio</h3>
+        <h3>Standalone intro clip</h3>
       </div>
       <p class="text-muted text-sm mt-1">
-        Optional intro clip prepended to the narration (e.g. channel jingle, theme music).
+        Optional jingle, spoken tag, or dedicated opening clip. To open with the first seconds of the selected music track instead, use <strong>Music lead-in</strong> below.
       </p>
 
       <div v-if="intro.enabled" class="mt-2">
@@ -290,11 +291,34 @@
         Loops one or more music files under the narration. The post-narration volume kicks in once the last chapter ends, in case you want music to swell or fade out.
       </p>
 
-      <!-- v1.0.107+ — Music Pool panel. Manages the project-scoped pool -->
-      <!-- (strategy + tracks + cycler). Auto-pick fills music.files when -->
-      <!-- strategy != manual and the form isn't already populated. -->
+      <div v-if="music.enabled" class="music-source-switch mt-2" role="radiogroup" aria-label="Background music source">
+        <button
+          type="button"
+          :class="['music-source-option', { active: music.source === 'pool' }]"
+          role="radio"
+          :aria-checked="music.source === 'pool'"
+          @click="setMusicSource('pool')"
+        >
+          <strong>Music Pool</strong>
+          <span>Automatically choose one eligible channel track</span>
+        </button>
+        <button
+          type="button"
+          :class="['music-source-option', { active: music.source === 'manual' }]"
+          role="radio"
+          :aria-checked="music.source === 'manual'"
+          @click="setMusicSource('manual')"
+        >
+          <strong>Choose for this episode</strong>
+          <span>Use only the file or playlist selected below</span>
+        </button>
+      </div>
+
+      <!-- The pool and the episode-specific playlist are intentionally
+           exclusive sources. A pool pick never gets mixed with stale manual
+           files from a previous episode. -->
       <MusicPoolPanel
-        v-if="music.enabled"
+        v-if="music.enabled && music.source === 'pool'"
         ref="musicPoolPanelRef"
         :project-slug="slug"
         :default-volumes="{
@@ -308,7 +332,7 @@
 
       <!-- Auto-pick banner: shows when the cycler chose this episode's -->
       <!-- track, with controls to swap or skip. -->
-      <div v-if="music.enabled && poolPickedTrack" class="pool-pick-banner mt-2">
+      <div v-if="music.enabled && music.source === 'pool' && poolPickedTrack" class="pool-pick-banner mt-2">
         <div class="ppb-icon" aria-hidden="true">🎶</div>
         <div class="ppb-text">
           <strong>Auto-picked from pool:</strong>
@@ -320,7 +344,7 @@
           class="link-btn ppb-action"
           @click="refreshPoolPeek"
           :disabled="poolPeekLoading"
-        >Pick another</button>
+        >Refresh</button>
         <button
           type="button"
           class="link-btn ppb-action"
@@ -328,7 +352,11 @@
         >Skip — use no music</button>
       </div>
 
-      <div v-if="music.enabled" class="mt-2">
+      <p v-else-if="music.enabled && music.source === 'pool' && !poolPeekLoading" class="text-muted text-sm mt-2">
+        No eligible pool track is ready for this episode. Add or enable one in the Music Pool, or choose a file for this episode instead.
+      </p>
+
+      <div v-if="music.enabled && music.source === 'manual'" class="mt-2">
         <!-- Music File List with Play Buttons. The full path is shown on
              each row (filename in primary text, directory dimmed below)
              so the user can tell at a glance where each file lives —
@@ -369,8 +397,10 @@
             </button>
           </div>
         </div>
+      </div>
 
-        <!-- Volume controls -->
+      <div v-if="music.enabled && hasSelectedMusic" class="mt-2">
+        <!-- Levels apply to whichever single source is selected above. -->
         <div class="grid-2 mt-2">
           <div class="form-group">
             <label>Volume During Narration ({{ music.volume }}%)</label>
@@ -392,20 +422,19 @@
           </div>
         </div>
 
-        <!-- v1.0.397 — Music intro lead-in. Play the first N seconds of THIS
-             track at full volume as the intro, then duck to "Volume During
-             Narration" exactly as the voice starts (the narration is delayed
-             by N). No separate intro file or trimming needed — though the
-             Intro section below still works if you'd rather upload one. -->
+        <!-- Music lead-in uses the selected music track, unlike the
+             standalone intro clip above. Both are available deliberately:
+             use this for one continuous music bed; use the standalone clip
+             for a separate jingle or spoken tag. -->
         <div class="lead-in-block mt-2">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="music.lead_in_enabled" />
-            <span>Use the first few seconds as a full-volume intro</span>
+            <span>Music lead-in</span>
           </label>
           <p class="hint" style="margin: 4px 0 0;">
             Plays this track at <strong>100%</strong> for the chosen time, then ducks to
             <strong>{{ music.volume }}%</strong> as the voiceover begins — the voice is delayed by
-            that long. Lets one track double as the intro sting; no need to split a separate intro file.
+            that long. This is not a separate intro clip.
           </p>
           <div v-if="music.lead_in_enabled" class="form-group mt-2">
             <label>Intro length ({{ music.lead_in_seconds }}s of full-volume music before the voice)</label>
@@ -687,7 +716,7 @@
           </div>
           <div class="summary-row">
             <span class="text-muted">Music</span>
-            <span>{{ music.enabled && music.files.length ? music.files.length + ' file(s), ' + music.volume + '% vol' : 'None' }}</span>
+            <span>{{ music.enabled && hasSelectedMusic ? `${music.source === 'pool' ? 'Pool: ' : ''}${selectedMusicFiles.length} file(s), ${music.volume}% vol` : 'None' }}</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Noise</span>
@@ -818,11 +847,8 @@ function loadEpisodeDataDebounced() {
 watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
 watch(slug, (s) => { if (s) void loadProject(s) }, { immediate: true })
 
-// v1.0.107+ — when an audio-merge job completes (audioMergeGenerating
-// flips back to false after being true), the backend may have advanced
-// the music-pool cursor + appended to the usage log. Refresh the pool
-// panel + the next-track peek so the UI immediately reflects the new
-// state, without forcing the user to navigate away + back.
+// A completed merge may advance the selected Music Pool track. Refresh its
+// panel and current pick without making the user leave the workspace.
 watch(() => audioMergeGenerating.value, (now, prev) => {
   if (prev === true && now === false) {
     musicPoolPanelRef.value?.refresh()
@@ -852,6 +878,9 @@ const chapters = ref<Array<{ filename: string; path: string; label: string; dura
 
 const music = reactive({
   enabled: false,
+  // A channel Music Pool and a hand-picked episode playlist are separate
+  // sources. Keeping the choice in the preset prevents accidental mixing.
+  source: 'pool' as 'pool' | 'manual',
   files: [] as string[],
   volume: 15,
   post_narration_volume: 40,
@@ -865,17 +894,17 @@ const music = reactive({
 })
 const newMusicPath = ref('')
 
-// v1.0.107+ — Music Pool integration state.
-// `poolPickedTrack` is the filename (not full path) the cycler picked
-// for the currently-loaded episode. When non-empty, it gets sent to
-// the audio-merge job as `music_pool_track` so the backend can record
-// the use after a successful merge. Reset to '' if the user clicks
-// "Pick another" or "Skip", swaps the music files manually, or unchecks
-// the Music Enabled toggle.
+// Music Pool state remains separate from hand-picked episode files. Only a
+// submitted pool pick advances the pool cursor after a successful merge.
 const poolPickedTrack = ref('')
+const poolPickedPath = ref('')
 const poolPickedReason = ref('')
 const poolPeekLoading = ref(false)
 const musicPoolPanelRef = ref<{ refresh: () => Promise<void> } | null>(null)
+
+watch(() => music.enabled, (enabled) => {
+  if (enabled && music.source === 'pool' && !poolPickedPath.value) void refreshPoolPeek()
+})
 
 const backgroundNoise = reactive({
   enabled: false,
@@ -1002,7 +1031,16 @@ const mergePresets = usePresets<any>({
   apply: (data) => {
     if (!data) return
     if (data.intro) Object.assign(intro, data.intro)
-    if (data.music) Object.assign(music, data.music, { files: [...(data.music.files || [])] })
+    if (data.music) {
+      Object.assign(music, data.music, {
+        // Older presets had no source. A saved file list is clearly an
+        // episode playlist; an empty list can safely use the channel pool.
+        source: data.music.source === 'pool' || data.music.source === 'manual'
+          ? data.music.source
+          : data.music.files?.length ? 'manual' : 'pool',
+        files: [...(data.music.files || [])],
+      })
+    }
     if (data.background_noise) Object.assign(backgroundNoise, data.background_noise)
     if (Array.isArray(data.ambient_tracks)) {
       ambientTracks.splice(0, ambientTracks.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
@@ -1064,6 +1102,13 @@ const estimatedMergedDuration = computed(() => {
 const scannedMusicFiles = computed(() => {
   return scannedAssets.value?.music_files || []
 })
+
+const selectedMusicFiles = computed(() => {
+  if (music.source === 'pool') return poolPickedPath.value ? [poolPickedPath.value] : []
+  return music.files
+})
+
+const hasSelectedMusic = computed(() => selectedMusicFiles.value.length > 0)
 
 const existingMergedAudio = computed(() => {
   const files = scannedAssets.value?.merged_files
@@ -1353,17 +1398,15 @@ async function scanAssets() {
   } finally {
     scanning.value = false
   }
-  // v1.0.107+ — after the scan settles, ask the music pool what it
-  // would pick for this episode. Auto-fills music.files when:
-  //   - the pool strategy isn't 'manual'
-  //   - the cycler returns a track (pool non-empty + has enabled tracks)
-  //   - music.files is empty (don't trample the user's manual choices)
+  // After the scan, resolve the current pool selection without changing a
+  // hand-picked playlist.
   await refreshPoolPeek()
 }
 
 async function refreshPoolPeek() {
-  if (!episodeId.value) {
+  if (!episodeId.value || music.source !== 'pool') {
     poolPickedTrack.value = ''
+    poolPickedPath.value = ''
     poolPickedReason.value = ''
     return
   }
@@ -1387,33 +1430,35 @@ async function refreshPoolPeek() {
     if (r && r.track) {
       const portableTrackPath = await collapseToPortablePath(r.track.path)
       poolPickedTrack.value = r.track.filename
+      poolPickedPath.value = portableTrackPath
       poolPickedReason.value = r.reason
-      // Only auto-fill when the user hasn't already populated music.files.
-      // If the user already curated their own list, we DON'T trample it
-      // — but we still surface the suggestion in the banner so they know.
-      if (music.enabled && music.files.length === 0) {
-        music.files.push(portableTrackPath)
-        applyTrackOverrides(r.track)
-      } else if (!music.enabled && music.files.length === 0) {
-        // Pool has a pick + music is off — auto-enable so the cycler
-        // works "out of the box" for projects that opted into pool
-        // cycling. User can toggle off if they don't want music for
-        // this specific episode (and the Skip button clears the pick).
-        music.enabled = true
-        music.files.push(portableTrackPath)
-        applyTrackOverrides(r.track)
-      }
+      // Per-track pool metadata applies only while this source is selected.
+      applyTrackOverrides(r.track)
     } else {
       poolPickedTrack.value = ''
+      poolPickedPath.value = ''
       poolPickedReason.value = ''
     }
   } catch {
-    // Pool endpoint failed (missing route on older backend, transient
-    // network) — silently degrade to manual behaviour.
+    // Leave the pool source empty: the user can retry, repair the pool, or
+    // deliberately switch to an episode playlist.
     poolPickedTrack.value = ''
+    poolPickedPath.value = ''
     poolPickedReason.value = ''
   } finally {
     poolPeekLoading.value = false
+  }
+}
+
+function setMusicSource(source: 'pool' | 'manual') {
+  if (music.source === source) return
+  music.source = source
+  if (source === 'pool') {
+    void refreshPoolPeek()
+  } else {
+    poolPickedTrack.value = ''
+    poolPickedPath.value = ''
+    poolPickedReason.value = ''
   }
 }
 
@@ -1433,12 +1478,11 @@ function applyTrackOverrides(track: {
 }
 
 function clearPoolPick() {
-  // Drop the auto-picked file from music.files (matched by basename).
-  if (poolPickedTrack.value) {
-    const idx = music.files.findIndex(f => f.split('/').pop() === poolPickedTrack.value)
-    if (idx >= 0) music.files.splice(idx, 1)
-  }
+  // Pool picks are never inserted into the manual playlist, so skipping is
+  // safe and cannot delete a hand-picked track from a saved preset.
+  music.enabled = false
   poolPickedTrack.value = ''
+  poolPickedPath.value = ''
   poolPickedReason.value = ''
 }
 
@@ -1516,10 +1560,10 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
     }
   }
 
-  if (music.enabled && music.files.length) {
+  if (music.enabled && selectedMusicFiles.value.length) {
     payload.music = {
       enabled: true,
-      files: music.files,
+      files: selectedMusicFiles.value,
       volume: music.volume / 100,
       post_narration_volume: music.post_narration_volume / 100,
       fade_in: music.fade_in,
@@ -1528,15 +1572,10 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
       lead_in_enabled: music.lead_in_enabled,
       lead_in_seconds: music.lead_in_seconds,
     }
-    // v1.0.107+ — when the cycler pre-filled the track and the user
-    // didn't swap it out, tag the request so the backend records the
-    // use after a successful merge. We verify the picked file is still
-    // in music.files (user may have edited) by basename match.
-    if (poolPickedTrack.value) {
-      const stillUsed = music.files.some(f => f.split('/').pop() === poolPickedTrack.value)
-      if (stillUsed) {
-        payload.music_pool_track = poolPickedTrack.value
-      }
+    // Only a real pool selection advances the project pool cursor. A
+    // manually selected playlist must never be recorded as an auto pick.
+    if (music.source === 'pool' && poolPickedTrack.value && poolPickedPath.value) {
+      payload.music_pool_track = poolPickedTrack.value
     }
   }
 
@@ -1748,6 +1787,7 @@ onUnmounted(() => {
   .audio-mix-header, .merge-output-status { flex-direction: column; align-items: stretch; }
   .audio-mix-states { justify-content: flex-start; }
   .audio-mix-section--intro { grid-template-columns: 1fr; row-gap: 10px; }
+  .music-source-switch { grid-template-columns: 1fr; }
 }
 
 .btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 4px; line-height: 1; }
@@ -1767,6 +1807,30 @@ onUnmounted(() => {
 .music-dir { font-size: var(--font-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 
 .quick-add-music { padding: 8px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
+
+.music-source-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.music-source-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.music-source-option:hover { border-color: var(--text-secondary); }
+.music-source-option.active { border-color: var(--accent); background: var(--accent-dim); color: var(--text-primary); }
+.music-source-option strong { font-size: 13px; }
+.music-source-option span { font-size: var(--font-xs); line-height: 1.35; }
 
 .noise-preset-grid { display: flex; gap: 10px; flex-wrap: wrap; }
 .noise-preset-card { padding: 12px 16px; border-radius: var(--radius-md); background: var(--bg-primary); border: 2px solid var(--border); cursor: pointer; transition: all 0.15s; min-width: 140px; display: flex; flex-direction: column; gap: 4px; }

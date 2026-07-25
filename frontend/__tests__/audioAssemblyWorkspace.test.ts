@@ -17,3 +17,13 @@ test('keeps Audio Assembly mix settings visible and compact', () => {
   assert.doesNotMatch(page, /<AdvancedDisclosure/)
   assert.doesNotMatch(page, /audio_merge_advanced_open/)
 })
+
+test('makes background-music source and opening choices explicit', () => {
+  assert.match(page, /Background music source/)
+  assert.match(page, /Music Pool/)
+  assert.match(page, /Choose for this episode/)
+  assert.match(page, /Standalone intro clip/)
+  assert.match(page, /Music lead-in/)
+  assert.match(page, /selectedMusicFiles/)
+  assert.match(page, /music\.source === 'pool'/)
+})
