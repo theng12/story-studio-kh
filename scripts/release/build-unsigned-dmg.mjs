@@ -14,25 +14,21 @@ const { Arch, Platform, build } = require('electron-builder')
 const contract = JSON.parse(fs.readFileSync(path.join(root, 'release', 'desktop-release-contract.json'), 'utf8'))
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const baseConfig = JSON.parse(fs.readFileSync(path.join(root, 'electron-builder.json'), 'utf8'))
-const outputDir = path.join(root, 'dist', 'release-smoke')
+// The unsigned verification build is still a smoke candidate, but its DMG is
+// the artifact users need to pick up. Keep it in the normal dist handoff
+// folder instead of hiding it inside a release-smoke subdirectory.
+const outputDir = path.join(root, 'dist')
 
 if (process.platform !== 'darwin' || process.arch !== 'arm64') {
   console.error(`Unsigned DMG smoke packaging requires an arm64 Mac; got ${process.platform}/${process.arch}.`)
   process.exit(1)
 }
 
-const distRoot = path.join(root, 'dist') + path.sep
-if (!outputDir.startsWith(distRoot)) throw new Error(`Refusing to clean unexpected output path: ${outputDir}`)
-
 function runNpm(args) {
   const result = spawnSync('npm', args, { cwd: root, stdio: 'inherit', env: process.env })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`npm ${args.join(' ')} exited ${result.status}`)
 }
-
-// The smoke directory is dedicated generated output. Cleaning only this
-// validated path prevents a stale app or DMG from satisfying verification.
-fs.rmSync(outputDir, { recursive: true, force: true })
 
 runNpm(['run', 'fetch:ffmpeg'])
 runNpm(['run', 'build'])
@@ -56,19 +52,27 @@ config.mac = {
 }
 config.forceCodeSigning = false
 
-console.log(`[release-smoke] packaging unsigned ${contract.productName} v${pkg.version} (${contract.architectures[0]})`)
-await build({
-  targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
-  config,
-  publish: 'never',
-})
-
 const artifactName = expandArtifactName(contract.artifactName, {
   productName: contract.productName,
   version: pkg.version,
   arch: contract.architectures[0],
   ext: 'dmg',
 })
+const appOutputDir = path.join(outputDir, 'mac-arm64')
+const dmgOutputPath = path.join(outputDir, artifactName)
+// Never clean the whole dist folder: it is the visible handoff location and
+// may contain prior releases. Remove only this version's app + DMG so stale
+// files cannot satisfy the verification that follows.
+fs.rmSync(appOutputDir, { recursive: true, force: true })
+fs.rmSync(dmgOutputPath, { force: true })
+
+console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
+await build({
+  targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
+  config,
+  publish: 'never',
+})
+
 const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
 const dmgPath = path.join(outputDir, artifactName)
 
@@ -80,4 +84,4 @@ const verify = spawnSync(process.execPath, [
 if (verify.error) throw verify.error
 if (verify.status !== 0) throw new Error(`artifact verification exited ${verify.status}`)
 
-console.log(`[release-smoke] ready: ${dmgPath}`)
+console.log(`[unsigned-package] ready: ${dmgPath}`)

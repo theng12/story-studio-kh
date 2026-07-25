@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.733 — 2026-07-25
+
+**Unsigned DMG handoffs now arrive in the normal `dist/` folder.**
+
+- Keeps the existing unsigned package verification—fresh build, DMG mount,
+  app bundle inspection, and checksum—but writes the finished DMG directly to
+  `dist/Story Studio KH <version>-arm64.dmg`.
+- Preserves prior files in `dist/`; packaging removes only the current
+  version's app output and DMG before it rebuilds.
+
+---
+
 ## v1.0.732 — 2026-07-25
 
 **Script writing is now one Formula-aware flow instead of a page full of overlapping controls.**

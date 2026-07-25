@@ -32,7 +32,7 @@ function argValue(name) {
   return process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length)
 }
 
-const outputDir = path.resolve(root, argValue('--output') || 'dist/release-smoke')
+const outputDir = path.resolve(root, argValue('--output') || 'dist')
 const arch = contract.architectures[0]
 const artifactName = expandArtifactName(contract.artifactName, {
   productName: contract.productName,

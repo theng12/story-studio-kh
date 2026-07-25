@@ -30,7 +30,7 @@ build, and the production Electron compile. The release check additionally
 proves that the renderer's startup document has no remote script, stylesheet,
 or font dependency and that every referenced startup asset is present locally.
 
-For a local packaging smoke test that neither installs nor launches the app:
+For a local unsigned packaging check that neither installs nor launches the app:
 
 ```bash
 npm run dist:smoke
@@ -40,7 +40,8 @@ That command:
 
 1. validates or fetches the pinned universal FFmpeg inputs;
 2. rebuilds from source;
-3. clears only `dist/release-smoke` to prevent stale-artifact passes;
+3. clears only this version's `dist/mac-arm64` app and `dist/<artifact>.dmg`
+   to prevent stale-artifact passes while preserving older handoff builds;
 4. forces Electron Builder signing identity to `null`, disables notarization,
    and publishes nothing;
 5. creates the arm64 app and DMG;
@@ -53,8 +54,8 @@ Re-run artifact verification without rebuilding:
 
 ```bash
 npm run verify:artifact -- \
-  --app "dist/release-smoke/mac-arm64/Story Studio KH.app" \
-  --dmg "dist/release-smoke/Story Studio KH <version>-arm64.dmg"
+  --app "dist/mac-arm64/Story Studio KH.app" \
+  --dmg "dist/Story Studio KH <version>-arm64.dmg"
 ```
 
 The smoke artifact is not a distributable release.
