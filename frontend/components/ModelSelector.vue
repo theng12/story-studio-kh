@@ -64,7 +64,14 @@ function isDisabled(model: LlmModelRow): boolean {
 }
 
 const menuOptions = computed(() => {
-  const rows = allModels.value.map((model) => {
+  // A reference-guided request has an image input. Do not leave text-only
+  // models in the menu as disabled dead ends: they cannot run this request at
+  // all, and showing them invites a confusing failure after the user uploads
+  // a reference. The server remains authoritative at execution time.
+  const eligibleModels = props.requireVision
+    ? allModels.value.filter(model => isUsableLiveGenStudioModel(model, true))
+    : allModels.value
+  const rows = eligibleModels.map((model) => {
     const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
@@ -127,6 +134,7 @@ async function loadModels(): Promise<void> {
 
 watch(() => props.projectSlug, loadModels, { immediate: true })
 watch(() => props.modelValue, syncModelSelection)
+watch(() => props.requireVision, syncModelSelection)
 </script>
 
 <style scoped>

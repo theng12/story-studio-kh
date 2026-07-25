@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.730 — 2026-07-25
+
+**Thumbnail reference import is now visible and recoverable in the live prompt workspace.**
+
+- Places **Reference-guided thumbnail** immediately after Thumbnail Recipe and
+  Visual Art Style, with an explicit **Import & analyse reference** action.
+- Keeps the workflow visible during a temporary GenStudio catalog outage and
+  provides an in-place retry with an actionable explanation instead of hiding
+  the feature.
+- Publishes the live vision capability through the shared prompt-model catalog;
+  once a reference is attached, text-only LLMs are removed from that selector.
+
+---
+
 ## v1.0.729 — 2026-07-25
 
 **Thumbnail references can now be analysed privately with GenStudio vision models.**

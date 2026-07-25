@@ -114,7 +114,10 @@ router.get('/models', async (_req, res) => {
         ? null
         : (model.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),
       hint: model.description || null,
-      supports_vision: false,
+      // The live GenStudio catalog is the capability authority. This is used
+      // by reference-guided thumbnail prompts to keep text-only models out of
+      // the picker once an image reference is attached.
+      supports_vision: model.supports_vision,
       unlimited_relaxed: model.unlimited_relaxed,
       context_limit_tokens: model.context_limit_tokens,
       max_output_tokens: model.max_output_tokens,

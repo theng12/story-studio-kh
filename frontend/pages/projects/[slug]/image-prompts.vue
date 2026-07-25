@@ -573,9 +573,11 @@
             v-model="form.thumbnail.model"
             :project-slug="slug"
             label="Prompt model"
+            :require-vision="Boolean(form.thumbnail.thumb_reference_asset)"
           />
           <p class="text-muted text-xs hint-line">
-            This model writes the thumbnail prompts. Image rendering uses the separate model chosen in Thumbnail Generator.
+            <template v-if="form.thumbnail.thumb_reference_asset">Only vision-capable models are shown while this reference is attached.</template>
+            <template v-else>This model writes the thumbnail prompts. Image rendering uses the separate model chosen in Thumbnail Generator.</template>
           </p>
         </div>
         <div class="form-group">
@@ -598,6 +600,88 @@
           @apply="applyThumbnailVisualStyle"
         />
       </div>
+
+      <section class="thumbnail-reference-card mt-2" aria-labelledby="thumbnail-reference-heading">
+        <div class="thumbnail-reference-card__heading">
+          <div>
+            <p class="thumbnail-reference-card__eyebrow">OPTIONAL · PRIVATE INPUT</p>
+            <h3 id="thumbnail-reference-heading">Reference-guided thumbnail</h3>
+            <p class="text-muted text-xs">
+              Import one existing thumbnail, analyse its composition, then use it privately as an original re-framing guide for this channel.
+            </p>
+          </div>
+          <span class="thumbnail-reference-card__status" :class="{ active: form.thumbnail.thumb_reference_asset }">
+            {{ form.thumbnail.thumb_reference_asset ? 'Reference ready' : 'No reference' }}
+          </span>
+        </div>
+
+        <div class="flex gap-2 items-center flex-wrap mt-1">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="extractingThumbRef || !thumbnailVisionModels.length"
+            @click="extractThumbReferenceStyle"
+          >
+            <LoadingSpinner v-if="extractingThumbRef" size="sm" />
+            <span v-else aria-hidden="true">📷</span>
+            {{ form.thumbnail.thumb_reference_asset ? 'Replace & analyse reference…' : 'Import & analyse reference…' }}
+          </button>
+          <button
+            v-if="form.thumbnail.thumb_reference_asset"
+            type="button"
+            class="btn btn-ghost"
+            @click="clearThumbnailReference"
+          >
+            Remove reference
+          </button>
+          <button
+            v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
+            type="button"
+            class="btn btn-ghost"
+            :disabled="thumbnailVisionLoading"
+            @click="loadThumbnailVisionModels"
+          >
+            {{ thumbnailVisionLoading ? 'Checking vision models…' : 'Retry vision models' }}
+          </button>
+        </div>
+
+        <template v-if="thumbnailVisionModels.length">
+          <p class="text-muted text-xs hint-line">
+            The image is uploaded privately to GenStudio for analysis and generation—never as a local path, browser URL, or public URL.
+          </p>
+          <div class="form-group mt-1">
+            <label>Composition analysis model</label>
+            <ModelMenu
+              v-model="thumbnailVisionModel"
+              class="vision-model-select"
+              :options="thumbnailVisionModelMenuOptions"
+              media-type="llm"
+              title="Thumbnail reference analysis model"
+              search-placeholder="Search vision models…"
+              :disabled="extractingThumbRef"
+            />
+            <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
+              {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
+            </p>
+          </div>
+        </template>
+        <p v-else class="thumbnail-reference-card__warning">
+          {{ thumbnailVisionLoadError || 'No currently available GenStudio model is qualified to analyse a thumbnail reference. Check the GenStudio connection, then retry.' }}
+        </p>
+
+        <template v-if="form.thumbnail.thumb_reference_asset">
+          <textarea
+            v-model="form.thumbnail.thumb_reference_style"
+            class="textarea mt-1"
+            rows="3"
+            aria-label="Reference composition brief"
+            placeholder="Analysed composition brief…"
+          />
+          <p class="text-muted text-xs hint-line">
+            <strong>{{ form.thumbnail.thumb_reference_asset.filename }}</strong> · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }} · saved with this preset, project, and Pipeline runs.
+          </p>
+        </template>
+      </section>
 
       <div class="grid-3 mt-2">
         <div class="form-group">
@@ -651,45 +735,6 @@
         />
         <p class="text-muted text-xs hint-line">
           The episode title is rendered directly into every thumbnail. Each result is ready to use as generated.
-        </p>
-      </div>
-
-      <div v-if="thumbnailVisionModels.length" class="form-group mt-2">
-        <label>Reference image <span class="text-muted">(optional)</span></label>
-        <div class="flex gap-2 items-center flex-wrap">
-          <button
-            type="button"
-            class="btn btn-secondary"
-            :disabled="extractingThumbRef"
-            @click="extractThumbReferenceStyle"
-          >
-            <LoadingSpinner v-if="extractingThumbRef" size="sm" />
-            <span v-else aria-hidden="true">📷</span>
-            {{ form.thumbnail.thumb_reference_asset ? 'Change reference…' : 'Use a reference image…' }}
-          </button>
-          <button
-            v-if="form.thumbnail.thumb_reference_asset"
-            type="button"
-            class="btn btn-ghost"
-            @click="clearThumbnailReference"
-          >
-            Remove reference
-          </button>
-        </div>
-        <p class="text-muted text-xs hint-line">
-          Story Studio extracts visual style and thumbnail composition. It does not copy the image's text, logo, or subject.
-        </p>
-        <ModelMenu
-          v-model="thumbnailVisionModel"
-          class="vision-model-select mt-1"
-          :options="thumbnailVisionModelMenuOptions"
-          media-type="llm"
-          title="Thumbnail reference analysis model"
-          search-placeholder="Search vision models…"
-          :disabled="extractingThumbRef"
-        />
-        <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
-          {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
         </p>
       </div>
 
@@ -1066,6 +1111,8 @@ const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
 })))
 const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
 const thumbnailVisionModel = ref('')
+const thumbnailVisionLoading = ref(false)
+const thumbnailVisionLoadError = ref('')
 const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => ({
   id: model.id,
   label: model.display_name,
@@ -1729,13 +1776,23 @@ async function loadVisionCaps() {
 }
 
 async function loadThumbnailVisionModels() {
+  thumbnailVisionLoading.value = true
+  thumbnailVisionLoadError.value = ''
   try {
     const data = await get<{ models: ThumbnailVisionModel[] }>(`/projects/${slug.value}/thumbnail-reference/vision-models`)
     thumbnailVisionModels.value = Array.isArray(data.models) ? data.models : []
     if (!thumbnailVisionModels.value.some(model => model.id === thumbnailVisionModel.value)) {
       thumbnailVisionModel.value = thumbnailVisionModels.value[0]?.id || ''
     }
-  } catch { thumbnailVisionModels.value = [] }
+    if (!thumbnailVisionModels.value.length) {
+      thumbnailVisionLoadError.value = 'GenStudio is connected, but it has not published a currently available vision model with image input and structured JSON output.'
+    }
+  } catch (error: any) {
+    thumbnailVisionModels.value = []
+    thumbnailVisionLoadError.value = error?.data?.detail || error?.message || 'Could not reach the GenStudio vision-model catalog.'
+  } finally {
+    thumbnailVisionLoading.value = false
+  }
 }
 
 async function collapseToPortablePath(input: string): Promise<string> {
@@ -2395,6 +2452,40 @@ async function saveToFile() {
 .style-extract-filename { font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .style-extract-clear { align-self: flex-start; margin-top: 4px; padding: 2px 8px; font-size: var(--font-xs); color: var(--text-muted); }
 .style-extract-clear:hover { color: var(--error); }
+
+/* Thumbnail reference is deliberately a first-class card, immediately after
+   recipe + art style. It must remain visible when the live vision catalog is
+   unavailable so creators can understand what to fix instead of wondering
+   where the workflow went. */
+.thumbnail-reference-card {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, var(--bg-tertiary)), var(--bg-tertiary));
+}
+.thumbnail-reference-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.thumbnail-reference-card__heading h3 { margin: 2px 0 4px; font-size: 15px; color: var(--text-primary); }
+.thumbnail-reference-card__heading p { margin: 0; max-width: 720px; line-height: 1.45; }
+.thumbnail-reference-card__eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.thumbnail-reference-card__status {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.thumbnail-reference-card__status.active { border-color: var(--success); color: var(--success); }
+.thumbnail-reference-card__warning { margin: 10px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.45; }
+@media (max-width: 640px) {
+  .thumbnail-reference-card__heading { flex-direction: column; gap: 8px; }
+}
 
 /* Char-counter colour preview picker — mirrors the small inline controls
    the images.vue page uses for its cap pill. */
