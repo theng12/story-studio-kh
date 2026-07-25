@@ -108,7 +108,7 @@
         </div>
         <span class="text-muted text-xs">
           <template v-if="currentAudioProvider === 'genstudio'">
-            Voices are fetched securely from the selected tier in your live <strong>GenStudio KH</strong> catalog. Each request supports up to <strong>15,000 characters</strong>.
+            Voices are fetched securely from the selected tier in your live <strong>GenStudio KH</strong> catalog. Story Studio enforces the current public TTS boundary of <strong>15,000 characters per request</strong>.
           </template>
           <template v-else>
             Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
@@ -159,14 +159,11 @@
         </div>
       </div>
 
-      <!-- v1.0.314 — Chunk size: read-only display for ALL providers. The cap
-           controls how a long section is split into per-API-call chunks (then
-           re-stitched). The per-model value is set in Settings → Audio Models
-           so the Audio Generator can never accidentally ship a wrong value
-           (which was the v1.0.313 bug — a hidden local-only override leaking
-           into cloud runs). Cloud + local both surface it the same way now. -->
+      <!-- The GenStudio TTS boundary is a public API contract, enforced in the
+           Story Studio client. It is intentionally read-only: tiers select a
+           live voice catalog, not a per-project request-size setting. -->
       <div v-if="form.model" class="form-group mb-2">
-        <label>{{ currentAudioProvider === 'genstudio' ? 'GenStudio request boundary' : 'Chunk size' }} <span class="field-hint">— characters per TTS call</span></label>
+        <label>GenStudio request boundary <span class="field-hint">— characters per TTS call</span></label>
         <div class="chunk-display" :title="chunkSizeTooltip">
           <span class="chunk-value">
             <template v-if="resolvedChunkCap">
@@ -178,13 +175,10 @@
               <span class="text-muted text-xs"> · chunker default ≈4,800 chars (≈5 min)</span>
             </template>
           </span>
-          <NuxtLink :to="`/projects/${slug}/settings#audio-models`" class="link-btn chunk-link" title="Open Settings → Audio Models to configure the per-model chunk cap.">
-            Configure in Settings ↗
-          </NuxtLink>
         </div>
         <p class="text-muted text-xs hint-line">
-          Story Studio sends up to 15,000 characters per GenStudio request.
-          GenStudio handles the selected voice safely behind this single service.
+          This is the current public GenStudio TTS limit enforced by Story Studio; it is not a project setting.
+          The selected tier only chooses which live voice catalog you can use.
         </p>
       </div>
 
@@ -533,7 +527,7 @@ function formatChunkSeconds(chars: number): string {
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
   ? currentAudioProvider.value === 'genstudio'
-    ? `GenStudio accepts one logical request up to ${resolvedChunkCap.value.toLocaleString()} characters and returns one completed audio result.`
+    ? `Story Studio enforces GenStudio's current public TTS boundary: ${resolvedChunkCap.value.toLocaleString()} characters per request.`
     : `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
   : 'No per-model cap set — the chunker uses its ~4,800-char default. Set a value in Settings → Audio Models to make the chunk size explicit.')
 

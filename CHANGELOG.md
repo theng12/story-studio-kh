@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.738 — 2026-07-25
+
+**Audio now states the real GenStudio TTS request boundary without a dead Settings link.**
+
+- Removes the legacy **Configure in Settings** action that no longer led to a
+  usable audio-model setting.
+- Labels the 15,000-character value accurately: it is Story Studio's
+  enforced boundary for GenStudio's current public TTS contract, while the
+  live catalog still determines the available voices and tiers.
+
+---
+
 ## v1.0.737 — 2026-07-25
 
 **What’s New is now a proper release reader, not a narrow truncated list.**

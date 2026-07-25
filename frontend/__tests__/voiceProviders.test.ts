@@ -102,10 +102,13 @@ test('Audio generation receives the live GenStudio catalog from VoicePicker', ()
   assert.doesNotMatch(audioPage, /Qwen3 Standard Voices/)
 })
 
-test('Audio Generator shows the GenStudio 15,000-character request boundary', () => {
+test('Audio Generator explains the fixed GenStudio 15,000-character request boundary without a legacy settings control', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
-  assert.match(audioPage, /Each request supports up to <strong>15,000 characters<\/strong>/)
+  assert.match(audioPage, /public TTS boundary of <strong>15,000 characters per request<\/strong>/)
   assert.match(audioPage, /GenStudio request boundary/)
+  assert.match(audioPage, /not a project setting/)
+  assert.doesNotMatch(audioPage, /Configure in Settings/)
+  assert.doesNotMatch(audioPage, /settings#audio-models/)
   assert.doesNotMatch(audioPage, /GenStudio[^\n]{0,120}30[- ]?second/i)
 })
 
