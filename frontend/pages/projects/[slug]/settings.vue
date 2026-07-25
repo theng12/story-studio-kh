@@ -324,6 +324,34 @@
         <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
       </div>
 
+      <section class="channel-visual-defaults mt-3">
+        <div class="settings-section-head">
+          <div>
+            <span class="settings-section-kicker">Visual planning defaults</span>
+            <h3>Recurring guide visibility</h3>
+            <p>Controls how often Scene Plan includes its recurring on-screen guide in newly generated episodes. This is a channel rule, not a Character Sheet setting.</p>
+          </div>
+          <span class="settings-section-count">{{ guideDensityLabel }}</span>
+        </div>
+        <div class="channel-guide-density-row">
+          <input
+            v-model.number="guideDensity"
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            class="channel-guide-density-slider"
+            :disabled="savingGuideDensity"
+            @change="saveGuideDensity"
+          />
+          <output class="channel-guide-density-value" :class="{ off: guideDensity === 0 }">{{ guideDensity }}%</output>
+        </div>
+        <p class="text-muted text-xs mt-1">
+          <strong>0%</strong> means no recurring guide; <strong>100%</strong> means one in every scene. Existing Scene Plans stay unchanged—regenerate a plan to apply this default.
+        </p>
+        <SaveIndicator v-bind="savedHintProps('guide_density')" />
+      </section>
+
     </div>
 
     <div v-if="isChannelTab" class="card publishing-profile-card mt-2">
@@ -2836,6 +2864,8 @@ type ContinuityMode = 'character-continuity' | 'independent-stills' | 'explainer
 const continuityMode = ref<ContinuityMode>('independent-stills')
 const continuityModeBaseline = ref<ContinuityMode>('independent-stills')
 const formatIdBaseline = ref<string>('continuity-chain')
+const guideDensity = ref(40)
+const savingGuideDensity = ref(false)
 const formatDirty = computed(() => {
   if (formatId.value !== formatIdBaseline.value) return true
   if (continuityMode.value !== continuityModeBaseline.value) return true
@@ -2855,6 +2885,32 @@ function syncFormatFromProject() {
 
 // Hydrate when project meta arrives + on slug change.
 watch(project, syncFormatFromProject, { immediate: true })
+
+// Channel-wide visual planning default. It remains in ProjectConfig under the
+// existing `character_density` key, which Scene Plan reads whenever it creates
+// a fresh plan. Character Sheet only owns per-episode anchors and pacing.
+watch(config, (value) => {
+  const density = Number((value as any)?.character_density)
+  if (Number.isFinite(density)) guideDensity.value = Math.max(0, Math.min(100, Math.round(density)))
+}, { immediate: true })
+const guideDensityLabel = computed(() =>
+  guideDensity.value === 0 ? 'No recurring guide'
+    : guideDensity.value >= 100 ? 'Guide in every scene'
+      : `Guide in ~${guideDensity.value}% of scenes`)
+
+async function saveGuideDensity(): Promise<void> {
+  savingGuideDensity.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { character_density: guideDensity.value })
+    await refreshConfig(slug.value)
+    stampSaved('guide_density')
+    success(`Guide visibility saved — ${guideDensityLabel.value.toLowerCase()}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to save guide visibility')
+  } finally {
+    savingGuideDensity.value = false
+  }
+}
 
 async function saveFormatSettings() {
   formatSaving.value = true
@@ -5600,6 +5656,16 @@ async function deleteProject() {
 }
 .format-tab-header > div { flex: 1; }
 .format-tab-header h3 { margin: 0 0 4px; }
+.channel-visual-defaults {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--bg-secondary), var(--surface-raised));
+}
+.channel-guide-density-row { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.channel-guide-density-slider { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.channel-guide-density-value { min-width: 46px; color: var(--text-primary); font-size: 13px; font-weight: 700; text-align: right; }
+.channel-guide-density-value.off { color: var(--text-muted); font-weight: 500; }
 
 /* v1.0.165 — Patterns sub-section CSS removed with the Pattern system. */
 

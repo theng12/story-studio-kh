@@ -1,12 +1,10 @@
 <!--
   v1.0.189 (CC2) — Character Sheet page (continuity-chain).
 
-  The anchor step: pick which project Character(s) lock this episode's look,
-  optionally drop in a one-off episode sheet (saved as the img2img master
-  reference), and set the continuity config (pacing guardrails, per-scene
-  reference toggles, denoise strength). The config persists to
-  <episode_dir>/continuity.json and is consumed by the paced Scene Plan (CC3)
-  and the sequential renderer (CC4).
+  The compact visual-setup step: select Channel Characters, optionally store
+  one episode visual anchor, choose the shared Style Library look, and set the
+  episode pacing. The config persists to <episode_dir>/continuity.json and
+  Scene Plan consumes its pacing guardrail.
 
   Only reachable for continuity-chain projects (sidebar gates on
   isContinuityChain).
@@ -16,7 +14,7 @@
     <WorkspaceHero
       eyebrow="Continuity · Visual anchors"
       title="Character Sheet"
-      description="Choose the Channel Characters and reference images that lock this episode's cast, wardrobe, and visual identity."
+      description="Choose the recurring cast, an optional episode visual anchor, and the channel look for this episode."
     />
 
     <TopActionBar
@@ -24,256 +22,130 @@
       v-model:episode-id="episodeId"
       filter-field="character_sheet"
       :presets="pagePresets"
-      generate-label="Save anchors & settings"
+      generate-label="Save visual setup"
       loading-label="Saving…"
       :generate-loading="saving"
       :generate-disabled="!episodeId"
-      :generate-status="saving ? 'Saving continuity config…' : (episodeId ? '' : 'Pick an episode first')"
+      :generate-status="saving ? 'Saving visual setup…' : (episodeId ? '' : 'Pick an episode first')"
       @generate="saveConfig"
     />
 
     <div v-if="!episodeId" class="card mt-3">
-      <p class="text-muted text-sm">Pick an episode above to set its character anchor + continuity settings.</p>
+      <p class="text-muted text-sm">Pick an episode above to configure its visual anchors, channel look, and scene rhythm.</p>
     </div>
 
     <template v-else>
-      <!-- 1. Anchor characters -->
-      <section class="card mt-3">
-        <div class="card-header">
-          <h3>1. Anchor characters</h3>
+      <section class="card mt-3 cs-visual-setup">
+        <header class="cs-section-head">
+          <div>
+            <span class="cs-kicker">Episode-specific</span>
+            <h3>Visual anchors</h3>
+            <p class="text-muted text-sm">Pick the recurring cast and, if useful, add one visual anchor for this episode.</p>
+          </div>
           <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="btn btn-ghost btn-sm">Manage channel characters →</NuxtLink>
-        </div>
-        <p class="text-muted text-sm mt-1">
-          Tick who appears in this episode. Their reference images anchor
-          every scene. A character with no reference image can still guide the
-          text prompt, but won't lock the visual — add a portrait on the
-          Channel Characters workspace (or upload a sheet below).
-        </p>
+        </header>
 
-        <div v-if="charsLoading" class="text-muted text-sm mt-2">Loading characters…</div>
-        <div v-else-if="!characters.length" class="text-muted text-sm mt-2">
-          No Channel Characters are assigned to this channel yet.
-          <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="cs-link">Create or assign one →</NuxtLink>
-        </div>
-        <div v-else class="cs-char-list mt-2">
-          <CharacterCard
-            v-for="c in characters"
-            :key="c.id"
-            :character="c"
-            :thumbnail-url="firstImage(c) ? charImageUrl(c, firstImage(c)!) : undefined"
-            selectable
-            :selected="config.anchor_character_ids.includes(c.id)"
-            @toggle="toggleAnchor(c.id)"
-          />
-        </div>
-        <p v-if="anchorsWithoutImages.length" class="cs-warn text-xs mt-2">
-          ⚠ {{ anchorsWithoutImages.join(', ') }} {{ anchorsWithoutImages.length === 1 ? 'has' : 'have' }}
-          no reference image — won't visually anchor scenes until you add one.
-        </p>
-      </section>
-
-      <!-- 2. Episode sheet (one-off master reference) -->
-      <section class="card mt-3">
-        <h3>
-          2. Episode sheet
-          <span v-if="masterExists" class="cs-saved-badge">✓ Saved</span>
-          <span class="text-muted" style="font-weight:400">(optional)</span>
-        </h3>
-        <p class="text-muted text-sm mt-1">
-          A single reference image used as an anchor for <em>every</em> scene in
-          just this episode — handy when you don't want a reusable Character.
-          Saved as this episode's master img2img reference.
-        </p>
-
-        <div class="cs-sheet-row mt-2">
-          <div v-if="masterExists" class="cs-sheet-preview">
-            <img :src="masterUrl" alt="Episode sheet" />
-          </div>
-          <div class="cs-sheet-main">
-            <ReferenceDropzone :busy="uploadingSheet" @files="onSheetFiles">
-              <template #title>{{ masterExists ? 'Replace the episode sheet' : 'Drop the episode sheet here' }}</template>
-              <template #hint>— or paste, or click to browse (one image)</template>
-            </ReferenceDropzone>
-            <div class="cs-sheet-actions">
-              <label class="cs-checkbox">
-                <input type="checkbox" v-model="config.use_episode_sheet" :disabled="!masterExists" />
-                Use this sheet to anchor every scene
-              </label>
-              <button v-if="masterExists" class="btn btn-ghost btn-sm" :disabled="uploadingSheet" @click="removeSheet">
-                Remove sheet
+        <div class="cs-anchor-layout">
+          <div class="cs-anchor-characters">
+            <div class="cs-field-head">
+              <strong>Channel characters</strong>
+              <span>{{ config.anchor_character_ids.length }} selected</span>
+            </div>
+            <div v-if="charsLoading" class="text-muted text-sm">Loading characters…</div>
+            <div v-else-if="!characters.length" class="cs-empty-inline text-muted text-sm">
+              No Channel Characters are assigned yet.
+              <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="cs-link">Create or assign one →</NuxtLink>
+            </div>
+            <div v-else class="cs-character-grid">
+              <button
+                v-for="character in characters"
+                :key="character.id"
+                type="button"
+                :class="['cs-character-tile', { selected: config.anchor_character_ids.includes(character.id), missing: !firstImage(character) }]"
+                :aria-pressed="config.anchor_character_ids.includes(character.id)"
+                @click="toggleAnchor(character.id)"
+              >
+                <img v-if="firstImage(character)" :src="charImageUrl(character, firstImage(character)!)" :alt="character.name" />
+                <span v-else class="cs-character-placeholder" aria-hidden="true">{{ character.name.slice(0, 1) }}</span>
+                <span class="cs-character-name">{{ character.name }}</span>
+                <span class="cs-character-state">{{ firstImage(character) ? (config.anchor_character_ids.includes(character.id) ? 'Anchored' : 'Select') : 'Needs image' }}</span>
               </button>
             </div>
+            <p v-if="anchorsWithoutImages.length" class="cs-warn text-xs">
+              {{ anchorsWithoutImages.join(', ') }} {{ anchorsWithoutImages.length === 1 ? 'needs' : 'need' }} a portrait before it can visually anchor a render.
+            </p>
           </div>
-        </div>
-      </section>
 
-      <!-- 3. Style reference (look/palette, applied to every scene) -->
-      <section class="card mt-3">
-        <h3>
-          3. Style reference
-          <span v-if="styleExists" class="cs-saved-badge">✓ Saved</span>
-          <span class="text-muted" style="font-weight:400">(optional)</span>
-        </h3>
-        <p class="text-muted text-sm mt-1">
-          An image whose <em>look</em> — palette, lighting, rendering style — every
-          scene should match. Attached to every render alongside the character
-          references (great with reference-capable models like GPT Image 2).
-          Saved as this episode's <code>style.png</code>.
-        </p>
-
-        <div class="cs-sheet-row mt-2">
-          <div v-if="styleExists" class="cs-sheet-preview">
-            <img :src="styleUrl" alt="Style reference" />
-          </div>
-          <div class="cs-sheet-main">
-            <ReferenceDropzone :busy="uploadingStyle" @files="onStyleFiles">
-              <template #title>{{ styleExists ? 'Replace the style reference' : 'Drop a style reference here' }}</template>
-              <template #hint>— or paste, or click to browse (one image)</template>
+          <div class="cs-episode-anchor">
+            <div class="cs-field-head">
+              <strong>Episode visual anchor</strong>
+              <span v-if="masterExists" class="cs-saved-badge">Saved</span>
+              <span v-else>Optional</span>
+            </div>
+            <p class="text-muted text-xs">One image reserved for this episode's reference-guided visual setup.</p>
+            <div v-if="masterExists" class="cs-reference-card">
+              <a :href="masterUrl" target="_blank" rel="noopener" class="cs-reference-preview" title="Open full-size episode visual anchor">
+                <img :src="masterUrl" alt="Episode visual anchor" />
+              </a>
+              <div class="cs-reference-actions">
+                <ReferenceDropzone class="cs-reference-dropzone" :busy="uploadingSheet" @files="onSheetFiles">
+                  <template #title>Replace image</template>
+                  <template #hint>Paste, drop, or browse</template>
+                </ReferenceDropzone>
+                <div class="cs-reference-action-row">
+                  <label class="cs-checkbox">
+                    <input v-model="episodeAnchorEnabled" type="checkbox" />
+                    Use episode anchor
+                  </label>
+                  <a :href="masterUrl" target="_blank" rel="noopener" class="cs-link text-xs">View full size</a>
+                  <button class="btn btn-ghost btn-sm" :disabled="uploadingSheet" @click="removeSheet">Remove</button>
+                </div>
+              </div>
+            </div>
+            <ReferenceDropzone v-else class="cs-reference-dropzone cs-reference-dropzone-empty" :busy="uploadingSheet" @files="onSheetFiles">
+              <template #title>Drop an episode visual anchor</template>
+              <template #hint>Paste, drop, or browse one image</template>
             </ReferenceDropzone>
-            <div class="cs-sheet-actions">
-              <label class="cs-checkbox">
-                <input type="checkbox" v-model="config.references.style" :disabled="!styleExists" />
-                Apply this style to every scene
-              </label>
-              <button v-if="styleExists" class="btn btn-ghost btn-sm" :disabled="uploadingStyle" @click="removeStyle">
-                Remove style
-              </button>
-            </div>
           </div>
         </div>
       </section>
 
-      <!-- 4. Continuity settings -->
-      <section class="card mt-3">
-        <h3>4. Continuity settings</h3>
-        <p class="text-muted text-sm mt-1">
-          These drive the next steps: the Scene Plan paces cuts within your
-          range, and the sequential render uses the references + strength you
-          pick here. (The render itself lands in a later update.)
-        </p>
-
-        <div class="cs-settings mt-2">
-          <div class="form-group">
-            <label>Visual pacing</label>
-            <select v-model="pacingPreset" class="select" @change="applyPacingPreset">
-              <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
-              <option value="custom">Custom range…</option>
-            </select>
-            <div v-if="pacingPreset === 'custom'" class="cs-range-row mt-1">
-              <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
-              <span class="text-muted">to</span>
-              <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
-            </div>
-            <span class="text-muted text-xs">
-              This is a strict maximum where the narration can be safely split.
-              Long subtitle cues are divided at word or sentence boundaries with
-              proportional timing; Story Studio never cuts through a word.
-            </span>
+      <section class="card mt-3 cs-look-card">
+        <header class="cs-section-head">
+          <div>
+            <span class="cs-kicker">Channel look</span>
+            <h3>Visual art style</h3>
+            <p class="text-muted text-sm">Choose one reusable channel look. Its render guidance is handled automatically.</p>
           </div>
+        </header>
+        <StylePicker
+          :slug="slug"
+          :active-style-bible="config.style_bible"
+          :show-custom-styles="false"
+          @apply="onStyleApply"
+        />
+      </section>
 
-          <!-- v1.0.337 — guide appearance density. Project-level (channel
-               default), saved instantly + separately from the per-episode
-               continuity settings below. -->
-          <div class="form-group">
-            <label>
-              Guide character appearance
-              <span class="text-muted text-xs">— channel default, applies to every episode</span>
-            </label>
-            <div class="cs-density-row">
-              <input
-                v-model.number="guideDensity"
-                type="range" min="0" max="100" step="5"
-                class="cs-density-slider"
-                :disabled="savingGuideDensity"
-                @change="saveGuideDensity"
-              />
-              <span class="cs-density-readout" :class="{ off: guideDensity === 0 }">{{ guideDensityLabel }}</span>
-            </div>
-            <span class="text-muted text-xs">
-              How often the recurring guide is in the shot — the Scene Planner makes the rest
-              event / environment / map / artifact scenes (no guide), so he stays special.
-              <strong>0%</strong> = no guide character at all; <strong>100%</strong> = guide in every scene.
-              Saves immediately for the whole channel.
-            </span>
+      <section class="card mt-3 cs-rhythm-card">
+        <header class="cs-section-head">
+          <div>
+            <span class="cs-kicker">Episode pacing</span>
+            <h3>Scene rhythm</h3>
+            <p class="text-muted text-sm">Controls how often Scene Plan cuts while it follows this episode's narration.</p>
           </div>
-
-          <div class="form-group">
-            <label>Each scene references</label>
-            <label class="cs-checkbox">
-              <input type="checkbox" v-model="config.references.prev_render" />
-              The previous scene's render <span class="text-muted text-xs">— scene-to-scene flow</span>
-            </label>
-            <label class="cs-checkbox">
-              <input type="checkbox" v-model="config.references.sheet" />
-              The episode sheet <span class="text-muted text-xs">— locks identity every scene</span>
-            </label>
-            <label class="cs-checkbox">
-              <input type="checkbox" v-model="config.references.characters" />
-              The anchor characters' images <span class="text-muted text-xs">— recurring cast</span>
-            </label>
-            <label class="cs-checkbox">
-              <input type="checkbox" v-model="config.references.style" :disabled="!styleExists" />
-              The style reference <span class="text-muted text-xs">— matches look/palette (upload above)</span>
-            </label>
+        </header>
+        <div class="cs-rhythm-control form-group">
+          <label>Visual pacing</label>
+          <select v-model="pacingPreset" class="select" @change="applyPacingPreset">
+            <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
+            <option value="custom">Custom range…</option>
+          </select>
+          <div v-if="pacingPreset === 'custom'" class="cs-range-row mt-1">
+            <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
+            <span class="text-muted">to</span>
+            <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
           </div>
-
-          <div class="form-group">
-            <label>Variation per scene (denoise strength): <strong>{{ config.denoise_strength.toFixed(2) }}</strong></label>
-            <input v-model.number="config.denoise_strength" type="range" min="0" max="1" step="0.05" class="cs-range" />
-            <span class="text-muted text-xs">
-              Lower = scenes hug the references (very consistent, can look
-              near-identical). Higher = more change between scenes (livelier,
-              risks drift). ~0.4–0.6 is a good start.
-            </span>
-          </div>
-
-          <!-- v1.0.356 — the savable preset moved to the page-level preset row
-               at the top (TopActionBar). The built-in style gallery below is a
-               quick "starter look" picker; whatever you apply here is captured
-               when you save a whole-page Continuity preset. -->
-          <!-- v1.0.364 — shared StylePicker (same gallery used on the Scene Plan
-               page) so "style" is one concept. Applying a card sets the Style
-               Bible + negative prompt below. -->
-          <StylePicker
-            class="mt-3"
-            :slug="slug"
-            :active-style-bible="config.style_bible"
-            :show-custom-styles="false"
-            @apply="onStyleApply"
-          />
-
-          <!-- v1.0.243 — render-time Style Bible. Appended to every scene's
-               prompt when rendering, so editing it + re-rendering needs no
-               re-plan. Complements the style.png image reference above. -->
-          <div class="form-group">
-            <label>Style Bible <span class="text-muted text-xs">— text style added to every scene at render</span></label>
-            <textarea
-              v-model="config.style_bible"
-              class="textarea"
-              rows="3"
-              placeholder="e.g. cinematic photoreal, soft golden-hour key light, shallow depth of field, muted earthy palette, fine 35mm film grain, painterly atmosphere"
-            />
-            <span class="text-muted text-xs">
-              This rides alongside the <code>style.png</code> reference and reinforces the look in text —
-              especially helpful for models that weight the prompt heavily. Change it and just re-render; no re-plan needed.
-            </span>
-          </div>
-
-          <!-- v1.0.243 — negative prompt. Forwarded where the provider supports
-               it (local Image Studio); cloud providers currently ignore it. -->
-          <div class="form-group">
-            <label>Negative prompt <span class="text-muted text-xs">— things to avoid</span></label>
-            <textarea
-              v-model="config.negative_prompt"
-              class="textarea"
-              rows="2"
-              placeholder="e.g. text, watermark, extra fingers, deformed hands, lowres, blurry, oversaturated"
-            />
-            <span class="text-muted text-xs">
-              Applied by the local Image Studio model. Cloud models (kie.ai, OpenAI, OpenRouter) don't accept a
-              negative prompt yet and will ignore it.
-            </span>
-          </div>
+          <span class="text-muted text-xs">Scene Plan keeps cuts inside this range and divides long narration at safe word or sentence boundaries.</span>
         </div>
       </section>
 
@@ -331,16 +203,20 @@ function defaults(): ContinuityConfig {
 
 function normalizeConfig(value?: Partial<ContinuityConfig> | null): ContinuityConfig {
   const d = defaults()
+  const anchorIds = Array.isArray(value?.anchor_character_ids) ? [...value.anchor_character_ids] : []
+  // Older pages exposed two controls for the same sheet choice. Reconcile
+  // either legacy "on" value into the single compact control on load.
+  const useEpisodeSheet = value?.use_episode_sheet === true || value?.references?.sheet === true
   return {
     ...d,
     schema_version: 1,
-    anchor_character_ids: Array.isArray(value?.anchor_character_ids) ? [...value.anchor_character_ids] : [],
-    use_episode_sheet: !!value?.use_episode_sheet,
+    anchor_character_ids: anchorIds,
+    use_episode_sheet: useEpisodeSheet,
     pacing: { ...d.pacing, ...(value?.pacing || {}) },
     references: {
       prev_render: value?.references?.prev_render ?? d.references.prev_render,
-      sheet: value?.references?.sheet ?? d.references.sheet,
-      characters: value?.references?.characters ?? d.references.characters,
+      sheet: useEpisodeSheet,
+      characters: anchorIds.length > 0,
       style: value?.references?.style ?? d.references.style,
     },
     denoise_strength: typeof value?.denoise_strength === 'number' ? value.denoise_strength : d.denoise_strength,
@@ -392,42 +268,12 @@ const pagePresets = usePresets<ContinuityPagePreset>({
   },
 })
 
-// Project config supplies image models to the built-in style gallery.
-const { config: projectConfig } = useProject()
-
-// v1.0.337 — guide cast density (project-level config.json). The channel
-// default for how often the recurring guide appears; the Scene Planner +
-// continuity renderer key off it. Saved instantly + separately from the
-// per-episode continuity.json (so the "Save continuity settings" button is
-// unaffected).
-const guideDensity = ref(40)
-const savingGuideDensity = ref(false)
-watch(projectConfig, (c) => {
-  const v = (c as any)?.character_density
-  if (typeof v === 'number') guideDensity.value = Math.max(0, Math.min(100, Math.round(v)))
-}, { immediate: true })
-const guideDensityLabel = computed(() =>
-  guideDensity.value === 0 ? 'Off — no guide character'
-    : guideDensity.value >= 100 ? 'Guide in every scene'
-      : `Guide in ~${guideDensity.value}% of scenes`)
-async function saveGuideDensity(): Promise<void> {
-  savingGuideDensity.value = true
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { character_density: guideDensity.value })
-    success(`Guide appearance saved — ${guideDensityLabel.value.toLowerCase()}`)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to save guide appearance')
-  } finally {
-    savingGuideDensity.value = false
-  }
-}
-// v1.0.364 — the shared StylePicker component owns the gallery + preview
-// rendering now. Applying a style just writes the look onto the continuity
-// config; save a whole-page Continuity preset (top bar) to keep it.
+// The shared Style Library owns all customer-visible style selection. Its
+// prompt data remains an internal render detail, saved with the episode.
 function onStyleApply(data: { style_bible: string; negative_prompt: string }): void {
   config.value.style_bible = data.style_bible || ''
   config.value.negative_prompt = data.negative_prompt || ''
-  success('Style applied — Save anchors & settings to keep it for this episode')
+  success('Style applied — Save visual setup to keep it for this episode')
 }
 
 const characters = ref<Character[]>([])
@@ -442,13 +288,16 @@ const masterUrl = computed(() =>
   `/api/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/file/master.png?v=${masterVersion.value}`,
 )
 
-// ── Style reference (v1.0.229 — style.png) ───────────────────────────
-const styleExists = ref<boolean | null>(null)
-const styleVersion = ref(0)
-const uploadingStyle = ref(false)
-const styleUrl = computed(() =>
-  `/api/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/file/style.png?v=${styleVersion.value}`,
-)
+const episodeAnchorEnabled = computed({
+  get: () => config.value.use_episode_sheet,
+  set: (enabled: boolean) => {
+    // Older continuity files carried two sheet switches. Keep both in sync so
+    // saved presets and future reference-capable renderers have one clear
+    // customer choice without breaking old episode data.
+    config.value.use_episode_sheet = enabled
+    config.value.references.sheet = enabled
+  },
+})
 
 function firstImage(c: Character): string | null {
   return c.references?.images?.[0] || null
@@ -468,6 +317,7 @@ function toggleAnchor(id: string): void {
   const i = ids.indexOf(id)
   if (i >= 0) ids.splice(i, 1)
   else ids.push(id)
+  config.value.references.characters = ids.length > 0
 }
 
 async function loadCharacters(): Promise<void> {
@@ -499,7 +349,7 @@ async function saveConfig(): Promise<void> {
   saving.value = true
   try {
     await put(`/projects/${slug.value}/continuity/${episodeId.value}`, config.value)
-    success('Continuity settings saved')
+    success('Visual setup saved')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to save continuity settings')
   } finally {
@@ -533,8 +383,8 @@ async function onSheetFiles(files: File[]): Promise<void> {
     })
     masterVersion.value++       // cache-bust the preview
     masterExists.value = true
-    config.value.use_episode_sheet = true  // auto-enable once a sheet exists
-    success('Episode sheet uploaded')
+    episodeAnchorEnabled.value = true
+    success('Episode visual anchor uploaded')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to upload episode sheet')
   } finally {
@@ -548,70 +398,31 @@ async function removeSheet(): Promise<void> {
     await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/master`)
     masterExists.value = false
     masterVersion.value++
-    config.value.use_episode_sheet = false
-    success('Episode sheet removed')
+    episodeAnchorEnabled.value = false
+    success('Episode visual anchor removed')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to remove episode sheet')
   }
 }
 
-async function onStyleFiles(files: File[]): Promise<void> {
-  const file = files[0]
-  if (!file) return
-  uploadingStyle.value = true
-  try {
-    const data_base64 = await fileToBase64(file)
-    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/style`, {
-      filename: file.name,
-      data_base64,
-    })
-    styleVersion.value++
-    styleExists.value = true
-    config.value.references.style = true   // auto-enable once a style ref exists
-    success('Style reference uploaded')
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to upload style reference')
-  } finally {
-    uploadingStyle.value = false
-  }
-}
-
-async function removeStyle(): Promise<void> {
-  if (!episodeId.value) return
-  try {
-    await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/style`)
-    styleExists.value = false
-    styleVersion.value++
-    config.value.references.style = false
-    success('Style reference removed')
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to remove style reference')
-  }
-}
-
-// v1.0.231 — authoritative existence check for the reference images. The old
-// hidden-<img> probe could flip "exists" back to false on a transient load
-// error right after an upload (so the user saw no confirmation). This reads
-// the references listing instead — reliable, and drives the "✓ Saved" badges.
+// Authoritative existence check for the episode visual anchor. This avoids a
+// fragile hidden-image probe and keeps the compact preview truthful.
 async function loadRefs(): Promise<void> {
-  if (!episodeId.value) { masterExists.value = false; styleExists.value = false; return }
+  if (!episodeId.value) { masterExists.value = false; return }
   try {
-    const r = await get<{ master?: { url: string }; style?: { url: string } }>(
+    const r = await get<{ master?: { url: string } }>(
       `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
     )
     masterExists.value = !!r.master
-    styleExists.value = !!r.style
   } catch (e: any) {
-    if (!e?.__slugRace) { masterExists.value = false; styleExists.value = false }
+    if (!e?.__slugRace) masterExists.value = false
   }
 }
 
 // Reload everything on episode change.
 watch(episodeId, () => {
   masterExists.value = null
-  styleExists.value = null
   masterVersion.value++
-  styleVersion.value++
   void loadCharacters()
   void loadConfig()
   void loadRefs()
@@ -622,39 +433,61 @@ watch(episodeId, () => {
 <style scoped>
 .cs-link, .cs-char-card .cs-link { color: var(--accent); text-decoration: none; }
 .cs-link:hover { text-decoration: underline; }
-
-.cs-char-list { display: flex; flex-direction: column; gap: 10px; }
-.cs-warn { color: var(--warning, #ca8a04); }
-
-/* v1.0.231 — persistent "saved" indicator for reference uploads, so the user
-   isn't left wondering whether the upload stuck after the toast fades. */
+.cs-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.cs-section-head h3 { margin: 3px 0 0; }
+.cs-section-head p { margin: 4px 0 0; }
+.cs-kicker { color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.cs-anchor-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 20px; margin-top: 16px; }
+.cs-anchor-characters, .cs-episode-anchor { min-width: 0; }
+.cs-episode-anchor { padding-left: 20px; border-left: 1px solid var(--border); }
+.cs-field-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.cs-field-head > span { color: var(--text-muted); font-size: var(--font-xs); }
+.cs-character-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 9px; margin-top: 10px; }
+.cs-character-tile { position: relative; min-width: 0; overflow: hidden; padding: 0 0 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; text-align: left; transition: border-color .15s, background .15s, transform .15s; }
+.cs-character-tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+.cs-character-tile:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+.cs-character-tile.selected { border-color: var(--accent); background: var(--accent-dim); }
+.cs-character-tile.missing { border-style: dashed; }
+.cs-character-tile img, .cs-character-placeholder { display: grid; width: 100%; height: 76px; object-fit: cover; place-items: center; background: var(--bg-tertiary); color: var(--text-muted); font-size: 24px; }
+.cs-character-name, .cs-character-state { display: block; overflow: hidden; padding: 0 8px; text-overflow: ellipsis; white-space: nowrap; }
+.cs-character-name { margin-top: 8px; font-size: 12px; font-weight: 700; }
+.cs-character-state { margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); }
+.cs-character-tile.selected .cs-character-state { color: var(--accent); }
+.cs-empty-inline { margin-top: 12px; padding: 12px; border: 1px dashed var(--border); border-radius: 8px; }
+.cs-warn { margin: 9px 0 0; color: var(--warning, #ca8a04); }
 .cs-saved-badge {
   display: inline-block;
-  margin-left: 6px;
-  padding: 2px 9px;
+  padding: 3px 8px;
   border-radius: 999px;
   font-size: var(--font-xs);
   font-weight: 600;
   background: rgba(91, 179, 124, 0.16);
   color: rgb(34, 134, 70);
-  vertical-align: middle;
 }
-.cs-sheet-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-.cs-sheet-main { flex: 1; min-width: 240px; }
-.cs-sheet-preview {
-  width: 140px; height: 140px; border-radius: 8px; overflow: hidden;
-  border: 1px solid var(--border); background: var(--bg-tertiary); flex-shrink: 0;
-}
-.cs-sheet-preview img { width: 100%; height: 100%; object-fit: cover; }
-.cs-sheet-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
-.cs-settings { display: flex; flex-direction: column; gap: 18px; }
+.cs-reference-card { display: grid; grid-template-columns: minmax(170px, 250px) minmax(0, 1fr); gap: 12px; align-items: stretch; margin-top: 10px; }
+.cs-reference-preview { display: grid; min-height: 155px; overflow: hidden; place-items: center; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-tertiary); }
+.cs-reference-preview img { width: 100%; height: 100%; max-height: 210px; object-fit: contain; }
+.cs-reference-actions { display: flex; min-width: 0; flex-direction: column; justify-content: space-between; gap: 9px; }
+.cs-reference-action-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.cs-reference-action-row .btn { margin-left: auto; }
+.cs-reference-dropzone { margin-top: 8px; }
+.cs-reference-actions .cs-reference-dropzone { margin-top: 0; }
+:deep(.cs-reference-dropzone.ref-dropzone) { min-height: 82px; padding: 11px 12px; }
+:deep(.cs-reference-dropzone .ref-dropzone-icon) { font-size: 17px; }
+:deep(.cs-reference-dropzone-empty.ref-dropzone) { min-height: 118px; }
 .cs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 4px; cursor: pointer; }
 .cs-range-row { display: flex; align-items: center; gap: 8px; }
-/* v1.0.337 — guide cast density slider */
-.cs-density-row { display: flex; align-items: center; gap: 12px; max-width: 420px; }
-.cs-density-slider { flex: 1; cursor: pointer; accent-color: #6aa9ff; }
-.cs-density-readout { font-size: 13px; font-weight: 600; min-width: 150px; color: var(--text-primary); }
-.cs-density-readout.off { color: var(--text-muted); font-weight: 500; }
 .input-inline { width: 70px; }
-.cs-range { width: 260px; max-width: 100%; }
+.cs-look-card :deep(.style-picker) { margin-top: 14px; }
+.cs-rhythm-control { max-width: 560px; margin-top: 14px; }
+@media (max-width: 900px) {
+  .cs-anchor-layout { grid-template-columns: 1fr; }
+  .cs-episode-anchor { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }
+}
+@media (max-width: 620px) {
+  .cs-section-head { flex-direction: column; gap: 8px; }
+  .cs-section-head .btn { width: 100%; }
+  .cs-reference-card { grid-template-columns: 1fr; }
+  .cs-reference-preview { min-height: 190px; }
+}
 </style>

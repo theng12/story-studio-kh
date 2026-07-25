@@ -50,6 +50,13 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /launch stagger/i)
   })
 
+  test('Channel Identity owns the channel-wide recurring guide visibility default', () => {
+    assert.match(settingsSource, /Visual planning defaults/)
+    assert.match(settingsSource, /Recurring guide visibility/)
+    assert.match(settingsSource, /character_density: guideDensity\.value/)
+    assert.match(settingsSource, /Existing Scene Plans stay unchanged/)
+  })
+
   test('GenStudio catalogs are account-scoped under App & Connections', () => {
     assert.match(
       settingsSource,

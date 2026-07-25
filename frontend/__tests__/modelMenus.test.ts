@@ -140,5 +140,5 @@ test('Character Sheet exposes strict visual-pacing presets with a custom range',
   assert.match(characterSheet, /2–8 seconds — Cinematic & robust/)
   assert.match(characterSheet, /5–10 seconds — Slow & deliberate/)
   assert.match(characterSheet, /Custom range…/)
-  assert.match(characterSheet, /strict maximum/)
+  assert.match(characterSheet, /safe word or sentence boundaries/)
 })

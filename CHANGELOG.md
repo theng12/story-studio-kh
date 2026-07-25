@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.741 — 2026-07-26
+
+**Character Sheet is now a compact visual-setup workspace.**
+
+- Replaces the long numbered form with **Visual anchors**, **Visual art
+  style**, and **Scene rhythm**.
+- Keeps the Style Library as the one channel-look picker; removes the separate
+  style-reference upload and raw style-prompt controls from the visible flow.
+- Turns channel characters into a compact selectable portrait grid and gives
+  uploaded episode visual anchors a large uncropped preview plus a full-size
+  view.
+- Moves recurring guide visibility to **Settings → Channel Identity → Visual
+  planning defaults**, where it continues to apply to every newly generated
+  Scene Plan for the channel.
+
+---
+
 ## v1.0.740 — 2026-07-26
 
 **Audio Assembly now makes the music and opening choices unambiguous.**

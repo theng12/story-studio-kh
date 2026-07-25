@@ -12,8 +12,16 @@ const stylePicker = source('../components/StylePicker.vue')
 const continuityRoute = source('../../electron/server/routes/continuity.ts')
 
 describe('Character Sheet workspace', () => {
-  test('ends at continuity settings without the retired Visual Recipe step', () => {
-    assert.match(characterSheet, /<h3>4\. Continuity settings<\/h3>/)
+  test('uses the compact visual anchors, style library, and scene rhythm flow without retired controls', () => {
+    assert.match(characterSheet, /<h3>Visual anchors<\/h3>/)
+    assert.match(characterSheet, /<h3>Visual art style<\/h3>/)
+    assert.match(characterSheet, /<h3>Scene rhythm<\/h3>/)
+    assert.match(characterSheet, /Episode visual anchor/)
+    assert.doesNotMatch(characterSheet, />3\. Style reference</)
+    assert.doesNotMatch(characterSheet, />4\. Continuity settings</)
+    assert.doesNotMatch(characterSheet, /Guide character appearance/)
+    assert.doesNotMatch(characterSheet, /Each scene references/)
+    assert.doesNotMatch(characterSheet, /Variation per scene/)
     assert.doesNotMatch(characterSheet, />5\. Visual Recipe</)
     assert.doesNotMatch(characterSheet, /config\.recipe/)
     assert.doesNotMatch(characterSheet, /generateComposition|onCompositionFiles|removeComposition/)
@@ -24,6 +32,15 @@ describe('Character Sheet workspace', () => {
     assert.match(stylePicker, /v-if="showCustomStyles !== false"/)
     assert.match(stylePicker, /showCustomStyles\?: boolean/)
     assert.match(characterSheet, /:active-style-bible="config\.style_bible"/)
+  })
+
+  test('keeps uploaded episode anchors comfortably inspectable and synchronizes legacy sheet flags', () => {
+    assert.match(characterSheet, /target="_blank"/)
+    assert.match(characterSheet, /View full size/)
+    assert.match(characterSheet, /object-fit: contain/)
+    assert.match(characterSheet, /const episodeAnchorEnabled = computed/)
+    assert.match(characterSheet, /config\.value\.references\.sheet = enabled/)
+    assert.match(characterSheet, /const useEpisodeSheet = value\?\.use_episode_sheet === true \|\| value\?\.references\?\.sheet === true/)
   })
 
   test('filters retired recipe and composition fields from saved configs and presets', () => {
