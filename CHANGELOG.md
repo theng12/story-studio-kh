@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.727 — 2026-07-25
+
+**A new editorial explainer look joins the shared Style Library.**
+
+- Adds **Hand-Drawn Editorial Diagram**: fine dark ink outlines, lightly
+  painted natural colors, warm white paper, restrained crosshatching, and
+  object-led explanatory staging.
+- Keeps it distinct from the mascot-based Hand-Drawn Cartoon Explainer and
+  the muted Sepia Ink & Wash look. It works across scenes, character assets,
+  and thumbnails while the Thumbnail Recipe still controls the layout.
+
+---
+
 ## v1.0.726 — 2026-07-25
 
 **The Thumbnail Recipe Catalog is now visible where you create prompts.**

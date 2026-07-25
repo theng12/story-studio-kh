@@ -6,7 +6,7 @@ import { BUILT_IN_STYLES } from '../composables/useBuiltInStyles'
 
 describe('built-in style gallery', () => {
   it('ships a unique generated raster preview for every style', () => {
-    assert.equal(BUILT_IN_STYLES.length, 13)
+    assert.equal(BUILT_IN_STYLES.length, 14)
     assert.equal(new Set(BUILT_IN_STYLES.map(style => style.id)).size, BUILT_IN_STYLES.length)
 
     for (const style of BUILT_IN_STYLES) {
@@ -29,5 +29,16 @@ describe('built-in style gallery', () => {
     assert.match(style.data.style_bible, /rounded plain colored torsos/)
     assert.match(style.data.negative_prompt, /glossy polished vector art/)
     assert.equal(style.preview_image, '/builtin-style-previews/hand-drawn-cartoon-explainer.webp')
+  })
+
+  it('ships the editorial diagram look separately from mascot cartoons and sepia wash', () => {
+    const style = BUILT_IN_STYLES.find(item => item.id === 'builtin-hand-drawn-editorial-diagram')
+    assert.ok(style)
+    assert.equal(style.category, 'Explainer')
+    assert.match(style.data.style_bible, /fine dark ink outlines/)
+    assert.match(style.data.style_bible, /balanced perimeter of supporting objects/)
+    assert.match(style.data.negative_prompt, /mascot cartoon characters/)
+    assert.match(style.data.negative_prompt, /dark moody sepia wash/)
+    assert.equal(style.preview_image, '/builtin-style-previews/hand-drawn-editorial-diagram.webp')
   })
 })

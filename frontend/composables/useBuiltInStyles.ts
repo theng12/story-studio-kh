@@ -203,6 +203,21 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/hand-drawn-cartoon-explainer.webp',
   },
   {
+    id: 'builtin-hand-drawn-editorial-diagram',
+    name: 'Hand-Drawn Editorial Diagram',
+    builtin: true,
+    blurb: 'Fine ink outlines, lightly painted natural color, and clear object-led diagrams for approachable visual explainers.',
+    category: 'Explainer',
+    tags: ['editorial', 'diagram', 'ink outline', 'economics', 'hand drawn'],
+    data: {
+      style_bible:
+        'hand-drawn editorial diagram illustration, fine dark ink outlines with subtly irregular human-drawn contours, warm off-white paper background, lightly painted opaque natural color fills in ochre, terracotta, sage green, dusty blue, and warm brown, restrained crosshatching, sparse pencil texture, clear object-led explanatory staging, recognizable locations and everyday operating objects, one strong central subject with a balanced perimeter of supporting objects, generous breathing room, crisp mobile-readable silhouettes, practical optimistic educational mood, lightly grounded shadows, polished magazine-style visual explainer',
+      negative_prompt:
+        'photorealism, 3D render, glossy vector art, mascot cartoon characters, thick marker doodles, dark moody sepia wash, monochrome parchment, heavy watercolor bleeding, cinematic lighting, dense clutter, tiny unreadable details, logos, labels, random letters, captions, watermark',
+    },
+    preview_image: '/builtin-style-previews/hand-drawn-editorial-diagram.webp',
+  },
+  {
     id: 'builtin-oil-painting-classical',
     name: 'Oil Painting Classical',
     builtin: true,
