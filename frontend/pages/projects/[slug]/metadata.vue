@@ -28,8 +28,8 @@
       @episode-selected="onEpisodeSelected"
       />
       <p class="workspace-command-copy">
-        Generate the complete publishing package at once, or open the section editor below to refine individual outputs.
-        <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">Edit channel template →</NuxtLink>
+        One Formula-led YouTube package per approved episode. Review and edit the result below.
+        <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">Configure publishing profile →</NuxtLink>
       </p>
     </div>
 
@@ -71,37 +71,27 @@
       </div>
     </div>
 
-    <!-- v1.0.198 — starter templates. Format-neutral starting points that
-         replace the old sleep-story-only default. The format-matched one is
-         applied automatically on a fresh episode; pick another to switch. -->
-    <div class="card workspace-section starter-templates">
-      <div class="shared-settings-label">
-        <span>Starter template</span>
-        <span class="text-muted text-xs font-normal">a starting point for the description sections — tweak after applying</span>
+    <div class="card workspace-section metadata-blueprint">
+      <div class="blueprint-heading">
+        <div>
+          <span class="settings-section-kicker">Formula publishing blueprint</span>
+          <h3>{{ formulaMetadataProfile.label }}</h3>
+          <p class="text-muted">{{ formulaMetadataProfile.description }}</p>
+        </div>
+        <NuxtLink :to="`/projects/${slug}/settings?tab=channel`" class="btn btn-secondary btn-sm">View Channel Identity</NuxtLink>
       </div>
-      <div class="starter-templates-row mt-1">
-        <button
-          v-for="t in starterTemplates"
-          :key="t.id"
-          type="button"
-          :class="['starter-tpl-btn', { active: activeTemplateId === t.id }]"
-          :title="t.description"
-          @click="applyStarterTemplate(t.id)"
-        >{{ t.label }}</button>
-        <button
-          type="button"
-          class="starter-tpl-btn starter-tpl-reset"
-          title="Re-apply this format's default template (discards section tweaks; presets untouched)"
-          @click="resetToFormatDefault"
-        >↺ Reset to format default</button>
+      <div class="blueprint-flow" aria-label="Formula metadata structure">
+        <span v-for="(label, index) in formulaSectionLabels" :key="label" class="blueprint-step">
+          {{ label }}<i v-if="index < formulaSectionLabels.length - 1" aria-hidden="true">→</i>
+        </span>
       </div>
-      <!-- v1.0.200 — live outline: the enabled sections in render order. -->
-      <div v-if="enabledSectionLabels.length" class="section-outline mt-2">
-        <span class="text-muted text-xs">Description shape:</span>
-        <template v-for="(lbl, i) in enabledSectionLabels" :key="i">
-          <span class="outline-chip">{{ lbl }}</span><span v-if="i < enabledSectionLabels.length - 1" class="outline-sep">→</span>
-        </template>
+      <div class="blueprint-meta">
+        <span>Title: use approved idea</span><span>{{ formulaMetadataProfile.tagCount }} YouTube tags</span><span>{{ formulaMetadataProfile.descriptionMaxChars.toLocaleString() }}-character description cap</span>
+        <span v-if="publishingProfileActive" class="blueprint-active">Publishing profile active</span>
       </div>
+      <p class="text-muted text-xs mt-2">
+        Reusable links, CTAs, credits, disclosures, and title wrappers live once in the channel publishing profile—not in every episode.
+      </p>
     </div>
 
     <!-- v1.0.182 — the three section editors collapse behind the shared
@@ -110,6 +100,7 @@
          only to fine-tune title mode, the description's channel template,
          or tag count. Open state remembered per project. -->
     <AdvancedDisclosure
+      v-if="false"
       label="Customize sections (title mode · description template · tags)"
       :persist-key="META_ADV_KEY"
     >
@@ -194,8 +185,6 @@
           <select v-model="titleConfig.preset" @change="onTitlePresetChange" class="select" :disabled="titleConfig.mode !== 'paraphrase'">
             <option value="Universal">Universal (100 — fits all)</option>
             <option value="YouTube">YouTube (100)</option>
-            <option value="TikTok">TikTok (100)</option>
-            <option value="Facebook">Facebook (255)</option>
             <option value="custom">Custom</option>
           </select>
         </div>
@@ -752,6 +741,23 @@ const titleConfig = reactive({
 })
 const descConfig = reactive({ maxChars: 5000 })
 const tagConfig = reactive({ count: 15 })
+type FormulaMetadataProfile = {
+  id: string
+  label: string
+  description: string
+  descriptionSectionIds: string[]
+  titleMode: 'use_idea_title' | 'paraphrase'
+  descriptionMaxChars: number
+  titleMaxLength: number
+  tagCount: number
+}
+const formulaMetadataProfile = ref<FormulaMetadataProfile>({
+  id: 'youtube-direct', label: 'Direct YouTube package',
+  description: 'A focused episode summary, reusable channel details, and discoverability information.',
+  descriptionSectionIds: ['hook', 'cta', 'ai-disclosure', 'hashtags'],
+  titleMode: 'use_idea_title', descriptionMaxChars: 4000, titleMaxLength: 100, tagCount: 15,
+})
+const publishingProfileActive = ref(false)
 
 // v1.0.259 — remember the title settings across reloads. prefix / suffix /
 // manualTitle are excluded: prefix+suffix already persist on the project config
@@ -800,12 +806,8 @@ interface Section { id: string; label: string; type: 'builtin' | 'custom'; enabl
 //
 // Old sections ('metadata', old-shape 'cta') are auto-migrated by the
 // `apply` function in usePresets so existing presets transparently upgrade.
-// v1.0.198 — format-neutral baseline. The old default had Narrator + Music
-// credits ON and sleep-story copy ("…reviewed for quality and warmth"); both
-// assumed a sleep-story channel. The page now applies a format-matched starter
-// template on a fresh episode (see starterTemplates / applyStarterTemplate),
-// so this baseline only shows for the brief pre-mount moment + as the "reset"
-// fallback. Narrator/Music/Videos default OFF; copy is channel-neutral.
+// Neutral compatibility baseline for old saved presets. New sessions are
+// immediately replaced by the selected Formula's publishing blueprint.
 const NEUTRAL_AI_DISCLOSURE = 'Created with the help of AI tools and reviewed before publishing.'
 const defaultSections: Section[] = [
   { id: 'hook', label: 'Hook / Intro Paragraph', type: 'builtin', enabled: true, config: { characters: 220, starting_format: '' } },
@@ -921,64 +923,6 @@ function migrateSections(input: Section[]): { migrated: Section[]; didMigrate: b
 
 const sections = ref<Section[]>(JSON.parse(JSON.stringify(defaultSections)))
 
-// ── v1.0.198 — format-neutral starter templates ────────────────────────────
-// Replace the one-size-fits-all (sleep-story) default with use-case starters.
-// On a fresh episode the page applies the one matching the project's format;
-// the picker lets the user switch. Each builds an ordered section list.
-function sec(id: string, label: string, enabled: boolean, config: SectionConfig = {}): Section {
-  return { id, label, type: 'builtin', enabled, config }
-}
-function tplPov(): Section[] {
-  return [
-    sec('hook', 'Hook / Intro Paragraph', true, { characters: 220, starting_format: '' }),
-    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
-    sec('channels', 'Channel Mentions', false, { channels: [{ name: '', url: '', kind: 'own' }] }),
-    sec('support', 'Support / Membership', true, { platforms: [] }),
-    sec('ai-disclosure', 'AI Disclosure', true, { text: NEUTRAL_AI_DISCLOSURE }),
-    sec('hashtags', 'Hashtags (inside description)', true, { count: 15 }),
-  ]
-}
-function tplExplainer(): Section[] {
-  return [
-    sec('hook', 'Hook / Intro Paragraph', true, { characters: 250, starting_format: '' }),
-    sec('sources', '📚 Sources', true, {}),
-    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
-    sec('ai-disclosure', 'AI Disclosure', true, { text: NEUTRAL_AI_DISCLOSURE }),
-    sec('hashtags', 'Hashtags (inside description)', true, { count: 15 }),
-  ]
-}
-function tplListicle(): Section[] {
-  return [
-    sec('hook', 'Hook / Intro Paragraph', true, { characters: 200, starting_format: '' }),
-    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
-    sec('hashtags', 'Hashtags (inside description)', true, { count: 20 }),
-  ]
-}
-function tplMinimal(): Section[] {
-  return [
-    sec('hook', 'Hook / Intro Paragraph', true, { characters: 150, starting_format: '' }),
-    sec('hashtags', 'Hashtags (inside description)', true, { count: 12 }),
-  ]
-}
-interface StarterTemplate { id: string; label: string; description: string; build: () => Section[] }
-const starterTemplates: StarterTemplate[] = [
-  { id: 'pov',       label: 'POV Creator',                   description: 'First-person creator channel — hook, CTA, support, links. No narrator/music credit.', build: tplPov },
-  { id: 'explainer', label: 'Faceless Explainer / Documentary', description: 'Fact-checked explainer — includes a 📚 Sources section for your research citations.', build: tplExplainer },
-  { id: 'listicle',  label: 'Listicle / Top-N',              description: 'Numbered-list videos — punchy hook, tag-heavy.', build: tplListicle },
-  { id: 'minimal',   label: 'Minimal',                       description: 'Just a short hook + hashtags. Nothing else.', build: tplMinimal },
-]
-function templateIdForFormat(formatId: string): string {
-  switch (formatId) {
-    case 'continuity-chain': return 'pov'
-    case 'scenes':           return 'explainer'
-    case 'listicle':         return 'listicle'
-    // legacy ids (pre-v1.0.280) — kept so old projects map correctly
-    case 'narration-synced':
-    case 'narrated-scenes':
-    case 'narrative':        return 'explainer'
-    default:                 return 'minimal'
-  }
-}
 // ── v1.0.199 — section catalog (mirrors the backend registry) ──────────────
 // The list of addable section types + their default config. The "Add section"
 // menu reads this, so any built-in section composes onto any template, and a
@@ -1001,6 +945,42 @@ const SECTION_CATALOG: CatalogEntry[] = [
   { id: 'hashtags',      label: 'Hashtags (inside description)',  defaultConfig: () => ({ count: 15 }) },
 ]
 const catalogById = (id: string) => SECTION_CATALOG.find(c => c.id === id)
+const formulaSectionLabels = computed(() => formulaMetadataProfile.value.descriptionSectionIds
+  .map(id => catalogById(id)?.label.replace(/^📚\s*/, '') || id)
+)
+
+function sectionsForFormulaProfile(profile: FormulaMetadataProfile): Section[] {
+  return profile.descriptionSectionIds.map<Section | null>((id) => {
+    const entry = catalogById(id)
+    if (!entry) return null
+    const config = entry.defaultConfig()
+    if (id === 'hashtags') config.count = profile.tagCount
+    return { id: entry.id, label: entry.label, type: 'builtin' as const, enabled: true, config }
+  }).filter((section): section is Section => section !== null)
+}
+
+async function loadFormulaMetadataProfile(): Promise<void> {
+  try {
+    const [effective, config] = await Promise.all([
+      get<{ niche: { metadataProfile?: FormulaMetadataProfile } | null }>(`/projects/${slug.value}/effective-niche`),
+      get<{ metadata_template?: { title?: string; description?: string; tags?: string[] } }>(`/projects/${slug.value}/settings/config`),
+    ])
+    const profile = effective?.niche?.metadataProfile
+    if (profile?.descriptionSectionIds?.length) {
+      formulaMetadataProfile.value = profile
+      sections.value = sectionsForFormulaProfile(profile)
+      titleConfig.mode = profile.titleMode
+      titleConfig.count = profile.titleMode === 'paraphrase' ? 3 : 1
+      titleConfig.maxLength = profile.titleMaxLength
+      descConfig.maxChars = profile.descriptionMaxChars
+      tagConfig.count = profile.tagCount
+    }
+    const template = config?.metadata_template
+    publishingProfileActive.value = Boolean(template && (template.title || template.description || template.tags?.length))
+  } catch {
+    // A project without a Formula remains usable with the direct YouTube fallback.
+  }
+}
 // Section types not already in the current list — offered in the Add menu.
 const addableSections = computed(() => SECTION_CATALOG.filter(c => !sections.value.some(s => s.id === c.id)))
 function addSection(id: string): void {
@@ -1019,37 +999,6 @@ function genericFieldsFor(id: string): CatalogField[] {
   const c = catalogById(id)
   return c?.generic ? (c.fields || []) : []
 }
-
-const activeTemplateId = ref<string>('')
-function applyStarterTemplate(tplId: string, opts: { silent?: boolean } = {}): void {
-  const tpl = starterTemplates.find(t => t.id === tplId)
-  if (!tpl) return
-  // Manual apply replaces the current sections — confirm so accidental clicks
-  // don't wipe a configured description. Auto-apply on mount passes silent.
-  if (!opts.silent && activeTemplateId.value && activeTemplateId.value !== tplId) {
-    if (!confirm(`Apply the "${tpl.label}" starter template? This replaces the current description sections (your saved presets are untouched).`)) return
-  }
-  sections.value = tpl.build()
-  activeTemplateId.value = tplId
-}
-
-// v1.0.200 (M2) — re-apply the format-matched starter template (a clean reset
-// after experimenting), reading the format's declared default.
-async function resetToFormatDefault(): Promise<void> {
-  let tplId = 'minimal'
-  try {
-    const f = await get<any>(`/projects/${slug.value}/effective-format`)
-    const declared = f?.metadata?.defaultStarterTemplate
-    tplId = (typeof declared === 'string' && starterTemplates.some(t => t.id === declared))
-      ? declared
-      : templateIdForFormat(f?.id || '')
-  } catch { /* fall back to minimal */ }
-  applyStarterTemplate(tplId)
-}
-
-// v1.0.200 (M3) — live section outline: the enabled sections in render order,
-// shown as a strip so you see the description's shape before generating.
-const enabledSectionLabels = computed(() => sections.value.filter(s => s.enabled).map(s => s.label))
 
 // ── v1.0.198 (M1b) — Sources section: the episode's research citations ──────
 // Mirrors the Research page's per-source include picks (source of truth is
@@ -1232,8 +1181,6 @@ const nextVersionNumber = computed(() => {
 
 const PRESET_LIMITS: Record<string, number> = {
   YouTube: 100,
-  TikTok: 100,
-  Facebook: 255,
   Universal: 100,
 }
 function onTitlePresetChange() {
@@ -1787,19 +1734,6 @@ async function applyFormatDefaultsIfNoPreset() {
     if (Array.isArray(meta.broadKeywords) && meta.broadKeywords.length > 0) {
       formatBroadKeywords.value = meta.broadKeywords.slice(0, 5)
     }
-    // v1.0.198 — apply the format-matched starter template's section set so a
-    // fresh episode opens with sensible, channel-appropriate sections instead
-    // of the old sleep-story default. preset.load() (called right after in
-    // onMounted) overrides this when the user has a saved preset, so existing
-    // presets are unaffected.
-    // v1.0.199 — the format declares its starter template (metadata.
-    // defaultStarterTemplate); fall back to the id-based mapping for formats
-    // that haven't declared one. So adding a new format needs no edit here.
-    const declared = (meta as any).defaultStarterTemplate
-    const tplId = (typeof declared === 'string' && starterTemplates.some(t => t.id === declared))
-      ? declared
-      : templateIdForFormat(f?.id || '')
-    applyStarterTemplate(tplId, { silent: true })
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
     // hardcoded values (5000 / 5 / 100 / 15). Non-fatal.
@@ -1824,6 +1758,10 @@ onMounted(async () => {
   // are the right starting point for projects with no saved preset yet.
   await applyFormatDefaultsIfNoPreset()
   await metadataPresets.load()
+  // Formula defaults intentionally win over historical format/preset
+  // templates. They are the channel's publishing contract, not a per-run
+  // preference; saved presets remain available for model selection.
+  await loadFormulaMetadataProfile()
   // Best-effort load — failure is fine, the manual inputs still work.
   loadAvailablePlaylists().catch(() => {})
   // v1.0.198 (M1b) — research sources for the Sources section (episodeId may
@@ -1861,6 +1799,17 @@ onMounted(async () => {
 }
 
 .shared-settings { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; }
+
+.metadata-blueprint { padding: 18px 20px; border-color: rgba(240, 198, 116, .28); background: linear-gradient(120deg, rgba(240, 198, 116, .09), rgba(69, 153, 210, .04)); }
+.blueprint-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.blueprint-heading h3 { margin: 3px 0 5px; font-size: 17px; }
+.blueprint-heading p { margin: 0; max-width: 720px; line-height: 1.5; }
+.blueprint-flow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 16px; }
+.blueprint-step { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 999px; color: var(--text-secondary); border: 1px solid var(--border); background: rgba(11, 15, 25, .26); font-size: 12px; }
+.blueprint-step i { font-style: normal; color: var(--accent); margin-left: 2px; }
+.blueprint-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 13px; font-size: 12px; color: var(--text-muted); }
+.blueprint-active { color: var(--success, #5fb37a); font-weight: 600; }
+@media (max-width: 640px) { .blueprint-heading { flex-direction: column; } }
 
 /* v1.0.198 — starter-template picker. */
 .starter-templates { padding: 12px 16px; }

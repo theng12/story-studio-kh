@@ -65,6 +65,16 @@ export interface Niche {
     label: string
     description: string
   }
+  metadataProfile?: {
+    id: string
+    label: string
+    description: string
+    descriptionSectionIds: string[]
+    titleMode: 'use_idea_title' | 'paraphrase'
+    descriptionMaxChars: number
+    titleMaxLength: number
+    tagCount: number
+  }
   tagline?: string
   exampleTopics: string[]
   defaultTopicPackIds?: string[]

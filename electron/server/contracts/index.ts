@@ -110,6 +110,17 @@ const NicheThumbnailProfileSchema = z.object({
   defaultFontStyle: z.string().min(1).max(80).optional(),
 }).strict()
 
+const NicheMetadataProfileSchema = z.object({
+  id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(120),
+  description: z.string().min(1).max(500),
+  descriptionSectionIds: z.array(z.string().min(1).max(80)).min(1).max(20),
+  titleMode: z.enum(['use_idea_title', 'paraphrase']),
+  descriptionMaxChars: z.number().int().min(200).max(5000),
+  titleMaxLength: z.number().int().min(20).max(200),
+  tagCount: z.number().int().min(1).max(50),
+}).strict()
+
 const IdeaAxisSchema = z.object({
   id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
   label: z.string().min(1).max(120),
@@ -143,6 +154,7 @@ export const NicheSchema = z.object({
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
   }).strict().optional(),
+  metadataProfile: NicheMetadataProfileSchema.optional(),
   tagline: z.string().max(200).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
   defaultTopicPackIds: z.array(z.string().min(1).max(80)).max(24).optional(),

@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.736 — 2026-07-25
+
+**Metadata is now a Formula-led YouTube publishing flow instead of a collection of old per-format templates.**
+
+- Replaces the Metadata Generator's starter-template and per-section-generation
+  surface with one clean Formula publishing blueprint and one **Generate
+  Metadata** action.
+- Adds Formula-owned metadata profiles for every active channel Formula, so
+  descriptions, source handling, title behavior, and tag counts follow the
+  channel identity in both the UI and queued jobs.
+- Adds a modern **YouTube Publishing Profile** under Settings → Channel
+  Identity for reusable links, credits, CTAs, disclosures, title wrappers, and
+  recurring tags; existing saved channel templates remain compatible.
+- Removes TikTok and Facebook choices from the visible metadata workflow and
+  keeps the app focused on YouTube.
+- Tightens Script Generator's live-model gate so an outline cannot submit
+  before the selected GenStudio model is confirmed usable.
+
+---
+
 ## v1.0.735 — 2026-07-25
 
 **Channel openings are now Formula-owned instead of sleep-story controls on every script.**

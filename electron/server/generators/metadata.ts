@@ -25,6 +25,7 @@ import { formatMetadataTxt } from '../services/folder-migration.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
 import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
+import { getEffectiveNicheFor } from '../services/niche-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -58,6 +59,23 @@ interface MetadataParams {
 function checkProvider(_model: string, _config: any): string | null { return null }
 
 function aiCreds(_config: any) { return {} }
+
+function metadataSectionsForProfile(ids: string[] | undefined, tagCount: number): Array<any> {
+  const configs: Record<string, any> = {
+    hook: { characters: 220, starting_format: '' },
+    sources: {},
+    cta: { custom_lines: [] },
+    'ai-disclosure': { text: 'Created with the help of AI tools and reviewed before publishing.' },
+    hashtags: { count: tagCount },
+  }
+  const labels: Record<string, string> = {
+    hook: 'Hook / Intro Paragraph', sources: '📚 Sources', cta: 'Subscribe / Like CTA',
+    'ai-disclosure': 'AI Disclosure', hashtags: 'Hashtags (inside description)',
+  }
+  return (ids || []).filter(id => configs[id]).map(id => ({
+    id, label: labels[id] || id, type: 'builtin', enabled: true, config: configs[id],
+  }))
+}
 
 async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
   try {
@@ -120,7 +138,6 @@ export async function generateMetadata(job: Job): Promise<void> {
   if (credErr) throw new Error(credErr)
 
   const title = req.title || episode_id
-  const sections = Array.isArray(req.sections) ? req.sections : []
 
   // Format-aware defaults (v1.0.69). The interactive metadata flow in
   // routes/scripts.ts:/metadata/all already used format.metadata.purposeNote
@@ -134,11 +151,17 @@ export async function generateMetadata(job: Job): Promise<void> {
   // legacy hardcoded numbers).
   const format = await getEffectiveFormat(project_slug)
   const fmtMeta = format?.metadata
-  const max_chars = req.max_chars ?? fmtMeta?.defaultMaxChars ?? 5000
-  const title_count = req.title_count ?? fmtMeta?.defaultTitleCount ?? 5
-  const title_max_length = req.title_max_length ?? fmtMeta?.defaultTitleMaxLength ?? 100
+  const project = await pm.getProject(project_slug)
+  const niche = project ? await getEffectiveNicheFor(project) : null
+  const profile = niche?.metadataProfile
+  const max_chars = req.max_chars ?? profile?.descriptionMaxChars ?? fmtMeta?.defaultMaxChars ?? 5000
+  const title_count = req.title_count ?? (profile ? (profile.titleMode === 'paraphrase' ? 3 : 1) : undefined) ?? fmtMeta?.defaultTitleCount ?? 5
+  const title_max_length = req.title_max_length ?? profile?.titleMaxLength ?? fmtMeta?.defaultTitleMaxLength ?? 100
   const title_platform_preset = req.title_platform_preset || 'Universal'
-  const tag_count = req.tag_count ?? fmtMeta?.defaultTagCount ?? 15
+  const tag_count = req.tag_count ?? profile?.tagCount ?? fmtMeta?.defaultTagCount ?? 15
+  const sections = Array.isArray(req.sections) && req.sections.length
+    ? req.sections
+    : metadataSectionsForProfile(profile?.descriptionSectionIds, tag_count)
 
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)
@@ -222,7 +245,7 @@ export async function generateMetadata(job: Job): Promise<void> {
     // idea title flows through verbatim unless the user actively asks for
     // paraphrase. Channel prefix/suffix come from the project's saved
     // titleConfig — they're per-channel constants that wrap every episode.
-    const title_mode = req.title_mode || 'paraphrase'
+    const title_mode = req.title_mode || profile?.titleMode || 'use_idea_title'
     const title_prefix = typeof req.title_prefix === 'string' ? req.title_prefix : ''
     const title_suffix = typeof req.title_suffix === 'string' ? req.title_suffix : ''
     const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''

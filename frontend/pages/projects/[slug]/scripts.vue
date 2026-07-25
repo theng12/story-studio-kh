@@ -1814,7 +1814,10 @@ const estimatedDuration = computed(() =>
 const estimatedTotalDuration = computed(() =>
   Math.round(totalOutput.value / wordsPerMinute.value)
 )
-const canSubmit = computed(() => form.episode_id && form.title)
+const canSubmit = computed(() => {
+  if (!scriptModelReady.value) return false
+  return Boolean(form.episode_id && form.title)
+})
 
 // Standard duration values shown in the Duration dropdown. Used only to
 // decide whether the current form.length matches a dropdown option (vs

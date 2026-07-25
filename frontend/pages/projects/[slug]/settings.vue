@@ -326,6 +326,17 @@
 
     </div>
 
+    <div v-if="isChannelTab" class="card publishing-profile-card mt-2">
+      <div class="settings-section-head">
+        <div>
+          <span class="settings-section-kicker">YouTube publishing</span>
+          <h3>Publishing Profile</h3>
+          <p>Set channel-wide links, credits, CTAs, disclosures, recurring tags, and an optional title wrapper once. The selected Series Formula continues to own episode-specific metadata.</p>
+        </div>
+        <NuxtLink :to="`/projects/${slug}/metadata-template`" class="btn btn-primary">Configure publishing profile</NuxtLink>
+      </div>
+    </div>
+
     <!-- Channel Identity — formula + subject lane layer. -->
     <div v-if="activeTab === 'channel'" class="card settings-panel mt-2">
       <div class="format-tab-header">
@@ -4023,6 +4034,7 @@ const activeZone = computed(() =>
 )
 
 const activeTabMeta = computed(() => tabs.find(tab => tab.id === activeTab.value) || null)
+const isChannelTab = computed(() => activeTab.value === 'channel')
 
 type ModelPricingView = 'image' | 'audio' | 'video'
 const modelPricingView = ref<ModelPricingView>('image')

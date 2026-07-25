@@ -34,7 +34,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
-import type { Niche, DeepPartial, ProjectMeta, TopicPack, IdeaAxis } from '../models/types.js'
+import type { Niche, DeepPartial, ProjectMeta, TopicPack, IdeaAxis, NicheMetadataProfile } from '../models/types.js'
 import * as topicPackLoader from './topic-pack-loader.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -97,7 +97,7 @@ const userCache = new Map<string, { mtimeMs: number; niche: Niche }>()
  * old one-niche-per-subject-library taxonomy.
  */
 const FORMULA_CATALOG: Record<string, Pick<Niche,
-  'formulaFamily' | 'catalogStatus' | 'successorFormulaId' | 'catalogName' | 'perspectivePolicy' | 'narrativeQualityContract'
+  'formulaFamily' | 'catalogStatus' | 'successorFormulaId' | 'catalogName' | 'perspectivePolicy' | 'narrativeQualityContract' | 'metadataProfile'
 >> = {
   'ancient-humans': { formulaFamily: 'Evidence & systems', catalogName: 'How Did Ancient Humans…?', perspectivePolicy: 'Third-person, evidence-led narration. Never role-play ancient people as the viewer.', narrativeQualityContract: { openingPolicy: 'Open on a specific survival problem, material trace, or surprising constraint — not an immersive invitation.', forbiddenPatterns: ['Imagine you are an ancient human', 'You find yourself', 'Watch what happens next', 'generic prehistoric danger bait'], requiredHabits: ['Separate evidence from inference.', 'Use concrete tools, environments, trade-offs, and dates where useful.', 'Let uncertainty remain uncertainty.'], closingPolicy: 'Close on what the evidence changes about our understanding, not a teaser.' } },
   'business-economics': { formulaFamily: 'Evidence & systems', catalogName: 'The Economics of…', perspectivePolicy: 'Third-person analytical explainer. Address the business, system, or decision — not a generic viewer avatar.', narrativeQualityContract: { openingPolicy: 'Open with the economic tension, cost, constraint, or surprising unit of the chosen business.', forbiddenPatterns: ['Imagine you own', 'So you want to own', 'Watch what happens next', 'This changes everything', 'generic entrepreneurial hype'], requiredHabits: ['Name the mechanism behind revenue, costs, risk, and trade-offs.', 'Use specific representative numbers or clearly labeled examples.', 'Build to an implication instead of repeating the premise.'], closingPolicy: 'End with the decisive trade-off or operating insight.' } },
@@ -138,6 +138,42 @@ const DEFAULT_NARRATIVE_QUALITY: NonNullable<Niche['narrativeQualityContract']> 
   closingPolicy: 'Close the actual thought; do not manufacture suspense for the next episode.',
 }
 
+const METADATA_PROFILES: Record<'evidence' | 'immersive' | 'reflective' | 'calm' | 'faith', NicheMetadataProfile> = {
+  evidence: {
+    id: 'evidence-youtube', label: 'Evidence-led YouTube package',
+    description: 'A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.',
+    descriptionSectionIds: ['hook', 'sources', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 4000, titleMaxLength: 100, tagCount: 15,
+  },
+  immersive: {
+    id: 'immersive-youtube', label: 'Immersive YouTube package',
+    description: 'A concise premise-led summary with a light CTA, disclosure, and focused hashtags.',
+    descriptionSectionIds: ['hook', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3500, titleMaxLength: 100, tagCount: 15,
+  },
+  reflective: {
+    id: 'reflective-youtube', label: 'Reflective YouTube package',
+    description: 'A clear, non-hyped summary with a modest CTA, disclosure, and focused hashtags.',
+    descriptionSectionIds: ['hook', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3500, titleMaxLength: 100, tagCount: 15,
+  },
+  calm: {
+    id: 'calm-youtube', label: 'Calm story package',
+    description: 'A quiet story summary and minimal discoverability details; no urgency or sales language.',
+    descriptionSectionIds: ['hook', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 2500, titleMaxLength: 100, tagCount: 12,
+  },
+  faith: {
+    id: 'pastoral-youtube', label: 'Pastoral YouTube package',
+    description: 'A respectful episode summary and restrained discoverability details, without pressure language.',
+    descriptionSectionIds: ['hook', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3000, titleMaxLength: 100, tagCount: 15,
+  },
+}
+
+function metadataProfileForFormula(id: string, family?: string): NicheMetadataProfile {
+  if (id === 'sleep' || family === 'Calm stories') return METADATA_PROFILES.calm
+  if (family === 'Faith') return METADATA_PROFILES.faith
+  if (family === 'Evidence & systems' || id === 'animals') return METADATA_PROFILES.evidence
+  if (family === 'Immersive paths') return METADATA_PROFILES.immersive
+  return METADATA_PROFILES.reflective
+}
+
 function decorateCatalogNiche(niche: Niche): Niche {
   const catalog = FORMULA_CATALOG[niche.id]
   return {
@@ -149,6 +185,7 @@ function decorateCatalogNiche(niche: Niche): Niche {
     catalogName: niche.catalogName || catalog?.catalogName || niche.name,
     perspectivePolicy: niche.perspectivePolicy || catalog?.perspectivePolicy || 'Use the Formula’s established narrator voice consistently.',
     narrativeQualityContract: niche.narrativeQualityContract || catalog?.narrativeQualityContract || DEFAULT_NARRATIVE_QUALITY,
+    metadataProfile: niche.metadataProfile || catalog?.metadataProfile || metadataProfileForFormula(niche.id, niche.formulaFamily || catalog?.formulaFamily),
   }
 }
 

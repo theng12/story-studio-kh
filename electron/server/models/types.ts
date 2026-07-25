@@ -698,6 +698,22 @@ export interface NicheThumbnailProfile {
   defaultFontStyle?: string
 }
 
+/**
+ * Formula-owned publishing defaults. These describe the episode-specific
+ * metadata shape; recurring channel copy belongs to the project publishing
+ * profile, not to an old per-page starter template.
+ */
+export interface NicheMetadataProfile {
+  id: string
+  label: string
+  description: string
+  descriptionSectionIds: string[]
+  titleMode: 'use_idea_title' | 'paraphrase'
+  descriptionMaxChars: number
+  titleMaxLength: number
+  tagCount: number
+}
+
 export interface IdeaAxis {
   /** Stable slug included in idea fingerprints, e.g. "economic-pressure". */
   id: string
@@ -769,6 +785,8 @@ export interface Niche {
     label: string
     description: string
   }
+  /** Formula-owned defaults for the YouTube publishing package. */
+  metadataProfile?: NicheMetadataProfile
 
   /** Short tagline shown on the niche card / picker. */
   tagline?: string
