@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.732 — 2026-07-25
+
+**Script writing is now one Formula-aware flow instead of a page full of overlapping controls.**
+
+- Reduces Script Generator to **Outline → Script**, moving the optional channel
+  opening inline with its settings and completed preview rather than a separate tab.
+- Replaces the old hard-coded sleep-story narrator list with the selected
+  Formula's real narrator choices; overrides are available only when wanted.
+- Makes the active Formula's voice, pacing, and human-writing contract visible
+  at the point of generation, while keeping its implementation detail compact.
+- Merges the old Creative Brief and Story Guidance into one saved **Episode
+  direction** that travels from outline approval through chapter expansion.
+
+---
+
 ## v1.0.731 — 2026-07-25
 
 **Channel Identity now scales from a Formula into many distinct subject lanes, with one production engine and cleaner human scripts.**

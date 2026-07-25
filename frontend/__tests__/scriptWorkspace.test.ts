@@ -16,4 +16,13 @@ describe('Script Generator workspace', () => {
     assert.doesNotMatch(scripts, /label="Advanced options"/)
     assert.doesNotMatch(scripts, /scriptAdvancedExpanded/)
   })
+
+  test('uses a Formula-owned narrator and keeps the optional opening in the writing flow', () => {
+    assert.match(scripts, /Formula narrator/)
+    assert.match(scripts, /availableNarratorStyles/)
+    assert.doesNotMatch(scripts, /A — Warm & intimate first-person/)
+    assert.match(scripts, /Include channel opening/)
+    assert.doesNotMatch(scripts, /🎬 Introduction/)
+    assert.match(scripts, /Episode direction/)
+  })
 })

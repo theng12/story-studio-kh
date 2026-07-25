@@ -28,7 +28,7 @@
       @episode-selected="onEpisodeSelected"
       />
       <p class="workspace-command-copy">
-        Start with <strong>Outline</strong>, expand and repair chapters in <strong>Script</strong>, then finish the optional opening in <strong>Introduction</strong>.
+        Start with <strong>Outline</strong>, approve and expand chapters in <strong>Script</strong>, then finish the optional channel opening in the same flow.
       </p>
     </div>
 
@@ -66,16 +66,14 @@
       </div>
     </section>
 
-    <!-- v1.0.117+ — Three tabs split out from the one long page that
+    <!-- The writing flow is intentionally only Outline → Script. The optional
+         channel opening is configured inline on Outline, where it belongs. -->
+    <!-- v1.0.117+ — Tabs split out from the one long page that
          previously stacked outline form, intro section, and chapter
          list one above the other. ?tab= keeps the URL honest so deep
          links + back/forward + refresh land on the same view.
-         Default is 'outline' because that's the natural starting
-         point of a fresh episode; the Introduction tab opens a
-         "needs script first" gate when no chapters exist, which is a
-         bad first impression. -->
-    <!-- v1.0.176 — tab order follows the real flow: Outline (plan) →
-         Script (write/regenerate) → Introduction (optional, last). -->
+         Default is 'outline' because that's the natural starting point of a
+         fresh episode. -->
     <div class="form-tabs workspace-stage-tabs">
       <button
         type="button"
@@ -91,21 +89,14 @@
       >
         📝 Script
       </button>
-      <button
-        type="button"
-        :class="['form-tab', { active: scriptsTab === 'introduction' }]"
-        @click="scriptsTab = 'introduction'"
-      >
-        🎬 Introduction <span class="text-muted text-xs">(optional)</span>
-      </button>
     </div>
 
-    <!-- v1.0.117+ — Basics card lives on Introduction + Outline tabs.
+    <!-- Basics and optional Opening live on Outline.
          Hidden on Script tab so chapter regen has the whole pane to
          itself. Title / pattern / character / normalize stay visible
          on the first two tabs so the user always sees what episode
          they're configuring. -->
-    <div class="card workspace-section" v-show="scriptsTab !== 'script'">
+    <div class="card workspace-section" v-show="scriptsTab === 'outline'">
       <div class="form-group field-medium">
         <label>Episode Title</label>
         <input v-model="form.title" class="input" placeholder="The Whispering Forest" />
@@ -152,26 +143,30 @@
         @normalized="onNarrationNormalized"
       />
 
-      <!-- Introduction (on top, toggleable) — v1.0.117+ only visible on
-           Introduction tab. -->
-      <div class="intro-section mt-2" v-show="scriptsTab === 'introduction'">
+      <!-- Opening is an optional channel-branding layer in the outline flow.
+           It is generated only after the approved chapters exist, but its
+           intent and reusable settings stay visible before outlining. -->
+      <div class="intro-section opening-section mt-2">
         <div class="intro-header">
           <label class="toggle-label">
             <input type="checkbox" v-model="intro.enabled" />
-            <h3>Introduction</h3>
+            <h3>Include channel opening</h3>
           </label>
-          <span v-if="intro.enabled" class="text-muted text-sm">~{{ intro.word_target }} words</span>
+          <div v-if="intro.enabled" class="opening-head-actions">
+            <span class="text-muted text-sm">~{{ intro.word_target }} words</span>
+            <button type="button" class="link-btn" @click="openingConfigOpen = !openingConfigOpen">
+              {{ openingConfigOpen ? 'Hide settings' : 'Configure opening' }}
+            </button>
+          </div>
         </div>
         <p class="text-muted text-sm" style="margin: 2px 0 12px;">
-          The <strong>Include introduction</strong> toggle and automatic generation live on the
-          <strong>Outline</strong> tab now. This tab is just for the intro's <strong>content</strong>
-          (host, length, beats) and for re-rolling it — when the toggle is on, the intro generates
-          automatically right after the chapters finish.
+          A reusable branded welcome, especially useful for sleep stories. It is generated after
+          chapters are complete, so it can introduce the actual episode rather than a generic promise.
         </p>
-        <div v-if="intro.enabled" class="intro-body">
+        <div v-if="intro.enabled && openingConfigOpen" class="intro-body">
           <!-- Intro-specific preset picker (separate pool from script presets) -->
           <PresetPicker
-            label="Introduction Preset"
+            label="Opening preset"
             hint="Snapshots just host name, word target, opening line, and beat list — not the chapter settings."
             :presets="introPresets.presets.value"
             :active-id="introPresets.activeId.value"
@@ -253,12 +248,19 @@
             :title="!scriptGenerated ? 'Generate the script first to enable introduction generation' : ''"
           >
             <LoadingSpinner v-if="submitting" size="sm" />
-            Generate Introduction
+            Generate opening
           </button>
           <div v-if="intro.enabled && !scriptGenerated" class="intro-needs-script mt-2">
-            ⓘ Generate the script first before creating the introduction. The introduction uses the chapter content as context.
+            ⓘ Generate the chapters first. The opening uses their content as context.
           </div>
         </div>
+        <IntroductionPreview
+          v-if="intro.enabled && scriptGenerated && panelsReady && form.episode_id"
+          :project-slug="slug"
+          :episode-id="form.episode_id"
+          :title="form.title"
+          :refresh-key="previewRefreshKey"
+        />
       </div>
 
       <!-- v1.0.117+ — Main settings (duration, model, narrator style),
@@ -283,39 +285,37 @@
         </label>
         <p class="text-muted" style="flex-basis:100%; margin:0; font-size: var(--font-xs); line-height:1.6;">
           One click runs <strong>outline → chapters<span v-if="intro.enabled"> → introduction</span></strong>.
-          Prefer to review the outline first? Use <strong>Generate Outline</strong> (top) then Expand below<span v-if="intro.enabled"> — the introduction still auto-generates the moment the chapters finish</span>.
-          Configure the intro's content in the <strong>Introduction</strong> tab.
+          Prefer to review the outline first? Use <strong>Generate Outline</strong> (top) then Expand below<span v-if="intro.enabled"> — the opening still auto-generates the moment the chapters finish</span>.
         </p>
       </div>
 
-      <!-- Main settings — v1.0.168: Duration is no longer a control. Length
-           is determined by chapters × words-per-chapter (Word count section
-           below) and shown there as a read-only estimate. Model + Narrator
-           Style are the only Main-settings inputs now. -->
+      <!-- Main settings. The Formula chooses the normal narrator; an episode
+           can make a deliberate override without making voice selection a
+           mandatory decision on every run. -->
       <div class="grid-2 mt-2">
         <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
         <div class="form-group">
-          <label>Narrator Style</label>
-          <select v-model="form.style" class="select">
-            <optgroup label="Presets">
-              <option value="auto">Auto-rotate</option>
-              <option value="A">A — Warm & intimate first-person</option>
-              <option value="B">B — Gentle third-person observer</option>
-              <option value="C">C — Classic storyteller</option>
-              <option value="D">D — Poetic & lyrical</option>
-              <option value="E">E — Whimsical & playful</option>
-              <option value="F">F — Mysterious & atmospheric</option>
-              <option value="G">G — Grandparent bedtime voice</option>
-              <option value="H">H — Nature documentary calm</option>
-              <option value="I">I — Meditative & mindful</option>
-              <option value="J">J — Fairy tale narrator</option>
-            </optgroup>
-            <optgroup label="Custom" v-if="customStyles.length">
-              <option v-for="cs in customStyles" :key="cs.id" :value="cs.id">{{ cs.name }}</option>
-            </optgroup>
-            <option value="custom">+ Write custom style...</option>
-          </select>
-          <div v-if="form.style === 'custom' || showStyleDesc" class="mt-1">
+          <label>Formula narrator</label>
+          <div class="formula-narrator-summary">
+            <strong>{{ activeNarratorLabel }}</strong>
+            <span>{{ activeNarratorDescription }}</span>
+            <button v-if="availableNarratorStyles.length > 1 || customStyles.length" type="button" class="link-btn" @click="narratorOverrideOpen = !narratorOverrideOpen">
+              {{ narratorOverrideOpen ? 'Hide override' : 'Change for this episode' }}
+            </button>
+          </div>
+          <div v-if="narratorOverrideOpen" class="mt-1">
+            <select v-model="form.style" class="select">
+              <option value="auto">Formula default{{ availableNarratorStyles.length > 1 ? ' (auto-rotate)' : '' }}</option>
+              <option v-for="style in availableNarratorStyles" :key="style.id" :value="style.id">
+                {{ style.label }}
+              </option>
+              <optgroup label="Saved custom voices" v-if="customStyles.length">
+                <option v-for="cs in customStyles" :key="cs.id" :value="cs.id">{{ cs.name }}</option>
+              </optgroup>
+              <option value="custom">Write a one-off voice…</option>
+            </select>
+          </div>
+          <div v-if="narratorOverrideOpen && (form.style === 'custom' || showStyleDesc)" class="mt-1">
             <div class="flex justify-between items-center mb-1" v-if="form.style !== 'custom'">
               <label class="style-desc-label">Style description</label>
               <button class="btn-icon style-desc-toggle" @click="showStyleDesc = false">Hide</button>
@@ -326,57 +326,29 @@
               <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as preset</button>
             </div>
           </div>
-          <button v-if="form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">
-            View / edit description
-          </button>
+          <button v-if="narratorOverrideOpen && form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">View description</button>
         </div>
 
-        <div class="form-group">
-          <label>Creative freedom</label>
-          <select v-model="form.creative_mode" class="select">
-            <option value="guided">Balanced — Formula-led, flexible</option>
-            <option value="open">Explore — vary this episode within the Formula</option>
-            <option value="strict">Guardrails — follow the Formula closely</option>
-          </select>
-          <span class="text-muted text-xs">All modes keep the Formula’s perspective, opening policy, and human-writing safeguards intact.</span>
-        </div>
-        <div class="form-group">
-          <label>Creative brief <span class="text-muted" style="font-weight:400">(optional)</span></label>
-          <textarea v-model="form.creative_direction" class="textarea" rows="3" placeholder="The one artistic direction the model should prioritize across the whole script…" />
-        </div>
-
-        <div class="formula-voice-note">
-          <strong>Formula-owned voice</strong>
-          <span>Perspective, opening policy, and human-writing guardrails come from the selected Series Formula. Use the Creative brief above only for episode-specific direction.</span>
-        </div>
       </div>
 
-      <!-- v1.0.174 — Context strip. The three advisory cards (format
-           envelope, niche overlay, recency avoidance) used to stack here
-           always-open, pushing the word counts + outline far down the page.
-           They're now folded into one collapsible strip: a quiet summary
-           line by default, full detail (with all their controls) on click.
-           The strip flags itself ("⚠ check") + is worth opening when the
-           chapter/length choice falls outside the format envelope. -->
-      <ContextStrip
-        v-if="formatContext || nicheContext || (recencyState && recencyState.enabled)"
-        v-model:open="scriptContextExpanded"
-        :has-warning="scriptContextNeedsAttention"
-        warn-label="⚠ check"
-        open-label="▾ Hide detail"
-        closed-label="▸ Format · topic · recency"
-      >
-        <template #summary>
-          <span class="ctx-key">Shaping this script</span>
-          <span class="ctx-value">{{ scriptContextSummary }}</span>
-        </template>
+      <!-- Formula rules are the channel's visible writing contract, applied to
+           both the outline and every chapter expansion. -->
+      <section v-if="nicheContext || (recencyState && recencyState.enabled)" class="formula-rules-card">
+        <div class="formula-rules-head">
+          <div>
+            <span class="formula-rules-kicker">Formula active</span>
+            <strong>{{ nicheContext?.catalogName || nicheContext?.name || 'Project formula' }}</strong>
+            <span v-if="nicheContext?.tagline" class="text-muted"> — {{ nicheContext.tagline }}</span>
+          </div>
+          <span class="formula-rules-summary">{{ scriptContextSummary }}</span>
+        </div>
 
       <!-- Format context — read-only "what kind of script is this" hint.
            Pulls name + summary + recommended ranges from the project's
            effective format JSON; range chips light up amber when the
            user's current input falls outside the recommended envelope —
            purely informational, not a block. -->
-      <div v-if="formatContext" class="format-context-card">
+      <div v-if="false && formatContext" class="format-context-card">
         <div class="format-context-header">
           <span class="format-context-icon" aria-hidden="true">ⓘ</span>
           <span class="format-context-name">{{ formatContext.name }}</span>
@@ -413,11 +385,11 @@
       <!-- niche is overriding on top of the format. Without this, the user -->
       <!-- saw merged numbers in the format-context card with no signal -->
       <!-- that the niche was the source of the override. -->
-      <div v-if="nicheContext && hasNicheStructureOverride" class="niche-overlay-card">
+      <div v-if="nicheContext" class="niche-overlay-card">
         <div class="niche-overlay-head">
           <span class="niche-overlay-icon" aria-hidden="true">🎯</span>
           <div class="niche-overlay-text">
-            <strong>Niche overlay active: {{ nicheContext.name }}</strong>
+            <strong>Writing rules for {{ nicheContext.catalogName || nicheContext.name }}</strong>
             <span v-if="nicheContext.tagline" class="text-muted niche-overlay-tagline"> — {{ nicheContext.tagline }}</span>
           </div>
           <button
@@ -439,7 +411,10 @@
             Pacing arc <strong>{{ nicheContext.scriptStructure.pacingArc.length }} sections</strong>
           </span>
           <span v-if="nicheContext.scriptStructure?.additionalRules?.length" class="niche-chip">
-            <strong>+{{ nicheContext.scriptStructure.additionalRules.length }}</strong> rules layered on format
+            <strong>+{{ nicheContext.scriptStructure.additionalRules.length }}</strong> Formula writing rules
+          </span>
+          <span v-if="nicheContext.perspectivePolicy" class="niche-chip">
+            Voice <strong>{{ nicheContext.perspectivePolicy }}</strong>
           </span>
         </div>
         <div v-if="showNicheOverlayDetail" class="niche-overlay-detail">
@@ -450,9 +425,16 @@
             </ol>
           </div>
           <div v-if="nicheContext.scriptStructure?.additionalRules?.length" class="niche-overlay-block">
-            <h5 class="niche-overlay-h">Additional rules — appended to the format's existing script rules</h5>
+            <h5 class="niche-overlay-h">Writing rules — used for the outline and every chapter</h5>
             <ul class="niche-overlay-list">
               <li v-for="(r, i) in nicheContext.scriptStructure.additionalRules" :key="i">{{ r }}</li>
+            </ul>
+          </div>
+          <div v-if="nicheContext.narrativeQualityContract" class="niche-overlay-block">
+            <h5 class="niche-overlay-h">Human-writing contract</h5>
+            <p>{{ nicheContext.narrativeQualityContract.openingPolicy }}</p>
+            <ul v-if="nicheContext.narrativeQualityContract.requiredHabits?.length" class="niche-overlay-list">
+              <li v-for="habit in nicheContext.narrativeQualityContract.requiredHabits" :key="habit">{{ habit }}</li>
             </ul>
           </div>
           <p class="text-muted niche-overlay-footer">
@@ -536,25 +518,22 @@
         </div>
       </div>
 
-      </ContextStrip>
+      </section>
 
-      <!-- v1.0.297 — Story guidance: optional free-text direction injected into
-           the outline AND every chapter, on top of the format + niche. The lever
-           for ad-hoc character names, a setting, tone notes, or names to avoid —
-           and the fix for repetitive names across a long-running channel. -->
+      <!-- The one optional episode-specific creative control. Formula rules
+           above remain fixed; this adds the particular direction for this run. -->
       <div class="guidance-card">
         <div class="guidance-head">
           <label for="manual-guidance" class="guidance-label">
-            ✍️ Story guidance <span class="guidance-optional">optional</span>
+            ✍️ Episode direction <span class="guidance-optional">optional</span>
           </label>
           <span class="guidance-count" :class="{ 'over': form.manual_guidance.length > MANUAL_GUIDANCE_MAX }">
             {{ form.manual_guidance.length }}/{{ MANUAL_GUIDANCE_MAX }}
           </span>
         </div>
         <p class="guidance-help text-muted text-xs">
-          Free-text direction sent to the model on top of the format + niche — shapes both the outline and
-          the chapter bodies. Pin specific names, a setting, a tone, or names to <strong>avoid</strong>.
-          Leave blank to let the model invent freely.
+          A concrete creative instruction for this episode. It is saved with the outline and carried into
+          every chapter: a setting, angle, fact to foreground, or detail to avoid.
         </p>
         <textarea
           id="manual-guidance"
@@ -562,17 +541,8 @@
           class="input guidance-textarea"
           rows="3"
           :maxlength="MANUAL_GUIDANCE_MAX"
-          placeholder="e.g. Name the protagonist Sokha; set it in a quiet coastal Khmer village at dusk. Avoid the names Lyra and Elara — they've been used too many times."
+          placeholder="e.g. Keep the economics grounded in a small neighbourhood cafe; foreground difficult trade-offs, not generic success advice."
         ></textarea>
-        <div class="guidance-foot">
-          <button type="button" class="btn btn-sm btn-secondary" @click="addFreshNamesTip">
-            ✨ Vary the names
-          </button>
-          <span class="text-muted text-xs guidance-foot-hint">
-            Adds an editable "avoid repeated names" instruction + turns on Force regenerate, so re-running gives a fresh draft.
-            For a reusable cast across episodes, use <strong>Characters</strong> in the sidebar instead.
-          </span>
-        </div>
       </div>
 
       <!-- Word count section — v1.0.168: TWO real inputs in order
@@ -779,20 +749,6 @@
 
     </div><!-- /Script tab -->
 
-    <!-- v1.0.117+ — Introduction tab: preview-only block. The intro
-         generator form sits inside the basics card (toggled via the
-         same scriptsTab v-show pattern) so the user configures intro
-         options and reviews the result side-by-side. -->
-    <div v-show="scriptsTab === 'introduction'">
-    <IntroductionPreview
-      v-if="panelsReady && form.episode_id"
-      :project-slug="slug"
-      :episode-id="form.episode_id"
-      :title="form.title"
-      :refresh-key="previewRefreshKey"
-    />
-    </div><!-- /Introduction tab -->
-
     <!-- Save custom style preset modal (replaces blocked window.prompt) -->
     <div v-if="showSaveStyle" class="modal-overlay" @click.self="showSaveStyle = false">
       <div class="modal-small">
@@ -823,20 +779,11 @@ const route = useRoute()
 const _router = useRouter()
 const slug = computed(() => route.params.slug as string)
 
-// v1.0.117+ — Page tabs: Introduction / Outline / Script. Same ?tab=
-// sync pattern as image-prompts.vue (v1.0.88) and ideas.vue. Defaults
-// to 'outline' on first visit — it's the natural starting point of a
-// fresh episode, and Introduction lands on a "needs script first"
-// gate when no chapters exist, which is a bad first impression.
-const scriptsTab = ref<'introduction' | 'outline' | 'script'>(
-  route.query.tab === 'introduction' ? 'introduction'
-    : route.query.tab === 'script' ? 'script'
-    : 'outline',
-)
+// The writing flow has two stages. Legacy ?tab=introduction links now land
+// on Outline, where the optional channel opening is configured inline.
+const scriptsTab = ref<'outline' | 'script'>(route.query.tab === 'script' ? 'script' : 'outline')
 watch(() => route.query.tab, (v) => {
-  const next = v === 'introduction' ? 'introduction'
-    : v === 'script' ? 'script'
-    : 'outline'
+  const next = v === 'script' ? 'script' : 'outline'
   if (next !== scriptsTab.value) scriptsTab.value = next
 })
 watch(scriptsTab, (v) => {
@@ -998,47 +945,12 @@ const wordsPerMinute = computed<number>(() => {
 const durationSelect = ref('45')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
+const narratorOverrideOpen = ref(false)
+const openingConfigOpen = ref(false)
 
-// v1.0.174 — Phase-0 declutter (the page template). The Outline tab used to
-// stack three always-open advisory cards (format context, niche overlay,
-// and recency controls). The remaining context disclosure folds that detail
-// away by default:
-//   • scriptContextExpanded → the "what shapes this script" detail
-//     (format envelope + niche overlay + recency-avoidance controls).
-// A small "needs attention" flag keeps the context strip honest: it opens
-// itself / shows a warning dot when the outline mismatches the format/niche
-// or when chapters fall outside the recommended envelope.
-const scriptContextExpanded = ref(false)
 const customStyles = ref<Array<{ id: string; name: string; description: string }>>([])
 
-// v1.0.297 — Story-guidance helpers.
 const MANUAL_GUIDANCE_MAX = 2000
-const FRESH_NAMES_TIP = 'Use fresh, varied character names that fit the setting — vary cultural origin and sound. Avoid the names this channel keeps reusing: Lyra, Elara, Aria, Kael, Elowen, Seraphina, Thorne.'
-// One click for the common "I don't like these names, reroll" case: seed an
-// editable avoid-instruction into the guidance and tick Force regenerate so
-// the re-request actually rebuilds instead of serving the cached outline.
-// Idempotent — won't stack the tip if it's already present.
-function addFreshNamesTip(): void {
-  const cur = form.manual_guidance.trim()
-  if (!cur.includes('Avoid the names this channel keeps reusing')) {
-    form.manual_guidance = cur ? `${cur}\n${FRESH_NAMES_TIP}` : FRESH_NAMES_TIP
-  }
-  form.force = true
-  showInfo('Added a "fresh names" instruction and turned on Force regenerate. Tweak the names if you like, then Generate Outline for a new draft.')
-}
-
-const STYLE_DESCRIPTIONS: Record<string, string> = {
-  A: 'Warm and intimate. First-person narrator, very close to the character\'s inner world. Feels like a whispered confidence.',
-  B: 'Gentle third-person observer. Lyrical, slightly poetic, like watching from a warm window.',
-  C: 'Classic quiet storyteller. Traditional "once there was" tone, timeless and cosy, like a fireside tale.',
-  D: 'Poetic and lyrical. Rich metaphors, flowing sentences, language that sounds like music. Every paragraph is art.',
-  E: 'Whimsical and playful. Light-hearted, a little cheeky, with gentle humour. Perfect for younger audiences or lighthearted tales.',
-  F: 'Mysterious and atmospheric. Fog-shrouded prose, building intrigue slowly. The world feels ancient and full of secrets.',
-  G: 'Grandparent bedtime voice. Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one.',
-  H: 'Nature documentary calm. David Attenborough-style observation. Patient, reverent, finding wonder in small details.',
-  I: 'Meditative and mindful. Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose.',
-  J: 'Fairy tale narrator. Storybook formality with a wink. "Once upon a time" energy, clear moral arcs, satisfying endings.',
-}
 
 const showSaveStyle = ref(false)
 const newStyleName = ref('')
@@ -1098,7 +1010,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'creative_mode', 'creative_direction', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style', 'generate_image_prompts', 'generate_youtube_desc'],
 })
 
 // Saved model ids are only preferences. Keep every generation action disabled
@@ -1177,8 +1089,16 @@ interface FormatContext {
    *  est-duration badge + the length↔total_words bidirectional snap.
    *  null falls back to the legacy 122 (sleep-story narration pace). */
   defaultWordsPerMinute: number | null
+  narratorStyles: NarratorStyleOption[]
+  defaultNarratorStyleId: string | null
 }
 const formatContext = ref<FormatContext | null>(null)
+
+interface NarratorStyleOption {
+  id: string
+  label: string
+  description: string
+}
 
 // v1.0.105+ — Niche overlay visibility. The merged format already
 // reflects niche overrides (defaultChapterCount, chapterCountRange,
@@ -1190,7 +1110,13 @@ const formatContext = ref<FormatContext | null>(null)
 interface NicheContext {
   id: string
   name: string
+  catalogName?: string
   tagline?: string
+  perspectivePolicy?: string
+  narrativeQualityContract?: {
+    openingPolicy?: string
+    requiredHabits?: string[]
+  }
   scriptStructure?: {
     defaultChapterCount?: number
     chapterCountRange?: [number, number]
@@ -1200,17 +1126,34 @@ interface NicheContext {
 }
 const nicheContext = ref<NicheContext | null>(null)
 const showNicheOverlayDetail = ref(false)
-const hasNicheStructureOverride = computed(() => {
-  const s = nicheContext.value?.scriptStructure
-  if (!s) return false
-  return !!(
-    s.defaultChapterCount
-    || (Array.isArray(s.chapterCountRange) && s.chapterCountRange.length === 2)
-    || (Array.isArray(s.pacingArc) && s.pacingArc.length > 0)
-    || (Array.isArray(s.additionalRules) && s.additionalRules.length > 0)
-  )
+const availableNarratorStyles = computed<NarratorStyleOption[]>(() => formatContext.value?.narratorStyles || [])
+const selectedNarratorStyle = computed<NarratorStyleOption | undefined>(() => {
+  const styles = availableNarratorStyles.value
+  if (!styles.length) return undefined
+  if (form.style === 'auto') {
+    return styles.find(style => style.id === formatContext.value?.defaultNarratorStyleId) || styles[0]
+  }
+  return styles.find(style => style.id === form.style)
 })
-
+const selectedCustomNarrator = computed(() => customStyles.value.find(style => style.id === form.style))
+const activeNarratorLabel = computed(() => {
+  if (form.style === 'custom') return 'One-off narrator direction'
+  if (selectedCustomNarrator.value) return `Episode override — ${selectedCustomNarrator.value.name}`
+  const selected = selectedNarratorStyle.value
+  if (!selected) return 'Formula-controlled narrator'
+  if (form.style === 'auto') {
+    return availableNarratorStyles.value.length > 1
+      ? `Formula rotation — ${selected.label}`
+      : `Formula default — ${selected.label}`
+  }
+  return `Episode override — ${selected.label}`
+})
+const activeNarratorDescription = computed(() => {
+  if (form.style === 'custom') return 'Write a temporary narrator direction for this episode only.'
+  return selectedCustomNarrator.value?.description
+    || selectedNarratorStyle.value?.description
+    || 'The active Formula supplies the narrator, point of view, and opening policy.'
+})
 // v1.0.105+ — outline-vs-niche structural mismatch tracking. Set by
 // onOutlineLoaded when a sidecar lands on disk; drives the explainer
 // banner that tells the user to bump + regenerate when the saved
@@ -1374,31 +1317,23 @@ const lengthOutOfRange = computed<string | null>(() => {
   return null
 })
 
-// v1.0.174 — the context strip shows a warning dot (and is worth opening)
-// when the user's chapter/length choice is outside the format's envelope.
-// Purely advisory — generation still proceeds.
-const scriptContextNeedsAttention = computed<boolean>(() =>
-  !!(chaptersOutOfRange.value || lengthOutOfRange.value),
-)
-// One-line summary for the collapsed context strip: format · topic · size.
+// A concise, always-visible summary for the Formula contract.
 const scriptContextSummary = computed<string>(() => {
   const fmt = formatContext.value?.name || 'format'
   const topic = nicheContext.value?.name || 'none'
   return `${fmt} · Topic: ${topic} · ${form.chapters} ${sectionLabel.value.plural.toLowerCase()} × ${form.words_per_chapter} words`
 })
 
-// Sync style description when style changes (must be after form definition)
+// A custom saved voice keeps its description editable; Formula voices are
+// shown from the live effective-format payload rather than a stale UI list.
 watch(() => form.style, (s) => {
-  const desc = STYLE_DESCRIPTIONS[s]
-  if (desc !== undefined) {
-    customStyleText.value = desc
-    showStyleDesc.value = false
-  } else if (s === 'custom') {
+  if (s === 'custom') {
     customStyleText.value = ''
     showStyleDesc.value = true
   } else {
     const cs = customStyles.value.find(c => c.id === s)
-    if (cs) customStyleText.value = cs.description
+    customStyleText.value = cs?.description || ''
+    showStyleDesc.value = false
   }
 })
 
@@ -1541,6 +1476,16 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       ? (sf.durationPresets as unknown[])
           .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0)
       : null
+    const narratorStyles = Array.isArray(sf.narratorStyles)
+      ? (sf.narratorStyles as any[]).flatMap((style): NarratorStyleOption[] => {
+          if (!style || typeof style.id !== 'string' || !style.id) return []
+          return [{
+            id: style.id,
+            label: typeof style.label === 'string' && style.label ? style.label : style.id,
+            description: typeof style.description === 'string' ? style.description : '',
+          }]
+        })
+      : []
     formatContext.value = {
       id: typeof f.id === 'string' ? f.id : 'unknown',
       name: typeof f.name === 'string' ? f.name : 'Format',
@@ -1553,6 +1498,8 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       defaultWordsPerMinute: typeof sf.defaultWordsPerMinute === 'number' && sf.defaultWordsPerMinute > 0
         ? sf.defaultWordsPerMinute
         : null,
+      narratorStyles,
+      defaultNarratorStyleId: typeof sf.defaultNarratorStyleId === 'string' ? sf.defaultNarratorStyleId : null,
     }
     // Snap the duration dropdown back to a known option so the UI doesn't
     // flash 'custom' when the format default matches a value in the
@@ -1573,7 +1520,19 @@ async function applyScriptFormatDefaultsIfNoPreset() {
         nicheContext.value = {
           id: n.id,
           name: typeof n.name === 'string' ? n.name : n.id,
+          catalogName: typeof n.catalogName === 'string' ? n.catalogName : undefined,
           tagline: typeof n.tagline === 'string' ? n.tagline : undefined,
+          perspectivePolicy: typeof n.perspectivePolicy === 'string' ? n.perspectivePolicy : undefined,
+          narrativeQualityContract: n.narrativeQualityContract && typeof n.narrativeQualityContract === 'object'
+            ? {
+                openingPolicy: typeof n.narrativeQualityContract.openingPolicy === 'string'
+                  ? n.narrativeQualityContract.openingPolicy
+                  : undefined,
+                requiredHabits: Array.isArray(n.narrativeQualityContract.requiredHabits)
+                  ? n.narrativeQualityContract.requiredHabits.filter((habit: unknown): habit is string => typeof habit === 'string')
+                  : undefined,
+              }
+            : undefined,
           scriptStructure: n.scriptStructure || undefined,
         }
       } else {
@@ -2085,6 +2044,10 @@ async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boo
   const params: Record<string, any> = {
     ...form,
     custom_style_text: customStyleText.value,
+    // The old hidden creative-freedom fields are deliberately neutralised.
+    // Episode direction is the single visible per-run writing instruction.
+    creative_mode: 'guided',
+    creative_direction: '',
   }
   if (opts.auto_approve) params.auto_approve = true
   // v1.0.537 — step-by-step arming: a MANUAL outline gen with "Include
@@ -2400,6 +2363,48 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   margin-top: 8px;
 }
 .guidance-foot-hint { flex: 1 1 240px; line-height: 1.4; }
+
+.opening-head-actions,
+.formula-narrator-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.formula-narrator-summary {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-tertiary);
+}
+.formula-narrator-summary strong { font-size: 13px; }
+.formula-narrator-summary span { flex: 1 1 220px; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+
+.formula-rules-card {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: var(--radius-md, 10px);
+  background: color-mix(in srgb, var(--bg-tertiary) 91%, var(--accent) 9%);
+}
+.formula-rules-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 4px 4px;
+}
+.formula-rules-kicker {
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .08em;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+.formula-rules-summary { color: var(--text-muted); font-size: 12px; }
 
 /* Format context — read-only "what kind of script is this" hint card.
    Sits above the word-count inputs so the user sees the format's typical
