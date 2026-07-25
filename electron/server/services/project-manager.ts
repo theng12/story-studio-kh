@@ -653,6 +653,7 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     // their persisted format, and Settings remains the explicit place to
     // change it after creation.
     format_id: 'continuity-chain',
+    continuity_mode: req.continuity_mode || 'independent-stills',
     // Niche is optional (subject-domain layer, orthogonal to format).
     // Unset = no niche, generators behave exactly like format defaults.
     // We trust the wizard to pass a valid id; the niche-loader logs and

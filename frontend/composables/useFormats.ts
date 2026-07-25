@@ -119,13 +119,14 @@ export function formatBuildLine(f: {
 }
 
 const RETIRED_FORMAT_IDS = new Set([
-  'narrative', 'narrated-scenes', 'sleep-story', 'narration-synced',
+  'scenes', 'listicle', 'narrative', 'narrated-scenes', 'sleep-story', 'narration-synced',
   'timestamp-driven', 'scene-images', 'broll-narration', 'broll', 'stock-footage', 'image-pool',
 ])
 
 /** Normalize saved format ids before a picker mounts. */
 export function canonicalFormatId(id?: string | null): string {
-  return id && !RETIRED_FORMAT_IDS.has(id) ? id : 'scenes'
+  void id
+  return 'continuity-chain'
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────

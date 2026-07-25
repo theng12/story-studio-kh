@@ -1,0 +1,12 @@
+{
+  "id": "natural-world-animals",
+  "name": "Animals",
+  "description": "Vertebrate and invertebrate animal lives, adaptations, ecological pressures, and survival trade-offs.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["animals", "listicle-explainer"],
+  "subjects": ["mammals", "birds", "reptiles", "amphibians", "fish", "cephalopods", "crustaceans", "deep-sea animals", "desert animals", "migration"],
+  "ideaAxes": [{"id":"biological-pressure","label":"Biological pressure","values":["finding food","avoiding predators","reproduction","migration","extreme habitat","social hierarchy","camouflage","parenting"]}],
+  "promptContext": "Treat animal behavior as biology and ecology, not as human intention. Explain one concrete survival pressure before any humour.",
+  "tags": ["animals", "wildlife", "biology"]
+}

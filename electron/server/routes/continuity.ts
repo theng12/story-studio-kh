@@ -23,21 +23,31 @@ import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
-import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan } from '../models/types.js'
+import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan, ProjectMeta } from '../models/types.js'
 
 export const router = Router()
 
 export const CONTINUITY_FILENAME = 'continuity.json'
 
-/** Sensible defaults for a fresh episode — sequential continuity ON, all
- *  references on, a dense 1–4s pacing band, mid denoise. */
-export function defaultContinuityConfig(): ContinuityConfig {
+type ContinuityMode = NonNullable<ProjectMeta['continuity_mode']>
+
+/** One Continuity Engine supports three safe starting behaviours. The selected
+ * project mode is only a default: an episode's saved Character Sheet can
+ * still opt into different references without changing its channel. */
+export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stills'): ContinuityConfig {
+  const characterChain = mode === 'character-continuity'
   return {
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
     pacing: { min_sec: 1, max_sec: 4 },
-    references: { prev_render: true, sheet: true, characters: true, style: false, composition: false },
+    references: {
+      prev_render: characterChain,
+      sheet: characterChain,
+      characters: characterChain,
+      style: false,
+      composition: false,
+    },
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
@@ -74,7 +84,8 @@ function sanitizeRecipe(raw: any): VisualRecipe {
 // ── GET ───────────────────────────────────────────────────────────────
 router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const sidecarPath = path.join(paths.episode_dir, CONTINUITY_FILENAME)
@@ -84,7 +95,7 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
       res.json({ exists: true, config: parsed })
     } catch (e: any) {
       if (e?.code === 'ENOENT') {
-        return res.json({ exists: false, config: defaultContinuityConfig() })
+        return res.json({ exists: false, config: defaultContinuityConfig(project.continuity_mode || 'independent-stills') })
       }
       throw e
     }
@@ -100,8 +111,12 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
  * both produce byte-identical sidecars — a saved `continuity_page` preset
  * applied by an unattended batch run lands exactly as a manual Save would.
  */
-export function buildContinuityConfig(body: Partial<ContinuityConfig> | undefined): ContinuityConfig {
+export function buildContinuityConfig(
+  body: Partial<ContinuityConfig> | undefined,
+  mode: ContinuityMode = 'independent-stills',
+): ContinuityConfig {
   const b = body || {}
+  const defaults = defaultContinuityConfig(mode)
   // Coerce + clamp the numeric fields so a malformed client can't write junk.
   const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 1))
   const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 4))
@@ -114,9 +129,9 @@ export function buildContinuityConfig(body: Partial<ContinuityConfig> | undefine
     use_episode_sheet: !!b.use_episode_sheet,
     pacing: { min_sec: minSec, max_sec: maxSec },
     references: {
-      prev_render: b.references?.prev_render !== false,
-      sheet: b.references?.sheet !== false,
-      characters: b.references?.characters !== false,
+      prev_render: b.references?.prev_render ?? defaults.references.prev_render,
+      sheet: b.references?.sheet ?? defaults.references.sheet,
+      characters: b.references?.characters ?? defaults.references.characters,
       style: b.references?.style === true,
       composition: b.references?.composition === true,
     },
@@ -139,8 +154,9 @@ export function buildContinuityConfig(body: Partial<ContinuityConfig> | undefine
  */
 export async function writeContinuityConfig(
   slug: string, episodeId: string, body: Partial<ContinuityConfig> | undefined,
+  mode: ContinuityMode = 'independent-stills',
 ): Promise<ContinuityConfig> {
-  const config = buildContinuityConfig(body)
+  const config = buildContinuityConfig(body, mode)
   const paths = await resolveEpisodePathsByCode(slug, episodeId)
   await fs.mkdir(paths.episode_dir, { recursive: true })
   await fs.writeFile(path.join(paths.episode_dir, CONTINUITY_FILENAME), JSON.stringify(config, null, 2), 'utf-8')
@@ -150,7 +166,8 @@ export async function writeContinuityConfig(
 // ── PUT ───────────────────────────────────────────────────────────────
 router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body as Partial<ContinuityConfig> | undefined
   if (!body || body.schema_version !== 1) {
@@ -158,7 +175,7 @@ router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
   }
 
   try {
-    const config = await writeContinuityConfig(slug, episodeId, body)
+    const config = await writeContinuityConfig(slug, episodeId, body, project.continuity_mode || 'independent-stills')
     res.json({ ok: true, config })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save continuity config'))

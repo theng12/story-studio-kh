@@ -5,6 +5,9 @@
   "tagline": "A verse. A thought. A breath.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "defaultTopicPackIds": ["pastoral-daily-reflection"],
+  "compatibleTopicPackIds": ["pastoral-daily-reflection", "pastoral-expository-teaching"],
 
   "exampleTopics": [
     "A Thought on Psalm 23",

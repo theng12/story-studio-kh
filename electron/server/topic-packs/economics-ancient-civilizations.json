@@ -4,7 +4,7 @@
   "description": "Economic systems, institutions, infrastructure, and state power across ancient civilizations.",
   "builtin": true,
   "schemaVersion": 1,
-  "compatibleNicheIds": ["business-economics"],
+  "compatibleNicheIds": ["business-economics", "history-narration"],
   "subjects": [
     "Roman Empire", "Ancient Egypt", "Achaemenid Persian Empire", "Han dynasty", "Mauryan Empire",
     "Maya city-states", "Aztec Empire", "Inca Empire", "Mesopotamian temple economy", "Phoenician trade network",

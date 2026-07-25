@@ -5,6 +5,8 @@
   "tagline": "A smart friend explaining the weird stuff over coffee.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "compatibleTopicPackIds": ["economics-businesses", "natural-world-animals", "natural-world-fungi", "natural-world-insects", "natural-world-plants"],
 
   "exampleTopics": [
     "10 Sleep Mysteries Explained",

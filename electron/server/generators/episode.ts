@@ -56,17 +56,13 @@ function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
 function applyCreativeFreedom(format: Format, req: GenerateScriptRequest): Format {
   const mode = req.creative_mode || 'guided'
   const direction = req.creative_direction?.trim()
-  if (mode === 'strict' && !direction) return format
+  if (!direction) return format
   const script = { ...format.script }
-  if (mode === 'open') {
-    script.additionalRules = direction
-      ? [`USER CREATIVE DIRECTION — highest artistic priority: ${direction}`]
-      : ['Choose the narrative voice, imagery, rhythm, and transitions freely; avoid formulaic genre defaults.']
-    script.pacingArc = direction ? [`Follow the user creative direction: ${direction}`] : []
-    script.closingHint = 'End in the way that best completes this specific narration; do not force a stock closing device.'
-  } else if (direction) {
-    script.additionalRules = [...script.additionalRules, `User creative direction: ${direction}`]
-  }
+  // Creative direction can shape this episode's imagery, emphasis, and
+  // transitions, but it must never erase Formula-owned perspective, opening
+  // policy, pacing contract, or human-writing safeguards.
+  const priority = mode === 'strict' ? 'follow closely' : mode === 'open' ? 'explore within the Formula' : 'use when compatible'
+  script.additionalRules = [...script.additionalRules, `EPISODE CREATIVE DIRECTION — ${priority}: ${direction}`]
   return { ...format, script }
 }
 
@@ -121,6 +117,10 @@ const KNOWN_PERSPECTIVES: ReadonlySet<Perspective> = new Set([
   'third', 'third-omniscient', 'third-documentary',
 ])
 function resolvePerspective(reqPerspective: unknown, format: Format): Perspective | '' {
+  // A Series Formula is authoritative for perspective. New Story Studio
+  // screens no longer offer a per-episode POV picker; this guard also stops
+  // saved legacy request payloads from overriding the Formula contract.
+  if (format.script.additionalRules.some(rule => rule.startsWith('FORMULA-OWNED PERSPECTIVE —'))) return ''
   const p = String(reqPerspective || '').toLowerCase()
   // v1.0.328 — 'none' is an explicit opt-out: caller wants ZERO POV directive
   // injected. Returns '' so applyPerspectiveToFormat is a no-op below. (The
@@ -195,9 +195,9 @@ export function stripImagePromptSections(standards: string): string {
 }
 
 function systemPrompt(format: Format, productionStandards: string): string {
-  // Format-specific addendum is prepended to the user's free-form standards.
-  // Both flow into the same "Follow these production standards exactly:" block
-  // so the LLM treats them with the same priority. Empty addendum = no change.
+  // Formula-derived rules remain authoritative. This legacy free-form file is
+  // now an optional project-specific instruction layer, never permission to
+  // replace a Formula's point of view, evidence policy, or structure.
   // v1.0.335 — defensively strip ## Image Prompts / ## Thumbnail* H2 blocks
   // from the user's standards. They have no business in the script-narration
   // system prompt (each generator has its own dedicated prompts), and earlier
@@ -226,9 +226,10 @@ function systemPrompt(format: Format, productionStandards: string): string {
 
   const baseSystem = `${format.script.systemPromptRole}
 
-Follow these production standards exactly:
+${standardsBody ? `OPTIONAL PROJECT INSTRUCTIONS — apply these only when they do not conflict with the Series Formula or Additional rules:
 
 ${standardsBody}
+` : ''}
 
 Additional rules:
 ${additionalRules}

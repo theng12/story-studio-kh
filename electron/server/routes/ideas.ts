@@ -169,7 +169,7 @@ function buildPrompt(
   topPerformersBlock: string = '',
 ): string {
   const standardsSection = standards
-    ? `\nProduction standards (style reference, not a formula to copy):\n\n${standards.slice(0, 2000)}\n`
+    ? `\nOptional project instructions (use only when consistent with the active Series Formula):\n\n${standards.slice(0, 2000)}\n`
     : ''
 
   const seed = Math.random().toString(36).slice(2, 10)

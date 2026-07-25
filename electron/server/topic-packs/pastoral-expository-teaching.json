@@ -1,0 +1,11 @@
+{
+  "id": "pastoral-expository-teaching",
+  "name": "Expository Scripture Teaching",
+  "description": "Longer text-led teaching that traces a passage's argument before making one pastoral application.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["devotional"],
+  "subjects": ["parables", "wisdom literature", "gospels", "letters", "lament", "justice", "discipleship", "prayer", "community", "suffering"],
+  "promptContext": "State the passage and first-audience context, trace the argument, and distinguish interpretation from application. Avoid proof-texting or hype.",
+  "tags": ["preaching", "scripture", "teaching"]
+}

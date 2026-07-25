@@ -30,6 +30,18 @@
         </div>
       </div>
 
+      <NuxtLink
+        v-if="slug"
+        :to="`/projects/${slug}/settings#channel`"
+        class="channel-identity-card"
+        title="Open Channel Identity: Series Formula, Topic Packs, and Production Path"
+      >
+        <span class="channel-identity-label">Channel identity <span aria-hidden="true">↗</span></span>
+        <span class="channel-identity-row"><span>Formula</span><strong>{{ channelFormulaName }}</strong></span>
+        <span class="channel-identity-row"><span>Topics</span><strong>{{ channelTopicPackLabel }}</strong></span>
+        <span class="channel-identity-row"><span>Production</span><strong>{{ productionPathName }}</strong></span>
+      </NuxtLink>
+
       <nav class="sidebar-nav">
         <NuxtLink :to="`/projects/${slug}`" class="nav-item" exact-active-class="active">
           <span class="nav-icon">&#9776;</span> Dashboard
@@ -441,6 +453,27 @@ function isJobsScope(scope: 'project' | 'all'): boolean {
 
 const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
+const { niches } = useNiches()
+const { topicPacks } = useTopicPacks()
+
+const channelFormula = computed(() => niches.value.find(niche => niche.id === project.value?.niche_id))
+const channelFormulaName = computed(() => channelFormula.value?.catalogName || channelFormula.value?.name || 'Choose a formula')
+const channelTopicPackLabel = computed(() => {
+  const ids = project.value?.topic_pack_ids || channelFormula.value?.defaultTopicPackIds || []
+  if (!ids.length) return 'Choose topic packs'
+  const names = ids
+    .map(id => topicPacks.value.find(pack => pack.id === id)?.name || id)
+    .filter(Boolean)
+  if (!names.length) return 'Loading topic packs…'
+  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0]
+})
+const productionPathName = computed(() => {
+  switch (project.value?.continuity_mode) {
+    case 'character-continuity': return 'Character continuity'
+    case 'explainer-stills': return 'Explainer boards'
+    default: return 'Independent scenes'
+  }
+})
 // Notification-center readiness checks (upload dest / API keys / FFmpeg).
 // Refreshed per project below; the bell lives in the top bar.
 const { refreshReadiness } = useNotifications()
@@ -817,6 +850,12 @@ function openWhatsNew() { _whatsNew.open() }
 }
 .brand-name { font-size: 14px; font-weight: 600; color: var(--accent); }
 .project-name { font-size: var(--font-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.channel-identity-card { display: flex; flex-direction: column; gap: 5px; margin: 0 10px 10px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 8px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 9%, var(--bg-secondary)), var(--bg-secondary)); color: inherit; text-decoration: none; transition: border-color .16s ease, transform .16s ease, background .16s ease; }
+.channel-identity-card:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)); transform: translateY(-1px); }
+.channel-identity-label { display: flex; align-items: center; justify-content: space-between; color: var(--accent); font-size: var(--font-xs); font-weight: 760; text-transform: uppercase; letter-spacing: .08em; }
+.channel-identity-row { display: grid; grid-template-columns: 67px minmax(0, 1fr); gap: 6px; align-items: baseline; font-size: var(--font-xs); }
+.channel-identity-row > span { color: var(--text-muted); }
+.channel-identity-row strong { min-width: 0; overflow: hidden; color: var(--text-primary); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 
 .sidebar-nav {
   flex: 1;

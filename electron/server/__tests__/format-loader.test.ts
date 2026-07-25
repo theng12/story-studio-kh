@@ -2,15 +2,15 @@
  * Tests for the Format loader (services/format-loader.ts).
  *
  * Coverage:
- *   - Built-in 'scenes' format loads with required fields
- *   - All 3 active presentation-shell formats load + validate
+ *   - Built-in Continuity Engine loads with required fields
+ *   - The sole active presentation shell loads + validates
  *   - listFormats() returns at least the built-ins
  *   - mergeFormatOverrides() deep-merges objects, replaces arrays wholesale
  *   - getEffectiveFormat() defaults to 'continuity-chain' when project has no format_id
  *   - getEffectiveFormat() applies project.format_overrides
  *   - Missing/unknown format_id falls back to default with warning (no throw)
  *   - LEGACY remap: deleted ids (narrative / narrated-scenes / narration-synced)
- *     map onto 'scenes' with the alignment that preserves their pipeline shape
+ *     map onto the Continuity Engine with the alignment that preserves their pipeline shape
  *   - POLARITY FLIP: applyNicheToFormat overlays niche CONTENT onto a
  *     presentation shell (niche owns idea/script/metadata persona)
  *   - NEUTRAL FALLBACK: a format-only project (no niche) still yields a usable,
@@ -63,14 +63,14 @@ describe('format-loader', () => {
     loader._clearFormatCaches()
   })
 
-  test("built-in 'scenes' loads with all required fields", async () => {
-    const fmt = await loader.loadFormat('scenes')
-    assert.ok(fmt, 'scenes must exist')
-    assert.equal(fmt!.id, 'scenes')
+  test("built-in Continuity Engine loads with all required fields", async () => {
+    const fmt = await loader.loadFormat('continuity-chain')
+    assert.ok(fmt, 'continuity-chain must exist')
+    assert.equal(fmt!.id, 'continuity-chain')
     assert.equal(fmt!.builtin, true)
     assert.equal(fmt!.schemaVersion, 1)
-    assert.equal(fmt!.visualSource, 'narrated-scenes')
-    assert.equal(fmt!.sceneAlignment, 'sentence', 'scenes use narration-timed Scene Plan alignment')
+    assert.equal(fmt!.visualSource, 'continuity-chain')
+    assert.equal(fmt!.sceneAlignment, 'sentence', 'Continuity Engine uses narration-timed Scene Plan alignment')
     assert.ok(fmt!.script.systemPromptRole.length > 0, 'system prompt should be non-empty')
     assert.ok(fmt!.script.narratorStyles.length >= 1, 'shell keeps a narrator picker')
     assert.ok(fmt!.script.defaultNarratorStyleId.length > 0)
@@ -85,7 +85,7 @@ describe('format-loader', () => {
   // into 'scenes'). loadFormat returns null; getEffectiveFormat remaps them.
   test('deleted legacy formats no longer exist on disk', async () => {
     for (const id of [
-      'narrative', 'narrated-scenes', 'narration-synced',
+      'scenes', 'listicle', 'narrative', 'narrated-scenes', 'narration-synced',
       'stock-footage', 'image-pool',
     ]) {
       assert.equal(await loader.loadFormat(id), null, `${id} should be gone`)
@@ -95,7 +95,7 @@ describe('format-loader', () => {
   // Shape parity across all active presentation shells. A shell is presentation-
   // only: it carries the structural/picker fields the pipeline + UI need, and
   // leaves voice/content fields neutral (the niche fills those).
-  const ALL_BUILTIN_FORMATS = ['scenes', 'listicle', 'continuity-chain']
+  const ALL_BUILTIN_FORMATS = ['continuity-chain']
   for (const id of ALL_BUILTIN_FORMATS) {
     test(`built-in shell '${id}' loads with all required presentation fields`, async () => {
       const fmt = await loader.loadFormat(id)
@@ -169,13 +169,13 @@ describe('format-loader', () => {
   test('listFormats() exposes only the active built-in shells', async () => {
     const list = await loader.listFormats()
     const ids = list.map(f => f.id)
-    assert.deepEqual(ids.sort(), ['continuity-chain', 'listicle', 'scenes'])
+    assert.deepEqual(ids.sort(), ['continuity-chain'])
     assert.ok(!ids.includes('stock-footage'))
     assert.ok(!ids.includes('image-pool'))
   })
 
   test('mergeFormatOverrides: deep-merges objects', async () => {
-    const base = (await loader.loadFormat('scenes'))!
+    const base = (await loader.loadFormat('continuity-chain'))!
     const merged = loader.mergeFormatOverrides(base, {
       script: { closingHint: 'Ride into the sunset, hero.' },
     })
@@ -185,7 +185,7 @@ describe('format-loader', () => {
   })
 
   test('mergeFormatOverrides: arrays REPLACE wholesale (not element-merge)', async () => {
-    const base = (await loader.loadFormat('scenes'))!
+    const base = (await loader.loadFormat('continuity-chain'))!
     const merged = loader.mergeFormatOverrides(base, {
       metadata: { broadKeywords: ['adventure', 'thriller'] },
     })
@@ -205,14 +205,14 @@ describe('format-loader', () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'override-project')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('override-project', {
-      format_id: 'scenes',
+      format_id: 'continuity-chain',
       format_overrides: {
         script: { closingHint: 'Custom closing.' },
         metadata: { broadKeywords: ['custom-kw'] },
       },
     }))
     const fmt = await loader.getEffectiveFormat('override-project')
-    assert.equal(fmt.id, 'scenes')
+    assert.equal(fmt.id, 'continuity-chain')
     assert.equal(fmt.script.closingHint, 'Custom closing.')
     assert.deepEqual(fmt.metadata.broadKeywords, ['custom-kw'])
     assert.ok(fmt.script.systemPromptRole.length > 0)
@@ -229,57 +229,57 @@ describe('format-loader', () => {
   })
 
   // ── LEGACY remap (v1.0.280) ───────────────────────────────────────────────
-  test('getEffectiveFormat: legacy narrative remaps to narration-timed scenes', async () => {
+  test('getEffectiveFormat: legacy narrative remaps to the Continuity Engine', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-narrative')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-narrative', { format_id: 'narrative' }))
     const fmt = await loader.getEffectiveFormat('legacy-narrative')
-    assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.id, 'continuity-chain')
+    assert.equal(fmt.visualSource, 'continuity-chain')
     assert.equal(fmt.sceneAlignment, 'sentence', 'legacy chapter distribution is retired')
   })
 
-  test('getEffectiveFormat: legacy narration-synced remaps to scenes + sentence', async () => {
+  test('getEffectiveFormat: legacy narration-synced remaps to Continuity + sentence', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-synced')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-synced', { format_id: 'narration-synced' }))
     const fmt = await loader.getEffectiveFormat('legacy-synced')
-    assert.equal(fmt.id, 'scenes')
+    assert.equal(fmt.id, 'continuity-chain')
     assert.equal(fmt.sceneAlignment, 'sentence', 'narration-synced preserved transcript-timed shape')
   })
 
-  test('getEffectiveFormat: retired B-Roll formats remap to narration-timed scenes', async () => {
+  test('getEffectiveFormat: retired B-Roll formats remap to the Continuity Engine', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-broll')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-broll', { format_id: 'broll-narration' }))
     const fmt = await loader.getEffectiveFormat('legacy-broll')
-    assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.id, 'continuity-chain')
+    assert.equal(fmt.visualSource, 'continuity-chain')
     assert.equal(fmt.sceneAlignment, 'sentence')
   })
 
-  test('getEffectiveFormat: retired Image Pool remaps to narration-timed scenes', async () => {
+  test('getEffectiveFormat: retired Image Pool remaps to the Continuity Engine', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-image-pool')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-image-pool', { format_id: 'image-pool' }))
     const fmt = await loader.getEffectiveFormat('legacy-image-pool')
-    assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.id, 'continuity-chain')
+    assert.equal(fmt.visualSource, 'continuity-chain')
   })
 
-  test('getEffectiveFormat: legacy sleep-story remaps to narration-timed scenes', async () => {
+  test('getEffectiveFormat: legacy sleep-story remaps to the Continuity Engine', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-sleepstory')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-sleepstory', { format_id: 'sleep-story' }))
     const fmt = await loader.getEffectiveFormat('legacy-sleepstory')
-    assert.equal(fmt.id, 'scenes')
-    assert.equal(fmt.visualSource, 'narrated-scenes')
+    assert.equal(fmt.id, 'continuity-chain')
+    assert.equal(fmt.visualSource, 'continuity-chain')
     assert.equal(fmt.sceneAlignment, 'sentence')
   })
 
   // ── POLARITY FLIP: niche provides content into the shell ───────────────────
   test('applyNicheToFormat: niche OWNS idea/script/metadata persona on the shell', async () => {
-    const shell = (await loader.loadFormat('scenes'))!
+    const shell = (await loader.loadFormat('continuity-chain'))!
     const niche: Niche = {
       id: 'demo-niche', name: 'Demo', description: 'd', builtin: true, schemaVersion: 1,
       exampleTopics: ['Topic One', 'Topic Two'],
@@ -308,13 +308,13 @@ describe('format-loader', () => {
     // Niche tags merge into the broadKeywords pool
     assert.ok(merged.metadata.broadKeywords.includes('demo-tag'))
     // Presentation fields are untouched by the niche
-    assert.equal(merged.visualSource, 'narrated-scenes')
+    assert.equal(merged.visualSource, 'continuity-chain')
     assert.equal(merged.sceneAlignment, 'sentence')
     assert.deepEqual(merged.script.narratorStyles, shell.script.narratorStyles)
   })
 
   test('applyNicheToFormat: thin niche (scriptContext only) composes over shell role', async () => {
-    const shell = (await loader.loadFormat('scenes'))!
+    const shell = (await loader.loadFormat('continuity-chain'))!
     const niche: Niche = {
       id: 'thin', name: 'Thin', description: 'd', builtin: true, schemaVersion: 1,
       exampleTopics: [], scriptContext: 'Speak calmly.',
@@ -329,11 +329,31 @@ describe('format-loader', () => {
     assert.equal(merged.script.closingHint, shell.script.closingHint)
   })
 
+  test('applyNicheToFormat: Formula narrative-quality contract reaches every script route', async () => {
+    const shell = (await loader.loadFormat('continuity-chain'))!
+    const niche: Niche = {
+      id: 'quality-contract-test', name: 'Quality contract', description: 'test', builtin: false, schemaVersion: 1,
+      exampleTopics: [],
+      perspectivePolicy: 'Third-person evidence-led narration.',
+      narrativeQualityContract: {
+        openingPolicy: 'Open on a concrete constraint.',
+        forbiddenPatterns: ['Imagine this', 'Watch what happens next'],
+        requiredHabits: ['Use causal links.'],
+        closingPolicy: 'Close the actual thought.',
+      },
+    }
+    const merged = loader.applyNicheToFormat(shell, niche)
+    const rules = merged.script.additionalRules.join('\n')
+    assert.match(rules, /OPENING POLICY — Open on a concrete constraint/)
+    assert.match(rules, /Imagine this/)
+    assert.match(rules, /FORMULA-OWNED PERSPECTIVE — Third-person evidence-led narration/)
+  })
+
   // ── NEUTRAL FALLBACK: format-only project still produces a usable Format ────
   test('getEffectiveFormat: no-niche project yields a builder-acceptable Format', async () => {
     const projDir = path.join(pm.PROJECTS_ROOT, 'neutral-fallback')
     await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('neutral-fallback', { format_id: 'scenes' }))
+    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('neutral-fallback', { format_id: 'continuity-chain' }))
     const fmt = await loader.getEffectiveFormat('neutral-fallback')
     // The shell's neutral content IS the fallback: required roles are non-empty
     // (so prompt assembly never crashes), and content pools are empty (so the
@@ -346,8 +366,8 @@ describe('format-loader', () => {
   })
 
   // ── PHASE B: built-in niches are COMPLETE content profiles ────────────────
-  test('Phase B: built-in sleep niche yields a complete profile on the scenes shell', async () => {
-    const shell = (await loader.loadFormat('scenes'))!
+  test('Phase B: built-in sleep niche yields a complete profile on the Continuity Engine', async () => {
+    const shell = (await loader.loadFormat('continuity-chain'))!
     const nicheLoader = await import('../services/niche-loader.js')
     const sleep = await nicheLoader.loadNiche('sleep')
     assert.ok(sleep, 'sleep niche must ship as a built-in')
@@ -368,7 +388,7 @@ describe('format-loader', () => {
 
   test('Phase B: every built-in niche loads + is a complete content profile', async () => {
     const nicheLoader = await import('../services/niche-loader.js')
-    const shell = (await loader.loadFormat('scenes'))!
+    const shell = (await loader.loadFormat('continuity-chain'))!
     // The niches the refactor explicitly authored/upgraded to own their voice.
     const COMPLETE_NICHES = [
       'sleep', 'listicle-explainer', 'pov-hustle', 'prayer', 'devotional',
@@ -396,7 +416,7 @@ describe('format-loader', () => {
 
   test('Business Economics owns its case-study structure and annotated thumbnail layout', async () => {
     const nicheLoader = await import('../services/niche-loader.js')
-    const shell = (await loader.loadFormat('scenes'))!
+    const shell = (await loader.loadFormat('continuity-chain'))!
     const niche = await nicheLoader.loadNiche('business-economics')
     assert.ok(niche, 'business-economics must ship as a built-in niche')
 
@@ -415,11 +435,11 @@ describe('format-loader', () => {
     assert.equal(thumbnail?.defaultFontStyle, 'bold')
   })
 
-  test('user-custom format in .formats/ shadows built-in by id', async () => {
+  test('legacy custom format files remain readable but cannot become the active engine', async () => {
     const userFormatsDir = path.join(pm.PROJECTS_ROOT, '.formats')
     await fs.mkdir(userFormatsDir, { recursive: true })
     const forged = {
-      id: 'scenes',
+      id: 'legacy-custom-format',
       name: 'Scenes (custom)',
       description: 'forged',
       builtin: false,
@@ -438,13 +458,13 @@ describe('format-loader', () => {
       imagePrompts: { purposeNote: 'forged', visualStyleHint: 'forged', defaultScenesTotalRange: [1, 1], defaultThumbnails: 1, defaultStyleTag: 'forged', characterReferenceMode: 'inline', recommendedAspect: '16:9' },
       metadata: { purposeNote: 'forged', titleStyleHint: 'forged', titleHookRules: [], tagsContext: 'forged', tagsHookRules: [], broadKeywords: [], youtubeDescriptionStructure: { musicLabel: 'X', booksSectionLabel: 'X', supportSection: 'X', aiDisclosure: 'X', defaultHashtags: [], totalHashtagCount: 0 } },
     }
-    await fs.writeFile(path.join(userFormatsDir, 'scenes.json'), JSON.stringify(forged))
+    await fs.writeFile(path.join(userFormatsDir, 'legacy-custom-format.json'), JSON.stringify(forged))
     loader._clearFormatCaches()
-    const fmt = await loader.loadFormat('scenes')
+    const fmt = await loader.loadFormat('legacy-custom-format')
     assert.equal(fmt!.name, 'Scenes (custom)', 'user format must shadow built-in')
     assert.equal(fmt!.builtin, false)
-    // Cleanup so later tests see the built-in scenes again.
-    await fs.rm(path.join(userFormatsDir, 'scenes.json'), { force: true })
+    // Cleanup after confirming the legacy file can still be inspected.
+    await fs.rm(path.join(userFormatsDir, 'legacy-custom-format.json'), { force: true })
     loader._clearFormatCaches()
   })
 

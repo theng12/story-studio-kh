@@ -5,6 +5,9 @@
   "tagline": "Born hunted, hungry, or weirdly built.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "defaultTopicPackIds": ["natural-world-animals"],
+  "compatibleTopicPackIds": ["natural-world-animals", "natural-world-fungi", "natural-world-insects", "natural-world-plants"],
 
   "exampleTopics": [
     "Komodo Dragon",

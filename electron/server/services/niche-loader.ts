@@ -90,6 +90,68 @@ function userNichesDir(): string {
 const builtinCache = new Map<string, Niche>()
 const userCache = new Map<string, { mtimeMs: number; niche: Niche }>()
 
+/**
+ * Catalog-only migration metadata. The stable file ids intentionally remain
+ * unchanged so existing projects, presets, and generated sidecars continue to
+ * resolve. New-channel UI uses these names/families instead of exposing the
+ * old one-niche-per-subject-library taxonomy.
+ */
+const FORMULA_CATALOG: Record<string, Pick<Niche,
+  'formulaFamily' | 'catalogStatus' | 'successorFormulaId' | 'catalogName' | 'perspectivePolicy' | 'narrativeQualityContract'
+>> = {
+  'ancient-humans': { formulaFamily: 'Evidence & systems', catalogName: 'How Did Ancient Humans…?', perspectivePolicy: 'Third-person, evidence-led narration. Never role-play ancient people as the viewer.', narrativeQualityContract: { openingPolicy: 'Open on a specific survival problem, material trace, or surprising constraint — not an immersive invitation.', forbiddenPatterns: ['Imagine you are an ancient human', 'You find yourself', 'Watch what happens next', 'generic prehistoric danger bait'], requiredHabits: ['Separate evidence from inference.', 'Use concrete tools, environments, trade-offs, and dates where useful.', 'Let uncertainty remain uncertainty.'], closingPolicy: 'Close on what the evidence changes about our understanding, not a teaser.' } },
+  'business-economics': { formulaFamily: 'Evidence & systems', catalogName: 'The Economics of…', perspectivePolicy: 'Third-person analytical explainer. Address the business, system, or decision — not a generic viewer avatar.', narrativeQualityContract: { openingPolicy: 'Open with the economic tension, cost, constraint, or surprising unit of the chosen business.', forbiddenPatterns: ['Imagine you own', 'So you want to own', 'Watch what happens next', 'This changes everything', 'generic entrepreneurial hype'], requiredHabits: ['Name the mechanism behind revenue, costs, risk, and trade-offs.', 'Use specific representative numbers or clearly labeled examples.', 'Build to an implication instead of repeating the premise.'], closingPolicy: 'End with the decisive trade-off or operating insight.' } },
+  'history-narration': { formulaFamily: 'Evidence & systems', catalogName: 'History, Explained', perspectivePolicy: 'Third-person source-led documentary narration.', narrativeQualityContract: { openingPolicy: 'Open on a dated event, decision, material detail, or historical contradiction.', forbiddenPatterns: ['Imagine you are there', 'You would not believe', 'Watch what happens next', 'history’s best kept secret'], requiredHabits: ['Distinguish evidence, testimony, and interpretation.', 'Use names, places, causes, and consequences precisely.', 'Avoid present-day moralising where it replaces explanation.'], closingPolicy: 'Conclude with the historical consequence or remaining uncertainty.' } },
+  'listicle-explainer': { formulaFamily: 'Evidence & systems', catalogName: 'Counted Explainer', perspectivePolicy: 'Third-person clear explainer; the numbered structure is visible but never mechanical.', narrativeQualityContract: { openingPolicy: 'Open with the organizing question and why its answer matters.', forbiddenPatterns: ['Number one will shock you', 'Wait until number', 'Watch what happens next', 'generic listicle suspense'], requiredHabits: ['Give each section a distinct reason for existing.', 'Vary entry and exit rhythm between sections.', 'Use transitions that explain relationships rather than counting.'], closingPolicy: 'Synthesize the pattern across the sections.' } },
+  animals: { formulaFamily: 'Living world', catalogName: 'Natural World, Explained', perspectivePolicy: 'Third-person natural-history narration; never invent animal thoughts or dialogue.', narrativeQualityContract: { openingPolicy: 'Open with one observable biological behavior, adaptation, or environmental pressure.', forbiddenPatterns: ['Imagine being this animal', 'This animal does not want you to know', 'Watch what happens next', 'fake animal motives'], requiredHabits: ['Put biology before jokes.', 'Describe behavior as observation, not human intention.', 'Use ecological cause and effect.'], closingPolicy: 'End with the adaptation’s real consequence in its ecosystem.' } },
+  fungi: { formulaFamily: 'Living world', catalogStatus: 'legacy', successorFormulaId: 'animals' },
+  insects: { formulaFamily: 'Living world', catalogStatus: 'legacy', successorFormulaId: 'animals' },
+  plants: { formulaFamily: 'Living world', catalogStatus: 'legacy', successorFormulaId: 'animals' },
+  'pov-life': { formulaFamily: 'Immersive paths', catalogName: 'POV: Your Life As…', perspectivePolicy: 'Second-person immersive, grounded in period-appropriate daily decisions.', narrativeQualityContract: { openingPolicy: 'Begin inside a specific concrete moment, not a generic “you wake up” template.', forbiddenPatterns: ['Imagine this', 'You find yourself', 'Watch what happens next', 'generic sensory checklist'], requiredHabits: ['Anchor each scene in a real task, constraint, or social role.', 'Let the viewer infer stakes through action.', 'Use historically or institutionally plausible details.'], closingPolicy: 'End on a lived consequence rather than a cliffhanger.' } },
+  'pov-hustle': { formulaFamily: 'Immersive paths', catalogName: 'Build Under Constraints', perspectivePolicy: 'Second-person practical simulation, never a hype monologue.', narrativeQualityContract: { openingPolicy: 'Start with the constraint, resource limit, or decision the viewer must work through.', forbiddenPatterns: ['Imagine this', 'You are about to', 'Watch what happens next', 'get rich quick'], requiredHabits: ['Show trade-offs and consequences.', 'Keep advice specific and falsifiable.', 'Avoid invented urgency.'], closingPolicy: 'End with the most useful decision rule.' } },
+  psychology: { formulaFamily: 'Mind & ideas', catalogName: 'Human Behavior, Explained', perspectivePolicy: 'Warm third-person explainer with sparing “we” only where genuinely shared.', narrativeQualityContract: { openingPolicy: 'Open with a recognizable behavior or tension, not a diagnosis or bait question.', forbiddenPatterns: ['Have you ever wondered why', 'This is why you do', 'Watch what happens next', 'pseudo-clinical certainty'], requiredHabits: ['Separate research from speculation.', 'Use examples without diagnosing the viewer.', 'Offer nuance and agency.'], closingPolicy: 'Close with a practical reflection, not a manipulation tactic.' } },
+  'dark-psychology': { formulaFamily: 'Mind & ideas', catalogStatus: 'legacy', successorFormulaId: 'psychology' },
+  philosophy: { formulaFamily: 'Mind & ideas', catalogName: 'Philosophy for a Real Problem', perspectivePolicy: 'Conversational guide voice: thoughtful “we” and “you” only when earned by the argument.', narrativeQualityContract: { openingPolicy: 'Open with a real tension, decision, or paradox rather than a quote-card cliché.', forbiddenPatterns: ['Imagine this', 'Ancient wisdom says', 'Watch what happens next', 'fake profundity'], requiredHabits: ['Define terms before leaning on them.', 'Develop one argument at a time.', 'Use a genuine unresolved question only when it belongs to the topic.'], closingPolicy: 'End with a question or implication that follows from the argument.' } },
+  motivation: { formulaFamily: 'Mind & ideas', catalogName: 'Practical Motivation', perspectivePolicy: 'Direct second-person practical coaching without hype.', narrativeQualityContract: { openingPolicy: 'Open with a concrete obstacle, behavior, or decision.', forbiddenPatterns: ['Wake up and grind', 'You are unstoppable', 'Watch what happens next', 'empty urgency'], requiredHabits: ['Give specific actionable reasoning.', 'Acknowledge friction and limits.', 'Earn encouragement through evidence and clarity.'], closingPolicy: 'End with one proportionate next action.' } },
+  mindfulness: { formulaFamily: 'Mind & ideas', catalogName: 'Guided Mindfulness', perspectivePolicy: 'Gentle second-person guidance with calm, unforced language.', narrativeQualityContract: { openingPolicy: 'Begin with a simple grounded invitation, not a dramatic hook.', forbiddenPatterns: ['Imagine this', 'Transform your life today', 'Watch what happens next', 'spiritual grandiosity'], requiredHabits: ['Use spacious, sensory, concrete guidance.', 'Avoid diagnostic or therapeutic claims.', 'Leave room for silence and choice.'], closingPolicy: 'Close softly without a CTA or cliffhanger.' } },
+  devotional: { formulaFamily: 'Faith', catalogName: 'Pastoral Scripture', perspectivePolicy: 'Pastoral teacher voice, speaking respectfully and plainly to the listener.', narrativeQualityContract: { openingPolicy: 'Open with the passage, its human situation, or a sincere pastoral concern.', forbiddenPatterns: ['God wants you to hear this', 'Stop scrolling', 'Watch what happens next', 'guaranteed blessing claims'], requiredHabits: ['Keep scripture and interpretation distinct.', 'Use warm, modest application.', 'Avoid coercive fear or prosperity claims.'], closingPolicy: 'End with a grounded reflection or blessing.' } },
+  preaching: { formulaFamily: 'Faith', catalogStatus: 'legacy', successorFormulaId: 'devotional' },
+  prayer: { formulaFamily: 'Faith', catalogName: 'Prayer', perspectivePolicy: 'Reflection and blessing address the listener; the prayer body addresses God directly.', narrativeQualityContract: { openingPolicy: 'Open quietly with the listener’s real concern or a scripture-rooted reflection.', forbiddenPatterns: ['God told me to tell you', 'Claim this now', 'Watch what happens next', 'guaranteed outcome claims'], requiredHabits: ['Keep the prayer body directly addressed to God.', 'Use specific compassionate language.', 'Never turn the prayer into hype or manipulation.'], closingPolicy: 'End as a benediction, not a subscription ask.' } },
+  sleep: { formulaFamily: 'Calm stories', catalogName: 'Sleep Story', perspectivePolicy: 'Use the Formula-selected sleep narrator; never a high-energy host.', narrativeQualityContract: { openingPolicy: 'Begin gently and directly; no hook, challenge, teaser, or urgency.', forbiddenPatterns: ['Imagine this', 'Watch what happens next', 'cliffhanger', 'subscribe reminder', 'sudden danger bait'], requiredHabits: ['Keep sensory detail soft and low-stakes.', 'Use long, settled transitions.', 'Let scenes resolve rather than escalate.'], closingPolicy: 'Drift toward rest with no final reveal or CTA.' } },
+}
+
+const DEFAULT_NARRATIVE_QUALITY: NonNullable<Niche['narrativeQualityContract']> = {
+  openingPolicy: 'Open with a specific fact, moment, problem, image, or decision native to this episode. Do not use a stock audience-address hook.',
+  forbiddenPatterns: [
+    'Imagine this',
+    'Imagine you are',
+    'You will not believe',
+    'Watch what happens next',
+    'generic rhetorical-question hooks',
+    'artificial cliffhangers between ordinary sections',
+  ],
+  requiredHabits: [
+    'Use concrete nouns, verbs, evidence, and causal links.',
+    'Vary sentence length and section openings.',
+    'Prefer a precise claim over inflated importance language.',
+  ],
+  closingPolicy: 'Close the actual thought; do not manufacture suspense for the next episode.',
+}
+
+function decorateCatalogNiche(niche: Niche): Niche {
+  const catalog = FORMULA_CATALOG[niche.id]
+  return {
+    ...niche,
+    kind: niche.kind || 'series-formula',
+    formulaFamily: niche.formulaFamily || catalog?.formulaFamily || 'Custom',
+    catalogStatus: niche.catalogStatus || catalog?.catalogStatus || 'active',
+    successorFormulaId: niche.successorFormulaId || catalog?.successorFormulaId,
+    catalogName: niche.catalogName || catalog?.catalogName || niche.name,
+    perspectivePolicy: niche.perspectivePolicy || catalog?.perspectivePolicy || 'Use the Formula’s established narrator voice consistently.',
+    narrativeQualityContract: niche.narrativeQualityContract || catalog?.narrativeQualityContract || DEFAULT_NARRATIVE_QUALITY,
+  }
+}
+
 async function loadNicheFile(filePath: string): Promise<Niche> {
   const raw = await fs.readFile(filePath, 'utf-8')
   let parsed: any
@@ -101,7 +163,7 @@ async function loadNicheFile(filePath: string): Promise<Niche> {
   validateNicheShape(parsed, filePath)
   // Every legacy Niche is a valid Series Formula. The default keeps all
   // existing project files working without a destructive migration.
-  return { ...parsed, kind: parsed.kind || 'series-formula' } as Niche
+  return decorateCatalogNiche(parsed as Niche)
 }
 
 function validateNicheShape(n: any, filePath: string): void {

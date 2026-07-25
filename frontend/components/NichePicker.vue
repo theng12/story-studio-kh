@@ -12,14 +12,16 @@
       @change="onSelect(($event.target as HTMLSelectElement).value)"
     >
       <option value="">— No Series Formula (generic generation) —</option>
-      <option
-        v-for="n in niches"
-        :key="n.id"
-        :value="n.id"
-        :title="n.description"
-      >
-        {{ n.name }}{{ n.builtin ? '' : ' (custom)' }}
-      </option>
+      <optgroup v-for="group in groupedNiches" :key="group.family" :label="group.family">
+        <option
+          v-for="n in group.items"
+          :key="n.id"
+          :value="n.id"
+          :title="n.description"
+        >
+          {{ displayName(n) }}{{ n.builtin ? '' : ' (custom)' }}{{ n.catalogStatus === 'legacy' ? ' (legacy)' : '' }}
+        </option>
+      </optgroup>
     </select>
 
     <p v-if="!modelValue" class="niche-empty-note">
@@ -28,11 +30,15 @@
 
     <div v-if="selected" class="niche-card">
       <div class="niche-card-header">
-        <strong>{{ selected.name }}</strong>
+        <strong>{{ displayName(selected) }}</strong>
         <span v-if="!selected.builtin" class="custom-badge">custom</span>
+        <span v-if="selected.catalogStatus === 'legacy'" class="legacy-badge">legacy</span>
         <span v-if="selected.tagline" class="tagline">{{ selected.tagline }}</span>
       </div>
       <p class="niche-description">{{ selected.description }}</p>
+      <p v-if="selected.catalogStatus === 'legacy' && selected.successorFormulaId" class="niche-migration-note">
+        This existing formula remains usable. New channels should use its successor Formula in the same family when you next save Channel Identity.
+      </p>
       <div class="niche-stats">
         <span><strong>{{ selected.exampleTopics.length }}</strong> example topics</span>
         <span v-if="selected.vocabulary?.keyword">
@@ -96,6 +102,23 @@ const { niches, isLoading, error, find } = useNiches()
 
 const selected = computed<Niche | undefined>(() => find(props.modelValue))
 const ownsVoice = computed(() => !!selected.value?.scriptSystemPromptRole)
+const groupedNiches = computed(() => {
+  const visible = niches.value.filter(n => n.catalogStatus !== 'legacy' || n.id === props.modelValue)
+  const byFamily = new Map<string, Niche[]>()
+  for (const niche of visible) {
+    const family = niche.formulaFamily || (niche.builtin ? 'Other formulas' : 'Custom formulas')
+    const items = byFamily.get(family) || []
+    items.push(niche)
+    byFamily.set(family, items)
+  }
+  return [...byFamily.entries()]
+    .map(([family, items]) => ({ family, items: items.sort((a, b) => displayName(a).localeCompare(displayName(b))) }))
+    .sort((a, b) => a.family.localeCompare(b.family))
+})
+
+function displayName(niche: Niche): string {
+  return niche.catalogName || niche.name
+}
 
 function onSelect(id: string) {
   emit('update:modelValue', id)
@@ -159,6 +182,7 @@ function formatErr(e: any): string {
   color: var(--accent, #6c8fff);
   border-radius: 3px;
 }
+.legacy-badge { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 3px; color: #f4c36a; background: rgba(204, 144, 40, .14); }
 
 .tagline {
   font-size: var(--font-xs);
@@ -172,6 +196,7 @@ function formatErr(e: any): string {
   color: var(--text-secondary);
   line-height: 1.5;
 }
+.niche-migration-note { margin: 0; font-size: var(--font-xs); line-height: 1.45; color: #e9c47a; }
 
 .niche-stats {
   display: flex;

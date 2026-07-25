@@ -322,7 +322,7 @@ function defaults(): ContinuityConfig {
     anchor_character_ids: [],
     use_episode_sheet: false,
     pacing: { min_sec: 1, max_sec: 4 },
-    references: { prev_render: true, sheet: true, characters: true, style: false },
+    references: { prev_render: false, sheet: false, characters: false, style: false },
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',

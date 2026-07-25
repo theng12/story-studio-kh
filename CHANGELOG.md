@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.731 — 2026-07-25
+
+**Channel Identity now scales from a Formula into many distinct subject lanes, with one production engine and cleaner human scripts.**
+
+- Replaces the separate Format and Niche settings with **Channel Identity**:
+  one Series Formula, compatible Topic Packs, and a visible sidebar status card.
+- Retires the old Listicle and Still Scenes video-format choices. Every project
+  now runs through the **Continuity Engine**, choosing independent illustrated
+  scenes, explainer boards, or character continuity as its reference behavior.
+- Adds Formula-owned narrative contracts: perspective, opening/closing policy,
+  and anti-AI guardrails now travel through ideas, outline, chapter expansion,
+  repairs, and Pipeline runs. The per-episode POV override is removed.
+- Adds Formula Families and reusable Topic Packs for natural-world, human
+  behavior, and pastoral channels, while preserving older project identities
+  as migration-safe legacy formulas.
+- Reframes Standards as optional project instructions. They can add a
+  project-specific constraint, but no longer override the selected Formula.
+
 ## v1.0.730 — 2026-07-25
 
 **Thumbnail reference import is now visible and recoverable in the live prompt workspace.**

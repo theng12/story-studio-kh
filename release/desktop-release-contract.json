@@ -46,7 +46,7 @@
     "ffmpeg/MANIFEST.json",
     "ffmpeg/ffmpeg",
     "ffmpeg/ffprobe",
-    "formats/scenes.json",
+    "formats/continuity-chain.json",
     "niches/sleep.json",
     "templates/blank/config.json",
     "thumbnail-templates/centered-hero-headline.json"

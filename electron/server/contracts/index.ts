@@ -40,6 +40,7 @@ export const CreateProjectSchema = z.object({
   // channels always start on the continuity workflow; changing format is a
   // deliberate post-creation Settings action.
   format_id: z.string().max(60).optional(),
+  continuity_mode: z.enum(['character-continuity', 'independent-stills', 'explainer-stills']).optional(),
   // v1.0.79+: optional subject-domain niche (plants, animals, fungi,
   // insects, or user-custom). Orthogonal to format — niche layers
   // vocabulary, visual style, and YouTube tag hints onto whatever
@@ -71,6 +72,7 @@ export const UpdateProjectSchema = z.object({
   // format-loader.ts validates merge results, and the override editor UI
   // controls the legal field set.
   format_id: z.string().max(80).optional(),
+  continuity_mode: z.enum(['character-continuity', 'independent-stills', 'explainer-stills']).optional(),
   format_overrides: z.any().optional(),
   // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
   // use neutral prompts. Empty/absent = 'format' (current behavior).
@@ -125,6 +127,17 @@ export const NicheSchema = z.object({
   builtin: z.boolean().optional(),  // user-custom JSONs may omit; loader defaults false
   schemaVersion: z.literal(1),
   kind: z.literal('series-formula').optional(),
+  formulaFamily: z.string().min(1).max(80).optional(),
+  catalogStatus: z.enum(['active', 'legacy']).optional(),
+  successorFormulaId: z.string().min(1).max(80).optional(),
+  catalogName: z.string().min(1).max(120).optional(),
+  perspectivePolicy: z.string().min(1).max(1200).optional(),
+  narrativeQualityContract: z.object({
+    openingPolicy: z.string().min(1).max(1200),
+    forbiddenPatterns: z.array(z.string().min(1).max(500)).min(1).max(30),
+    requiredHabits: z.array(z.string().min(1).max(500)).min(1).max(30),
+    closingPolicy: z.string().min(1).max(1200).optional(),
+  }).strict().optional(),
   tagline: z.string().max(200).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
   defaultTopicPackIds: z.array(z.string().min(1).max(80)).max(24).optional(),
@@ -154,6 +167,7 @@ export const TopicPackSchema = z.object({
   schemaVersion: z.literal(1),
   tagline: z.string().max(200).optional(),
   compatibleNicheIds: z.array(z.string().min(1).max(80)).max(100),
+  compatibleFormulaIds: z.array(z.string().min(1).max(80)).max(100).optional(),
   subjects: z.array(z.string().min(1).max(200)).min(1).max(1000),
   ideaAxes: z.array(IdeaAxisSchema).max(20).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200).optional(),
@@ -191,6 +205,7 @@ export interface ProjectMetaResponse {
   format_id?: string
   niche_id?: string
   topic_pack_ids?: string[]
+  continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
 }
 
 /** Shape of `GET /projects` — list view summary, never includes keys. */

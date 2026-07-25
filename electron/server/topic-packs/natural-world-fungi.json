@@ -1,0 +1,12 @@
+{
+  "id": "natural-world-fungi",
+  "name": "Fungi & Mycelium",
+  "description": "Fungi, lichen, decay, symbiosis, spores, and the hidden systems beneath forests and soils.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["animals", "listicle-explainer"],
+  "subjects": ["mushrooms", "mycelium", "lichen", "parasite fungi", "decomposers", "mycorrhizae", "yeast", "bracket fungi", "slime molds", "forest decay"],
+  "ideaAxes": [{"id":"ecological-strategy","label":"Ecological strategy","values":["decomposition","symbiosis","parasitism","spore dispersal","chemical defense","seasonal fruiting"]}],
+  "promptContext": "Fungi are not plants and do not have human-like intentions. Explain fruiting bodies, spores, hosts, or mycelium through an ecological trade-off.",
+  "tags": ["fungi", "mycology", "ecology"]
+}

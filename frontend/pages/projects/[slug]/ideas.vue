@@ -42,12 +42,10 @@
         <button class="banner-link" @click="retryHydration">Retry</button>
       </template>
       <template v-else-if="hydrationError.kind === 'project-no-format'">
-        <strong>⚠ No format set on this project.</strong>
-        Generation will fall back to <code>sleep-story</code> until you pick one —
-        prayer / devotional vocab won't read correctly until a B-Roll Narration
-        (or other) format is chosen.
-        <NuxtLink :to="`/projects/${slug}/settings#format`" class="banner-link">
-          Open Format settings →
+        <strong>⚠ No production path is set on this project.</strong>
+        Generation will use the Continuity Engine default until Channel Identity is saved.
+        <NuxtLink :to="`/projects/${slug}/settings#channel`" class="banner-link">
+          Open Channel Identity →
         </NuxtLink>
       </template>
       <template v-else-if="hydrationError.kind === 'config-fetch'">
@@ -125,26 +123,24 @@
       >
         <template #summary>
           <span class="context-chip">
-            <span class="context-key">Format</span>
+            <span class="context-key">Production</span>
             <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || formatId || 'unknown' }}</strong>
           </span>
           <span class="context-dot" aria-hidden="true">·</span>
           <span class="context-chip">
-            <span class="context-key">Topic</span>
-            <strong :class="{ 'is-fallback': !form.niche_id }">{{ form.niche_id || 'none' }}</strong>
-            <span v-if="form.niche_id !== projectNicheId" class="context-override">(override)</span>
+            <span class="context-key">Formula</span>
+            <strong :class="{ 'is-fallback': !form.niche_id }">{{ activeFormulaName }}</strong>
           </span>
           <span class="context-dot" aria-hidden="true">·</span>
           <span class="context-chip">
-            <span class="context-key">Titles</span>
-            <strong v-if="titleConfig.prefix || titleConfig.suffix">"{{ titleConfig.prefix }}…{{ titleConfig.suffix }}"</strong>
-            <strong v-else class="is-fallback">as-is</strong>
+            <span class="context-key">Topics</span>
+            <strong :class="{ 'is-fallback': !form.topic_pack_ids.length }">{{ activeTopicPackLabel }}</strong>
           </span>
         </template>
 
         <!-- Expandable detail — the content the two old cards carried. -->
           <div class="context-detail-row">
-            <span class="context-detail-label">Format</span>
+            <span class="context-detail-label">Production path</span>
             <strong class="context-detail-value" :class="{ 'is-fallback': !projectHasExplicitFormat }">
               {{ formatDisplayName || formatId || 'unknown' }}
             </strong>
@@ -154,29 +150,26 @@
               :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
             >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
             <span v-if="!projectHasExplicitFormat" class="context-fallback-tag">⚠ no format set — generation falls back to defaults</span>
-            <NuxtLink :to="`/projects/${slug}/settings#format`" class="effective-link">Switch format</NuxtLink>
-            <NuxtLink
-              :to="`/projects/${slug}/settings?newFormat=1#format`"
-              class="effective-link subtle"
-              title="Open Settings → Format and launch '+ Create from Sample'."
-            >+ New custom</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">Open Channel Identity</NuxtLink>
           </div>
           <p v-if="activeFormat?.description" class="context-detail-desc">{{ activeFormat.description }}</p>
           <p class="context-detail-hint text-muted text-sm">
-            All dropdowns + the LLM prompt below pull tone, vocab, and example ideas from this format.
+            The Continuity Engine controls visual construction. Formula and Topic Packs below control the written series.
           </p>
 
           <div class="context-detail-row">
-            <span class="context-detail-label">Topic</span>
+            <span class="context-detail-label">Formula</span>
             <strong class="context-detail-value" :class="{ 'is-fallback': !form.niche_id }">
-              {{ form.niche_id || '(none — format defaults only)' }}
+              {{ activeFormulaName }}
             </strong>
-            <span v-if="form.niche_id !== projectNicheId" class="context-override-tag">
-              override for this batch (project saved: {{ projectNicheId || 'none' }})
-            </span>
-            <NuxtLink :to="`/projects/${slug}/settings`" @click.prevent="goToNicheTab" class="effective-link">
-              Change project topic
+            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">
+              Change channel identity
             </NuxtLink>
+          </div>
+
+          <div class="context-detail-row">
+            <span class="context-detail-label">Topic Packs</span>
+            <strong class="context-detail-value" :class="{ 'is-fallback': !form.topic_pack_ids.length }">{{ activeTopicPackLabel }}</strong>
           </div>
 
           <div class="context-detail-row">
@@ -315,15 +308,11 @@
                   <div><strong>Topic and title shape</strong><small>Override only when this batch needs it.</small></div>
                 </div>
                 <div class="form-group">
-                  <label>Formula + Topic Pack override</label>
-                  <NichePicker v-model="form.niche_id" @change="onIdeaFormulaChanged" />
-                  <TopicPackPicker
-                    v-model="form.topic_pack_ids"
-                    class="mt-2"
-                    :series-formula-id="form.niche_id"
-                  />
-                  <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
-                    <span class="banner-text">Using a campaign-only formula. <a class="banner-link" @click.prevent="resetIdeaFormula">Reset</a></span>
+                  <label>Channel identity</label>
+                  <div class="channel-identity-readonly">
+                    <strong>{{ activeFormulaName }}</strong>
+                    <span>{{ activeTopicPackLabel }}</span>
+                    <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">Change in Channel Identity</NuxtLink>
                   </div>
                 </div>
                 <div class="form-group">
@@ -951,23 +940,14 @@
               {{ pastePromptCopied ? '✓ Copied' : 'Copy Prompt' }}
             </button>
           </div>
-          <!-- Source-of-truth strip: shows what the prompt is built from
-               (project's active format + optionally a Pattern preset).
-               Switching format requires a round-trip to Settings → Format
-               because format affects script + image-prompt generation
-               too — surfacing it here is informational, not editable. -->
+          <!-- Source-of-truth strip: Channel Identity is informational here;
+               Formula and Topic Pack changes happen once in Settings. -->
           <div class="paste-prompt-source">
             <span class="paste-prompt-source-label">Built from</span>
-            <span class="paste-prompt-source-chip" :title="`This prompt is generated for the project's currently-active format (${formatDisplayName}). Change it from Settings → Format.`">
-              Format: <strong>{{ formatDisplayName }}</strong>
+            <span class="paste-prompt-source-chip" :title="`This prompt uses ${activeFormulaName} and ${activeTopicPackLabel}. Change Channel Identity in Settings.`">
+              Formula: <strong>{{ activeFormulaName }}</strong>
             </span>
-            <NuxtLink :to="`/projects/${slug}/settings#format`" class="paste-prompt-source-link" title="Open Settings → Format to change the active format. The prompt will refresh when you come back.">Switch</NuxtLink>
-            <button
-              type="button"
-              class="paste-prompt-source-link"
-              title="Override this format's idea-generation rules, guidance text, and other fields for this project only — without leaving the page."
-              @click="openFormatOverrideEditor"
-            >Customize prompt</button>
+            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="paste-prompt-source-link" title="Open Channel Identity to change the Formula, Topic Packs, or production behavior.">Channel Identity</NuxtLink>
             <span v-if="form.title_template" class="paste-prompt-source-chip" title="A title template is folded into the prompt — every generated title is shaped to it, with {X} replaced by each idea's subject. Clear it via the Title template field above.">
               Title: <strong>{{ form.title_template }}</strong>
               <button
@@ -1052,39 +1032,6 @@
             {{ pasteImporting ? 'Importing…' : `Import ${pastePreviewValid.length || 0} idea${pastePreviewValid.length === 1 ? '' : 's'}` }}
           </button>
         </div>
-      </div>
-    </div>
-
-    <!-- Format override drawer — stacked above the Paste modal so the user
-         can tweak the format's idea-generation rules, audience default,
-         narrator style, etc. without leaving. Same FormatOverrideEditor
-         component the Settings page uses; saves to project.format_overrides
-         then refetches the displayed paste-prompt. -->
-    <div v-if="formatOverrideOpen" class="format-override-drawer-overlay" @click.self="closeFormatOverrideEditor">
-      <div class="format-override-drawer">
-        <header class="fod-header">
-          <div>
-            <h3>Customize prompt — {{ formatDisplayName }}</h3>
-            <p class="text-muted text-sm mt-1" style="margin: 0;">
-              Per-project overrides. Empty fields fall back to the built-in format's defaults.
-              Changes also apply to script + image-prompt + metadata generation.
-            </p>
-          </div>
-          <button class="btn-icon" title="Close" @click="closeFormatOverrideEditor">✕</button>
-        </header>
-        <div class="fod-body">
-          <FormatOverrideEditor
-            v-model="formatOverridesDraft"
-            :base-format="selectedBaseFormat"
-          />
-        </div>
-        <footer class="fod-footer">
-          <span v-if="formatOverridesError" class="text-danger text-sm">{{ formatOverridesError }}</span>
-          <button class="btn btn-secondary" :disabled="formatOverridesSaving" @click="closeFormatOverrideEditor">Cancel</button>
-          <button class="btn btn-primary" :disabled="formatOverridesSaving" @click="saveFormatOverrides">
-            {{ formatOverridesSaving ? 'Saving…' : 'Save overrides' }}
-          </button>
-        </footer>
       </div>
     </div>
 
@@ -1264,12 +1211,6 @@ const { project } = useProject()
 // string field on the Ideas form. The pattern lookup composable,
 // PatternPicker / PatternEditorModal components, and per-pattern
 // warning-header plumbing all went with it.
-// Full Format objects (with script/idea/imagePrompts/metadata blocks) —
-// the lite `formatsById` map above only carries the idea block, but
-// FormatOverrideEditor needs the full base-format. useFormats() also
-// gives us the list-cache that the editor's built-in picker queries.
-const { find: findFullFormat, refresh: refreshFormats } = useFormats()
-
 const PER_PAGE = 10
 const generating = ref(false)
 const allIdeas = ref<any[]>([])
@@ -1407,15 +1348,6 @@ const projectNicheId = ref<string>('')
 const projectTopicPackIds = ref<string[]>([])
 const projectTopicPacksExplicit = ref(false)
 
-function onIdeaFormulaChanged(niche: any) {
-  form.topic_pack_ids = [...(niche?.defaultTopicPackIds || [])]
-}
-
-function resetIdeaFormula() {
-  form.niche_id = projectNicheId.value
-  form.topic_pack_ids = [...projectTopicPackIds.value]
-}
-
 // v1.0.170 — Channel context strip disclosure. Collapsed by default so the
 // page opens straight onto the generator; the strip's one-line summary
 // (Format · Topic · Titles) is always visible, and clicking it reveals the
@@ -1514,8 +1446,6 @@ const ideasPresets = usePresets<any>({
     avoid_repeated_ideas: form.avoid_repeated_ideas,
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
-    niche_id: form.niche_id,
-    topic_pack_ids: [...form.topic_pack_ids],
     title_prefix: titleConfig.prefix,
     title_suffix: titleConfig.suffix,
   }),
@@ -1535,10 +1465,6 @@ const ideasPresets = usePresets<any>({
     if (typeof data.title_template === 'string') form.title_template = data.title_template
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle
-    }
-    if (typeof data.niche_id === 'string') form.niche_id = data.niche_id
-    if (Array.isArray(data.topic_pack_ids)) {
-      form.topic_pack_ids = data.topic_pack_ids.filter((value: unknown): value is string => typeof value === 'string')
     }
     if (typeof data.title_prefix === 'string') titleConfig.prefix = data.title_prefix
     if (typeof data.title_suffix === 'string') titleConfig.suffix = data.title_suffix
@@ -1594,7 +1520,7 @@ async function onIdeasPresetDelete() {
 // used pattern + subject are persisted in the same config under
 // `idea_generator_last_pattern` / `idea_generator_last_subject` —
 // matches the *_last_* convention used by other generator pages.
-const formatId = ref<string>('scenes')
+const formatId = ref<string>('continuity-chain')
 // v1.0.83+: reactive section-label vocabulary for the active format
 // ("Chapter" for sleep-story, "Reason" for bound-explainer, "Topic" for
 // listicle). Used in form labels, table column headers, and inline copy
@@ -1651,7 +1577,6 @@ function finishModelPreferenceHydration(): void {
 }
 // v1.0.92+ — remember the most recent niche override per project. Resets
 // to project.niche_id on next load when the user hasn't picked one yet.
-const LAST_NICHE_KEY = 'idea_generator_last_niche_override'
 let patternHydrated = false
 
 /**
@@ -1742,14 +1667,6 @@ const effectiveStateSampleTitle = computed(() => {
   return 'A Prayer for Anxious Hearts'
 })
 
-function goToNicheTab(): void {
-  // The Niche tab is at `/projects/:slug/settings` with activeTab=niche
-  // (settings.vue reads from window state on mount via a manual jump in
-  // the prior commit). For now route to the settings page; the user
-  // clicks the Niche tab there.
-  navigateTo(`/projects/${slug.value}/settings`)
-}
-
 async function loadPatternPreferences(): Promise<boolean> {
   // The project's chosen format lives on the project META, not on
   // /settings/config. settings.vue + scripts.vue both read meta.format_id;
@@ -1806,15 +1723,11 @@ async function loadPatternPreferences(): Promise<boolean> {
     if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
       form.items_per_listicle = cfg[LAST_ITEMS_KEY]
     }
-    // Niche override hydration: prefer the last per-project override (if
-    // user picked one recently), otherwise fall back to the project's
-    // saved niche so the picker shows the active value out of the box.
-    if (typeof cfg?.[LAST_NICHE_KEY] === 'string') {
-      form.niche_id = cfg[LAST_NICHE_KEY]
-    } else {
-      form.niche_id = metaNiche
-      form.topic_pack_ids = [...projectTopicPackIds.value]
-    }
+    // Channel Identity is the source of truth. Old campaign-only Formula
+    // memories are deliberately ignored so a batch cannot silently drift
+    // from the selected Formula or Topic Packs.
+    form.niche_id = metaNiche
+    form.topic_pack_ids = [...projectTopicPackIds.value]
     // v1.0.93+ — hydrate channel title prefix/suffix from the same keys
     // the Metadata Generator uses. One source of truth — editing in
     // either surface updates the other.
@@ -1832,7 +1745,7 @@ async function loadPatternPreferences(): Promise<boolean> {
 }
 
 // Persists the per-project Ideas-form preferences (title template, theme,
-// listicle count, niche override, channel title wrap). Named for history;
+// listicle count, and channel title wrap). Named for history;
 // v1.0.165 swapped the pattern fields for the title template.
 async function saveIdeaPreferences() {
   // Skip the initial hydration round-trip — only fire on user-initiated
@@ -1845,7 +1758,6 @@ async function saveIdeaPreferences() {
       [LAST_TITLE_TEMPLATE_KEY]: form.title_template,
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
-      [LAST_NICHE_KEY]: form.niche_id,
       // v1.0.93+ — channel title wrap is persisted on every edit so the
       // metadata page picks it up on next load without an explicit save.
       [TITLE_PREFIX_KEY]: titleConfig.prefix,
@@ -1867,7 +1779,6 @@ watch(() => form.model, (model, previous) => {
 })
 watch(() => form.theme, saveIdeaPreferences)
 watch(() => form.items_per_listicle, saveIdeaPreferences)
-watch(() => form.niche_id, saveIdeaPreferences)
 watch(() => titleConfig.prefix, saveIdeaPreferences)
 watch(() => titleConfig.suffix, saveIdeaPreferences)
 // v1.0.93+ — five separate onMounted() calls used to race each other,
@@ -1942,6 +1853,7 @@ const customKeywords = ref<string[]>([])
 // the same way the backend does, so the chip input shows the full
 // union AND Randomize picks from the union.
 const { niches: allNichesList } = useNiches()
+const { topicPacks: allTopicPacks } = useTopicPacks()
 watch([allNichesList, projectNicheId], () => {
   if (projectTopicPacksExplicit.value || !projectNicheId.value) return
   const formula = allNichesList.value?.find(niche => niche.id === projectNicheId.value)
@@ -1955,6 +1867,12 @@ const activeNiche = computed(() => {
   const id = form.niche_id
   if (!id) return null
   return allNichesList.value?.find(n => n.id === id) || null
+})
+const activeFormulaName = computed(() => activeNiche.value?.catalogName || activeNiche.value?.name || 'No Formula selected')
+const activeTopicPackLabel = computed(() => {
+  if (!form.topic_pack_ids.length) return 'No Topic Packs selected'
+  const names = form.topic_pack_ids.map(id => allTopicPacks.value.find(pack => pack.id === id)?.name || id)
+  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0]
 })
 
 /**
@@ -2481,62 +2399,6 @@ async function onAssetsMapped(_summary: any) {
 // onPatternSavedFromIdeas) were removed with the Pattern system. The
 // title-template field handles the one capability that mattered.
 
-// Format override drawer state — separate from the Settings page's
-// version because we want a self-contained save/cancel flow that
-// doesn't disturb the user's place in the Paste modal.
-const formatOverrideOpen = ref(false)
-const formatOverridesDraft = ref<Record<string, any> | null>(null)
-const formatOverridesSaving = ref(false)
-const formatOverridesError = ref('')
-
-const selectedBaseFormat = computed(() => findFullFormat(formatId.value) || null)
-
-async function openFormatOverrideEditor() {
-  formatOverridesError.value = ''
-  // Hydrate the draft with the project's current overrides so the user
-  // sees their existing customisations as the starting point. Falls
-  // through to null (no overrides) on any read error.
-  try {
-    const meta = await get<any>(`/projects/${slug.value}`)
-    formatOverridesDraft.value = meta?.format_overrides ? JSON.parse(JSON.stringify(meta.format_overrides)) : null
-  } catch {
-    formatOverridesDraft.value = null
-  }
-  // Make sure the full Format library is loaded so selectedBaseFormat
-  // resolves on first open of a fresh session.
-  if (!selectedBaseFormat.value) await refreshFormats().catch(() => {})
-  formatOverrideOpen.value = true
-}
-
-function closeFormatOverrideEditor() {
-  if (formatOverridesSaving.value) return
-  formatOverrideOpen.value = false
-  formatOverridesDraft.value = null
-  formatOverridesError.value = ''
-}
-
-async function saveFormatOverrides() {
-  formatOverridesSaving.value = true
-  formatOverridesError.value = ''
-  try {
-    const { put } = useApi()
-    await put(`/projects/${slug.value}`, {
-      format_id: formatId.value,
-      format_overrides: formatOverridesDraft.value || undefined,
-    })
-    success('Format overrides saved')
-    formatOverrideOpen.value = false
-    formatOverridesDraft.value = null
-    // Refresh the displayed paste-prompt so the user sees their edits.
-    if (pasteOpen.value) await refetchPastePrompt()
-  } catch (e: any) {
-    formatOverridesError.value = e?.data?.detail || e?.message || 'Failed to save overrides'
-    showError(formatOverridesError.value)
-  } finally {
-    formatOverridesSaving.value = false
-  }
-}
-
 // ── Paste Ideas from LLM ────────────────────────────────────────────────
 // Companion to /generate/ideas — lets the user generate ideas on an
 // external LLM and paste the JSON array back in. Three panes: preset
@@ -2777,17 +2639,10 @@ async function generate() {
     if (!body.items_per_listicle || body.items_per_listicle <= 0) {
       delete body.items_per_listicle
     }
-    // Niche override semantics:
-    //   - form.niche_id matches projectNicheId → omit (use project default)
-    //   - form.niche_id !== projectNicheId AND empty → send '__none__'
-    //     (force "no niche for this batch" even when project has one saved)
-    //   - form.niche_id !== projectNicheId AND non-empty → send the override
-    if (form.niche_id === projectNicheId.value) {
-      delete body.niche_id
-    } else if (!form.niche_id) {
-      body.niche_id = '__none__'
-    }
-    body.topic_pack_ids = [...form.topic_pack_ids]
+    // Formula and Topic Packs are channel identity, not a batch-level
+    // variation. Never let an old Ideas preset silently override them.
+    body.niche_id = projectNicheId.value || undefined
+    body.topic_pack_ids = [...projectTopicPackIds.value]
     // v1.0.93+ channel title wrap. Always sent (even when empty) so the
     // backend uses the form's current values rather than the project
     // config — keeps the live preview honest with what actually gets
@@ -3569,6 +3424,10 @@ async function confirmCompact() {
 .niche-override-banner .banner-link:hover {
   opacity: 0.8;
 }
+
+.channel-identity-readonly { display: flex; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 6px; background: var(--bg-secondary); font-size: var(--font-xs); }
+.channel-identity-readonly strong { color: var(--text-primary); font-size: 13px; }
+.channel-identity-readonly span { color: var(--text-secondary); }
 
 /* Import modal */
 .import-error {

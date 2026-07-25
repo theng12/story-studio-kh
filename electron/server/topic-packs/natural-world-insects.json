@@ -1,0 +1,12 @@
+{
+  "id": "natural-world-insects",
+  "name": "Insects & Arthropods",
+  "description": "Insects, arachnids, crustaceans, social colonies, metamorphosis, and extreme small-animal adaptations.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["animals", "listicle-explainer"],
+  "subjects": ["ants", "bees", "wasps", "beetles", "moths", "butterflies", "spiders", "scorpions", "mantises", "cicadas", "termites"],
+  "ideaAxes": [{"id":"life-mechanism","label":"Life mechanism","values":["metamorphosis","venom","social colony","camouflage","parasitism","short adult life","migration"]}],
+  "promptContext": "Use precise entomology. Avoid fear bait and invented motives; any visceral humour must follow the actual lifecycle or mechanism.",
+  "tags": ["insects", "arthropods", "entomology"]
+}

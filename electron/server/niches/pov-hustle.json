@@ -5,6 +5,8 @@
   "tagline": "Here's exactly what I'd do.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "compatibleTopicPackIds": ["economics-businesses"],
 
   "exampleTopics": [
     "If I had $1000 today, here's exactly what I'd do to multiply it",

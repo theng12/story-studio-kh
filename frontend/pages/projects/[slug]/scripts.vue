@@ -334,72 +334,20 @@
         <div class="form-group">
           <label>Creative freedom</label>
           <select v-model="form.creative_mode" class="select">
-            <option value="guided">Balanced — format-aware, flexible</option>
-            <option value="open">Open — keep structure, free the writing</option>
-            <option value="strict">Guardrails — follow every format rule</option>
+            <option value="guided">Balanced — Formula-led, flexible</option>
+            <option value="open">Explore — vary this episode within the Formula</option>
+            <option value="strict">Guardrails — follow the Formula closely</option>
           </select>
-          <span class="text-muted text-xs">Open preserves chapter counts and voice-safe punctuation, but releases the fixed pacing arc and stock closing.</span>
+          <span class="text-muted text-xs">All modes keep the Formula’s perspective, opening policy, and human-writing safeguards intact.</span>
         </div>
         <div class="form-group">
           <label>Creative brief <span class="text-muted" style="font-weight:400">(optional)</span></label>
           <textarea v-model="form.creative_direction" class="textarea" rows="3" placeholder="The one artistic direction the model should prioritize across the whole script…" />
         </div>
 
-        <!-- v1.0.196 — narrative point of view (orthogonal to narrator style).
-             v1.0.327 — expanded from 3 broad buckets to 8 concrete variants
-             so animal-POV / immersive-you / documentary scripts each get
-             their own preset instead of all being lumped under one "first" or
-             "third". Each option maps to a distinct LLM directive (see
-             generators/episode.ts:perspectiveDirective).
-             v1.0.328 — "None" option turns the enforcer OFF entirely; custom
-             text field appends a free-text directive on top of (or instead
-             of) the preset. -->
-        <div class="form-group">
-          <label>Point of view <span class="text-muted" style="font-weight:400">(narrative person)</span></label>
-          <select v-model="form.perspective" class="select">
-            <option value="auto">Auto (format default)</option>
-            <option value="none">None — no enforcer (let the LLM decide)</option>
-            <optgroup label="First person — I, me, we">
-              <option value="first">First person — I, me, my (human narrator)</option>
-              <option value="first-subject">First person AS the subject — I am the [topic]</option>
-              <option value="first-plural">First person plural — we, us, our (collective)</option>
-            </optgroup>
-            <optgroup label="Second person — you">
-              <option value="second">Second person, instructional — "here's what you'd do"</option>
-              <option value="second-immersive">Second person, immersive — "you find yourself…"</option>
-            </optgroup>
-            <optgroup label="Third person — he, she, they">
-              <option value="third">Third person, limited — close to one character</option>
-              <option value="third-omniscient">Third person, omniscient — narrator knows all</option>
-              <option value="third-documentary">Third person, documentary — objective observer</option>
-            </optgroup>
-          </select>
-          <span class="text-muted text-xs">
-            How the narration is voiced. For animal / object / place POV scripts (e.g. "I am a koala") pick <strong>First person AS the subject</strong>. Pick <strong>None</strong> to turn the POV enforcer off entirely and let the model decide. Continuity-chain defaults to first-person on Auto. Switch any time.
-          </span>
-        </div>
-
-        <!-- v1.0.328 — custom POV note. Optional free-text directive that gets
-             appended on top of the preset (or used alone when dropdown is None).
-             Lets the user pin nuance the presets don't cover: "first person but
-             swap to observing the human in chapter 3", "documentary but tilt
-             slightly admiring", etc. Kept short (300 chars cap) so it doesn't
-             accidentally turn into a second script-guidance field. -->
-        <div class="form-group" v-if="form.perspective !== 'auto'">
-          <label>
-            Custom POV note
-            <span class="text-muted" style="font-weight:400">(optional)</span>
-          </label>
-          <textarea
-            v-model="form.custom_perspective"
-            class="input"
-            rows="2"
-            maxlength="300"
-            placeholder="e.g. Stay first-person as the koala but let me catch a glimpse of the human researcher in the last chapter."
-          />
-          <span class="text-muted text-xs">
-            Appended on top of the preset above as an extra directive — or used alone if you picked <strong>None</strong>. Leave blank if the preset is enough. 300 chars max.
-          </span>
+        <div class="formula-voice-note">
+          <strong>Formula-owned voice</strong>
+          <span>Perspective, opening policy, and human-writing guardrails come from the selected Series Formula. Use the Creative brief above only for episode-specific direction.</span>
         </div>
       </div>
 
@@ -1124,13 +1072,6 @@ const form = reactive({
   style: 'auto',
   creative_mode: 'guided' as 'strict' | 'guided' | 'open',
   creative_direction: '',
-  // v1.0.196 — narrative point of view. 'auto' = use the format's default
-  // (continuity-chain → first person; others → no override). first/second/third
-  // and the v1.0.327 subvariants (first-subject/first-plural/second-immersive/
-  // third-omniscient/third-documentary) override it per script.
-  // v1.0.328 — 'none' = no enforcer at all (let the LLM decide); custom_perspective
-  // appends a free-text directive on top of the preset (or stands alone if
-  // perspective is 'none').
   perspective: 'auto',
   custom_perspective: '',
   chapters: Number(route.query.chapters) || 10,
@@ -1157,7 +1098,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'creative_mode', 'creative_direction', 'perspective', 'custom_perspective', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style', 'creative_mode', 'creative_direction', 'generate_image_prompts', 'generate_youtube_desc'],
 })
 
 // Saved model ids are only preferences. Keep every generation action disabled
@@ -2931,6 +2872,17 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   cursor: pointer;
   color: var(--text-muted);
 }
+.formula-voice-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--accent) 12%);
+  font-size: 12px;
+}
+.formula-voice-note span { color: var(--text-muted); line-height: 1.45; }
 .script-regeneration-controls {
   display: flex;
   align-items: center;

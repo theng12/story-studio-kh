@@ -147,5 +147,6 @@ export function invalidateTopicPackCache(id?: string): void {
 }
 
 export function isCompatible(pack: TopicPack, nicheId: string): boolean {
-  return pack.compatibleNicheIds.length === 0 || pack.compatibleNicheIds.includes(nicheId)
+  const compatibleIds = [...(pack.compatibleNicheIds || []), ...(pack.compatibleFormulaIds || [])]
+  return compatibleIds.length === 0 || compatibleIds.includes(nicheId)
 }

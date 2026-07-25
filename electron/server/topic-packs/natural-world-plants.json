@@ -1,0 +1,12 @@
+{
+  "id": "natural-world-plants",
+  "name": "Plants & Botanical Survival",
+  "description": "Plants, pollination, roots, reproduction, chemical defenses, and adaptations to difficult habitats.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["animals", "listicle-explainer"],
+  "subjects": ["desert plants", "carnivorous plants", "trees", "orchids", "parasites", "seed dispersal", "mangroves", "alpine plants", "forest understory", "pollination"],
+  "ideaAxes": [{"id":"plant-adaptation","label":"Plant adaptation","values":["water storage","chemical defense","pollination","seed dispersal","parasitism","shade tolerance","salt tolerance"]}],
+  "promptContext": "Describe plant mechanisms without treating plants as conscious decision-makers. Ground each episode in one ecological constraint and adaptation.",
+  "tags": ["plants", "botany", "ecology"]
+}

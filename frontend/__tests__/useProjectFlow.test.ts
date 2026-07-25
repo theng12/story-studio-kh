@@ -25,16 +25,16 @@ import { canonicalFormatId } from '../composables/useFormats.js'
 const keys = (vs: VisualSource) => flowForVisualSource(vs).map(s => s.key)
 
 describe('canonicalFormatId', () => {
-  test('retired format selections heal to the modern scenes shell', () => {
+  test('retired format selections heal to the Continuity Engine', () => {
     for (const id of ['stock-footage', 'image-pool', 'broll', 'scene-images']) {
-      assert.equal(canonicalFormatId(id), 'scenes')
+      assert.equal(canonicalFormatId(id), 'continuity-chain')
     }
   })
 
-  test('active and custom format ids remain unchanged', () => {
+  test('only the Continuity Engine remains selectable', () => {
     assert.equal(canonicalFormatId('continuity-chain'), 'continuity-chain')
-    assert.equal(canonicalFormatId('listicle'), 'listicle')
-    assert.equal(canonicalFormatId('my-custom-format'), 'my-custom-format')
+    assert.equal(canonicalFormatId('listicle'), 'continuity-chain')
+    assert.equal(canonicalFormatId('my-custom-format'), 'continuity-chain')
   })
 })
 

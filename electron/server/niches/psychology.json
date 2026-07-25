@@ -5,6 +5,9 @@
   "tagline": "Why your brain does that — and what to do about it.",
   "builtin": true,
   "schemaVersion": 1,
+  "kind": "series-formula",
+  "defaultTopicPackIds": ["human-behavior-social-dynamics"],
+  "compatibleTopicPackIds": ["human-behavior-social-dynamics"],
 
   "exampleTopics": [
     "The Real Reason You Procrastinate",

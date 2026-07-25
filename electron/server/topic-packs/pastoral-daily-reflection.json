@@ -1,0 +1,11 @@
+{
+  "id": "pastoral-daily-reflection",
+  "name": "Daily Scripture Reflection",
+  "description": "Short passage-led devotional reflections with one grounded practice for daily life.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["devotional"],
+  "subjects": ["anxiety", "grief", "patience", "forgiveness", "rest", "courage", "hope", "family", "work", "ordinary faithfulness"],
+  "promptContext": "Use one passage early, explain its immediate setting, then offer a modest practical response. The text leads; encouragement follows.",
+  "tags": ["devotional", "scripture", "reflection"]
+}

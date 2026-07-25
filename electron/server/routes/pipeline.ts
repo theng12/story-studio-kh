@@ -1127,7 +1127,13 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       try {
         const csPreset = presetByStep['character_sheet']
         const csData = (csPreset?.data ?? csPreset) as any
-        await writeContinuityConfig(slug, episodeId, csData)
+        const projectMeta = await pm.getProject(slug)
+        await writeContinuityConfig(
+          slug,
+          episodeId,
+          csData,
+          projectMeta?.continuity_mode || 'independent-stills',
+        )
         characterSheetsApplied++
       } catch (e: any) {
         skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })

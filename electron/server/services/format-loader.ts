@@ -60,6 +60,10 @@ export const DEFAULT_FORMAT_ID = 'continuity-chain'
  * imported from an older build heal without losing any files or metadata.
  */
 export const RETIRED_FORMAT_IDS = new Set([
+  // Listicle is now a Series Formula (Counted Explainer), not a video
+  // production choice. Existing projects remap to Narrated Visuals.
+  'listicle',
+  'scenes',
   'narrative',
   'narrated-scenes',
   'sleep-story',
@@ -73,7 +77,10 @@ export const RETIRED_FORMAT_IDS = new Set([
 ])
 
 export function canonicalFormatId(id?: string | null): string {
-  return id && !RETIRED_FORMAT_IDS.has(id) ? id : DEFAULT_FORMAT_ID
+  if (!id) return DEFAULT_FORMAT_ID
+  // Channel Identity has one production engine. Keep unknown/custom legacy
+  // ids readable in old project metadata, but never select or execute them.
+  return id === DEFAULT_FORMAT_ID ? DEFAULT_FORMAT_ID : (LEGACY_FORMAT_REMAP[id]?.id || DEFAULT_FORMAT_ID)
 }
 
 // ── Built-in directory resolution ──────────────────────────────────────────
@@ -227,7 +234,7 @@ export async function listFormats(): Promise<Format[]> {
       if (!name.endsWith('.json')) continue
       try {
         const fmt = await loadFormatFile(path.join(userDir, name))
-        if (!RETIRED_FORMAT_IDS.has(fmt.id)) seen.set(fmt.id, fmt)
+        if (fmt.id === DEFAULT_FORMAT_ID) seen.set(fmt.id, fmt)
       } catch (e: any) {
         console.warn(`[format-loader] skipping malformed user format ${name}: ${e.message}`)
       }
@@ -242,7 +249,7 @@ export async function listFormats(): Promise<Format[]> {
       if (!name.endsWith('.json')) continue
       try {
         const fmt = await loadFormatFile(path.join(BUILTIN_FORMATS_DIR, name))
-        if (!RETIRED_FORMAT_IDS.has(fmt.id) && !seen.has(fmt.id)) seen.set(fmt.id, fmt)
+        if (fmt.id === DEFAULT_FORMAT_ID && !seen.has(fmt.id)) seen.set(fmt.id, fmt)
       } catch (e: any) {
         console.warn(`[format-loader] skipping malformed built-in format ${name}: ${e.message}`)
       }
@@ -319,21 +326,23 @@ export interface EffectiveFormatOpts {
 }
 
 /**
- * Deleted format ids resolve to the single narration-timed scenes shell. This
+ * Deleted format ids resolve to the single narration-timed Continuity Engine. This
  * is intentionally non-destructive: existing B-Roll, pool images, prompts,
  * and renders remain on disk, but new work follows Scene Plan and Scene Review.
  */
 const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapter' | 'sentence' }> = {
-  'narrative': { id: 'scenes', sceneAlignment: 'sentence' },
-  'narrated-scenes': { id: 'scenes', sceneAlignment: 'sentence' },
-  'sleep-story': { id: 'scenes', sceneAlignment: 'sentence' },
-  'narration-synced': { id: 'scenes', sceneAlignment: 'sentence' },
-  'timestamp-driven': { id: 'scenes', sceneAlignment: 'sentence' },
-  'scene-images': { id: 'scenes', sceneAlignment: 'sentence' },
-  'broll-narration': { id: 'scenes', sceneAlignment: 'sentence' },
-  'broll': { id: 'scenes', sceneAlignment: 'sentence' },
-  'stock-footage': { id: 'scenes', sceneAlignment: 'sentence' },
-  'image-pool': { id: 'scenes', sceneAlignment: 'sentence' },
+  'listicle': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'scenes': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'narrative': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'narrated-scenes': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'sleep-story': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'narration-synced': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'timestamp-driven': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'scene-images': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'broll-narration': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'broll': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'stock-footage': { id: 'continuity-chain', sceneAlignment: 'sentence' },
+  'image-pool': { id: 'continuity-chain', sceneAlignment: 'sentence' },
 }
 
 /** Same as getEffectiveFormat() but takes the ProjectMeta directly. */
@@ -341,12 +350,12 @@ export async function getEffectiveFormatFor(
   project: ProjectMeta,
   opts?: EffectiveFormatOpts,
 ): Promise<Format> {
-  let id = project.format_id || DEFAULT_FORMAT_ID
-  // Transparently remap a deleted legacy id onto 'scenes' + the alignment that
+  const requestedId = project.format_id || DEFAULT_FORMAT_ID
+  // Transparently remap a retired id onto the single Continuity Engine + the alignment that
   // preserves its original pipeline shape.
-  const legacy = LEGACY_FORMAT_REMAP[id]
+  const legacy = LEGACY_FORMAT_REMAP[requestedId]
   const legacyAlignment = legacy?.sceneAlignment
-  if (legacy) id = legacy.id
+  let id = canonicalFormatId(requestedId)
   let base: Format | null = null
   try {
     base = await loadFormat(id)
@@ -364,6 +373,9 @@ export async function getEffectiveFormatFor(
   if (legacyAlignment && base.sceneAlignment !== legacyAlignment) {
     base = { ...base, sceneAlignment: legacyAlignment }
   }
+  // Formula-owned content must not be bypassed by an old project-level
+  // freeform mode. Keep the stored setting for migration safety, but do not
+  // apply it to new effective formats.
   base = mergeFormatOverrides(base, project.format_overrides)
   // Retire the chapter-distributed Scene Prompts / Scene Images pipeline.
   // Custom and restored projects may still carry the old value in overrides;
@@ -414,15 +426,12 @@ export async function getEffectiveFormatFor(
       console.warn(`[format-loader] failed applying niche '${effectiveNicheId}' for project '${project.slug}': ${e.message}`)
     }
   }
-  // v1.0.270 — freeform content mode: strip the format's (and niche's) NARRATIVE
+  // Legacy note: freeform content mode used to strip the formula's NARRATIVE
   // shaping so ideation + script aren't boxed by the video format. Done here, as
   // the last step, so every consumer of the effective format (ideas/script/
   // outline) sees the neutralised narrative while the VISUAL fields
   // (imagePrompts/visualSource/style) — and structural fields (chapter counts,
   // narrator styles, pacing) — stay exactly as the format/niche define them.
-  if (project.content_mode === 'freeform') {
-    base = neutralizeFormatNarrative(base)
-  }
   // v1.0.332 — keep the legacy `imagePrompts.alignment` in sync with the
   // top-level `sceneAlignment` after all overrides resolve. The frontend
   // pipeline/flow reads top-level `sceneAlignment`, but the backend video
@@ -655,6 +664,20 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
         ...niche_structure.additionalRules,
       ]
     }
+  }
+  // The Formula's quality contract is applied once at the effective-format
+  // boundary. Every script route (outline, expansion, repair, pipeline) uses
+  // this same format, so the anti-cadence safeguards cannot disappear between
+  // steps or conflict with a per-screen POV picker.
+  const quality = niche.narrativeQualityContract
+  if (quality) {
+    baseScript.additionalRules = uniqueAppend(baseScript.additionalRules, [
+      `OPENING POLICY — ${quality.openingPolicy}`,
+      `AVOID THESE RECOGNISABLE AI PATTERNS — ${quality.forbiddenPatterns.join('; ')}.`,
+      `WRITE LIKE A HUMAN — ${quality.requiredHabits.join(' ')}`,
+      ...(quality.closingPolicy ? [`CLOSING POLICY — ${quality.closingPolicy}`] : []),
+      ...(niche.perspectivePolicy ? [`FORMULA-OWNED PERSPECTIVE — ${niche.perspectivePolicy}`] : []),
+    ])
   }
   const script = baseScript
 

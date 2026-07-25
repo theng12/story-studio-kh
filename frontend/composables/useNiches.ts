@@ -49,6 +49,17 @@ export interface Niche {
   builtin: boolean
   schemaVersion: 1
   kind?: 'series-formula'
+  formulaFamily?: string
+  catalogStatus?: 'active' | 'legacy'
+  successorFormulaId?: string
+  catalogName?: string
+  perspectivePolicy?: string
+  narrativeQualityContract?: {
+    openingPolicy: string
+    forbiddenPatterns: string[]
+    requiredHabits: string[]
+    closingPolicy?: string
+  }
   tagline?: string
   exampleTopics: string[]
   defaultTopicPackIds?: string[]
@@ -82,6 +93,7 @@ export interface TopicPack {
   builtin: boolean
   schemaVersion: 1
   compatibleNicheIds: string[]
+  compatibleFormulaIds?: string[]
   subjects: string[]
   ideaAxes?: IdeaAxis[]
   vocabulary?: NicheVocabulary

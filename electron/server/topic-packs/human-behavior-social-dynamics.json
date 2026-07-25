@@ -1,0 +1,12 @@
+{
+  "id": "human-behavior-social-dynamics",
+  "name": "Social Dynamics & Boundaries",
+  "description": "Evidence-aware relationship patterns, status, manipulation, trust, conflict, boundaries, and group behavior.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["psychology"],
+  "subjects": ["boundaries", "people-pleasing", "status", "conflict avoidance", "manipulation", "trust", "social comparison", "group conformity", "attachment", "repair after conflict"],
+  "ideaAxes": [{"id":"behavior-lens","label":"Behavior lens","values":["observable behavior","mechanism","context","trade-off","healthy response","misconception"]}],
+  "promptContext": "Observe a behavior before interpreting it. Avoid diagnosing the viewer, faux-profound 'dark truth' language, or presenting manipulation as a game.",
+  "tags": ["psychology", "relationships", "social dynamics"]
+}

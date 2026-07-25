@@ -47,7 +47,8 @@ export function useTopicPacks() {
   function compatibleWith(seriesFormulaId: string): TopicPack[] {
     if (!seriesFormulaId) return []
     return topicPacks.value.filter(pack =>
-      !pack.compatibleNicheIds.length || pack.compatibleNicheIds.includes(seriesFormulaId))
+      ![...(pack.compatibleNicheIds || []), ...(pack.compatibleFormulaIds || [])].length
+      || [...(pack.compatibleNicheIds || []), ...(pack.compatibleFormulaIds || [])].includes(seriesFormulaId))
   }
 
   return {

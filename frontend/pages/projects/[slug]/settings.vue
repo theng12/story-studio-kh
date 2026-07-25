@@ -279,117 +279,55 @@
       />
     </div>
 
-    <!-- Format -->
-    <div v-if="activeTab === 'format'" class="card settings-panel mt-2">
+    <!-- Channel Identity — production path -->
+    <div v-if="activeTab === 'channel'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
-          <h3>Format</h3>
+          <h3>Continuity Engine</h3>
           <p class="text-muted mt-1 mb-2">
-            The <strong>format</strong> decides what <em>kind</em> of video this project makes —
-            it shapes the whole pipeline (how scenes are produced, which steps appear).
-            Pick one below; each has a description so you can tell them apart.
-            Fine-tuning (content mode + per-field overrides) lives under <strong>Advanced</strong>,
-            and you can build your own from a sample script via "+ Create from Sample".
-            Built-in formats ship with the app; custom formats live alongside your projects
-            and export as <code>.json</code> for sharing.
+            This is the one production engine for every channel. Choose how it handles
+            scene references; the <strong>Series Formula</strong> below
+            owns titles, perspective, voice, and script structure.
           </p>
         </div>
-        <button class="btn btn-secondary btn-sm" @click="formatWizardOpen = true">
-          + Create from Sample
-        </button>
       </div>
 
-      <FormatPicker v-model="formatId" @change="onFormatChanged" />
+      <div class="continuity-engine-summary">
+        <strong>Continuity Engine</strong>
+        <span>Narration-timed scene planning, with independent or character-anchored reference behavior.</span>
+      </div>
 
-      <!-- v1.0.302 — Content mode + per-field overrides are power-user tuning;
-           tucked under one Advanced disclosure so the default view is just
-           "pick a format". persistKey remembers the open state per project so
-           a power user who lives in here isn't re-collapsing it every visit. -->
-      <AdvancedDisclosure
-        class="mt-3"
-        label="Advanced — content mode + per-field overrides"
-        :persist-key="`format_advanced_open_${slug}`"
-      >
-        <!-- v1.0.270 — content mode: does the format shape the IDEAS + SCRIPT, or
-             only the visuals? -->
-        <div class="cm-box">
-          <label class="cm-label">Content mode</label>
-          <div class="cm-options">
-            <label class="cm-opt" :class="{ active: contentMode === 'format' }">
-              <input type="radio" value="format" v-model="contentMode" />
-              <div>
-                <strong>Format-shaped</strong> <span class="text-muted text-xs">(default)</span>
-                <div class="text-muted text-xs">The format shapes ideas, titles, and script voice/structure — and the visuals.</div>
-              </div>
-            </label>
-            <label class="cm-opt" :class="{ active: contentMode === 'freeform' }">
-              <input type="radio" value="freeform" v-model="contentMode" />
-              <div>
-                <strong>Freeform</strong>
-                <div class="text-muted text-xs">The format drives <em>visuals only</em>. Ideas + script use neutral prompts, so you're not boxed into the format's narrative recipe. (Narrator styles, chapter counts, and pacing still apply.)</div>
-              </div>
-            </label>
-          </div>
+      <div class="continuity-mode-box mt-3">
+        <div class="cm-label">Reference behavior</div>
+        <p class="text-muted text-xs mt-1">Every channel uses the Continuity Engine. Choose the starting behavior for new episodes; Character Sheet can still refine an individual episode.</p>
+        <div class="cm-options">
+          <label class="cm-opt" :class="{ active: continuityMode === 'independent-stills' }">
+            <input v-model="continuityMode" type="radio" value="independent-stills" />
+            <div><strong>Independent illustrated scenes</strong><div class="text-muted text-xs">No previous-frame reference. Best for explainers, history, economics, and varied locations.</div></div>
+          </label>
+          <label class="cm-opt" :class="{ active: continuityMode === 'character-continuity' }">
+            <input v-model="continuityMode" type="radio" value="character-continuity" />
+            <div><strong>Character continuity</strong><div class="text-muted text-xs">Each scene references the previous render and character anchors for one recurring on-screen subject.</div></div>
+          </label>
+          <label class="cm-opt" :class="{ active: continuityMode === 'explainer-stills' }">
+            <input v-model="continuityMode" type="radio" value="explainer-stills" />
+            <div><strong>Explainer boards</strong><div class="text-muted text-xs">Independent subject-led scenes, ready for an optional visual recipe or composition reference.</div></div>
+          </label>
         </div>
-
-        <div class="mt-3">
-          <FormatOverrideEditor
-            v-model="formatOverrides"
-            :base-format="selectedBaseFormat"
-          />
-        </div>
-      </AdvancedDisclosure>
+      </div>
 
       <div class="mt-3 button-row">
         <button class="btn btn-primary" :disabled="formatSaving || !formatDirty" @click="saveFormatSettings">
-          {{ formatSaving ? 'Saving…' : 'Save format settings' }}
+          {{ formatSaving ? 'Saving…' : 'Save Continuity behavior' }}
         </button>
         <SaveIndicator v-bind="savedHintProps('format')" />
         <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
       </div>
 
-      <FormatFromSampleWizard
-        :open="formatWizardOpen"
-        :project-slug="slug"
-        @close="formatWizardOpen = false"
-        @saved="(id) => { formatId = id; formatOverrides = null; saveFormatSettings() }"
-      />
-
-      <!-- ── Niche sub-section ────────────────────────────────────────── -->
-      <!-- Niche is the subject-domain layer ORTHOGONAL to Format. Format
-           = "what shape of video" (sleep-story, listicle, bound-explainer);
-           Niche = "what subject domain" (plants, animals, fungi, insects).
-           Niche is optional — projects without one keep working with
-           format defaults. -->
-      <!-- v1.0.93+ Niche moved to its own top-level tab so it's findable.
-           This stub stays inside the Format tab as a wayfinding pointer
-           — users who go to Settings → Format expecting niche (the old
-           location) get a one-click jump rather than a dead end. -->
-      <div class="niche-moved-pointer mt-4">
-        <strong>Niche moved →</strong>
-        <span class="text-muted">
-          The subject-domain layer (plants / prayer / motivation / etc.) now
-          lives in its own tab so it's easier to find.
-        </span>
-        <button class="btn btn-secondary btn-sm" @click="activeTab = 'niche'">
-          Open Niche tab
-        </button>
-      </div>
-
-      <!-- v1.0.165 — Patterns sub-section removed. The Pattern
-           customization system was retired; its one piece of value
-           (the "{X}" title-template shape) is now a plain optional
-           field on the Ideas Generator. -->
-
     </div>
 
-    <!-- v1.0.93+ Niche tab — promoted out of Format so it's findable from
-         the top-level tabs. v1.0.96+ — also absorbs the standalone
-         `/niches` sidebar page (browse / create custom / delete custom)
-         so all niche-related stuff lives in one place. Sub-tabs:
-           1. Project niche       — pick the niche this project uses
-           2. Niche library       — browse all built-in + custom; create custom -->
-    <div v-if="activeTab === 'niche'" class="card settings-panel mt-2">
+    <!-- Channel Identity — formula + subject lane layer. -->
+    <div v-if="activeTab === 'channel'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
           <h3>Series Formula + Topic Packs</h3>
@@ -397,7 +335,7 @@
             The Series Formula defines the recurring hook, title style, script
             flow, and channel voice. Topic Packs supply reusable subject lanes.
             Mix one formula with several packs to expand without duplicating the
-            channel structure. Production Format remains a separate choice.
+            channel structure. The Production Path above remains independent.
           </p>
         </div>
       </div>
@@ -410,12 +348,12 @@
         <button
           :class="['sub-tab', { active: nicheSubTab === 'library' }]"
           @click="nicheSubTab = 'library'"
-        >Niche library <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
+        >Formula library <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
       </div>
 
       <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
       <div v-if="nicheSubTab === 'project'" class="sub-tab-body">
-        <h4 class="sub-tab-section-title">Choose the formula and subject lanes this project uses</h4>
+        <h4 class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
         <NichePicker v-model="nicheId" @change="onNicheChanged" />
         <TopicPackPicker
           v-model="topicPackIds"
@@ -426,27 +364,26 @@
 
         <div class="mt-3 button-row">
           <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
-            {{ nicheSaving ? 'Saving…' : 'Save formula settings' }}
+            {{ nicheSaving ? 'Saving…' : 'Save Channel Identity' }}
           </button>
           <SaveIndicator v-bind="savedHintProps('niche')" />
           <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
         </div>
 
         <p class="text-muted text-xs mt-3">
-          <strong>Pro tip:</strong> this formula and pack selection becomes the default for
-          Ideas / Script / Metadata generation. To override it for one campaign without
-          changing the project, use the controls inside the
-          <NuxtLink :to="`/projects/${slug}/ideas`" class="link">Ideas Generator</NuxtLink>.
+          <strong>Channel default:</strong> this Formula and Pack selection automatically drives
+          Ideas, Script, Metadata, and visual direction. Idea campaigns show it as status rather
+          than asking you to select it again.
         </p>
         <p class="text-muted text-xs mt-1">
-          Need to add a new niche? Switch to the <strong>Niche library</strong> sub-tab above.
+          Need to add a new formula? Switch to the <strong>Formula library</strong> sub-tab above.
         </p>
       </div>
 
       <!-- ── Sub-tab 2: Niche library (browse + create + delete) ─────── -->
       <div v-if="nicheSubTab === 'library'" class="sub-tab-body">
         <div class="niche-library-header">
-          <h4 class="sub-tab-section-title">Niche library</h4>
+          <h4 class="sub-tab-section-title">Formula library</h4>
           <button
             class="btn btn-primary btn-sm"
             :disabled="nicheCreateBusy"
@@ -589,7 +526,8 @@
       </div>
     </Modal>
 
-    <!-- Standards -->
+    <!-- Optional project instructions — retained for channel-specific facts
+         and constraints, but Formula rules stay authoritative. -->
     <div v-if="activeTab === 'standards'" class="card settings-panel mt-2">
       <div class="sub-tabs">
         <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
@@ -642,7 +580,7 @@
       <!-- Save preset modal -->
       <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
         <div class="modal-small">
-          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'standards' }} preset</h3>
+          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
           <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
           <input
             v-model="newPresetName"
@@ -2654,7 +2592,6 @@ import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
 // Bare named export (not a useX composable), so import it explicitly —
 // mirrors image-prompts.vue.
 import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
-import { canonicalFormatId } from '~/composables/useFormats'
 import {
   VOICE_PROVIDER_OPTIONS,
   firstVoiceProviderIndex,
@@ -2880,87 +2817,47 @@ function savedHintProps(key: string) {
   return { state: (ts ? 'saved' : 'idle') as AutoSaveState, savedAt: ts }
 }
 
-// ── Format-from-sample wizard ──────────────────────────────────────────────
-// Modal opened from the Format tab. Project-scoped because the LLM call uses
-// this project's API keys; the saved format is app-level (lives in
-// ${PROJECTS_ROOT}/.formats/) and shows up in every project's picker.
-const formatWizardOpen = ref(false)
-
-// ── Pattern management (sub-section of Format tab) ─────────────────────────
-//
-// Patterns are app-level (live in ${PROJECTS_ROOT}/.patterns/) but the
-// extract-from-sample wizard is project-scoped because it uses the
-// project's API keys. The list itself is shared — saving a pattern in
-// one project makes it available in every project's picker.
-// v1.0.165 — the Patterns sub-section and all its state (usePatterns
-// composable, editor + wizard modals, CRUD helpers) were removed with
-// the Pattern system. The "{X}" title-template capability lives on the
-// Ideas Generator now as a plain optional field.
-
-// ── Format tab state ───────────────────────────────────────────────────────
-//
-// Per the Format primitive (Phase 1), each project carries:
-//   - format_id: which base format profile to apply (defaults to 'narrative')
-//   - format_overrides: deep-partial of the resolved Format applied on top
-//
-// We mirror those into local refs while editing so the user can swap formats
-// or tweak overrides freely without persisting until they hit Save. Initial
-// load syncs from project.value once useProject hydrates; the watcher below
-// handles slug changes (project switcher in the sidebar).
-const { formats: allFormats, find: findFormat, refresh: refreshFormats } = useFormats()
-const formatId = ref<string>('scenes')
-const formatOverrides = ref<Record<string, any> | null>(null)
+// ── Continuity Engine state ────────────────────────────────────────────────
+const formatId = ref<string>('continuity-chain')
 const formatSaving = ref(false)
 const formatSaveError = ref('')
-// Track baseline values to compute "dirty" — comparing JSON for overrides is
-// the cheapest correctness check (deep equality across nested objects).
-const formatBaselineJson = ref<string>('null')
-const formatIdBaseline = ref<string>('scenes')
-// v1.0.270 — content mode (format-shaped vs freeform).
-const contentMode = ref<'format' | 'freeform'>('format')
-const contentModeBaseline = ref<'format' | 'freeform'>('format')
-
-const selectedBaseFormat = computed(() => findFormat(formatId.value) || null)
+type ContinuityMode = 'character-continuity' | 'independent-stills' | 'explainer-stills'
+const continuityMode = ref<ContinuityMode>('independent-stills')
+const continuityModeBaseline = ref<ContinuityMode>('independent-stills')
+const formatIdBaseline = ref<string>('continuity-chain')
 const formatDirty = computed(() => {
   if (formatId.value !== formatIdBaseline.value) return true
-  if (contentMode.value !== contentModeBaseline.value) return true
-  return JSON.stringify(formatOverrides.value || null) !== formatBaselineJson.value
+  if (continuityMode.value !== continuityModeBaseline.value) return true
+  return false
 })
 
 function syncFormatFromProject() {
   const m = project.value as any
   if (!m) return
-  formatId.value = canonicalFormatId(m.format_id)
-  formatOverrides.value = m.format_overrides || null
-  contentMode.value = m.content_mode === 'freeform' ? 'freeform' : 'format'
+  formatId.value = 'continuity-chain'
+  continuityMode.value = m.continuity_mode === 'character-continuity' || m.continuity_mode === 'explainer-stills'
+    ? m.continuity_mode
+    : 'independent-stills'
   formatIdBaseline.value = formatId.value
-  formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
-  contentModeBaseline.value = contentMode.value
+  continuityModeBaseline.value = continuityMode.value
 }
 
 // Hydrate when project meta arrives + on slug change.
 watch(project, syncFormatFromProject, { immediate: true })
-
-function onFormatChanged(_fmt: any) {
-  // Switching format wipes the override set — overrides are keyed against
-  // the base format's structure (narrator-style ids, field set), so carrying
-  // them across format switches would silently apply mismatched values.
-  formatOverrides.value = null
-}
 
 async function saveFormatSettings() {
   formatSaving.value = true
   formatSaveError.value = ''
   try {
     const body: any = {
-      format_id: formatId.value,
-      format_overrides: formatOverrides.value || undefined,
-      content_mode: contentMode.value,
+      format_id: 'continuity-chain',
+      content_mode: 'format',
+      continuity_mode: continuityMode.value,
     }
     await put(`/projects/${slug.value}`, body)
-    formatIdBaseline.value = formatId.value
-    formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
-    contentModeBaseline.value = contentMode.value
+    formatId.value = 'continuity-chain'
+    formatIdBaseline.value = 'continuity-chain'
+    continuityModeBaseline.value = continuityMode.value
     stampSaved('format')
     success('Format settings saved')
     await loadProject(slug.value)
@@ -4094,9 +3991,8 @@ const tabZones = [
     scope: 'travels with the project',
     groups: [
       { title: 'Content', tabs: [
-        { id: 'format', label: 'Format', icon: '▱', description: 'Define the production shape of this channel and the pipeline stages each episode follows.' },
-        { id: 'niche', label: 'Niche', icon: '✦', description: 'Set the subject-domain context that guides ideas, scripts, metadata, and visual direction.' },
-        { id: 'standards', label: 'Standards', icon: '✓', description: 'Keep reusable creative rules, templates, and project-wide production instructions in one place.' },
+        { id: 'channel', label: 'Channel Identity', icon: '✦', description: 'Set the Series Formula, compatible Topic Packs, and Production Path that travel with this channel.' },
+        { id: 'standards', label: 'Instructions', icon: '✓', description: 'Add optional project-specific rules and episode intro guidance. Series Formula rules remain authoritative.' },
       ] },
       { title: 'Generation', tabs: [
         { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
@@ -4342,11 +4238,13 @@ function applyHash() {
     })
     return
   }
-  // Generic hash → tab map. Anything that matches a tab id auto-switches
-  // (e.g. `#format` from the Ideas page's "Switch" link, `#about` from
+  // Generic hash → tab map. The old #format and #niche deep links now open
+  // Channel Identity. Anything else that matches a tab id auto-switches
+  // (e.g. `#about` from
   // "Copy version" links, etc.). Unrecognised hashes leave activeTab alone.
   if (h.startsWith('#')) {
-    const target = h.slice(1)
+    const rawTarget = h.slice(1)
+    const target = rawTarget === 'format' || rawTarget === 'niche' ? 'channel' : rawTarget
     if (tabs.some(t => t.id === target)) activeTab.value = target
   }
 }
@@ -4355,12 +4253,6 @@ onMounted(() => {
   if (activeTab.value === 'ffmpeg') refreshFfmpegStatus()
   if (activeTab.value === 'project') void loadProjectLocationStatus()
   loadNotifSettings()
-  // The Ideas Generator's "+ New custom format" CTA lands here with
-  // ?newFormat=1#format and expects the format-from-sample wizard to
-  // auto-open so the user doesn't have to hunt for the button.
-  if (_route.query.newFormat === '1' && activeTab.value === 'format') {
-    nextTick(() => { formatWizardOpen.value = true })
-  }
 })
 watch(() => _route.hash, applyHash)
 
@@ -4664,8 +4556,8 @@ const introStandards = ref('')
 
 // ── Standards sub-tabs, templates, and presets ────────────────────────────
 const standardsSubTabs = [
-  { id: 'production', label: 'Production Standards' },
-  { id: 'intro', label: 'Intro Format' },
+  { id: 'production', label: 'Project instructions' },
+  { id: 'intro', label: 'Episode intro rules' },
 ] as const
 const standardsSubTab = ref<'production' | 'intro'>('production')
 const selectedTemplateId = ref('')
@@ -4738,9 +4630,9 @@ const currentStandardDoc = computed(() => {
     }
   }
   return {
-    title: 'Production Standards',
-    description: 'These guidelines are included in AI prompts when generating scripts, ideas, and descriptions. Write them once here, then refine in any chatbot and paste the result back.',
-    placeholder: 'Describe the tone, pacing, and rules for this project…',
+      title: 'Optional project instructions',
+      description: 'Use this only for channel-specific facts, terminology, exclusions, or recurring production rules. It is appended after the Series Formula and cannot replace Formula-owned voice, point of view, or structure.',
+      placeholder: 'e.g. always use Khmer place names as written here; do not mention sponsors; pronounce these names this way…',
   }
 })
 
@@ -7185,6 +7077,19 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-moved-pointer strong { color: var(--accent, #6c8fff); }
+
+.continuity-engine-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #6c8fff);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-tertiary);
+  font-size: 13px;
+}
+.continuity-engine-summary span { color: var(--text-muted); }
 
 /* v1.0.96+ — Niche library inside the Settings → Niche tab. The
    standalone /niches sidebar page used to host this; merged here so

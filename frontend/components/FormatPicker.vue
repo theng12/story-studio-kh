@@ -1,8 +1,8 @@
 <template>
   <div class="format-picker">
     <label class="picker-label">
-      <span>Format — how it's built</span>
-      <span class="hint">The production pipeline: how scenes are generated and assembled. The <strong>niche</strong> decides what the video says and how it sounds — format only decides how it's built.</span>
+      <span>Production Path — how the video is built</span>
+      <span class="hint">This controls scene generation and assembly. Your <strong>Series Formula</strong> decides what the video says, its point of view, and how it sounds.</span>
     </label>
 
     <select
@@ -35,7 +35,7 @@
         <span><strong>{{ sceneTiming }}</strong> pacing</span>
       </div>
       <p class="format-niche-note">
-        Voice, vocabulary, narrator style, and emotional tone come from the <strong>niche</strong> — not the format.
+        Voice, vocabulary, narrator style, and emotional tone come from the <strong>Series Formula</strong> — not the Production Path.
       </p>
     </div>
 

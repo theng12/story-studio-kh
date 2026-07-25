@@ -4,7 +4,7 @@
   "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems.",
   "builtin": true,
   "schemaVersion": 1,
-  "compatibleNicheIds": ["business-economics"],
+  "compatibleNicheIds": ["business-economics", "pov-hustle", "listicle-explainer"],
   "subjects": [
     "coffee shop", "casino", "automobile workshop", "clothing brand", "Formula One team",
     "five-star hotel", "automated car wash", "martial arts club", "restaurant", "convenience store",

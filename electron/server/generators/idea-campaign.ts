@@ -96,7 +96,7 @@ EXAMPLE BAR:
 ${examples(format) || '- Use the Series Formula faithfully.'}
 
 ${refinements ? `USER REFINEMENTS:\n${refinements}\n` : ''}
-${options.standards ? `PRODUCTION STANDARDS EXCERPT:\n${options.standards.slice(0, 1800)}\n` : ''}
+${options.standards ? `OPTIONAL PROJECT INSTRUCTIONS — never override the Series Formula:\n${options.standards.slice(0, 1800)}\n` : ''}
 ${avoidBlock ? `ALREADY USED — do not repeat, rephrase, sequel, or lightly remix:\n${avoidBlock}\n` : ''}
 
 OUTPUT CONTRACT:

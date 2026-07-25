@@ -110,6 +110,10 @@ export interface ProjectMeta {
    */
   format_id?: string
   format_overrides?: DeepPartial<Format>
+  /** One rendering engine serves every channel. This default determines how
+   * fresh episode Continuity settings begin; per-episode Character Sheet
+   * settings can still refine it. */
+  continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
 
   /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
@@ -712,6 +716,10 @@ export interface TopicPack {
   tagline?: string
   /** Empty means compatible with every Series Formula. */
   compatibleNicheIds: string[]
+  /** Preferred Formula-oriented compatibility name. `compatibleNicheIds`
+   * remains readable for built-ins and user packs created before Channel
+   * Identity. A pack may use either field while the catalog migrates. */
+  compatibleFormulaIds?: string[]
   /** Primary subjects used by the deterministic Idea Campaign planner. */
   subjects: string[]
   /** Secondary dimensions composed with the primary subject. */
@@ -733,6 +741,27 @@ export interface Niche {
   schemaVersion: 1
   /** Every legacy niche is treated as a Series Formula when this is absent. */
   kind?: 'series-formula'
+  /** Library-only grouping. It improves discovery without becoming a third
+   * project setting alongside Series Formula and Topic Packs. */
+  formulaFamily?: string
+  /** Legacy profiles stay loadable for existing projects but are hidden from
+   * new Formula selections once a successor Formula exists. */
+  catalogStatus?: 'active' | 'legacy'
+  successorFormulaId?: string
+  /** Human-facing catalog label. The stable `id` remains migration-safe. */
+  catalogName?: string
+
+  /** Formula-owned narration perspective. It is selected with the channel
+   * Formula, rather than repeatedly chosen for individual episodes. */
+  perspectivePolicy?: string
+  /** Non-negotiable writing rules that prevent recognisable AI cadence while
+   * preserving the Formula's own voice, opening, and chapter flow. */
+  narrativeQualityContract?: {
+    openingPolicy: string
+    forbiddenPatterns: string[]
+    requiredHabits: string[]
+    closingPolicy?: string
+  }
 
   /** Short tagline shown on the niche card / picker. */
   tagline?: string
@@ -1365,6 +1394,7 @@ export interface CreateProjectRequest {
   portable?: boolean
   /** Accepted for old API clients; new channels always start on Continuity. */
   format_id?: string
+  continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
   /**
    * Optional starter niche (subject-domain) for the new project. Picked
    * via the Niche picker in the Create Project wizard. Persisted to the
@@ -1391,6 +1421,7 @@ export interface UpdateProjectRequest {
   portable?: boolean
   youtube_channel_url?: string
   format_id?: string
+  continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
   format_overrides?: DeepPartial<Format>
   content_mode?: 'format' | 'freeform'
 }
