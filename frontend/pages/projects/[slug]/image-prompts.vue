@@ -2471,14 +2471,14 @@ async function saveToFile() {
 }
 .thumbnail-reference-card__heading h3 { margin: 2px 0 4px; font-size: 15px; color: var(--text-primary); }
 .thumbnail-reference-card__heading p { margin: 0; max-width: 720px; line-height: 1.45; }
-.thumbnail-reference-card__eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.thumbnail-reference-card__eyebrow { color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .12em; }
 .thumbnail-reference-card__status {
   flex: 0 0 auto;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
 }
 .thumbnail-reference-card__status.active { border-color: var(--success); color: var(--success); }
