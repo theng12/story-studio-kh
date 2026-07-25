@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.734 — 2026-07-25
+
+**Script creation now has one unambiguous, review-first starting action.**
+
+- Removes the competing one-click **Generate script + Include introduction**
+  shortcut from the Outline workspace.
+- Keeps **Include channel opening** as the single source of truth, then runs it
+  after approved chapters exist.
+- Renames the main action to **Create outline** so the next step is clear.
+
+---
+
 ## v1.0.733 — 2026-07-25
 
 **Unsigned DMG handoffs now arrive in the normal `dist/` folder.**
