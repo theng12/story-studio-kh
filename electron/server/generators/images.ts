@@ -21,6 +21,9 @@ import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { composeThumbnail } from '../lib/thumbnail-composer.js'
+import { getEffectiveTemplateFor, loadTemplate } from '../services/thumbnail-template-loader.js'
+import { getEffectiveNicheFor } from '../services/niche-loader.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -207,6 +210,7 @@ export async function generateImages(job: Job): Promise<void> {
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
+  const projectConfig = config
   const modelName = req.model || 'grok-imagine'
   const modelConfig = resolveImageModelConfig(config, modelName)
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
@@ -270,6 +274,44 @@ export async function generateImages(job: Job): Promise<void> {
   job.output_lines.push(`Parsed: ${scenes.length} scenes, ${thumbnails.length} thumbnails`)
   if (mode === 'scenes' && scenes.length === 0) throw new Error('The scene prompt file contains no usable scene prompts.')
   if (mode === 'thumbs' && thumbnails.length === 0) throw new Error('The thumbnail prompt file contains no usable thumbnail prompts.')
+
+  // A catalog recipe may ask us to render a deliberately text-free image and
+  // add the headline ourselves. Resolve it here (rather than trusting the
+  // client) so reruns, the Job Queue, and Pipeline all get the exact same
+  // legible output. Normal templates remain available to the manual Compose
+  // flow; only explicit `titleMode: composite` activates automatic overlay.
+  let thumbnailOverlayTemplate: Awaited<ReturnType<typeof loadTemplate>> = null
+  if (mode === 'thumbs') {
+    const selectedTemplateId = typeof req.thumbnail_template_id === 'string' && req.thumbnail_template_id.trim()
+      ? req.thumbnail_template_id.trim()
+      : ''
+    if (selectedTemplateId) {
+      thumbnailOverlayTemplate = await loadTemplate(selectedTemplateId)
+      if (!thumbnailOverlayTemplate) throw new Error(`Thumbnail Recipe '${selectedTemplateId}' was not found`)
+    } else {
+      const project = await pm.getProject(project_slug)
+      if (project) thumbnailOverlayTemplate = await getEffectiveTemplateFor(project, await getEffectiveNicheFor(project), projectConfig)
+    }
+    if (thumbnailOverlayTemplate?.recipe?.titleMode !== 'composite') thumbnailOverlayTemplate = null
+    if (thumbnailOverlayTemplate) {
+      job.output_lines.push(`Thumbnail recipe: ${thumbnailOverlayTemplate.name} — composite title overlay enabled`)
+    }
+  }
+
+  async function saveThumbnailVariant(url: string, outputPath: string, title: string): Promise<void> {
+    await saveGenStudioImage(url, outputPath, makeChunkCb())
+    if (!thumbnailOverlayTemplate) return
+    const logoPath = typeof projectConfig.channel_logo_path === 'string' && existsSync(projectConfig.channel_logo_path)
+      ? projectConfig.channel_logo_path : undefined
+    const composited = await composeThumbnail({
+      sourcePath: outputPath,
+      template: thumbnailOverlayTemplate,
+      textByZone: { title },
+      context: { episode_title: title, episode_code: episode_id },
+      logo: logoPath ? { path: logoPath } : undefined,
+    })
+    await fs.writeFile(outputPath, composited)
+  }
 
   // Phase 8 — load this episode's character cast once for reference-image
   // wiring. Auto-detect: scan each scene's prompt text for character names
@@ -603,7 +645,7 @@ export async function generateImages(job: Job): Promise<void> {
       )
       if (recovered) {
         for (let i = 0; i < recovered.urls.length; i++) {
-          await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+          await saveThumbnailVariant(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), thumb.title)
         }
         processed++
         job.output_lines.push(
@@ -665,7 +707,7 @@ export async function generateImages(job: Job): Promise<void> {
         })))
       }
       for (let i = 0; i < urls.length; i++) {
-        await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+        await saveThumbnailVariant(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), thumb.title)
       }
       processed++
       job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)

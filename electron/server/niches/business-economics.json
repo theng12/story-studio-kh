@@ -6,6 +6,7 @@
   "builtin": true,
   "schemaVersion": 1,
   "kind": "series-formula",
+  "defaultThumbnailTemplateId": "annotated-business-board",
   "defaultTopicPackIds": ["economics-businesses"],
   "compatibleTopicPackIds": ["economics-businesses", "economics-ancient-civilizations"],
   "ideaAxes": [

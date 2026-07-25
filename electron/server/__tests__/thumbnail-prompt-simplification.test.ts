@@ -76,6 +76,34 @@ test('thumbnail prompt repair preserves the aspect ratio and ready-to-use title'
   assert.match(fixed, /inside the image/i)
 })
 
+test('composite recipes reserve a text-free generation and keep the title for Story Studio overlay', () => {
+  const directive = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'The Economics of a Coffee Shop',
+    textStyle: 'shadow',
+    fontStyle: 'bold',
+    textPosition: 'top',
+    titleMode: 'composite',
+    fmt: {
+      layout: 'annotated-collage',
+      conceptGuidance: 'One central storefront with operating objects.',
+      requiredElements: ['one central business hero', 'six supporting operating objects'],
+      visualStyleGuidance: 'Clean original hand-drawn editorial board.',
+    },
+  })
+  const fixed = enforceThumbnailPromptElements('A central coffee storefront.', {
+    aspectRatio: '16:9',
+    title: 'The Economics of a Coffee Shop',
+    titleMode: 'composite',
+  })
+
+  assert.match(directive, /do NOT render any letters, words, numerals, logos, labels, or watermarks/i)
+  assert.match(directive, /six supporting operating objects/i)
+  assert.doesNotMatch(directive, /render “The Economics of a Coffee Shop”/i)
+  assert.match(fixed, /do not render letters, words, numbers, labels, logos, watermarks, or fake typography/i)
+  assert.doesNotMatch(fixed, /inside the image/i)
+})
+
 test('the thumbnail executor sends a thumbnail-only response contract', () => {
   const prompt = buildThumbnailPrompt({
     episodeId: 'EP0057',
@@ -90,6 +118,7 @@ test('the thumbnail executor sends a thumbnail-only response contract', () => {
   })
 
   assert.match(prompt, /exactly 3 distinct YouTube thumbnail briefs/i)
+  assert.match(prompt, /"title": "A Better Thumbnail"/)
   assert.match(prompt, /"thumbnails"/)
   assert.doesNotMatch(prompt, /scene prompts/i)
   assert.doesNotMatch(prompt, /"scenes"/)

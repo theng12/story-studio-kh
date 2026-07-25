@@ -17,7 +17,7 @@
       >
         <div class="ttp-preview-wrap">
           <img
-            :src="previewUrl(t.id)"
+            :src="t.previewImages?.[0] || previewUrl(t.id)"
             :alt="`${t.name} preview`"
             class="ttp-preview"
             loading="lazy"
@@ -77,6 +77,10 @@ interface ThumbnailTemplateLite {
   tagline?: string
   builtin: boolean
   recommendedNicheIds?: string[]
+  previewImages?: string[]
+  category?: string
+  tags?: string[]
+  recipe?: { titleMode?: 'ai' | 'composite' }
 }
 
 const props = defineProps<{

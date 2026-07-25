@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.724 — 2026-07-25
+
+**Thumbnail formats are now reusable, previewable recipes.**
+
+- Adds the browsable Thumbnail Recipe Catalog with searchable format cards,
+  multiple real generated examples, headline-format guidance, and a safe-text
+  badge so you can see the finished thumbnail grammar before selecting it.
+- Ships **Annotated Business Board** for the Business Economics formula: clean
+  hand-drawn operating diagrams, a central business hero, supporting economic
+  objects, and the familiar “The Economics of…” / “So You Want to Own…”
+  headline formats.
+- Makes composite recipes production-safe: the image model generates a
+  text-free title band, then Story Studio overlays the exact episode headline
+  during thumbnail rendering (including manifest recovery), avoiding garbled
+  model lettering without changing the selected visual art style.
+
+---
+
 ## v1.0.723 — 2026-07-24
 
 **Thumbnail generation is now a focused, recoverable artwork board.**

@@ -18,7 +18,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
-import type { Job } from '../models/types.js'
+import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -36,6 +36,9 @@ interface ThumbnailPromptsParams {
   thumb_font_style?: string
   thumb_reference_style?: string
   thumb_creative_direction?: string
+  thumb_title_mode?: 'ai' | 'composite'
+  /** A browsable Thumbnail Recipe Catalog id. Also resolves to an overlay template. */
+  thumbnail_template_id?: string
   mode?: 'thumbnails'
   character_ids?: string[]
   fill_gaps?: boolean
@@ -49,6 +52,9 @@ interface ThumbnailFmt {
   defaultFontStyle?: string
   moodKeywords?: string[]
   avoid?: string[]
+  requiredElements?: string[]
+  titleMode?: 'ai' | 'composite'
+  visualStyleGuidance?: string
 }
 
 const GENERIC_THUMBNAIL_CONCEPT =
@@ -119,6 +125,7 @@ export function buildThumbnailDirective(opts: {
   referenceStyle?: string
   fmt?: ThumbnailFmt | null
   creativeDirection?: string
+  titleMode?: 'ai' | 'composite'
 }): string {
   if (opts.thumbs <= 0) return ''
   const annotatedCollage = opts.fmt?.layout === 'annotated-collage'
@@ -126,12 +133,15 @@ export function buildThumbnailDirective(opts: {
     ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover.'
     : 'Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.'
   const universalAvoid = annotatedCollage ? ANNOTATED_COLLAGE_AVOID : GENERIC_THUMBNAIL_AVOID
+  const titleMode = opts.titleMode || opts.fmt?.titleMode || 'ai'
   const lines = [
     `THUMBNAIL GOAL: create a distinct, professional YouTube cover. It must communicate the episode's emotional promise at a glance on mobile.`,
     `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
     `LAYOUT: ${layoutGuidance}`,
     `Avoid: ${[...(opts.fmt?.avoid || []), ...universalAvoid].join('; ')}.`,
-    `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
+    titleMode === 'composite'
+      ? 'TITLE SAFE AREA: do NOT render any letters, words, numerals, logos, labels, or watermarks. Reserve the instructed title-safe region for Story Studio to composite exact readable text afterward.'
+      : `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
   ]
   const fontStyle = !opts.fontStyle || opts.fontStyle === 'auto'
     ? opts.fmt?.defaultFontStyle
@@ -142,7 +152,9 @@ export function buildThumbnailDirective(opts: {
   const font = fontStyle ? resolveFontStyle(fontStyle) : ''
   const text = textStyle ? resolveTextStyle(textStyle) : ''
   const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
-  if (!font && !text && !position) {
+  if (titleMode === 'composite') {
+    lines.push(`OVERLAY RESERVATION: leave a clean, high-contrast ${position || 'top'} band for Story Studio’s headline overlay; ignore image-text font and treatment settings.`)
+  } else if (!font && !text && !position) {
     lines.push('TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.')
   } else {
     lines.push(`TITLE DESIGN: ${font ? `use ${font}` : 'choose the font'}; ${text ? `use ${text}` : 'choose the text treatment'}; ${position ? `place it at the ${position}` : 'choose the strongest placement'}.`)
@@ -150,7 +162,9 @@ export function buildThumbnailDirective(opts: {
   if (opts.fmt?.compositionRules?.length) {
     lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(rule => `  - ${rule}`).join('\n')}`)
   }
+  if (opts.fmt?.requiredElements?.length) lines.push(`REQUIRED VISUAL ELEMENTS: ${opts.fmt.requiredElements.join('; ')}`)
   if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
+  if (opts.fmt?.visualStyleGuidance?.trim()) lines.push(`RECIPE VISUAL LANGUAGE: ${opts.fmt.visualStyleGuidance.trim()}`)
   if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
   if (opts.referenceStyle?.trim()) lines.push(`REFERENCE DIRECTION: ${opts.referenceStyle.trim()}`)
   return lines.join('\n\n')
@@ -162,6 +176,7 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   textStyle?: string
   fontStyle?: string
   textPosition?: string
+  titleMode?: 'ai' | 'composite'
 }): string {
   const out = (prompt || '').trim()
   if (!out) return out
@@ -173,7 +188,9 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   } else if (!/thumbnail/i.test(out)) {
     clauses.push('This is a YouTube thumbnail.')
   }
-  if (opts.title.trim() && !out.includes(opts.title.trim())) {
+  if (opts.titleMode === 'composite') {
+    clauses.push('Text-free artwork only: do not render letters, words, numbers, labels, logos, watermarks, or fake typography. Preserve the designated title-safe area for Story Studio’s exact text overlay.')
+  } else if (opts.title.trim() && !out.includes(opts.title.trim())) {
     const font = !opts.fontStyle || opts.fontStyle === 'auto'
       ? 'a font chosen to suit the concept'
       : resolveFontStyle(opts.fontStyle)
@@ -198,6 +215,7 @@ export function buildThumbnailPrompt(args: {
   aspectRatio: string
   thumbnailDirective: string
   targetNumbers: number[]
+  titleMode?: 'ai' | 'composite'
 }): string {
   const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
   return `Create exactly ${args.count} distinct YouTube thumbnail briefs for this story episode.
@@ -211,7 +229,9 @@ REQUIREMENTS:
 1. Return entries for thumbnail numbers ${args.targetNumbers.join(', ')} in that order.
 2. Each prompt must be detailed: 60–120 words across 3–5 sentences.
 3. Specify the click-driving focal image, emotional hook, subject, setting, props, lighting, atmosphere, framing, and composition.
-4. Render the exact episode title as legible in-image typography.
+4. ${args.titleMode === 'composite'
+    ? 'Return text-free artwork instructions only: reserve title-safe space and forbid all letters, labels, logos, watermarks, and fake typography. Story Studio overlays the exact title later.'
+    : 'Render the exact episode title as legible in-image typography.'}
 5. End every prompt with this style tag: "${args.styleTag}".
 6. Compose every prompt for ${ratioInstruction} and explicitly state the "${args.aspectRatio}" aspect ratio.
 7. Include concrete inline descriptions for every visible recurring character.
@@ -219,7 +239,7 @@ REQUIREMENTS:
 FORMAT — return only this JSON object:
 {
   "thumbnails": [
-    {"number": ${args.targetNumbers[0] || 1}, "title": "Brief Title", "prompt": "Full prompt text..."}
+    {"number": ${args.targetNumbers[0] || 1}, "title": "${args.title.replace(/"/g, '\\"')}", "prompt": "Full prompt text..."}
   ]
 }
 
@@ -288,6 +308,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   let thumbnails = [...existingByNumber.values()]
+  let titleMode: 'ai' | 'composite' = req.thumb_title_mode || 'ai'
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -297,6 +318,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     if (characters.length) job.output_lines.push(`Cast: ${characters.map(character => character.name).join(', ')}`)
 
     let thumbnailFormat: ThumbnailFmt | null = null
+    let recipeName = ''
     try {
       const { getEffectiveFormat } = await import('../services/format-loader.js')
       const format = await getEffectiveFormat(projectSlug)
@@ -304,6 +326,47 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     } catch {
       // The generic thumbnail direction remains valid without a format file.
     }
+    // A selected catalog recipe sharpens (and, for its explicit fields,
+    // overrides) the format's broad thumbnail defaults. It deliberately does
+    // not replace the project art style — composition and rendering remain
+    // separate choices.
+    let recipe: ThumbnailRecipeProfile | undefined
+    try {
+      const { loadTemplate, getEffectiveTemplateFor } = await import('../services/thumbnail-template-loader.js')
+      const selectedId = typeof req.thumbnail_template_id === 'string' && req.thumbnail_template_id.trim()
+        ? req.thumbnail_template_id.trim()
+        : ''
+      let template = selectedId ? await loadTemplate(selectedId) : null
+      if (!template && !selectedId) {
+        const project = await pm.getProject(projectSlug)
+        if (project) {
+          const { getEffectiveNicheFor } = await import('../services/niche-loader.js')
+          template = await getEffectiveTemplateFor(project, await getEffectiveNicheFor(project), config as any)
+        }
+      }
+      if (selectedId && !template) throw new Error(`Thumbnail Recipe '${selectedId}' was not found`)
+      if (template) {
+        recipe = template.recipe
+        recipeName = template.name
+      }
+    } catch (error: any) {
+      throw new Error(`Could not resolve Thumbnail Recipe: ${error?.message || error}`)
+    }
+    if (recipe) {
+      thumbnailFormat = {
+        ...(thumbnailFormat || {}),
+        layout: recipe.layout,
+        conceptGuidance: recipe.conceptGuidance,
+        compositionRules: recipe.compositionRules || thumbnailFormat?.compositionRules,
+        requiredElements: recipe.requiredElements,
+        avoid: recipe.avoid || thumbnailFormat?.avoid,
+        defaultTextStyle: recipe.defaultTextStyle || thumbnailFormat?.defaultTextStyle,
+        defaultFontStyle: recipe.defaultFontStyle || thumbnailFormat?.defaultFontStyle,
+        titleMode: recipe.titleMode || 'composite',
+        visualStyleGuidance: recipe.visualStyleGuidance,
+      }
+    }
+    titleMode = req.thumb_title_mode || thumbnailFormat?.titleMode || 'ai'
     const thumbnailDirective = buildThumbnailDirective({
       thumbs: targetNumbers.length,
       title,
@@ -313,9 +376,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       referenceStyle: req.thumb_reference_style,
       fmt: thumbnailFormat,
       creativeDirection: req.thumb_creative_direction,
+      titleMode,
     })
     job.output_lines.push(
-      `Thumbnail art direction: ${thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ready-to-use in-image title` +
+      `Thumbnail art direction: ${recipeName ? `recipe “${recipeName}”` : thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ` +
+      (titleMode === 'composite' ? 'safe text overlay reserved' : 'ready-to-use in-image title') +
       (req.thumb_reference_style ? ', reference style applied' : '') +
       (req.thumb_creative_direction ? ', user idea applied' : ''),
     )
@@ -349,6 +414,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       aspectRatio: req.aspect_ratio || '16:9',
       thumbnailDirective,
       targetNumbers,
+      titleMode,
     })
     if (artStyle?.negatives.length) {
       prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
@@ -377,7 +443,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       const generated = normalizeGeneratedPromptItems(
         parseThumbnailPromptsJson(raw),
         targetNumbers.length,
-      ).map((item, index) => ({ ...item, number: targetNumbers[index] }))
+      // The rendered thumbnail overlay must use the real episode headline,
+      // never an LLM-invented variation label. Keep the generator's visual
+      // variation in `prompt`; normalize its stored `title` to the episode.
+      ).map((item, index) => ({ ...item, title, number: targetNumbers[index] }))
       for (const item of generated) existingByNumber.set(Number(item.number), item)
       thumbnails = [...existingByNumber.values()].sort((a, b) => Number(a.number) - Number(b.number))
     } finally {
@@ -393,6 +462,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       textStyle: req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
+      titleMode,
     }),
   }))
   const missing = Array.from({ length: count }, (_, index) => index + 1)

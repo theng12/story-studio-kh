@@ -410,6 +410,15 @@
             <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
           </div>
           <div class="form-group">
+            <label>Thumbnail Recipe</label>
+            <button type="button" class="btn btn-secondary" @click="showThumbnailRecipeCatalog = true">
+              {{ selectedThumbnailRecipeName || 'Browse Thumbnail Catalog…' }}
+            </button>
+            <p class="text-muted text-xs hint-line">
+              A recipe controls repeatable composition and can reserve a safe headline band. Your visual art style remains separate.
+            </p>
+          </div>
+          <div class="form-group">
             <label>Text Style</label>
             <select v-model="form.thumbnail.thumb_text_style" class="select">
               <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
@@ -862,6 +871,12 @@
       </div>
     </div>
 
+    <ThumbnailRecipeLibraryModal
+      :visible="showThumbnailRecipeCatalog"
+      :selected-recipe-id="form.thumbnail.thumbnail_template_id"
+      @close="showThumbnailRecipeCatalog = false"
+      @select="applyThumbnailRecipe"
+    />
   </div>
 </template>
 
@@ -1143,6 +1158,7 @@ type SharedFormFields = {
   force: boolean
 }
 type ThumbnailForm = SharedFormFields & {
+  thumbnail_template_id: string
   thumb_count: number
   thumb_treatment_preset: string
   thumb_text_style: string
@@ -1174,6 +1190,7 @@ const form = reactive({
     aspect_ratio: '16:9',
     character_ids: [] as string[],
     force: false,
+    thumbnail_template_id: '',
     thumb_count: 3,
     thumb_treatment_preset: 'custom',
     thumb_text_style: 'auto',
@@ -1202,6 +1219,8 @@ const form = reactive({
 })
 
 const showVisualStyleGallery = ref(false)
+const showThumbnailRecipeCatalog = ref(false)
+const selectedThumbnailRecipeName = ref('')
 
 const THUMBNAIL_TREATMENTS = [
   { id: 'custom', label: 'Custom mix' },
@@ -1218,6 +1237,36 @@ function applyThumbnailVisualStyle(data: { style_bible: string; negative_prompt:
   showStyleEditor.value = true
   showVisualStyleGallery.value = false
   success('Visual style applied to Thumbnail Prompts')
+}
+
+type SelectedThumbnailRecipe = {
+  id: string
+  name: string
+  recipe?: {
+    titleMode?: 'ai' | 'composite'
+    defaultTextStyle?: string
+    defaultFontStyle?: string
+    defaultTextPosition?: 'top' | 'center' | 'bottom'
+    conceptGuidance?: string
+  }
+}
+
+async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<void> {
+  form.thumbnail.thumbnail_template_id = template.id
+  selectedThumbnailRecipeName.value = template.name
+  const recipe = template.recipe
+  if (recipe?.titleMode) form.thumbnail.thumb_title_mode = recipe.titleMode
+  if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
+  if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
+  if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
+  if (recipe?.conceptGuidance) form.thumbnail.thumb_art_direction = recipe.conceptGuidance
+  showThumbnailRecipeCatalog.value = false
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { thumbnail_template_id: template.id })
+    success(`Applied ${template.name}. Its composition will be used without changing your visual art style.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Recipe selected for this session, but could not save it to the project')
+  }
 }
 
 function applyThumbnailTreatment(): void {
@@ -1618,6 +1667,15 @@ onMounted(async () => {
     scenePresets.load(),
     loadVisionCaps(),
   ])
+  try {
+    const effective = await get<{ template: { id: string; name: string } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
+    if (effective.template) {
+      if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
+      selectedThumbnailRecipeName.value = effective.template.name
+    }
+  } catch {
+    // Catalog availability never blocks prompt authoring.
+  }
 })
 
 // ── Vision / style-extraction ──────────────────────────────────────────
@@ -1977,8 +2035,8 @@ async function runGenerate(mode: PromptMode) {
       scenes_per_chapter: form.scene.scenes_per_chapter,
       chapter_count: effectiveChapterCount.value,
       thumb_count: form.thumbnail.thumb_count,
-      // Thumbnail renders include the episode title directly in the image.
-      thumb_title_mode: 'ai',
+      thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
+      thumb_title_mode: form.thumbnail.thumb_title_mode,
       thumb_text_style: form.thumbnail.thumb_text_style,
       thumb_text_position: form.thumbnail.thumb_text_position,
       thumb_font_style: form.thumbnail.thumb_font_style,

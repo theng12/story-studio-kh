@@ -2,8 +2,8 @@
   <div class="workspace-page thumbnail-template-workspace">
     <WorkspaceHero
       eyebrow="Library · Thumbnail composition"
-      title="Thumbnail Templates"
-      description="Reusable layouts for title, subtitle, accent rules, and logo placement. Any channel can use any template without tying it to a niche."
+      title="Thumbnail Recipe Catalog"
+      description="Browse reusable thumbnail formats. Recipe cards can show real generated examples, direct the AI composition, and safely composite the final headline."
     >
       <template #aside><NuxtLink :to="`/projects/${slug}/images`" class="btn btn-sm btn-secondary">Back to Thumbnails</NuxtLink></template>
     </WorkspaceHero>
@@ -40,7 +40,7 @@
     </div>
 
     <div class="tt-section-headrow">
-      <h2 class="tt-section-head">All templates</h2>
+      <h2 class="tt-section-head">All thumbnail formats</h2>
       <button
         v-if="!editingId"
         type="button"
@@ -53,8 +53,8 @@
     <p class="text-muted tt-section-hint">
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
-      Click any card to set it as the project default — the next time you open the Compose dialog it'll
-      load with that template already selected. Or hit <strong>Edit</strong> on any card to open the
+      Click any card to set it as the project default — the next thumbnail prompt and render use it automatically.
+      Recipe cards keep the generated image text-free and composite a crisp headline afterward. Or hit <strong>Edit</strong> on any card to open the
       visual editor. Use <strong>+ New template</strong> to build one from scratch in your library
       (built-ins fork to your user library on first save).
     </p>

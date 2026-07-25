@@ -1072,6 +1072,20 @@ export interface ThumbnailTemplate {
    */
   recommendedNicheIds?: string[]
 
+  /**
+   * v1.0.724+ — thumbnail recipes extend a pure text-overlay template with
+   * a repeatable AI-art composition contract and real finished examples.
+   * Keep the template type for backwards compatibility: legacy templates
+   * remain valid overlays, while a template with `recipe` appears in the
+   * browsable Thumbnail Recipe Catalog.
+   */
+  category?: string
+  /** Search aliases for the catalog; describe the click grammar, not a channel. */
+  tags?: string[]
+  /** Two or more original finished examples, served from frontend/public. */
+  previewImages?: string[]
+  recipe?: ThumbnailRecipeProfile
+
   // ── Layout ────────────────────────────────────────────────────────
   /** YouTube standard is 16:9 (1920×1080). Other ratios reserved for
    *  Shorts / square poster variants. */
@@ -1100,6 +1114,29 @@ export interface ThumbnailTemplate {
   /** Optional logo / mark overlay. Image URL resolved at compose
    *  time from a project asset. */
   logoSlot?: ThumbnailLogoSlot
+}
+
+/**
+ * The image-generation half of a ThumbnailTemplate. Text zones remain owned
+ * by the template above, while this profile tells the prompt generator what
+ * visual system it must build before Story Studio composites readable text.
+ */
+export interface ThumbnailRecipeProfile {
+  layout: 'hero' | 'annotated-collage'
+  conceptGuidance: string
+  compositionRules?: string[]
+  requiredElements?: string[]
+  avoid?: string[]
+  /** `composite` means generated artwork must contain no lettering. */
+  titleMode?: 'ai' | 'composite'
+  defaultTextStyle?: string
+  defaultFontStyle?: string
+  defaultTextPosition?: 'top' | 'center' | 'bottom'
+  /** Reusable editorial headline shapes shown in the catalog. The exact
+   * episode title is still composited rather than copied blindly. */
+  headlineFormats?: string[]
+  /** Optional visual-language hint; never replaces the project art style. */
+  visualStyleGuidance?: string
 }
 
 /**
@@ -1842,6 +1879,7 @@ export interface UpdateConfigRequest {
   audio_models?: Record<string, AudioModelConfig>
   video_models?: Record<string, VideoModelConfig>
   confirmation_preferences?: ConfirmationPreferences
+  thumbnail_template_id?: string
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
@@ -2107,6 +2145,8 @@ export interface GenerateImagesRequest {
    * stored prompt. Ignored for scenes.
    */
   extra_details?: string
+  /** Optional explicit recipe/template for one render. Project default is the fallback. */
+  thumbnail_template_id?: string
   /** Thumbnail img2img adaptation strength. Strong preserves more layout,
    *  loose uses the source as broad inspiration. */
   reference_strength?: 'loose' | 'balanced' | 'strong'
