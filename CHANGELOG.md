@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.735 — 2026-07-25
+
+**Channel openings are now Formula-owned instead of sleep-story controls on every script.**
+
+- Adds the reusable **Sleep landing** opening profile to the Sleep Story Formula.
+- Hides opening controls for direct-start Formulas such as Economics, history,
+  and explainers, so their scripts begin with the episode itself.
+- Clears a saved opening flag when a project switches to a Formula without an
+  opening profile, preventing a sleep-style welcome from leaking into another channel.
+
+---
+
 ## v1.0.734 — 2026-07-25
 
 **Script creation now has one unambiguous, review-first starting action.**

@@ -6,6 +6,12 @@
   "builtin": true,
   "schemaVersion": 1,
 
+  "openingProfile": {
+    "id": "sleep-landing",
+    "label": "Sleep landing",
+    "description": "A gentle branded welcome and settling ritual before the story begins."
+  },
+
   "exampleTopics": [
     "The Lantern Keeper's Last Light",
     "The Tailor Who Stitched The Snow",

@@ -138,6 +138,11 @@ export const NicheSchema = z.object({
     requiredHabits: z.array(z.string().min(1).max(500)).min(1).max(30),
     closingPolicy: z.string().min(1).max(1200).optional(),
   }).strict().optional(),
+  openingProfile: z.object({
+    id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
+    label: z.string().min(1).max(120),
+    description: z.string().min(1).max(500),
+  }).strict().optional(),
   tagline: z.string().max(200).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
   defaultTopicPackIds: z.array(z.string().min(1).max(80)).max(24).optional(),

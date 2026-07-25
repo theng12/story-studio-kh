@@ -17,11 +17,13 @@ describe('Script Generator workspace', () => {
     assert.doesNotMatch(scripts, /scriptAdvancedExpanded/)
   })
 
-  test('uses a Formula-owned narrator and keeps the optional opening in the writing flow', () => {
+  test('uses a Formula-owned narrator and only surfaces an opening when the Formula supplies one', () => {
     assert.match(scripts, /Formula narrator/)
     assert.match(scripts, /availableNarratorStyles/)
     assert.doesNotMatch(scripts, /A — Warm & intimate first-person/)
-    assert.match(scripts, /Include channel opening/)
+    assert.match(scripts, /v-if="openingProfile"/)
+    assert.match(scripts, /Include \{\{ openingProfile\.label \}\}/)
+    assert.match(scripts, /watch\(openingProfile/)
     assert.doesNotMatch(scripts, /🎬 Introduction/)
     assert.match(scripts, /Episode direction/)
   })

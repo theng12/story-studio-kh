@@ -60,6 +60,11 @@ export interface Niche {
     requiredHabits: string[]
     closingPolicy?: string
   }
+  openingProfile?: {
+    id: string
+    label: string
+    description: string
+  }
   tagline?: string
   exampleTopics: string[]
   defaultTopicPackIds?: string[]

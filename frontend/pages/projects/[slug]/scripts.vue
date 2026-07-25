@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Create · Write"
       title="Script Generator"
-      description="Create an outline, expand approved chapters, and finish the optional channel opening in one visible writing flow."
+      description="Create an outline, expand approved chapters, and keep the Formula’s writing rules visible from start to finish."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Script workspace context">
@@ -28,7 +28,7 @@
       @episode-selected="onEpisodeSelected"
       />
       <p class="workspace-command-copy">
-        Create an outline, approve and expand it in <strong>Script</strong>, then generate the optional channel opening from the completed chapters.
+        Create an outline, approve and expand it in <strong>Script</strong>. Your Formula controls the narrator, opening policy, and writing rules.
       </p>
     </div>
 
@@ -146,11 +146,11 @@
       <!-- Opening is an optional channel-branding layer in the outline flow.
            It is generated only after the approved chapters exist, but its
            intent and reusable settings stay visible before outlining. -->
-      <div class="intro-section opening-section mt-2">
+      <div v-if="openingProfile" class="intro-section opening-section mt-2">
         <div class="intro-header">
           <label class="toggle-label">
             <input type="checkbox" v-model="intro.enabled" />
-            <h3>Include channel opening</h3>
+            <h3>Include {{ openingProfile.label }}</h3>
           </label>
           <div v-if="intro.enabled" class="opening-head-actions">
             <span class="text-muted text-sm">~{{ intro.word_target }} words</span>
@@ -160,8 +160,8 @@
           </div>
         </div>
         <p class="text-muted text-sm" style="margin: 2px 0 12px;">
-          A reusable branded welcome, especially useful for sleep stories. It is generated after
-          chapters are complete, so it can introduce the actual episode rather than a generic promise.
+          {{ openingProfile.description }} It is generated after chapters are complete, so it can
+          introduce the actual episode rather than a generic promise.
         </p>
         <div v-if="intro.enabled && openingConfigOpen" class="intro-body">
           <!-- Intro-specific preset picker (separate pool from script presets) -->
@@ -1098,6 +1098,11 @@ interface NicheContext {
     openingPolicy?: string
     requiredHabits?: string[]
   }
+  openingProfile?: {
+    id: string
+    label: string
+    description: string
+  }
   scriptStructure?: {
     defaultChapterCount?: number
     chapterCountRange?: [number, number]
@@ -1107,6 +1112,7 @@ interface NicheContext {
 }
 const nicheContext = ref<NicheContext | null>(null)
 const showNicheOverlayDetail = ref(false)
+const openingProfile = computed(() => nicheContext.value?.openingProfile || null)
 const availableNarratorStyles = computed<NarratorStyleOption[]>(() => formatContext.value?.narratorStyles || [])
 const selectedNarratorStyle = computed<NarratorStyleOption | undefined>(() => {
   const styles = availableNarratorStyles.value
@@ -1329,6 +1335,15 @@ const intro = reactive({
   custom_opening: '',
 })
 
+// Openings are owned by the selected Formula. If a project changes from Sleep
+// Story to a direct-start Formula, clear the dormant flag so no old preset can
+// silently add a branded welcome to an unrelated episode.
+watch(openingProfile, (profile) => {
+  if (profile) return
+  intro.enabled = false
+  openingConfigOpen.value = false
+}, { immediate: true })
+
 // ── Presets ─────────────────────────────────────────────────────────────
 // Two typed pools sharing the 'script' configKey:
 //   - scriptPresets  → just chapter settings (form + custom style text)
@@ -1512,6 +1527,16 @@ async function applyScriptFormatDefaultsIfNoPreset() {
                 requiredHabits: Array.isArray(n.narrativeQualityContract.requiredHabits)
                   ? n.narrativeQualityContract.requiredHabits.filter((habit: unknown): habit is string => typeof habit === 'string')
                   : undefined,
+              }
+            : undefined,
+          openingProfile: n.openingProfile && typeof n.openingProfile === 'object'
+            && typeof n.openingProfile.id === 'string'
+            && typeof n.openingProfile.label === 'string'
+            && typeof n.openingProfile.description === 'string'
+            ? {
+                id: n.openingProfile.id,
+                label: n.openingProfile.label,
+                description: n.openingProfile.description,
               }
             : undefined,
           scriptStructure: n.scriptStructure || undefined,

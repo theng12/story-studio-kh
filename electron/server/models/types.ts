@@ -762,6 +762,13 @@ export interface Niche {
     requiredHabits: string[]
     closingPolicy?: string
   }
+  /** Optional Formula-owned opening configuration. Its absence means scripts
+   * begin directly with the episode rather than exposing generic intro knobs. */
+  openingProfile?: {
+    id: string
+    label: string
+    description: string
+  }
 
   /** Short tagline shown on the niche card / picker. */
   tagline?: string

@@ -371,6 +371,11 @@ describe('format-loader', () => {
     const nicheLoader = await import('../services/niche-loader.js')
     const sleep = await nicheLoader.loadNiche('sleep')
     assert.ok(sleep, 'sleep niche must ship as a built-in')
+    assert.deepEqual(sleep!.openingProfile, {
+      id: 'sleep-landing',
+      label: 'Sleep landing',
+      description: 'A gentle branded welcome and settling ritual before the story begins.',
+    }, 'sleep owns the only current opening profile')
     const merged = loader.applyNicheToFormat(shell, sleep!)
     // Niche owns the personas (not the shell's generic role)
     assert.notEqual(merged.idea.systemPromptRole, shell.idea.systemPromptRole, 'sleep owns the idea role')
