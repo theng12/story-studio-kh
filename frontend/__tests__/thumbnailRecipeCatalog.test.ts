@@ -7,24 +7,27 @@ function source(path: string): string {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 }
 
-test('thumbnail recipe catalog is browseable and cycles through real preview examples', () => {
+test('thumbnail recipe library scales with searchable classifications, favorites, recents, and generated examples', () => {
   const catalog = source('../components/ThumbnailRecipeLibraryModal.vue')
-  assert.match(catalog, /Thumbnail Catalog/)
+  const picker = source('../components/ThumbnailRecipePicker.vue')
+  assert.match(catalog, /Thumbnail Recipe Library/)
   assert.match(catalog, /previewImages/)
-  assert.match(catalog, /Search recipes, formats, tags/)
-  assert.match(catalog, /complete headline/)
-  assert.match(catalog, /Headline formats/)
+  assert.match(catalog, /Search formats, subjects, layouts, or tags/)
+  assert.match(catalog, /Favorites/)
+  assert.match(catalog, /Recent/)
+  assert.match(catalog, /category:\$\{category\}/)
+  assert.match(catalog, /story-studio:thumbnail-recipe-library:favorites/)
+  assert.match(catalog, /story-studio:thumbnail-recipe-library:recents/)
   assert.match(catalog, /filter\(template => Boolean\(template\.recipe\)\)/)
+  assert.match(picker, /Generated examples included/)
+  assert.match(picker, /ThumbnailRecipeLibraryModal/)
 })
 
 test('thumbnail prompts can choose a catalog recipe without replacing visual art style', () => {
   const page = source('../pages/projects/[slug]/image-prompts.vue')
-  assert.match(page, /Browse Thumbnail Catalog/)
-  assert.match(page, /ThumbnailRecipeLibraryModal/)
+  assert.match(page, /ThumbnailRecipePicker/)
   assert.match(page, /thumbnail_template_id/)
-  assert.match(page, /Choose the repeatable thumbnail format first/i)
   assert.match(page, /<label>Visual art style<\/label>/)
-  assert.match(page, /style below remains separate/i)
   assert.match(page, /thumb_title_mode: 'ai'/)
   assert.match(page, /renders the exact episode title directly in the thumbnail/i)
 })

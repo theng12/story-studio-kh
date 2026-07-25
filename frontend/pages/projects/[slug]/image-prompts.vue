@@ -582,13 +582,10 @@
         </div>
       </div>
       <div class="form-group mt-2">
-        <label>Thumbnail recipe</label>
-        <button type="button" class="btn btn-secondary" @click="showThumbnailRecipeCatalog = true">
-          {{ selectedThumbnailRecipeName || 'Browse Thumbnail Catalog…' }}
-        </button>
-        <p class="text-muted text-xs hint-line">
-          Choose the repeatable thumbnail format first: composition, title band, and object hierarchy. Your visual art style below remains separate.
-        </p>
+        <ThumbnailRecipePicker
+          :selected-recipe-id="form.thumbnail.thumbnail_template_id"
+          @select="applyThumbnailRecipe"
+        />
       </div>
       <div class="form-group mt-2">
         <label>Visual art style</label>
@@ -861,12 +858,6 @@
       </div>
     </div>
 
-    <ThumbnailRecipeLibraryModal
-      :visible="showThumbnailRecipeCatalog"
-      :selected-recipe-id="form.thumbnail.thumbnail_template_id"
-      @close="showThumbnailRecipeCatalog = false"
-      @select="applyThumbnailRecipe"
-    />
   </div>
 </template>
 
@@ -1208,9 +1199,6 @@ const form = reactive({
 })
 
 const showVisualStyleGallery = ref(false)
-const showThumbnailRecipeCatalog = ref(false)
-const selectedThumbnailRecipeName = ref('')
-
 const THUMBNAIL_TREATMENTS = [
   { id: 'custom', label: 'Custom mix' },
   { id: 'bold-explainer', label: 'Bold Explainer' },
@@ -1240,14 +1228,12 @@ type SelectedThumbnailRecipe = {
 
 async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<void> {
   form.thumbnail.thumbnail_template_id = template.id
-  selectedThumbnailRecipeName.value = template.name
   const recipe = template.recipe
   form.thumbnail.thumb_title_mode = 'ai'
   if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
   if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
   if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
   if (recipe?.conceptGuidance) form.thumbnail.thumb_art_direction = recipe.conceptGuidance
-  showThumbnailRecipeCatalog.value = false
   try {
     await put(`/projects/${slug.value}/settings/config`, { thumbnail_template_id: template.id })
     success(`Applied ${template.name}. Its composition will be used without changing your visual art style.`)
@@ -1652,7 +1638,6 @@ onMounted(async () => {
     const effective = await get<{ template: { id: string; name: string } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
     if (effective.template) {
       if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
-      selectedThumbnailRecipeName.value = effective.template.name
     }
   } catch {
     // Catalog availability never blocks prompt authoring.

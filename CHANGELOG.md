@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.728 — 2026-07-25
+
+**Thumbnail recipes now have their own scalable browsing library.**
+
+- Replaces the one-button recipe chooser with a compact selected-format card
+  and a searchable **Thumbnail Recipe Library**.
+- Adds category classification, favorites, recent recipes, generated-example
+  browsing, keyboard selection, and persistent local preferences so the
+  catalog stays manageable as many new formats arrive.
+- Keeps thumbnail composition clearly separate from the independent Visual
+  art style library on the same prompt workspace.
+
+---
+
 ## v1.0.727 — 2026-07-25
 
 **A new editorial explainer look joins the shared Style Library.**
