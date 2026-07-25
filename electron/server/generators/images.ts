@@ -248,6 +248,20 @@ export async function generateImages(job: Job): Promise<void> {
   await fs.mkdir(bgDir, { recursive: true })
   await fs.mkdir(thumbDir, { recursive: true })
 
+  // Reference-guided thumbnails use the durable project-owned original saved
+  // by Thumbnail Prompts. The GenStudio provider uploads this file privately
+  // immediately before dispatch; no local path ever crosses that boundary.
+  const savedThumbnailReference = mode === 'thumbs'
+    ? ((req as any).thumbnail_reference_asset || (config as any).thumbnail_reference_asset || null)
+    : null
+  const savedThumbnailReferencePath = savedThumbnailReference?.id && typeof savedThumbnailReference?.filename === 'string'
+    ? path.join(pm.getProjectDir(project_slug) || path.join(pm.PROJECTS_ROOT, project_slug), 'thumbnail-reference-assets', savedThumbnailReference.filename)
+    : ''
+  const hasSavedThumbnailReference = !!savedThumbnailReferencePath && existsSync(savedThumbnailReferencePath)
+  if (mode === 'thumbs' && savedThumbnailReference?.id && !hasSavedThumbnailReference) {
+    throw new Error('The saved thumbnail reference is unavailable locally. Re-upload it in Thumbnail Prompts before generating.')
+  }
+
   // Parse prompts from separate or combined files
   let scenes: ParsedPrompts['scenes'] = []
   let thumbnails: ParsedPrompts['thumbnails'] = []
@@ -627,10 +641,10 @@ export async function generateImages(job: Job): Promise<void> {
       // appended before style keywords so it influences the image without
       // editing the stored prompt.
       const extra = (req.extra_details || '').trim()
-      const hasThumbnailReference = refSources.thumbnail && existsSync(thumbnailRefPath())
-      const referenceGuidance = hasThumbnailReference
-        ? thumbnailReferenceGuidance(referenceStrength)
-        : ''
+      const hasThumbnailReference = hasSavedThumbnailReference || (refSources.thumbnail && existsSync(thumbnailRefPath()))
+      const referenceGuidance = hasSavedThumbnailReference
+        ? `Reference-guided generation: use the supplied reference only for broad composition, hierarchy, framing, and visual rhythm. Create a new original image for this episode. Do not reproduce logos, identifying text, branded elements, characters, or a near-identical copy of the reference. ${String(savedThumbnailReference?.reframing_prompt || '').trim()}`
+        : hasThumbnailReference ? thumbnailReferenceGuidance(referenceStrength) : ''
       const renderGuidance = [extra, referenceGuidance].filter(Boolean).join('\n\n')
       const promptWithExtra = renderGuidance ? `${thumb.prompt}\n\n${renderGuidance}` : thumb.prompt
       const finalPrompt = applyStyleKeywords(promptWithExtra, styleKeywords)
@@ -643,6 +657,7 @@ export async function generateImages(job: Job): Promise<void> {
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
+        ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
         idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId) => {

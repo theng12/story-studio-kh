@@ -158,6 +158,8 @@ const props = defineProps<{
   modelLabel?: string
   /** The thumbnail currently selected for upload, if the user pinned one. */
   pinnedFilename?: string | null
+  /** Durable project-owned reference selected in Thumbnail Prompts. */
+  thumbnailReferenceAsset?: Record<string, any> | null
 }>()
 
 const emit = defineEmits<{
@@ -337,7 +339,10 @@ function sharedJobParams() {
     aspect_ratio: props.aspectRatio,
     tier: props.tier,
     ...(typeof props.seed === 'number' ? { seed: props.seed } : {}),
-    image_mode: 'text2img',
+    image_mode: props.kind === 'thumbnail' && props.thumbnailReferenceAsset?.id ? 'img2img' : 'text2img',
+    ...(props.kind === 'thumbnail' && props.thumbnailReferenceAsset?.id
+      ? { thumbnail_reference_asset: props.thumbnailReferenceAsset }
+      : {}),
     // v1.0.308 — local render size. Only included when the parent supplies both
     // (local model + sub-Full tier); cloud models omit them and use the aspect.
     ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'

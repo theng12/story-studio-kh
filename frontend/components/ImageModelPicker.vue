@@ -37,7 +37,10 @@ const { models, loading, error, refresh } = useGenStudioImageModels()
 const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
 const options = computed(() => {
-  const rows = models.value.map((model) => {
+  const visibleModels = props.imageMode === 'img2img'
+    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
+    : models.value
+  const rows = visibleModels.map((model) => {
     const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
@@ -45,12 +48,10 @@ const options = computed(() => {
       group: 'GenStudio KH',
       provider: 'GenStudio KH',
       description: 'Image generation through GenStudio KH.',
-      disabled: !model.available || props.imageMode === 'img2img',
+      disabled: !model.available,
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'
-        : props.imageMode === 'img2img'
-          ? 'This catalog currently supports prompt-only generation.'
-          : '',
+        : '',
       badges: [
         { label: 'GenStudio KH', tone: 'info' as const },
         ...(unlimited ? [unlimited] : []),
@@ -62,13 +63,16 @@ const options = computed(() => {
 
 function select(modelId: string): void {
   const selected = models.value.find(model => model.id === modelId)
-  if (!selected?.available || props.imageMode === 'img2img') return
+  if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1 || !selected.chargeable))) return
   emit('update:modelValue', modelId)
 }
 
 function syncLiveSelection(): void {
-  if (!models.value.length || props.imageMode === 'img2img') return
-  const selected = selectLiveGenStudioModel(props.modelValue, models.value)
+  if (!models.value.length) return
+  const candidates = props.imageMode === 'img2img'
+    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
+    : models.value
+  const selected = selectLiveGenStudioModel(props.modelValue, candidates)
   if (selected && selected.id !== props.modelValue) emit('update:modelValue', selected.id)
 }
 

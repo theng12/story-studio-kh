@@ -1095,6 +1095,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     active_style_preset_id: typeof (config as any).active_style_preset_id === 'string'
       ? (config as any).active_style_preset_id
       : undefined,
+    thumbnail_reference_asset: (config as any).thumbnail_reference_asset || undefined,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)

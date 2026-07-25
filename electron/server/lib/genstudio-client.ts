@@ -111,6 +111,10 @@ export interface GenStudioImageModel {
   default_steps: number
   min_steps: number
   max_steps: number
+  supports_reference_images: boolean
+  max_reference_images: number
+  reference_strength_mode: string
+  supported_reference_strengths: string[]
   sizes?: Array<{
     aspect_ratio: string
     width: number
@@ -142,6 +146,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   width?: number
   height?: number
   seed?: number
+  /** One private GenStudio source asset for supported image-to-image models. */
+  referenceAssetIds?: string[]
   /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
   requestIdentity?: string
   onState?: (state: GenStudioJob['state']) => void
@@ -225,6 +231,23 @@ export interface GenStudioChatModel {
   output_credits_per_million_tokens: number
   minimum_credits: number
   price_version: string
+  input_modalities: Array<'text' | 'image'>
+  supports_vision: boolean
+  max_input_images: number
+  accepted_image_mime_types: string[]
+  max_image_bytes: number
+  max_image_dimension: number
+  supported_detail_levels: Array<'low' | 'high' | 'auto'>
+  supports_structured_output: boolean
+}
+
+export interface GenStudioImageSourceAsset {
+  id: string
+  media_type: string
+  byte_size: number
+  width: number
+  height: number
+  expires_at: string
 }
 
 export interface GenStudioVideoModel {
@@ -342,6 +365,9 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   idempotencyKey?: string
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+  /** A private GenStudio-owned image asset for a vision-capable chat model. */
+  inputImage?: { assetId: string; detail: 'low' | 'high' | 'auto' }
+  jsonObject?: boolean
 }
 
 /**
@@ -541,7 +567,7 @@ function shouldReconnectAcceptedTask(
 }
 
 export class GenStudioApiError extends Error {
-  constructor(public readonly status: number, public readonly detail: string) {
+  constructor(public readonly status: number, public readonly detail: string, public readonly code?: string) {
     super(
       status === 401 || status === 403
         ? `GenStudio KH rejected the scoped API key (HTTP ${status}): ${detail}. ` +
@@ -693,7 +719,8 @@ async function readJson(response: Response): Promise<any> {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
-    throw new GenStudioApiError(response.status, detail)
+    const code = typeof body?.code === 'string' ? body.code : undefined
+    throw new GenStudioApiError(response.status, detail, code)
   }
   return body
 }
@@ -890,6 +917,20 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
       ? Math.max(0, value.minimum_credits)
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
+    input_modalities: Array.isArray(value?.input_modalities)
+      ? value.input_modalities.filter((item: unknown): item is 'text' | 'image' => item === 'text' || item === 'image')
+      : ['text'],
+    supports_vision: value?.supports_vision === true,
+    max_input_images: Number.isInteger(value?.max_input_images) ? Math.max(0, value.max_input_images) : 0,
+    accepted_image_mime_types: Array.isArray(value?.accepted_image_mime_types)
+      ? value.accepted_image_mime_types.filter((item: unknown): item is string => typeof item === 'string' && item.startsWith('image/'))
+      : [],
+    max_image_bytes: Number.isInteger(value?.max_image_bytes) ? Math.max(0, value.max_image_bytes) : 0,
+    max_image_dimension: Number.isInteger(value?.max_image_dimension) ? Math.max(0, value.max_image_dimension) : 0,
+    supported_detail_levels: Array.isArray(value?.supported_detail_levels)
+      ? value.supported_detail_levels.filter((item: unknown): item is 'low' | 'high' | 'auto' => item === 'low' || item === 'high' || item === 'auto')
+      : [],
+    supports_structured_output: value?.supports_structured_output === true,
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
 }
 
@@ -935,6 +976,7 @@ function videoSourceMediaType(filename: string): string {
     case '.webp': return 'image/webp'
     case '.jpg':
     case '.jpeg': return 'image/jpeg'
+    case '.gif': return 'image/gif'
     default: return 'application/octet-stream'
   }
 }
@@ -1138,6 +1180,8 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     top_p: request.topP ?? 1,
     max_output_tokens: request.maxOutputTokens ?? 2_048,
     request_identity: request.requestIdentity?.trim() || null,
+    input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
+    json_object: request.jsonObject === true,
   })).digest('hex')
   return `story-chat-${digest.slice(0, 47)}`
 }
@@ -1167,11 +1211,17 @@ async function callChatWithGenStudioAdmitted(
         model_id: modelId,
         input: [
           ...(request.system.trim() ? [{ role: 'system', content: request.system }] : []),
-          { role: 'user', content: request.userMessage },
+          { role: 'user', content: request.inputImage
+            ? [
+                { type: 'input_image', asset_id: request.inputImage.assetId, detail: request.inputImage.detail },
+                { type: 'input_text', text: request.userMessage },
+              ]
+            : request.userMessage },
         ],
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 1,
         max_output_tokens: Math.max(1, Math.min(32_768, request.maxOutputTokens ?? 2_048)),
+        ...(request.jsonObject === true ? { response_format: { type: 'json_object' } } : {}),
       }),
     },
     request,
@@ -1230,6 +1280,32 @@ export async function callChatWithGenStudio(
   request: GenStudioChatRequest,
 ): Promise<{ text: string; jobId: string; modelId: string }> {
   return callChatWithGenStudioAdmitted(apiKey, request)
+}
+
+/** Upload a locally stored Story Studio reference as a private GenStudio asset. */
+export async function uploadImageSourceWithGenStudio(
+  apiKey: string,
+  sourceImagePath: string,
+): Promise<GenStudioImageSourceAsset> {
+  const bytes = await fs.readFile(sourceImagePath)
+  if (!bytes.length) throw new Error('Thumbnail reference image is empty.')
+  const type = videoSourceMediaType(sourceImagePath)
+  if (!type.startsWith('image/')) throw new Error('Thumbnail reference must be a PNG, JPEG, WebP, or GIF image.')
+  const body = new FormData()
+  body.set('upload', new Blob([new Uint8Array(bytes)], { type }), path.basename(sourceImagePath))
+  const baseUrl = await getGenStudioUrl()
+  const response = await fetch(`${apiBase(baseUrl)}/v1/images/source-images`, {
+    method: 'POST', headers: authorization(apiKey), body, signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  const value = await readJson(response)
+  if (!value || typeof value.id !== 'string') throw new Error('GenStudio KH did not return a private reference asset id.')
+  return {
+    id: value.id, media_type: typeof value.media_type === 'string' ? value.media_type : type,
+    byte_size: Number.isInteger(value.byte_size) ? value.byte_size : bytes.length,
+    width: Number.isInteger(value.width) ? value.width : 0,
+    height: Number.isInteger(value.height) ? value.height : 0,
+    expires_at: typeof value.expires_at === 'string' ? value.expires_at : '',
+  }
 }
 
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */
@@ -1297,6 +1373,11 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
     default_steps: Number.isInteger(value?.default_steps) ? value.default_steps : 4,
     min_steps: Number.isInteger(value?.min_steps) ? value.min_steps : 2,
     max_steps: Number.isInteger(value?.max_steps) ? value.max_steps : 8,
+    supports_reference_images: value?.supports_reference_images === true,
+    max_reference_images: Number.isInteger(value?.max_reference_images) ? Math.max(0, value.max_reference_images) : 0,
+    reference_strength_mode: typeof value?.reference_strength_mode === 'string' ? value.reference_strength_mode : 'none',
+    supported_reference_strengths: Array.isArray(value?.supported_reference_strengths)
+      ? value.supported_reference_strengths.filter((item: unknown): item is string => typeof item === 'string') : [],
     sizes: Array.isArray(value?.sizes)
       ? value.sizes.filter((size: any) => (
           typeof size?.aspect_ratio === 'string' && size.aspect_ratio.trim().length > 0
@@ -1323,6 +1404,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
   height?: number
   seed?: number
   requestIdentity?: string
+  referenceAssetIds?: string[]
 }): string {
   const hasDimensions = Number.isInteger(input.width) && input.width! > 0
     && Number.isInteger(input.height) && input.height! > 0
@@ -1335,6 +1417,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
     height: hasDimensions ? input.height : null,
     seed: input.seed ?? null,
     request_identity: input.requestIdentity || null,
+    reference_asset_ids: input.referenceAssetIds || [],
   })).digest('hex')
   return `story-image-${digest.slice(0, 44)}`
 }
@@ -1469,6 +1552,7 @@ async function generateImageWithGenStudioAdmitted(
       ? { width: request.width, height: request.height }
       : {}),
     ...(request.seed === undefined ? {} : { seed: request.seed }),
+    ...(request.referenceAssetIds?.length ? { reference_asset_ids: request.referenceAssetIds } : {}),
   }
   const idempotencyKey = buildGenStudioImageIdempotencyKey({
     prompt,
@@ -1479,6 +1563,7 @@ async function generateImageWithGenStudioAdmitted(
     height: request.height,
     seed: request.seed,
     requestIdentity: request.requestIdentity,
+    referenceAssetIds: request.referenceAssetIds,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS

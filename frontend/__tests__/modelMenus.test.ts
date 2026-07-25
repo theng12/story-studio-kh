@@ -65,12 +65,14 @@ describe('shared model menus', () => {
     assert.match(appSettings, /delete customerModel\.execution_label/)
   })
 
-  test('image generator is prompt-to-image only and removes retired reference-image controls', () => {
+  test('thumbnail generator enables reference guidance only for qualified GenStudio models', () => {
     assert.doesNotMatch(imageGenerator, /Reference-image generation is coming soon\./)
     assert.doesNotMatch(imageGenerator, /:disabled="tab\.comingSoon"/)
-    assert.match(imageGenerator, /image-mode="text2img"/)
-    assert.match(imageGenerator, /image_mode: _imageMode/)
-    assert.match(imageGenerator, /reference_sources: _referenceSources/)
+    assert.match(imageGenerator, /thumbnailReferenceActive \? 'img2img' : 'text2img'/)
+    assert.match(imageGenerator, /thumbnail_reference_asset/)
+    assert.match(imagePicker, /supports_reference_images/)
+    assert.match(imagePicker, /max_reference_images/)
+    assert.match(imagePicker, /chargeable/)
   })
 
   test('image generation quality is automatic and never persists a manual step count', () => {

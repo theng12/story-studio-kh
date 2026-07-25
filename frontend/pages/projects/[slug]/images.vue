@@ -64,10 +64,11 @@
             v-model="activeForm.model"
             :project-slug="slug"
             :image-models="config?.image_models || {}"
-            image-mode="text2img"
+            :image-mode="thumbnailReferenceActive ? 'img2img' : 'text2img'"
           />
           <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
-            Tip: Use a higher-quality model for eye-catching thumbnails
+            <template v-if="thumbnailReferenceActive">Reference-guided generation · your image is used privately as a composition reference and is not sent as a public URL.</template>
+            <template v-else>Tip: Use a higher-quality model for eye-catching thumbnails</template>
           </span>
           <!-- Prompt-character cap indicator. Surfaces the documented limit
                for the active model so users know how long their image
@@ -224,6 +225,7 @@
       :refresh-key="igPanelRefreshKey"
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
+      :thumbnail-reference-asset="(config as any)?.thumbnail_reference_asset || null"
       :pinned-filename="pinnedThumbnailFilename"
       @open-preview="openLightboxAt"
       @refresh="onPanelRefresh"
@@ -675,6 +677,7 @@ useRememberedForm('images', slug, form, { include: ['thumbnail', 'scene'] })
 const activeForm = computed<ImagesSubForm>(() =>
   form.mode === 'thumbs' ? form.thumbnail : form.scene,
 )
+const thumbnailReferenceActive = computed(() => form.mode === 'thumbs' && !!(config.value as any)?.thumbnail_reference_asset?.id)
 
 // Hydrate the selected episode so child components + computeds can read
 // the human-readable title (resolveEpisodePaths needs it on the prompt-
@@ -1582,9 +1585,8 @@ function generationParams(forceOverride?: boolean) {
     model: activeForm.value.model,
     mode: form.mode,
     aspect_ratio: activeForm.value.aspect_ratio,
-    // Image-to-image is retired from this workspace. Persisted legacy values
-    // are healed above, and every new request is explicitly prompt-to-image.
-    image_mode: 'text2img',
+    image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
+    ...(thumbnailReferenceActive.value ? { thumbnail_reference_asset: (config.value as any).thumbnail_reference_asset } : {}),
     force,
   }
   // Forward a tier only when the active model has tiers.

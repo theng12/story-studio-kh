@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.729 — 2026-07-25
+
+**Thumbnail references can now be analysed privately with GenStudio vision models.**
+
+- Adds a vision-only model picker for thumbnail-reference analysis; text-only
+  models never appear there.
+- Saves the imported original with the project and stores its reusable
+  composition brief in Thumbnail Prompt presets and Pipeline snapshots.
+- Uploads a private GenStudio source asset only for analysis, never a local
+  path, public URL, or browser blob.
+- Adds **Reference-guided generation** in Thumbnail Generator: it filters to
+  chargeable image models that explicitly accept one private reference asset,
+  preserves an original-adaptation prompt, and refreshes an expired private
+  upload once without falling back to text-to-image.
+
+---
+
 ## v1.0.728 — 2026-07-25
 
 **Thumbnail recipes now have their own scalable browsing library.**

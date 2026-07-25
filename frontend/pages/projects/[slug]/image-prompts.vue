@@ -177,7 +177,7 @@
             </button>
 
             <ModelMenu
-              v-if="visionModels.length"
+              v-if="thumbnailVisionModels.length"
               v-model="visionModel"
               class="vision-model-select"
               :options="visionModelMenuOptions"
@@ -506,25 +506,28 @@
             >
               <LoadingSpinner v-if="extractingThumbRef" size="sm" />
               <span v-else aria-hidden="true">📷</span>
-              {{ form.thumbnail.thumb_reference_style ? 'Change reference thumbnail…' : 'Extract style from a reference thumbnail…' }}
+              {{ form.thumbnail.thumb_reference_asset ? 'Change reference thumbnail…' : 'Analyse a reference thumbnail…' }}
             </button>
             <button
-              v-if="form.thumbnail.thumb_reference_style"
+              v-if="form.thumbnail.thumb_reference_asset"
               type="button"
               class="btn btn-sm btn-secondary"
-              title="Clear the reference style"
-              @click="form.thumbnail.thumb_reference_style = ''"
+              title="Clear the saved reference and its composition brief"
+              @click="clearThumbnailReference"
             >
               ✕ Clear
             </button>
           </div>
           <textarea
-            v-if="form.thumbnail.thumb_reference_style"
+            v-if="form.thumbnail.thumb_reference_asset"
             v-model="form.thumbnail.thumb_reference_style"
             class="textarea mt-1"
             rows="3"
             placeholder="Extracted reference style (editable)…"
           />
+          <p v-if="form.thumbnail.thumb_reference_asset" class="text-muted text-xs hint-line">
+            {{ form.thumbnail.thumb_reference_asset.filename }} · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }}. Saved with this project for presets and Pipeline runs.
+          </p>
         </div>
 
         <!-- Randomize + Surprise Me: full-size like the Ideas generator's -->
@@ -651,7 +654,7 @@
         </p>
       </div>
 
-      <div v-if="visionModels.length" class="form-group mt-2">
+      <div v-if="thumbnailVisionModels.length" class="form-group mt-2">
         <label>Reference image <span class="text-muted">(optional)</span></label>
         <div class="flex gap-2 items-center flex-wrap">
           <button
@@ -662,19 +665,31 @@
           >
             <LoadingSpinner v-if="extractingThumbRef" size="sm" />
             <span v-else aria-hidden="true">📷</span>
-            {{ form.thumbnail.thumb_reference_style ? 'Change reference…' : 'Use a reference image…' }}
+            {{ form.thumbnail.thumb_reference_asset ? 'Change reference…' : 'Use a reference image…' }}
           </button>
           <button
-            v-if="form.thumbnail.thumb_reference_style"
+            v-if="form.thumbnail.thumb_reference_asset"
             type="button"
             class="btn btn-ghost"
-            @click="form.thumbnail.thumb_reference_style = ''"
+            @click="clearThumbnailReference"
           >
             Remove reference
           </button>
         </div>
         <p class="text-muted text-xs hint-line">
           Story Studio extracts visual style and thumbnail composition. It does not copy the image's text, logo, or subject.
+        </p>
+        <ModelMenu
+          v-model="thumbnailVisionModel"
+          class="vision-model-select mt-1"
+          :options="thumbnailVisionModelMenuOptions"
+          media-type="llm"
+          title="Thumbnail reference analysis model"
+          search-placeholder="Search vision models…"
+          :disabled="extractingThumbRef"
+        />
+        <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
+          {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
         </p>
       </div>
 
@@ -1013,6 +1028,24 @@ const customStyles = computed<StylePresetMeta[]>(
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
 interface VisionModelCap { id: string; available: boolean }
+interface ThumbnailVisionModel {
+  id: string
+  display_name: string
+  supported_detail_levels: Array<'low' | 'high' | 'auto'>
+  max_input_images: number
+  accepted_image_mime_types: string[]
+  max_image_bytes: number
+  max_image_dimension: number
+}
+interface ThumbnailReferenceAsset {
+  id: string
+  filename: string
+  sha256: string
+  reframing_prompt: string
+  analysis_model_name: string
+  analyzed_at: string
+  [key: string]: any
+}
 const extracting = ref(false)
 const referenceImagePath = ref<string | null>(null)
 const lastAnalyzedAt = ref<string | null>(null)
@@ -1031,6 +1064,17 @@ const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
   disabledReason: model.available ? undefined : 'This GenStudio model is currently unavailable.',
   badges: [{ label: 'Vision', tone: 'info' as const }],
 })))
+const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
+const thumbnailVisionModel = ref('')
+const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => ({
+  id: model.id,
+  label: model.display_name,
+  group: 'GenStudio KH · Vision only',
+  provider: 'GenStudio KH',
+  meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
+  badges: [{ label: 'Vision', tone: 'info' as const }, { label: 'JSON', tone: 'neutral' as const }],
+})))
+const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
 // Session history
 interface HistoryEntry {
@@ -1150,6 +1194,7 @@ type ThumbnailForm = SharedFormFields & {
   thumb_title_mode: 'ai'
   thumb_art_direction: string
   thumb_reference_style: string
+  thumb_reference_asset: ThumbnailReferenceAsset | null
   thumb_creative_mode: 'strict' | 'guided' | 'open'
   thumb_strategy: 'auto' | 'character' | 'object' | 'environment' | 'typographic' | 'mystery' | 'documentary'
   thumb_creative_direction: string
@@ -1181,6 +1226,7 @@ const form = reactive({
     thumb_title_mode: 'ai',
     thumb_art_direction: '',
     thumb_reference_style: '',
+    thumb_reference_asset: null,
     thumb_creative_mode: 'guided',
     thumb_strategy: 'auto',
     thumb_creative_direction: '',
@@ -1633,6 +1679,7 @@ onMounted(async () => {
     thumbnailPresets.load(),
     scenePresets.load(),
     loadVisionCaps(),
+    loadThumbnailVisionModels(),
   ])
   try {
     const effective = await get<{ template: { id: string; name: string } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
@@ -1679,6 +1726,16 @@ async function loadVisionCaps() {
       visionModel.value = firstAvailable?.id || data.default
     }
   } catch { /* tolerate — keep default */ }
+}
+
+async function loadThumbnailVisionModels() {
+  try {
+    const data = await get<{ models: ThumbnailVisionModel[] }>(`/projects/${slug.value}/thumbnail-reference/vision-models`)
+    thumbnailVisionModels.value = Array.isArray(data.models) ? data.models : []
+    if (!thumbnailVisionModels.value.some(model => model.id === thumbnailVisionModel.value)) {
+      thumbnailVisionModel.value = thumbnailVisionModels.value[0]?.id || ''
+    }
+  } catch { thumbnailVisionModels.value = [] }
 }
 
 async function collapseToPortablePath(input: string): Promise<string> {
@@ -1777,22 +1834,29 @@ async function extractThumbReferenceStyle() {
       ],
     })
     if (!r.path) return
-    const portablePath = await collapseToPortablePath(r.path)
     extractingThumbRef.value = true
-    const data = await post<{ style_text: string; model_used: string }>(
-      `/projects/${slug.value}/analyze-style`,
-      {
-        image_path: portablePath,
-        model: visionModel.value,
-        focus: 'YouTube thumbnail: focal subject, composition, lighting, color palette, mood, and title-text treatment',
-      },
+    if (!thumbnailVisionModel.value) throw new Error('No GenStudio vision model is currently available for thumbnail analysis.')
+    const data = await post<{ reference: ThumbnailReferenceAsset }>(
+      `/projects/${slug.value}/thumbnail-reference/analyze`,
+      { source_path: r.path, model_id: thumbnailVisionModel.value },
     )
-    form.thumbnail.thumb_reference_style = data.style_text
-    success(`Reference thumbnail style extracted via ${data.model_used}`)
+    form.thumbnail.thumb_reference_asset = data.reference
+    form.thumbnail.thumb_reference_style = data.reference.reframing_prompt
+    success(`Composition reference analysed via ${data.reference.analysis_model_name}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Reference style extraction failed')
   } finally {
     extractingThumbRef.value = false
+  }
+}
+
+async function clearThumbnailReference() {
+  form.thumbnail.thumb_reference_asset = null
+  form.thumbnail.thumb_reference_style = ''
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { thumbnail_reference_asset: null })
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Reference was cleared from this preset, but could not clear the project default.')
   }
 }
 

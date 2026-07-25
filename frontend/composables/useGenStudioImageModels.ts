@@ -11,6 +11,7 @@ export interface GenStudioImageModelInfo {
   display_name: string
   description?: string
   available: boolean
+  chargeable: boolean
   qualification_only: boolean
   unlimited_relaxed?: boolean
   aspect_ratios: string[]
@@ -18,6 +19,10 @@ export interface GenStudioImageModelInfo {
   default_steps: number
   min_steps: number
   max_steps: number
+  supports_reference_images: boolean
+  max_reference_images: number
+  reference_strength_mode: string
+  supported_reference_strengths: string[]
   sizes?: GenStudioImageSize[]
   legacy_ids?: string[]
 }

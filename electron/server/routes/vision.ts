@@ -10,10 +10,127 @@
  * or local model directly.
  */
 import { Router } from 'express'
+import fs from 'fs/promises'
+import path from 'path'
+import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { callChatWithGenStudio, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
 
 export const router = Router()
+
+type Detail = 'low' | 'high' | 'auto'
+function eligibleThumbnailVisionModel(model: GenStudioChatModel): boolean {
+  return model.available && model.supports_vision && model.max_input_images >= 1 && model.supports_structured_output
+    && model.supported_detail_levels.some(level => level === 'high' || level === 'auto' || level === 'low')
+}
+function safeDetail(model: GenStudioChatModel): Detail {
+  if (model.supported_detail_levels.includes('high')) return 'high'
+  if (model.supported_detail_levels.includes('auto')) return 'auto'
+  return 'low'
+}
+function imageMime(filename: string): string {
+  switch (path.extname(filename).toLowerCase()) {
+    case '.png': return 'image/png'
+    case '.jpg': case '.jpeg': return 'image/jpeg'
+    case '.webp': return 'image/webp'
+    case '.gif': return 'image/gif'
+    default: return ''
+  }
+}
+function thumbnailReferenceDir(slug: string): string {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) throw new Error('Project not found')
+  return path.join(projectDir, 'thumbnail-reference-assets')
+}
+function parseComposition(raw: string): Record<string, unknown> {
+  const cleaned = raw.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '')
+  const value = JSON.parse(cleaned)
+  if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('Vision analysis did not return a JSON object')
+  return value as Record<string, unknown>
+}
+
+/**
+ * Private thumbnail-reference analysis. The local source is copied into the
+ * project first; only the binary bytes, never its path, go to GenStudio.
+ * The saved Story asset survives a GenStudio asset expiry and is therefore
+ * safe to put in a named preset or a queued Pipeline snapshot.
+ */
+router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    const models = (await listChatModels(apiKey)).filter(eligibleThumbnailVisionModel).map(model => ({
+      id: model.id, display_name: model.display_name, supported_detail_levels: model.supported_detail_levels,
+      max_input_images: model.max_input_images, accepted_image_mime_types: model.accepted_image_mime_types,
+      max_image_bytes: model.max_image_bytes, max_image_dimension: model.max_image_dimension,
+    }))
+    res.json({ models })
+  } catch (error: any) {
+    res.status(502).json({ detail: error?.message || 'Could not load GenStudio vision models.' })
+  }
+})
+
+router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path.trim() : ''
+  const modelId = typeof req.body?.model_id === 'string' ? req.body.model_id.trim() : ''
+  if (!sourcePath || !modelId) return res.status(400).json({ detail: 'source_path and model_id are required' })
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
+    const model = (await listChatModels(apiKey)).find(item => item.id === modelId && eligibleThumbnailVisionModel(item))
+    if (!model) return res.status(422).json({ detail: 'Select a currently available vision model that supports structured JSON output.' })
+    const mime = imageMime(sourcePath)
+    if (!mime || !model.accepted_image_mime_types.includes(mime)) {
+      return res.status(422).json({ detail: `This model accepts ${model.accepted_image_mime_types.join(', ') || 'no published image formats'}, not this file type.` })
+    }
+    const bytes = await fs.readFile(sourcePath)
+    if (!bytes.length) return res.status(422).json({ detail: 'Reference image is empty.' })
+    if (model.max_image_bytes > 0 && bytes.length > model.max_image_bytes) {
+      return res.status(422).json({ detail: `Reference image exceeds this model’s ${(model.max_image_bytes / 1024 / 1024).toFixed(1)} MB limit.` })
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    const dir = thumbnailReferenceDir(slug)
+    await fs.mkdir(dir, { recursive: true })
+    const extension = path.extname(sourcePath).toLowerCase()
+    const id = `thumbref-${randomUUID()}`
+    const storedPath = path.join(dir, `${id}${extension}`)
+    await fs.copyFile(sourcePath, storedPath)
+    const remote = await uploadImageSourceWithGenStudio(apiKey, storedPath)
+    if (model.max_image_dimension > 0 && Math.max(remote.width, remote.height) > model.max_image_dimension) {
+      await fs.rm(storedPath, { force: true })
+      return res.status(422).json({ detail: `Reference image exceeds this model’s ${model.max_image_dimension}px dimension limit.` })
+    }
+    const result = await callChatWithGenStudio(apiKey, {
+      modelId: model.id,
+      system: 'You are a thumbnail composition analyst. Analyse visual composition, hierarchy, framing, text placement, palette, lighting, and style cues. Do not identify or imitate brands, logos, or copyrighted characters. Return only one JSON object.',
+      userMessage: 'Analyse this thumbnail as a reusable composition reference. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe the composition without naming the original work, brand, or creator.',
+      temperature: 0.2, topP: 1, maxOutputTokens: 1200, jsonObject: true,
+      inputImage: { assetId: remote.id, detail: safeDetail(model) },
+      requestIdentity: `thumbnail-reference:${slug}:${sha256}:${model.id}`,
+    })
+    const analysis = parseComposition(result.text)
+    const reframingPrompt = typeof analysis.reframing_prompt === 'string' ? analysis.reframing_prompt.trim() : ''
+    if (!reframingPrompt) throw new Error('Vision analysis is missing reframing_prompt.')
+    const reference = {
+      id, filename: path.basename(storedPath), sha256, mime_type: mime, size_bytes: bytes.length,
+      width: remote.width, height: remote.height, analysis, reframing_prompt: reframingPrompt,
+      analysis_model_id: model.id, analysis_model_name: model.display_name, analyzed_at: new Date().toISOString(),
+    }
+    await fs.writeFile(path.join(dir, `${id}.json`), JSON.stringify(reference, null, 2), 'utf8')
+    // The active channel reference is intentionally project-owned. Prompt and
+    // image-generator presets may carry the same record, while Pipeline can
+    // still resolve this durable fallback after a restart.
+    await pm.updateConfig(slug, { thumbnail_reference_asset: reference } as any)
+    res.json({ reference, analysis_job_id: result.jobId })
+  } catch (error: any) {
+    res.status(502).json({ detail: error?.message || 'Thumbnail reference analysis failed.' })
+  }
+})
 
 router.post('/projects/:slug/analyze-style', async (req, res) => {
   const { slug } = req.params
