@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.737 — 2026-07-25
+
+**What’s New is now a proper release reader, not a narrow truncated list.**
+
+- Expands to a large, window-adaptive reading layout on desktop and uses the
+  available height safely on smaller windows.
+- Always shows the current release in full.
+- Gives long older releases an explicit **View full release / Show less**
+  control instead of silently clipping their notes.
+- Adds **View all releases** for loading the extended changelog history when
+  the default recent list is not enough.
+
+---
+
 ## v1.0.736 — 2026-07-25
 
 **Metadata is now a Formula-led YouTube publishing flow instead of a collection of old per-format templates.**

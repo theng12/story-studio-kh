@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   MAX_WHATS_NEW_ENTRIES,
+  MAX_WHATS_NEW_REQUEST_LIMIT,
+  MAX_WHATS_NEW_REQUEST_OFFSET,
   parseChangelog,
 } from '../routes/changelog.js'
 
@@ -28,4 +30,14 @@ test('What\'s New retains every entry when the changelog has fewer than 20', () 
     entries.map(entry => entry.version),
     ['1.0.3', '1.0.2', '1.0.1'],
   )
+})
+
+test('expanded changelog reads can request a larger bounded release history', () => {
+  const entries = parseChangelog(makeChangelog(MAX_WHATS_NEW_REQUEST_LIMIT + 10), MAX_WHATS_NEW_REQUEST_LIMIT + 1)
+  assert.equal(entries.length, MAX_WHATS_NEW_REQUEST_LIMIT + 1)
+  assert.equal(entries.at(-1)?.version, '1.0.10')
+})
+
+test('release history paging keeps enough headroom for the bounded offset', () => {
+  assert.ok(MAX_WHATS_NEW_REQUEST_OFFSET > MAX_WHATS_NEW_REQUEST_LIMIT)
 })

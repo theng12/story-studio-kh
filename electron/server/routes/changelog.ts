@@ -29,6 +29,8 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 export const MAX_WHATS_NEW_ENTRIES = 20
+export const MAX_WHATS_NEW_REQUEST_LIMIT = 500
+export const MAX_WHATS_NEW_REQUEST_OFFSET = 50_000
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -100,15 +102,31 @@ export function parseChangelog(
   return entries
 }
 
-router.get('/changelog', async (_req, res) => {
+router.get('/changelog', async (req, res) => {
   try {
     const p = await resolveChangelogPath()
     if (!p) {
-      return res.json({ entries: [], source: null, hint: 'CHANGELOG.md not found.' })
+      return res.json({ entries: [], has_more: false, source: null, hint: 'CHANGELOG.md not found.' })
     }
     const raw = await fs.readFile(p, 'utf-8')
-    const entries = parseChangelog(raw)
-    res.json({ entries, source: p })
+    const requested = Number.parseInt(String(req.query.limit || ''), 10)
+    const limit = Number.isFinite(requested)
+      ? Math.max(1, Math.min(MAX_WHATS_NEW_REQUEST_LIMIT, requested))
+      : MAX_WHATS_NEW_ENTRIES
+    const requestedOffset = Number.parseInt(String(req.query.offset || ''), 10)
+    const offset = Number.isFinite(requestedOffset)
+      ? Math.max(0, Math.min(MAX_WHATS_NEW_REQUEST_OFFSET, requestedOffset))
+      : 0
+    // Read one extra entry so the client can offer another explicit page.
+    // This avoids silently truncating the changelog as it grows over time.
+    const allEntries = parseChangelog(raw, offset + limit + 1)
+    const entries = allEntries.slice(offset, offset + limit)
+    res.json({
+      entries,
+      has_more: allEntries.length > offset + entries.length,
+      next_offset: offset + entries.length,
+      source: p,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to read changelog'))
   }

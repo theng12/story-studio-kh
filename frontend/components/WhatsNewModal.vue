@@ -1,7 +1,8 @@
 <template>
   <Modal
     :visible="modal.isOpen.value"
-    size="lg"
+    size="xxl"
+    dialog-class="whats-new-dialog"
     labelledby="whats-new-title"
     @close="onClose"
   >
@@ -17,7 +18,7 @@
     </header>
 
     <p class="text-muted modal-subhead">
-      Recent releases. <strong>You're on v{{ currentVersion }}</strong>.
+      Full release notes, sized to your window. <strong>You're on v{{ currentVersion }}</strong>.
       Closing this dialog marks v{{ currentVersion }} as seen so it won't auto-show again
       until the next upgrade.
     </p>
@@ -26,7 +27,7 @@
 
     <div v-else-if="error" class="modal-error">
       <p>{{ error }}</p>
-      <button class="btn btn-secondary btn-sm" @click="load">↻ Retry</button>
+      <button class="btn btn-secondary btn-sm" @click="() => load()">↻ Retry</button>
     </div>
 
     <div v-else-if="!entries.length" class="text-muted modal-loading">
@@ -48,8 +49,23 @@
         <!-- Markdown body, rendered via tiny inline transformer. The escape-
              then-replace pattern is safe (we only re-introduce explicit tags
              after escaping the input). -->
-        <div class="wnm-entry-body" v-html="renderMd(entry.body_markdown)"></div>
+        <div
+          :class="['wnm-entry-body', { 'wnm-entry-body-collapsed': isCollapsible(entry) && !isExpanded(entry) }]"
+          v-html="renderMd(entry.body_markdown)"
+        ></div>
+        <button
+          v-if="isCollapsible(entry)"
+          type="button"
+          class="wnm-expand"
+          :aria-expanded="isExpanded(entry)"
+          @click="toggleEntry(entry.version)"
+        >{{ isExpanded(entry) ? 'Show less' : 'View full release' }}</button>
       </article>
+      <div v-if="hasMore" class="wnm-more-releases">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingMore" @click="loadMoreReleases">
+          {{ loadingMore ? 'Loading more releases…' : entries.length > 20 ? 'View 500 more releases' : 'View all releases' }}
+        </button>
+      </div>
     </div>
 
     <footer class="modal-footer">
@@ -73,22 +89,50 @@ interface ChangelogEntry {
 
 const entries = ref<ChangelogEntry[]>([])
 const loading = ref(false)
+const loadingMore = ref(false)
 const error = ref<string | null>(null)
+const hasMore = ref(false)
+const nextOffset = ref(0)
+const expandedVersions = ref(new Set<string>())
 
 const { public: pubCfg } = useRuntimeConfig()
 const currentVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 
-async function load() {
+async function load(limit = 20, offset = 0, append = false) {
   loading.value = true
   error.value = null
   try {
-    const r = await get<{ entries: ChangelogEntry[] }>('/changelog')
-    entries.value = r.entries || []
+    const r = await get<{ entries: ChangelogEntry[]; has_more?: boolean; next_offset?: number }>(`/changelog?limit=${limit}&offset=${offset}`)
+    entries.value = append ? [...entries.value, ...(r.entries || [])] : (r.entries || [])
+    hasMore.value = Boolean(r.has_more)
+    nextOffset.value = Number.isFinite(r.next_offset) ? Number(r.next_offset) : entries.value.length
   } catch (e: any) {
     error.value = e?.data?.detail || e?.message || 'Failed to load changelog'
   } finally {
     loading.value = false
   }
+}
+
+function isCollapsible(entry: ChangelogEntry): boolean {
+  // The current release always opens in full. Older notes only collapse when
+  // they are genuinely long, and stay one click away instead of being cut off.
+  return entry.version !== currentVersion.value && (entry.body_markdown.length > 650 || entry.body_markdown.split(/\r?\n/).length > 8)
+}
+
+function isExpanded(entry: ChangelogEntry): boolean {
+  return entry.version === currentVersion.value || expandedVersions.value.has(entry.version)
+}
+
+function toggleEntry(version: string): void {
+  const next = new Set(expandedVersions.value)
+  if (next.has(version)) next.delete(version)
+  else next.add(version)
+  expandedVersions.value = next
+}
+
+async function loadMoreReleases(): Promise<void> {
+  loadingMore.value = true
+  try { await load(500, nextOffset.value, true) } finally { loadingMore.value = false }
 }
 
 // Lazy-load on first open. Subsequent opens reuse the cached list.
@@ -187,9 +231,9 @@ function renderMd(md: string): string {
   font-size: 13px;
 }
 .wnm-entries {
-  max-height: 60vh;
+  max-height: calc(100dvh - 230px);
   overflow-y: auto;
-  padding-right: 6px;
+  padding: 0 10px 0 2px;
 }
 .wnm-entry {
   padding: 14px 0;
@@ -243,11 +287,33 @@ function renderMd(md: string): string {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-xs);
 }
+.wnm-entry-body-collapsed {
+  max-height: 10.2em;
+  overflow: hidden;
+  position: relative;
+}
+.wnm-entry-body-collapsed::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 3em;
+  background: linear-gradient(transparent, var(--bg-secondary));
+}
+.wnm-entry-current .wnm-entry-body-collapsed::after { background: linear-gradient(transparent, var(--accent-dim)); }
+.wnm-expand { margin-top: 8px; border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.wnm-expand:hover { text-decoration: underline; }
+.wnm-more-releases { padding: 14px 0 4px; text-align: center; }
 .modal-footer {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+:global(.modal-dialog.whats-new-dialog) { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); }
+@media (max-width: 680px) {
+  :global(.modal-dialog.whats-new-dialog) { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .wnm-entries { max-height: calc(100dvh - 210px); padding-right: 4px; }
+  .wnm-entry-head { gap: 7px; flex-wrap: wrap; }
 }
 </style>
