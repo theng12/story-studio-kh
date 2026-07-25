@@ -410,15 +410,6 @@
             <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
           </div>
           <div class="form-group">
-            <label>Thumbnail Recipe</label>
-            <button type="button" class="btn btn-secondary" @click="showThumbnailRecipeCatalog = true">
-              {{ selectedThumbnailRecipeName || 'Browse Thumbnail Catalog…' }}
-            </button>
-            <p class="text-muted text-xs hint-line">
-              A recipe controls repeatable composition and can reserve a safe headline band. Your visual art style remains separate.
-            </p>
-          </div>
-          <div class="form-group">
             <label>Text Style</label>
             <select v-model="form.thumbnail.thumb_text_style" class="select">
               <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
@@ -591,7 +582,16 @@
         </div>
       </div>
       <div class="form-group mt-2">
-        <label>Look</label>
+        <label>Thumbnail recipe</label>
+        <button type="button" class="btn btn-secondary" @click="showThumbnailRecipeCatalog = true">
+          {{ selectedThumbnailRecipeName || 'Browse Thumbnail Catalog…' }}
+        </button>
+        <p class="text-muted text-xs hint-line">
+          Choose the repeatable thumbnail format first: composition, title band, and object hierarchy. Your visual art style below remains separate.
+        </p>
+      </div>
+      <div class="form-group mt-2">
+        <label>Visual art style</label>
         <StylePicker
           :slug="slug"
           :active-style-bible="form.thumbnail.style_tag"

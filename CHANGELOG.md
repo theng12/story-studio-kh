@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.726 — 2026-07-25
+
+**The Thumbnail Recipe Catalog is now visible where you create prompts.**
+
+- Moves **Thumbnail recipe** and **Browse Thumbnail Catalog** into the live
+  Thumbnail Prompts workspace, directly above the separate Visual art style
+  picker.
+- Makes the intended order clear: select a repeatable format first, then keep
+  or change the art style independently.
+
+---
+
 ## v1.0.725 — 2026-07-25
 
 **Thumbnail recipes now render complete AI-generated thumbnails.**
