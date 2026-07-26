@@ -8,6 +8,8 @@ import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   DEFAULT_CONTEXTUAL_CUE_CONFIG,
   normalizeContextualCueConfig,
+  normalizeContextualCueProposalSettings,
+  normalizeContextualCueTemplate,
   readContextualCueTimeline,
   validateContextualCueTimeline,
   writeContextualCueTimeline,
@@ -60,13 +62,14 @@ router.post('/projects/:slug/contextual-cues/:episodeId/propose', async (req, re
   if (jq.isDuplicate(slug, episodeId, 'contextual_cues' as JobType)) {
     return res.status(409).json({ detail: `Contextual Cues is already running for ${episodeId}.` })
   }
-  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : undefined
+  const settings = normalizeContextualCueProposalSettings(req.body)
+  if (!settings.model) return res.status(409).json({ detail: 'Choose a live GenStudio model in Contextual Cues before proposing cues.' })
   const job = jq.enqueue({
     project_slug: slug,
     type: 'contextual_cues' as JobType,
     episode_id: episodeId,
     title: `Propose contextual cues — ${episodeId}`,
-    params: { episode_id: episodeId, ...(model ? { model } : {}) },
+    params: { episode_id: episodeId, ...settings },
   })
   res.status(201).json(job)
 })
@@ -85,7 +88,7 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
       start_sec: Number(cue.start_sec), end_sec: Number(cue.end_sec),
       kind: cue.kind === 'location_date' || cue.kind === 'person' || cue.kind === 'chapter' ? cue.kind : 'historical_context',
       placement: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(cue.placement) ? cue.placement : 'top-right',
-      template: 'documentary-label', entrance: cue.entrance === 'slide' || cue.entrance === 'dissolve' ? cue.entrance : 'fade',
+      template: normalizeContextualCueTemplate(cue.template), entrance: cue.entrance === 'slide' || cue.entrance === 'dissolve' ? cue.entrance : 'fade',
       exit: cue.exit === 'slide' || cue.exit === 'dissolve' ? cue.exit : 'fade',
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
       created_at: typeof cue.created_at === 'string' ? cue.created_at : now, updated_at: now,

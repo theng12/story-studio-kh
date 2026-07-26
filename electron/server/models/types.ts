@@ -3377,6 +3377,8 @@ export type ContextualCuePlacement = 'top-left' | 'top-right' | 'bottom-left' | 
 export type ContextualCueTransition = 'fade' | 'slide' | 'dissolve'
 export type ContextualCueStatus = 'proposed' | 'approved' | 'disabled'
 export type ContextualCueDensity = 'restrained' | 'standard' | 'editorial'
+/** A reviewed visual treatment; never an instruction for Video Assembly to reinterpret a cue. */
+export type ContextualCueTemplate = 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate'
 
 export interface ContextualCue {
   id: string
@@ -3387,7 +3389,7 @@ export interface ContextualCue {
   subtitle?: string
   kind: ContextualCueKind
   placement: ContextualCuePlacement
-  template: 'documentary-label'
+  template: ContextualCueTemplate
   entrance: ContextualCueTransition
   exit: ContextualCueTransition
   status: ContextualCueStatus
@@ -3415,6 +3417,8 @@ export interface ContextualCueProposalSettings {
   model: string
   density: ContextualCueDensity
   placement: ContextualCuePlacement
+  /** Explicit opt-in for trusted presets. Defaults to human review. */
+  auto_approve: boolean
 }
 
 /** Options passed to the scene planner. */

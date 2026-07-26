@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
+  normalizeContextualCueProposalSettings,
   validateContextualCueTimeline,
 } from '../services/contextual-cues.js'
 
@@ -26,13 +27,24 @@ function cue(overrides: Record<string, unknown> = {}) {
 describe('Contextual Cues contract', () => {
   test('disabled projects normalize to a zero-impact safe default', () => {
     assert.deepEqual(normalizeContextualCueConfig(undefined), {
-      enabled: false, density: 'restrained', placement: 'top-right', template: 'documentary-label',
+      enabled: false,
+    })
+  })
+
+  test('proposal controls use their own safe defaults instead of Scene Plan settings', () => {
+    assert.deepEqual(normalizeContextualCueProposalSettings(undefined), {
+      model: '', density: 'restrained', placement: 'top-right',
+    })
+    assert.deepEqual(normalizeContextualCueProposalSettings({
+      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
+    }), {
+      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
     })
   })
 
   test('enabled projects reject unresolved proposals before assembly', () => {
     const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
-    assert.throws(() => assertContextualCueReadiness({ enabled: true, density: 'restrained', placement: 'top-right', template: 'documentary-label' }, timeline, plan), /needs review/i)
+    assert.throws(() => assertContextualCueReadiness({ enabled: true }, timeline, plan), /needs review/i)
   })
 
   test('pacing validator rejects overlap and subtitle-region collision', () => {
@@ -46,6 +58,6 @@ describe('Contextual Cues contract', () => {
   })
 
   test('disabled feature does not block Video Assembly', () => {
-    assert.deepEqual(assertContextualCueReadiness({ enabled: false, density: 'restrained', placement: 'top-right', template: 'documentary-label' }, null, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: false }, null, plan), [])
   })
 })

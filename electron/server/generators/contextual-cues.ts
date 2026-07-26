@@ -15,17 +15,20 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import {
   normalizeContextualCueConfig,
   readContextualCueTimeline,
+  normalizeContextualCueProposalSettings,
+  normalizeContextualCueTemplate,
   validateContextualCueTimeline,
   writeContextualCueTimeline,
 } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import type { ContextualCue, ContextualCueKind, Job, ScenePlan } from '../models/types.js'
+import type { ContextualCue, ContextualCueKind, ContextualCueTemplate, Job, ScenePlan } from '../models/types.js'
 
 interface CueCandidate {
   scene_id: string
   title: string
   subtitle?: string
   kind?: ContextualCueKind
+  template?: ContextualCueTemplate
   anchor_offset_sec?: number
 }
 
@@ -63,6 +66,17 @@ function safeCandidate(
   const end = Number((start + dwell).toFixed(3))
   const kind: ContextualCueKind = candidate.kind === 'location_date' || candidate.kind === 'person' || candidate.kind === 'chapter'
     ? candidate.kind : 'historical_context'
+  // The model may propose a treatment, but a missing or invalid answer gets a
+  // predictable editorial default. Every choice remains proposed until a
+  // human reviews it in the Contextual Cues workspace.
+  const inferredTemplate: ContextualCueTemplate = kind === 'location_date'
+    ? 'map-pin'
+    : kind === 'chapter'
+      ? 'chapter-plate'
+      : kind === 'person' ? 'archival-caption' : 'documentary-label'
+  const template = candidate.template
+    ? normalizeContextualCueTemplate(candidate.template)
+    : inferredTemplate
   return {
     id: `cue-${scene.id}`,
     scene_id: scene.id,
@@ -72,7 +86,7 @@ function safeCandidate(
     ...(subtitle ? { subtitle } : {}),
     kind,
     placement,
-    template: 'documentary-label',
+    template,
     entrance: 'fade',
     exit: 'dissolve',
     status: 'proposed',
@@ -106,8 +120,9 @@ export async function generateContextualCues(job: Job): Promise<void> {
   if (!plan.scenes?.length) throw new Error('Scene Plan has no scenes to annotate.')
   const config = normalizeContextualCueConfig((await getConfig(job.project_slug))?.contextual_cues)
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
-  const model = String((job.params as any)?.model || (await getConfig(job.project_slug))?.prompt_model || plan.planner_model || '').trim()
-  if (!model) throw new Error('Choose a live GenStudio text model in Scene Plan before proposing contextual cues.')
+  const settings = normalizeContextualCueProposalSettings(job.params)
+  const model = settings.model
+  if (!model) throw new Error('Choose a live GenStudio model in Contextual Cues before proposing cues.')
 
   const prior = await readContextualCueTimeline(planPath)
   const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
@@ -118,8 +133,8 @@ export async function generateContextualCues(job: Job): Promise<void> {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
     const raw = await callAi(
       model,
-      'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
-      `PACING: ${config.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
+      'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
+      `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
       {}, false,
       { slug: job.project_slug, jobId: `${job.job_id}:batch-${index + 1}`, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${index + 1}`, maxTokens: 3000, jsonMode: true, disableReasoning: true, temperature: 0.2 },
     )
@@ -128,10 +143,13 @@ export async function generateContextualCues(job: Job): Promise<void> {
   }
   const now = new Date().toISOString()
   const proposed = applySafePacing(
-    candidates.map(candidate => safeCandidate(candidate, plan, config.density, config.placement, now)).filter((cue): cue is ContextualCue => !!cue),
-    config.density,
+    candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings.placement, now)).filter((cue): cue is ContextualCue => !!cue),
+    settings.density,
     plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
   )
+  if (settings.auto_approve) {
+    for (const cue of proposed) cue.status = 'approved'
+  }
   const timeline = {
     schema_version: 1 as const,
     generated_at: now,
@@ -143,7 +161,9 @@ export async function generateContextualCues(job: Job): Promise<void> {
   await writeContextualCueTimeline(planPath, timeline)
   job.output_dir = paths.episode_dir
   job.progress = 100
-  job.result = { proposed: proposed.length, preserved: protectedCues.length }
-  job.output_lines.push(`Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
+  job.result = { proposed: settings.auto_approve ? 0 : proposed.length, approved: settings.auto_approve ? proposed.length : 0, preserved: protectedCues.length }
+  job.output_lines.push(settings.auto_approve
+    ? `Saved and auto-approved ${proposed.length} contextual cue(s) using this trusted preset. The validated timeline can continue through Pipeline.`
+    : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
   requireJobCompletion(job, { label: 'Contextual cue proposal', expected: 1, completed: 1 })
 }

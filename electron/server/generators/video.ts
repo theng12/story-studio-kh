@@ -38,6 +38,7 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
 import {
   buildColorGradingFilters,
   buildGateEnable,
@@ -4078,24 +4079,12 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // libass subtitle filters above, so each restrained label can appear only in
   // its exact reviewed window.
   if (contextualCues?.length) {
-    const escapeText = (value: string) => value
-      .replace(/\\/g, '\\\\')
-      .replace(/'/g, "\\\\'")
-      .replace(/:/g, '\\:')
-      .replace(/%/g, '\\%')
-      .replace(/\n/g, '\\n')
     for (const cue of contextualCues) {
-      const label = cue.subtitle ? `${cue.title}\n${cue.subtitle}` : cue.title
-      const top = cue.placement.startsWith('top')
-      const left = cue.placement.endsWith('left')
-      const x = left ? '56' : 'w-text_w-56'
-      const y = top ? '56' : 'h-text_h-56'
-      const next = vn()
-      const enable = `between(t,${cue.start_sec.toFixed(3)},${cue.end_sec.toFixed(3)})`
-      filterParts.push(
-        `${vLabel}drawtext=text='${escapeText(label)}':fontcolor=white:fontsize=h*0.032:line_spacing=12:box=1:boxcolor=0x111827@0.88:boxborderw=22:x=${x}:y=${y}:enable='${enable}'${next}`,
-      )
-      vLabel = next
+      for (const filter of buildContextualCueDrawtextFilters(cue)) {
+        const next = vn()
+        filterParts.push(`${vLabel}${filter}${next}`)
+        vLabel = next
+      }
     }
     job.output_lines.push(`Burning ${contextualCues.length} approved contextual cue(s) exactly as reviewed.`)
   }

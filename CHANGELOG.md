@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.744 — 2026-07-26
+
+**Contextual Cues is ready for production use.**
+
+- Moves contextual-cue proposal choices—live GenStudio model, density, and
+  safe corner—to reusable presets rather than global project state.
+- Adds the standard command bar, status guidance, and per-episode selection
+  for proposing and reviewing cues.
+- Validates that a usable live model is selected before queuing, while
+  preserving approved and excluded cues when a proposal batch refreshes.
+- Completes the type-safe proposal-settings boundary so the reviewed
+  annotation workflow builds and packages cleanly.
+
+---
+
 ## v1.0.743 — 2026-07-26
 
 **Curiosity cartoons now have their own visual style and thumbnail grammar.**

@@ -3,8 +3,10 @@ import path from 'path'
 import type {
   ContextualCue,
   ContextualCuePlacement,
+  ContextualCueProposalSettings,
   ContextualCueProjectConfig,
   ContextualCueTimeline,
+  ContextualCueTemplate,
   ScenePlan,
   VideoSubtitleConfig,
 } from '../models/types.js'
@@ -13,21 +15,31 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
 export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   enabled: false,
+}
+
+export const DEFAULT_CONTEXTUAL_CUE_PROPOSAL_SETTINGS: ContextualCueProposalSettings = {
+  model: '',
   density: 'restrained',
   placement: 'top-right',
-  template: 'documentary-label',
+  auto_approve: false,
 }
 
 export function normalizeContextualCueConfig(value: unknown): ContextualCueProjectConfig {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return {
     enabled: raw.enabled === true,
+  }
+}
+
+/** Keep user-facing proposal controls independent from old project config. */
+export function normalizeContextualCueProposalSettings(value: unknown): ContextualCueProposalSettings {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  return {
+    model: typeof raw.model === 'string' ? raw.model.trim() : '',
     density: raw.density === 'standard' || raw.density === 'editorial' ? raw.density : 'restrained',
-    // Project defaults intentionally use only subtitle-safe top corners.
-    // Per-cue bottom placement is rejected by Video Assembly whenever captions
-    // are on, so it never becomes an accidental default.
+    // Cue defaults intentionally use only subtitle-safe top corners.
     placement: raw.placement === 'top-left' ? 'top-left' : 'top-right',
-    template: 'documentary-label',
+    auto_approve: raw.auto_approve === true,
   }
 }
 
@@ -59,6 +71,12 @@ export interface ContextualCueIssue {
   detail: string
 }
 
+export function normalizeContextualCueTemplate(value: unknown): ContextualCueTemplate {
+  return value === 'map-pin' || value === 'archival-caption' || value === 'chapter-plate'
+    ? value
+    : 'documentary-label'
+}
+
 export function validateContextualCueTimeline(
   timeline: ContextualCueTimeline | null,
   plan: ScenePlan,
@@ -85,6 +103,9 @@ export function validateContextualCueTimeline(
     if (duration < 2.25 || duration > 4.5) issues.push({ cue_id: cue.id, detail: 'Cue must remain readable for 2.25–4.5 seconds.' })
     if (!cue.title.trim() || cue.title.length > 80 || (cue.subtitle?.length || 0) > 100) {
       issues.push({ cue_id: cue.id, detail: 'Cue text is empty or too long for a restrained on-screen label.' })
+    }
+    if (normalizeContextualCueTemplate(cue.template) !== cue.template) {
+      issues.push({ cue_id: cue.id, detail: 'Cue treatment is invalid.' })
     }
     if (!isPlacement(cue.placement)) issues.push({ cue_id: cue.id, detail: 'Cue placement is invalid.' })
     if (options.subtitles?.enabled && cue.placement.startsWith('bottom-')) {
