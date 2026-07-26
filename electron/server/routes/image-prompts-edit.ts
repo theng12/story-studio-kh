@@ -43,6 +43,8 @@ const RegenerateSchema = z.object({
   /** Thumbnail-only: lets the regenerated prompt carry the same guaranteed
    *  ratio and ready-to-use title enforcement the bulk generator applies. */
   aspect_ratio: z.string().optional(),
+  /** Recipe-owned copy strategy; short hooks are re-rendered as hooks, not full titles. */
+  headline_mode: z.enum(['episode-title', 'curiosity-hook']).optional(),
 })
 
 const UpdatePromptSchema = z.object({
@@ -119,6 +121,7 @@ router.post(
         windowed,
         styleTag,
         notes,
+        headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
       })
 
       const apiKeys = {
@@ -137,7 +140,8 @@ router.post(
       if (kind === 'thumbnail') {
         next.prompt = enforceThumbnailPromptElements(next.prompt, {
           aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
-          title: titleParam || currentTitle,
+          title: req.body.headline_mode === 'curiosity-hook' ? next.title || currentTitle : titleParam || currentTitle,
+          headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
         })
       }
 
@@ -231,6 +235,7 @@ function buildRegenPrompt(opts: {
   windowed: string[]
   styleTag: string
   notes?: string
+  headlineMode?: 'episode-title' | 'curiosity-hook'
 }): string {
   const kindLabel = opts.kind === 'scene' ? 'scene' : 'thumbnail'
   const peerList = opts.peers
@@ -243,7 +248,7 @@ function buildRegenPrompt(opts: {
     ? `\n\nUser feedback for this retry:\n${opts.notes.trim()}`
     : ''
   const kindSpecific = opts.kind === 'thumbnail'
-    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.`
+    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${opts.headlineMode === 'curiosity-hook' ? '\n7. Keep the current title as a truthful 1–4 word thumbnail hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
     : ''
 
   return `Regenerate a single image ${kindLabel} prompt for an episode.
@@ -263,7 +268,7 @@ REQUIREMENTS:
 3. Match the visual voice of the surrounding ${kindLabel}s — same style language, same image quality.
 4. End with this exact style tag: "${opts.styleTag || '(retain the style from the original prompt)'}"
 ${kindSpecific}
-${opts.kind === 'thumbnail' ? '7' : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.
+${opts.kind === 'thumbnail' ? (opts.headlineMode === 'curiosity-hook' ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }

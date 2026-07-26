@@ -477,9 +477,14 @@
         </div>
 
         <div class="form-group mt-2">
-          <label>Title text</label>
+          <label>{{ thumbnailHeadlineMode === 'curiosity-hook' ? 'Thumbnail hook' : 'Title text' }}</label>
           <p class="text-muted text-xs hint-line">
-            Your selected image model renders the exact episode title directly in the thumbnail using the text, font, and position controls above.
+            <template v-if="thumbnailHeadlineMode === 'curiosity-hook'">
+              This recipe generates a short, truthful curiosity hook for each variation. Review and edit the hook with its prompt before rendering; your full YouTube title stays unchanged.
+            </template>
+            <template v-else>
+              Your selected image model renders the exact episode title directly in the thumbnail using the text, font, and position controls above.
+            </template>
           </p>
         </div>
 
@@ -591,6 +596,14 @@
           :selected-recipe-id="form.thumbnail.thumbnail_template_id"
           @select="applyThumbnailRecipe"
         />
+      </div>
+      <div v-if="thumbnailHeadlineMode === 'curiosity-hook'" class="thumbnail-hook-policy mt-1">
+        <div>
+          <span>CURIOUS COPY</span>
+          <strong>Short thumbnail hook</strong>
+          <p>Each variation gets its own 1–4 word hook, generated from the episode’s real question and rendered directly inside the image.</p>
+        </div>
+        <span>Full YouTube title stays in Metadata</span>
       </div>
       <div class="form-group mt-2">
         <label>Visual art style</label>
@@ -774,6 +787,7 @@
       :title="selectedEpisode?.title || ''"
       :model="activeForm.model"
       :refresh-key="reviewRefreshKey"
+      :thumbnail-headline-mode="thumbnailHeadlineMode"
       pool="thumbnails"
     />
 
@@ -1239,6 +1253,7 @@ type ThumbnailForm = SharedFormFields & {
   thumb_font_style: string
   thumb_font_style_custom: string
   thumb_title_mode: 'ai'
+  thumb_headline_mode: 'episode-title' | 'curiosity-hook'
   thumb_art_direction: string
   thumb_reference_style: string
   thumb_reference_asset: ThumbnailReferenceAsset | null
@@ -1271,6 +1286,7 @@ const form = reactive({
     thumb_font_style: 'auto',
     thumb_font_style_custom: '',
     thumb_title_mode: 'ai',
+    thumb_headline_mode: 'episode-title' as 'episode-title' | 'curiosity-hook',
     thumb_art_direction: '',
     thumb_reference_style: '',
     thumb_reference_asset: null,
@@ -1316,6 +1332,7 @@ type SelectedThumbnailRecipe = {
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom'
     conceptGuidance?: string
+    headlineMode?: 'episode-title' | 'curiosity-hook'
   }
 }
 
@@ -1323,6 +1340,7 @@ async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<
   form.thumbnail.thumbnail_template_id = template.id
   const recipe = template.recipe
   form.thumbnail.thumb_title_mode = 'ai'
+  form.thumbnail.thumb_headline_mode = recipe?.headlineMode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title'
   if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
   if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
   if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
@@ -1378,6 +1396,9 @@ function applyThumbnailTreatment(): void {
 useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] })
 form.thumbnail.force = false
 form.thumbnail.thumb_title_mode = 'ai'
+const thumbnailHeadlineMode = computed<'episode-title' | 'curiosity-hook'>(() =>
+  form.thumbnail.thumb_headline_mode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title',
+)
 form.scene.force = false
 
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
@@ -1729,9 +1750,12 @@ onMounted(async () => {
     loadThumbnailVisionModels(),
   ])
   try {
-    const effective = await get<{ template: { id: string; name: string } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
+    const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
     if (effective.template) {
       if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
+      form.thumbnail.thumb_headline_mode = effective.template.recipe?.headlineMode === 'curiosity-hook'
+        ? 'curiosity-hook'
+        : 'episode-title'
     }
   } catch {
     // Catalog availability never blocks prompt authoring.
@@ -2124,6 +2148,7 @@ async function runGenerate(mode: PromptMode) {
       thumb_count: form.thumbnail.thumb_count,
       thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
       thumb_title_mode: 'ai',
+      thumb_headline_mode: form.thumbnail.thumb_headline_mode,
       thumb_text_style: form.thumbnail.thumb_text_style,
       thumb_text_position: form.thumbnail.thumb_text_position,
       thumb_font_style: form.thumbnail.thumb_font_style,
@@ -2231,6 +2256,25 @@ async function saveToFile() {
   }
 }
 </script>
+
+<style scoped>
+.thumbnail-hook-policy {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:10px 12px;
+  border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));
+  border-radius:10px;
+  background:color-mix(in srgb,var(--accent-dim) 60%,var(--bg-secondary));
+}
+.thumbnail-hook-policy>div { display:grid; gap:2px; }
+.thumbnail-hook-policy>div>span { color:var(--accent); font-size:var(--font-xs); font-weight:800; letter-spacing:.12em; }
+.thumbnail-hook-policy strong { font-size:13px; }
+.thumbnail-hook-policy p { margin:0; color:var(--text-secondary); font-size:var(--font-xs); line-height:1.45; }
+.thumbnail-hook-policy>span { max-width:180px; color:var(--text-muted); font-size:var(--font-xs); text-align:right; }
+@media (max-width:620px) { .thumbnail-hook-policy { align-items:flex-start; flex-direction:column; }.thumbnail-hook-policy>span { max-width:none; text-align:left; } }
+</style>
 
 <style scoped>
 /* v1.0.296 — inline rescan-from-disk hint (parity with audio.vue). */

@@ -100,6 +100,45 @@ test('recipe thumbnails instruct the image model to render the complete episode 
   assert.match(fixed, /Render the exact episode title "The Economics of a Coffee Shop" inside the image/i)
 })
 
+test('curiosity-hook recipes keep a short truthful hook separate from the full episode title', () => {
+  const directive = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'Why Do Poison Dart Frogs Carry Toxins?',
+    textStyle: 'shadow',
+    fontStyle: 'bold',
+    textPosition: 'top',
+    fmt: {
+      layout: 'hero',
+      conceptGuidance: 'One huge frog and one worried scientist.',
+      headlineMode: 'curiosity-hook',
+      headlineGuidance: 'Use 1–4 truthful words only.',
+    },
+  })
+  const fixed = enforceThumbnailPromptElements('A giant frog on a leaf.', {
+    aspectRatio: '16:9',
+    title: 'POISON OR CURE?',
+    headlineMode: 'curiosity-hook',
+  })
+  const prompt = buildThumbnailPrompt({
+    episodeId: 'EP0058',
+    title: 'Why Do Poison Dart Frogs Carry Toxins?',
+    storyContext: 'A factual biology explainer.',
+    castBlock: '',
+    count: 1,
+    styleTag: 'waxy outline cartoon',
+    aspectRatio: '16:9',
+    thumbnailDirective: directive,
+    targetNumbers: [1],
+    headlineMode: 'curiosity-hook',
+  })
+
+  assert.match(directive, /truthful, curiosity-driving thumbnail hook/i)
+  assert.match(directive, /Do not render the full episode title/i)
+  assert.match(fixed, /exact thumbnail hook "POISON OR CURE\?"/i)
+  assert.match(prompt, /Invent a truthful 1–4 word curiosity hook/i)
+  assert.match(prompt, /SHORT CURIOSITY HOOK/)
+})
+
 test('the thumbnail executor sends a thumbnail-only response contract', () => {
   const prompt = buildThumbnailPrompt({
     episodeId: 'EP0057',

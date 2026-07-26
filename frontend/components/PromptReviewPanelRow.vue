@@ -42,7 +42,7 @@
 
     <div v-if="expanded" class="prr-body">
       <div class="prr-field">
-        <label class="prr-label">Title</label>
+        <label class="prr-label">{{ titleLabel || 'Title' }}</label>
         <input v-model="draftTitle" type="text" class="input prr-input" maxlength="300" />
       </div>
       <div class="prr-field">
@@ -104,6 +104,8 @@ interface PromptRowData { number: number; title: string; prompt: string }
 const props = defineProps<{
   row: PromptRowData
   prefix: string
+  /** Lets recipe-owned thumbnail copy be named honestly without changing scene rows. */
+  titleLabel?: string
   busy: boolean
   saving?: boolean
   error: string | null

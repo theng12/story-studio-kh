@@ -91,7 +91,8 @@
         <li class="prp-section">Thumbnails</li>
         <li v-for="row in thumbnails" :key="`t-${row.number}`" class="prp-row">
           <PromptRow
-            :row="row" :prefix="'Thumbnail'"
+            :row="row" :prefix="thumbnailHeadlineMode === 'curiosity-hook' ? 'Hook' : 'Thumbnail'"
+            :title-label="thumbnailHeadlineMode === 'curiosity-hook' ? 'Thumbnail hook' : 'Title'"
             :busy="busy.has(`thumbnail-${row.number}`)"
             :saving="saving.has(`thumbnail-${row.number}`)"
             :error="errors[`thumbnail-${row.number}`] || null"
@@ -142,6 +143,8 @@ const props = defineProps<{
    *  Scene-Prompts pages pass 'thumbnails' / 'scenes' so each only lists +
    *  regenerates its own pool. Defaults to 'all' (both) for any other use. */
   pool?: 'scenes' | 'thumbnails' | 'all'
+  /** Recipe-owned copy strategy for thumbnail rows. */
+  thumbnailHeadlineMode?: 'episode-title' | 'curiosity-hook'
 }>()
 
 const { get, post, put } = useApi()
@@ -245,6 +248,7 @@ async function regenerateOne(
         current_title: payload.title,
         current_prompt: payload.prompt,
         notes: payload.notes,
+        headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
       },
     )
     // Patch the in-memory list so the card reflects the new prompt

@@ -1180,8 +1180,17 @@ export interface ThumbnailRecipeProfile {
   compositionRules?: string[]
   requiredElements?: string[]
   avoid?: string[]
-  /** The selected image model renders the complete title inside the image. */
+  /** The selected image model renders the selected headline inside the image. */
   titleMode?: 'ai'
+  /**
+   * Controls which truthful text belongs inside the finished thumbnail.
+   * Episode-title recipes preserve the familiar full-title cover treatment.
+   * Curiosity-hook recipes generate a short, editable thumbnail headline per
+   * variation while leaving the full YouTube title and metadata untouched.
+   */
+  headlineMode?: 'episode-title' | 'curiosity-hook'
+  /** Recipe-owned guardrails for generated short thumbnail hooks. */
+  headlineGuidance?: string
   defaultTextStyle?: string
   defaultFontStyle?: string
   defaultTextPosition?: 'top' | 'center' | 'bottom'
@@ -3395,9 +3404,17 @@ export interface ContextualCueTimeline {
 
 export interface ContextualCueProjectConfig {
   enabled: boolean
+}
+
+/**
+ * Reusable proposal controls for the Contextual Cues workspace. These are
+ * deliberately separate from the project-wide on/off switch: a project may
+ * be enabled while individual editors use different saved cue presets.
+ */
+export interface ContextualCueProposalSettings {
+  model: string
   density: ContextualCueDensity
   placement: ContextualCuePlacement
-  template: 'documentary-label'
 }
 
 /** Options passed to the scene planner. */

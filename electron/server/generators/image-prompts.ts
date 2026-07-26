@@ -34,6 +34,8 @@ interface ThumbnailPromptsParams {
   thumb_text_style?: string
   thumb_text_position?: string
   thumb_font_style?: string
+  /** Recipe-owned thumbnail copy strategy. The resolved recipe remains authoritative. */
+  thumb_headline_mode?: 'episode-title' | 'curiosity-hook'
   thumb_reference_style?: string
   thumb_creative_direction?: string
   /** A browsable Thumbnail Recipe Catalog id used to shape the generated prompt. */
@@ -53,6 +55,8 @@ interface ThumbnailFmt {
   avoid?: string[]
   requiredElements?: string[]
   visualStyleGuidance?: string
+  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineGuidance?: string
 }
 
 const GENERIC_THUMBNAIL_CONCEPT =
@@ -130,12 +134,16 @@ export function buildThumbnailDirective(opts: {
     ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover.'
     : 'Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.'
   const universalAvoid = annotatedCollage ? ANNOTATED_COLLAGE_AVOID : GENERIC_THUMBNAIL_AVOID
+  const headlineMode = opts.fmt?.headlineMode || 'episode-title'
+  const headlineInstruction = headlineMode === 'curiosity-hook'
+    ? `HEADLINE: invent one truthful, curiosity-driving thumbnail hook for each variation and return it in that variation's \"title\" field. Use 1–4 plain words, optionally ending with a question mark. It must sharpen the episode's real question without overstating, hiding, or changing the facts. Render that exact short hook inside the image as large, bold, highly legible display text. Do not render the full episode title, placeholder text, gibberish, a watermark, or a logo instead.`
+    : `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: \"${opts.title}\". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`
   const lines = [
     `THUMBNAIL GOAL: create a distinct, professional YouTube cover. It must communicate the episode's emotional promise at a glance on mobile.`,
     `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
     `LAYOUT: ${layoutGuidance}`,
     `Avoid: ${[...(opts.fmt?.avoid || []), ...universalAvoid].join('; ')}.`,
-    `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: "${opts.title}". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`,
+    headlineInstruction,
   ]
   const fontStyle = !opts.fontStyle || opts.fontStyle === 'auto'
     ? opts.fmt?.defaultFontStyle
@@ -157,6 +165,7 @@ export function buildThumbnailDirective(opts: {
   if (opts.fmt?.requiredElements?.length) lines.push(`REQUIRED VISUAL ELEMENTS: ${opts.fmt.requiredElements.join('; ')}`)
   if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
   if (opts.fmt?.visualStyleGuidance?.trim()) lines.push(`RECIPE VISUAL LANGUAGE: ${opts.fmt.visualStyleGuidance.trim()}`)
+  if (opts.fmt?.headlineGuidance?.trim()) lines.push(`HEADLINE RULES: ${opts.fmt.headlineGuidance.trim()}`)
   if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
   if (opts.referenceStyle?.trim()) lines.push(`REFERENCE DIRECTION: ${opts.referenceStyle.trim()}`)
   return lines.join('\n\n')
@@ -168,6 +177,7 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   textStyle?: string
   fontStyle?: string
   textPosition?: string
+  headlineMode?: 'episode-title' | 'curiosity-hook'
 }): string {
   const out = (prompt || '').trim()
   if (!out) return out
@@ -189,7 +199,8 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
     const position = !opts.textPosition || opts.textPosition === 'auto'
       ? 'the strongest placement for the composition'
       : opts.textPosition
-    clauses.push(`Render the exact episode title "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
+    const headlineLabel = opts.headlineMode === 'curiosity-hook' ? 'thumbnail hook' : 'episode title'
+    clauses.push(`Render the exact ${headlineLabel} "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
 }
@@ -204,8 +215,14 @@ export function buildThumbnailPrompt(args: {
   aspectRatio: string
   thumbnailDirective: string
   targetNumbers: number[]
+  headlineMode?: 'episode-title' | 'curiosity-hook'
 }): string {
   const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
+  const curiosityHook = args.headlineMode === 'curiosity-hook'
+  const headlineRequirement = curiosityHook
+    ? '4. Invent a truthful 1–4 word curiosity hook for every variation. Return it in that variation\'s "title" field and render the exact same hook as legible in-image typography. Do not put the full episode title inside the artwork.'
+    : '4. Render the exact episode title as legible in-image typography.'
+  const titleExample = curiosityHook ? 'SHORT CURIOSITY HOOK' : args.title.replace(/"/g, '\\"')
   return `Create exactly ${args.count} distinct YouTube thumbnail briefs for this story episode.
 
 Episode: ${args.episodeId} — ${args.title}
@@ -217,7 +234,7 @@ REQUIREMENTS:
 1. Return entries for thumbnail numbers ${args.targetNumbers.join(', ')} in that order.
 2. Each prompt must be detailed: 60–120 words across 3–5 sentences.
 3. Specify the click-driving focal image, emotional hook, subject, setting, props, lighting, atmosphere, framing, and composition.
-4. Render the exact episode title as legible in-image typography.
+${headlineRequirement}
 5. End every prompt with this style tag: "${args.styleTag}".
 6. Compose every prompt for ${ratioInstruction} and explicitly state the "${args.aspectRatio}" aspect ratio.
 7. Include concrete inline descriptions for every visible recurring character.
@@ -225,7 +242,7 @@ REQUIREMENTS:
 FORMAT — return only this JSON object:
 {
   "thumbnails": [
-    {"number": ${args.targetNumbers[0] || 1}, "title": "${args.title.replace(/"/g, '\\"')}", "prompt": "Full prompt text..."}
+    {"number": ${args.targetNumbers[0] || 1}, "title": "${titleExample}", "prompt": "Full prompt text..."}
   ]
 }
 
@@ -294,6 +311,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   let thumbnails = [...existingByNumber.values()]
+  let headlineMode: 'episode-title' | 'curiosity-hook' = req.thumb_headline_mode === 'curiosity-hook'
+    ? 'curiosity-hook'
+    : 'episode-title'
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -348,7 +368,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         defaultTextStyle: recipe.defaultTextStyle || thumbnailFormat?.defaultTextStyle,
         defaultFontStyle: recipe.defaultFontStyle || thumbnailFormat?.defaultFontStyle,
         visualStyleGuidance: recipe.visualStyleGuidance,
+        headlineMode: recipe.headlineMode,
+        headlineGuidance: recipe.headlineGuidance,
       }
+      headlineMode = recipe?.headlineMode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title'
     }
     const thumbnailDirective = buildThumbnailDirective({
       thumbs: targetNumbers.length,
@@ -362,7 +385,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     })
     job.output_lines.push(
       `Thumbnail art direction: ${recipeName ? `recipe “${recipeName}”` : thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ` +
-      'ready-to-use in-image title' +
+      `ready-to-use in-image ${headlineMode === 'curiosity-hook' ? 'hook' : 'title'}` +
       (req.thumb_reference_style ? ', reference style applied' : '') +
       (req.thumb_creative_direction ? ', user idea applied' : ''),
     )
@@ -396,6 +419,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       aspectRatio: req.aspect_ratio || '16:9',
       thumbnailDirective,
       targetNumbers,
+      headlineMode,
     })
     if (artStyle?.negatives.length) {
       prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
@@ -424,10 +448,15 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       const generated = normalizeGeneratedPromptItems(
         parseThumbnailPromptsJson(raw),
         targetNumbers.length,
-      // Every thumbnail must render the real episode headline inside the
-      // generated image, never an LLM-invented variation label. Keep the
-      // generator's visual variation in `prompt`; normalize its stored title.
-      ).map((item, index) => ({ ...item, title, number: targetNumbers[index] }))
+      // Episode-title recipes preserve the real episode title. Curiosity-hook
+      // recipes intentionally keep the LLM's short, per-variation hook as the
+      // editable thumbnail headline while YouTube metadata keeps its full
+      // factual episode title elsewhere.
+      ).map((item, index) => ({
+        ...item,
+        title: headlineMode === 'curiosity-hook' ? String(item.title || '').trim() : title,
+        number: targetNumbers[index],
+      }))
       for (const item of generated) existingByNumber.set(Number(item.number), item)
       thumbnails = [...existingByNumber.values()].sort((a, b) => Number(a.number) - Number(b.number))
     } finally {
@@ -443,6 +472,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       textStyle: req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
+      headlineMode,
     }),
   }))
   const missing = Array.from({ length: count }, (_, index) => index + 1)

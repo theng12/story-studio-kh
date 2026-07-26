@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
@@ -30,4 +30,22 @@ test('thumbnail prompts can choose a catalog recipe without replacing visual art
   assert.match(page, /<label>Visual art style<\/label>/)
   assert.match(page, /thumb_title_mode: 'ai'/)
   assert.match(page, /renders the exact episode title directly in the thumbnail/i)
+  assert.match(page, /short, truthful curiosity hook/i)
+  assert.match(page, /thumbnailHeadlineMode/)
+})
+
+test('curiosity-question cartoon ships original examples and recipe-owned short-hook rules', () => {
+  const recipe = JSON.parse(source('../../electron/server/thumbnail-templates/curiosity-question-cartoon.json'))
+  assert.equal(recipe.recipe.headlineMode, 'curiosity-hook')
+  assert.match(recipe.recipe.headlineGuidance, /truthful 1–4 word hook/i)
+  assert.equal(recipe.previewImages.length, 3)
+  for (const preview of recipe.previewImages) {
+    const previewPath = fileURLToPath(new URL(`../public${preview}`, import.meta.url))
+    assert.equal(existsSync(previewPath), true, `${preview} exists`)
+  }
+})
+
+test('Animals defaults to the curiosity recipe without making art style a niche lock', () => {
+  const animals = JSON.parse(source('../../electron/server/niches/animals.json'))
+  assert.equal(animals.defaultThumbnailTemplateId, 'curiosity-question-cartoon')
 })

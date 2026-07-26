@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.743 — 2026-07-26
+
+**Curiosity cartoons now have their own visual style and thumbnail grammar.**
+
+- Adds **Waxy Outline Cartoon** to the shared Style Library: original
+  thick waxy-marker contours, bright flat colour, simple expressive subjects,
+  and a generated gallery preview.
+- Adds the browsable **Curiosity Question Cartoon** Thumbnail Recipe with
+  three original rendered examples and a mobile-first one-subject visual
+  hierarchy.
+- Lets a recipe choose **short generated thumbnail hooks** instead of the
+  full YouTube title. Each hook is saved with its prompt, remains editable in
+  Prompt Review, and is rendered directly by the image model—no text overlay.
+- Makes **Animals** default to this recipe while keeping its visual art style
+  independently selectable, so the recipe also works with other channels and
+  topic packs.
+
+---
+
 ## v1.0.742 — 2026-07-26
 
 **Contextual Cues adds a reviewed documentary annotation layer.**

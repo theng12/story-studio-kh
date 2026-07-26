@@ -203,6 +203,21 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/hand-drawn-cartoon-explainer.webp',
   },
   {
+    id: 'builtin-waxy-outline-cartoon',
+    name: 'Waxy Outline Cartoon',
+    builtin: true,
+    blurb: 'Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions.',
+    category: 'Explainer',
+    tags: ['crayon', 'waxy outline', 'cartoon', 'curiosity', 'saturated'],
+    data: {
+      style_bible:
+        'original waxy-outline 2D cartoon illustration, thick black crayon-marker contours with visibly wobbly hand-drawn imperfections and gentle wax texture, flat saturated color blocks in sky blue, leaf green, warm orange, sunny yellow, purple, and small red warning accents, rounded simplified subjects, oversized highly expressive eyes and brows, stick-limbed guide characters only when the scene calls for one, one dominant visual situation with one clear reveal object or reaction, simple location cues with uncluttered layers, readable silhouettes at mobile size, minimal shading, no glossy polish, playful science-and-curiosity explainer energy',
+      negative_prompt:
+        'photorealism, 3D render, anime, polished vector art, perfectly smooth geometric lines, airbrushed gradients, cinematic lighting, detailed painterly scenery, dense infographic callouts, tiny unreadable labels, copied mascot characters, logos, watermark, random letters, placeholder text',
+    },
+    preview_image: '/builtin-style-previews/waxy-outline-cartoon.webp',
+  },
+  {
     id: 'builtin-hand-drawn-editorial-diagram',
     name: 'Hand-Drawn Editorial Diagram',
     builtin: true,
