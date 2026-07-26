@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.747 — 2026-07-26
+
+**Customer release safeguards are stronger and clearer.**
+
+- Encrypts the GenStudio API key through Electron `safeStorage` by default,
+  while keeping owner-only file permissions as the compatibility boundary
+  when operating-system encryption is unavailable.
+- Makes the footer status truthful by reporting the local Story Studio engine
+  separately from GenStudio connectivity.
+- Adds HTTP byte-range streaming for Scene Review audio and motion previews,
+  so seeking no longer downloads the full media file again.
+- Updates the shipped Express, body-parser, and Sharp runtime dependencies and
+  adapts thumbnail composition to the current secure Sharp API.
+- Adds a public DMG release command that refuses unsigned builds, notarizes and
+  staples the app and DMG, and verifies Developer ID and Gatekeeper acceptance.
+- Restores Sound Design to the dashboard shell and makes retired saved models
+  fail closed with explicit no-submission and no-credit guidance.
+
+---
+
 ## v1.0.746 — 2026-07-26
 
 **Sound Design is now a reviewed Assembly workflow.**

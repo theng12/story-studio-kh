@@ -82,6 +82,9 @@ import { usePresets } from '../../../composables/usePresets.js'
 import { useRememberedForm } from '../../../composables/useRememberedForm.js'
 import { useToast } from '../../../composables/useToast.js'
 
+definePageMeta({ layout: 'dashboard' })
+useAppTitle('Sound Design')
+
 type Status = 'proposed' | 'matched' | 'approved' | 'excluded'
 type Cue = { id: string; kind: 'bed' | 'spot'; label: string; start_sec: number; end_sec?: number; pool_id?: string; clip: string; gain_db: number; status: Status; created_at: string; updated_at: string }
 type Settings = { density: 'minimal' | 'balanced' | 'rich'; max_spots_per_minute: number; default_bed_gain_db: number; default_spot_gain_db: number; ducking_profile: 'gentle' | 'standard' | 'strong' }

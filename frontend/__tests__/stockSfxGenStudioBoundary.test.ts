@@ -17,6 +17,8 @@ describe('stock and Sound Design boundary UI', () => {
   test('Sound Design retains local review but hides unavailable provider controls', () => {
     const sound = source('../pages/projects/[slug]/sound-design.vue')
     const scripted = source('../components/ScriptedBrollSection.vue')
+    assert.match(sound, /definePageMeta\(\{\s*layout: 'dashboard'/)
+    assert.match(sound, /useAppTitle\('Sound Design'\)/)
     assert.match(sound, /choose a local sound asset/)
     assert.match(sound, /GenStudio sound generation/)
     assert.doesNotMatch(sound, /ModelSelector|Freesound|ElevenLabs|Suno/)

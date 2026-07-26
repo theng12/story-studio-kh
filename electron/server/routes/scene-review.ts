@@ -22,6 +22,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
 import { requireSceneClipGenStudioModel, resolveVideoAssetsDir } from '../generators/scene-clip.js'
@@ -39,6 +40,37 @@ import { inspectSceneReviewCompletion } from '../services/scene-review-completio
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
+
+function streamLocalMedia(
+  req: express.Request,
+  res: express.Response,
+  filePath: string,
+  mime: string,
+  size: number,
+): void {
+  res.setHeader('Content-Type', mime)
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Accept-Ranges', 'bytes')
+
+  const range = parseHttpByteRange(req.headers.range, size)
+  if (range.kind === 'invalid') {
+    res.status(416)
+    res.setHeader('Content-Range', `bytes */${size}`)
+    res.end()
+    return
+  }
+  if (range.kind === 'full') {
+    res.setHeader('Content-Length', String(size))
+    createReadStream(filePath).pipe(res)
+    return
+  }
+
+  const contentLength = range.end - range.start + 1
+  res.status(206)
+  res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
+  res.setHeader('Content-Length', String(contentLength))
+  createReadStream(filePath, { start: range.start, end: range.end }).pipe(res)
+}
 
 async function validateSceneRenderRequest(slug: string, episodeId: string, sceneIds?: string[]) {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
@@ -864,9 +896,8 @@ router.get('/projects/:slug/scene-review/:episodeId/clip/:sceneId', async (req, 
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const clipPath = path.join(clipsDir, `${sceneId}.mp4`)
     if (!existsSync(clipPath)) return res.status(404).json({ detail: 'Clip not found' })
-    res.setHeader('Content-Type', 'video/mp4')
-    res.setHeader('Cache-Control', 'no-store')
-    createReadStream(clipPath).pipe(res)
+    const stat = await fs.stat(clipPath)
+    streamLocalMedia(req, res, clipPath, 'video/mp4', stat.size)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve scene clip'))
   }
@@ -896,9 +927,7 @@ router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => 
     if (!audioPath) return res.status(404).json({ detail: 'No merged audio file' })
     const ext = path.extname(audioPath).toLowerCase()
     const mime = ext === '.wav' ? 'audio/wav' : ext === '.m4a' ? 'audio/mp4' : 'audio/mpeg'
-    res.setHeader('Content-Type', mime)
-    res.setHeader('Cache-Control', 'no-store')
-    createReadStream(audioPath).pipe(res)
+    streamLocalMedia(req, res, audioPath, mime, bestSize)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve merged audio'))
   }

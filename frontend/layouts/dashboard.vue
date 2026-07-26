@@ -253,10 +253,10 @@
           :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
           :title="networkQueueSyncFailed
             ? 'Queue pause/resume command failed — backend may not have honoured the state. Retrying automatically.'
-            : (networkOnline ? 'App engine reachable — jobs run normally' : 'Can\'t reach the app engine — new jobs will wait until it\'s back')"
+            : (networkOnline ? 'Local Story Studio engine reachable. GenStudio connection and credits are shown separately.' : 'Can\'t reach the Story Studio engine — new jobs will wait until it\'s back')"
         >
           <span class="network-dot" />
-          <span class="network-label">{{ networkOnline ? 'All systems online' : 'Connection unavailable' }}</span>
+          <span class="network-label">{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
           <span v-if="networkQueueSyncFailed" class="network-warn" aria-label="Queue state out of sync">⚠</span>
         </div>
 

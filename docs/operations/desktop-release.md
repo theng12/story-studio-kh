@@ -60,6 +60,20 @@ npm run verify:artifact -- \
 
 The smoke artifact is not a distributable release.
 
+For a customer-facing candidate, use the protected Apple release environment:
+
+```bash
+npm run dist:public
+```
+
+This command fails before packaging unless Developer ID signing is configured
+with `CSC_LINK` (or `CSC_NAME`) and notarization uses either App Store Connect
+API-key credentials (`APPLE_API_KEY`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`) or Apple-ID credentials (`APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`). It signs and notarizes the
+app, submits and staples the finished DMG separately, then verifies both
+artifacts. Credential values are never printed.
+
 ## Release owner sign-off
 
 - [ ] Start from a known commit and record any intentional uncommitted files.
@@ -109,8 +123,8 @@ absent from the unsigned smoke flow:
   protected release environment;
 - Electron Builder signing of the app and all nested executables/frameworks;
 - Apple notarization, successful ticket stapling, and Gatekeeper validation; and
-- a decision on whether signed releases require Electron `safeStorage` via
-  `STORY_STUDIO_FORCE_KEYCHAIN=1`, including an upgrade test for existing secrets.
+- Electron `safeStorage` encryption, which is enabled by default. Customer
+  release environments must not set `STORY_STUDIO_DISABLE_KEYCHAIN=1`.
 
 After creating the signed/notarized candidate, verify it with Apple's tools:
 

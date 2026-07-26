@@ -269,12 +269,13 @@ async function getPlaceholderPortrait(canvasW: number, canvasH: number): Promise
           font-size="34" fill="#ffffff" fill-opacity="0.32"
           letter-spacing="6">PLACEHOLDER PORTRAIT</text>
   </svg>`
-  _placeholderPortraitCache = await sharp(Buffer.from(svg, 'utf8'))
+  const generated = await sharp(Buffer.from(svg, 'utf8'))
     .resize(1920, 1080)
     .png()
     .toBuffer()
-  if (canvasW === 1920 && canvasH === 1080) return _placeholderPortraitCache
-  return await sharp(_placeholderPortraitCache)
+  _placeholderPortraitCache = generated
+  if (canvasW === 1920 && canvasH === 1080) return generated
+  return await sharp(generated)
     .resize(canvasW, canvasH, { fit: 'cover' })
     .toBuffer()
 }

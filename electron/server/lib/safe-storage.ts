@@ -18,22 +18,11 @@
  * protection. This keeps the test suite working without a mock Electron
  * runtime, and keeps the production path encrypted.
  *
- * ── Personal-use opt-out ──────────────────────────────────────────────────
- * Ad-hoc signed builds (no Apple Developer ID) get a fresh code signature
- * on every rebuild. macOS treats each rebuild as a *new app* and prompts
- * for keychain access ("Story Studio KH wants to use your confidential
- * information stored in your keychain") — the user can't avoid the dialog
- * because the previous version's grant doesn't transfer.
- *
- * For personal-use builds where the threat model is just "my Mac running
- * my app", the 0600 file mode is sufficient. The keychain layer adds
- * protection mostly against off-machine backup leakage, which doesn't
- * apply when the secrets file never leaves the machine in the first
- * place (it lives in userData, never iCloud-synced).
- *
- * Default: safeStorage is OFF. Override with `STORY_STUDIO_FORCE_KEYCHAIN=1`
- * if you have a real Developer ID Application certificate and want the
- * extra defense-in-depth.
+ * safeStorage is enabled by default. Customer builds must not store a usable
+ * GenStudio key in plaintext merely because the app is ad-hoc signed.
+ * `STORY_STUDIO_DISABLE_KEYCHAIN=1` is a deliberate development/recovery
+ * escape hatch; the owner-only 0600 fallback remains available when the
+ * operating system reports that encryption is unavailable.
  *
  * If a previously-encrypted file becomes undecryptable on this machine
  * (eg the keychain identity changed after an app rebuild), the readers
@@ -71,17 +60,16 @@ function getSafeStorage(): ElectronSafeStorage | null {
 }
 
 /**
- * Personal-use opt-out: when this returns false, every safeStorage probe
+ * Development/recovery opt-out: when this returns false, every safeStorage probe
  * short-circuits to "unavailable" — no `isEncryptionAvailable()` call is
  * made on the underlying API, so macOS never receives a keychain query
  * and never prompts the user. New writes go through the plaintext-with-
  * 0600 fallback (still provenance-stamped). See file header for rationale.
  */
-function shouldUseKeychain(): boolean {
+export function shouldUseKeychain(): boolean {
   if (process.env.STORY_STUDIO_FORCE_KEYCHAIN === '1') return true
   if (process.env.STORY_STUDIO_DISABLE_KEYCHAIN === '1') return false
-  // Default: OFF for personal-use ad-hoc-signed builds.
-  return false
+  return true
 }
 
 export function isEncryptionAvailable(): boolean {

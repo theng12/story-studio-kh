@@ -2,8 +2,9 @@
  * App-level secrets store.
  *
  * One file per Mac at `<userData>/app-secrets.json` (mode 0600, encrypted via
- * Electron safeStorage when keychain is enabled — personal-use builds run
- * plaintext-with-0600 by default; see lib/safe-storage.ts).
+ * Electron safeStorage by default. The owner-only plaintext fallback is used
+ * only when the OS encryption service is unavailable or explicitly disabled
+ * for development/recovery; see lib/safe-storage.ts.
  *
  * Replaces the per-project `secrets.json` model. Project folders may live
  * in iCloud Drive across multiple Macs, so secrets stored inside them got

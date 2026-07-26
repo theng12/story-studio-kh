@@ -27,6 +27,7 @@
  */
 
 import sharp from 'sharp'
+import type { OverlayOptions } from 'sharp'
 import fsp from 'fs/promises'
 import path from 'path'
 import type {
@@ -87,7 +88,7 @@ export async function composeThumbnail(input: ComposeInput): Promise<Buffer> {
   const overlayBuf = Buffer.from(overlaySvg, 'utf8')
 
   // 3. Composite. SVG overlay on top of base portrait.
-  const layers: sharp.OverlayOptions[] = [
+  const layers: OverlayOptions[] = [
     { input: overlayBuf, top: 0, left: 0 },
   ]
 

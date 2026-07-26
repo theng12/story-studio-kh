@@ -18,7 +18,7 @@ Story Studio KH is an Electron desktop application with an embedded Express API.
 - Runtime-loaded keys are registered with the global redactor. Logs, crash messages, provider errors, URLs, and renderer-visible error details remove exact loaded credentials and defensive Bearer/Key/GenStudio patterns.
 - Automatic V8 heap snapshots are forbidden. Heap snapshots may contain live API keys, prompts, and asset buffers and are not acceptable support artifacts.
 
-`app-secrets.json` is not bundled with the application and does not live inside a project directory. By default it uses owner-only file permissions without macOS Keychain to avoid signing-identity prompts in ad-hoc builds. A formally signed distribution can opt into Electron `safeStorage` with `STORY_STUDIO_FORCE_KEYCHAIN=1`; a hosted deployment must use its host secret manager instead of copying this file.
+`app-secrets.json` is not bundled with the application and does not live inside a project directory. Electron `safeStorage` encryption is enabled by default whenever the operating system supports it; owner-only `0600` storage remains a fail-closed compatibility boundary when encryption is unavailable. `STORY_STUDIO_DISABLE_KEYCHAIN=1` is an explicit development/recovery opt-out and must not be set in a customer release. A hosted deployment must use its host secret manager instead of copying this file.
 
 ## Customer-content privacy
 
@@ -48,6 +48,8 @@ The Electron Builder allowlist explicitly excludes `.env` files, databases, logs
 ## Remaining production gates
 
 - Sign and notarize the macOS application before distributing it publicly.
-- Decide whether the signed release will mandate `safeStorage`; the current ad-hoc-build default remains `0600` local storage.
+- Run `npm run dist:public` in the protected Apple release environment; the
+  command refuses to build without Developer ID signing and notarization
+  credentials and validates the stapled app and DMG.
 - Commission an independent penetration test for server mode before exposing it outside a private tailnet.
 - Replace the remaining Nuxt-compatible CSP `'unsafe-inline'` allowance with per-response nonces when the renderer build supports nonce injection.
