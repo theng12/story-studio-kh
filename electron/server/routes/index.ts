@@ -48,8 +48,8 @@ import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
+import { router as soundDesignRouter } from './sound-design.js'
 import { router as continuityRouter } from './continuity.js'
-import { router as sfxRouter } from './sfx.js'
 import { router as brollShotsRouter } from './broll-shots.js'
 import { requireProject } from './middleware.js'
 
@@ -83,7 +83,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', imagesRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
-  app.use('/api', sfxRouter)
+  app.use('/api', soundDesignRouter)
   app.use('/api', brollShotsRouter)
   app.use('/api', aiVideoRouter)
   app.use('/api', audioMergeRouter)

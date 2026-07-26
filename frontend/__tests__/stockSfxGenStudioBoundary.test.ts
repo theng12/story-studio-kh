@@ -7,18 +7,19 @@ function source(relative: string): string {
   return fs.readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 }
 
-describe('stock and SFX GenStudio boundary UI', () => {
+describe('stock and Sound Design boundary UI', () => {
   test('assets library presents manual import without provider submission controls', () => {
     const library = source('../pages/broll-library.vue')
     assert.match(library, /Add files locally/)
     assert.doesNotMatch(library, /\/broll-fetch\/search|queueSelectedFetches|runFetchSearch/)
   })
 
-  test('SFX and scripted B-Roll components retain local editing but hide automation', () => {
-    const sfx = source('../components/SfxSoundSection.vue')
+  test('Sound Design retains local review but hides unavailable provider controls', () => {
+    const sound = source('../pages/projects/[slug]/sound-design.vue')
     const scripted = source('../components/ScriptedBrollSection.vue')
-    assert.match(sfx, /Re-match local pool/)
-    assert.doesNotMatch(sfx, /api\.generate\(|auto_fetch:\s*true|ModelSelector/)
+    assert.match(sound, /choose a local sound asset/)
+    assert.match(sound, /GenStudio sound generation/)
+    assert.doesNotMatch(sound, /ModelSelector|Freesound|ElevenLabs|Suno/)
     assert.match(scripted, /Existing resolved plans/)
     assert.doesNotMatch(scripted, /api\.(generate|resolve|search|swapBeat|requeryBeat)\(|ModelSelector|ImageModelPicker/)
     assert.match(scripted, /api\.assemble\(/)

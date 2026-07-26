@@ -9,13 +9,11 @@ import type { FetchAdapter, FetchProvider } from './types.js'
 import { pexels } from './pexels.js'
 import { pixabay } from './pixabay.js'
 import { nasa } from './nasa.js'
-import { freesound } from './freesound.js'
 
 export const ADAPTERS: Record<FetchProvider, FetchAdapter> = {
   pexels,
   pixabay,
   nasa,
-  freesound,
 }
 
 export function getAdapter(provider: FetchProvider): FetchAdapter {

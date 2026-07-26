@@ -154,6 +154,15 @@
         </NuxtLink>
         <NuxtLink
           v-if="usesScenePlan"
+          :to="`/projects/${slug}/sound-design`"
+          class="nav-item"
+          active-class="active"
+          title="Optional reviewed ambient beds and spot effects. Enabled projects require Sound Design approval before Final Video mixes audio."
+        >
+          <span class="nav-icon">&#127925;</span> Sound Design
+        </NuxtLink>
+        <NuxtLink
+          v-if="usesScenePlan"
           :to="`/projects/${slug}/scene-review`"
           class="nav-item"
           active-class="active"

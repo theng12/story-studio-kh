@@ -1755,6 +1755,8 @@ export interface ProjectConfig {
   confirmation_preferences?: ConfirmationPreferences
   /** Optional, reviewed documentary annotation layer. Disabled by default. */
   contextual_cues?: ContextualCueProjectConfig
+  /** Optional, reviewed sound-design layer. Disabled by default. */
+  sound_design?: SoundDesignProjectConfig
 
   /**
    * v1.0.89+: App-level B-Roll pool this project draws stock footage
@@ -2906,6 +2908,8 @@ export interface GenerateVideoRequest {
   subtitles?: VideoSubtitleConfig
   /** Hydrated exclusively from approved contextual_cues.json at preflight. */
   contextual_cues?: ContextualCue[]
+  /** Hydrated exclusively from approved sound_design.json at preflight. */
+  sound_design?: { cues: SoundDesignCue[]; ducking_profile: SoundDesignSettings['ducking_profile'] }
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
   /** @deprecated Whole-Introduction skipping is retired. New plans persist an
    * exact opening_reserved_sec in scene_plan.json. */
@@ -3419,6 +3423,52 @@ export interface ContextualCueProposalSettings {
   placement: ContextualCuePlacement
   /** Explicit opt-in for trusted presets. Defaults to human review. */
   auto_approve: boolean
+}
+
+// ── Sound Design (v1.0.746+) ──────────────────────────────────────────────
+//
+// A project-level, reviewed audio overlay timeline. It is intentionally
+// separate from Video Assembly: Sound Design owns authoring/review; Video
+// Assembly only consumes approved, locally available cues at final mix time.
+export type SoundDesignCueKind = 'bed' | 'spot'
+export type SoundDesignCueStatus = 'proposed' | 'matched' | 'approved' | 'excluded'
+export type SoundDesignDensity = 'minimal' | 'balanced' | 'rich'
+
+export interface SoundDesignProjectConfig {
+  enabled: boolean
+}
+
+/** Saved setup for the dedicated Sound Design workspace. */
+export interface SoundDesignSettings {
+  density: SoundDesignDensity
+  max_spots_per_minute: number
+  default_bed_gain_db: number
+  default_spot_gain_db: number
+  ducking_profile: 'gentle' | 'standard' | 'strong'
+}
+
+export interface SoundDesignCue {
+  id: string
+  kind: SoundDesignCueKind
+  label: string
+  start_sec: number
+  /** Required for beds; optional spots are one-shots anchored at start_sec. */
+  end_sec?: number
+  pool_id?: string
+  clip: string
+  gain_db: number
+  status: SoundDesignCueStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface SoundDesignTimeline {
+  schema_version: 1
+  generated_at: string
+  source_scene_plan_generated_at: string
+  /** Snapshot of the approved mix policy; presets remain reusable separately. */
+  settings: SoundDesignSettings
+  cues: SoundDesignCue[]
 }
 
 /** Options passed to the scene planner. */

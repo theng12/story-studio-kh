@@ -628,6 +628,10 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
     kind: 'external', key: 'broll', label: 'B-Roll Fetch + Assemble', icon: '🎞', link: '/broll',
     note: 'Runs on the B-Roll page — fetch/pick clips from the pool, then assemble the final video there.',
   },
+  sound_design: {
+    kind: 'external', key: 'sound_design', label: 'Sound Design (review)', icon: '🎵', link: '/sound-design',
+    note: 'Optional manual review stage. It never blocks Scene Review; when enabled, Final Video requires an approved Sound Design timeline.',
+  },
 }
 
 // Order in this array is the chain order for each episode's batch run.
@@ -688,7 +692,7 @@ const CHAIN_TIMESTAMP: ChainSpec = [
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
-  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
 // planning. Character Sheet is config-only: the batch writes continuity.json
@@ -699,7 +703,7 @@ const CHAIN_CONTINUITY: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
 // audio-paced scene planning as continuity; Character Sheet stays available
@@ -712,7 +716,7 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
 
 const activeChainSpec = computed<ChainSpec>(() => {

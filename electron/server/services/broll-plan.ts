@@ -6,7 +6,7 @@
  * (once resolved) the chosen clip + where to start within it. See
  * docs/scripted-broll-format-spec.md.
  *
- * Mirrors services/sfx-plan.ts: defensive normalize (garbage → safe, never
+ * Mirrors other reviewed timeline stores: defensive normalize (garbage → safe, never
  * throws), explicit opt-in gate, sidecar I/O. With no plan / disabled / no
  * resolved beat, the existing Video Assembly behaviour is unchanged.
  */

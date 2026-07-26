@@ -617,8 +617,7 @@
             and drop your audio files in (<code>.mp3</code> / <code>.wav</code> / <code>.m4a</code>).
           </div>
           <div v-else-if="!ambientLibrary.length" class="text-muted text-sm">
-            <code>ambient/</code> folder is empty. Drop your atmosphere loops in. Free CC0 sources:
-            Pixabay, Mixkit, Freesound.
+            <code>ambient/</code> folder is empty. Drop in ambience you have the rights to use.
           </div>
           <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
             <button

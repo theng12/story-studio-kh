@@ -6,11 +6,11 @@ search+download, bridge to the existing broll-selection sidecar so the existing
 assembler renders beats at narration timing. Phase 2: storyboard review (editable
 queries + timing, single-beat re-query, clip swap via thumbnail picker). Phase 3:
 in-browser preview player (narration-clocked, clip swap, scrubber + beat strip,
-SFX layered, zero render cost). Phase 4: styled AI-gen fallback — beats with no
+zero render cost). Phase 4: styled AI-gen fallback — beats with no
 stock match get a channel-styled generated clip (subject prefixed with
 `broll_style`) → 1080p clip → same video pool. UI: Video Assembly → Step 1
 "Scripted B-Roll". Queued (optional): extra paid providers (Storyblocks / Artgrid)
-+ logo side-channel. The universal SFX sound layer already rides on top.
++ logo side-channel.
 
 A video format for current-events / explainer videos where a
 simple (often question-style) script is illustrated by **real stock footage**
@@ -18,12 +18,10 @@ matched per line, with tight timing — and a **styled AI-generated fallback**
 when no real clip fits.
 
 > **Scope note (v2 of this spec).** This doc covers the *visual* side only —
-> sourcing and placing b-roll per beat. **Sound effects are NOT part of this
-> format.** SFX turned out to be a *universal* concern (every format wants it),
-> so it lives as a shared layer in Video Assembly keyed on the subtitle track —
-> see [`sfx-sound-layer-spec.md`](./sfx-sound-layer-spec.md). This format simply
-> *inherits* that sound layer like every other format; it can optionally feed
-> its per-beat visual plan in as extra context for the SFX director.
+> sourcing and placing b-roll per beat. Sound Design is an optional, reviewed
+> workflow in [Sound Design](./sound-design-spec.md), not a
+> B-Roll concern. This format may provide future visual context, but it never
+> owns Sound Design timing or asset selection.
 
 ## The reframe (why this is achievable)
 The channels this emulates mostly **don't** use literal news footage. They use
@@ -59,8 +57,8 @@ search/pick/trim → place to timing → assemble.
 6. **Trim + place** each clip to its beat's exact time window (trim to duration;
    loop/freeze if the clip is shorter; pick an in-point if longer).
 7. **Assemble** via the existing b-roll assembler (narration + ordered, timed
-   clips), then subtitles / branding as usual. (Sound/SFX is layered later in
-   Video Assembly — see the sound-layer spec.)
+   clips), then subtitles / branding as usual. Optional sound is reviewed in the
+   separate [Sound Design](./sound-design-spec.md) workflow.
 
 ## Sourcing + fallback chain (per beat)
 Try in order until a clip is found:
@@ -99,9 +97,8 @@ to see the cut). Plan, cheapest-first:
    This is where the user fixes mismatches BEFORE paying for a render.
 2. **In-browser timeline player (recommended, ~no render cost).** Play the
    narration audio in the browser and swap each muted clip `<video>` / image at
-   its beat boundary — a real scrub of the cut with zero ffmpeg. (The universal
-   sound layer adds its own preview of beds + SFX on the same player; see that
-   spec.) Approximates the final timing/cuts closely enough to catch problems.
+   its beat boundary — a real scrub of the cut with zero ffmpeg. It approximates
+   the final visual timing/cuts closely enough to catch problems.
 3. **Optional fast draft render.** A low-res / fast-preset assemble (the encoder
    already has a fast tier) for an exact check before the full-quality render.
 
@@ -126,9 +123,9 @@ A per-episode `broll_plan.json` sidecar (light, in the project tree):
 ```
 Picks land in the existing B-Roll pool (so no-repeat + thumbnails + tags apply);
 the plan records which clip serves which beat. Editing the storyboard rewrites
-the plan; assemble reads it. (Sound has its **own** sidecar, `sfx_plan.json`,
-owned by the Video Assembly sound layer — kept separate so any format can use
-it. The two never overlap.)
+the plan; assemble reads it. Sound Design has its own reviewed
+`sound_design.json` timeline, kept separate so every format can use it. The two
+never overlap.)
 
 ## Where it plugs in
 - New `scripted-broll` **visual source / format** (joins the existing
@@ -137,9 +134,8 @@ it. The two never overlap.)
   `broll-assemble` for the render. New: the per-beat **query LLM**, the
   **source fallback chain**, the **storyboard + in-browser player**, and the
   **styled AI-gen** wiring.
-- **Sound is out of scope here** — handled by the universal Video Assembly sound
-  layer. This format may optionally pass its per-beat visual plan to the SFX
-  director as extra context (a "rain" clip → rain bed), but owns none of the SFX
+- **Sound is out of scope here** — handled by the optional, reviewed Sound
+  Design workflow. This format owns no sound timing, asset selection, or mix
   code.
 
 ## Build phases
@@ -150,9 +146,8 @@ it. The two never overlap.)
 4. **Styled AI-gen fallback** (format `broll_style` + per-run override).
 5. **Extra sources**: Storyblocks provider; logo/brand side channel.
 
-*(Sound/SFX is a separate, format-agnostic track — see its own spec + build
-phases. It can be built in parallel since it shares nothing with the visual
-pipeline except the timeline.)*
+*(Sound Design is a separate, format-agnostic reviewed track — see its own spec.
+It shares only the episode timeline with the visual pipeline.)*
 
 ## Honest hard parts
 - **Abstract→filmable translation** is the craft; concrete nouns search well,

@@ -321,10 +321,7 @@
             />
             <select v-model="logSourceFilter" class="select select-sm">
               <option value="all">All sources</option>
-              <template v-if="isAudioPool">
-                <option value="freesound">Freesound</option>
-              </template>
-              <template v-else>
+              <template v-if="!isAudioPool">
                 <option value="pexels">Pexels</option>
                 <option value="pixabay">Pixabay</option>
                 <option value="nasa">NASA</option>
@@ -908,7 +905,7 @@ watch(poolTab, (v) => {
   if (v === 'log' || v === 'clips') void loadProvenanceOnce()
 })
 
-type FetchProviderId = 'pexels' | 'pixabay' | 'nasa' | 'freesound'
+type FetchProviderId = 'pexels' | 'pixabay' | 'nasa'
 const { get: apiGet } = useApi()
 // ── v1.0.122+ Provenance state ──────────────────────────────────────────
 interface ProvenanceRow {
@@ -1819,7 +1816,6 @@ function onThumbError(e: Event): void {
 }
 .clip-source-pill.source-pexels { background: rgba(5, 168, 122, 0.18); color: #5fd9b1; }
 .clip-source-pill.source-pixabay { background: rgba(46, 192, 84, 0.18); color: #6fd58a; }
-.clip-source-pill.source-freesound { background: rgba(232, 120, 24, 0.18); color: #f0a35e; }
 .clip-source-pill.source-local { background: rgba(127, 127, 127, 0.18); color: var(--text-muted); }
 .clip-source-link {
   font-size: var(--font-xs);

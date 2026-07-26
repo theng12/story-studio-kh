@@ -289,15 +289,6 @@ router.get('/broll-pools/:id/clips/:filename/video', async (req, res) => {
   }
 })
 
-// ── Generate SFX (ElevenLabs sound-generation) ─────────────────────────
-//
-router.post('/broll-pools/:id/generate-sfx', (_req, res) => {
-  res.status(501).json({
-    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
-    detail: 'Sound-effect generation is unavailable until GenStudio KH publishes a qualified SFX endpoint. No direct ElevenLabs request was made.',
-  })
-})
-
 // ── Normalize ──────────────────────────────────────────────────────────
 
 router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {

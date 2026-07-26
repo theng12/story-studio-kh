@@ -1932,8 +1932,7 @@
         </div>
       </div>
 
-      <!-- Sound / SFX (universal) — keyed on the subtitle timing produced above -->
-      <SfxSoundSection :slug="slug" :episode-code="episodeId" />
+      <SoundDesignHandoff :slug="slug" :episode-code="episodeId" />
 
       <div class="step-nav mt-3">
         <button class="btn btn-secondary" @click="goToStep(4)">Back</button>

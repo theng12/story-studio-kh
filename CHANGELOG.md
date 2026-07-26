@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.746 — 2026-07-26
+
+**Sound Design is now a reviewed Assembly workflow.**
+
+- Moves local sound selection and cue review out of Video Assembly into a
+  dedicated optional Sound Design workspace with saved pacing and mix presets.
+- Adds approved/excluded cue timelines, safe density and timing validation,
+  narration ducking, and a compact Final Video handoff.
+- Final Video now fails clearly if enabled Sound Design is incomplete or an
+  approved local asset is unavailable; disabled projects remain unchanged.
+- Removes retired direct SFX/provider routes and documents GenStudio-only
+  future sound capabilities without exposing unavailable providers.
+
+---
+
 ## v1.0.745 — 2026-07-26
 
 **Contextual Cues now participates safely in Pipeline.**

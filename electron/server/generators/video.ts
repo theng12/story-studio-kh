@@ -52,6 +52,13 @@ import {
   normalizeContextualCueConfig,
   readContextualCueTimeline,
 } from '../services/contextual-cues.js'
+import {
+  assertSoundDesignReadiness,
+  normalizeSoundDesignConfig,
+  readSoundDesignTimeline,
+} from '../services/sound-design.js'
+import { approvedSoundDesignMixCues } from '../services/sound-design-resolver.js'
+import { mixSoundDesignIntoAudio } from '../lib/sound-design-mixer.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -59,7 +66,7 @@ import type {
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
-  VideoSceneAnimation, VideoPostAudio, ScenePlan, ContextualCue,
+  VideoSceneAnimation, VideoPostAudio, ScenePlan, ContextualCue, SoundDesignCue,
 } from '../models/types.js'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -905,6 +912,12 @@ export async function prepareUnifiedVideoAssemblyInputs(
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)
   req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles)
+  const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
+  const soundTimeline = await readSoundDesignTimeline(planPath)
+  const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan)
+  req.sound_design = soundConfig.enabled
+    ? { cues: approvedSoundCues, ducking_profile: soundTimeline!.settings.ducking_profile }
+    : undefined
   return assets
 }
 
@@ -989,35 +1002,21 @@ export async function generateVideo(job: Job): Promise<void> {
   const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
-  // ── Universal SFX sound layer (opt-in, fully reversible) ───────────────────
-  // If this episode has an enabled sfx_plan.json with resolved cues, mix the
-  // SFX over the merged audio and point the render at the mixed file via the
-  // merged_audio_path the renderer already consumes. No plan / disabled / no
-  // live cues / any failure ⇒ the render uses the original audio unchanged.
-  try {
-    if (req.merged_audio_path && existsSync(req.merged_audio_path)) {
-      const { readPlan, planAffectsRender } = await import('../services/sfx-plan.js')
-      const plan = await readPlan(project_slug, code, episodeDir)
-      if (planAffectsRender(plan)) {
-        const { planToMixCues } = await import('../services/sfx-resolver.js')
-        const { mixSfxIntoAudio } = await import('../lib/sfx-mixer.js')
-        const cues = await planToMixCues(plan!)
-        if (cues.length) {
-          // v1.0.513 — announce the mix BEFORE it runs. It's a separate ffmpeg
-          // pass ahead of the video render's own progress, so without this the
-          // Jobs panel sat at 0% with no line during the mix ("not progressing").
-          job.output_lines.push(`SFX: mixing ${cues.length} cue(s) into the audio…`)
-          const outPath = path.join(path.dirname(req.merged_audio_path), `${code}_sfx_mixed.mp3`)
-          const mixed = await mixSfxIntoAudio({ basePath: req.merged_audio_path, cues, outPath })
-          if (mixed !== req.merged_audio_path) {
-            job.output_lines.push(`SFX: mixed ${cues.length} cue(s) into the audio → ${path.basename(mixed)}`)
-            req.merged_audio_path = mixed
-          }
-        }
-      }
-    }
-  } catch (e: any) {
-    job.output_lines.push(`SFX mix skipped (${e?.message || e}); rendering with the original audio.`)
+  // Sound Design is preflighted before final assembly. Once enabled, approved
+  // local assets are a required part of this render: fail loudly rather than
+  // silently claiming a video includes sound effects when it does not.
+  if (req.sound_design?.cues.length) {
+    if (!req.merged_audio_path || !existsSync(req.merged_audio_path)) throw new Error('Sound Design mix is blocked: merged audio is missing.')
+    const mixCues = await approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
+    job.output_lines.push(`Sound Design: mixing ${mixCues.length} approved cue(s) into narration…`)
+    const outPath = path.join(path.dirname(req.merged_audio_path), `${code}_sound_design_mixed.mp3`)
+    req.merged_audio_path = await mixSoundDesignIntoAudio({
+      basePath: req.merged_audio_path,
+      cues: mixCues,
+      outPath,
+      ducking_profile: req.sound_design.ducking_profile,
+    })
+    job.output_lines.push(`Sound Design: mixed ${mixCues.length} approved cue(s) → ${path.basename(req.merged_audio_path)}`)
   }
 
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
