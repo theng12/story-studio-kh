@@ -93,6 +93,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_fetch: 'B-Roll Fetch',
   research_run: 'Research',
   scene_plan_run: 'Scene Plan',
+  contextual_cues: 'Contextual Cues',
   scene_image_generate: 'Scene Image',
   scene_clips_batch: 'Motion Clips',
 }

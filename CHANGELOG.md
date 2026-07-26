@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.742 — 2026-07-26
+
+**Contextual Cues adds a reviewed documentary annotation layer.**
+
+- Adds an optional **Contextual Cues** workspace between Scene Plan and Scene
+  Review for restrained location, date, person, chapter, and historical-context labels.
+- Proposes cues through durable, batched GenStudio requests, then keeps every
+  proposal editable until it is explicitly approved or excluded.
+- Enforces safe cue timing: scene-bounded, readable duration, one active cue
+  at a time, protected subtitle-safe placement, and no unresolved labels at render.
+- When enabled, Video Assembly renders only approved cues exactly as reviewed;
+  when disabled, the normal production and rendering workflow is unchanged.
+
+---
+
 ## v1.0.741 — 2026-07-26
 
 **Character Sheet is now a compact visual-setup workspace.**

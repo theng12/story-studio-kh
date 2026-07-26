@@ -33,6 +33,7 @@ import { fetchBroll } from '../generators/broll-fetch.js'
 import { generateImagePoolImages } from '../generators/image-pool-generate.js'
 import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
+import { generateContextualCues } from '../generators/contextual-cues.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneImagesBatchJob } from '../generators/scene-images-batch.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
@@ -136,6 +137,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('research_run', runResearchJob)
   // v1.0.143+ — Scene planner for the timestamp-driven pipeline.
   registerExecutor('scene_plan_run', runScenePlanJob)
+  registerExecutor('contextual_cues', generateContextualCues)
   // v1.0.144+ — Per-scene image generator (one job per scene).
   registerExecutor('scene_image_generate', generateSceneImageJob)
   registerExecutor('scene_images_batch', generateSceneImagesBatchJob)

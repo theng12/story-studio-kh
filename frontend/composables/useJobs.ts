@@ -59,6 +59,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_fetch: 'B-roll fetch',
   research_run: 'Research',
   scene_plan_run: 'Scene plan',
+  contextual_cues: 'Contextual cues',
   scene_image_generate: 'Scene image',
   scene_clips_batch: 'Motion clips',
   continuity_render: 'Continuity render',

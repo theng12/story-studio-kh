@@ -1744,6 +1744,8 @@ export interface ProjectConfig {
   video_models?: Record<string, VideoModelConfig>
   video_pricing_last_updated?: string
   confirmation_preferences?: ConfirmationPreferences
+  /** Optional, reviewed documentary annotation layer. Disabled by default. */
+  contextual_cues?: ContextualCueProjectConfig
 
   /**
    * v1.0.89+: App-level B-Roll pool this project draws stock footage
@@ -1948,7 +1950,7 @@ export const JOB_TYPES = [
   'broll_autotag', 'broll_fetch', 'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_images_batch', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
-  'prompt_director', 'composition_generate', 'expression_markup',
+  'prompt_director', 'composition_generate', 'expression_markup', 'contextual_cues',
   'image_pool_generate',
 ] as const
 
@@ -2893,6 +2895,8 @@ export interface GenerateVideoRequest {
   letterbox?: VideoLetterbox
   frame?: VideoFrameConfig
   subtitles?: VideoSubtitleConfig
+  /** Hydrated exclusively from approved contextual_cues.json at preflight. */
+  contextual_cues?: ContextualCue[]
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
   /** @deprecated Whole-Introduction skipping is retired. New plans persist an
    * exact opening_reserved_sec in scene_plan.json. */
@@ -3351,6 +3355,49 @@ export interface ScenePlan {
   /** Exact creative setup used by the visual-prompt pass. Stored with the plan
    * so retries remain reproducible even after the active preset changes. */
   creative_direction?: SceneCreativeDirection
+}
+
+// ── Contextual cues (v1.0.742+) ───────────────────────────────────────────
+//
+// A reviewed editorial layer for documentary-style location/date/context
+// labels. This deliberately lives beside the Scene Plan instead of inside
+// subtitles: subtitle timing remains narration, while cues are optional visual
+// annotations that Video Assembly renders exactly as approved.
+export type ContextualCueKind = 'location_date' | 'historical_context' | 'person' | 'chapter'
+export type ContextualCuePlacement = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type ContextualCueTransition = 'fade' | 'slide' | 'dissolve'
+export type ContextualCueStatus = 'proposed' | 'approved' | 'disabled'
+export type ContextualCueDensity = 'restrained' | 'standard' | 'editorial'
+
+export interface ContextualCue {
+  id: string
+  scene_id: string
+  start_sec: number
+  end_sec: number
+  title: string
+  subtitle?: string
+  kind: ContextualCueKind
+  placement: ContextualCuePlacement
+  template: 'documentary-label'
+  entrance: ContextualCueTransition
+  exit: ContextualCueTransition
+  status: ContextualCueStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface ContextualCueTimeline {
+  schema_version: 1
+  generated_at: string
+  source_scene_plan_generated_at: string
+  cues: ContextualCue[]
+}
+
+export interface ContextualCueProjectConfig {
+  enabled: boolean
+  density: ContextualCueDensity
+  placement: ContextualCuePlacement
+  template: 'documentary-label'
 }
 
 /** Options passed to the scene planner. */

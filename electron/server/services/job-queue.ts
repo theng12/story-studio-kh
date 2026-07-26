@@ -323,6 +323,9 @@ const queues: Record<JobType, QueueState> = {
   // v1.0.143+: Scene planner — LLM picks natural narrative beats
   // against the stitched SRT, emits scene_plan.json. 20-60s call.
   scene_plan_run: { pending: [], running: false, executor: null },
+  // v1.0.741+: constrained documentary annotation proposals. One durable
+  // episode job, internally packed; human review remains mandatory.
+  contextual_cues: { pending: [], running: false, executor: null },
   // v1.0.144+: Per-scene image gen for the timestamp-driven pipeline.
   // One job per scene; bulk "Generate all missing" enqueues N of these.
   scene_image_generate: { pending: [], running: false, executor: null },

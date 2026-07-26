@@ -16,7 +16,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
-import { resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
+import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
 // folder-resolver (this file used to carry private copies; the ✅-prefix
 // and title-hint semantics moved there verbatim).
@@ -46,6 +46,11 @@ import {
   computeVignetteAngle,
 } from '../lib/video-effects.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import {
+  assertContextualCueReadiness,
+  normalizeContextualCueConfig,
+  readContextualCueTimeline,
+} from '../services/contextual-cues.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -53,7 +58,7 @@ import type {
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
-  VideoSceneAnimation, VideoPostAudio, ScenePlan,
+  VideoSceneAnimation, VideoPostAudio, ScenePlan, ContextualCue,
 } from '../models/types.js'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -66,6 +71,7 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
 }
 
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
+const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
 async function selfHealFinalPromotion(
   currentPath: string,
@@ -892,6 +898,12 @@ export async function prepareUnifiedVideoAssemblyInputs(
   req.merged_audio_path = merged.path
   req.narration_path = merged.path
   req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
+  const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
+  const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+  const cueTimeline = await readContextualCueTimeline(planPath)
+  req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles)
   return assets
 }
 
@@ -1247,6 +1259,7 @@ export async function generateVideo(job: Job): Promise<void> {
           letterbox: req.letterbox,
           frame: req.frame,
           subtitles: req.subtitles,
+          contextualCues: req.contextual_cues,
           // Compilation has no intro/title/outro segments in v1, so the
           // intro-exclusion gate is a no-op. Effects play through the
           // entire bg-plate duration.
@@ -1836,6 +1849,7 @@ export async function generateVideo(job: Job): Promise<void> {
         letterbox: req.letterbox,
         frame: req.frame,
         subtitles: req.subtitles,
+        contextualCues: req.contextual_cues,
         excludeIntroFromEffects: req.exclude_intro_from_effects,
         preSceneDuration,
         postAudioStart: sceneEndTime,
@@ -3682,6 +3696,7 @@ interface CompositionOpts {
   letterbox?: VideoLetterbox
   frame?: VideoFrameConfig
   subtitles?: import('../models/types.js').VideoSubtitleConfig
+  contextualCues?: ContextualCue[]
   excludeIntroFromEffects?: boolean
   /** Seconds of intro+title that should be left untouched by filters when
    *  `excludeIntroFromEffects` is on. Ignored when the flag is false. */
@@ -3709,7 +3724,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   const {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
-    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, frame, subtitles,
+    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, frame, subtitles, contextualCues,
     excludeIntroFromEffects,
     preSceneDuration,
     postAudioStart,
@@ -4055,6 +4070,34 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
     }
     vLabel = st
+  }
+
+  // 6c. Contextual Cues. These are an approved, immutable editorial timeline
+  // from the Contextual Cues workspace — never LLM-generated or re-timed by
+  // Video Assembly. drawtext supports timeline enable expressions, unlike the
+  // libass subtitle filters above, so each restrained label can appear only in
+  // its exact reviewed window.
+  if (contextualCues?.length) {
+    const escapeText = (value: string) => value
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\\\'")
+      .replace(/:/g, '\\:')
+      .replace(/%/g, '\\%')
+      .replace(/\n/g, '\\n')
+    for (const cue of contextualCues) {
+      const label = cue.subtitle ? `${cue.title}\n${cue.subtitle}` : cue.title
+      const top = cue.placement.startsWith('top')
+      const left = cue.placement.endsWith('left')
+      const x = left ? '56' : 'w-text_w-56'
+      const y = top ? '56' : 'h-text_h-56'
+      const next = vn()
+      const enable = `between(t,${cue.start_sec.toFixed(3)},${cue.end_sec.toFixed(3)})`
+      filterParts.push(
+        `${vLabel}drawtext=text='${escapeText(label)}':fontcolor=white:fontsize=h*0.032:line_spacing=12:box=1:boxcolor=0x111827@0.88:boxborderw=22:x=${x}:y=${y}:enable='${enable}'${next}`,
+      )
+      vLabel = next
+    }
+    job.output_lines.push(`Burning ${contextualCues.length} approved contextual cue(s) exactly as reviewed.`)
   }
 
   // 7. Logo overlay

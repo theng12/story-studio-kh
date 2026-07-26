@@ -145,6 +145,15 @@
         </NuxtLink>
         <NuxtLink
           v-if="usesScenePlan"
+          :to="`/projects/${slug}/contextual-cues`"
+          class="nav-item"
+          active-class="active"
+          title="Optional reviewed location, date, and documentary context labels. Enabled projects require every cue to be resolved before Video Assembly."
+        >
+          <span class="nav-icon">&#127991;</span> Contextual Cues
+        </NuxtLink>
+        <NuxtLink
+          v-if="usesScenePlan"
           :to="`/projects/${slug}/scene-review`"
           class="nav-item"
           active-class="active"
