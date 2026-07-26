@@ -586,7 +586,7 @@ type StepId =
   | 'metadata' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
-  | 'subtitles' | 'scene_plan' | 'scene_review' | 'motion_review' | 'character_sheet'
+  | 'subtitles' | 'scene_plan' | 'contextual_cues' | 'scene_review' | 'motion_review' | 'character_sheet'
 interface StepMeta {
   id: StepId
   label: string
@@ -657,6 +657,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'subtitles',         label: 'Subtitles',         icon: '💬', link: '/subtitles',      presetList: 'subtitles_generator_presets', presetActive: 'subtitles_generator_last_preset' },
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
+  { id: 'contextual_cues',   label: 'Contextual Cues',   icon: '🏷️', link: '/contextual-cues', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional project feature — a review preset pauses Pipeline here; an auto-approve preset continues after validated proposals.' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_genstudio_presets', presetActive: 'scene_review_genstudio_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
@@ -687,7 +688,7 @@ const CHAIN_TIMESTAMP: ChainSpec = [
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
-  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
 // planning. Character Sheet is config-only: the batch writes continuity.json
@@ -698,7 +699,7 @@ const CHAIN_CONTINUITY: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
 // audio-paced scene planning as continuity; Character Sheet stays available
@@ -711,7 +712,7 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'character_sheet',
-  'scene_plan', 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 
 const activeChainSpec = computed<ChainSpec>(() => {
@@ -764,6 +765,7 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   subtitles: false,
   character_sheet: false,
   scene_plan: false,
+  contextual_cues: false,
   scene_review: false,
   motion_review: false,
   video_assembly: false,
@@ -846,6 +848,7 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   'introduction-only': 'introduction',
   // v1.0.363 — match each page's usePresets({ presetType }).
   scene_plan: 'scene-plan',
+  contextual_cues: 'contextual-cues',
   scene_review: 'scene-review',
   motion_review: 'motion-review',
   character_sheet: 'continuity-page',
@@ -935,7 +938,7 @@ const presetSaving = reactive<Record<StepId, boolean>>({
   thumb_images: false,
   audio: false, audio_merge: false, video_assembly: false,
   // v1.0.363 — audio-paced format steps.
-  subtitles: false, character_sheet: false, scene_plan: false,
+  subtitles: false, character_sheet: false, scene_plan: false, contextual_cues: false,
   scene_review: false, motion_review: false,
 })
 
@@ -1228,6 +1231,7 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':          return !!s.subtitles
     case 'scene_plan':         return !!s.scene_plan
+    case 'contextual_cues':    return !!s.contextual_cues
     case 'scene_review':       return !!s.scene_review
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet
@@ -1344,6 +1348,7 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':         return 'subtitles' in ov
     case 'scene_plan':        return 'scene_plan' in ov
+    case 'contextual_cues':   return 'contextual_cues' in ov
     case 'scene_review':      return 'scene_review' in ov
     case 'motion_review':     return 'motion_review' in ov
     case 'character_sheet':   return 'character_sheet' in ov

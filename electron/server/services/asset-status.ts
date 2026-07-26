@@ -45,6 +45,7 @@ import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
+import { readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -621,6 +622,8 @@ export interface EpisodeStatus {
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
   // NOT folded into all_done.
   scene_review: boolean
+  /** An approved-or-excluded contextual cue timeline is available for this plan. */
+  contextual_cues?: boolean
   // Motion Review is complete when every planned scene has either an approved,
   // fresh image-to-video clip or an explicit "use still" decision.
   motion_review: boolean
@@ -683,7 +686,7 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
-    scene_plan: false, scene_review: false, motion_review: false,
+    scene_plan: false, contextual_cues: false, scene_review: false, motion_review: false,
     character_sheet: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
@@ -944,6 +947,9 @@ export async function computeEpisodeStatus(
           && promptIntegrity.complete
           && subtitleIntegrity.complete
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
+        const contextualCueTimeline = await readContextualCueTimeline(planPath)
+        status.contextual_cues = !!contextualCueTimeline
+          && validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0
         // Scene Review done = the plan is complete, every scene has a generated
         // image ON DISK, AND every scene is explicitly approved. Rendering is
         // not approval: even one unapproved scene must remain in Pending.
@@ -1187,7 +1193,7 @@ export async function computeEpisodeStatus(
 function allDoneStatus(): EpisodeStatus {
   return {
     research: true,
-    scene_plan: true, scene_review: true, motion_review: true,
+    scene_plan: true, contextual_cues: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,

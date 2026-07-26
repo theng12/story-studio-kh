@@ -61,6 +61,10 @@
             <option value="top-left">Top left</option>
           </select>
         </label>
+        <label class="cue-auto-approve">
+          <input v-model="form.auto_approve" type="checkbox" />
+          <span><strong>Auto-approve safe proposals</strong><small>Off by default. Use only after you trust this preset; Pipeline can then continue automatically.</small></span>
+        </label>
       </div>
     </section>
 
@@ -129,7 +133,7 @@ type Cue = {
   template: 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate'; entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'; status: 'proposed' | 'approved' | 'disabled'; created_at: string; updated_at: string
 }
 type CueConfig = { enabled: boolean }
-type CueProposalForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: 'top-left' | 'top-right' }
+type CueProposalForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: 'top-left' | 'top-right'; auto_approve: boolean }
 type Timeline = { schema_version: 1; generated_at: string; source_scene_plan_generated_at: string; cues: Cue[] }
 
 const route = useRoute()
@@ -139,8 +143,8 @@ const { success, error: showError } = useToast()
 const { isJobActiveFor } = useJobs()
 const episodeId = ref('')
 const config = ref<CueConfig>({ enabled: false })
-const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right' })
-useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement'], version: 1 })
+const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
+useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const timeline = ref<Timeline | null>(null)
 const validation = ref<Array<{ cue_id?: string; detail: string }>>([])
 const loadError = ref('')
@@ -197,6 +201,7 @@ const cuePresets = usePresets<CueProposalForm>({
     if (typeof data?.model === 'string') form.value.model = data.model
     if (data?.density === 'restrained' || data?.density === 'standard' || data?.density === 'editorial') form.value.density = data.density
     if (data?.placement === 'top-left' || data?.placement === 'top-right') form.value.placement = data.placement
+    form.value.auto_approve = data?.auto_approve === true
   },
 })
 onMounted(async () => { await loadConfig(); await cuePresets.load() })
@@ -207,7 +212,7 @@ onMounted(async () => { await loadConfig(); await cuePresets.load() })
 .cues-command { display:flex; align-items:center; justify-content:space-between; gap:2rem; margin:1rem 0; padding:1.25rem 1.5rem; }
 .cue-toggle-copy h2,.cue-settings h2,.cue-list h2 { margin:.25rem 0; font-size:1.1rem; }.cue-toggle-copy p,.cue-settings p { margin:0; color:var(--text-muted); max-width:46rem; }
 .section-kicker { display:block; color:var(--accent-gold); text-transform:uppercase; letter-spacing:.09em; font-weight:700; font-size:.72rem; }.cue-switch { display:flex; gap:.55rem; align-items:center; font-weight:700; white-space:nowrap; }.cue-switch input { width:1.2rem; height:1.2rem; accent-color:var(--accent-gold); }
-.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }
+.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
 .cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }.cue-row { display:grid; grid-template-columns:7.5rem 11rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
 @media (max-width:980px) { .cue-settings,.cue-settings-controls { grid-template-columns:1fr; } }
 @media (max-width:1000px) { .cue-row { grid-template-columns:7.5rem 1fr auto; }.cue-preview { grid-column:2; } }

@@ -20,6 +20,21 @@ import assert from 'node:assert/strict'
 import { resolveStepParams } from '../routes/pipeline.js'
 import type { Format } from '../models/types.js'
 
+test('Contextual Cues pipeline params preserve the preset review decision', () => {
+  const review = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
+    id: 'cue-review', name: 'Editorial review', data: {
+      model: 'genstudio-text', density: 'restrained', placement: 'top-right', auto_approve: false,
+    },
+  } as any, null)
+  assert.deepEqual(review, {
+    episode_id: 'EP0042', model: 'genstudio-text', density: 'restrained', placement: 'top-right', auto_approve: false,
+  })
+  const trusted = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
+    id: 'cue-auto', name: 'Trusted automated', data: { model: 'genstudio-text', auto_approve: true },
+  } as any, null)
+  assert.equal(trusted.auto_approve, true)
+})
+
 // ── Test fixtures ─────────────────────────────────────────────────────────
 
 const LISTICLE_FORMAT: Format = {

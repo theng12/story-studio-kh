@@ -33,12 +33,12 @@ describe('Contextual Cues contract', () => {
 
   test('proposal controls use their own safe defaults instead of Scene Plan settings', () => {
     assert.deepEqual(normalizeContextualCueProposalSettings(undefined), {
-      model: '', density: 'restrained', placement: 'top-right',
+      model: '', density: 'restrained', placement: 'top-right', auto_approve: false,
     })
     assert.deepEqual(normalizeContextualCueProposalSettings({
-      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
+      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left', auto_approve: true,
     }), {
-      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
+      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left', auto_approve: true,
     })
   })
 
@@ -55,6 +55,19 @@ describe('Contextual Cues contract', () => {
     const issues = validateContextualCueTimeline(timeline, plan, { subtitles: { enabled: true }, requireResolved: true } as any)
     assert.ok(issues.some(issue => /Bottom-corner/.test(issue.detail)))
     assert.ok(issues.some(issue => /overlaps or crowds/.test(issue.detail)))
+  })
+
+  test('all reviewed visual treatments are accepted, while unknown treatments are rejected', () => {
+    for (const template of ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate']) {
+      assert.equal(validateContextualCueTimeline({
+        schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+        cues: [cue({ template })],
+      } as any, plan).length, 0)
+    }
+    assert.ok(validateContextualCueTimeline({
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [cue({ template: 'mystery-template' })],
+    } as any, plan).some(issue => /treatment is invalid/i.test(issue.detail)))
   })
 
   test('disabled feature does not block Video Assembly', () => {

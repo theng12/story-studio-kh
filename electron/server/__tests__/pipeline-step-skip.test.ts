@@ -32,7 +32,7 @@ let isStepAlreadyDone: typeof import('../routes/pipeline.js').isStepAlreadyDone
 function fullStatus(overrides: Partial<EpisodeStatus> = {}): EpisodeStatus {
   return {
     research: false,
-    scene_plan: false, scene_review: false, motion_review: false,
+    scene_plan: false, contextual_cues: false, scene_review: false, motion_review: false,
     character_sheet: false,
     broll_picked: false,
     script: false, introduction: false,
@@ -94,10 +94,12 @@ describe('isStepAlreadyDone — truth table', () => {
   })
 
   // v1.0.363 — audio-paced format steps, now batchable.
-  test('subtitles / scene_plan / scene_review / character_sheet track their status field', () => {
+  test('subtitles / scene plan / contextual cues / scene review / character sheet track their status field', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ subtitles: true }), 'subtitles'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ subtitles: false }), 'subtitles'), false)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_plan: true }), 'scene_plan'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: true }), 'contextual_cues'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: false }), 'contextual_cues'), false)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_review: true }), 'scene_review'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ character_sheet: true }), 'character_sheet'), true)
   })
@@ -414,4 +416,11 @@ test('unified assembly requires reviewed scenes but not optional Motion Review',
   const { prerequisitesForStep } = await import('../routes/pipeline.js')
   assert.deepEqual(prerequisitesForStep('video_assembly'), ['scene_review', 'audio_merge'])
   assert.ok(!prerequisitesForStep('video_assembly').includes('motion_review'))
+})
+
+test('enabled contextual cues place a review gate between Scene Plan and Scene Review', async () => {
+  const { prerequisitesForStep } = await import('../routes/pipeline.js')
+  assert.deepEqual(prerequisitesForStep('contextual_cues'), ['scene_plan'])
+  assert.deepEqual(prerequisitesForStep('scene_review', true), ['scene_plan', 'contextual_cues'])
+  assert.deepEqual(prerequisitesForStep('scene_review', false), ['scene_plan'])
 })

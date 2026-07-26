@@ -63,7 +63,7 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue): string[] 
       // It works over the reviewed scene image and preserves the cue's exact
       // timing while reserving a clear visual hierarchy for place names.
       const pinX = left ? '56' : 'w-text_w-56'
-      const labelX = left ? '90' : 'w-text_w-56'
+      const labelX = left ? '90' : 'w-text_w-92'
       return [
         `drawtext=text='●':fontcolor=0xf4c75d:fontsize=h*0.030:borderw=1:bordercolor=0x111827@0.85:${common(pinX, cornerY)}`,
         `drawtext=text='${escapeCueText(label)}':fontcolor=white:fontsize=h*0.030:line_spacing=10:box=1:boxcolor=0x111827@0.88:boxborderw=16:${common(labelX, cornerY)}`,

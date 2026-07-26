@@ -78,6 +78,7 @@ type BatchStep =
   | 'metadata'
   | 'subtitles'
   | 'scene_plan'
+  | 'contextual_cues'
   | 'scene_review'
   | 'motion_review'
   | 'character_sheet'
@@ -86,7 +87,7 @@ type BatchStep =
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -100,6 +101,7 @@ export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   broll: 'broll_select',
   subtitles: 'subtitles_transcribe',
   scene_plan: 'scene_plan_run',
+  contextual_cues: 'contextual_cues',
   scene_review: 'continuity_render',
   motion_review: 'scene_clips_batch',
 }
@@ -153,6 +155,7 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // legacy untyped pointer as fallback. Subtitles has no presetType.
   subtitles:           { list: 'subtitles_generator_presets', activeKeys: ['subtitles_generator_last_preset'] },
   scene_plan:          { list: 'scene_plan_presets',       activeKeys: ['scene_plan_last_preset_scene-plan', 'scene_plan_last_preset'] },
+  contextual_cues:     { list: 'contextual_cues_presets',  activeKeys: ['contextual_cues_last_preset_contextual-cues'] },
   scene_review:        { list: 'scene_review_genstudio_presets', activeKeys: ['scene_review_genstudio_last_preset_scene-review'] },
   motion_review:       { list: 'motion_review_presets',    activeKeys: ['motion_review_last_preset_motion-review', 'motion_review_last_preset'] },
   // Character Sheet's whole-page preset (anchor characters, refs, style bible).
@@ -193,6 +196,7 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   subtitles: ['audio_merge'],
   character_sheet: ['script-only'],
   scene_plan: ['subtitles'],
+  contextual_cues: ['scene_plan'],
   scene_review: ['scene_plan'],
   motion_review: ['scene_review'],
   // Motion Review is optional. Unified assembly uses approved clips where
@@ -200,8 +204,9 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   video_assembly: ['scene_review', 'audio_merge'],
 }
 
-export function prerequisitesForStep(step: BatchStep): BatchStep[] {
-  return [...(STEP_PREREQUISITES[step] || [])]
+export function prerequisitesForStep(step: BatchStep, contextualCuesEnabled = false): BatchStep[] {
+  const base = [...(STEP_PREREQUISITES[step] || [])]
+  return step === 'scene_review' && contextualCuesEnabled ? [...base, 'contextual_cues'] : base
 }
 
 function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
@@ -230,6 +235,10 @@ async function preflightBatch(
   if (!config) throw new Error('Project config missing')
 
   const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
+  const contextualCuesEnabled = config.contextual_cues?.enabled === true
+  if (steps.includes('contextual_cues') && !contextualCuesEnabled) {
+    issues.push({ code: 'invalid_preset', step: 'contextual_cues', message: 'Enable Contextual Cues in its project setting before adding it to Pipeline.' })
+  }
   for (const step of steps) {
     if (NO_PRESET_STEPS.has(step)) continue
     const result = findActivePreset(config, step)
@@ -290,7 +299,7 @@ async function preflightBatch(
         available.add(step)
         continue
       }
-      const missing = prerequisitesForStep(step).filter(required => !available.has(required))
+      const missing = prerequisitesForStep(step, contextualCuesEnabled).filter(required => !available.has(required))
       for (const required of missing) {
         issues.push({
           code: 'missing_prerequisite',
@@ -334,6 +343,7 @@ const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
   'introduction-only': 'introduction',
   // v1.0.363 — typed presets on the audio-paced format pages.
   scene_plan: 'scene-plan',
+  contextual_cues: 'contextual-cues',
   scene_review: 'scene-review',
   motion_review: 'motion-review',
   character_sheet: 'continuity-page',
@@ -362,6 +372,7 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':         return status.subtitles
     case 'scene_plan':        return status.scene_plan
+    case 'contextual_cues':    return !!status.contextual_cues
     case 'scene_review':      return status.scene_review
     case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet
@@ -721,6 +732,15 @@ export function resolveStepParams(
         ? data.creative_direction : undefined,
       style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
       custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
+    }
+  }
+  if (step === 'contextual_cues') {
+    return {
+      episode_id: episodeId,
+      model: typeof data.model === 'string' ? data.model : '',
+      density: data.density === 'standard' || data.density === 'editorial' ? data.density : 'restrained',
+      placement: data.placement === 'top-left' ? 'top-left' : 'top-right',
+      auto_approve: data.auto_approve === true,
     }
   }
   if (step === 'scene_review') {
@@ -1147,6 +1167,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     //     runs by hand, and the path the user gets 100% acceptance on.
     //   • character_sheet is dropped (applied inline above, not a job).
     const chain: Array<{ type: JobType; title: string; params: Record<string, any> }> = []
+    let pausedForCueReview = false
     for (const step of effectiveSteps) {
       if (step === 'character_sheet') continue
       if (step === 'broll') {
@@ -1176,11 +1197,19 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       }
       const jobType = jobTypeForStep(step)
       const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
+      const params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
       chain.push({
         type: jobType,
         title: `[batch] ${jobTitleStep} — ${episodeId}`,
-        params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat),
+        params,
       })
+      // Editorial review is a deliberate pipeline handoff, never an implicit
+      // background approval. A trusted contextual-cue preset may opt into
+      // auto-approval; only then can later image/video stages continue.
+      if (step === 'contextual_cues' && params.auto_approve !== true) {
+        pausedForCueReview = true
+        break
+      }
     }
 
     // Nothing to enqueue. If the only selected work was the inline character
@@ -1238,6 +1267,9 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     })
     enqueued.push({ episode_id: episodeId, job_id: job.job_id, type: first.type })
     totalEnqueuedStepCount += chain.length
+    if (pausedForCueReview) {
+      job.output_lines.push('Pipeline will pause after Contextual Cues. Review and resolve the cue timeline, then run the remaining stages when ready.')
+    }
   }
 
   res.status(201).json({

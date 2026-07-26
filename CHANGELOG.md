@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.745 — 2026-07-26
+
+**Contextual Cues now participates safely in Pipeline.**
+
+- Adds the optional reviewed Contextual Cues stage between Scene Plan and
+  Scene Review, including its saved proposal settings.
+- Adds documentary labels, location pins, archival captions, and chapter
+  plates with per-cue previews and fade, dissolve, or slide treatment.
+- Pauses Pipeline for editorial review by default; trusted presets can
+  explicitly auto-approve safe proposals and continue the run.
+- Uses only resolved cue timelines as completion evidence and applies every
+  approved visual treatment consistently in Video Assembly.
+
+---
+
 ## v1.0.744 — 2026-07-26
 
 **Contextual Cues is ready for production use.**
