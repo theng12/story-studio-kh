@@ -38,11 +38,31 @@
         <p>These settings belong to a Sound Design preset. Phase 1 uses your local sound library only; compatible GenStudio sound capabilities will appear here when they are published.</p>
       </div>
       <div class="sound-settings-controls">
-        <label>Sound density<select v-model="settings.density" class="select"><option value="minimal">Minimal — sparse and documentary-safe</option><option value="balanced">Balanced — selective emphasis</option><option value="rich">Rich — use with care</option></select></label>
-        <label>Maximum spots per minute<input v-model.number="settings.max_spots_per_minute" class="input" type="number" min="1" max="12" /></label>
-        <label>Ambient bed level<input v-model.number="settings.default_bed_gain_db" class="input" type="number" min="-45" max="-6" step="1" /></label>
-        <label>Spot effect level<input v-model.number="settings.default_spot_gain_db" class="input" type="number" min="-35" max="-3" step="1" /></label>
-        <label>Bed ducking<select v-model="settings.ducking_profile" class="select"><option value="gentle">Gentle — light narration protection</option><option value="standard">Standard — clearer narration</option><option value="strong">Strong — narration first</option></select></label>
+        <label class="sound-setting-field" title="Controls how frequently Sound Design suggests ambience and one-off effects. Minimal is safest for narration-first videos; Rich creates a busier soundscape.">
+          <span class="setting-label-row"><span>Sound density</span><span class="setting-purpose">Frequency</span></span>
+          <select v-model="settings.density" class="select" aria-describedby="sound-density-help"><option value="minimal">Minimal — sparse and documentary-safe</option><option value="balanced">Balanced — selective emphasis</option><option value="rich">Rich — use with care</option></select>
+          <small id="sound-density-help" class="setting-help">How often ambience and effects appear. Use Minimal for voice-led videos; Rich adds more sonic activity.</small>
+        </label>
+        <label class="sound-setting-field" title="Sets a hard pacing limit for short one-off effects. Lower values leave more room for narration. A range of 2–4 per minute is a safe starting point.">
+          <span class="setting-label-row"><span>Maximum spots per minute</span><span class="setting-purpose">Pacing cap</span></span>
+          <input v-model.number="settings.max_spots_per_minute" class="input" type="number" min="1" max="12" aria-describedby="sound-spots-help" />
+          <small id="sound-spots-help" class="setting-help">Limits brief effects such as clicks, impacts, or doors. Start at 2–4 to avoid distracting from speech.</small>
+        </label>
+        <label class="sound-setting-field" title="Sets the default loudness of continuous background ambience. Decibels are negative here: a more-negative number is quieter. Start near -20 dB.">
+          <span class="setting-label-row"><span>Ambient bed level</span><span class="setting-purpose">Continuous mix · dB</span></span>
+          <input v-model.number="settings.default_bed_gain_db" class="input" type="number" min="-45" max="-6" step="1" aria-describedby="sound-bed-level-help" />
+          <small id="sound-bed-level-help" class="setting-help">Loudness of continuous backgrounds. More negative is quieter; −20 dB is a narration-safe starting point.</small>
+        </label>
+        <label class="sound-setting-field" title="Sets the default loudness of brief spot effects. Decibels are negative here: a more-negative number is quieter. Start near -12 dB.">
+          <span class="setting-label-row"><span>Spot effect level</span><span class="setting-purpose">Momentary mix · dB</span></span>
+          <input v-model.number="settings.default_spot_gain_db" class="input" type="number" min="-35" max="-3" step="1" aria-describedby="sound-spot-level-help" />
+          <small id="sound-spot-level-help" class="setting-help">Loudness of brief effects. More negative is quieter; −12 dB is noticeable without overpowering speech.</small>
+        </label>
+        <label class="sound-setting-field" title="Controls how strongly continuous ambience lowers while narration is present. Gentle keeps the atmosphere audible; Strong gives speech the most space.">
+          <span class="setting-label-row"><span>Bed ducking</span><span class="setting-purpose">Voice protection</span></span>
+          <select v-model="settings.ducking_profile" class="select" aria-describedby="sound-ducking-help"><option value="gentle">Gentle — light narration protection</option><option value="standard">Standard — clearer narration</option><option value="strong">Strong — narration first</option></select>
+          <small id="sound-ducking-help" class="setting-help">How much ambience lowers under speech. Gentle preserves atmosphere; Strong prioritizes voice clarity.</small>
+        </label>
         <div class="provider-note"><strong>GenStudio sound generation</strong><span>Not available yet. This workflow will use a qualified live GenStudio capability when one is published; Story Studio will not connect to providers directly.</span></div>
       </div>
     </section>
@@ -124,7 +144,7 @@ watch(episodeId, loadEpisode); onMounted(async () => { await Promise.all([loadCo
 <style scoped>
 .sound-design-workspace :deep(.workspace-command-surface .top-action-bar) { margin:0; border:0; background:transparent; box-shadow:none; }
 .sound-command,.sound-settings { display:grid; grid-template-columns:minmax(20rem,1fr) auto; align-items:center; gap:2rem; margin:1rem 0; padding:1.25rem 1.5rem; }.sound-command h2,.sound-settings h2,.sound-timeline h2 { margin:.25rem 0; font-size:1.1rem; }.sound-command p,.sound-settings p { margin:0; color:var(--text-muted); max-width:48rem; }.section-kicker { color:var(--accent-gold); text-transform:uppercase; letter-spacing:.09em; font-size:.72rem; font-weight:700; }.sound-switch { display:flex; gap:.55rem; align-items:center; font-weight:700; white-space:nowrap; }.sound-switch input { width:1.2rem; height:1.2rem; accent-color:var(--accent-gold); }
-.sound-settings { align-items:end; grid-template-columns:minmax(18rem,.8fr) minmax(36rem,1.7fr); }.sound-settings-controls { display:grid; grid-template-columns:repeat(2,minmax(12rem,1fr)); gap:.8rem; }.sound-settings-controls label { display:grid; gap:.35rem; font-size:.82rem; color:var(--text-muted); }.provider-note { grid-column:1/-1; display:grid; gap:.18rem; padding:.65rem .8rem; border:1px solid var(--border-color); border-radius:.45rem; color:var(--text-muted); font-size:.8rem; }.provider-note strong { color:var(--text-primary); }
+.sound-settings { align-items:end; grid-template-columns:minmax(18rem,.8fr) minmax(36rem,1.7fr); }.sound-settings-controls { display:grid; grid-template-columns:repeat(2,minmax(12rem,1fr)); gap:.8rem; }.sound-setting-field { display:grid; align-content:start; gap:.42rem; min-width:0; padding:.72rem; border:1px solid var(--border-color); border-radius:.55rem; background:color-mix(in srgb,var(--bg-input) 58%,transparent); color:var(--text-muted); }.setting-label-row { display:flex; justify-content:space-between; align-items:center; gap:.65rem; color:var(--text-primary); font-size:.82rem; font-weight:700; }.setting-purpose { flex:0 0 auto; color:var(--accent-gold); font-size:.65rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }.setting-help { color:var(--text-muted); font-size:.74rem; line-height:1.4; }.provider-note { grid-column:1/-1; display:grid; gap:.18rem; padding:.65rem .8rem; border:1px solid var(--border-color); border-radius:.45rem; color:var(--text-muted); font-size:.8rem; }.provider-note strong { color:var(--text-primary); }
 .sound-timeline { padding:1.25rem; }.timeline-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }.timeline-actions,.cue-actions { display:flex; gap:.45rem; flex-wrap:wrap; align-items:center; }.sound-cue { display:grid; grid-template-columns:6.5rem 2.2rem minmax(30rem,1fr) auto; gap:.8rem; align-items:start; padding:1rem 0; border-top:1px solid var(--border-color); }.sound-cue.is-approved { border-left:3px solid var(--success); padding-left:.7rem; }.sound-cue.is-excluded { opacity:.55; }.cue-time { padding-top:.55rem; color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; }.cue-icon { font-size:1.1rem; padding-top:.45rem; }.cue-fields { display:grid; grid-template-columns:9rem minmax(15rem,1fr) 7rem 7rem 8rem minmax(15rem,1.2fr); gap:.5rem; align-items:center; }.cue-fields label { display:flex; align-items:center; gap:.25rem; color:var(--text-muted); font-size:.75rem; }.input-time { width:4.7rem; }.input-gain { width:3.6rem; }.clip-picker { min-width:0; }.cue-status { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
 @media (max-width:1100px) { .sound-settings,.sound-command,.sound-cue { grid-template-columns:1fr; }.sound-settings-controls,.cue-fields { grid-template-columns:1fr 1fr; }.cue-actions { justify-content:flex-start; } }
 </style>

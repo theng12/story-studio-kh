@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.748 — 2026-07-27
+
+- **Sound Design guidance** — Every pacing and mix control now explains its purpose, audible effect, and narration-safe starting point, with visible help and accessible hover guidance for density, spot frequency, ambient level, effect level, and voice ducking.
+
 ## v1.0.747 — 2026-07-26
 
 **Customer release safeguards are stronger and clearer.**
