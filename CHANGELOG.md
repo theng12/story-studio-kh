@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.749 — 2026-07-27
+
+- **Help across the whole app** — Adds a searchable, page-aware guide to every
+  project, production, review, delivery, library, settings, remote, and
+  compatibility workspace.
+- Each guide explains the recommended workflow, what every major feature is
+  for, when to use it, what it changes, and the safeguards that prevent
+  incomplete or duplicate work.
+- Keeps the guide available from both the project workspace and project
+  selection title bars, with a responsive compact trigger on smaller screens.
+- Adds route-coverage tests so future reachable workspaces cannot silently
+  ship without specific guidance.
+
 ## v1.0.748 — 2026-07-27
 
 - **Sound Design guidance** — Every pacing and mix control now explains its purpose, audible effect, and narration-safe starting point, with visible help and accessible hover guidance for density, spot frequency, ambient level, effect level, and voice ducking.

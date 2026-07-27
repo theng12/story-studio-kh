@@ -11,6 +11,7 @@
     <header class="top-bar">
       <div class="titlebar-drag"></div>
       <div class="top-bar-version">
+        <FeatureHelpCenter />
         <button
           type="button"
           class="version-badge"
@@ -71,6 +72,7 @@ function openWhatsNew() { _whatsNew.open() }
   height: 38px;
   display: flex;
   align-items: center;
+  gap: 8px;
   /* Click events must reach the button — opt out of the parent's drag
      region. Without this the chip catches no clicks because macOS treats
      the whole titlebar as a window-drag target. */

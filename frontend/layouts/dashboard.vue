@@ -12,6 +12,7 @@
       <button class="menu-toggle" aria-label="Open navigation" @click="mobileNavOpen = true">&#9776;</button>
       <div class="titlebar-drag"></div>
       <div class="top-bar-actions">
+        <FeatureHelpCenter />
         <NotificationCenter v-if="slug" :slug="slug" />
       </div>
     </header>
