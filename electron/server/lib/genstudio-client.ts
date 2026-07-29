@@ -20,6 +20,13 @@ import {
   type GenStudioAccountCapacity,
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
+import {
+  JSON_OBJECT_OUTPUT_CONTRACT,
+  PROSE_OUTPUT_CONTRACT,
+  PROSE_WRAPPER_SCHEMA,
+  validateStructuredOutput,
+  type TextOutputContract,
+} from './json-output-contract.js'
 
 const POLL_INTERVAL_MS = 1_000
 const NETWORK_RETRY_ATTEMPTS = 4
@@ -239,6 +246,7 @@ export interface GenStudioChatModel {
   max_image_dimension: number
   supported_detail_levels: Array<'low' | 'high' | 'auto'>
   supports_structured_output: boolean
+  structured_output_mode: 'json_object' | 'request_json_schema'
 }
 
 export interface GenStudioImageSourceAsset {
@@ -367,6 +375,9 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
   /** A private GenStudio-owned image asset for a vision-capable chat model. */
   inputImage?: { assetId: string; detail: 'low' | 'high' | 'auto' }
+  /** Exact workflow contract; catalog mode compatibility is checked before spend. */
+  outputContract?: TextOutputContract
+  /** @deprecated Use outputContract. Preserved for older JSON Object callers. */
   jsonObject?: boolean
 }
 
@@ -568,16 +579,24 @@ function shouldReconnectAcceptedTask(
 
 export class GenStudioApiError extends Error {
   constructor(public readonly status: number, public readonly detail: string, public readonly code?: string) {
-    super(
-      status === 401 || status === 403
-        ? `GenStudio KH rejected the scoped API key (HTTP ${status}): ${detail}. ` +
-          'Verify this key belongs to the intended account and includes the scope required by this operation.'
-        : isGenStudioReleaseGenerationUnavailable(status, detail)
-          ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
-            'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +
-            'charging in GenStudio, then Retry to repair only unfinished work.'
-        : `GenStudio KH request failed: ${detail}`,
-    )
+    const message = status === 401
+      ? `GenStudio KH did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
+      : status === 402
+        ? `GenStudio KH has insufficient credits for this request: ${detail}. Add credits, then Retry.`
+        : status === 403
+          ? `This GenStudio KH key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
+          : status === 422
+            ? `GenStudio KH rejected the product request before generation: ${detail}. Review the selected model and its output contract.`
+            : status === 429
+              ? `GenStudio KH is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
+              : status === 502
+                ? `The provider behind this GenStudio KH product failed: ${detail}. No direct-provider fallback was attempted.`
+                : isGenStudioReleaseGenerationUnavailable(status, detail)
+                  ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
+                    'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +
+                    'charging in GenStudio, then Retry to repair only unfinished work.'
+                  : `GenStudio KH request failed: ${detail}`
+    super(message)
     this.name = 'GenStudioApiError'
   }
 }
@@ -897,10 +916,10 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
     context_limit_tokens: Number.isInteger(value?.context_limit_tokens)
-      ? Math.max(1, Math.min(500_000, value.context_limit_tokens))
+      ? Math.max(1, value.context_limit_tokens)
       : 0,
     max_output_tokens: Number.isInteger(value?.max_output_tokens)
-      ? Math.max(1, Math.min(32_768, value.max_output_tokens))
+      ? Math.max(1, value.max_output_tokens)
       : 2_048,
     controls: Array.isArray(value?.controls) ? value.controls.filter((item: unknown) => typeof item === 'string') : [],
     activation_blockers: Array.isArray(value?.activation_blockers)
@@ -931,6 +950,11 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
       ? value.supported_detail_levels.filter((item: unknown): item is 'low' | 'high' | 'auto' => item === 'low' || item === 'high' || item === 'auto')
       : [],
     supports_structured_output: value?.supports_structured_output === true,
+    structured_output_mode: (
+      value?.structured_output_mode === 'json_object'
+        ? 'json_object'
+        : 'request_json_schema'
+    ) as GenStudioChatModel['structured_output_mode'],
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
 }
 
@@ -1172,6 +1196,8 @@ export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
 }
 
 export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
+  const outputContract = request.outputContract
+    ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
   const digest = createHash('sha256').update(JSON.stringify({
     model_id: request.modelId.trim(),
     system: request.system,
@@ -1181,25 +1207,139 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     max_output_tokens: request.maxOutputTokens ?? 2_048,
     request_identity: request.requestIdentity?.trim() || null,
     input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
-    json_object: request.jsonObject === true,
+    output_contract: outputContract,
   })).digest('hex')
   return `story-chat-${digest.slice(0, 47)}`
 }
 
-/** Submit once, then poll only GenStudio's durable chat job state. */
+interface GenStudioChatCompletion {
+  id: string
+  model: string
+  choices: Array<{
+    message?: { content?: string }
+    finish_reason?: string
+  }>
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+}
+
+function productResponseFormat(
+  productMode: GenStudioChatModel['structured_output_mode'],
+  outputContract: TextOutputContract,
+): { responseFormat: Record<string, unknown>; wrapperInstruction?: string } {
+  if (outputContract.mode === 'json_schema') {
+    if (productMode !== 'request_json_schema') {
+      throw new Error(
+        'The selected GenStudio product supports JSON Object output, but this workflow requires a strict JSON schema. Choose a strict-schema product. No request or credit charge was made.',
+      )
+    }
+    return {
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: {
+          name: outputContract.name,
+          strict: true,
+          schema: outputContract.schema,
+        },
+      },
+    }
+  }
+  if (outputContract.mode === 'json_object') {
+    if (productMode !== 'json_object') {
+      throw new Error(
+        'The selected GenStudio product requires a strict JSON schema, but this workflow supplied only a JSON Object contract. Choose a JSON Object product or update this workflow with a schema. No request or credit charge was made.',
+      )
+    }
+    return { responseFormat: { type: 'json_object' } }
+  }
+  if (productMode === 'request_json_schema') {
+    return {
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'story_studio_prose',
+          strict: true,
+          schema: PROSE_WRAPPER_SCHEMA,
+        },
+      },
+    }
+  }
+  return {
+    responseFormat: { type: 'json_object' },
+    wrapperInstruction: 'Return exactly one JSON object with one key named "text". Put the complete prose answer in that string and add no other keys.',
+  }
+}
+
+function parseProductCompletion(
+  completion: GenStudioChatCompletion,
+  outputContract: TextOutputContract,
+): { text: string; jobId: string; modelId: string } {
+  const raw = completion.choices?.[0]?.message?.content
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('GenStudio KH language product succeeded without usable output.')
+  }
+  const value = validateStructuredOutput(raw, outputContract)
+  if (outputContract.mode === 'prose') {
+    return {
+      text: (value as { text: string }).text,
+      jobId: completion.id,
+      modelId: completion.model,
+    }
+  }
+  return {
+    text: JSON.stringify(value),
+    jobId: completion.id,
+    modelId: completion.model,
+  }
+}
+
+/** Execute one exact published language product through GenStudio's product API. */
 async function callChatWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioChatRequest,
 ): Promise<{ text: string; jobId: string; modelId: string }> {
-  const modelId = request.modelId.trim()
+  const modelId = request.modelId.trim().replace(/^genstudio-chat:/, '')
   if (!modelId) throw new Error('Select a GenStudio KH chat model.')
   if (!request.userMessage.trim()) throw new Error('GenStudio KH chat input cannot be empty.')
+  if (request.inputImage) {
+    throw new Error('The GenStudio language-product endpoint is text-only in this release. No request or credit charge was made.')
+  }
+  const product = (await listChatModels(apiKey)).find(model => model.id === modelId)
+  if (!product || !product.available || product.qualification_only) {
+    throw new Error(
+      `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
+    )
+  }
+  const maxOutputTokens = request.maxOutputTokens ?? Math.min(2_048, product.max_output_tokens)
+  if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {
+    throw new Error(
+      `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${product.max_output_tokens.toLocaleString()}-token limit. No request or credit charge was made.`,
+    )
+  }
+  const outputContract = request.outputContract
+    ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
+  const { responseFormat, wrapperInstruction } = productResponseFormat(
+    product.structured_output_mode,
+    outputContract,
+  )
   const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioChatIdempotencyKey(request)
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const submitted = await submitJsonWithAdmission(
+  const messages = [
+    ...(request.system.trim() || wrapperInstruction
+      ? [{
+          role: 'system',
+          content: [request.system.trim(), wrapperInstruction].filter(Boolean).join('\n\n'),
+        }]
+      : []),
+    { role: 'user', content: request.userMessage },
+  ]
+  const completion = await submitJsonWithAdmission(
     apiKey,
-    `${apiBase(baseUrl)}/v1/chat/responses`,
+    `${apiBase(baseUrl)}/v1/chat/completions`,
     {
       method: 'POST',
       headers: {
@@ -1208,71 +1348,30 @@ async function callChatWithGenStudioAdmitted(
         'Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify({
-        model_id: modelId,
-        input: [
-          ...(request.system.trim() ? [{ role: 'system', content: request.system }] : []),
-          { role: 'user', content: request.inputImage
-            ? [
-                { type: 'input_image', asset_id: request.inputImage.assetId, detail: request.inputImage.detail },
-                { type: 'input_text', text: request.userMessage },
-              ]
-            : request.userMessage },
-        ],
+        model: modelId,
+        messages,
+        response_format: responseFormat,
+        stream: false,
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 1,
-        max_output_tokens: Math.max(1, Math.min(32_768, request.maxOutputTokens ?? 2_048)),
-        ...(request.jsonObject === true ? { response_format: { type: 'json_object' } } : {}),
+        max_completion_tokens: maxOutputTokens,
       }),
     },
     request,
     deadline,
-  ) as GenStudioChatJob
-  await recordGenStudioEvidence('chat.response', submitted)
-  await reportQueueState(request, submitted)
-  await request.onJobAccepted?.(submitted.id, idempotencyKey)
-  let current = submitted
-  let reportedState = ''
-  let reportedRoutingState = ''
-  const reportState = async (): Promise<void> => {
-    const routingState = current.routing_status_code || ''
-    if (reportedState === current.state && reportedRoutingState === routingState) return
-    reportedState = current.state
-    reportedRoutingState = routingState
-    await recordGenStudioEvidence('chat.response', current)
-    await request.onState?.(current.state, current.id)
-    await reportQueueState(request, current)
+  ) as GenStudioChatCompletion
+  const result = parseProductCompletion(completion, outputContract)
+  const evidence: GenStudioJob = {
+    id: result.jobId,
+    state: 'succeeded',
+    model_id: result.modelId,
   }
-  while (true) {
-    await reportState()
-    if (current.state === 'failed') {
-      await genStudioAdmission.notifyTerminal(apiKey)
-      if (current.failure_code === 'CHAT_PROVIDER_INCOMPLETE') {
-        throw new GenStudioChatIncompleteError(current)
-      }
-      throw new Error(
-        `GenStudio KH chat generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
-        'No direct provider or Studio Hub fallback was attempted.',
-      )
-    }
-    if (current.state === 'succeeded') break
-    if (request.isCancelled?.() || request.signal?.aborted) {
-      await request.onQueueState?.('cancelled', current.id)
-      throw new Error('Cancelled by user')
-    }
-    if (Date.now() >= deadline) throw new Error('GenStudio KH chat job timed out while waiting for completion')
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    current = await requestJsonWithRetry(
-      `${apiBase(baseUrl)}/v1/chat/responses/${encodeURIComponent(current.id)}`,
-      { headers: authorization(apiKey) },
-      request,
-      deadline,
-    ) as GenStudioChatJob
-  }
-  if (typeof current.output_text !== 'string' || !current.output_text.trim()) {
-    throw new Error('GenStudio KH chat job succeeded without usable output text')
-  }
+  await recordGenStudioEvidence('chat.response', evidence)
+  await request.onJobAccepted?.(result.jobId, idempotencyKey)
+  await request.onState?.('succeeded', result.jobId)
+  await request.onQueueState?.('succeeded', result.jobId)
   await genStudioAdmission.notifyTerminal(apiKey)
-  return { text: current.output_text, jobId: current.id, modelId: current.model_id }
+  return result
 }
 
 export async function callChatWithGenStudio(

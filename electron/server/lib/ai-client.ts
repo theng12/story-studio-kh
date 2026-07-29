@@ -10,6 +10,7 @@
 import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
+import type { TextOutputContract } from './json-output-contract.js'
 import {
   resolveGenStudioModelId,
   unavailableLegacyModelMessage,
@@ -31,6 +32,8 @@ export interface CallAiContext {
   maxTokens?: number
   /** Ask supporting providers to guarantee a valid JSON object response. */
   jsonMode?: boolean
+  /** Exact prose, JSON Object, or strict JSON-schema workflow contract. */
+  outputContract?: TextOutputContract
   /** Skip reasoning tokens for deterministic extraction/formatting work. */
   disableReasoning?: boolean
   /** Sampling temperature forwarded to providers that support it. */
@@ -91,6 +94,7 @@ export async function callAi(
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
     jsonMode: ctx.jsonMode,
+    outputContract: ctx.outputContract,
     disableReasoning: ctx.disableReasoning,
     temperature: ctx.temperature,
     // The request body is already part of the GenStudio idempotency digest.

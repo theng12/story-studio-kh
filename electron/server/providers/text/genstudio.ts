@@ -35,6 +35,8 @@ const genstudioProvider: TextProvider = {
       temperature: request.temperature,
       maxOutputTokens: request.maxTokens,
       requestIdentity: request.requestIdentity,
+      outputContract: request.outputContract,
+      jsonObject: !request.outputContract && request.jsonMode === true,
       signal: request.signal,
       onState: async (state, jobId) => {
         request.onDiagnostics?.({

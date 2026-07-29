@@ -12,12 +12,16 @@ export function stripGenStudioModelPrefix(modality: GenStudioModality, modelId: 
   return value
 }
 
-/** Reject non-GenStudio ids instead of translating an old provider selection. */
+/**
+ * Preserve the exact customer product id returned by GenStudio. Product
+ * handles are owner-defined and are not required to start with "genstudio-".
+ * Known transport prefixes remain readable for saved pre-product selections.
+ */
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
   const value = stripGenStudioModelPrefix(modality, modelId)
-  return value.startsWith('genstudio-') ? value : null
+  return value && value.length <= 128 ? value : null
 }
 
 export function unavailableLegacyModelMessage(modality: GenStudioModality, modelId: string): string {
-  return `Saved ${modality} model \"${modelId}\" is retired and was not submitted. Open this generator, choose a current model from the GenStudio catalog, then save the preset again. No generation request or credit charge was made.`
+  return `Saved ${modality} product \"${modelId}\" is retired or unavailable and was not submitted. Open this generator, choose a current product from the GenStudio catalog, then save the preset again. No generation request or credit charge was made.`
 }

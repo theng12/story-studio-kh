@@ -164,6 +164,8 @@ export interface VideoProvider {
 
 // ── Text Provider ────────────────────────────────────────────────────────
 
+import type { TextOutputContract } from '../lib/json-output-contract.js'
+
 export interface TextGenerationRequest {
   model: string
   system: string
@@ -173,6 +175,11 @@ export interface TextGenerationRequest {
   maxTokens?: number
   /** Prefer provider-native JSON mode for strict machine-readable workflows. */
   jsonMode?: boolean
+  /**
+   * Exact workflow output contract. `jsonMode` remains a compatibility alias
+   * for `{ mode: 'json_object' }` while older callers are migrated.
+   */
+  outputContract?: TextOutputContract
   /** Disable paid reasoning tokens when the task is deterministic formatting. */
   disableReasoning?: boolean
   /** Optional sampling temperature for callers that need stable structured output. */

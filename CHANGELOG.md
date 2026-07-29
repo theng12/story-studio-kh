@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.750 — 2026-07-29
+
+- **Story Studio now speaks GenStudio's product-first language contract** —
+  sends exact published product IDs to `/v1/chat/completions`, preserves each
+  product's JSON Object or strict-schema mode, and forwards workflow schemas.
+- Validates structured output locally, wraps prose in a safe JSON response
+  contract, preserves stable idempotency across retries, and refuses
+  incompatible modes or oversized requests before any credit can be spent.
+- Removes invented chat token ceilings and gives authentication, credit,
+  access, validation, rate-limit, and provider failures distinct guidance.
+
 ## v1.0.749 — 2026-07-27
 
 - **Help across the whole app** — Adds a searchable, page-aware guide to every
