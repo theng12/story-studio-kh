@@ -1105,7 +1105,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const introText = await callAiWithRetry(style === 'custom' ? 'deepseek-v4-flash' : req.model, sysPrompt, introPrompt, apiKeys, true,
+    const introText = await callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
     const cleanedIntro = introText.trim()
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')

@@ -106,7 +106,7 @@ router.get('/models', async (_req, res) => {
   if (!apiKey) return res.json([])
   try {
     const models = (await listGenStudioChatModels(apiKey)).map(model => ({
-      id: `genstudio-chat:${model.id}`,
+      id: model.id,
       label: `${model.display_name} [GenStudio KH]`,
       provider: 'genstudio',
       available: model.available,
@@ -121,6 +121,7 @@ router.get('/models', async (_req, res) => {
       unlimited_relaxed: model.unlimited_relaxed,
       context_limit_tokens: model.context_limit_tokens,
       max_output_tokens: model.max_output_tokens,
+      structured_output_mode: model.structured_output_mode,
     }))
     res.json(models)
   } catch (error: any) {

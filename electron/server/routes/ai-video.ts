@@ -23,6 +23,7 @@ import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-
 import { getApiKey } from '../services/app-secrets-store.js'
 import { listVideoModels as listGenStudioVideoModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { videoPromptsOutputContract } from '../lib/story-output-contracts.js'
 
 export const router = Router()
 
@@ -51,6 +52,11 @@ router.post('/projects/:slug/generate/video-prompts', async (req, res) => {
 
   const { episode_id, title, model, count, style_hint, aspect_ratio } = req.body
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
+  if (typeof model !== 'string' || !model.trim()) {
+    return res.status(409).json({
+      detail: 'Choose an available GenStudio KH language product. Story Studio did not choose a hidden fallback, and no generation request or credit charge was made.',
+    })
+  }
 
   // Pull story context from the narration file if available
   let storyContext = ''
@@ -90,11 +96,14 @@ RETURN ONLY THIS JSON (no markdown):
 }`
 
   try {
-    const raw = await callAiWithRetry(model || 'genstudio-chat:genstudio-chat-304c7e5dd2011f75a067-v1', sys, userPrompt, {
+    const raw = await callAiWithRetry(model, sys, userPrompt, {
       anthropic_api_key: config.anthropic_api_key,
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,
-    }, false, { slug })
+    }, false, {
+      slug,
+      outputContract: videoPromptsOutputContract(nClips),
+    })
     let text = raw.trim()
     if (text.startsWith('```')) text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
     const start = text.indexOf('{')

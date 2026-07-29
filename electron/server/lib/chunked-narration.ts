@@ -47,6 +47,8 @@ import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
 import { GenStudioChatIncompleteError } from './genstudio-client.js'
+import { outlineOutputContract } from './story-output-contracts.js'
+import type { TextOutputContract } from './json-output-contract.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
@@ -662,6 +664,7 @@ async function buildOutline(
   const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
   const arr = await callForJsonArray(
     params.model, params.systemPrompt, prompt, params.apiKeys, ctx,
+    outlineOutputContract(params.totalChapters),
   )
 
   // Normalise: clamp `n` into 1..totalChapters and drop duplicates.
@@ -1374,6 +1377,7 @@ async function callForJsonArray(
   model: string, system: string, user: string,
   apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string },
   ctx: { signal?: AbortSignal; slug?: string; jobId?: string },
+  outputContract: TextOutputContract,
   retries = 2,
 ): Promise<any[]> {
   let lastErr = ''
@@ -1382,7 +1386,7 @@ async function callForJsonArray(
     if (ctx.signal?.aborted) throw new Error('Cancelled by user')
     const raw = await callAiWithRetry(model, system, user, apiKeys, false, {
       ...ctx,
-      jsonMode: true,
+      outputContract,
       disableReasoning: true,
       temperature: 0.25,
     })

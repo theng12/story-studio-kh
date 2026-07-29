@@ -4,18 +4,20 @@ import test from 'node:test'
 import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.ts'
 
 const models = [
-  { id: 'genstudio-chat:fast', available: true },
-  { id: 'genstudio-chat:quality', available: true, legacy_ids: ['old-quality'] },
-  { id: 'genstudio-chat:paused', available: false },
+  { id: 'writer-fast', available: true },
+  { id: 'writer-quality', available: true, legacy_ids: ['old-quality'] },
+  { id: 'writer-retired', available: false },
 ]
 
-test('stale saved GPT-4o is healed to a usable live GenStudio model', () => {
-  assert.equal(selectLiveGenStudioModel('gpt-4o', models)?.id, 'genstudio-chat:fast')
+test('a named saved product is never silently replaced', () => {
+  assert.equal(selectLiveGenStudioModel('gpt-4o', models), null)
+  assert.equal(selectLiveGenStudioModel('writer-retired', models), null)
+  assert.equal(selectLiveGenStudioModel('', models)?.id, 'writer-fast')
 })
 
 test('a valid explicit selection wins and a published legacy alias migrates', () => {
-  assert.equal(selectLiveGenStudioModel('genstudio-chat:quality', models)?.id, 'genstudio-chat:quality')
-  assert.equal(selectLiveGenStudioModel('old-quality', models)?.id, 'genstudio-chat:quality')
+  assert.equal(selectLiveGenStudioModel('writer-quality', models)?.id, 'writer-quality')
+  assert.equal(selectLiveGenStudioModel('old-quality', models)?.id, 'writer-quality')
 })
 
 test('no catalog model means no selection rather than reviving a retired id', () => {
@@ -29,7 +31,7 @@ test('Script Generator has no hardcoded GPT-4o default and waits for a live mode
   assert.match(scriptPage, /!scriptModelReady/)
 })
 
-test('every generator picker strips stale selections instead of displaying a legacy route', () => {
+test('generator pickers keep stale selections visible until the user replaces them', () => {
   const imagePicker = readFileSync(new URL('../components/ImageModelPicker.vue', import.meta.url), 'utf8')
   const modelPicker = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
   const imagesPage = readFileSync(new URL('../pages/projects/[slug]/images.vue', import.meta.url), 'utf8')
@@ -38,9 +40,10 @@ test('every generator picker strips stale selections instead of displaying a leg
   const motionPage = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
   const transcription = readFileSync(new URL('../composables/useGenStudioTranscription.ts', import.meta.url), 'utf8')
 
-  for (const source of [imagePicker, modelPicker, motionPage]) {
+  for (const source of [imagePicker, motionPage]) {
     assert.doesNotMatch(source, /Unavailable saved selection|migration required|Historical/)
   }
+  assert.match(modelPicker, /will not switch products automatically/)
   assert.match(imagePicker, /selectLiveGenStudioModel/)
   assert.match(imagesPage, /model: '',/)
   assert.match(promptsPage, /thumbnail:\s*\{\s*model: '',/)

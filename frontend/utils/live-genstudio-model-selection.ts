@@ -23,9 +23,10 @@ export function isUsableLiveGenStudioModel(
 }
 
 /**
- * Keep a valid explicit choice. Otherwise migrate a published legacy alias or
- * take the first usable live catalog entry. `null` means no model can safely
- * be selected and the caller must keep generation disabled.
+ * Keep a valid explicit choice. A saved retired or unavailable product must
+ * stay visible for the user to replace; silently switching named products can
+ * change quality and price. Only an empty preference may take the first usable
+ * live entry. Explicit owner-published aliases remain safe migrations.
  */
 export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   savedModelId: unknown,
@@ -43,5 +44,5 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
     : undefined
   if (migrated) return migrated
 
-  return models.find(usable) || null
+  return saved ? null : models.find(usable) || null
 }

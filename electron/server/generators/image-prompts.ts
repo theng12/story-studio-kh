@@ -23,6 +23,7 @@ import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.j
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
+import { thumbnailPromptsOutputContract } from '../lib/story-output-contracts.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -441,7 +442,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         slug: projectSlug,
         jobId: job.job_id,
         signal: controller.signal,
-        jsonMode: true,
+        outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
         disableReasoning: true,
         temperature: 0.35,
       })

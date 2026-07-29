@@ -10,6 +10,7 @@ import {
 } from './fixtures/mock-genstudio-service.js'
 
 const NO_SCOPES_KEY = 'gsk_mock_story_no_scopes'
+const CHAT_CATALOG_ONLY_KEY = 'gsk_mock_story_chat_catalog_only'
 
 function fetchUrl(input: string | URL | Request): string {
   if (typeof input === 'string') return input
@@ -34,6 +35,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
     const client = await import('../lib/genstudio-client.js')
 
     service.registerKey(NO_SCOPES_KEY, [])
+    service.registerKey(CHAT_CATALOG_ONLY_KEY, ['models:read', 'usage:read'])
     globalThis.fetch = async (input, init) => {
       const url = new URL(fetchUrl(input))
       assert.equal(
@@ -83,7 +85,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
     await suite.test('rejects every generation scope before creating a GenStudio job', async () => {
       service.reset()
       await assert.rejects(
-        client.callChatWithGenStudio(NO_SCOPES_KEY, {
+        client.callChatWithGenStudio(CHAT_CATALOG_ONLY_KEY, {
           modelId: 'mock-chat-v1',
           system: '',
           userMessage: 'This must not create work.',
@@ -144,13 +146,13 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
       })
 
       assert.equal(result.text, 'One durable mock response.')
-      assert.deepEqual(states, ['accepted', 'reserved', 'dispatched', 'running', 'validating', 'succeeded'])
+      assert.deepEqual(states, ['succeeded'])
       assert.equal(accepted.length, 1)
       assert.equal(service.jobCount('chat'), 1)
       assert.equal(service.providerSubmissionCount('chat'), 1)
       assert.equal(service.replayCount(result.jobId), 1)
       const submitRequests = service.requests.filter(request => (
-        request.method === 'POST' && request.path === '/v1/chat/responses'
+        request.method === 'POST' && request.path === '/v1/chat/completions'
       ))
       assert.equal(submitRequests.length, 2)
       assert.equal(new Set(submitRequests.map(request => request.idempotencyKey)).size, 1)
@@ -309,7 +311,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           userMessage: 'Definitive provider network failure.',
           requestIdentity: 'qualification:chat:network-unavailable',
         }),
-        /CHAT_PROVIDER_NETWORK_UNAVAILABLE.*No direct provider or Studio Hub fallback was attempted/,
+        /provider behind this GenStudio KH product failed.*No direct provider or Studio Hub fallback was attempted/i,
       )
       await assert.rejects(
         client.callChatWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
@@ -318,7 +320,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           userMessage: 'Uncertain provider submission.',
           requestIdentity: 'qualification:chat:submission-uncertain',
         }),
-        /CHAT_PROVIDER_SUBMISSION_UNCERTAIN.*No direct provider or Studio Hub fallback was attempted/,
+        /provider behind this GenStudio KH product failed.*No direct provider or Studio Hub fallback was attempted/i,
       )
 
       const failedJobs = service.submissions.filter(submission => !submission.replay)

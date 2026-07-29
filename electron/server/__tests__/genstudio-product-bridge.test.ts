@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   callChatWithGenStudio,
@@ -9,6 +10,13 @@ import {
   jsonValueMatchesSchema,
   type TextOutputContract,
 } from '../lib/json-output-contract.js'
+import {
+  CONTEXTUAL_CUES_OUTPUT_CONTRACT,
+  outlineOutputContract,
+  scenePromptPackOutputContract,
+  thumbnailPromptsOutputContract,
+  videoPromptsOutputContract,
+} from '../lib/story-output-contracts.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 
 const METADATA_CONTRACT: TextOutputContract = {
@@ -162,6 +170,75 @@ test('local schema validation rejects malformed structured output', () => {
   assert.equal(jsonValueMatchesSchema({ title: 'Extra', score: 50, hidden: true }, schema), false)
 })
 
+test('story workflow schemas accept complete output and reject partial output', () => {
+  const schemas = [
+    {
+      contract: thumbnailPromptsOutputContract(2),
+      valid: {
+        thumbnails: [
+          { title: 'First', prompt: 'A moonlit road.' },
+          { title: 'Second', prompt: 'A quiet library.' },
+        ],
+      },
+      partial: { thumbnails: [{ title: 'First', prompt: 'A moonlit road.' }] },
+    },
+    {
+      contract: videoPromptsOutputContract(2),
+      valid: {
+        scenes: [
+          { number: 1, title: 'First', prompt: 'Slow dolly toward a moonlit road.' },
+          { number: 2, title: 'Second', prompt: 'Static shot inside a quiet library.' },
+        ],
+      },
+      partial: {
+        scenes: [{ number: 1, title: 'First', prompt: 'Slow dolly toward a moonlit road.' }],
+      },
+    },
+    {
+      contract: scenePromptPackOutputContract(['scene-1', 'scene-2'], 'visual'),
+      valid: {
+        results: [
+          { scene_id: 'scene-1', visual_prompt: 'A wide establishing shot.' },
+          { scene_id: 'scene-2', visual_prompt: 'A close-up of a sealed letter.' },
+        ],
+      },
+      partial: {
+        results: [{ scene_id: 'scene-1', visual_prompt: 'A wide establishing shot.' }],
+      },
+    },
+    {
+      contract: CONTEXTUAL_CUES_OUTPUT_CONTRACT,
+      valid: {
+        cues: [{
+          scene_id: 'scene-1',
+          title: 'Phnom Penh, 1963',
+          kind: 'location_date',
+          template: 'documentary-label',
+          anchor_offset_sec: 0.2,
+        }],
+      },
+      partial: { cues: [{ scene_id: 'scene-1' }] },
+    },
+    {
+      contract: outlineOutputContract(2),
+      valid: {
+        chapters: [
+          { n: 1, title: 'Arrival' },
+          { n: 2, title: 'Discovery' },
+        ],
+      },
+      partial: { chapters: [{ n: 1, title: 'Arrival' }] },
+    },
+  ]
+
+  for (const { contract, valid, partial } of schemas) {
+    assert.equal(contract.mode, 'json_schema')
+    if (contract.mode !== 'json_schema') continue
+    assert.equal(jsonValueMatchesSchema(valid, contract.schema), true)
+    assert.equal(jsonValueMatchesSchema(partial, contract.schema), false)
+  }
+})
+
 test('GenStudio errors remain distinct and actionable', () => {
   assert.match(new GenStudioApiError(401, 'bad key').message, /valid account key/i)
   assert.match(new GenStudioApiError(402, 'balance too low').message, /insufficient credits/i)
@@ -169,4 +246,17 @@ test('GenStudio errors remain distinct and actionable', () => {
   assert.match(new GenStudioApiError(422, 'wrong mode').message, /selected model and its output contract/i)
   assert.match(new GenStudioApiError(429, 'busy').message, /Retry-After/i)
   assert.match(new GenStudioApiError(502, 'provider failed').message, /provider behind/i)
+})
+
+test('story generation contains no hidden language-product fallback', () => {
+  const videoPromptRoute = readFileSync(
+    new URL('../routes/ai-video.ts', import.meta.url),
+    'utf8',
+  )
+  const episodeGenerator = readFileSync(
+    new URL('../generators/episode.ts', import.meta.url),
+    'utf8',
+  )
+  assert.doesNotMatch(videoPromptRoute, /model\s*\|\|\s*['"]genstudio-chat:/)
+  assert.doesNotMatch(episodeGenerator, /style\s*===\s*['"]custom['"]\s*\?\s*['"]deepseek/)
 })

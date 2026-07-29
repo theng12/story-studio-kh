@@ -22,6 +22,7 @@ import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
+import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import { listChatModels as listGenStudioChatModels, type GenStudioChatModel } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import {
@@ -217,7 +218,7 @@ export function resolveScenePlanCatalogModel(
 
 export async function requireScenePlanGenStudioModel(selectedModel: string): Promise<string> {
   const model = await getScenePlanGenStudioModel(selectedModel)
-  return `genstudio-chat:${model.id}`
+  return model.id
 }
 
 /** Resolve model identity and live limits together so batching cannot drift
@@ -827,7 +828,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             jobId: `${job.job_id}:${input.requestLabel}`,
             requestIdentity: `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
             maxTokens: input.maxTokens,
-            jsonMode: true,
+            outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
             disableReasoning: true,
             temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
             onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },

@@ -21,7 +21,7 @@ const qualificationTests = [
   'electron/server/__tests__/research-genstudio-boundary.test.ts',
   'electron/server/__tests__/image-edit-boundary.test.ts',
   'electron/server/__tests__/legacy-network-boundary.test.ts',
-  'electron/server/__tests__/stock-sfx-genstudio-boundary.test.ts',
+  'electron/server/__tests__/genstudio-product-bridge.test.ts',
 ]
 
 const environment = {

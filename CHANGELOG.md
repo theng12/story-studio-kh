@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.751 — 2026-07-29
+
+- **Structured story workflows now declare their complete output shape** —
+  thumbnail prompts, scene prompt packs, contextual cues, and chapter outlines
+  send strict schemas that GenStudio can enforce and Story Studio validates.
+- Saved language-product choices stay exact and visible. If a product is
+  retired or unavailable, Story Studio asks for an explicit replacement
+  instead of silently spending credits on a different product.
+- Updates the offline release qualification service to exercise the current
+  product endpoint and removes its dependency on a retired test.
+
 ## v1.0.750 — 2026-07-29
 
 - **Story Studio now speaks GenStudio's product-first language contract** —

@@ -38,6 +38,7 @@ interface LlmModelRow {
   unlimited_relaxed?: boolean
   context_limit_tokens?: number
   max_output_tokens?: number
+  structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
 }
 
@@ -104,9 +105,16 @@ function syncModelSelection(): void {
     props.requireVision === true,
   )
   if (!selected) {
+    const saved = props.modelValue.trim()
+    const unavailable = allModels.value.find(model => model.id === saved)
+    if (saved && unavailable) {
+      loadError.value = unavailable.disabled_reason
+        || `${unavailable.label} is retired or unavailable. Choose a replacement; Story Studio will not switch products automatically.`
+    }
     emit('model-meta', null)
     return
   }
+  loadError.value = ''
   // Persist the healed value through the owning form. This replaces stale
   // direct-provider defaults (notably GPT-4o) and means they cannot reappear
   // after the next visit.

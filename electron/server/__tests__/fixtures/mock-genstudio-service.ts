@@ -217,7 +217,9 @@ function requiredScope(pathname: string, method: string): MockGenStudioScope | n
   if (pathname === '/v1/transcription/models') return 'audio:transcribe'
   if (pathname === '/v1/image/models' || pathname === '/v1/images/models') return 'images:generate'
   if (pathname === '/v1/account/overview') return 'usage:read'
-  if (pathname.startsWith('/v1/chat/responses')) return 'chat:generate'
+  if (pathname.startsWith('/v1/chat/responses') || pathname === '/v1/chat/completions') {
+    return 'chat:generate'
+  }
   if (pathname.startsWith('/v1/images')) return 'images:generate'
   if (pathname.startsWith('/v1/audio/transcriptions') || pathname.startsWith('/v1/transcriptions')) {
     return 'audio:transcribe'
@@ -495,6 +497,47 @@ export class MockGenStudioService {
 
       if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
       if (method === 'POST') {
+        if (url.pathname === '/v1/chat/completions') {
+          if (idempotencyKey.length < 8) {
+            json(response, 400, { detail: 'Idempotency-Key is required' })
+            return
+          }
+          const parsedBody = parseJson(body)
+          const { job, replay } = this.createOrReplay('chat', idempotencyKey, parsedBody, bodyText)
+          if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
+            job.responseDropped = true
+            response.socket?.destroy()
+            return
+          }
+          while (this.state(job) !== 'succeeded' && this.state(job) !== 'failed') this.advance(job)
+          if (this.state(job) === 'failed') {
+            json(response, 502, { detail: 'language generation failed' })
+            return
+          }
+          const responseFormat = parsedBody.response_format as Record<string, unknown> | undefined
+          const schemaDefinition = responseFormat?.json_schema as Record<string, unknown> | undefined
+          const schema = schemaDefinition?.schema as Record<string, unknown> | undefined
+          const properties = schema?.properties as Record<string, unknown> | undefined
+          let content = job.scenario.outputText
+          if (properties && Object.keys(properties).length === 1 && properties.text) {
+            content = JSON.stringify({ text: content })
+          }
+          json(response, 200, {
+            id: job.id,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1_000),
+            model: job.modelId,
+            choices: [{
+              index: 0,
+              message: { role: 'assistant', content, refusal: null },
+              logprobs: null,
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+            idempotent_replay: replay,
+          })
+          return
+        }
         if (url.pathname === '/v1/audio/transcriptions/quotes') {
           if (idempotencyKey.length < 8) {
             json(response, 400, { detail: 'Idempotency-Key is required' })
@@ -677,6 +720,7 @@ export class MockGenStudioService {
         id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
         available: true, qualification_only: false, max_output_tokens: 4_096,
         controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
+        supports_structured_output: true, structured_output_mode: 'request_json_schema',
       }])
       return true
     }

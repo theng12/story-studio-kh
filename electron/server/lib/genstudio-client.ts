@@ -590,7 +590,7 @@ export class GenStudioApiError extends Error {
             : status === 429
               ? `GenStudio KH is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
               : status === 502
-                ? `The provider behind this GenStudio KH product failed: ${detail}. No direct-provider fallback was attempted.`
+                ? `The provider behind this GenStudio KH product failed: ${detail}. No direct provider or Studio Hub fallback was attempted.`
                 : isGenStudioReleaseGenerationUnavailable(status, detail)
                   ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
                     'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +

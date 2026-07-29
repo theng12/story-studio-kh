@@ -22,6 +22,7 @@ import {
 } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { ContextualCue, ContextualCueKind, ContextualCueTemplate, Job, ScenePlan } from '../models/types.js'
+import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 
 interface CueCandidate {
   scene_id: string
@@ -136,7 +137,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
       `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
       {}, false,
-      { slug: job.project_slug, jobId: `${job.job_id}:batch-${index + 1}`, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${index + 1}`, maxTokens: 3000, jsonMode: true, disableReasoning: true, temperature: 0.2 },
+      { slug: job.project_slug, jobId: `${job.job_id}:batch-${index + 1}`, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${index + 1}`, maxTokens: 3000, outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
     )
     candidates.push(...parseCandidates(raw))
     job.progress = Math.round(((index + 1) / batches.length) * 80)
