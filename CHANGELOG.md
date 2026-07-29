@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.752 — 2026-07-30
+
+- **Workspace chrome no longer crops wide content** — the shared project shell
+  now constrains long workflow bars and recovery alerts to the main scroll
+  pane, preventing them from forcing the window wider or appearing clipped.
+
 ## v1.0.751 — 2026-07-29
 
 - **Structured story workflows now declare their complete output shape** —

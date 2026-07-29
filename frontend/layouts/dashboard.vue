@@ -843,6 +843,7 @@ function openWhatsNew() { _whatsNew.open() }
 .layout-body {
   display: flex;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -1057,6 +1058,8 @@ function openWhatsNew() { _whatsNew.open() }
 
 .main-content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   width: 100%;
   padding: 32px;
   /* v1.0.103+ — was `padding-top: 0` which let any first-child banner
@@ -1072,6 +1075,7 @@ function openWhatsNew() { _whatsNew.open() }
      a slight +16px nudge down, which reads better aesthetically
      against the chrome anyway. */
   padding-top: 16px;
+  overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

@@ -24,6 +24,11 @@ describe('app responsiveness guards', () => {
     assert.match(dashboard, /Balances refresh automatically every \$\{Math\.round\(pollIntervalMs \/ 1000\)\} seconds/)
   })
 
+  test('the shared dashboard shell constrains wide workspace content to its scroll pane', () => {
+    assert.match(dashboard, /\.layout-body\s*{[\s\S]*min-width:\s*0;[\s\S]*min-height:\s*0;/)
+    assert.match(dashboard, /\.main-content\s*{[\s\S]*min-width:\s*0;[\s\S]*min-height:\s*0;[\s\S]*overflow-x:\s*hidden;[\s\S]*overflow-y:\s*auto;/)
+  })
+
   test('long scene workspaces skip off-screen rendering work', () => {
     assert.match(scenePlan, /\.scene-row\s*{[\s\S]*content-visibility:\s*auto;[\s\S]*contain-intrinsic-size:/)
     assert.match(sceneReview, /\.review-scene-row\s*{[\s\S]*content-visibility:\s*auto;[\s\S]*contain-intrinsic-size:/)
