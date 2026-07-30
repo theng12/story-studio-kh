@@ -39,6 +39,10 @@ export interface EpisodeRow {
   suggested_length?: string
   mood?: string
   themes?: string[]
+  series_formula_id?: string
+  topic_pack_ids?: string[]
+  idea_dimensions?: Record<string, string>
+  episode_profile?: string
   episode_dir?: string
   // Provenance + per-episode override surface (added in mark-done overhaul).
   // batch_id === 'imported' identifies YouTube imports (Situation A); the UI

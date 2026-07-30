@@ -61,7 +61,7 @@
         Save publishing profile
       </button>
       <button class="btn btn-ghost" :disabled="saving" @click="clearTpl">Clear profile (use Formula defaults)</button>
-      <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to Metadata Generator</NuxtLink>
+      <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to YouTube Finalizer</NuxtLink>
     </div>
 
     <div v-if="saveMessage" :class="['save-msg', saveMessage.ok ? 'is-ok' : 'is-err']">{{ saveMessage.text }}</div>

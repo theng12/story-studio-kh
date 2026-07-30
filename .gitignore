@@ -49,3 +49,6 @@ elevenlabs-voices.json
 
 # Ad-hoc test/run output dumped at repo root
 test-results.txt
+
+# graphify knowledge-graph output (generated, may be large)
+graphify-out/

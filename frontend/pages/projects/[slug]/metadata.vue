@@ -1,14 +1,15 @@
 <template>
   <div class="workspace-page creation-workspace metadata-workspace">
     <WorkspaceHero
-      eyebrow="Create · Package"
-      title="Metadata Generator"
-      description="Prepare the final title, description, tags, links, and chapter information from the approved episode script."
+      eyebrow="Publish · Finalize"
+      title="YouTube Finalizer"
+      description="Build one upload-ready YouTube package after narration timing and subtitles are available."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Metadata workspace context">
           <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
-          <span class="workspace-metric" :data-tone="scriptReady ? 'success' : 'warning'"><strong>{{ scriptReady ? 'Ready' : 'Needed' }}</strong> script</span>
+          <span class="workspace-metric" :data-tone="finalizationStatus?.audio_assembly_ready ? 'success' : 'warning'"><strong>{{ finalizationStatus?.audio_assembly_ready ? 'Ready' : 'Needed' }}</strong> timing</span>
+          <span class="workspace-metric" :data-tone="finalizationStatus?.subtitle_complete ? 'success' : 'warning'"><strong>{{ finalizationStatus?.subtitle_complete ? 'Verified' : 'Warning' }}</strong> subtitles</span>
           <span v-if="metadataBusy" class="workspace-metric" data-tone="info"><strong>Active</strong> generation</span>
         </div>
       </template>
@@ -19,16 +20,16 @@
       :presets="metadataPresets"
       v-model:episode-id="episodeId"
       filter-field="metadata"
-      generate-label="Generate Metadata"
-      loading-label="Generating…"
+      generate-label="Finalize YouTube Package"
+      loading-label="Finalizing…"
       :generate-loading="metadataBusy"
-      :generate-disabled="!episodeId || !scriptReady"
-      :generate-status="metadataBusy ? `Generating metadata for ${episodeId}…` : scriptGateReason"
+      :generate-disabled="!episodeId || !scriptReady || !finalizationStatus?.audio_assembly_ready"
+      :generate-status="metadataBusy ? `Finalizing the YouTube package for ${episodeId}…` : finalizerGateReason"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
       />
       <p class="workspace-command-copy">
-        One Formula-led YouTube package per approved episode. Review and edit the result below.
+        One Formula-led package: title, description, tags, approved chapter names, measured timestamps, and selected research sources.
         <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">Configure publishing profile →</NuxtLink>
       </p>
     </div>
@@ -40,7 +41,7 @@
          episode switch. -->
     <div v-if="metadataBusy" class="meta-result meta-result-running">
       <LoadingSpinner size="sm" />
-      <span>Generating metadata for <strong>{{ episodeId }}</strong>… you can switch episodes; it keeps running in the background.</span>
+      <span>Finalizing the YouTube package for <strong>{{ episodeId }}</strong>… you can switch episodes; it keeps running in the background.</span>
     </div>
     <div
       v-else-if="lastGenResult"
@@ -49,6 +50,47 @@
       <span class="meta-result-icon" aria-hidden="true">{{ lastGenResult.kind === 'success' ? '✓' : lastGenResult.kind === 'cancelled' ? '⊘' : '✗' }}</span>
       <span>{{ lastGenResult.message }}</span>
       <button type="button" class="btn btn-link btn-xs meta-result-dismiss" @click="lastGenResult = null">Dismiss</button>
+    </div>
+
+    <div v-if="episodeId" class="card workspace-section finalizer-readiness">
+      <div class="finalizer-readiness-head">
+        <div>
+          <span class="settings-section-kicker">Final package inputs</span>
+          <h3>Timing and evidence readiness</h3>
+        </div>
+        <span v-if="finalizationChecking" class="text-muted text-xs">Checking…</span>
+      </div>
+      <div v-if="finalizationStatus" class="finalizer-readiness-grid">
+        <div :data-tone="finalizationStatus.audio_assembly_ready ? 'success' : 'warning'">
+          <strong>{{ finalizationStatus.audio_assembly_ready ? 'Ready' : 'Missing' }}</strong>
+          <span>Audio Assembly timing</span>
+        </div>
+        <div :data-tone="finalizationStatus.subtitle_complete ? 'success' : 'warning'">
+          <strong>{{ finalizationStatus.subtitle_complete ? 'Verified' : 'Not verified' }}</strong>
+          <span>Subtitle coverage</span>
+        </div>
+        <div data-tone="info">
+          <strong>{{ finalizationStatus.chapter_count }}</strong>
+          <span>chapter markers</span>
+        </div>
+        <div data-tone="info">
+          <strong>{{ finalizationStatus.source_count }}</strong>
+          <span>selected sources</span>
+        </div>
+      </div>
+      <div v-if="finalizationStatus?.warnings.length" class="finalizer-warning">
+        <strong>Package can still be generated with warnings</strong>
+        <ul>
+          <li v-for="warning in finalizationStatus.warnings" :key="warning">{{ warning }}</li>
+        </ul>
+      </div>
+      <p v-else-if="finalizationStatus" class="finalizer-ready-copy">
+        Audio timing and subtitle coverage agree. Finalization will use approved outline titles and the sources you selected during Research.
+      </p>
+      <p v-if="finalizationStatus" class="text-muted text-xs finalizer-source-link">
+        Source inclusion is owned by the
+        <NuxtLink :to="`/projects/${slug}/research`" class="meta-template-link">Research step →</NuxtLink>
+      </p>
     </div>
 
     <!-- Channel "what worked" inspiration. Auto-included server-side in
@@ -94,471 +136,6 @@
       </p>
     </div>
 
-    <!-- v1.0.182 — the three section editors collapse behind the shared
-         AdvancedDisclosure. The common path is: pick model → Generate
-         Metadata (top button runs all three) → review the Preview. Open
-         only to fine-tune title mode, the description's channel template,
-         or tag count. Open state remembered per project. -->
-    <AdvancedDisclosure
-      v-if="false"
-      label="Customize sections (title mode · description template · tags)"
-      :persist-key="META_ADV_KEY"
-    >
-    <!-- ═══════ 1. SEO Video Title ═══════ -->
-    <div class="card mt-2">
-      <div class="card-header">
-        <h3>1. SEO Video Title</h3>
-        <p class="text-muted text-sm">Generate title options optimized for multiple platforms</p>
-      </div>
-
-      <!-- Title mode picker — drives whether we copy the idea title
-           verbatim (v1.0.90+ default; preserves the title you picked at
-           Ideas Generator time), paraphrase via LLM, or use the user's
-           typed string. Fixed modes (idea / manual) skip the LLM entirely
-           and produce one title; the count + platform-preset rows are
-           dimmed for those modes since they don't apply. -->
-      <div class="form-group mt-1">
-        <label>Title mode</label>
-        <div class="title-mode-row">
-          <label class="title-mode-option">
-            <input type="radio" value="use_idea_title" v-model="titleConfig.mode" />
-            <span><strong>Use idea title</strong> (default) — copy the episode's idea title verbatim, with optional channel prefix / suffix.</span>
-          </label>
-          <label class="title-mode-option">
-            <input type="radio" value="paraphrase" v-model="titleConfig.mode" />
-            <span><strong>AI paraphrase</strong> — generate N SEO-rewritten title options and pick the first.</span>
-          </label>
-          <label class="title-mode-option">
-            <input type="radio" value="manual" v-model="titleConfig.mode" />
-            <span><strong>Manual title</strong> — type your own, with optional channel prefix / suffix.</span>
-          </label>
-        </div>
-      </div>
-
-      <div v-if="titleConfig.mode === 'manual'" class="form-group mt-1">
-        <label>Manual title</label>
-        <input
-          v-model="titleConfig.manualTitle"
-          type="text"
-          class="input"
-          placeholder="e.g. The Tea Blender in the Morning Mist"
-        />
-      </div>
-
-      <!-- Channel prefix + suffix (v1.0.90+). Locks a constant string at
-           the front and/or back of every episode title for this project —
-           "Morning Prayer:" or " | Daily Prayer Channel" or both. Both
-           live on the project config (broll_channel_title_prefix /
-           broll_channel_title_suffix) so every metadata generation uses
-           the same values without re-typing per episode. -->
-      <div v-if="titleConfig.mode !== 'paraphrase'" class="grid-2 mt-1">
-        <div class="form-group">
-          <label>Channel prefix <span class="text-muted">(prepended to every title)</span></label>
-          <input
-            v-model="titleConfig.prefix"
-            type="text"
-            class="input"
-            placeholder="e.g. Morning Prayer:  "
-          />
-          <span class="text-muted text-xs">Saved per project. Use a trailing space / punctuation if you want a gap between the prefix and the title.</span>
-        </div>
-        <div class="form-group">
-          <label>Channel suffix <span class="text-muted">(appended to every title)</span></label>
-          <input
-            v-model="titleConfig.suffix"
-            type="text"
-            class="input"
-            placeholder="e.g.  | Daily Prayer Channel"
-          />
-        </div>
-      </div>
-      <div v-if="titleConfig.mode !== 'paraphrase'" class="form-group mt-1">
-        <p class="text-muted text-xs hint-line">
-          Preview:
-          <code>{{ titlePreviewText }}</code>
-        </p>
-      </div>
-
-      <div class="grid-3 mt-1" :class="{ 'controls-dimmed': titleConfig.mode !== 'paraphrase' }">
-        <div class="form-group">
-          <label>Platform preset</label>
-          <select v-model="titleConfig.preset" @change="onTitlePresetChange" class="select" :disabled="titleConfig.mode !== 'paraphrase'">
-            <option value="Universal">Universal (100 — fits all)</option>
-            <option value="YouTube">YouTube (100)</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Max length (characters)</label>
-          <input v-model.number="titleConfig.maxLength" type="number" min="10" max="300" class="input" />
-        </div>
-        <div class="form-group">
-          <label>Number of options</label>
-          <input
-            v-model.number="titleConfig.count"
-            type="number"
-            min="1"
-            max="20"
-            class="input"
-            :disabled="titleConfig.mode !== 'paraphrase'"
-            :title="titleConfig.mode !== 'paraphrase' ? 'Fixed-title modes always produce one title.' : ''"
-          />
-        </div>
-      </div>
-
-      <label class="checkbox-label mt-1" :class="{ 'controls-dimmed': titleConfig.mode !== 'paraphrase' }">
-        <input
-          type="checkbox"
-          v-model="titleConfig.includeScriptContext"
-          :disabled="titleConfig.mode !== 'paraphrase'"
-        />
-        Include script context for grounding
-      </label>
-
-      <div v-if="titleOptions.length" class="title-options mt-2">
-        <div
-          v-for="(t, i) in titleOptions"
-          :key="i"
-          :class="['title-option', { selected: preview.title === t }]"
-          @click="preview.title = t"
-        >
-          <span class="title-option-text">{{ t }}</span>
-          <span class="title-option-count">{{ t.length }} / {{ titleConfig.maxLength }}</span>
-        </div>
-      </div>
-
-      <button
-        class="btn btn-sm btn-primary mt-2"
-        :disabled="!episodeId || genTitles || genAll || !scriptReady"
-        :title="scriptGateReason || 'Generate only the SEO title options — description and tags stay untouched.'"
-        @click="generateTitles"
-      >
-        <LoadingSpinner v-if="genTitles" size="sm" />
-        {{ genTitles ? 'Generating titles…' : 'Generate Titles Only' }}
-      </button>
-    </div>
-
-    <!-- ═══════ 2. Description ═══════ -->
-    <div class="card mt-2">
-      <div class="card-header">
-        <h3>2. Description</h3>
-        <p class="text-muted text-sm">Toggle sections on/off, drag to reorder. AI fills content per episode.</p>
-      </div>
-
-      <div class="form-group mt-1 narrow-field">
-        <label>Max length (characters) — YouTube max is 5000</label>
-        <input v-model.number="descConfig.maxChars" type="number" min="100" max="5000" class="input" />
-      </div>
-
-      <p class="text-muted text-sm mt-1">
-        <span aria-hidden="true">⋮⋮</span>
-        Drag sections to reorder, or use the arrow buttons. Toggle the checkbox to include/exclude.
-        <strong>Order matters</strong> — the final description renders each enabled section top-to-bottom in the order shown here.
-      </p>
-
-      <div class="section-list mt-1">
-        <div
-          v-for="(section, i) in sections"
-          :key="section.id"
-          :class="['section-item', { disabled: !section.enabled, 'drag-over': dragOverIndex === i }]"
-          :draggable="true"
-          @dragstart="onDragStart(i, $event)"
-          @dragover.prevent="onDragOver(i)"
-          @dragleave="onDragLeave"
-          @drop.prevent="onDrop(i)"
-          @dragend="onDragEnd"
-        >
-          <div class="section-header">
-            <div class="section-head-left">
-              <span class="drag-handle" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
-              <div class="reorder-btns">
-                <button
-                  class="reorder-btn"
-                  type="button"
-                  :aria-label="`Move ${section.label} up`"
-                  @click="moveSection(i, -1)"
-                  :disabled="i === 0"
-                >▲</button>
-                <button
-                  class="reorder-btn"
-                  type="button"
-                  :aria-label="`Move ${section.label} down`"
-                  @click="moveSection(i, 1)"
-                  :disabled="i === sections.length - 1"
-                >▼</button>
-              </div>
-              <label class="toggle-label">
-                <input type="checkbox" v-model="section.enabled" />
-                <strong>{{ section.label }}</strong>
-              </label>
-            </div>
-            <button v-if="section.type === 'custom'" class="btn-icon danger" @click="sections.splice(i, 1)" aria-label="Remove section">✕</button>
-          </div>
-
-          <div v-if="section.enabled && section.config" class="section-config">
-            <!-- HOOK: characters + optional brand-prefix instead of sentence count -->
-            <div v-if="section.id === 'hook'">
-              <div class="form-group">
-                <label>Hook length (characters)</label>
-                <input v-model.number="section.config.characters" type="number" min="80" max="500" step="10" class="input input-narrow" />
-                <p class="text-muted text-xs hint-line">
-                  Soft target the LLM aims for, ±15%. ~250 chars is the YouTube SEO snippet sweet spot.
-                </p>
-              </div>
-              <div class="form-group">
-                <label>Starting format <span class="text-muted font-normal">(optional — leave blank for LLM-suggested opener)</span></label>
-                <input v-model="section.config.starting_format" class="input" placeholder="Optional opening line, e.g. “In this video…” or your channel's standard intro" />
-                <p class="text-muted text-xs hint-line">
-                  If set, every hook will begin with EXACTLY this text, then continue naturally.
-                </p>
-              </div>
-            </div>
-
-            <!-- NARRATOR: just a name (was bundled inside the old 'metadata' section) -->
-            <div v-if="section.id === 'narrator'" class="form-group">
-              <label>Narrator name</label>
-              <input v-model="section.config.name" class="input" placeholder="e.g. Your Narrator" />
-            </div>
-
-            <!-- MUSIC: title + link + disclaimer (NEW dedicated section) -->
-            <div v-if="section.id === 'music'">
-              <div class="form-group">
-                <label>Music title</label>
-                <input v-model="section.config.title" class="input" placeholder="e.g. Inner Sound — Jesse Gallagher" />
-              </div>
-              <div class="form-group">
-                <label>Music link</label>
-                <input v-model="section.config.link" class="input" placeholder="https://... (YouTube Audio Library, Artlist, etc.)" />
-              </div>
-              <div class="form-group">
-                <label>Music disclaimer</label>
-                <textarea v-model="section.config.disclaimer" class="textarea config-textarea" placeholder="License / attribution text" />
-              </div>
-            </div>
-
-            <!-- CHANNELS: array (own + recommended) using the videos[] pattern -->
-            <div v-if="section.id === 'channels'">
-              <label class="section-helper-label">
-                Add your own channel(s) and recommended channels. Mark each so the description groups them correctly.
-              </label>
-              <div v-for="(ch, ci) in section.config.channels" :key="ci" class="link-row">
-                <select v-model="ch.kind" class="select link-select-kind">
-                  <option value="own">Our channel</option>
-                  <option value="recommended">Recommended</option>
-                </select>
-                <input v-model="ch.name" class="input link-input-name" placeholder="Channel name" />
-                <input v-model="ch.url" class="input link-input-url" placeholder="https://youtube.com/@..." />
-                <button class="btn-icon danger" @click="section.config.channels.splice(ci, 1)" aria-label="Remove channel">✕</button>
-              </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.channels.push({ name: '', url: '', kind: 'recommended' })">+ Add Channel</button>
-            </div>
-
-            <div v-if="section.id === 'videos'">
-              <label class="section-helper-label">Add video links to recommend in the description</label>
-              <div v-for="(vid, vi) in section.config.videos" :key="vi" class="link-row">
-                <input v-model="vid.name" class="input link-input-name" placeholder="Video title" />
-                <input v-model="vid.url" class="input link-input-url" placeholder="https://youtube.com/watch?v=..." />
-                <button class="btn-icon danger" @click="section.config.videos.splice(vi, 1)">✕</button>
-              </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.videos.push({ name: '', url: '' })">+ Add Video</button>
-            </div>
-
-            <div v-if="section.id === 'playlists'">
-              <label class="section-helper-label">Add playlist links to feature in the description</label>
-              <!-- Dropdown picker: pulls playlists from the project's
-                   connected YouTube channel via the same endpoint the
-                   Upload page uses. Picking a playlist inserts a new
-                   row prefilled with the title + canonical URL — no
-                   more copy/pasting playlist links. The manual
-                   "+ Add Playlist" below stays for playlists from
-                   OTHER channels (collabs, recommended, etc). -->
-              <div v-if="availablePlaylists.length" class="link-row playlist-picker-row mt-1">
-                <select
-                  class="input playlist-picker-select"
-                  :value="''"
-                  title="Pick a playlist from your connected YouTube channel. Inserts the title + URL into a new row below — no copy/pasting."
-                  @change="e => addPlaylistFromChannel((e.target as HTMLSelectElement).value)"
-                >
-                  <option value="" disabled>📥 Add from your YouTube channel…</option>
-                  <option v-for="pl in availablePlaylists" :key="pl.id" :value="pl.id">
-                    {{ pl.title }}{{ pl.itemCount != null ? ` (${pl.itemCount} videos)` : '' }}
-                  </option>
-                </select>
-                <button
-                  class="btn-icon"
-                  :disabled="playlistsLoading"
-                  title="Refresh the playlist list from YouTube. Cached 60s otherwise."
-                  @click="loadAvailablePlaylists(true)"
-                >↻</button>
-              </div>
-              <div v-else-if="!playlistsLoading && playlistsError" class="text-muted text-xs playlist-picker-error">
-                Couldn't load YouTube playlists ({{ playlistsError }}). You can still paste links manually below.
-              </div>
-              <div v-for="(pl, pi) in section.config.playlists" :key="pi" class="link-row">
-                <input v-model="pl.name" class="input link-input-name" placeholder="Playlist name" />
-                <input v-model="pl.url" class="input link-input-url" placeholder="https://youtube.com/playlist?list=..." />
-                <button class="btn-icon danger" @click="section.config.playlists.splice(pi, 1)">✕</button>
-              </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.playlists.push({ name: '', url: '' })">+ Add Playlist (manual link)</button>
-            </div>
-
-            <!-- CTA: subscribe/like only — separate from the support section now.
-                 Keeps the "free way to help" ask distinct from the "pay to support"
-                 ask, which the user wanted broken apart. -->
-            <div v-if="section.id === 'cta'">
-              <label class="section-helper-label">
-                Optional custom subscribe/like lines. Leave empty to let the LLM write its own short CTA.
-              </label>
-              <div v-for="(line, li) in section.config.custom_lines" :key="li" class="link-row">
-                <input v-model="section.config.custom_lines[li]" class="input flex-1" placeholder="e.g. Hit the bell so you never miss a new story." />
-                <button class="btn-icon danger" @click="section.config.custom_lines.splice(li, 1)" aria-label="Remove line">✕</button>
-              </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.custom_lines.push('')">+ Add CTA Line</button>
-            </div>
-
-            <!-- SUPPORT: array of platforms, was Patreon-only on the old cta.
-                 Keeps the same UX as videos/channels (kind dropdown + URL +
-                 optional label only when kind='custom'). -->
-            <div v-if="section.id === 'support'">
-              <label class="section-helper-label">
-                Where can viewers support the channel? Patreon, Ko-fi, Buy Me a Coffee, YouTube Members, or any custom platform.
-              </label>
-              <div v-for="(plat, pi) in section.config.platforms" :key="pi" class="link-row support-row">
-                <select v-model="plat.kind" class="select support-select-kind">
-                  <option value="patreon">Patreon</option>
-                  <option value="kofi">Ko-fi</option>
-                  <option value="buymeacoffee">Buy Me a Coffee</option>
-                  <option value="youtube-members">YouTube Members</option>
-                  <option value="custom">Custom…</option>
-                </select>
-                <input
-                  v-if="plat.kind === 'custom'"
-                  v-model="plat.label"
-                  class="input support-input-label"
-                  placeholder="Label (e.g. Stripe link)"
-                />
-                <input v-model="plat.url" class="input flex-1" placeholder="https://..." />
-                <button class="btn-icon danger" @click="section.config.platforms.splice(pi, 1)" aria-label="Remove platform">✕</button>
-              </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.platforms.push({ kind: 'patreon', url: '' })">+ Add Platform</button>
-            </div>
-
-            <div v-if="section.id === 'affiliate'" class="form-group">
-              <label>Affiliate disclaimer text</label>
-              <textarea v-model="section.config.text" class="textarea config-textarea" />
-            </div>
-
-            <div v-if="section.id === 'ai-disclosure'" class="form-group">
-              <label>AI disclosure text</label>
-              <textarea v-model="section.config.text" class="textarea config-textarea" />
-            </div>
-
-            <!-- v1.0.198 (M1b) — Sources: the episode's research citations,
-                 appended (real links) when you generate. Toggle the section
-                 off to omit sources entirely. -->
-            <div v-if="section.id === 'sources'" class="sources-section">
-              <div v-if="!episodeId" class="text-muted text-xs">Pick an episode to load its research sources.</div>
-              <div v-else-if="!researchLoaded" class="text-muted text-xs">
-                No research for this episode — sources come from the
-                <NuxtLink :to="`/projects/${slug}/research`" class="meta-template-link">Research</NuxtLink> step.
-                Nothing is added until you run research.
-              </div>
-              <template v-else>
-                <div class="sources-bulk">
-                  <span class="text-muted text-xs">In description ({{ includedSrcPreview.length }}):</span>
-                  <button type="button" class="btn btn-xs btn-secondary" :disabled="savingResearch" @click="bulkSrc('all')">All</button>
-                  <button type="button" class="btn btn-xs btn-secondary" :disabled="savingResearch" @click="bulkSrc('verified')" title="Only sources cited by a verified claim">Verified-backing</button>
-                  <button type="button" class="btn btn-xs btn-ghost" :disabled="savingResearch" @click="bulkSrc('none')">None</button>
-                </div>
-                <ul class="sources-list">
-                  <li v-for="(c, i) in researchCitations" :key="i" :class="{ 'src-off': c.url && !srcIncluded(c) }">
-                    <input
-                      v-if="c.url"
-                      type="checkbox"
-                      :checked="srcIncluded(c)"
-                      :disabled="savingResearch"
-                      @change="setSrcIncluded(c, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title || c.url }}</a>
-                    <span v-else>{{ c.title }}</span>
-                    <span v-if="c.url && verifiedBackingSet.has(i)" class="src-vbadge" title="Cited by a verified claim">verified-backing</span>
-                  </li>
-                </ul>
-                <p class="text-muted text-xs sources-note">
-                  Appended to the description with real links when you generate. Your picks are shared with the Research page.
-                </p>
-              </template>
-            </div>
-
-            <div v-if="section.id === 'hashtags'" class="form-group">
-              <label>Number of hashtags to generate (inside description)</label>
-              <input v-model.number="section.config.count" type="number" min="5" max="30" class="input input-narrow" />
-            </div>
-
-            <div v-if="section.type === 'custom'">
-              <div class="form-group">
-                <label>Block title</label>
-                <input v-model="section.label" class="input" />
-              </div>
-              <div class="form-group">
-                <label>Instructions for AI</label>
-                <textarea v-model="section.config.instructions" class="textarea config-textarea" placeholder="Describe what this section should contain..." />
-              </div>
-            </div>
-
-            <!-- v1.0.199 — generic editor: a catalog section type flagged
-                 `generic` renders its fields here, so a new simple section
-                 type needs no bespoke editor block above. -->
-            <div v-for="f in genericFieldsFor(section.id)" :key="f.key" class="form-group">
-              <label>{{ f.label }}</label>
-              <textarea v-if="f.type === 'textarea'" v-model="section.config[f.key]" class="textarea config-textarea" />
-              <input v-else :type="f.type === 'number' ? 'number' : 'text'" v-model="section.config[f.key]" class="input" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2 mt-2 flex-wrap">
-        <!-- v1.0.199 — add any built-in section type (from the catalog) to the
-             current template, not just custom ones. -->
-        <select v-if="addableSections.length" class="select select-sm add-section-select" @change="onAddSection" title="Add a built-in section to this description">
-          <option value="">+ Add section…</option>
-          <option v-for="c in addableSections" :key="c.id" :value="c.id">{{ c.label }}</option>
-        </select>
-        <button class="btn btn-sm btn-secondary" @click="addCustomBlock">+ Add Custom Section</button>
-        <button
-          class="btn btn-sm btn-primary"
-          :disabled="!episodeId || genDesc || genAll || !scriptReady"
-          :title="scriptGateReason || 'Generate only the description — titles and tags stay untouched.'"
-          @click="generateDescription"
-        >
-          <LoadingSpinner v-if="genDesc" size="sm" />
-          {{ genDesc ? 'Generating description…' : 'Generate Description Only' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- ═══════ 3. Tags ═══════ -->
-    <div class="card mt-2">
-      <div class="card-header">
-        <h3>3. YouTube Tags</h3>
-        <p class="text-muted text-sm">Tags boost discoverability — separate from in-description hashtags</p>
-      </div>
-      <div class="form-group mt-1 narrow-field-wide">
-        <label>Number of tags</label>
-        <input v-model.number="tagConfig.count" type="number" min="1" max="50" class="input" />
-      </div>
-      <button
-        class="btn btn-sm btn-primary mt-2"
-        :disabled="!episodeId || genTags || genAll || !scriptReady"
-        :title="scriptGateReason || 'Generate only YouTube tags — titles and description stay untouched.'"
-        @click="generateTags"
-      >
-        <LoadingSpinner v-if="genTags" size="sm" />
-        {{ genTags ? 'Generating tags…' : 'Generate Tags Only' }}
-      </button>
-    </div>
-    </AdvancedDisclosure>
 
 
     <!-- ═══════ Preview ═══════ -->
@@ -607,12 +184,6 @@
           <span class="char-count" :class="{ 'over-limit': preview.description.length > descConfig.maxChars }">
             {{ preview.description.length }} / {{ descConfig.maxChars }}
           </span>
-          <button
-            class="btn-icon"
-            :title="insertChaptersHint"
-            :disabled="insertingChapters"
-            @click="insertChapterTimestamps"
-          >📑</button>
           <button class="btn-icon" @click="copy(preview.description, 'Description')" title="Copy description">📋</button>
         </label>
         <textarea v-model="preview.description" class="textarea preview-textarea" placeholder="Generated description will appear here" />
@@ -633,7 +204,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useAppTitle('Metadata Generator')
+useAppTitle('YouTube Finalizer')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
@@ -645,18 +216,13 @@ const episodeId = ref('')
 // a retired direct-provider id into saved metadata settings.
 const model = ref('')
 
-// v1.0.182 — Phase-2 scaffold. The three section editors collapse behind the
-// shared <AdvancedDisclosure>; this key persists the open state per project.
-// The component owns the localStorage read/write.
-const META_ADV_KEY = `metadata_advanced_open_${slug.value}`
-
 // Source-of-truth gating: every metadata generator (descriptions, titles,
 // tags, "Generate All") reads narration context from the script docx, so
 // we disable the buttons until episode.status.script flips true. Refetches
 // when a script-only job lands so the page enables itself live without a
 // reload.
 const { selectedEpisode, scriptReady, statusKnown } = useEpisodeStatus(episodeId, slug, {
-  refetchOnJobTypes: ['script-only'],
+  refetchOnJobTypes: ['script-only', 'audio_merge', 'subtitles_transcribe'],
 })
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
 // v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
@@ -665,10 +231,50 @@ const scriptGateReason = computed(() => {
   return statusKnown.value ? noScriptTooltip : 'Checking script status…'
 })
 
-// Generating flags (independent per section)
-const genTitles = ref(false)
-const genDesc = ref(false)
-const genTags = ref(false)
+interface FinalizationStatus {
+  audio_assembly_ready: boolean
+  subtitle_complete: boolean
+  subtitle_mode: 'per-section' | 'full-track' | 'none'
+  subtitle_missing_sections: string[]
+  outline_title_count: number
+  chapter_count: number
+  source_count: number
+  lead_in_seconds: number
+  warnings: string[]
+}
+const finalizationStatus = ref<FinalizationStatus | null>(null)
+const finalizationChecking = ref(false)
+const finalizerGateReason = computed(() => {
+  if (scriptGateReason.value) return scriptGateReason.value
+  if (!episodeId.value) return ''
+  if (finalizationChecking.value || !finalizationStatus.value) return 'Checking Audio Assembly timing…'
+  if (!finalizationStatus.value.audio_assembly_ready) {
+    return 'Run Audio Assembly first so the final description can use measured chapter timing.'
+  }
+  return finalizationStatus.value.subtitle_complete
+    ? ''
+    : 'Subtitle verification is incomplete. You can still finalize; Story Studio will keep the warning visible.'
+})
+
+async function loadFinalizationStatus() {
+  if (!episodeId.value) {
+    finalizationStatus.value = null
+    return
+  }
+  finalizationChecking.value = true
+  const code = episodeId.value
+  try {
+    const status = await get<FinalizationStatus>(
+      `/projects/${slug.value}/episodes/${encodeURIComponent(code)}/youtube-finalization-status`,
+    )
+    if (episodeId.value === code) finalizationStatus.value = status
+  } catch {
+    if (episodeId.value === code) finalizationStatus.value = null
+  } finally {
+    if (episodeId.value === code) finalizationChecking.value = false
+  }
+}
+
 const genAll = ref(false)
 
 // v1.0.115+ — per-episode "is a metadata job in flight" computed. The
@@ -679,6 +285,20 @@ const genAll = ref(false)
 // Derive from the jobs list instead so the UI reflects whichever
 // episode the user is currently looking at.
 const { jobs: metaJobs } = useJobs()
+const finalizerInputJobSignal = computed(() =>
+  metaJobs.value
+    .filter((job: any) =>
+      job.project_slug === slug.value
+      && job.episode_id === episodeId.value
+      && ['audio_merge', 'subtitles_transcribe'].includes(job.type),
+    )
+    .map((job: any) => `${job.job_id}:${job.status}`)
+    .sort()
+    .join('|'),
+)
+watch(finalizerInputJobSignal, () => {
+  if (episodeId.value) void loadFinalizationStatus()
+})
 const metadataJobActiveForEpisode = computed(() => {
   if (!episodeId.value) return false
   return metaJobs.value.some((j: any) =>
@@ -1287,84 +907,8 @@ function loadVersion() {
 
 // ── Generation ─────────────────────────────────────────────────────────────
 
-async function generateTitles() {
-  if (!episodeId.value) return
-  genTitles.value = true
-  metaGenerating.value = true
-  try {
-    const data = await post<{ titles: string[] }>(`/projects/${slug.value}/generate/metadata/seo-titles`, {
-      episode_id: episodeId.value,
-      title: selectedEpisode.value?.title || '',
-      model: model.value,
-      count: titleConfig.count,
-      max_length: titleConfig.maxLength,
-      platform_preset: titleConfig.preset,
-      include_script_context: titleConfig.includeScriptContext,
-      title_mode: titleConfig.mode,
-      title_prefix: titleConfig.prefix,
-      title_suffix: titleConfig.suffix,
-      manual_title: titleConfig.manualTitle,
-    })
-    titleOptions.value = data.titles
-    if (!preview.title && data.titles[0]) preview.title = data.titles[0]
-    success(`Generated ${data.titles.length} title options`)
-  } catch (e: any) {
-    console.error('[metadata] generate titles failed:', e)
-    showError(e.data?.detail || `Failed to generate titles (model=${model.value}). Check that the model's API key is set in Settings.`)
-  } finally {
-    genTitles.value = false
-    metaGenerating.value = false
-  }
-}
-
-async function generateDescription() {
-  if (!episodeId.value) return
-  genDesc.value = true
-  metaGenerating.value = true
-  try {
-    const data = await post<{ description: string }>(`/projects/${slug.value}/generate/metadata/description`, {
-      episode_id: episodeId.value,
-      title: selectedEpisode.value?.title || '',
-      model: model.value,
-      sections: sections.value.filter(s => s.enabled),
-      max_chars: descConfig.maxChars,
-    })
-    preview.description = data.description
-    success('Description generated')
-  } catch (e: any) {
-    console.error('[metadata] generate description failed:', e)
-    showError(e.data?.detail || `Failed to generate description (model=${model.value}). Check that the model's API key is set in Settings.`)
-  } finally {
-    genDesc.value = false
-    metaGenerating.value = false
-  }
-}
-
-async function generateTags() {
-  if (!episodeId.value) return
-  genTags.value = true
-  metaGenerating.value = true
-  try {
-    const data = await post<{ tags: string[] }>(`/projects/${slug.value}/generate/metadata/tags`, {
-      episode_id: episodeId.value,
-      title: selectedEpisode.value?.title || '',
-      description: preview.description,
-      model: model.value,
-      count: tagConfig.count,
-    })
-    preview.tags = data.tags
-    success(`Generated ${data.tags.length} tags`)
-  } catch (e: any) {
-    console.error('[metadata] generate tags failed:', e)
-    showError(e.data?.detail || `Failed to generate tags (model=${model.value}). Check that the model's API key is set in Settings.`)
-  } finally {
-    genTags.value = false
-    metaGenerating.value = false
-  }
-}
-
 async function generateAll() {
-  if (!episodeId.value) return
+  if (!episodeId.value || !scriptReady.value || !finalizationStatus.value?.audio_assembly_ready) return
   // Capture the episode the user kicked off — if they switch mid-job we want
   // to apply the on-disk result to the ORIGINAL episode, not whatever they
   // navigated to. The EpisodeSelector confirm dialog already prompts the
@@ -1396,17 +940,25 @@ async function generateAll() {
         title_suffix: titleConfig.suffix,
         manual_title: titleConfig.manualTitle,
         tag_count: tagConfig.count,
+        existing_package: preview.title.trim() && preview.description.trim() && preview.tags.length
+          ? {
+              title: preview.title,
+              title_options: titleOptions.value,
+              description: preview.description,
+              tags: preview.tags,
+            }
+          : undefined,
       }
     )
     success(`Queued — job ${job.job_id}. You can switch episodes; we'll keep generating in the background.`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'cancelled') {
-      lastGenResult.value = { kind: 'cancelled', message: `Metadata generation cancelled for ${startedEpisodeId}.` }
-      showError('Metadata generation cancelled')
+      lastGenResult.value = { kind: 'cancelled', message: `YouTube finalization cancelled for ${startedEpisodeId}.` }
+      showError('YouTube finalization cancelled')
       return
     }
     if (completed.status === 'error') {
-      throw new Error(completed.error || `Metadata generation failed (model=${model.value}). Check the Jobs panel for details.`)
+      throw new Error(completed.error || `YouTube finalization failed (model=${model.value}). Check the Jobs panel for details.`)
     }
     // Job done — re-load the latest version from disk. If the user is still
     // looking at the same episode they kicked off, refresh the preview;
@@ -1415,15 +967,16 @@ async function generateAll() {
     if (episodeId.value === startedEpisodeId) {
       sessionVersion.value = null
       await suppressAutoSaveDuring(() => loadExistingMetadata())
-      lastGenResult.value = { kind: 'success', message: `Metadata generated for ${startedEpisodeId} — latest version applied below.` }
-      success('All metadata generated — latest version applied.')
+      await loadFinalizationStatus()
+      lastGenResult.value = { kind: 'success', message: `YouTube package finalized for ${startedEpisodeId} — latest version applied below.` }
+      success('YouTube package finalized — latest version applied.')
     } else {
-      lastGenResult.value = { kind: 'success', message: `Metadata generated for ${startedEpisodeId} — switch back to that episode to view it.` }
-      success(`Metadata for ${startedEpisodeId} generated — switch back to view.`)
+      lastGenResult.value = { kind: 'success', message: `YouTube package finalized for ${startedEpisodeId} — switch back to that episode to view it.` }
+      success(`YouTube package for ${startedEpisodeId} finalized — switch back to view.`)
     }
   } catch (e: any) {
     console.error('[metadata] generate all failed:', e)
-    const msg = e.data?.detail || e?.message || `Failed to generate metadata (model=${model.value}). Check the Jobs panel for details.`
+    const msg = e.data?.detail || e?.message || `Failed to finalize the YouTube package (model=${model.value}). Check the Jobs panel for details.`
     lastGenResult.value = { kind: 'error', message: msg }
     showError(msg)
   } finally {
@@ -1462,65 +1015,6 @@ async function copy(text: string, label: string) {
     success(`${label} copied`)
   } catch {
     showError('Copy failed')
-  }
-}
-
-const insertingChapters = ref(false)
-const insertChaptersHint = computed(() =>
-  insertingChapters.value
-    ? 'Loading chapter timestamps…'
-    : 'Insert YouTube chapter timestamps from this episode’s audio durations',
-)
-
-/**
- * Pull chapter durations from the episode's audio assets and prepend a
- * formatted "0:00 Intro / 4:32 Chapter 1 / …" block to the description.
- * Skipped when fewer than 3 chapters (YouTube needs 3+ to render the
- * clickable chapter UI) — surfaces a friendly toast instead.
- *
- * Already-prepended blocks are detected by a sentinel comment so a
- * second click doesn't stack duplicates; we replace the existing block
- * in place.
- */
-async function insertChapterTimestamps() {
-  if (!episodeId.value) {
-    showError('Pick an episode first.')
-    return
-  }
-  insertingChapters.value = true
-  try {
-    const title = (selectedEpisode.value?.title || '').trim()
-    const params = new URLSearchParams({ title })
-    const r = await get<{ formatted: string; chapters: any[]; reason?: string }>(
-      `/projects/${slug.value}/episodes/${encodeURIComponent(episodeId.value)}/chapter-timestamps?${params}`,
-    )
-    if (!r.formatted) {
-      const detail = r.reason === 'fewer-than-3-chapters'
-        ? 'Need at least 3 chapter audio files for YouTube to render the chapter UI.'
-        : 'No chapter audio found for this episode.'
-      showError(detail)
-      return
-    }
-    const SENTINEL_BEGIN = '<!-- chapters:start -->'
-    const SENTINEL_END = '<!-- chapters:end -->'
-    const block = `${SENTINEL_BEGIN}\n${r.formatted}\n${SENTINEL_END}`
-    const current = preview.description || ''
-    if (current.includes(SENTINEL_BEGIN) && current.includes(SENTINEL_END)) {
-      // Replace the existing block in place — preserves user-edited
-      // content surrounding it.
-      preview.description = current.replace(
-        new RegExp(`${SENTINEL_BEGIN}[\\s\\S]*?${SENTINEL_END}`),
-        block,
-      )
-      success('Chapters refreshed')
-    } else {
-      preview.description = `${block}\n\n${current}`.trim()
-      success(`Inserted ${r.chapters.length} chapters`)
-    }
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to load chapter timestamps')
-  } finally {
-    insertingChapters.value = false
   }
 }
 
@@ -1630,7 +1124,7 @@ watch([() => preview.title, () => preview.description, () => preview.tags], () =
 watch(episodeId, async () => {
   await suppressAutoSaveDuring(() => loadExistingMetadata())
   resetAutoSaveSession()
-  void loadResearchForSources()
+  void loadFinalizationStatus()
 })
 
 // Loading a different version explicitly should also start a new editing
@@ -1762,11 +1256,6 @@ onMounted(async () => {
   // templates. They are the channel's publishing contract, not a per-run
   // preference; saved presets remain available for model selection.
   await loadFormulaMetadataProfile()
-  // Best-effort load — failure is fine, the manual inputs still work.
-  loadAvailablePlaylists().catch(() => {})
-  // v1.0.198 (M1b) — research sources for the Sources section (episodeId may
-  // already be set from query/restore, so the watcher won't have fired yet).
-  void loadResearchForSources()
 })
 </script>
 
@@ -1857,6 +1346,48 @@ onMounted(async () => {
 }
 .shared-settings-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 110px; }
 .shared-settings-control { max-width: 420px; margin: 0; }
+
+.finalizer-readiness { display: flex; flex-direction: column; gap: 12px; }
+.finalizer-readiness-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.finalizer-readiness-head h3 { margin: 3px 0 0; }
+.finalizer-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.finalizer-readiness-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+.finalizer-readiness-grid > div[data-tone="success"] strong { color: var(--success); }
+.finalizer-readiness-grid > div[data-tone="warning"] strong { color: var(--warning); }
+.finalizer-readiness-grid > div[data-tone="info"] strong { color: var(--accent); }
+.finalizer-readiness-grid span { color: var(--text-muted); font-size: 12px; }
+.finalizer-warning {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.finalizer-warning strong { color: var(--warning); }
+.finalizer-warning ul { margin: 6px 0 0 18px; padding: 0; }
+.finalizer-warning li + li { margin-top: 3px; }
+.finalizer-ready-copy { margin: 0; color: var(--text-muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .finalizer-readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Inline helper line directly under an input (e.g. "soft target ±15%"). */
 .hint-line { margin-top: 4px; }

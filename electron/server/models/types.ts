@@ -29,7 +29,7 @@ export interface SubfolderNames {
 /** Linkage metadata: which generator produces which folder */
 export const SUBFOLDER_LINKAGE: Record<keyof SubfolderNames, { label: string; generator: string; order: number }> = {
   script:        { label: 'Script',               generator: 'Script Generator',          order: 1 },
-  metadata:      { label: 'Metadata',             generator: 'Metadata Generator',        order: 2 },
+  metadata:      { label: 'YouTube Metadata',     generator: 'YouTube Finalizer',          order: 2 },
   scene_prompts: { label: 'Scene Prompts',        generator: 'Image Prompts Generator',   order: 3 },
   thumb_prompts: { label: 'Thumbnail Prompts',    generator: 'Image Prompts Generator',   order: 4 },
   images:        { label: 'Scene Images',         generator: 'Image Generator (Scenes)',  order: 5 },
@@ -289,6 +289,21 @@ export interface ScriptFormat {
    *  in this list so the dropdown shows the right value selected on
    *  fresh project load instead of falling through to "Custom...". */
   durationPresets?: number[]
+  /**
+   * Formula-owned scene-density progression. The opening can carry more
+   * explanatory visual information, then the remaining documentary settles
+   * into longer ambient holds. This is deliberately separate from a project's
+   * explicit Character Sheet pacing selection, which remains an override.
+   */
+  visualPacingProfile?: {
+    opening_duration_sec: number
+    opening: { min_sec: number; max_sec: number }
+    settled: { min_sec: number; max_sec: number }
+  }
+  /** Formula-owned image-to-video mix. It assigns stable, gentle, or limited
+   * motion by scene role after visual prompts exist; still scenes remain valid
+   * assembly inputs and do not spend an image-to-video render. */
+  motionProfile?: SceneMotionProfile
   /** v1.0.102+ — Words-per-minute for narration of this format. Drives
    *  total-words estimation in the Script Generator (length × WPM).
    *  Sleep-story is slow (122); listicle/comedy are fast (155-165);
@@ -723,6 +738,37 @@ export interface IdeaAxis {
   values: string[]
 }
 
+/** A durable episode lane owned by a Series Formula. Idea Campaign stores
+ * `ideaAxisValue` in `idea_dimensions`, so downstream surfaces can adapt the
+ * same Formula without asking the user to choose a profile for every run. */
+export interface FormulaEpisodeProfile {
+  id: string
+  label: string
+  description: string
+  ideaAxisValue: string
+  /** Optional machine-enforced suffix applied after generation. */
+  titleSuffix?: string
+  /** Suffixes removed for profiles that must not claim another lane. */
+  forbiddenTitleSuffixes?: string[]
+  /** Formula narrator used when the user leaves the Script page on Auto. */
+  narratorStyleId?: string
+  titlePolicy?: string
+  thumbnailPolicy?: string
+  metadataPolicy?: string
+}
+
+/** Declarative binding between a Series Formula and the reusable production
+ * primitives it recommends. The referenced style and thumbnail recipe remain
+ * independent library entries; this contract only makes them travel as one
+ * coherent channel system and is reusable by future Formula authors. */
+export interface FormulaProductionKit {
+  id: string
+  label: string
+  description: string
+  recommendedVisualStyleId?: string
+  episodeProfiles?: FormulaEpisodeProfile[]
+}
+
 export interface TopicPack {
   id: string
   name: string
@@ -787,6 +833,9 @@ export interface Niche {
   }
   /** Formula-owned defaults for the YouTube publishing package. */
   metadataProfile?: NicheMetadataProfile
+  /** Optional coherent production bundle: reusable library references plus
+   * Formula-owned episode profiles. */
+  productionKit?: FormulaProductionKit
 
   /** Short tagline shown on the niche card / picker. */
   tagline?: string
@@ -950,6 +999,19 @@ export interface Niche {
     defaultChapterCount?: number
     /** Override Format.script.chapterCountRange. */
     chapterCountRange?: [number, number]
+    /** Override the Continuity Engine's short-form length defaults. */
+    defaultLengthMinutes?: number
+    lengthMinutesRange?: [number, number]
+    /** Recommended long-form duration choices shown in Script Generator. */
+    durationPresets?: number[]
+    /** Formula-owned narration speed used for word-count estimation. */
+    defaultWordsPerMinute?: number
+    /** Whether factual chapters may be independently expanded in batches. */
+    chaptersIndependent?: boolean
+    /** Two-phase documentary visual pace applied when no episode override exists. */
+    visualPacingProfile?: ScriptFormat['visualPacingProfile']
+    /** Formula-owned scene motion mix for the narration-timed visual plan. */
+    motionProfile?: ScriptFormat['motionProfile']
     /** Replaces Format.script.pacingArc when set. Each string describes
      *  one chapter's narrative function. {last} / {lastButOne} / {n}
      *  placeholders work the same as on the format. */
@@ -1748,6 +1810,9 @@ export interface ProjectConfig {
    * services/art-style-resolver.ts.
    */
   active_style_preset_id?: string
+  /** Tracks styles applied by a Formula production kit. A later Formula may
+   * replace this value, while a user's explicit style choice clears it. */
+  formula_applied_style_id?: string
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
@@ -3156,7 +3221,15 @@ export interface ContinuityConfig {
   /** User-set pacing guardrails (seconds). The paced planner cuts scenes so
    *  each lands within [min_sec, max_sec]; the LLM picks where to cut, denser
    *  where the narration is busy ("feels live"). */
-  pacing: { min_sec: number; max_sec: number }
+  pacing: {
+    min_sec: number
+    max_sec: number
+    /** Optional Formula-derived phase boundary. Existing simple ranges remain valid. */
+    opening_duration_sec?: number
+    /** Optional slower range after `opening_duration_sec`. */
+    settled_min_sec?: number
+    settled_max_sec?: number
+  }
   /** Which references each scene's sequential render attaches (independent
    *  toggles, matching images.ts reference_sources). */
   references: {
@@ -3297,6 +3370,9 @@ export interface ScenePlanEntry {
    *  User-editable in Scene Plan + Scene Review. Phase 1: text only; the clip
    *  itself (Phase 2) will be generated from image_path + this prompt. */
   motion_prompt?: string
+  /** Formula-owned motion assignment. Still means the approved image is held
+   * in assembly; gentle and limited receive distinct image-to-video prompts. */
+  motion_mode?: SceneMotionMode
   /** v1.0.470 — Phase 2: path to the animated clip (mp4) rendered from
    *  `image_path` + `motion_prompt` via an image-to-video model. Written by the
    *  scene-clip generator into the "11 Video Assets" folder. Absent until the
@@ -3333,6 +3409,17 @@ export interface ScenePlanEntry {
   creative_strategy?: SceneCreativeStrategy
 }
 
+export type SceneMotionMode = 'still' | 'gentle' | 'limited'
+
+export interface SceneMotionProfile {
+  id: string
+  label: string
+  description: string
+  opening_duration_sec: number
+  opening: Record<SceneMotionMode, number>
+  settled: Record<SceneMotionMode, number>
+}
+
 export interface ScenePlan {
   schema_version: 1
   /** Last time any plan content was updated. ISO8601. */
@@ -3342,6 +3429,8 @@ export interface ScenePlan {
   timeline_built_at?: string
   /** Model id used for the planner pass. */
   planner_model?: string
+  /** The Formula profile used to classify each scene's motion behavior. */
+  motion_profile?: SceneMotionProfile
   /** Stitched SRT filename this plan was built against. Drift-detection
    *  in the Scene Plan UI compares this to the current stitched SRT. */
   source_stitched_srt?: string
@@ -3500,7 +3589,15 @@ export interface ScenePlanRunOptions {
    *  planner segments scenes to fit [min_sec, max_sec] (the user's per-episode
    *  band from continuity.json) and cuts denser on busy passages for a "live"
    *  feel, instead of leaning on target_scene_count. */
-  pacing?: { min_sec: number; max_sec: number; mode?: 'live' }
+  pacing?: {
+    min_sec: number
+    max_sec: number
+    mode?: 'live' | 'documentary'
+    /** Optional Formula-owned handoff from a denser opening to ambient holds. */
+    opening_duration_sec?: number
+    settled_min_sec?: number
+    settled_max_sec?: number
+  }
   /** v1.0.337 — % of scenes that feature the recurring guide character
    *  (continuity-chain). Per-project (config.json `character_density`).
    *  0 = no guide; 100 = guide in every scene; ~40 (default) = selective. */

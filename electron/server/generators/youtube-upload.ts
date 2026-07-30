@@ -185,7 +185,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     const hasMetadataFile = existsSync(paths.metadata_json) || existsSync(paths.metadata_txt)
     if (!hasMetadataFile) {
       throw new Error(
-        `No metadata file for ${episodeId}. Generate metadata in the Metadata Generator (or fill it manually) before updating YouTube — ` +
+        `No metadata file for ${episodeId}. Run YouTube Finalizer (or fill it manually) before updating YouTube — ` +
         `pushing the title-only fallback would overwrite the description and tags currently on the YouTube video. ` +
         `Expected file: ${path.relative(paths.episode_dir, paths.metadata_json)}`,
       )

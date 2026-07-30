@@ -19,9 +19,9 @@ export type CockpitStep =
   | 'scene_plan' | 'scene_review' | 'motion_review' | 'video_assembly'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
-  'timestamp-driven': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
-  'continuity-chain': ['research', 'script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
-  'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  'timestamp-driven': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  'continuity-chain': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  'narrated-scenes':  ['script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball
@@ -31,7 +31,7 @@ const FINAL_STEPS = new Set<CockpitStep>(['video_assembly'])
 export const STEP_LABELS: Record<CockpitStep, string> = {
   'research': 'Research',
   'script-only': 'Script',
-  'metadata': 'Metadata',
+  'metadata': 'YouTube Finalizer',
   'image_prompts': 'Thumbnail prompts',
   'thumb_images': 'Thumbnail',
   'audio': 'Audio',

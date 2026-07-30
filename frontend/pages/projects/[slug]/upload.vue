@@ -552,9 +552,9 @@
             <td class="col-title">{{ item.title }}</td>
             <td>
               <span :class="item.has_metadata ? 'meta-pill ok' : 'meta-pill warn'" :title="item.has_metadata
-                ? 'Title + description from the Metadata Generator output (episodes) or import sidecar.'
+                ? 'Title + description from the YouTube Finalizer output (episodes) or import sidecar.'
                 : item.type === 'episode'
-                  ? 'No metadata on disk yet — upload will use the episode title only. Run Metadata Generator first for best results.'
+                  ? 'No metadata on disk yet — upload will use the episode title only. Run YouTube Finalizer first for best results.'
                   : 'Import has no metadata yet — click Edit to add title / description / tags.'">
                 {{ item.has_metadata ? '✓ Ready' : '⚠ Missing' }}
               </span>
@@ -817,7 +817,7 @@
                     @click="doUpdateMetadata(item)"
                   >
                     <LoadingSpinner v-if="rowBusy[item.id] === 'metadata'" size="sm" />
-                    {{ rowBusy[item.id] === 'metadata' ? '…' : '↻ Metadata' }}
+                    {{ rowBusy[item.id] === 'metadata' ? '…' : '↻ Update YouTube' }}
                   </button>
                   <button
                     class="btn btn-sm btn-secondary"
@@ -2760,7 +2760,7 @@
           :disabled="!canBulkMetadata"
           :title="bulkMetadataTitle"
           @click="doBulkMetadata"
-        >↻ Metadata</button>
+        >↻ Update YouTube</button>
         <button
           class="btn btn-secondary btn-sm"
           :disabled="!canBulkPlaylist"
@@ -5089,7 +5089,7 @@ function canUpdatePlaylistRow(item: any): boolean {
 }
 
 function uploadButtonTitle(item: any): string {
-  if (item.uploaded) return 'Already uploaded — use ↻ Metadata to update title/description/tags, or ♫ Playlist to add to a playlist.'
+  if (item.uploaded) return 'Already uploaded — use ↻ Update YouTube to push the final title, description, and tags, or ♫ Playlist to add it to a playlist.'
   if (quotaBlocksFreshUpload()) {
     const q = quota.value as any
     return `YouTube API quota nearly exhausted (${q.used}/${q.ceiling}). Wait for midnight Pacific reset, or request higher quota in Google Cloud.`

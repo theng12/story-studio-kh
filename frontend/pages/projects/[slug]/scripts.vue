@@ -1103,6 +1103,15 @@ interface NicheContext {
     label: string
     description: string
   }
+  productionKit?: {
+    episodeProfiles?: Array<{
+      id: string
+      label: string
+      description: string
+      ideaAxisValue: string
+      narratorStyleId?: string
+    }>
+  }
   scriptStructure?: {
     defaultChapterCount?: number
     chapterCountRange?: [number, number]
@@ -1113,12 +1122,22 @@ interface NicheContext {
 const nicheContext = ref<NicheContext | null>(null)
 const showNicheOverlayDetail = ref(false)
 const openingProfile = computed(() => nicheContext.value?.openingProfile || null)
+const activeEpisodeProfile = computed(() => {
+  const axisValue = selectedEpisode.value?.idea_dimensions?.['episode-profile']
+    || selectedEpisode.value?.episode_profile
+  if (!axisValue) return undefined
+  return nicheContext.value?.productionKit?.episodeProfiles?.find(
+    profile => profile.ideaAxisValue === axisValue,
+  )
+})
 const availableNarratorStyles = computed<NarratorStyleOption[]>(() => formatContext.value?.narratorStyles || [])
 const selectedNarratorStyle = computed<NarratorStyleOption | undefined>(() => {
   const styles = availableNarratorStyles.value
   if (!styles.length) return undefined
   if (form.style === 'auto') {
-    return styles.find(style => style.id === formatContext.value?.defaultNarratorStyleId) || styles[0]
+    const preferred = activeEpisodeProfile.value?.narratorStyleId
+      || formatContext.value?.defaultNarratorStyleId
+    return styles.find(style => style.id === preferred) || styles[0]
   }
   return styles.find(style => style.id === form.style)
 })
@@ -1129,6 +1148,9 @@ const activeNarratorLabel = computed(() => {
   const selected = selectedNarratorStyle.value
   if (!selected) return 'Formula-controlled narrator'
   if (form.style === 'auto') {
+    if (activeEpisodeProfile.value) {
+      return `Formula profile — ${activeEpisodeProfile.value.label} · ${selected.label}`
+    }
     return availableNarratorStyles.value.length > 1
       ? `Formula rotation — ${selected.label}`
       : `Formula default — ${selected.label}`
@@ -1137,6 +1159,9 @@ const activeNarratorLabel = computed(() => {
 })
 const activeNarratorDescription = computed(() => {
   if (form.style === 'custom') return 'Write a temporary narrator direction for this episode only.'
+  if (form.style === 'auto' && activeEpisodeProfile.value) {
+    return `${activeEpisodeProfile.value.description} Narrator: ${selectedNarratorStyle.value?.description || selectedNarratorStyle.value?.label || 'Formula default'}.`
+  }
   return selectedCustomNarrator.value?.description
     || selectedNarratorStyle.value?.description
     || 'The active Formula supplies the narrator, point of view, and opening policy.'
@@ -1538,6 +1563,9 @@ async function applyScriptFormatDefaultsIfNoPreset() {
                 label: n.openingProfile.label,
                 description: n.openingProfile.description,
               }
+            : undefined,
+          productionKit: n.productionKit && typeof n.productionKit === 'object'
+            ? n.productionKit
             : undefined,
           scriptStructure: n.scriptStructure || undefined,
         }
@@ -2048,6 +2076,12 @@ async function submitOutline(): Promise<boolean> {
   // Returns true if the outline_only job reached 'done', false otherwise.
   const params: Record<string, any> = {
     ...form,
+    // Formula-owned episode profiles resolve Auto into a stable narrator
+    // before the outline snapshot is saved. Chapter expansion therefore uses
+    // the same voice without exposing another per-run selector.
+    style: form.style === 'auto'
+      ? (activeEpisodeProfile.value?.narratorStyleId || 'auto')
+      : form.style,
     custom_style_text: customStyleText.value,
     // The old hidden creative-freedom fields are deliberately neutralised.
     // Episode direction is the single visible per-run writing instruction.

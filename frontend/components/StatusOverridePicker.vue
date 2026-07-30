@@ -94,7 +94,7 @@ const FIELDS: FieldMeta[] = [
   { id: 'script',         label: 'Script (chapters)', icon: '📝', hint: 'Per-chapter docx files' },
   { id: 'introduction',   label: 'Introduction',      icon: '🎙', hint: 'Intro docx file' },
   { id: 'thumb_prompts',  label: 'Thumbnail Prompts', icon: '🖼', hint: 'Image-prompt docx for thumbs' },
-  { id: 'metadata',       label: 'Metadata',          icon: '📄', hint: 'Title/description metadata file' },
+  { id: 'metadata',       label: 'YouTube Finalizer', icon: '📄', hint: 'Final upload-ready YouTube package' },
   { id: 'thumbnails',     label: 'Thumbnail Images',  icon: '🖼', hint: 'Generated thumbnail PNGs' },
   { id: 'audio',          label: 'Audio (TTS)',       icon: '🎙', hint: 'Per-chapter narration mp3s' },
   { id: 'merged_audio',   label: 'Merged Audio',      icon: '🎛', hint: 'Single unified narration mp3' },

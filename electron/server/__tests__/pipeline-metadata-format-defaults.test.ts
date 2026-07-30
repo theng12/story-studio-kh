@@ -85,9 +85,11 @@ describe('resolveStepParams — metadata batch defaults', () => {
     assert.equal(params.model, 'gemma-4-e2b-it-mlx')
   })
 
-  test('legacy presets without a model retain the DeepSeek fallback', () => {
+  test('legacy presets without a model inject no hardcoded product id', () => {
+    // resolveStepParams is sync and has no catalogue access, so it must not invent a
+    // product id. The live default is resolved once per batch by the run-batch handler.
     const params = resolveStepParams('metadata', 'EP0001', 'My Episode', fakePreset, null)
-    assert.equal(params.model, 'deepseek-v4-flash')
+    assert.equal(params.model, '')
   })
 
   test('listicle defaults (3500 / 5 / 70 / 12) win over hardcoded sleep-story numbers', () => {

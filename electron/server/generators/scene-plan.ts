@@ -48,7 +48,8 @@ import {
   CREATIVE_PROFILES,
   normalizeCreativeDirection,
 } from '../services/scene-creative-direction.js'
-import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
+import { assignSceneMotionProfile, motionModeLevel } from '../services/scene-motion-profile.js'
+import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionProfile, ScenePlan } from '../models/types.js'
 
 /**
  * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
@@ -168,6 +169,7 @@ interface ScenePromptPayload {
   end_sec: number
   narration: string
   visual_prompt?: string
+  motion_mode?: 'gentle' | 'limited'
   creative_strategy?: SceneCreativeStrategy
   introduction_remainder?: boolean
   previous_visual_prompts?: string[]
@@ -421,12 +423,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const researchPath = (await resolveResearchPaths(paths.episode_dir, episode_id)).jsonPath
   const useResearch = params.use_research !== false  // default true
 
-  // continuity-chain (v1.0.193): density pacing. The user sets the per-episode
-  // band on the Character Sheet page (continuity.json); fall back to a 1–4s
-  // "live" default when the format is continuity-chain but no config exists yet.
-  let pacing: { min_sec: number; max_sec: number; mode: 'live' } | undefined
+  // Continuity Engine scene rhythm. An explicit Character Sheet range wins;
+  // otherwise a Series Formula may supply a two-phase documentary rhythm
+  // (denser opening, then long ambient visual holds). Legacy projects retain
+  // the historical 1–4s fallback.
+  let pacing: {
+    min_sec: number
+    max_sec: number
+    mode: 'live' | 'documentary'
+    opening_duration_sec?: number
+    settled_min_sec?: number
+    settled_max_sec?: number
+  } | undefined
+  let formulaMotionProfile: SceneMotionProfile | undefined
   try {
     const fmt = await getEffectiveFormat(job.project_slug)
+    formulaMotionProfile = fmt?.script.motionProfile
     if (fmt?.visualSource === 'continuity-chain') {
       pacing = { min_sec: 1, max_sec: 4, mode: 'live' }
       const continuityPath = path.join(paths.episode_dir, 'continuity.json')
@@ -436,9 +448,36 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           const mn = Number(cfg?.pacing?.min_sec)
           const mx = Number(cfg?.pacing?.max_sec)
           if (Number.isFinite(mn) && Number.isFinite(mx) && mx >= mn) {
-            pacing = { min_sec: mn, max_sec: mx, mode: 'live' }
+            const openingDuration = Number(cfg?.pacing?.opening_duration_sec)
+            const settledMin = Number(cfg?.pacing?.settled_min_sec)
+            const settledMax = Number(cfg?.pacing?.settled_max_sec)
+            const hasProfile = Number.isFinite(openingDuration) && openingDuration >= 0
+              && Number.isFinite(settledMin) && Number.isFinite(settledMax)
+              && settledMin >= 1 && settledMax >= settledMin
+            pacing = {
+              min_sec: mn,
+              max_sec: mx,
+              mode: hasProfile ? 'documentary' : 'live',
+              ...(hasProfile ? {
+                opening_duration_sec: openingDuration,
+                settled_min_sec: settledMin,
+                settled_max_sec: settledMax,
+              } : {}),
+            }
           }
         } catch { /* keep the default pacing */ }
+      } else {
+        const profile = fmt.script.visualPacingProfile
+        if (profile) {
+          pacing = {
+            min_sec: profile.opening.min_sec,
+            max_sec: profile.opening.max_sec,
+            mode: 'documentary',
+            opening_duration_sec: profile.opening_duration_sec,
+            settled_min_sec: profile.settled.min_sec,
+            settled_max_sec: profile.settled.max_sec,
+          }
+        }
       }
     }
   } catch { /* non-continuity project or format load failed — no pacing */ }
@@ -457,13 +496,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     } catch { /* default density applies */ }
   }
+  if (formulaMotionProfile) {
+    job.output_lines.push(`Motion profile: ${formulaMotionProfile.label} — follows scene role first, then balances still / gentle / limited motion deterministically.`)
+  }
 
   const timelineOnly = params.stage === 'timeline'
   if (timelineOnly) job.output_lines.push('Timeline engine: deterministic (no LLM)')
   else job.output_lines.push(`Prompt model: ${model}`)
   job.output_lines.push(`Stitched SRT: ${stitchedSrt}`)
   if (!timelineOnly && useResearch) job.output_lines.push(`Research context: ${researchPath}`)
-  if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
+  if (pacing) {
+    job.output_lines.push(pacing.mode === 'documentary'
+      ? `Documentary pacing: first ${Math.round((pacing.opening_duration_sec || 0) / 60)} min ${pacing.min_sec}–${pacing.max_sec}s, then ${pacing.settled_min_sec}–${pacing.settled_max_sec}s ambient holds.`
+      : `Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
+  }
   if (!timelineOnly) {
     job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
     job.output_lines.push(
@@ -531,6 +577,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         min_sec: minSec,
         max_sec: maxSec,
         target_sec: (minSec + maxSec) / 2,
+        ...(pacing?.mode === 'documentary'
+          ? {
+              pacing_profile: {
+                opening_duration_sec: pacing.opening_duration_sec || 0,
+                settled_min_sec: pacing.settled_min_sec || minSec,
+                settled_max_sec: pacing.settled_max_sec || maxSec,
+              },
+            }
+          : {}),
         initial_start_sec: openingReserved,
         idGen: i => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`,
       })
@@ -605,6 +660,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       plan.timeline_built_at = plan.generated_at
     }
     const isMotion = stage === 'motion'
+    if (formulaMotionProfile && plan.motion_profile?.id !== formulaMotionProfile.id) {
+      plan.motion_profile = structuredClone(formulaMotionProfile)
+      for (const scene of plan.scenes) delete scene.motion_mode
+    }
+    if (isMotion && plan.motion_profile) {
+      const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile, { preserveExisting: true })
+      if (assigned.changed) await writeJsonAtomic(outPath, plan)
+      job.output_lines.push(
+        `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited. Still scenes keep their approved image and are not sent to image-to-video.`,
+      )
+    }
     // Creative interpretation is selected once per plan, then assigned across
     // the full episode before any packs leave this Mac. This keeps variety
     // stable across Hub batches without introducing a second LLM pass.
@@ -630,7 +696,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
       .filter(({ scene }) => isMotion
-        ? !!scene.visual_prompt?.trim() && !scene.motion_prompt?.trim()
+        ? !!scene.visual_prompt?.trim() && scene.motion_mode !== 'still' && !scene.motion_prompt?.trim()
         : !scene.visual_prompt?.trim() || duplicateVisualIds.has(scene.id))
     const limit = params.prompt_limit == null ? pending.length : Math.max(1, Math.min(5000, Math.round(params.prompt_limit)))
     const targets = pending.slice(0, limit)
@@ -689,7 +755,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
     const motionSpec = MOTION_SPECS[packedMotionLevel] || MOTION_SPECS[2]!
     const task = isMotion
-      ? `Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image. Motion intensity — ${motionSpec.label}: ${motionSpec.allow} Camera: ${motionSpec.camera}`
+      ? `Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image. When a scene specifies motion_mode, follow it exactly: gentle means slow camera drift with one or two ambient elements only; limited means one narration-supported focal movement plus a slow camera move. Never add frantic or ungrounded action. Scenes marked still are intentionally excluded from this request. If no motion_mode is supplied, use the fallback intensity — ${motionSpec.label}: ${motionSpec.allow} Camera: ${motionSpec.camera}`
       : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
     const payloadBySceneId = new Map<string, ScenePromptPayload>()
     const buildPackMessages = (
@@ -741,6 +807,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         end_sec: scene.end_sec,
         narration: scene.transcript_segment,
         visual_prompt: isMotion ? scene.visual_prompt : undefined,
+        motion_mode: isMotion && scene.motion_mode !== 'still' ? scene.motion_mode : undefined,
         creative_strategy: !isMotion ? scene.creative_strategy : undefined,
         introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
         previous_visual_prompts: isPackedRepair && !isMotion
@@ -779,6 +846,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         if (!memoryScene) continue
         memoryScene.visual_prompt = freshScene.visual_prompt
         memoryScene.motion_prompt = freshScene.motion_prompt
+        memoryScene.motion_mode = freshScene.motion_mode
       }
     }
     const persistPrompt = async (sceneId: string, text: string) => {
@@ -1223,6 +1291,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       (characterDensity === 0 ? ' — no guide character' : characterDensity >= 100 ? ' — guide in every scene' : ''),
     )
   }
+  if (formulaMotionProfile) {
+    plan.motion_profile = structuredClone(formulaMotionProfile)
+    const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile)
+    job.output_lines.push(
+      `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited.`,
+    )
+  }
 
   job.progress = 80
   if ((plan.planned_in_windows ?? 1) > 1) {
@@ -1324,16 +1399,19 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     } catch { /* defaults apply */ }
     const motionModel = promptModel ? await requireScenePlanGenStudioModel(promptModel) : model
     const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
-    const targets = plan.scenes.map((s, i) => (s.visual_prompt?.trim() ? i : -1)).filter(i => i >= 0)
+    const targets = plan.scenes
+      .map((s, i) => (s.visual_prompt?.trim() && s.motion_mode !== 'still' ? i : -1))
+      .filter(i => i >= 0)
     if (targets.length) {
       const MOTION_LABELS: Record<number, string> = { 1: 'Still', 2: 'Gentle', 3: 'Moderate', 4: 'Lively' }
       job.output_lines.push(
-        `Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})` +
+        `Generating motion prompts for ${targets.length} animated scene(s) — ${plan.motion_profile ? `${plan.motion_profile.label} profile` : `intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})`}` +
         (promptModel ? ` · fast prompt model: ${motionModel}` : '') + '…',
       )
       const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
         model: motionModel,
         motion_level: motionLevel,
+        motion_level_for_scene: scene => motionModeLevel(scene.motion_mode, motionLevel),
         style_prompt: effectiveStyle,
         custom_instructions: params.custom_instructions,
         apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
@@ -1349,21 +1427,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         },
       })
       const persisted = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-      const stillMissingIds = targets
+      const missingMotionIds = targets
         .map(index => plan.scenes[index]!.id)
         .filter(sceneId => !persisted.scenes.find(scene => scene.id === sceneId)?.motion_prompt?.trim())
-      const made = targets.length - stillMissingIds.length
+      const made = targets.length - missingMotionIds.length
       job.output_lines.push(
-        stillMissingIds.length
-          ? `✓ Motion prompts: ${made}/${targets.length} saved (${stillMissingIds.length} left empty — use "Regen empty motion prompts").`
+        missingMotionIds.length
+          ? `✓ Motion prompts: ${made}/${targets.length} saved (${missingMotionIds.length} left empty — use "Regen empty motion prompts").`
           : `✓ Motion prompts: ${made}/${targets.length} written.`,
       )
       requireJobCompletion(job, {
         label: 'Motion prompt generation', expected: targets.length, completed: made,
-        missing: stillMissingIds,
+        missing: missingMotionIds,
         retry_hint: 'Motion prompts already saved were kept; Retry fills only the remaining gaps.',
       })
-      if (failed && !stillMissingIds.length) {
+      if (failed && !missingMotionIds.length) {
         job.output_lines.push('All motion prompts are durable despite transient worker failures reported during generation.')
       }
     }

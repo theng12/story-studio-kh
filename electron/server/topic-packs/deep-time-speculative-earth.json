@@ -1,0 +1,16 @@
+{
+  "id": "deep-time-speculative-earth",
+  "name": "Speculative Earth Scenarios",
+  "description": "Clearly labelled counterfactual Earth and life scenarios constrained by real science.",
+  "tagline": "What changes when the planet changes its rules?",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["deep-time-documentary"],
+  "subjects": ["Earth with rings", "Earth with two moons", "a world without the Moon", "a world with no plate tectonics", "a world with no magnetic field", "a world with double atmospheric oxygen", "a world with half Earth's gravity", "a world with no seasons", "a world with a tilted axis", "a world where Pangaea never split", "a world where dinosaurs survived", "a world where the Ice Age never ended", "a world with an inland sea", "a world without flowering plants", "a world with giant insects", "a world without coral reefs", "a world with no polar ice", "a world with a global ocean", "a world with a permanent supercontinent", "a world where humans met other hominins", "a world where the asteroid missed", "a world with a faster rotation", "a world with a slower rotation", "a world with a stronger Sun", "a world where whales returned to land", "a world where forests never evolved", "a world where oxygen collapsed", "a world with a second Cambrian explosion", "a world with no mass extinction", "a world after a supervolcano"],
+  "ideaAxes": [
+    { "id": "counterfactual-driver", "label": "Counterfactual driver", "values": ["orbital change", "geological change", "atmospheric change", "oceanic change", "biological survival", "evolutionary divergence", "human migration change"] },
+    { "id": "constraint-chain", "label": "Constraint chain", "values": ["first-order physical effect", "climate consequence", "ecosystem consequence", "evolutionary consequence", "human consequence", "remaining uncertainty"] }
+  ],
+  "promptContext": "Every title, outline, script, and thumbnail must clearly label these as what-if scenarios. Start from established constraints, show the causal chain, and never present counterfactual imagery as recovered history.",
+  "tags": ["what if Earth", "speculative evolution", "Earth science"]
+}

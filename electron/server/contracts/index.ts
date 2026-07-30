@@ -127,6 +127,27 @@ const IdeaAxisSchema = z.object({
   values: z.array(z.string().min(1).max(160)).min(1).max(300),
 }).strict()
 
+const FormulaEpisodeProfileSchema = z.object({
+  id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(120),
+  description: z.string().min(1).max(800),
+  ideaAxisValue: z.string().min(1).max(160),
+  titleSuffix: z.string().min(1).max(160).optional(),
+  forbiddenTitleSuffixes: z.array(z.string().min(1).max(160)).max(20).optional(),
+  narratorStyleId: z.string().min(1).max(120).optional(),
+  titlePolicy: z.string().min(1).max(800).optional(),
+  thumbnailPolicy: z.string().min(1).max(800).optional(),
+  metadataPolicy: z.string().min(1).max(800).optional(),
+}).strict()
+
+const FormulaProductionKitSchema = z.object({
+  id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(120),
+  description: z.string().min(1).max(1000),
+  recommendedVisualStyleId: z.string().min(1).max(120).optional(),
+  episodeProfiles: z.array(FormulaEpisodeProfileSchema).max(20).optional(),
+}).strict()
+
 /** Body for POST /niches and PUT /niches/:id (full-document replace). */
 export const NicheSchema = z.object({
   id: z.string()
@@ -155,6 +176,7 @@ export const NicheSchema = z.object({
     description: z.string().min(1).max(500),
   }).strict().optional(),
   metadataProfile: NicheMetadataProfileSchema.optional(),
+  productionKit: FormulaProductionKitSchema.optional(),
   tagline: z.string().max(200).optional(),
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
   defaultTopicPackIds: z.array(z.string().min(1).max(80)).max(24).optional(),
@@ -279,6 +301,7 @@ export const UpdateConfigSchema = z.object({
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
+  formula_applied_style_id: z.string().max(200).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
 }).passthrough().transform((value) => {

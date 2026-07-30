@@ -4,6 +4,117 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.757 — 2026-07-31
+
+- **Retry actually retries a failed scene image** — a scene whose image failed at
+  GenStudio no longer reconnects forever to that same dead job. Retry now submits
+  one genuinely new request, keeps every image that already succeeded, and re-renders
+  only the scenes that are still missing. If a submission's response is lost on the
+  way back, Retry reattaches to the request already in flight instead of paying for
+  a second one.
+- **Structured AI steps stopped refusing to run** — Scene Plan prompt packs,
+  thumbnail prompts, contextual cues, outlines, and AI video prompts no longer stop
+  before contacting GenStudio to complain that a language product lacks strict JSON
+  schema support. Story Studio now asks for a JSON object, states the required shape
+  in the instructions, and checks the returned result against the workflow's own
+  schema. A result that comes back malformed or in the wrong shape is reported as a
+  validation failure, and a failure that happens after the provider has already run
+  no longer claims the request was free.
+- **Truthful credit wording on failed work** — a job that failed at GenStudio now
+  reports that its reservation was released instead of leaving credits shown as
+  still on hold, and the Jobs page fills in the authoritative settled amount from
+  your account history where GenStudio publishes one.
+- **No hidden model defaults** — Metadata, Image Prompts, Research, Expression
+  markup, comment import, and the Pipeline no longer fall back to a built-in model
+  name when no model is chosen. Each one now picks from the live GenStudio catalogue,
+  keeps a saved choice when it is still offered, visibly heals to a usable option
+  when a saved model disappears, and reports a clear error instead of silently
+  substituting a retired product when the catalogue cannot be reached.
+
+---
+
+## v1.0.756 — 2026-07-30
+
+- **One-pass YouTube Finalizer** — moves publishing metadata after Audio
+  Assembly and subtitle verification across the desktop flow, remote flow,
+  sidebar, and Pipeline. One primary action now creates the final title,
+  description, tags, chapter markers, and source list; retired early
+  title/description/tag APIs return an explicit migration response.
+- **Measured chapters and real sources** — chapter timestamps come from a
+  fully verified Audio Assembly timeline, use approved outline titles and the
+  real opening offset, and include only research URLs selected on the Research
+  page. Story Studio refreshes owned CHAPTERS and SOURCES & FURTHER READING
+  blocks without disturbing surrounding description prose.
+- **Warning-only subtitle verification** — incomplete subtitles remain visible
+  and repairable but no longer prevent the YouTube package from being created.
+  A failed subtitle Pipeline job can hand off specifically to the Finalizer,
+  while missing or partial Audio Assembly remains a hard pre-provider gate.
+
+---
+
+## v1.0.755 — 2026-07-30
+
+- **Coherent Formula Production Kits** — Series Formulas can now bind their
+  reusable Topic Packs, recommended visual style, thumbnail recipe, motion
+  behavior, duration presets, and automatic episode profiles as one visible
+  channel system. Channel Identity shows the full kit without adding another
+  per-episode setup form.
+- **Deep Rest and Immersive lanes that persist** — Deep Time Idea Campaigns
+  balance both documentary profiles across large batches and save the assigned
+  lane with every idea and accepted episode. Deep Rest titles reliably receive
+  the `Documentary for Sleep` suffix; Immersive titles reliably reject it; the
+  Script page's Auto voice follows the saved profile.
+- **Documentary Label Tableau thumbnails** — adds a browsable Documentary
+  recipe with three original generated examples, a single atmospheric
+  natural-history subject, and a short AI-rendered label baked directly into
+  the thumbnail. Deep Rest uses `DOCUMENTARY FOR SLEEP`; Immersive episodes
+  receive a truthful two-to-five-word factual label that complements the full
+  YouTube title.
+- **Safe Formula defaults** — choosing a production-kit Formula automatically
+  applies its recommended library art style only when the project has no
+  explicit user style. A manual style choice remains authoritative across
+  future Formula changes.
+
+---
+
+## v1.0.754 — 2026-07-30
+
+- **Paleo Documentary Tableau** — adds an original, browsable Illustration
+  style for calm, painterly natural-history reconstructions: deep time,
+  prehistoric life, oceans, fossils, landscapes, and Earth systems. Its
+  gallery preview is generated for Story Studio and deliberately contains no
+  copied channel composition, branding, captions, or player UI.
+- **Formula-owned Ambient Documentary Motion** — the Deep Time Formula now
+  assigns every planned scene a durable motion role rather than treating an
+  episode as all-or-nothing animation. The opening uses a richer mix of
+  gentle and limited motion; the settled documentary holds more evidence
+  scenes as stills and keeps landscapes quietly alive.
+- **Scene-role-aware and cost-safe movement** — maps, specimens, fossils, and
+  evidence views remain still; landscapes receive gentle drift; only genuine
+  phenomena receive limited animation. Assignments are stable across retries,
+  stored with the scene plan, and still scenes never spend an image-to-video
+  render.
+
+---
+
+## v1.0.753 — 2026-07-30
+
+- **Long-Form Deep-Time Documentary Formula** — adds an evidence-led,
+  feature-length documentary system for deep time, prehistoric life, ancient
+  oceans, Earth systems, human origins, and clearly labelled speculation.
+- **Thousand-idea catalog foundation** — five interchangeable Deep Time Topic
+  Packs and structured axes reserve distinct subjects, evidence lenses,
+  timescales, and documentary engines before writing begins.
+- **Formula-owned long duration and visual rhythm** — the Formula now carries
+  120, 150, and 180-minute script targets, 16–24 independently expanded
+  chapters, and a paced visual handoff: denser 4–8 second explanatory scenes
+  for the first 15 minutes, then calm 12–20 second ambient holds.
+- **Character Sheet respects Formula pacing** — new episodes start with the
+  Formula rhythm, while an explicit episode-level Character Sheet setting can
+  still override or restore it safely.
+
+---
+
 ## v1.0.752 — 2026-07-30
 
 - **Workspace chrome no longer crops wide content** — the shared project shell

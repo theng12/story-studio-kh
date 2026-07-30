@@ -137,6 +137,7 @@
         <div class="cs-rhythm-control form-group">
           <label>Visual pacing</label>
           <select v-model="pacingPreset" class="select" @change="applyPacingPreset">
+            <option v-if="formulaPacingProfile" value="formula-documentary">{{ formulaPacingLabel }}</option>
             <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
             <option value="custom">Custom range…</option>
           </select>
@@ -145,7 +146,9 @@
             <span class="text-muted">to</span>
             <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
           </div>
-          <span class="text-muted text-xs">Scene Plan keeps cuts inside this range and divides long narration at safe word or sentence boundaries.</span>
+          <span class="text-muted text-xs">{{ formulaPacingProfile && pacingPreset === 'formula-documentary'
+            ? `The Formula uses a denser first ${Math.round(formulaPacingProfile.opening_duration_sec / 60)} minutes, then longer settled holds. Choose another option to override it for this episode.`
+            : 'Scene Plan keeps cuts inside this range and divides long narration at safe word or sentence boundaries.' }}</span>
         </div>
       </section>
 
@@ -172,7 +175,13 @@ interface ContinuityConfig {
   schema_version: 1
   anchor_character_ids: string[]
   use_episode_sheet: boolean
-  pacing: { min_sec: number; max_sec: number }
+  pacing: {
+    min_sec: number
+    max_sec: number
+    opening_duration_sec?: number
+    settled_min_sec?: number
+    settled_max_sec?: number
+  }
   references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
   denoise_strength: number
   style_bible?: string
@@ -226,17 +235,51 @@ function normalizeConfig(value?: Partial<ContinuityConfig> | null): ContinuityCo
 }
 
 const config = ref<ContinuityConfig>(defaults())
+type FormulaPacingProfile = {
+  opening_duration_sec: number
+  opening: { min_sec: number; max_sec: number }
+  settled: { min_sec: number; max_sec: number }
+}
+const formulaPacingProfile = ref<FormulaPacingProfile | null>(null)
+const formulaPacingLabel = computed(() => {
+  const profile = formulaPacingProfile.value
+  if (!profile) return 'Formula documentary pacing'
+  return `Formula documentary — first ${Math.round(profile.opening_duration_sec / 60)} min ${profile.opening.min_sec}–${profile.opening.max_sec}s, then ${profile.settled.min_sec}–${profile.settled.max_sec}s`
+})
+function formulaPacingConfig(profile: FormulaPacingProfile): ContinuityConfig['pacing'] {
+  return {
+    min_sec: profile.opening.min_sec,
+    max_sec: profile.opening.max_sec,
+    opening_duration_sec: profile.opening_duration_sec,
+    settled_min_sec: profile.settled.min_sec,
+    settled_max_sec: profile.settled.max_sec,
+  }
+}
 const pacingPreset = ref<string>('lively')
 function syncPacingPreset(): void {
+  const profile = formulaPacingProfile.value
+  if (profile
+    && config.value.pacing.min_sec === profile.opening.min_sec
+    && config.value.pacing.max_sec === profile.opening.max_sec
+    && config.value.pacing.opening_duration_sec === profile.opening_duration_sec
+    && config.value.pacing.settled_min_sec === profile.settled.min_sec
+    && config.value.pacing.settled_max_sec === profile.settled.max_sec) {
+    pacingPreset.value = 'formula-documentary'
+    return
+  }
   pacingPreset.value = PACING_PRESETS.find(preset =>
     preset.min === config.value.pacing.min_sec && preset.max === config.value.pacing.max_sec,
   )?.id || 'custom'
 }
 function applyPacingPreset(): void {
+  if (pacingPreset.value === 'formula-documentary' && formulaPacingProfile.value) {
+    config.value.pacing = formulaPacingConfig(formulaPacingProfile.value)
+    return
+  }
   const preset = PACING_PRESETS.find(entry => entry.id === pacingPreset.value)
   if (preset) config.value.pacing = { min_sec: preset.min, max_sec: preset.max }
 }
-watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec], syncPacingPreset, { immediate: true })
+watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec, config.value.pacing.opening_duration_sec, config.value.pacing.settled_min_sec, config.value.pacing.settled_max_sec], syncPacingPreset, { immediate: true })
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the fragmented style controls the user had to manage separately. A channel's
@@ -335,10 +378,19 @@ async function loadCharacters(): Promise<void> {
 async function loadConfig(): Promise<void> {
   if (!episodeId.value) { config.value = defaults(); return }
   try {
-    const r = await get<{ exists: boolean; config: ContinuityConfig }>(
-      `/projects/${slug.value}/continuity/${episodeId.value}`,
-    )
-    config.value = normalizeConfig(r.config)
+    const [r, format] = await Promise.all([
+      get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${episodeId.value}`),
+      get<{ script?: { visualPacingProfile?: FormulaPacingProfile } }>(`/projects/${slug.value}/effective-format`),
+    ])
+    const profile = format?.script?.visualPacingProfile
+    formulaPacingProfile.value = profile && Number.isFinite(profile.opening_duration_sec)
+      ? profile
+      : null
+    if (r.exists) {
+      config.value = normalizeConfig(r.config)
+    } else {
+      config.value = normalizeConfig(profile ? { pacing: formulaPacingConfig(profile) } : undefined)
+    }
   } catch (e: any) {
     if (!e?.__slugRace) config.value = defaults()
   }

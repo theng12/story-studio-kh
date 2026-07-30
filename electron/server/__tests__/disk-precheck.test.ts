@@ -118,15 +118,17 @@ describe('estimateRunBatchBytes — sizing', () => {
 
 describe('run-batch — disk-space gate', () => {
   /**
-   * Seed a project with one accepted idea + a metadata preset so
+   * Seed a project with one accepted idea + a thumbnail-prompts preset so
    * findActivePreset succeeds, then we can hit run-batch and the only
-   * remaining gate is the disk-space check.
+   * remaining gate is the disk-space check. Metadata is intentionally not
+   * used here because YouTube Finalizer now has real script + Audio Assembly
+   * prerequisites that belong to its own workflow tests.
    */
-  async function seedProjectWithMetadataPreset(): Promise<{ slug: string; episodeId: string }> {
+  async function seedProjectWithPromptPreset(): Promise<{ slug: string; episodeId: string }> {
     const proj = await pm.createProject({ name: 'Disk Precheck Test' })
     await pm.updateConfig(proj.slug, {
-      metadata_presets: [{ id: 'mp1', name: 'default', data: { model: 'gpt-4o' } }],
-      metadata_last_preset: 'mp1',
+      thumbnail_prompts_presets: [{ id: 'tp1', name: 'default', data: { model: 'gpt-4o' } }],
+      thumbnail_prompts_last_preset: 'tp1',
     } as any)
     const im = await import('../services/idea-manager.js')
     const ideas = await im.addIdeas(proj.slug, [{
@@ -138,7 +140,7 @@ describe('run-batch — disk-space gate', () => {
   }
 
   test('returns 400 with a clear shortfall message when statfs reports insufficient space', async () => {
-    const { slug, episodeId } = await seedProjectWithMetadataPreset()
+    const { slug, episodeId } = await seedProjectWithPromptPreset()
 
     // Stub statfs to report 1 KB free. Even cheap steps reserve more
     // than that thanks to TINY_STEP_BYTES, so the gate must fire.
@@ -146,7 +148,7 @@ describe('run-batch — disk-space gate', () => {
 
     const res = await request(app)
       .post(`/api/projects/${slug}/pipeline/run-batch`)
-      .send({ episode_ids: [episodeId], steps: ['metadata'] })
+      .send({ episode_ids: [episodeId], steps: ['image_prompts'] })
 
     assert.equal(res.status, 400, `expected 400, got ${res.status}: ${JSON.stringify(res.body)}`)
     assert.match(res.body.detail, /Not enough free disk space/, 'detail names the problem')
@@ -158,25 +160,25 @@ describe('run-batch — disk-space gate', () => {
   })
 
   test('passes the gate when statfs reports plenty of space', async () => {
-    const { slug, episodeId } = await seedProjectWithMetadataPreset()
+    const { slug, episodeId } = await seedProjectWithPromptPreset()
     // 1 TB free — way more than any plausible batch.
     ;(fs as any).statfs = async () => ({ bsize: 4096, bavail: 256 * 1024 * 1024, blocks: 1, bfree: 1 })
 
     const res = await request(app)
       .post(`/api/projects/${slug}/pipeline/run-batch`)
-      .send({ episode_ids: [episodeId], steps: ['metadata'] })
+      .send({ episode_ids: [episodeId], steps: ['image_prompts'] })
 
     // Should fall through to the normal 201 enqueue path.
     assert.equal(res.status, 201, `expected 201, got ${res.status}: ${JSON.stringify(res.body)}`)
   })
 
   test('soft-passes when statfs throws (unknown filesystem)', async () => {
-    const { slug, episodeId } = await seedProjectWithMetadataPreset()
+    const { slug, episodeId } = await seedProjectWithPromptPreset()
     ;(fs as any).statfs = async () => { throw new Error('exotic FS') }
 
     const res = await request(app)
       .post(`/api/projects/${slug}/pipeline/run-batch`)
-      .send({ episode_ids: [episodeId], steps: ['metadata'] })
+      .send({ episode_ids: [episodeId], steps: ['image_prompts'] })
 
     // statfs failure must not block legitimate work.
     assert.equal(res.status, 201, `expected soft-pass 201, got ${res.status}: ${JSON.stringify(res.body)}`)

@@ -440,6 +440,40 @@ describe('format-loader', () => {
     assert.equal(thumbnail?.defaultFontStyle, 'bold')
   })
 
+  test('Deep Time Documentary owns feature-length duration, calm evidence rules, and two-phase visual pacing', async () => {
+    const nicheLoader = await import('../services/niche-loader.js')
+    const shell = (await loader.loadFormat('continuity-chain'))!
+    const niche = await nicheLoader.loadNiche('deep-time-documentary')
+    assert.ok(niche, 'deep-time documentary Formula must ship')
+
+    const merged = loader.applyNicheToFormat(shell, niche!)
+    assert.equal(merged.script.defaultChapterCount, 18)
+    assert.deepEqual(merged.script.chapterCountRange, [16, 24])
+    assert.equal(merged.script.defaultLengthMinutes, 150)
+    assert.deepEqual(merged.script.durationPresets, [120, 150, 180])
+    assert.equal(merged.script.defaultWordsPerMinute, 120)
+    assert.equal(merged.script.chaptersIndependent, true)
+    assert.deepEqual(merged.script.visualPacingProfile, {
+      opening_duration_sec: 900,
+      opening: { min_sec: 4, max_sec: 8 },
+      settled: { min_sec: 12, max_sec: 20 },
+    })
+    assert.deepEqual(merged.script.motionProfile, {
+      id: 'ambient-documentary',
+      label: 'Ambient documentary',
+      description: 'Follows scene role first, then uses a calm stable mix: evidence views hold still, landscapes drift gently, and only genuine phenomena receive limited animation.',
+      opening_duration_sec: 900,
+      opening: { still: 20, gentle: 55, limited: 25 },
+      settled: { still: 40, gentle: 50, limited: 10 },
+    })
+    assert.match(merged.script.systemPromptRole, /evidence-led/i)
+    assert.ok(merged.script.additionalRules.some(rule => /evidence checkpoints/i.test(rule)))
+    assert.equal(merged.imagePrompts.thumbnail?.layout, 'hero')
+    assert.equal(niche!.defaultThumbnailTemplateId, 'documentary-label-tableau')
+    assert.equal(niche!.productionKit?.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
+    assert.equal(niche!.productionKit?.episodeProfiles?.length, 2)
+  })
+
   test('legacy custom format files remain readable but cannot become the active engine', async () => {
     const userFormatsDir = path.join(pm.PROJECTS_ROOT, '.formats')
     await fs.mkdir(userFormatsDir, { recursive: true })

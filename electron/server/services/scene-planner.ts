@@ -163,7 +163,14 @@ function buildScenePlannerPrompt(opts: {
   /** v1.0.242 — extra free-text planner instructions. */
   custom_instructions?: string
   /** continuity-chain density pacing — see ScenePlanRunOptions.pacing. */
-  pacing?: { min_sec: number; max_sec: number; mode?: 'live' }
+  pacing?: {
+    min_sec: number
+    max_sec: number
+    mode?: 'live' | 'documentary'
+    opening_duration_sec?: number
+    settled_min_sec?: number
+    settled_max_sec?: number
+  }
   /** v1.0.337 — % of scenes that feature the recurring guide character
    *  (continuity-chain). 0 = no guide at all; 100 = guide in every scene;
    *  ~40 (default) = selective. Drives the planner's cast guidance. */
@@ -974,6 +981,16 @@ export function splitScenesDeterministically(opts: {
   /** Maximum scene duration. Scenes that would exceed this are accepted
    *  anyway (no mid-cue splitting), but we log the over-long case. */
   max_sec?: number
+  /**
+   * Optional two-phase documentary rhythm. It preserves a denser explanatory
+   * opening and then makes fewer, longer image holds without asking a user to
+   * retune every episode by hand.
+   */
+  pacing_profile?: {
+    opening_duration_sec: number
+    settled_min_sec: number
+    settled_max_sec: number
+  }
   /** First scene's `start_sec`. Defaults to the first cue's start, or 0. */
   initial_start_sec?: number
   /** Scene IDs are stable across re-plans; provide a generator. Defaults
@@ -983,12 +1000,28 @@ export function splitScenesDeterministically(opts: {
   if (!opts.cues.length) return []
   const minSec = opts.min_sec ?? MIN_SCENE_SEC
   const maxSec = opts.max_sec ?? MAX_SCENE_SEC
-  const targetSec = Math.max(minSec, Math.min(maxSec, opts.target_sec ?? (minSec + maxSec) / 2))
+  const profile = opts.pacing_profile
+  const pacingAt = (timeSec: number) => {
+    if (profile && timeSec >= profile.opening_duration_sec) {
+      const settledMin = Math.max(1, profile.settled_min_sec)
+      const settledMax = Math.max(settledMin, profile.settled_max_sec)
+      return {
+        minSec: settledMin,
+        maxSec: settledMax,
+        targetSec: (settledMin + settledMax) / 2,
+      }
+    }
+    return {
+      minSec,
+      maxSec,
+      targetSec: Math.max(minSec, Math.min(maxSec, opts.target_sec ?? (minSec + maxSec) / 2)),
+    }
+  }
   const idGen = opts.idGen || ((i: number) => `scene-${i + 1}`)
   // Subtitle readability and visual pacing are separate concerns. Expand a
   // long caption into visual-only timing fragments so the selected maximum is
   // honoured without asking transcription to emit unnaturally short captions.
-  const cues = opts.cues.flatMap(cue => splitCueForStrictVisualPacing(cue, maxSec))
+  const cues = opts.cues.flatMap(cue => splitCueForStrictVisualPacing(cue, pacingAt(cue.start_sec).maxSec))
 
   const scenes: ScenePlanEntry[] = []
   let bucketStart = opts.initial_start_sec ?? opts.cues[0]!.start_sec
@@ -1015,7 +1048,8 @@ export function splitScenesDeterministically(opts: {
   for (const cue of cues) {
     bucketCues.push(cue)
     const durSoFar = cue.end_sec - bucketStart
-    if (durSoFar >= targetSec) {
+    const current = pacingAt(bucketStart)
+    if (durSoFar >= current.targetSec || durSoFar >= current.maxSec) {
       emitBucket()
     }
   }
@@ -1027,7 +1061,7 @@ export function splitScenesDeterministically(opts: {
   // trying to predict during the walk.
   for (let i = scenes.length - 1; i > 0; i--) {
     const cur = scenes[i]!
-    if ((cur.end_sec - cur.start_sec) < minSec) {
+    if ((cur.end_sec - cur.start_sec) < pacingAt(cur.start_sec).minSec) {
       const prev = scenes[i - 1]!
       // Merge cur into prev — extend prev's end + concat transcript.
       prev.end_sec = cur.end_sec
@@ -1626,6 +1660,8 @@ export async function generateMotionPromptsForScenes(
   ctx: {
     model: string
     motion_level?: number
+    /** Formula profiles may vary motion behavior by scene. */
+    motion_level_for_scene?: (scene: ScenePlanEntry) => number
     style_prompt?: string
     custom_instructions?: string
     apiKeys: Record<string, string | undefined>
@@ -1661,7 +1697,7 @@ export async function generateMotionPromptsForScenes(
             transcript_segment: scene.transcript_segment,
             visual_prompt: scene.visual_prompt,
             model: ctx.model,
-            motion_level: ctx.motion_level,
+            motion_level: ctx.motion_level_for_scene?.(scene) ?? ctx.motion_level,
             style_prompt: ctx.style_prompt,
             custom_instructions: ctx.custom_instructions,
             apiKeys: ctx.apiKeys,

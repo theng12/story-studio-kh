@@ -635,10 +635,10 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 }
 
 // Order in this array is the chain order for each episode's batch run.
-// script-only → introduction-only → metadata → thumbnail/scene prompts → images →
-// (video if opted in) → audio → audio_merge → video_assembly.
-// Metadata sits early so titles/descriptions are ready before any image work
-// — prompt generation and the post-merge metadata-driven exports both benefit.
+// script-only → introduction-only → thumbnail prompts → thumbnails → audio →
+// audio_merge → subtitles → YouTube finalizer → scene production → final video.
+// Metadata is deliberately late: chapter timestamps need measured assembly
+// timing, and subtitle coverage is the final verification layer.
 //
 // This is the canonical FULL list of batchable steps (keyed by StepId).
 // All the preset/status/done helpers below key off it. What the user
@@ -649,7 +649,6 @@ const stepsMeta: StepMeta[] = [
   { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction (optional)', icon: '🎙', link: '/scripts', presetList: 'script_presets', presetActive: 'script_last_preset_introduction', optional: true },
-  { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'image_prompts',     label: 'Thumbnail Prompts', icon: '🖼', link: '/image-prompts?tab=thumbnails', presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset' },
   // Pipeline image generation is fully split: Thumbnail Images and Scene
   // Images are separate steps with separate preset pools.
@@ -659,6 +658,7 @@ const stepsMeta: StepMeta[] = [
   // v1.0.363 — audio-paced format steps. Preset keys mirror each page's
   // usePresets({ configKey, presetType }) call (typed active pointer).
   { id: 'subtitles',         label: 'Subtitles',         icon: '💬', link: '/subtitles',      presetList: 'subtitles_generator_presets', presetActive: 'subtitles_generator_last_preset' },
+  { id: 'metadata',          label: 'YouTube Finalizer', icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
   { id: 'contextual_cues',   label: 'Contextual Cues',   icon: '🏷️', link: '/contextual-cues', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional project feature — a review preset pauses Pipeline here; an auto-approve preset continues after validated proposals.' },
@@ -689,9 +689,10 @@ type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
 // Video Assembly automatically.
 const CHAIN_TIMESTAMP: ChainSpec = [
   'research',
-  'script-only', 'introduction-only', 'metadata',
+  'script-only', 'introduction-only',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
+  'metadata',
   'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
@@ -699,9 +700,10 @@ const CHAIN_TIMESTAMP: ChainSpec = [
 // from your saved whole-page preset, so the planner + renderer see the anchor.
 const CHAIN_CONTINUITY: ChainSpec = [
   'research',
-  'script-only', 'introduction-only', 'metadata',
+  'script-only', 'introduction-only',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
+  'metadata',
   'character_sheet',
   'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
@@ -712,9 +714,10 @@ const CHAIN_CONTINUITY: ChainSpec = [
 // is identical.
 const CHAIN_NARRATED_SCENES: ChainSpec = [
   'research',
-  'script-only', 'introduction-only', 'metadata',
+  'script-only', 'introduction-only',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
+  'metadata',
   'character_sheet',
   'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
@@ -797,24 +800,13 @@ function selectAllSteps(): void {
 watch(() => stepChecked['script-only'], (on) => {
   if (!on) stepChecked['introduction-only'] = false
 })
-// v1.0.363 — Metadata now depends on the SCRIPT ONLY, not the (now-optional)
-// Introduction. The metadata generator summarises the finished script; the
-// intro was never required input. Auto-uncheck Metadata only when Script is
-// turned off.
-watch(() => stepChecked['script-only'], (s) => {
-  if (!s) stepChecked['metadata'] = false
-})
 function stepDisabled(stepId: StepId): boolean {
   if (stepId === 'introduction-only') return !stepChecked['script-only']
-  if (stepId === 'metadata') return !stepChecked['script-only']
   return false
 }
 function stepDisabledReason(stepId: StepId): string {
   if (stepId === 'introduction-only' && !stepChecked['script-only']) {
     return 'Introduction needs the Script (chapters) step — enable that first.'
-  }
-  if (stepId === 'metadata' && !stepChecked['script-only']) {
-    return 'Metadata needs the Script step — enable that first.'
   }
   return ''
 }

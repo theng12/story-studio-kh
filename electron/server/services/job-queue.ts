@@ -743,6 +743,45 @@ async function recordChainHandoffFailure(
 }
 
 /**
+ * Subtitle verification is warning-only for the late YouTube Finalizer.
+ * Preserve the failed subtitle job for repair/audit, but do not abandon a
+ * directly-following metadata step: its own finalizer records the incomplete
+ * subtitle warning while still using authoritative Audio Assembly timing.
+ */
+async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
+  if (job.type !== 'subtitles_transcribe') return
+  const chain = job.params?.pipeline_chain
+  if (!Array.isArray(chain) || chain.length === 0) return
+  const [nextStep, ...rest] = chain
+  if (nextStep?.type !== 'metadata') return
+
+  try {
+    const batchId = job.params?.pipeline_batch_id
+    enqueue({
+      project_slug: job.project_slug,
+      type: 'metadata',
+      episode_id: job.episode_id,
+      title: nextStep.title || `[batch] metadata — ${job.episode_id}`,
+      params: {
+        ...(nextStep.params || {}),
+        episode_id: job.episode_id,
+        pipeline_chain: rest,
+        ...(batchId ? { pipeline_batch_id: batchId } : {}),
+        subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
+      },
+    })
+    job.output_lines.push(
+      '→ Subtitle verification remains failed and repairable; YouTube Finalizer was still queued with a warning.',
+    )
+  } catch (error) {
+    const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
+    job.output_lines.push(
+      `Finalizer handoff failed after the subtitle warning (recorded as failed job ${failed.job_id}).`,
+    )
+  }
+}
+
+/**
  * Full lifecycle for one job: mark running → run executor → persist final
  * status → chain the next pipeline step → release the slot. Fire-and-forget
  * from pump(); the `finally` guarantees the slot is released even on error so
@@ -918,6 +957,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         job.status = 'error'
         job.error = e.message
         job.output_lines.push(`Error: ${e.message}`)
+        await continueFinalizerAfterSubtitleFailure(job)
       }
     }
 

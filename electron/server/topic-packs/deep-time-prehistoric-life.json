@@ -1,0 +1,16 @@
+{
+  "id": "deep-time-prehistoric-life",
+  "name": "Prehistoric Life & Extinction",
+  "description": "Ancient ecosystems, evolutionary transitions, extinctions, and the organisms that made past worlds unfamiliar.",
+  "tagline": "Life before the modern world.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["deep-time-documentary"],
+  "subjects": ["the Cambrian explosion", "the first eyes", "the first forests", "the first flowers", "the first animals on land", "the first vertebrates", "the first flight", "the first whales", "the first mammals", "the first dinosaurs", "the last dinosaurs", "the Permian extinction", "the Ordovician extinction", "the Triassic extinction", "the Cretaceous-Paleogene impact", "Ice Age giants", "saber-toothed cats", "woolly mammoths", "giant ground sloths", "terror birds", "the rise of reptiles", "the rise of mammals", "the age of giant insects", "the Carboniferous forests", "the Jurassic world", "the Silurian seas", "the Devonian fishes", "the Permian world", "the Cretaceous seas", "the evolution of feathers"],
+  "ideaAxes": [
+    { "id": "life-scale", "label": "Life scale", "values": ["one organism", "a lineage", "an ecosystem", "a food web", "a body-plan innovation", "an extinction boundary"] },
+    { "id": "biological-pressure", "label": "Biological pressure", "values": ["predation", "oxygen", "temperature", "competition", "reproduction", "migration", "disease", "habitat loss"] }
+  ],
+  "promptContext": "Prioritize the organism's ecological world, evolutionary constraint, and evidence record. Avoid treating prehistoric life as a monster list or presenting disputed reconstructions as certain.",
+  "tags": ["prehistoric life", "paleontology", "evolution"]
+}

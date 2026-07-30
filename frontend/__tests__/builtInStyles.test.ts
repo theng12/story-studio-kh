@@ -6,7 +6,7 @@ import { BUILT_IN_STYLES } from '../composables/useBuiltInStyles'
 
 describe('built-in style gallery', () => {
   it('ships a unique generated raster preview for every style', () => {
-    assert.equal(BUILT_IN_STYLES.length, 15)
+    assert.equal(BUILT_IN_STYLES.length, 16)
     assert.equal(new Set(BUILT_IN_STYLES.map(style => style.id)).size, BUILT_IN_STYLES.length)
 
     for (const style of BUILT_IN_STYLES) {
@@ -50,5 +50,15 @@ describe('built-in style gallery', () => {
     assert.match(style.data.negative_prompt, /mascot cartoon characters/)
     assert.match(style.data.negative_prompt, /dark moody sepia wash/)
     assert.equal(style.preview_image, '/builtin-style-previews/hand-drawn-editorial-diagram.webp')
+  })
+
+  it('ships the calm deep-time tableau separately from glossy cinematic realism', () => {
+    const style = BUILT_IN_STYLES.find(item => item.id === 'builtin-paleo-documentary-tableau')
+    assert.ok(style)
+    assert.equal(style.category, 'Illustration')
+    assert.match(style.data.style_bible, /natural-history documentary tableau/i)
+    assert.match(style.data.style_bible, /softly hand-painted editorial finish/i)
+    assert.match(style.data.negative_prompt, /glossy CGI plastic/i)
+    assert.equal(style.preview_image, '/builtin-style-previews/paleo-documentary-tableau.webp')
   })
 })

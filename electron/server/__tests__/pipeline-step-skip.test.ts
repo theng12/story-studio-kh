@@ -131,7 +131,9 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-async function seedProjectWithAcceptedIdea(): Promise<{ slug: string; episodeId: string }> {
+async function seedProjectWithAcceptedIdea(
+  withFinalizerPrerequisites = true,
+): Promise<{ slug: string; episodeId: string }> {
   const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
   // Persist at least one metadata preset so findActivePreset resolves —
   // the batch route rejects with 400 otherwise. Use the `metadata` step
@@ -148,10 +150,64 @@ async function seedProjectWithAcceptedIdea(): Promise<{ slug: string; episodeId:
   await im.acceptIdea(proj.slug, ideas[0].id)
   const accepted = await im.getIdeas(proj.slug, 'accepted')
   const ep = accepted[0]
+  // YouTube Finalizer is now a late-stage operation. These skip-behaviour
+  // tests exercise metadata itself, so give their synthetic episode the two
+  // prerequisite completion signals that a real run gets from Script and
+  // Audio Assembly.
+  if (withFinalizerPrerequisites) {
+    await im.setEpisodeStatusOverrides(proj.slug, ep.episode_code!, {
+      script: true,
+      merged_audio: true,
+    })
+  }
   return { slug: proj.slug, episodeId: ep.episode_code! }
 }
 
 describe('run-batch — step skip behaviour', () => {
+  test('targeted YouTube Finalizer refuses missing Audio Assembly and queues nothing', async () => {
+    const { slug, episodeId } = await seedProjectWithAcceptedIdea(false)
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['metadata'] })
+
+    assert.equal(res.status, 400)
+    assert.match(res.body.detail, /Nothing was started/)
+    assert.ok(
+      (res.body.issues || []).some((issue: any) =>
+        issue.code === 'missing_prerequisite'
+        && issue.step === 'metadata'
+        && ['script-only', 'audio_merge'].includes(issue.message.match(/needs ([\w-]+)/)?.[1]),
+      ),
+      'preflight names the missing finalizer prerequisite',
+    )
+    const jq = await import('../services/job-queue.js')
+    const jobs = await jq.getJobs(slug)
+    assert.equal(
+      jobs.filter(job => job.episode_id === episodeId && job.type === 'metadata').length,
+      0,
+      'no finalizer job is queued before its dependencies are complete',
+    )
+  })
+
+  test('the queued finalizer rejects before provider work and legacy early routes are retired', async () => {
+    const { slug, episodeId } = await seedProjectWithAcceptedIdea(false)
+    const queued = await request(app)
+      .post(`/api/projects/${slug}/generate/metadata`)
+      .send({
+        episode_id: episodeId,
+        title: 'Test episode',
+        model: 'test-model',
+      })
+    assert.equal(queued.status, 409)
+    assert.equal(queued.body.code, 'YOUTUBE_FINALIZER_AUDIO_REQUIRED')
+
+    const legacy = await request(app)
+      .post(`/api/projects/${slug}/generate/metadata/description`)
+      .send({ episode_id: episodeId })
+    assert.equal(legacy.status, 410)
+    assert.equal(legacy.body.code, 'LEGACY_METADATA_ROUTE_RETIRED')
+  })
+
   test('returns steps_skipped_as_done entries when a step\'s output exists', async () => {
     const { slug, episodeId } = await seedProjectWithAcceptedIdea()
     // Materialise a metadata file so computeEpisodeStatus reports metadata
@@ -416,6 +472,12 @@ test('unified assembly requires reviewed scenes but not optional Motion Review',
   const { prerequisitesForStep } = await import('../routes/pipeline.js')
   assert.deepEqual(prerequisitesForStep('video_assembly'), ['scene_review', 'audio_merge'])
   assert.ok(!prerequisitesForStep('video_assembly').includes('motion_review'))
+})
+
+test('YouTube Finalizer requires measured audio timing but treats subtitles as warning-only', async () => {
+  const { prerequisitesForStep } = await import('../routes/pipeline.js')
+  assert.deepEqual(prerequisitesForStep('metadata'), ['script-only', 'audio_merge'])
+  assert.ok(!prerequisitesForStep('metadata').includes('subtitles'))
 })
 
 test('enabled contextual cues place a review gate between Scene Plan and Scene Review', async () => {

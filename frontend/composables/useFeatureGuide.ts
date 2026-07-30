@@ -119,17 +119,18 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Review the outline before expensive expansion if structure matters.', 'Imported scripts should use clear chapter headings so downstream audio and subtitle stages can verify coverage.'],
   },
   metadata: {
-    title: 'Metadata Generator',
-    summary: 'Prepare the publishing title, description, tags, sources, disclosure, and chapter information from the approved script.',
-    workflow: ['Choose a reusable preset and GenStudio model.', 'Generate the complete package.', 'Review and refine sections before upload.'],
+    title: 'YouTube Finalizer',
+    summary: 'Build the upload-ready YouTube title, description, tags, measured chapters, selected sources, and disclosures once the production timeline exists.',
+    workflow: ['Complete Script and Audio Assembly; finish Subtitles when available.', 'Choose a reusable preset and GenStudio model.', 'Finalize once, then review the complete upload package.'],
     topics: [
-      { title: 'Starter template', purpose: 'Applies a reusable publishing structure suited to the channel format.' },
-      { title: 'Title mode', purpose: 'Controls whether the model preserves, rewrites, or formats the episode title.' },
-      { title: 'Description sections', purpose: 'Defines the order and inclusion of hook, summary, sources, calls to action, disclosures, and hashtags.' },
+      { title: 'Formula publishing profile', purpose: 'Applies the channel Formula’s reusable title and description behavior.' },
+      { title: 'Measured chapters', purpose: 'Uses Audio Assembly timing and approved outline titles to create the YouTube chapter block.' },
+      { title: 'Subtitle verification', purpose: 'Cross-checks chapter coverage when subtitles are complete.', effect: 'Incomplete subtitles show a warning but never prevent finalization.' },
+      { title: 'Sources & Further Reading', purpose: 'Adds only selected real research titles and URLs; the model never invents citation links.' },
       { title: 'Tags', purpose: 'Creates search and topic labels for YouTube metadata.' },
       { title: 'Fork to new version', purpose: 'Preserves the current metadata while creating a separately editable revision.' },
     ],
-    tips: ['Metadata presets should contain reusable structure, not episode-specific copy.', 'Verify dates, names, links, and disclosures before upload.'],
+    tips: ['Finalize after Audio Assembly so timestamps use measured durations.', 'A subtitle warning is informational; review it before upload if exact cross-checking matters.'],
   },
   'thumbnail-prompts': {
     title: 'Thumbnail Prompts',
@@ -406,14 +407,14 @@ export const featureGuides: Record<string, FeatureGuide> = {
   'metadata-template': {
     title: 'YouTube Publishing Profile',
     summary: 'Store recurring channel copy separately from episode-specific metadata so titles, links, disclosures, credits, and calls to action stay consistent.',
-    workflow: ['Review the available episode placeholders.', 'Build the reusable title, description, and tag structure.', 'Save and return to Metadata Generator.'],
+    workflow: ['Review the available episode placeholders.', 'Build the reusable title, description, and tag structure.', 'Save and return to YouTube Finalizer.'],
     topics: [
       { title: 'Dynamic placeholders', purpose: 'Insert approved episode-specific values such as topic, summary, code, keywords, or date.' },
       { title: 'Title wrapper', purpose: 'Adds a durable channel prefix or suffix without replacing the approved episode title.' },
       { title: 'Description blocks', purpose: 'Stores stable links, credits, calls to action, disclosures, and channel copy.' },
       { title: 'Recurring tags', purpose: 'Adds channel-level tags alongside episode-specific metadata.' },
     ],
-    tips: ['Keep episode-specific wording in Metadata Generator, not this profile.', 'Check placeholder spelling; unknown placeholders intentionally resolve empty.'],
+    tips: ['Keep episode-specific wording in YouTube Finalizer, not this profile.', 'Check placeholder spelling; unknown placeholders intentionally resolve empty.'],
   },
   'thumbnail-templates': {
     title: 'Thumbnail Recipe Catalog',

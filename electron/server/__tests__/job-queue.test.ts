@@ -219,6 +219,43 @@ describe('getJobs() / getQueueStats()', () => {
 })
 
 describe('pipeline chain handoff failures', () => {
+  test('subtitle failure stays visible but still hands off to warning-capable finalizer', async () => {
+    const proj = await pm.createProject({ name: 'JQ Subtitle Warning Handoff' })
+    let finalizerRuns = 0
+    jq.registerExecutor('subtitles_transcribe', async () => {
+      throw new Error('Chapter 03 subtitle is incomplete')
+    })
+    jq.registerExecutor('metadata', async () => {
+      finalizerRuns++
+    })
+    const subtitle = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'subtitles_transcribe',
+      episode_id: 'EP001',
+      title: 'subtitle verification',
+      params: {
+        pipeline_batch_id: 'batch-subtitle-warning',
+        pipeline_chain: [{
+          type: 'metadata',
+          title: 'YouTube Finalizer',
+          params: {},
+        }],
+      },
+    })
+
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && finalizerRuns === 0) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    const failedSubtitle = jq.getJob(subtitle.job_id)
+    assert.equal(failedSubtitle?.status, 'error')
+    assert.match(failedSubtitle?.error || '', /subtitle is incomplete/)
+    assert.equal(finalizerRuns, 1)
+    assert.ok(
+      failedSubtitle?.output_lines.some(line => /Finalizer was still queued with a warning/.test(line)),
+    )
+  })
+
   test('persists a failed child job instead of reporting a false-success batch', async () => {
     const proj = await pm.createProject({ name: 'JQ Chain Handoff' })
     jq.registerExecutor('script-only', async () => {})

@@ -51,8 +51,9 @@ ideas (titles+loglines+themes)
   → images (AI-generated stills via Fal/Stability/etc.)
   → audio (TTS narration per chapter via ElevenLabs / GenAIPro)
   → audio-merge (chapters → single track + music + bg)
+  → subtitles (timeline verification; warning-only for publishing)
+  → YouTube Finalizer (one title/description/tags package + measured chapters + real sources)
   → video assembly (stills + audio + transitions → mp4)
-  → metadata (titles, tags, description for YouTube)
   → thumbnail (template-driven, separate from scenes)
   → youtube upload
 ```
@@ -66,9 +67,10 @@ ideas
   → script (single long-form narration, defaultChapterCount: 1)
   → audio (TTS)
   → audio-merge
+  → subtitles
+  → YouTube Finalizer
   → broll picker (selects clips from an app-level pool)
   → broll-assemble (concatenates clips + narration + music → mp4)
-  → metadata
   → thumbnail
   → youtube upload
 ```
@@ -119,7 +121,7 @@ Niche JSON (e.g. prayer.json)
 | `images.ts` | scene-images | Fal/Stability calls; per-scene retries; sidecar manifest |
 | `audio.ts` | **both** | TTS via ElevenLabs/GenAIPro; chunked per-paragraph; sidecar |
 | `audio-merge.ts` | **both** | Concat chunks + intro + music bed + loudness normalize |
-| `metadata.ts` | **both** | Titles, tags, description via the configured text model |
+| `metadata.ts` | **both** | Late-stage YouTube Finalizer: title, description, tags, measured chapter timestamps, selected real sources, and a warning-only subtitle audit |
 | `video.ts` | scene-images | ffmpeg concat of stills + audio + transitions |
 | `broll-assemble.ts` | broll | ffmpeg concat of pool clips + narration + music |
 | `broll-autotag.ts` | broll (prep) | Tags pool clips with mood/scene labels via vision model |

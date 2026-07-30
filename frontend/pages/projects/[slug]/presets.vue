@@ -165,9 +165,9 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
   },
   {
     key: 'metadata',
-    label: 'Metadata',
+    label: 'YouTube Finalizer',
     icon: '📄',
-    hint: 'Section templates, tag strategy.',
+    hint: 'Formula publishing profile, final title/description/tags, measured chapters, and research sources.',
     configKey: 'metadata',
     editLink: '/metadata',
   },

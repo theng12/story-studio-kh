@@ -124,6 +124,31 @@ describe('strict continuity pacing', () => {
     assert.equal(scenes.map(scene => scene.transcript_segment).join(' '), longCue.text)
   })
 
+  test('uses denser opening scenes before switching to longer documentary ambient holds', () => {
+    const cues = Array.from({ length: 30 }, (_, index) => ({
+      index,
+      start_sec: index * 2,
+      end_sec: index * 2 + 2,
+      text: `cue ${index}`,
+    }))
+    const scenes = splitScenesDeterministically({
+      cues,
+      min_sec: 2,
+      max_sec: 4,
+      target_sec: 3,
+      pacing_profile: {
+        opening_duration_sec: 12,
+        settled_min_sec: 8,
+        settled_max_sec: 12,
+      },
+    })
+    const opening = scenes.filter(scene => scene.start_sec < 12)
+    const settled = scenes.filter(scene => scene.start_sec >= 12)
+    assert.ok(opening.every(scene => scene.end_sec - scene.start_sec <= 4.001))
+    assert.ok(settled.every(scene => scene.end_sec - scene.start_sec >= 8 || scene === settled.at(-1)),
+      'settled phase should use longer visual holds except for a final remainder')
+  })
+
   test('does not cut a one-word cue mid-word merely to meet the maximum', () => {
     const pieces = splitCueForStrictVisualPacing({ index: 1, start_sec: 0, end_sec: 6, text: 'Thunderclap' }, 4)
     assert.equal(pieces.length, 1)

@@ -42,6 +42,27 @@ export interface IdeaAxis {
   values: string[]
 }
 
+export interface FormulaEpisodeProfile {
+  id: string
+  label: string
+  description: string
+  ideaAxisValue: string
+  titleSuffix?: string
+  forbiddenTitleSuffixes?: string[]
+  narratorStyleId?: string
+  titlePolicy?: string
+  thumbnailPolicy?: string
+  metadataPolicy?: string
+}
+
+export interface FormulaProductionKit {
+  id: string
+  label: string
+  description: string
+  recommendedVisualStyleId?: string
+  episodeProfiles?: FormulaEpisodeProfile[]
+}
+
 export interface Niche {
   id: string
   name: string
@@ -75,6 +96,7 @@ export interface Niche {
     titleMaxLength: number
     tagCount: number
   }
+  productionKit?: FormulaProductionKit
   tagline?: string
   exampleTopics: string[]
   defaultTopicPackIds?: string[]
@@ -96,6 +118,28 @@ export interface Niche {
   titleShapeRules?: string[]
   narratorStyles?: Array<{ id: string; label: string; description?: string }>
   activeTopicPacks?: TopicPack[]
+  defaultThumbnailTemplateId?: string
+  scriptStructure?: {
+    defaultChapterCount?: number
+    chapterCountRange?: [number, number]
+    defaultLengthMinutes?: number
+    lengthMinutesRange?: [number, number]
+    durationPresets?: number[]
+    defaultWordsPerMinute?: number
+    visualPacingProfile?: {
+      opening_duration_sec: number
+      opening: { min_sec: number; max_sec: number }
+      settled: { min_sec: number; max_sec: number }
+    }
+    motionProfile?: {
+      id: string
+      label: string
+      description: string
+      opening_duration_sec: number
+      opening: { still: number; gentle: number; limited: number }
+      settled: { still: number; gentle: number; limited: number }
+    }
+  }
   /** Server-attached count of projects referencing this niche. Present on
    *  list responses, absent on single-niche reads. */
   project_count?: number

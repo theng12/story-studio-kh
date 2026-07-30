@@ -17,6 +17,7 @@ import {
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
+import { applyFormulaEpisodeProfileTitle } from '../services/formula-production-kit.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -158,10 +159,15 @@ function normalizeIdea(
   item: any,
   assignment: IdeaAssignment,
   request: IdeaCampaignParams,
+  niche: Niche,
   formulaId: string,
   activePackIds: string[],
 ): StoryIdea & { campaign_id: string } {
-  const rawTitle = String(item?.title || '').trim()
+  const rawTitle = applyFormulaEpisodeProfileTitle(
+    String(item?.title || ''),
+    niche,
+    assignment.dimensions,
+  )
   const title = `${request.title_prefix || ''}${rawTitle}${request.title_suffix || ''}`.trim()
   const chapters = request.items_per_listicle && request.items_per_listicle > 0
     ? Math.round(request.items_per_listicle)
@@ -311,7 +317,14 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         job.output_lines.push(`  ↻ ${assignment.idea_key}: output drifted from assigned subject; replacing slot.`)
         continue
       }
-      candidates.push(normalizeIdea(item, assignment, request, formulaId || plannerNiche.id, activePackIds))
+      candidates.push(normalizeIdea(
+        item,
+        assignment,
+        request,
+        plannerNiche,
+        formulaId || plannerNiche.id,
+        activePackIds,
+      ))
     }
 
     const filtered = request.avoid_repeated_ideas === false

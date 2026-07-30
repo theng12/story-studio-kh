@@ -120,6 +120,12 @@ export function buildContinuityConfig(
   // Coerce + clamp the numeric fields so a malformed client can't write junk.
   const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 1))
   const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 4))
+  const openingDuration = Number(b.pacing?.opening_duration_sec)
+  const settledMin = Number(b.pacing?.settled_min_sec)
+  const settledMax = Number(b.pacing?.settled_max_sec)
+  const hasSettledPacing = Number.isFinite(openingDuration) && openingDuration >= 0
+    && Number.isFinite(settledMin) && Number.isFinite(settledMax)
+    && settledMin >= 1 && settledMax >= settledMin
   const denoise = Math.max(0, Math.min(1, Number(b.denoise_strength)))
   return {
     schema_version: 1,
@@ -127,7 +133,17 @@ export function buildContinuityConfig(
       ? b.anchor_character_ids.filter((x): x is string => typeof x === 'string')
       : [],
     use_episode_sheet: !!b.use_episode_sheet,
-    pacing: { min_sec: minSec, max_sec: maxSec },
+    pacing: {
+      min_sec: minSec,
+      max_sec: maxSec,
+      ...(hasSettledPacing
+        ? {
+            opening_duration_sec: Math.min(3 * 60 * 60, Math.round(openingDuration)),
+            settled_min_sec: Math.max(1, Math.min(60, settledMin)),
+            settled_max_sec: Math.max(Math.max(1, Math.min(60, settledMin)), Math.min(60, settledMax)),
+          }
+        : {}),
+    },
     references: {
       prev_render: b.references?.prev_render ?? defaults.references.prev_render,
       sheet: b.references?.sheet ?? defaults.references.sheet,

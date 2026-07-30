@@ -23,6 +23,10 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import {
+  finalizeYouTubeDescription,
+  inspectYouTubeFinalizationStatus,
+} from '../services/youtube-metadata-finalizer.js'
 
 export const router = Router()
 
@@ -908,6 +912,22 @@ function aiCreds(_config: any) { return {} }
 // — that's the single source of truth for the section→prompt mapping.
 // generators/metadata.ts also imports it.
 
+// The old page generated title, description, and tags independently before
+// narration timing existed. Keep an explicit machine-readable tombstone for
+// older clients instead of silently allowing that workflow to bypass the
+// one-pass YouTube Finalizer.
+router.post([
+  '/projects/:slug/generate/metadata/description',
+  '/projects/:slug/generate/metadata/seo-titles',
+  '/projects/:slug/generate/metadata/tags',
+  '/projects/:slug/generate/metadata/all',
+], (_req, res) => {
+  res.status(410).json({
+    code: 'LEGACY_METADATA_ROUTE_RETIRED',
+    detail: 'This early metadata route is retired. Run Audio Assembly, then use YouTube Finalizer once the final timing is available.',
+  })
+})
+
 // ── 1) Description ────────────────────────────────────────────────────────
 // All four metadata generators below (description / seo-titles / tags / all)
 // run their LLM calls synchronously in the request handler and return the
@@ -1242,15 +1262,24 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
 
+  const readiness = await inspectYouTubeFinalizationStatus(slug, episode_id)
+  if (!readiness.audio_assembly_ready) {
+    return res.status(409).json({
+      code: 'YOUTUBE_FINALIZER_AUDIO_REQUIRED',
+      detail: 'Run Audio Assembly before YouTube Finalizer so chapter timestamps use the complete measured narration timeline.',
+      warnings: readiness.warnings,
+    })
+  }
+
   if (jq.isDuplicate(slug, episode_id, 'metadata')) {
-    return res.status(409).json({ detail: `Metadata generation already queued/running for ${episode_id}` })
+    return res.status(409).json({ detail: `YouTube finalization already queued/running for ${episode_id}` })
   }
 
   const job = jq.enqueue({
     project_slug: slug,
     type: 'metadata',
     episode_id,
-    title: `Metadata — ${episode_id}`,
+    title: `YouTube Finalizer — ${episode_id}`,
     params: req.body,
   })
   res.status(201).json(job)
@@ -1312,16 +1341,28 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
       : (metadata_title ? [String(metadata_title)] : [])
 
+    // Manual edits keep the finalizer audit that was recorded by the queued
+    // generator. The managed chapter/source text is already inside
+    // `description`; preserving this sidecar prevents autosave from erasing
+    // the warning/readiness information.
+    const { json } = metadataFilenames(episode_id, writeVersion)
+    const priorPath = pathMod.join(dir, json)
+    let priorFinalization: unknown
+    try {
+      priorFinalization = JSON.parse(await fs.readFile(priorPath, 'utf-8'))?.youtube_finalization
+    } catch { /* first save / new version */ }
+
     const meta = {
       title: metadata_title || '',
       title_options: cleanTitleOptions,
       description: description || '',
       tags: Array.isArray(tags) ? tags : [],
+      ...(priorFinalization ? { youtube_finalization: priorFinalization } : {}),
       savedAt: new Date().toISOString(),
       version: writeVersion,
     }
 
-    const { json, txt } = metadataFilenames(episode_id, writeVersion)
+    const { txt } = metadataFilenames(episode_id, writeVersion)
     const jsonPath = pathMod.join(dir, json)
     // Lock on the JSON path so concurrent Save clicks (e.g. two browser tabs)
     // can't interleave and leave the .txt sidecar out of sync with the .json.
@@ -1342,29 +1383,36 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
  * description (the "0:00 Intro / 4:32 Chapter 1 / …" block YouTube
  * auto-renders as clickable chapter markers).
  *
- * v1 uses the audio file labels (e.g. "Chapter 01") for titles. Users
- * who want richer titles can edit the inserted block manually.
+ * Kept for older clients. It now uses the same measured Audio Assembly
+ * timeline, approved outline titles, lead-in offset, and warning contract as
+ * the automatic YouTube Finalizer.
  */
+router.get('/projects/:slug/episodes/:episodeId/youtube-finalization-status', async (req, res) => {
+  try {
+    const status = await inspectYouTubeFinalizationStatus(req.params.slug, req.params.episodeId)
+    res.json(status)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to inspect YouTube finalization readiness'))
+  }
+})
+
 router.get('/projects/:slug/episodes/:episodeId/chapter-timestamps', async (req, res) => {
   try {
     const { slug, episodeId } = req.params
-    const { scanEpisodeAssets } = await import('../generators/video.js')
-    const { chaptersFromDurations, formatChapterTimestamps } = await import('../lib/subtitle-builder.js')
-    const assets = await scanEpisodeAssets(slug, episodeId)
-    const items = assets.audio_sections
-      .filter(s => typeof s.duration === 'number' && s.duration > 0)
-      .map(s => ({ title: s.label, duration_sec: s.duration as number }))
-    if (items.length < 3) {
-      // YouTube's auto-detection requires 3+ chapters with the first at
-      // 0:00. Below that threshold the block would render broken; tell
-      // the caller and let it surface a friendly empty state.
-      return res.json({ formatted: '', chapters: [], reason: 'fewer-than-3-chapters' })
-    }
-    const chapters = chaptersFromDurations(items, 0)
-    const formatted = formatChapterTimestamps(chapters)
+    // Back-compatible endpoint for old clients. It now shares the exact same
+    // measured timing + approved-title logic as the automatic finalizer.
+    const result = await finalizeYouTubeDescription({
+      slug,
+      episodeId,
+      description: '',
+      includeSources: false,
+    })
+    const chapterBlock = result.description.match(/CHAPTERS\n([\s\S]*?)\n<!-- youtube:chapters:end -->/)?.[1] || ''
     res.json({
-      formatted,
-      chapters: chapters.map(c => ({ title: c.title, start_sec: c.start_sec })),
+      formatted: chapterBlock,
+      chapters: result.chapters,
+      warnings: result.warnings,
+      reason: result.chapters.length < 3 ? 'fewer-than-3-chapters' : undefined,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to derive chapter timestamps'))
@@ -1408,6 +1456,7 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
             : (data.title ? [data.title] : []),
           description: data.description || '',
           tags: Array.isArray(data.tags) ? data.tags : [],
+          youtube_finalization: data.youtube_finalization || null,
           savedAt: data.savedAt || null,
         })
       } catch {}

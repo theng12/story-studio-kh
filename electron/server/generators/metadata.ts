@@ -16,6 +16,8 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
@@ -23,13 +25,17 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/folder-migration.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
-import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
+import { sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getEffectiveNicheFor } from '../services/niche-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writeMetadataCompletionManifest } from '../services/metadata-completion.js'
+import {
+  finalizeYouTubeDescription,
+  inspectYouTubeFinalizationStatus,
+} from '../services/youtube-metadata-finalizer.js'
 
 interface MetadataParams {
   episode_id: string
@@ -54,11 +60,36 @@ interface MetadataParams {
   title_suffix?: string
   manual_title?: string
   tag_count?: number
+  /** Existing edited package from the Preview. When complete, Finalize
+   * refreshes only deterministic chapter/source blocks and saves a new
+   * version instead of spending credits rewriting approved operator edits. */
+  existing_package?: {
+    title?: string
+    title_options?: string[]
+    description?: string
+    tags?: string[]
+  }
 }
 
 function checkProvider(_model: string, _config: any): string | null { return null }
 
 function aiCreds(_config: any) { return {} }
+
+/**
+ * Resolve the default text model for a batch metadata run when the preset
+ * didn't save one. Never falls back to a hardcoded external product id —
+ * GenStudio owns the catalog, so this asks it directly and prefers the
+ * project's saved `prompt_model` preference when it's still usable.
+ */
+async function resolveDefaultMetadataModel(config: any): Promise<string> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating metadata.')
+  }
+  const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
+  const resolved = await resolveDefaultChatModel(apiKey, saved)
+  return resolved.modelId
+}
 
 function metadataSectionsForProfile(ids: string[] | undefined, tagCount: number): Array<any> {
   const configs: Record<string, any> = {
@@ -132,8 +163,10 @@ export async function generateMetadata(job: Job): Promise<void> {
   if (!config) throw new Error('Project config not found')
 
   // Model + defaults. Batch mode inherits whatever the user set on the
-  // Metadata page; any missing params fall back to sensible defaults.
-  const model = req.model || 'deepseek-v4-flash'
+  // Metadata page; a missing model is resolved against GenStudio's live
+  // catalog instead of a hardcoded external product id (never invent a
+  // product GenStudio hasn't published).
+  const model = req.model?.trim() || await resolveDefaultMetadataModel(config)
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
 
@@ -163,6 +196,28 @@ export async function generateMetadata(job: Job): Promise<void> {
     ? req.sections
     : metadataSectionsForProfile(profile?.descriptionSectionIds, tag_count)
 
+  // Finalization is intentionally late-stage and one-pass. Refuse before any
+  // LLM work or provider charge when measured Audio Assembly timing does not
+  // exist. Subtitle verification remains warning-only in the finalizer.
+  const readiness = await inspectYouTubeFinalizationStatus(project_slug, episode_id)
+  if (!readiness.audio_assembly_ready) {
+    throw Object.assign(
+      new Error('Run Audio Assembly before YouTube Finalizer so chapter timestamps use measured narration timing.'),
+      { statusCode: 409, code: 'YOUTUBE_FINALIZER_AUDIO_REQUIRED' },
+    )
+  }
+
+  const existingPackage = req.existing_package
+  const preserveExistingPackage = !!(
+    existingPackage
+    && typeof existingPackage.title === 'string'
+    && existingPackage.title.trim()
+    && typeof existingPackage.description === 'string'
+    && existingPackage.description.trim()
+    && Array.isArray(existingPackage.tags)
+    && existingPackage.tags.length > 0
+  )
+
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)
 
@@ -181,7 +236,7 @@ export async function generateMetadata(job: Job): Promise<void> {
     // tags then come from template substitution — not from three
     // separate generate-from-scratch calls. Brand consistency without
     // re-rolling per episode.
-    const tpl = (config as any).metadata_template
+    const tpl = preserveExistingPackage ? null : (config as any).metadata_template
     const templateActive = !!(tpl && (tpl.title || tpl.description || (Array.isArray(tpl.tags) && tpl.tags.length)))
     let templateOutput: { title: string; description: string; tags: string[] } | null = null
     if (templateActive) {
@@ -204,7 +259,10 @@ export async function generateMetadata(job: Job): Promise<void> {
 
     // ── 1. Description ──────────────────────────────────────────────────
     let description: string
-    if (templateOutput && templateOutput.description) {
+    if (preserveExistingPackage) {
+      description = existingPackage!.description!.trim()
+      job.output_lines.push('Preserving the edited description; refreshing only managed chapter and source blocks.')
+    } else if (templateOutput && templateOutput.description) {
       description = templateOutput.description
       job.output_lines.push(`Description from template (${description.length} chars).`)
     } else {
@@ -228,16 +286,6 @@ export async function generateMetadata(job: Job): Promise<void> {
       await recordUsageForScope(project_slug, episode_id, 'metadata', description).catch(() => null)
     }
 
-    // v1.0.197 — append the kept research sources (deterministic, real URLs);
-    // v1.0.198 — gated on the Sources section being present + enabled.
-    {
-      const sourcesRes = await appendSourcesToDescription(project_slug, episode_id, description, format, max_chars, sourcesSectionEnabled(sections))
-      description = sourcesRes.description
-      if (sourcesRes.appended) {
-        job.output_lines.push(`Appended ${sourcesRes.appended} research source(s) to the description${sourcesRes.dropped ? ` (+${sourcesRes.dropped} dropped for length)` : ''}.`)
-      }
-    }
-
     // ── 2. Titles ───────────────────────────────────────────────────────
     // Fixed-title modes (use_idea_title / manual) skip the LLM and emit
     // exactly one title with optional channel prefix + suffix wrapping.
@@ -252,7 +300,13 @@ export async function generateMetadata(job: Job): Promise<void> {
     const wrapTitle = (s: string): string => `${title_prefix}${s}${title_suffix}`
 
     let titles: string[]
-    if (templateOutput && templateOutput.title) {
+    if (preserveExistingPackage) {
+      const alternatives = Array.isArray(existingPackage!.title_options)
+        ? existingPackage!.title_options!.filter(value => typeof value === 'string' && value.trim())
+        : []
+      titles = Array.from(new Set([existingPackage!.title!.trim(), ...alternatives]))
+      job.output_lines.push('Preserving the edited title and saved alternatives.')
+    } else if (templateOutput && templateOutput.title) {
       // Template output is already fully composed (it included channel
       // copy in the template string). Don't wrap a second time.
       titles = [templateOutput.title]
@@ -323,7 +377,10 @@ Requirements:
 
     // ── 3. Tags ─────────────────────────────────────────────────────────
     let tags: string[]
-    if (templateOutput && templateOutput.tags.length) {
+    if (preserveExistingPackage) {
+      tags = existingPackage!.tags!.filter(value => typeof value === 'string' && value.trim())
+      job.output_lines.push(`Preserving ${tags.length} edited tag(s).`)
+    } else if (templateOutput && templateOutput.tags.length) {
       tags = templateOutput.tags.slice(0, tag_count)
       job.output_lines.push(`Tags from template: ${tags.length} tag(s).`)
     } else {
@@ -352,7 +409,27 @@ Requirements:
       job.output_lines.push(`  → ${tags.length} tag(s)`)
     }
 
-    // ── 4. Save (v1 always in batch; overwrites if a v1 exists) ─────────
+    // ── 4. Finalize deterministic YouTube sections ─────────────────────
+    // Runs after Audio Assembly + Subtitles in the canonical Pipeline.
+    // Timings come from the measured audio manifest, approved outline titles
+    // replace generic file labels, and only selected real research URLs are
+    // emitted. Subtitle incompleteness is deliberately warning-only.
+    const finalization = await finalizeYouTubeDescription({
+      slug: project_slug,
+      episodeId: episode_id,
+      description,
+      includeSources: sourcesSectionEnabled(sections),
+    })
+    description = finalization.description
+    job.output_lines.push(
+      `Finalized YouTube package: ${finalization.chapter_count} chapter marker(s), ` +
+      `${finalization.source_count} research source(s).`,
+    )
+    for (const warning of finalization.warnings) {
+      job.output_lines.push(`Warning: ${warning}`)
+    }
+
+    // ── 5. Save (v1 always in batch; overwrites if a v1 exists) ─────────
     const dir = await resolveMetadataDir(project_slug, episode_id, title)
     const existing = await fs.readdir(dir).catch(() => [])
     // Prefer overwriting v1. If v1 exists and the user had bumped past it,
@@ -368,6 +445,18 @@ Requirements:
       title_options: titles.length ? titles : (title ? [title] : []),
       description,
       tags,
+      youtube_finalization: {
+        finalized_at: finalization.finalized_at,
+        audio_assembly_ready: finalization.audio_assembly_ready,
+        subtitle_complete: finalization.subtitle_complete,
+        subtitle_mode: finalization.subtitle_mode,
+        subtitle_missing_sections: finalization.subtitle_missing_sections,
+        outline_title_count: finalization.outline_title_count,
+        chapter_count: finalization.chapter_count,
+        source_count: finalization.source_count,
+        lead_in_seconds: finalization.lead_in_seconds,
+        warnings: finalization.warnings,
+      },
       savedAt: new Date().toISOString(),
       version: writeVersion,
     }
@@ -380,12 +469,18 @@ Requirements:
       await fs.writeFile(path.join(dir, txt), formatMetadataTxt(meta))
     })
 
-    await trackGeneration(project_slug, 'description').catch(() => {})
+    if (!preserveExistingPackage) {
+      await trackGeneration(project_slug, 'description').catch(() => {})
+    }
     job.output_lines.push(`Saved → ${json} + ${txt}`)
     job.output_dir = dir
 
-    const expectedTitleCount = templateOutput?.title || title_mode !== 'paraphrase' ? 1 : title_count
-    const expectedTagCount = templateOutput?.tags.length ? Math.min(tag_count, templateOutput.tags.length) : tag_count
+    const expectedTitleCount = preserveExistingPackage
+      ? titles.length
+      : (templateOutput?.title || title_mode !== 'paraphrase' ? 1 : title_count)
+    const expectedTagCount = preserveExistingPackage
+      ? tags.length
+      : (templateOutput?.tags.length ? Math.min(tag_count, templateOutput.tags.length) : tag_count)
     const missing: string[] = []
     if (!description.trim()) missing.push('description')
     for (let index = titles.length; index < expectedTitleCount; index++) {
@@ -397,11 +492,11 @@ Requirements:
     const expected = 1 + expectedTitleCount + expectedTagCount
     await writeMetadataCompletionManifest(dir, episode_id, json, expectedTitleCount, expectedTagCount)
     requireJobCompletion(job, {
-      label: 'Metadata generation',
+      label: 'YouTube finalization',
       expected,
       completed: expected - missing.length,
       missing,
-      retry_hint: 'The partial metadata file was kept. Retry to generate the missing fields.',
+      retry_hint: 'The partial YouTube package was kept. Retry to generate the missing fields.',
     })
   } finally {
     clearInterval(cancelWatcher)

@@ -654,6 +654,63 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
         niche_structure.chapterCountRange[1],
       ]
     }
+    if (typeof niche_structure.defaultLengthMinutes === 'number' && niche_structure.defaultLengthMinutes > 0) {
+      baseScript.defaultLengthMinutes = niche_structure.defaultLengthMinutes
+    }
+    if (Array.isArray(niche_structure.lengthMinutesRange)
+      && niche_structure.lengthMinutesRange.length === 2
+      && niche_structure.lengthMinutesRange.every(n => typeof n === 'number' && n > 0)) {
+      baseScript.lengthMinutesRange = [
+        niche_structure.lengthMinutesRange[0],
+        niche_structure.lengthMinutesRange[1],
+      ]
+    }
+    if (Array.isArray(niche_structure.durationPresets)) {
+      const presets = niche_structure.durationPresets
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+      if (presets.length) baseScript.durationPresets = presets
+    }
+    if (typeof niche_structure.defaultWordsPerMinute === 'number' && niche_structure.defaultWordsPerMinute > 0) {
+      baseScript.defaultWordsPerMinute = niche_structure.defaultWordsPerMinute
+    }
+    if (typeof niche_structure.chaptersIndependent === 'boolean') {
+      baseScript.chaptersIndependent = niche_structure.chaptersIndependent
+    }
+    if (niche_structure.visualPacingProfile) {
+      const profile = niche_structure.visualPacingProfile
+      const validRange = (range: unknown): range is { min_sec: number; max_sec: number } =>
+        !!range && typeof (range as any).min_sec === 'number' && typeof (range as any).max_sec === 'number'
+        && (range as any).min_sec > 0 && (range as any).max_sec >= (range as any).min_sec
+      if (typeof profile.opening_duration_sec === 'number' && profile.opening_duration_sec >= 0
+        && validRange(profile.opening) && validRange(profile.settled)) {
+        baseScript.visualPacingProfile = {
+          opening_duration_sec: profile.opening_duration_sec,
+          opening: { ...profile.opening },
+          settled: { ...profile.settled },
+        }
+      }
+    }
+    if (niche_structure.motionProfile) {
+      const profile = niche_structure.motionProfile
+      const validShares = (shares: unknown): shares is Record<'still' | 'gentle' | 'limited', number> =>
+        !!shares && ['still', 'gentle', 'limited'].every(mode =>
+          typeof (shares as any)[mode] === 'number' && Number.isFinite((shares as any)[mode]) && (shares as any)[mode] >= 0,
+        )
+      if (typeof profile.id === 'string' && profile.id.trim()
+        && typeof profile.label === 'string' && profile.label.trim()
+        && typeof profile.description === 'string'
+        && typeof profile.opening_duration_sec === 'number' && profile.opening_duration_sec >= 0
+        && validShares(profile.opening) && validShares(profile.settled)) {
+        baseScript.motionProfile = {
+          id: profile.id,
+          label: profile.label,
+          description: profile.description,
+          opening_duration_sec: profile.opening_duration_sec,
+          opening: { ...profile.opening },
+          settled: { ...profile.settled },
+        }
+      }
+    }
     if (Array.isArray(niche_structure.pacingArc) && niche_structure.pacingArc.length > 0) {
       baseScript.pacingArc = niche_structure.pacingArc.slice()
     }

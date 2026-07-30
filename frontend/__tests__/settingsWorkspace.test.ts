@@ -57,6 +57,17 @@ describe('Settings workspace navigation', () => {
     assert.match(settingsSource, /Existing Scene Plans stay unchanged/)
   })
 
+  test('Formula production kits expose coherent defaults without adding episode pickers', () => {
+    assert.match(settingsSource, /Formula production kit/)
+    assert.match(settingsSource, /selectedProductionKitStyleName/)
+    assert.match(settingsSource, /selectedProductionKitThumbnailName/)
+    assert.match(settingsSource, /selectedProductionKitMotionName/)
+    assert.match(settingsSource, /Automatic episode profiles/)
+    assert.match(settingsSource, /there is no per-run profile picker/)
+    assert.match(settingsSource, /applyFormulaVisualDefault/)
+    assert.match(settingsSource, /formula_applied_style_id/)
+  })
+
   test('GenStudio catalogs are account-scoped under App & Connections', () => {
     assert.match(
       settingsSource,

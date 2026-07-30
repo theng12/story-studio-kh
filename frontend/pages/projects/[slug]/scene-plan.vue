@@ -245,7 +245,16 @@
             </label>
           </div>
           <div class="scene-motion-controls" :class="{ 'is-disabled': !form.generate_motion_prompts }">
-            <div class="intensity-picker">
+            <div v-if="formulaMotionProfile" class="formula-motion-profile">
+              <span class="formula-motion-kicker">Formula-owned profile</span>
+              <strong>{{ formulaMotionProfile.label }}</strong>
+              <p>{{ formulaMotionProfile.description }}</p>
+              <div class="formula-motion-mix">
+                <span>First {{ Math.round(formulaMotionProfile.opening_duration_sec / 60) }} min: {{ formulaMotionProfile.opening.still }}% still · {{ formulaMotionProfile.opening.gentle }}% gentle · {{ formulaMotionProfile.opening.limited }}% limited</span>
+                <span>Then: {{ formulaMotionProfile.settled.still }}% still · {{ formulaMotionProfile.settled.gentle }}% gentle · {{ formulaMotionProfile.settled.limited }}% limited</span>
+              </div>
+            </div>
+            <div v-else class="intensity-picker">
               <span>Motion intensity <strong>{{ motionMeta?.label }}</strong></span>
               <div role="radiogroup" aria-label="Motion intensity" class="intensity-options">
                 <button v-for="level in MOTION_LEVELS" :key="level.value" type="button" class="intensity-option" :class="{ active: form.motion_level === level.value }" role="radio" :aria-checked="form.motion_level === level.value" :disabled="!form.generate_motion_prompts" @click="form.motion_level = level.value; setMotionLevel(level.value)">
@@ -253,7 +262,7 @@
                 </button>
               </div>
             </div>
-            <p class="scene-setting-help">{{ form.generate_motion_prompts ? motionMeta?.hint : 'Enable motion prompts to use this intensity.' }}</p>
+            <p class="scene-setting-help">{{ form.generate_motion_prompts ? (formulaMotionProfile ? 'Scene role wins over the ratio: maps, fossils, specimens, and other evidence views stay still; landscapes drift gently; only genuine phenomena receive limited animation.' : motionMeta?.hint) : 'Enable motion prompts to use this intensity.' }}</p>
           </div>
         </div>
 
@@ -313,12 +322,12 @@
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
-          <span>{{ motionDoneCount }}/{{ visualDoneCount }} ready</span>
+          <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
             <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
-          <small v-if="form.generate_motion_prompts">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts.</small>
+          <small v-if="form.generate_motion_prompts">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
@@ -842,6 +851,7 @@ interface ScenePlanEntry {
   boundary_reason?: string
   // v1.0.468 — image-to-video motion instruction for this scene.
   motion_prompt?: string
+  motion_mode?: 'still' | 'gentle' | 'limited'
   // v1.0.260 — Visual Recipe fields.
   visual_prompt_raw?: string
   emotion?: string
@@ -990,6 +1000,15 @@ const deleting = ref(false)
 // continuity-chain, surface the active scene-length band (set on the Character
 // Sheet page) so the user knows the planner paces for a "live" feel.
 const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
+interface FormulaMotionProfile {
+  id: string
+  label: string
+  description: string
+  opening_duration_sec: number
+  opening: { still: number; gentle: number; limited: number }
+  settled: { still: number; gentle: number; limited: number }
+}
+const formulaMotionProfile = ref<FormulaMotionProfile | null>(null)
 // v1.0.260 — whether the explainer Visual Recipe is enabled for this episode
 // (set on the Character Sheet). Gates the Apply/Revert controls below.
 const recipeEnabled = ref(false)
@@ -1005,13 +1024,15 @@ async function loadContinuity(): Promise<void> {
   const ep = episodeId.value
   const requestSequence = ++continuityLoadSequence
   continuityPacing.value = null
+  formulaMotionProfile.value = null
   recipeEnabled.value = false
   recipeMode.value = 'guide'
   characterSheetStyleBible.value = ''
   if (!ep) return
   try {
-    const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
+    const fmt = await get<{ visualSource?: string; script?: { motionProfile?: FormulaMotionProfile } }>(`/projects/${slug.value}/effective-format`)
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
+    formulaMotionProfile.value = fmt?.script?.motionProfile || null
     if (fmt?.visualSource !== 'continuity-chain') return
     const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' }; style_bible?: string } }>(
       `/projects/${slug.value}/continuity/${ep}`,
@@ -1290,6 +1311,7 @@ const sceneDiagnostics = computed(() => {
   let visualDone = 0
   let motionDone = 0
   let motionPending = 0
+  let motionStill = 0
   let overlong = 0
   const problems: Array<{ scene: ScenePlanEntry; index: number; reasons: string[] }> = []
   const problemIds = new Set<string>()
@@ -1297,8 +1319,9 @@ const sceneDiagnostics = computed(() => {
     const scene = scenes[i]!
     const visualReady = !!scene.visual_prompt?.trim() && !duplicates.has(scene.id)
     if (visualReady) visualDone++
-    if (visualReady && scene.motion_prompt?.trim()) motionDone++
-    if (visualReady && !scene.motion_prompt?.trim()) motionPending++
+    if (visualReady && scene.motion_mode === 'still') motionStill++
+    else if (visualReady && scene.motion_prompt?.trim()) motionDone++
+    else if (visualReady) motionPending++
     const duration = scene.end_sec - scene.start_sec
     if (duration > pacingMaximumSec.value + 0.001) overlong++
     const reasons: string[] = []
@@ -1311,13 +1334,15 @@ const sceneDiagnostics = computed(() => {
       problemIds.add(scene.id)
     }
   }
-  return { duplicates, visualDone, motionDone, motionPending, overlong, problems, problemIds }
+  return { duplicates, visualDone, motionDone, motionPending, motionStill, overlong, problems, problemIds }
 })
 const duplicateVisualPromptIds = computed(() => sceneDiagnostics.value.duplicates)
 const visualDoneCount = computed(() => sceneDiagnostics.value.visualDone)
 const visualPendingCount = computed(() => Math.max(0, (plan.value?.scenes.length || 0) - visualDoneCount.value))
 const motionDoneCount = computed(() => sceneDiagnostics.value.motionDone)
 const motionPendingCount = computed(() => sceneDiagnostics.value.motionPending)
+const motionStillCount = computed(() => sceneDiagnostics.value.motionStill)
+const motionTargetCount = computed(() => Math.max(0, visualDoneCount.value - motionStillCount.value))
 const timelineBuiltLabel = computed(() => {
   if (!plan.value?.scenes?.length) return 'Not built yet'
   const estimated = !plan.value.timeline_built_at && visualDoneCount.value === 0
@@ -2247,6 +2272,16 @@ onMounted(() => { void planPresets.load() })
   font-size: 13px;
 }
 .intensity-picker strong { margin-left: 5px; color: var(--accent); }
+.formula-motion-profile {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-tertiary));
+}
+.formula-motion-profile > strong { display: block; color: var(--text-primary); font-size: 13px; }
+.formula-motion-profile p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+.formula-motion-kicker { display: block; margin-bottom: 4px; color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.formula-motion-mix { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .intensity-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .intensity-option {
   min-width: 0;

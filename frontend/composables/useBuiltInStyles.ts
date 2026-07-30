@@ -83,6 +83,21 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/sepia-ink-wash.webp',
   },
   {
+    id: 'builtin-paleo-documentary-tableau',
+    name: 'Paleo Documentary Tableau',
+    builtin: true,
+    blurb: 'Calm painterly natural-history reconstructions with readable deep-time landscapes, organisms, and atmosphere.',
+    category: 'Illustration',
+    tags: ['paleo', 'natural history', 'deep time', 'atmospheric', 'scientific reconstruction'],
+    data: {
+      style_bible:
+        'painterly natural-history documentary tableau, scientifically grounded-looking reconstruction with a softly hand-painted editorial finish, calm wide composition with clear foreground, midground, and distant layers, readable representative animals, plants, fossils, coastlines, and landforms with natural proportions, soft atmospheric depth with mist, sun shafts, suspended water particles or hazy air, serene teal underwater passages, mossy greens, warm dawn amber, volcanic ochre, gentle controlled texture, spacious visual rest, approachable premium science-documentary mood, no glossy CGI look, no artificial spectacle',
+      negative_prompt:
+        'text, captions, typography, logo, watermark, player UI, letterbox bars, channel branding, copied composition, photoreal live-action look, glossy CGI plastic, generic sci-fi, horror gore, distorted anatomy, extra limbs, dense collage, frantic action, oversharpened detail',
+    },
+    preview_image: '/builtin-style-previews/paleo-documentary-tableau.webp',
+  },
+  {
     id: 'builtin-watercolor-storybook',
     name: 'Watercolor Storybook',
     builtin: true,

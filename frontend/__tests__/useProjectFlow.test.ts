@@ -103,6 +103,19 @@ describe('flowForVisualSource — per-format step sets', () => {
     }
   })
 
+  test('YouTube Finalizer runs once after subtitles in every active flow', () => {
+    const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
+    for (const vs of sources) {
+      const flow = flowForVisualSource(vs)
+      const k = flow.map(step => step.key)
+      const finalizerIndex = k.indexOf('metadata')
+      assert.equal(flow[finalizerIndex]?.label, 'YouTube Finalizer')
+      assert.ok(finalizerIndex > k.indexOf('subtitles'), `${vs} should finalize after subtitles`)
+      assert.ok(finalizerIndex < k.indexOf('scene-plan'), `${vs} should finalize before scene planning`)
+      assert.equal(k.filter(key => key === 'metadata').length, 1)
+    }
+  })
+
   test('every step is a well-formed FlowStep with a unique key', () => {
     const sources: VisualSource[] = ['timestamp-driven', 'continuity-chain', 'narrated-scenes']
     for (const vs of sources) {

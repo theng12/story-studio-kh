@@ -40,7 +40,7 @@ function sectionLabel(path: string): string {
     ideas: 'Ideas',
     scripts: 'Script Generator',
     youtube: 'Description Generator',
-    metadata: 'Metadata Generator',
+    metadata: 'YouTube Finalizer',
     'image-prompts': promptSectionLabel(),
     images: imageSectionLabel(),
     audio: 'Audio Generator',

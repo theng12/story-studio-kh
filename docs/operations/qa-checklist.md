@@ -120,17 +120,17 @@ model, or Studio Hub generation fallback.
 - [ ] When merged audio exists, Generate button opens modal: Replace / Save as new version / Cancel — try "Save as new version" → `{CODE}_merged_audio_v2.mp3` lands alongside v1
 - [ ] Save preset with current config, switch episodes, apply preset → config restored correctly
 
-## Phase 11 — Metadata Generator
+## Phase 11 — YouTube Finalizer
 
-- [ ] Metadata Generator tab → select episode
-- [ ] Section 1 (Titles): platform preset, count 5, Generate Title Options → 5 options appear, click one to set Preview title
-- [ ] Section 2 (Description): toggle sections, reorder, Generate Description → description fills Preview
-- [ ] Section 3 (Tags): count 15, Generate Tags → tags fill Preview
-- [ ] Or: Generate All → titles + description + tags in one pass
+- [ ] Finish Audio Assembly, then open YouTube Finalizer and select the episode
+- [ ] Before Audio Assembly is complete, Finalize YouTube Package stays blocked and names the missing timing dependency
+- [ ] With incomplete subtitles, the page shows a warning but still permits finalization
+- [ ] Finalize YouTube Package → one queued job creates title + description + tags
+- [ ] Verify the description uses approved outline titles and measured Audio Assembly timestamps
+- [ ] Verify only research sources selected on the Research page appear under SOURCES & FURTHER READING
 - [ ] Edit Preview inline
-- [ ] Click ➕ Save as v{n} → success toast; disk shows `{CODE}_Metadata.json` + `{CODE}_Metadata.txt` (v1) or `_v2.json`/`_v2.txt`
+- [ ] Autosave/fork → disk shows `{CODE}_Metadata.json` + `{CODE}_Metadata.txt` (v1) or `_v2.json`/`_v2.txt`
 - [ ] Version dropdown in Preview shows saved versions; switch between them
-- [ ] Save a template (section layout) → appears in Template dropdown, switches correctly
 
 ## Phase 12 — Jobs Dashboard
 

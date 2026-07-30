@@ -401,6 +401,53 @@
           :disabled="nicheSaving"
         />
 
+        <section v-if="selectedProductionKit" class="production-kit-card mt-3">
+          <div class="production-kit-head">
+            <div>
+              <span class="settings-section-kicker">Formula production kit</span>
+              <h4>{{ selectedProductionKit.label }}</h4>
+              <p>{{ selectedProductionKit.description }}</p>
+            </div>
+            <span class="production-kit-status">Applies with Formula</span>
+          </div>
+
+          <div class="production-kit-grid">
+            <div class="production-kit-item">
+              <span>Visual style</span>
+              <strong>{{ selectedProductionKitStyleName }}</strong>
+              <small>Applied automatically unless you already chose a different project style.</small>
+            </div>
+            <div class="production-kit-item">
+              <span>Thumbnail recipe</span>
+              <strong>{{ selectedProductionKitThumbnailName }}</strong>
+              <small>Selected automatically as the Formula default; still overridable in Thumbnail Prompts.</small>
+            </div>
+            <div class="production-kit-item">
+              <span>Motion</span>
+              <strong>{{ selectedProductionKitMotionName }}</strong>
+              <small>{{ selectedProductionKitMotionSummary }}</small>
+            </div>
+            <div class="production-kit-item">
+              <span>Long-form presets</span>
+              <strong>{{ selectedProductionKitDurations }}</strong>
+              <small>Chapter count, narration pace, visual rhythm, and motion all come from the Formula.</small>
+            </div>
+          </div>
+
+          <div v-if="selectedProductionKit.episodeProfiles?.length" class="production-kit-profiles">
+            <span>Automatic episode profiles</span>
+            <div>
+              <span
+                v-for="profile in selectedProductionKit.episodeProfiles"
+                :key="profile.id"
+                class="production-profile-pill"
+                :title="profile.description"
+              >{{ profile.label }}</span>
+            </div>
+            <small>Idea Campaign assigns and saves these lanes. Script and thumbnail behavior follow the saved idea profile—there is no per-run profile picker.</small>
+          </div>
+        </section>
+
         <div class="mt-3 button-row">
           <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
             {{ nicheSaving ? 'Saving…' : 'Save Channel Identity' }}
@@ -2969,6 +3016,31 @@ const nicheDirty = computed(() =>
 // picker) since that's the common case; 'library' is for browse/create.
 const nicheSubTab = ref<'project' | 'library'>('project')
 const nicheLibraryCount = computed(() => nicheLibList.value?.length || 0)
+const selectedNicheProfile = computed(() => findNicheProfile(nicheId.value))
+const selectedProductionKit = computed(() => selectedNicheProfile.value?.productionKit || null)
+const humanizeCatalogId = (value?: string) => (value || 'Not specified')
+  .replace(/^builtin-/, '')
+  .split(/[-_]/g)
+  .filter(Boolean)
+  .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+  .join(' ')
+const selectedProductionKitStyleName = computed(() => {
+  const id = selectedProductionKit.value?.recommendedVisualStyleId
+  return BUILT_IN_STYLES.find(style => style.id === id)?.name || humanizeCatalogId(id)
+})
+const selectedProductionKitThumbnailName = computed(() =>
+  humanizeCatalogId(selectedNicheProfile.value?.defaultThumbnailTemplateId))
+const selectedProductionKitMotionName = computed(() =>
+  selectedNicheProfile.value?.scriptStructure?.motionProfile?.label || 'Formula default')
+const selectedProductionKitMotionSummary = computed(() => {
+  const profile = selectedNicheProfile.value?.scriptStructure?.motionProfile
+  if (!profile) return 'Uses the Formula’s normal scene behavior.'
+  return `Opening: ${profile.opening.still}% still · ${profile.opening.gentle}% gentle · ${profile.opening.limited}% limited. Settled: ${profile.settled.still}% still · ${profile.settled.gentle}% gentle · ${profile.settled.limited}% limited.`
+})
+const selectedProductionKitDurations = computed(() => {
+  const presets = selectedNicheProfile.value?.scriptStructure?.durationPresets || []
+  return presets.length ? presets.map(value => `${value} min`).join(' · ') : 'Formula default'
+})
 
 function syncNicheFromProject() {
   const m = project.value as any
@@ -2999,10 +3071,13 @@ async function saveNicheSettings() {
   nicheSaveError.value = ''
   try {
     await setProjectNiche(slug.value, nicheId.value || null, topicPackIds.value)
+    const formulaStyleChanged = await applyFormulaVisualDefault(findNicheProfile(nicheId.value))
     nicheIdBaseline.value = nicheId.value
     topicPackIdsBaseline.value = [...topicPackIds.value]
     stampSaved('niche')
-    success(nicheId.value ? 'Series Formula and Topic Packs saved' : 'Series Formula cleared')
+    success(nicheId.value
+      ? `Series Formula and Topic Packs saved${formulaStyleChanged ? ' · production-kit style updated' : ''}`
+      : 'Series Formula cleared')
     await loadProject(slug.value)
   } catch (e: any) {
     nicheSaveError.value = e?.data?.detail || e?.message || 'Failed to save niche settings'
@@ -4831,6 +4906,7 @@ const projectForm = reactive<{
 const artStyleSelection = ref('')
 const artStyleSaveMessage = ref('')
 let artStyleSelectionInitialized = false
+let suppressArtStyleSelectionSave = false
 const savedStylePresets = computed(() =>
   Array.isArray((config.value as any)?.style_presets) ? (config.value as any).style_presets : [])
 
@@ -4844,6 +4920,7 @@ watch(config, (c) => {
 
 watch(artStyleSelection, async (next, prev) => {
   if (!artStyleSelectionInitialized) return
+  if (suppressArtStyleSelectionSave) return
   if (next === prev) return
   artStyleSaveMessage.value = 'Saving…'
   try {
@@ -4870,6 +4947,10 @@ watch(artStyleSelection, async (next, prev) => {
       }
     }
     payload.active_style_preset_id = activeId
+    // An explicit picker change becomes the user's choice. Future Formula
+    // changes must not replace it automatically, even when it happens to be
+    // the same style the prior Formula recommended.
+    payload.formula_applied_style_id = ''
     await put(`/projects/${slug.value}/settings/config`, payload)
     await refreshConfig(slug.value)
     artStyleSaveMessage.value = activeId ? 'Art style applied to this project' : 'Art style cleared'
@@ -4880,6 +4961,56 @@ watch(artStyleSelection, async (next, prev) => {
     artStyleSelection.value = prev || ''
   }
 })
+
+/** Apply a Formula's recommended visual style only when the project has no
+ * explicit style, or when its current style was applied by the previous
+ * Formula production kit. This gives new channels one coherent setup while
+ * preserving user-owned art direction on established projects. */
+async function applyFormulaVisualDefault(niche: any): Promise<boolean> {
+  const styleId = String(niche?.productionKit?.recommendedVisualStyleId || '').trim()
+  const current = String((config.value as any)?.active_style_preset_id || '').trim()
+  const previousFormulaStyle = String((config.value as any)?.formula_applied_style_id || '').trim()
+  if (current && current !== previousFormulaStyle) return false
+  if (!styleId) {
+    if (!previousFormulaStyle) return false
+    await put(`/projects/${slug.value}/settings/config`, {
+      active_style_preset_id: '',
+      formula_applied_style_id: '',
+    })
+    await refreshConfig(slug.value)
+    suppressArtStyleSelectionSave = true
+    artStyleSelection.value = ''
+    await nextTick()
+    suppressArtStyleSelectionSave = false
+    return true
+  }
+
+  const builtin = BUILT_IN_STYLES.find(style => style.id === styleId)
+  if (!builtin) return false
+  const presets = Array.isArray((config.value as any)?.style_presets)
+    ? [...(config.value as any).style_presets]
+    : []
+  if (!presets.some((preset: any) => preset?.id === builtin.id)) {
+    presets.push({
+      id: builtin.id,
+      name: builtin.name,
+      description: builtin.data.style_bible,
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  await put(`/projects/${slug.value}/settings/config`, {
+    style_presets: presets,
+    active_style_preset_id: builtin.id,
+    formula_applied_style_id: builtin.id,
+  })
+  await refreshConfig(slug.value)
+  suppressArtStyleSelectionSave = true
+  artStyleSelection.value = builtin.id
+  await nextTick()
+  suppressArtStyleSelectionSave = false
+  return current !== builtin.id
+}
 // (Removed: per-project enable/disable cloud-sync handlers + portable
 // form field. Cloud sync is now app-wide via Settings → Storage; the
 // per-project mode toggle is dead.)
@@ -7287,6 +7418,102 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
+
+.production-kit-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 14px;
+  padding: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+    var(--bg-secondary);
+}
+.production-kit-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.production-kit-head h4 { margin: 3px 0 5px; }
+.production-kit-head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  max-width: 900px;
+}
+.production-kit-status {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--border));
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.production-kit-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.production-kit-item {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+.production-kit-item > span,
+.production-kit-profiles > span {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.production-kit-item strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+.production-kit-item small,
+.production-kit-profiles small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+.production-kit-profiles {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.production-kit-profiles > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 7px;
+}
+.production-profile-pill {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+@media (max-width: 1100px) {
+  .production-kit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .production-kit-head { flex-direction: column; }
+  .production-kit-grid { grid-template-columns: 1fr; }
+}
 
 /* v1.0.391 — local server pool status card */
 .pool-status-card {

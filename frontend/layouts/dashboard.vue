@@ -79,9 +79,6 @@
         <NuxtLink :to="`/projects/${slug}/scripts`" class="nav-item" active-class="active">
           <span class="nav-icon">&#128221;</span> Script Generator <span v-if="scriptGenerating" class="nav-pulse" />
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/metadata`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#128203;</span> Metadata Generator <span v-if="metaGenerating" class="nav-pulse" />
-        </NuxtLink>
         <!-- v1.0.88+: prompt generation split into two sidebar entries that
              both open /image-prompts but pre-select the corresponding tab
              via ?tab=. Active highlighting is computed manually because
@@ -116,6 +113,14 @@
              burns the selected track in. -->
         <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create or import the episode's subtitles. Built from chapter audio; consumed by Scene Plan and Video Assembly.">
           <span class="nav-icon">&#128292;</span> Subtitles
+        </NuxtLink>
+        <NuxtLink
+          :to="`/projects/${slug}/metadata`"
+          class="nav-item"
+          active-class="active"
+          title="Finalize the upload-ready YouTube title, description, tags, measured chapters, and selected research sources."
+        >
+          <span class="nav-icon">&#128203;</span> YouTube Finalizer <span v-if="metaGenerating" class="nav-pulse" />
         </NuxtLink>
         <!-- v1.0.187+ — Character Sheet: continuity-chain (hard img2img lock)
              and (v1.0.301) narrated-scenes (OPTIONAL — guidance + prompt /

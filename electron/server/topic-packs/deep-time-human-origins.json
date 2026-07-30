@@ -1,0 +1,16 @@
+{
+  "id": "deep-time-human-origins",
+  "name": "Human Origins & Ancient Worlds",
+  "description": "Human evolution, migrations, paleoenvironments, and the deep-time conditions that shaped our species.",
+  "tagline": "Where human history meets planetary history.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["deep-time-documentary"],
+  "subjects": ["the first hominins", "Australopithecus", "Homo habilis", "Homo erectus", "Neanderthals", "Denisovans", "Homo floresiensis", "the first migrations out of Africa", "the peopling of Sahul", "the first Americans", "the Ice Age steppe", "ancient human diets", "the first controlled fire", "the origin of language", "the origin of art", "the first burials", "the last Neanderthals", "the human encounter with megafauna", "the Green Sahara", "the first coastal migrations", "the evolution of human walking", "the changing human brain", "the first long-distance trade", "the end of the Ice Age", "the rise of farming", "ancient DNA", "the first cities", "the human story before writing", "the world of nine human species", "the deep history of sleep"],
+  "ideaAxes": [
+    { "id": "human-evidence", "label": "Human evidence", "values": ["fossil anatomy", "stone tools", "ancient DNA", "cave art", "camp remains", "climate proxy", "migration map", "comparative anthropology"] },
+    { "id": "human-context", "label": "Human context", "values": ["migration", "adaptation", "cooperation", "food", "climate pressure", "technology", "social life", "encounter with another species"] }
+  ],
+  "promptContext": "Treat early people as diverse populations in specific times and places, not generic cavemen. Keep evidence limits explicit and never role-play the viewer as an ancient person.",
+  "tags": ["human origins", "human evolution", "prehistory"]
+}

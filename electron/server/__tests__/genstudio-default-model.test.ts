@@ -176,17 +176,13 @@ describe('resolveDefaultChatModel — live-catalog default resolution', () => {
 })
 
 describe('no owned source file expresses a hardcoded external product id as a generation default', () => {
-  // NOTE: generators/metadata.ts and routes/pipeline.ts also had their hardcoded
-  // defaults removed, but those edits are NOT part of this commit — both files carry
-  // substantial unrelated in-flight work from a concurrent author, so staging them
-  // would have committed that work too. They are deliberately excluded here so this
-  // guard reflects only what actually shipped. Add them back in the change set that
-  // lands their model-default fix.
   const OWNED_SOURCE_FILES = [
     'generators/image-prompts.ts',
+    'generators/metadata.ts',
     'generators/scene-clip.ts',
     'routes/audio.ts',
     'routes/image-prompts-edit.ts',
+    'routes/pipeline.ts',
     'routes/upload.ts',
     'services/audio-expression.ts',
     'services/research/genstudio.ts',

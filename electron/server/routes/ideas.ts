@@ -1240,6 +1240,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       suggested_length: idea.suggested_length,
       mood: idea.mood,
       themes: idea.themes,
+      series_formula_id: idea.series_formula_id,
+      topic_pack_ids: idea.topic_pack_ids,
+      idea_dimensions: idea.idea_dimensions,
+      episode_profile: idea.idea_dimensions?.['episode-profile'],
       // Provenance + per-episode override surface — needed by the
       // Pipeline + Ideas UI to render the "manual" pill, drive the
       // Source filter, and target the bulk-mark-done banner. Defaults

@@ -1,0 +1,16 @@
+{
+  "id": "deep-time-earth-systems",
+  "name": "Earth Systems & Deep Change",
+  "description": "Planetary mechanisms, climates, continents, landforms, and changing atmospheres across deep time.",
+  "tagline": "How a planet remakes itself.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["deep-time-documentary"],
+  "subjects": ["the birth of mountain ranges", "continental drift", "supercontinents", "the carbon cycle", "the oxygenation of Earth", "the first global oceans", "the first continents", "snowball Earth", "the Great Unconformity", "the origin of plate tectonics", "megavolcanic provinces", "the birth of the Moon", "Earth's magnetic field", "the first rivers", "desertification", "the first forests", "massive flood basalts", "the rise of the Himalayas", "the opening of the Atlantic", "the closing of ancient oceans", "sea-level change", "ice-age cycles", "monsoon systems", "the formation of the Grand Canyon", "the Mediterranean drying out", "the changing Sun", "ancient atmospheric carbon dioxide", "the origin of soil", "the creation of coral reefs", "the first rain"],
+  "ideaAxes": [
+    { "id": "earth-system", "label": "Earth system", "values": ["atmosphere", "ocean circulation", "climate", "plate tectonics", "landscape", "carbon cycle", "ice", "magnetism"] },
+    { "id": "change-mode", "label": "Change mode", "values": ["slow accumulation", "sudden threshold", "collision", "rift", "freeze", "flood", "warming", "erosion"] }
+  ],
+  "promptContext": "Explain Earth as an interacting system. Make timescale, physical mechanism, and uncertainty clear; never reduce a complex geological process to one magic cause.",
+  "tags": ["geology", "Earth systems", "climate history"]
+}

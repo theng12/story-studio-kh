@@ -121,6 +121,24 @@ export function planIdeaAssignments(options: {
     })
   }
 
+  // Formula axes apply to every subject; a Topic Pack's axes apply only to
+  // subjects from that same pack. `composeNicheWithTopicPacks()` deliberately
+  // exposes a merged axis catalog to the UI, but using that merged catalog
+  // wholesale here can create nonsense assignments (for example, a deep-ocean
+  // subject constrained by a human-origins evidence lens). Keeping the axes
+  // scoped preserves both variety and conceptual coherence in large campaigns.
+  const packAxisIds = new Set(packs.flatMap(pack => (pack.ideaAxes || []).map(axis => axis.id)))
+  const formulaAxes = axes.filter(axis => !packAxisIds.has(axis.id))
+  const axesByPack = new Map(packs.map(pack => [
+    pack.id,
+    (pack.ideaAxes || [])
+      .filter(axis => axis.values?.length)
+      .map(axis => ({ ...axis, values: unique(axis.values) })),
+  ]))
+  const axesForSubject = (subject: { packId?: string }) => subject.packId
+    ? [...formulaAxes, ...(axesByPack.get(subject.packId) || [])]
+    : axes
+
   const targetPoolSize = Math.max(options.count * 4, options.count + 40)
   const candidates: IdeaAssignment[] = []
   const seen = new Set<string>()
@@ -129,10 +147,11 @@ export function planIdeaAssignments(options: {
   // have a bounded reserve pool. This guarantees every conceptual combination
   // is reachable (stride-based cycling can accidentally visit only a subset
   // when axis lengths share factors).
-  let totalCombinations = subjectRows.length
-  for (const axis of axes) {
-    totalCombinations = Math.min(1_000_000, totalCombinations * axis.values.length)
-  }
+  const totalCombinations = Math.min(1_000_000, subjectRows.reduce((total, subject) => {
+    const combinationsForSubject = axesForSubject(subject)
+      .reduce((product, axis) => Math.min(1_000_000, product * axis.values.length), 1)
+    return Math.min(1_000_000, total + combinationsForSubject)
+  }, 0))
   const maxRounds = Math.min(
     totalCombinations,
     Math.max(targetPoolSize * 8, used.size + targetPoolSize * 4),
@@ -141,7 +160,7 @@ export function planIdeaAssignments(options: {
     const subject = subjectRows[index % subjectRows.length]!
     const dimensions: Record<string, string> = { subject: subject.value }
     let combinationIndex = Math.floor(index / subjectRows.length)
-    axes.forEach((axis) => {
+    axesForSubject(subject).forEach((axis) => {
       dimensions[axis.id] = axis.values[combinationIndex % axis.values.length]!
       combinationIndex = Math.floor(combinationIndex / axis.values.length)
     })

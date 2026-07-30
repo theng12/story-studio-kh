@@ -18,6 +18,15 @@ export interface NarratorStyle {
   description: string
 }
 
+export interface FormulaMotionProfile {
+  id: string
+  label: string
+  description: string
+  opening_duration_sec: number
+  opening: { still: number; gentle: number; limited: number }
+  settled: { still: number; gentle: number; limited: number }
+}
+
 export interface Format {
   id: string
   name: string
@@ -52,6 +61,16 @@ export interface Format {
     chapterCountRange: [number, number]
     defaultLengthMinutes: number
     lengthMinutesRange: [number, number]
+    durationPresets?: number[]
+    defaultWordsPerMinute?: number
+    visualPacingProfile?: {
+      opening_duration_sec: number
+      opening: { min_sec: number; max_sec: number }
+      settled: { min_sec: number; max_sec: number }
+    }
+    /** Formula-owned scene-role motion balance. It is stable with the saved
+     * scene plan, so operators do not have to reselect it per episode. */
+    motionProfile?: FormulaMotionProfile
     narratorStyles: NarratorStyle[]
     defaultNarratorStyleId: string
     /** v1.0.71+: chapters expand in parallel (listicle) vs sequentially. */

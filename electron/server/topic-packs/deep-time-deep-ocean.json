@@ -1,0 +1,16 @@
+{
+  "id": "deep-time-deep-ocean",
+  "name": "Ancient Oceans & Deep Sea",
+  "description": "The changing ocean, ancient marine ecosystems, abyssal environments, and the life that evolved below the surface.",
+  "tagline": "The hidden history beneath the waterline.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["deep-time-documentary"],
+  "subjects": ["the origin of the oceans", "the first reefs", "trilobites", "ammonites", "crinoid forests", "the Ordovician seas", "the Devonian seas", "the ancient Tethys Ocean", "the Panthalassa Ocean", "the Mariana Trench", "hydrothermal vents", "the deep scattering layer", "giant prehistoric sharks", "mosasaurs", "plesiosaurs", "ichthyosaurs", "the first coral reefs", "ocean anoxia events", "the rise of plankton", "the first shells", "the ocean's oxygen minimum zones", "the Mediterranean salinity crisis", "ancient sea-level rise", "the Great Barrier Reef's deep past", "the first cephalopods", "the age of ammonites", "the evolution of whales", "the first marine predators", "the ocean after mass extinction", "life in the hadal zone"],
+  "ideaAxes": [
+    { "id": "ocean-zone", "label": "Ocean zone", "values": ["shoreline", "shallow shelf", "reef", "open ocean", "deep sea", "trench", "hydrothermal vent"] },
+    { "id": "ocean-evidence", "label": "Ocean evidence", "values": ["sediment core", "fossil bed", "chemical signature", "living analogue", "deep-sea survey", "coastline reconstruction"] }
+  ],
+  "promptContext": "Keep marine scale and water depth legible. Use calm, spacious natural-history imagery and explain geological or biological uncertainty without making the abyss artificially scary.",
+  "tags": ["ancient oceans", "deep sea", "marine life"]
+}

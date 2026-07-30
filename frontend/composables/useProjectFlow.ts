@@ -8,13 +8,14 @@ import { useRoute } from 'vue-router'
  * format's `visualSource` (the same value that already gates the sidebar):
  *
  *   timestamp-driven (narration-synced):
- *     Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails →
- *     Audio → Audio Assembly → Scene Plan → Scene Review → Video Assembly
+ *     Ideas → Research → Script → Thumbnail Prompts → Thumbnails →
+ *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
+ *     Scene Plan → Scene Review → Video Assembly
  *
  *   continuity-chain (continuity-chain):
- *     Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails →
- *     Audio → Audio Assembly → Character Sheet → Scene Plan → Scene Review →
- *     Video Assembly
+ *     Ideas → Research → Script → Thumbnail Prompts → Thumbnails →
+ *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
+ *     Character Sheet → Scene Plan → Scene Review → Video Assembly
  *     (like timestamp-driven, plus a Character Sheet step; scenes render
  *     sequentially via img2img anchored to the sheet. Research is available
  *     too — handy when the niche is factual.)
@@ -80,7 +81,7 @@ const STEP = {
   ideas:        { key: 'ideas',        label: 'Ideas',          icon: '✨', path: '/ideas' },
   research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research', optional: true },
   script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts' },
-  metadata:     { key: 'metadata',     label: 'Metadata',       icon: '📋', path: '/metadata' },
+  metadata:     { key: 'metadata',     label: 'YouTube Finalizer', icon: '📋', path: '/metadata' },
   thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', tab: 'thumbnails' },
   thumbnails:   { key: 'thumbnails',   label: 'Thumbnails',     icon: '🖼', path: '/images', tab: 'thumbnails' },
   audio:        { key: 'audio',        label: 'Audio',          icon: '🎙', path: '/audio' },
@@ -96,15 +97,17 @@ const STEP = {
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script, STEP.metadata,
+  STEP.ideas, STEP.research, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
+  STEP.metadata,
   STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script, STEP.metadata,
+  STEP.ideas, STEP.research, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
+  STEP.metadata,
   STEP.characterSheet, STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
@@ -112,9 +115,10 @@ const FLOW_CONTINUITY: FlowStep[] = [
 // blocking; use or skip). Differs from continuity only in the render (no
 // img2img character-lock) + default pacing.
 const FLOW_NARRATED_SCENES: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script, STEP.metadata,
+  STEP.ideas, STEP.research, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
+  STEP.metadata,
   STEP.characterSheet, STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 

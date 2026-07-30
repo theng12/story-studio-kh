@@ -76,4 +76,34 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     assert.ok(compatible('ancient-humans').length >= 4)
     assert.ok(compatible('pov-life').length >= 3)
   })
+
+  test('Deep Time Documentary can reserve a thousand non-overlapping idea assignments', async () => {
+    const formula = await loadNiche('deep-time-documentary')
+    assert.ok(formula, 'deep-time documentary Formula must ship')
+    const composed = await composeNicheWithTopicPacks(formula!)
+    assert.equal(composed.activeTopicPacks?.length, 5, 'all five deep-time packs are active by default')
+
+    const assignments = planIdeaAssignments({
+      niche: composed,
+      count: 1000,
+      seed: 'deep-time-thousand',
+    }).slice(0, 1000)
+
+    assert.equal(assignments.length, 1000)
+    assert.equal(new Set(assignments.map(item => item.fingerprint)).size, 1000)
+    assert.equal(new Set(assignments.map(item => item.idea_key)).size, 1000)
+    assert.ok(new Set(assignments.map(item => item.topic_pack_id)).size >= 5,
+      'the catalog should distribute across every deep-time topic pack')
+    const oceanAssignment = assignments.find(item => item.topic_pack_id === 'deep-time-deep-ocean')
+    assert.ok(oceanAssignment, 'the ocean pack should contribute ideas')
+    assert.ok('ocean-zone' in oceanAssignment.dimensions)
+    assert.ok(!('human-context' in oceanAssignment.dimensions),
+      'specialized axes must stay with their own Topic Pack subjects')
+    assert.deepEqual(
+      new Set(assignments.map(item => item.dimensions['episode-profile'])),
+      new Set(['deep rest documentary', 'immersive documentary']),
+      'the Formula must balance both saved episode profiles without a per-run picker',
+    )
+    assert.match(formula!.ideaGuidanceText || '', /Documentary for Sleep/)
+  })
 })

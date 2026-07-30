@@ -49,3 +49,20 @@ test('Animals defaults to the curiosity recipe without making art style a niche 
   const animals = JSON.parse(source('../../electron/server/niches/animals.json'))
   assert.equal(animals.defaultThumbnailTemplateId, 'curiosity-question-cartoon')
 })
+
+test('deep-time documentary recipe is browseable, AI-rendered, and profile-aware', () => {
+  const recipe = JSON.parse(source('../../electron/server/thumbnail-templates/documentary-label-tableau.json'))
+  assert.equal(recipe.category, 'Documentary')
+  assert.equal(recipe.recipe.titleMode, 'ai')
+  assert.match(recipe.recipe.headlineGuidance, /Deep Rest episode/i)
+  assert.match(recipe.recipe.headlineGuidance, /2–5 word factual label/i)
+  assert.equal(recipe.previewImages.length, 3)
+  for (const preview of recipe.previewImages) {
+    const previewPath = fileURLToPath(new URL(`../public${preview}`, import.meta.url))
+    assert.equal(existsSync(previewPath), true, `${preview} exists`)
+  }
+
+  const formula = JSON.parse(source('../../electron/server/niches/deep-time-documentary.json'))
+  assert.equal(formula.defaultThumbnailTemplateId, recipe.id)
+  assert.equal(formula.productionKit.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
+})

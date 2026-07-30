@@ -33,6 +33,8 @@ import {
   type EpisodeEstimateInputs,
   type EstimateStep,
 } from '../lib/disk.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 
 export const router = Router()
 
@@ -188,7 +190,10 @@ interface BatchPreflight {
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   broll: ['audio_merge'],
   'introduction-only': ['script-only'],
-  metadata: ['script-only'],
+  // Finalization needs the script plus measured Audio Assembly timing.
+  // Subtitles sit before it in the canonical chain but are warning-only:
+  // a targeted finalizer run remains valid when subtitle coverage is partial.
+  metadata: ['script-only', 'audio_merge'],
   image_prompts: ['script-only'],
   thumb_images: ['image_prompts'],
   audio: ['script-only'],
@@ -291,11 +296,10 @@ async function preflightBatch(
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
     }
     for (const step of steps) {
-      // A single selected step is a targeted repair/regeneration operation.
-      // Preserve that long-standing workflow and let its generator perform
-      // its own richer input validation. Multi-step runs are the unattended
-      // one-click path, where dependency ordering must be guaranteed up front.
-      if (steps.length === 1) {
+      // A single selected step is normally a targeted repair/regeneration
+      // operation. YouTube Finalizer is the exception: it must not spend an
+      // LLM call until measured Audio Assembly timing exists.
+      if (steps.length === 1 && step !== 'metadata') {
         available.add(step)
         continue
       }
@@ -478,13 +482,17 @@ export function resolveStepParams(
     //   { intro: { host_name, word_target, custom_opening, enabled },
     //     introBeats: [{ id, label, enabled, custom? }, ...] }
     // The introduction-only endpoint expects a flat shape with the model
-    // pulled from script-side context — we default to gpt-4o here as the
-    // batch fallback (matches metadata's default for the same reason).
+    // pulled from script-side context. Older presets can omit model — this
+    // mapper is a pure/sync preset→params transform with no catalog access,
+    // so it never invents a literal external model id here. An empty model
+    // is resolved against GenStudio's live catalog by the async batch
+    // runner (see resolveDefaultChatModel in routes/pipeline.ts's
+    // run-batch handler) immediately before the job is enqueued.
     const intro = data.intro || {}
     return {
       episode_id: episodeId,
       title: title || '',
-      model: data.model || 'deepseek-v4-flash',
+      model: typeof data.model === 'string' ? data.model.trim() : '',
       host_name: intro.host_name,
       word_target: intro.word_target,
       custom_opening: intro.custom_opening,
@@ -651,8 +659,13 @@ export function resolveStepParams(
   }
   if (step === 'metadata') {
     // metadata preset shape: { sections, model?, titleConfig? } from
-    // metadata.vue. Older presets omit model, so keep DeepSeek as the
-    // backwards-compatible batch fallback until the user re-saves them.
+    // metadata.vue. Older presets omit model. This mapper is a pure/sync
+    // preset→params transform with no catalog access, so it never invents
+    // a literal external model id here — it passes the saved value through
+    // (or '' when absent). An empty model is resolved against GenStudio's
+    // live catalog by the async batch runner (resolveDefaultChatModel in
+    // this file's run-batch handler) immediately before the job is
+    // enqueued, and by generateMetadata itself for non-batch calls.
     //
     // Format-aware defaults (v1.0.69+): pull description size, title count,
     // title length, and tag count from the project's effective Format
@@ -665,9 +678,7 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       title: title || '',
-      model: typeof data.model === 'string' && data.model.trim()
-        ? data.model
-        : 'deepseek-v4-flash',
+      model: typeof data.model === 'string' ? data.model.trim() : '',
       sections: Array.isArray(data.sections) ? data.sections : [],
       max_chars: fmtMeta?.defaultMaxChars ?? 5000,
       title_count: fmtMeta?.defaultTitleCount ?? 5,
@@ -1102,6 +1113,22 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const ideaByCode = preflight.ideaByCode
   const effectiveFormat = preflight.effectiveFormat
 
+  // `introduction-only` and `metadata` presets can omit a saved model
+  // (legacy presets, or ones that never set one). resolveStepParams is a
+  // pure/sync mapper with no catalog access, so it leaves `model` empty in
+  // that case instead of inventing a literal id. Resolve the live-catalog
+  // default ONCE per batch run here (this handler is async and already
+  // holds the GenStudio key) so every episode that needs it gets the same
+  // current product. A catalog failure never falls back to a hardcoded id —
+  // affected steps are individually skipped below with a clear reason.
+  let batchDefaultChatModel: string | null = null
+  if (steps.includes('introduction-only') || steps.includes('metadata')) {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (apiKey) {
+      batchDefaultChatModel = await resolveDefaultChatModel(apiKey).then(r => r.modelId).catch(() => null)
+    }
+  }
+
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
@@ -1198,6 +1225,17 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       const jobType = jobTypeForStep(step)
       const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       const params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+      if ((step === 'introduction-only' || step === 'metadata') && !params.model) {
+        if (!batchDefaultChatModel) {
+          skipped.push({
+            episode_id: episodeId,
+            reason: `${step}: no model saved in the preset and GenStudio's live language-model catalog is unavailable. ` +
+              'Open the preset, choose a current model, and save it again, or configure a GenStudio API key.',
+          })
+          continue
+        }
+        params.model = batchDefaultChatModel
+      }
       chain.push({
         type: jobType,
         title: `[batch] ${jobTitleStep} — ${episodeId}`,
