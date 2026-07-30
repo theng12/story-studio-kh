@@ -418,7 +418,16 @@ const submitting = ref(false)
 
 const form = reactive({
   episode_id: '',
-  model: 'genstudio-tts-regular',
+  // Not a literal GenStudio product id: 'genstudio-tts-*' are Story's own
+  // customer-facing TTS TIER tokens (see utils/genstudio-tts-tiers.ts),
+  // never submitted to GenStudio as a model_id — buildGenStudioSubmission's
+  // TTS payload is { voice_id, text, speed } only. The bootstrap value below
+  // is immediately superseded by useRememberedForm's restore() (a saved
+  // selection) or by onVoiceCatalogUpdated once the live GenStudio voice
+  // catalog loads and reports the selected voice's actual tier — so this is
+  // never treated as execution authority, only an initial reactive-state
+  // placeholder. Sourced from the shared tier list, not a duplicated literal.
+  model: GENSTUDIO_TTS_TIER_OPTIONS[0].id,
   voice: null as string | null,
   // Empty by default — AudioChapterSelector auto-fills with missing sections
   // once an episode is picked. submit() falls back to 'all' if nothing is

@@ -24,6 +24,8 @@ import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 import { thumbnailPromptsOutputContract } from '../lib/story-output-contracts.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -275,6 +277,22 @@ async function loadExistingThumbnails(
   }
 }
 
+/**
+ * Resolve the default text model for a thumbnail-prompt run when neither the
+ * request nor the project's saved `prompt_model` gave one — or the saved
+ * one is no longer live. Never falls back to a hardcoded external product
+ * id; GenStudio owns the catalog.
+ */
+async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
+  }
+  const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
+  const resolved = await resolveDefaultChatModel(apiKey, saved)
+  return resolved.modelId
+}
+
 export async function generateImagePrompts(job: Job): Promise<void> {
   const { project_slug: projectSlug, episode_id: episodeId, params } = job
   const req = params as ThumbnailPromptsParams
@@ -286,7 +304,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   if (!config) throw new Error('Project config not found')
 
   const title = req.title || episodeId
-  const model = req.model || ((config as any).prompt_model || '').trim() || 'deepseek-v4-flash'
+  // A missing model is resolved against GenStudio's live catalog rather than
+  // a hardcoded external product id — GenStudio owns the catalog and a
+  // retired/renamed literal must never be submitted blind (see
+  // services/genstudio-default-model.ts).
+  const model = req.model?.trim() || await resolveDefaultImagePromptsModel(config)
   const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
   const fillGaps = req.fill_gaps === true
   job.output_lines.push(`Target: ${count} thumbnail prompt(s).`)

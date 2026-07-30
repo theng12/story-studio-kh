@@ -14,8 +14,26 @@ function formatItems(items: Array<string | number>): string {
   return items.length > 20 ? `${shown}, +${items.length - 20} more` : shown
 }
 
+/**
+ * `missing` and `invalid` are compiled independently by most generators, so the
+ * same item legitimately lands in both (a scene with no file on disk is missing
+ * AND unverified). Reporting it twice makes the error read like two separate
+ * failures. De-dupe on the rendered value, keeping first-seen order.
+ */
+function dedupeItems(items: Array<string | number>): Array<string | number> {
+  const seen = new Set<string>()
+  const unique: Array<string | number> = []
+  for (const item of items) {
+    const key = String(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(item)
+  }
+  return unique
+}
+
 export function completionErrorMessage(audit: JobCompletionAudit): string {
-  const problems = [...(audit.missing || []), ...(audit.invalid || [])]
+  const problems = dedupeItems([...(audit.missing || []), ...(audit.invalid || [])])
   const itemLabel = problems.length ? ` Missing/invalid: ${formatItems(problems)}.` : ''
   const retry = audit.retry_hint ? ` ${audit.retry_hint}` : ''
   return `${audit.label} incomplete: ${audit.completed}/${audit.expected} required item(s) verified.${itemLabel}${retry}`

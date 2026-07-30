@@ -51,7 +51,27 @@ export interface TaskManifestEntry {
    * without creating a second provider task. */
   idempotency_key?: string
   operation?: 'tts' | 'transcription' | 'image' | 'video'
+  /**
+   * Last provider state Story Studio actually observed for `task_id`
+   * ('prepared' before submit, then 'accepted' … 'succeeded' | 'failed').
+   *
+   * This is the ONLY local record that a saved provider job is terminal. Without
+   * it a recovery path re-reads an ancient failed job forever instead of
+   * submitting fresh work, so every durable image/audio boundary must write it.
+   */
   last_state?: string
+  /**
+   * Logical Story-side attempt this entry belongs to.
+   *
+   * A deliberate retry after a TERMINAL provider failure derives a NEW scope
+   * deterministically from the failed task id (see `resolveImageRetryScope`),
+   * which changes the idempotency key and therefore guarantees exactly one
+   * genuinely fresh provider job. Persisting the scope is what makes that retry
+   * identity stable: if the fresh submission's response is lost, the next
+   * attempt reads the same scope back, rebuilds the same idempotency key, and
+   * re-attaches to the already-paid job instead of creating a second one.
+   */
+  request_scope?: string
 }
 
 export interface Manifest {

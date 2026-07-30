@@ -24,8 +24,14 @@ import * as bp from '../services/broll-pool-manager.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
 import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { hashInput, readManifest, recordTask } from '../services/task-manifest.js'
-import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
+import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
+import {
+  isTerminalGenStudioImageTaskFailure,
+  resolveImageRetryScope,
+  terminalImageManifestEntry,
+  tryRecoverImageFromManifestEntry,
+} from '../lib/manifest-recovery.js'
+import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
@@ -120,16 +126,29 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const successfulFiles = new Set(initialReady)
   const failedFiles = new Set<string>()
 
-  const saveResult = async (item: typeof items[number], result: { url?: string; taskId?: string }): Promise<void> => {
-    if (!result.url) throw new Error('provider returned no image')
-    if (result.taskId) {
-      await recordTask(pool.folder_path, item.filename, {
-        provider: imageProvider.meta.providerId || imageProvider.meta.id,
-        task_id: result.taskId,
-        submitted_at: new Date().toISOString(),
-        input_hash: hashInput(item.prompt),
-      })
+  const providerId = imageProvider.meta.providerId || imageProvider.meta.id
+  const recordState = async (
+    filename: string,
+    entry: { taskId: string; submittedAt: string; inputHash: string; scope: string; idempotencyKey?: string },
+    state: string,
+    strict = false,
+  ): Promise<void> => {
+    const payload: TaskManifestEntry = {
+      provider: providerId,
+      task_id: entry.taskId,
+      submitted_at: entry.submittedAt,
+      input_hash: entry.inputHash,
+      request_scope: entry.scope,
+      ...(entry.idempotencyKey ? { idempotency_key: entry.idempotencyKey } : {}),
+      operation: 'image',
+      last_state: state,
     }
+    if (strict) await recordTaskStrict(pool.folder_path, filename, payload)
+    else await recordTask(pool.folder_path, filename, payload)
+  }
+
+  const saveResult = async (item: typeof items[number], result: { url?: string }): Promise<void> => {
+    if (!result.url) throw new Error('provider returned no image')
     await saveGenStudioImage(result.url, path.join(pool.folder_path, item.filename))
     if (!await isUsable(item.filename)) throw new Error('downloaded image is empty')
     successfulFiles.add(item.filename)
@@ -138,18 +157,62 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
 
   for (const item of remaining) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+    let acceptedTaskId = ''
+    let acceptedKey = ''
+    let attemptScope = ''
+    let attemptHash = ''
+    let attemptSubmittedAt = ''
     try {
       const manifest = await readManifest(pool.folder_path)
-      const recovered = await tryRecoverImageFromManifest(
-        manifest.tasks[item.filename] || null,
+      const entry = manifest.tasks[item.filename] || null
+      // The run id keeps one deliberate generation stable across retries; a
+      // terminal provider failure promotes it to a NEW, deterministic retry
+      // identity so Retry submits fresh work instead of replaying a dead job.
+      const baseScope = `run:${runId}`
+      let scope = resolveImageRetryScope(entry, baseScope).scope
+      let inputHash = hashInput(`${scope}\n${item.prompt}`)
+      const reclaimable = entry
+        && (entry.request_scope ? entry.input_hash === inputHash : true)
+        && !isTerminalGenStudioImageTaskFailure(entry)
+        ? entry
+        : null
+      const recovery = await tryRecoverImageFromManifestEntry(
+        reclaimable,
         apiKey,
         modelConfig,
         () => jq.isCancelled(job.job_id),
       )
-      if (recovered?.urls[0]) {
-        await saveResult(item, { url: recovered.urls[0], taskId: recovered.taskId })
+      if (recovery.kind === 'uncertain') {
+        // An unconfirmed outcome must never become a second paid submission.
+        throw new Error(
+          `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
+          'No duplicate image was submitted; Retry reconnects to the same job.',
+        )
+      }
+      let carried: TaskManifestEntry | null = entry
+      if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {
+        carried = terminalImageManifestEntry(entry!, recovery)
+        await recordTask(pool.folder_path, item.filename, carried)
+        scope = resolveImageRetryScope(carried, baseScope).scope
+        inputHash = hashInput(`${scope}\n${item.prompt}`)
+        job.output_lines.push(
+          `↻ item ${item.index + 1}: saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal; ` +
+          'submitting one fresh job under a new retry identity.',
+        )
+      }
+      const submittedAt = carried?.request_scope === scope && carried.submitted_at
+        ? carried.submitted_at
+        : new Date().toISOString()
+      attemptScope = scope
+      attemptHash = inputHash
+      attemptSubmittedAt = submittedAt
+      if (recovery.kind === 'recovered' && recovery.urls[0]) {
+        await saveResult(item, { url: recovery.urls[0] })
+        await recordState(item.filename, {
+          taskId: recovery.taskId, submittedAt, inputHash, scope,
+        }, 'succeeded')
         made++
-        job.output_lines.push(`✓ ${successfulFiles.size}/${total} — recovered accepted task ${recovered.taskId.slice(0, 12)}…`)
+        job.output_lines.push(`✓ ${successfulFiles.size}/${total} — recovered accepted task ${recovery.taskId.slice(0, 12)}… (no charge)`)
         processed++
         job.progress = Math.round((processed / total) * 90)
         continue
@@ -160,6 +223,9 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           'Repair is read-only and did not submit replacement work.',
         )
       }
+      // Identity on disk before the charged POST: a lost response replays the
+      // same idempotency key rather than paying for a second image.
+      await recordState(item.filename, { taskId: '', submittedAt, inputHash, scope }, 'prepared', true)
       const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
@@ -168,22 +234,35 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         providerParams,
         steps: params.image_steps,
         seed: params.seed,
-        idempotencyIdentity: `${generationIdentity}:${item.filename}`,
+        idempotencyIdentity: `${generationIdentity}:${item.filename}:${scope}`,
           isCancelled: () => jq.isCancelled(job.job_id),
-          onJobAccepted: async (taskId) => {
-            await recordTask(pool.folder_path, item.filename, {
-              provider: imageProvider.meta.providerId || imageProvider.meta.id,
-              task_id: taskId,
-              submitted_at: new Date().toISOString(),
-              input_hash: hashInput(item.prompt),
-            })
+          onJobAccepted: async (taskId, idempotencyKey) => {
+            acceptedTaskId = taskId
+            acceptedKey = idempotencyKey
+            await recordState(item.filename, {
+              taskId, submittedAt, inputHash, scope, idempotencyKey,
+            }, 'accepted', true)
           },
         })
         if (!result.urls.length) throw new Error('provider returned no image')
-        await saveResult(item, { url: result.urls[0], taskId: result.taskId })
+        await saveResult(item, { url: result.urls[0] })
+        if (result.taskId) {
+          await recordState(item.filename, {
+            taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey,
+          }, 'succeeded')
+        }
         made++
         job.output_lines.push(`✓ ${successfulFiles.size}/${total} — "${item.prompt.slice(0, 60)}${item.prompt.length > 60 ? '…' : ''}"`)
       } catch (e: any) {
+        if (e instanceof GenStudioImageTerminalFailureError && attemptScope) {
+          await recordState(item.filename, {
+            taskId: e.jobId || acceptedTaskId,
+            submittedAt: attemptSubmittedAt,
+            inputHash: attemptHash,
+            scope: attemptScope,
+            idempotencyKey: acceptedKey,
+          }, 'failed')
+        }
         failed++
         failedFiles.add(item.filename)
         job.output_lines.push(`✗ item ${item.index + 1} failed: ${e?.message || e}`)

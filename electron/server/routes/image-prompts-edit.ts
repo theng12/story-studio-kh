@@ -18,6 +18,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
@@ -61,13 +63,22 @@ router.post(
     const { slug, episodeId } = req.params
     const { kind, number } = req.body as { kind: 'scene' | 'thumbnail'; number: number }
     const titleParam = (req.body.title as string | undefined) || (req.query.title as string) || ''
-    const model = (req.body.model as string | undefined) || 'deepseek-v4-flash'
+    const requestedModel = typeof req.body.model === 'string' ? req.body.model.trim() : ''
 
     try {
       const project = await pm.getProject(slug)
       if (!project) return res.status(404).json({ detail: 'Project not found' })
       const config = await pm.getConfig(slug)
       if (!config) return res.status(404).json({ detail: 'Project config not found' })
+      // A missing model is resolved against GenStudio's live catalog rather
+      // than a hardcoded external product id — GenStudio owns the catalog
+      // and a retired/renamed literal must never be submitted blind.
+      const model = requestedModel || await (async () => {
+        const apiKey = await getApiKey('genstudio').catch(() => '')
+        if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before regenerating a prompt.')
+        const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
+        return (await resolveDefaultChatModel(apiKey, saved)).modelId
+      })()
 
       const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
       const promptsConstant = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx

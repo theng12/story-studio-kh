@@ -27,7 +27,9 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { resolveImageModelConfig } from '../services/image-model-resolver.js'
-import { hashInput, recordTask } from '../services/task-manifest.js'
+import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
+import { resolveImageRetryScope, terminalImageManifestEntry } from '../lib/manifest-recovery.js'
+import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 interface SceneImagesBatchParams {
@@ -108,20 +110,61 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const successfulSceneIds = new Set<string>()
   const failedSceneIds = new Set<string>()
 
-  const buildReq = (scene: ScenePlanEntry): ImageGenerationRequest => ({
+  const providerId = imageProvider.meta.providerId || imageProvider.meta.id
+  // A terminal GenStudio job is never reused here: replaying its idempotency
+  // key would only re-read the same failure. The saved manifest state promotes
+  // the request identity deterministically, so a retry is genuinely fresh while
+  // a lost submit response still re-attaches to the job already paid for.
+  const taskManifest = await readManifest(outDir)
+
+  interface SceneAttempt { scope: string; inputHash: string; submittedAt: string }
+
+  const resolveAttempt = (scene: ScenePlanEntry): SceneAttempt => {
+    const entry = taskManifest.tasks[`${scene.id}.png`] || null
+    const scope = resolveImageRetryScope(entry, 'batch').scope
+    const inputHash = hashInput(`${scope}\n${scene.visual_prompt!}`)
+    const submittedAt = entry?.request_scope === scope && entry.submitted_at
+      ? entry.submitted_at
+      : new Date().toISOString()
+    return { scope, inputHash, submittedAt }
+  }
+
+  const recordState = async (
+    scene: ScenePlanEntry,
+    attempt: SceneAttempt,
+    state: string,
+    taskId: string,
+    idempotencyKey = '',
+    strict = false,
+  ): Promise<void> => {
+    const payload: TaskManifestEntry = {
+      provider: providerId,
+      task_id: taskId,
+      submitted_at: attempt.submittedAt,
+      input_hash: attempt.inputHash,
+      request_scope: attempt.scope,
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      operation: 'image',
+      last_state: state,
+    }
+    if (strict) await recordTaskStrict(outDir, `${scene.id}.png`, payload)
+    else await recordTask(outDir, `${scene.id}.png`, payload)
+  }
+
+  const buildReq = (
+    scene: ScenePlanEntry,
+    attempt: SceneAttempt,
+    onAccept: (taskId: string, idempotencyKey: string) => void,
+  ): ImageGenerationRequest => ({
     prompt: scene.visual_prompt!,
     apiKey, aspectRatio, modelId: modelConfig.api_model || model, providerParams,
     width: renderWidth, height: renderHeight,
     steps: params.image_steps,
     seed: params.seed,
-    idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image`,
-    onJobAccepted: async (taskId) => {
-      await recordTask(outDir, `${scene.id}.png`, {
-        provider: imageProvider.meta.providerId || imageProvider.meta.id,
-        task_id: taskId,
-        submitted_at: new Date().toISOString(),
-        input_hash: hashInput(scene.visual_prompt!),
-      })
+    idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${attempt.scope}`,
+    onJobAccepted: async (taskId, idempotencyKey) => {
+      onAccept(taskId, idempotencyKey)
+      await recordState(scene, attempt, 'accepted', taskId, idempotencyKey, true)
     },
     isCancelled: () => jq.isCancelled(job.job_id),
   } as ImageGenerationRequest)
@@ -141,13 +184,33 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
 
   for (const scene of targets.filter(item => !successfulSceneIds.has(item.id))) {
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+    const attempt = resolveAttempt(scene)
+    let acceptedTaskId = ''
+    let acceptedKey = ''
     try {
-      const result = await imageProvider.generateImage(buildReq(scene))
+      // Identity on disk before the charged POST.
+      await recordState(scene, attempt, 'prepared', '', '', true)
+      const result = await imageProvider.generateImage(buildReq(scene, attempt, (taskId, key) => {
+        acceptedTaskId = taskId
+        acceptedKey = key
+      }))
       if (!result.urls.length) throw new Error('GenStudio KH returned no image')
       await saveScene(scene, result.urls[0]!)
+      await recordState(scene, attempt, 'succeeded', result.taskId || acceptedTaskId, acceptedKey)
       made++
       job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
     } catch (e: any) {
+      // Persist a settled failure so the next Retry mints a fresh identity
+      // instead of replaying this dead GenStudio job.
+      if (e instanceof GenStudioImageTerminalFailureError) {
+        const entry = taskManifest.tasks[`${scene.id}.png`]
+        await recordState(scene, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
+        if (entry) {
+          taskManifest.tasks[`${scene.id}.png`] = terminalImageManifestEntry(entry, {
+            kind: 'terminal-failed', taskId: e.jobId || acceptedTaskId, failureCode: e.failureCode, reason: e.message,
+          })
+        }
+      }
       failed++
       failedSceneIds.add(scene.id)
       job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)

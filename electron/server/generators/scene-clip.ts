@@ -64,6 +64,16 @@ interface SceneClipGenerateParams {
   auto_approve_clip?: boolean
 }
 
+// One-way migration aid only — NEVER a source of execution authority for
+// new work. `resolveSceneClipCatalogModel` is called exclusively with an
+// already-selected/saved `model` id (every caller — generateSceneClipJob
+// and the three routes/scene-review.ts endpoints — throws before this point
+// if no model was supplied; there is no "pick a default" path through these
+// hints). A legacy id only resolves when it fuzzy-matches EXACTLY ONE live,
+// `available` GenStudio image-to-video product; any other outcome (zero or
+// multiple matches) returns null and the caller surfaces a clear error
+// instead of guessing. Keep this list from ever being consulted for a
+// model that wasn't explicitly chosen by the user in the past.
 const LEGACY_VIDEO_NAME_HINTS: Readonly<Record<string, readonly string[]>> = {
   'fal-veo-3.1-i2v': ['veo', '3.1'],
   'fal-hailuo-02-i2v': ['hailuo', '02'],

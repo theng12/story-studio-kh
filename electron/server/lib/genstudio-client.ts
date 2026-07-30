@@ -25,6 +25,7 @@ import {
   PROSE_OUTPUT_CONTRACT,
   PROSE_WRAPPER_SCHEMA,
   validateStructuredOutput,
+  type JsonSchema,
   type TextOutputContract,
 } from './json-output-contract.js'
 
@@ -69,9 +70,100 @@ export interface GenStudioJob {
   model_revision_id?: string
   credit_cost?: number
   remaining_credits?: number
+  /**
+   * Settlement values, exactly as GenStudio publishes them. `released_credits`
+   * ships on TTS and transcription jobs; the full triad ships only on
+   * `GET /v1/account/jobs`. Image, chat, video and music jobs omit all three —
+   * Story Studio forwards whatever arrives and never derives a charge locally.
+   */
+  reserved_credits?: number | null
+  settled_credits?: number | null
+  released_credits?: number | null
   routing_status_code?: string | null
   price_version?: string | null
   location?: string | null
+  /**
+   * Cancellation is NOT a JobState (the enum is accepted|reserved|dispatched|
+   * running|validating|reconciling|succeeded|failed). It rides on these
+   * booleans, so treat `cancelled: true` as an extra terminal signal.
+   */
+  cancellable?: boolean | null
+  cancelled?: boolean | null
+  cancellation_note?: string | null
+}
+
+/** The only two GenStudio job states that can never change again. */
+export type GenStudioTerminalJobState = 'succeeded' | 'failed'
+
+export function isTerminalGenStudioJobState(state: unknown): state is GenStudioTerminalJobState {
+  return state === 'succeeded' || state === 'failed'
+}
+
+/** A GenStudio job that will never produce an artifact, for any reason. */
+export function isSettledGenStudioJob(job: { state?: unknown; cancelled?: boolean | null }): boolean {
+  return isTerminalGenStudioJobState(job.state) || job.cancelled === true
+}
+
+/**
+ * GenStudio finished this image job and it will never yield an artifact.
+ *
+ * Reconnecting to the same job id — or replaying its idempotency key — can only
+ * ever return the same failure, so a caller that wants new pixels MUST mint a
+ * new retry identity instead of reopening this one. Typed so callers never have
+ * to match on an error message.
+ */
+export class GenStudioImageTerminalFailureError extends Error {
+  readonly terminal = true as const
+  readonly jobId: string
+  readonly state: GenStudioTerminalJobState
+  readonly failureCode: string | null
+  readonly cancelled: boolean
+
+  constructor(job: {
+    id: string
+    state?: unknown
+    failure_code?: string | null
+    cancelled?: boolean | null
+    cancellation_note?: string | null
+  }) {
+    const cancelled = job.cancelled === true
+    const failureCode = typeof job.failure_code === 'string' && job.failure_code ? job.failure_code : null
+    super(
+      cancelled
+        ? `GenStudio KH image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+          + 'Its reservation was released; Retry submits a new job.'
+        : `GenStudio KH image generation failed${failureCode ? ` (${failureCode})` : ''}. `
+          + 'The reservation was released and this job cannot be reopened; Retry submits a new job.',
+    )
+    this.name = 'GenStudioImageTerminalFailureError'
+    this.jobId = job.id
+    this.state = 'failed'
+    this.failureCode = failureCode
+    this.cancelled = cancelled
+  }
+}
+
+/**
+ * The image job succeeded but GenStudio no longer serves its private artifact
+ * (expired asset, or a completion with no download URL). Replaying the same
+ * idempotency key would return the same job and the same missing bytes, so this
+ * is terminal for recovery purposes even though the job itself did not fail.
+ */
+export class GenStudioImageArtifactUnavailableError extends Error {
+  readonly terminal = true as const
+  readonly jobId: string
+  readonly status: number
+
+  constructor(jobId: string, status: number, detail?: string) {
+    super(
+      `GenStudio KH image download failed${status ? ` (HTTP ${status})` : ''}`
+      + `${detail ? ` — ${detail}` : ''}: job ${jobId} no longer serves its artifact. `
+      + 'Retry submits a new job; the original reservation was already settled.',
+    )
+    this.name = 'GenStudioImageArtifactUnavailableError'
+    this.jobId = jobId
+    this.status = status
+  }
 }
 
 export interface GenStudioTtsRequest extends GenStudioOperationContext {
@@ -142,6 +234,18 @@ interface GenStudioImageJob {
   steps: number
   seed?: number | null
   failure_code?: string | null
+  routing_status_code?: string | null
+  /**
+   * `ImageJobResponse` publishes only these two credit fields — there is no
+   * `released_credits` / `reserved_credits` / `settled_credits` on an image
+   * job. The full triad lives on `GET /v1/account/jobs` only.
+   */
+  credit_cost?: number
+  remaining_credits?: number
+  cancellable?: boolean | null
+  cancelled?: boolean | null
+  cancellation_note?: string | null
+  idempotent_replay?: boolean
   image_url?: string | null
 }
 
@@ -496,6 +600,12 @@ async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenSt
     model_id: job.model_id || job.model_revision_id,
     credit_cost: Number.isFinite(job.credit_cost) ? job.credit_cost : undefined,
     remaining_credits: Number.isFinite(job.remaining_credits) ? job.remaining_credits : undefined,
+    // Settlement is forwarded ONLY when GenStudio published it. An absent field
+    // stays absent so the UI can say "not settled yet" instead of inventing a
+    // hold out of credit_cost.
+    ...(Number.isFinite(job.reserved_credits) ? { reserved_credits: job.reserved_credits as number } : {}),
+    ...(Number.isFinite(job.settled_credits) ? { settled_credits: job.settled_credits as number } : {}),
+    ...(Number.isFinite(job.released_credits) ? { returned_credits: job.released_credits as number } : {}),
     price_version: job.price_version,
     failure_code: job.failure_code,
     routing_status_code: job.routing_status_code,
@@ -572,6 +682,10 @@ function shouldReconnectAcceptedTask(
   request: GenStudioOperationContext,
 ): boolean {
   if (request.isCancelled?.() || request.signal?.aborted) return false
+  // A settled provider outcome is not lost connectivity. Reconnecting to it
+  // would just re-read the same terminal job forever.
+  if (error instanceof GenStudioImageTerminalFailureError) return false
+  if (error instanceof GenStudioImageArtifactUnavailableError) return false
   if (error instanceof GenStudioApiError) return retryableStatus(error.status)
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
   return /timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|invalid JSON/i.test(message)
@@ -950,10 +1064,13 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
       ? value.supported_detail_levels.filter((item: unknown): item is 'low' | 'high' | 'auto' => item === 'low' || item === 'high' || item === 'auto')
       : [],
     supports_structured_output: value?.supports_structured_output === true,
+    // GenStudio language products return JSON Object output unless the
+    // catalogue explicitly advertises that a strict JSON schema can be
+    // requested. Never assume strict-schema support from a missing field.
     structured_output_mode: (
-      value?.structured_output_mode === 'json_object'
-        ? 'json_object'
-        : 'request_json_schema'
+      value?.structured_output_mode === 'request_json_schema'
+        ? 'request_json_schema'
+        : 'json_object'
     ) as GenStudioChatModel['structured_output_mode'],
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
 }
@@ -1226,51 +1343,149 @@ interface GenStudioChatCompletion {
   }
 }
 
+const SCHEMA_INSTRUCTION_MAX_DEPTH = 5
+const SCHEMA_INSTRUCTION_MAX_ENUM = 12
+
+function isSchemaObject(value: unknown): value is JsonSchema {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function schemaTypeLabel(schema: JsonSchema): string {
+  const type = Array.isArray(schema.type)
+    ? schema.type.filter(item => typeof item === 'string').join(' or ')
+    : schema.type
+  return typeof type === 'string' && type ? type : 'value'
+}
+
+function schemaConstraintLabel(schema: JsonSchema): string {
+  const bits: string[] = []
+  if (Array.isArray(schema.enum) && schema.enum.length) {
+    const shown = schema.enum.slice(0, SCHEMA_INSTRUCTION_MAX_ENUM).map(item => JSON.stringify(item))
+    const rest = schema.enum.length - shown.length
+    bits.push(`one of: ${shown.join(', ')}${rest > 0 ? `, +${rest} more listed in the request` : ''}`)
+  }
+  const isString = schemaTypeLabel(schema) === 'string'
+  if (typeof schema.minLength === 'number' && schema.minLength > 0) {
+    bits.push(schema.minLength === 1 ? 'non-empty' : `at least ${schema.minLength} characters`)
+  }
+  if (typeof schema.maxLength === 'number' && isString) bits.push(`at most ${schema.maxLength} characters`)
+  if (typeof schema.minimum === 'number') bits.push(`minimum ${schema.minimum}`)
+  if (typeof schema.maximum === 'number') bits.push(`maximum ${schema.maximum}`)
+  if (typeof schema.minItems === 'number' && schema.minItems === schema.maxItems) {
+    bits.push(`exactly ${schema.minItems} items`)
+  } else {
+    if (typeof schema.minItems === 'number') bits.push(`at least ${schema.minItems} items`)
+    if (typeof schema.maxItems === 'number') bits.push(`at most ${schema.maxItems} items`)
+  }
+  return bits.length ? ` (${bits.join(', ')})` : ''
+}
+
+function describeSchemaNode(schema: JsonSchema, indent: string, depth: number, lines: string[]): void {
+  if (depth > SCHEMA_INSTRUCTION_MAX_DEPTH) return
+  const label = schemaTypeLabel(schema)
+  if (label === 'object') {
+    const properties = isSchemaObject(schema.properties) ? schema.properties : {}
+    const required = new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter((item): item is string => typeof item === 'string')
+        : [],
+    )
+    for (const [key, child] of Object.entries(properties)) {
+      const childSchema = isSchemaObject(child) ? child : {}
+      lines.push(
+        `${indent}- ${key}: ${schemaTypeLabel(childSchema)}${schemaConstraintLabel(childSchema)}`
+        + `${required.has(key) ? ' [required]' : ' [optional]'}`,
+      )
+      describeSchemaNode(childSchema, `${indent}  `, depth + 1, lines)
+    }
+    return
+  }
+  if (label === 'array' && isSchemaObject(schema.items)) {
+    const items = schema.items
+    if (schemaTypeLabel(items) === 'object') {
+      lines.push(`${indent}- each item is an object with:`)
+      describeSchemaNode(items, `${indent}  `, depth + 1, lines)
+      return
+    }
+    lines.push(`${indent}- each item: ${schemaTypeLabel(items)}${schemaConstraintLabel(items)}`)
+  }
+}
+
+/**
+ * Describe a workflow schema in words so a JSON Object product returns the
+ * shape Story Studio validates locally. Deterministic and token-frugal: field
+ * names, types, bounds, and which keys are required.
+ */
+export function describeSchemaForInstructions(name: string, schema: JsonSchema): string {
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((item): item is string => typeof item === 'string')
+    : []
+  const lines = [`Return exactly one JSON object for the "${name}" contract.`]
+  if (required.length) {
+    lines.push(`Required top-level key${required.length === 1 ? '' : 's'}: ${required.join(', ')}.`)
+  }
+  describeSchemaNode(schema, '', 0, lines)
+  if (schema.additionalProperties === false) lines.push('Do not add any keys that are not listed above.')
+  lines.push('Return only that JSON object: no markdown fences, no commentary, no trailing text.')
+  return lines.join('\n')
+}
+
+const JSON_OBJECT_WRAPPER_INSTRUCTION =
+  'Return exactly one JSON object. Return only that object: no markdown fences, no commentary, no trailing text.'
+
+const PROSE_WRAPPER_INSTRUCTION =
+  'Return exactly one JSON object with one key named "text". Put the complete prose answer in that string and add no other keys.'
+
+/**
+ * Choose the response format for one published language product.
+ *
+ * GenStudio language products do not require provider-native strict JSON
+ * schema, so this function is TOTAL: it never rejects a product for its
+ * advertised structured-output mode. JSON Object output is preferred, and the
+ * required structure is carried in the request instructions; the returned
+ * object is validated locally against the workflow schema.
+ */
 function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
 ): { responseFormat: Record<string, unknown>; wrapperInstruction?: string } {
-  if (outputContract.mode === 'json_schema') {
-    if (productMode !== 'request_json_schema') {
-      throw new Error(
-        'The selected GenStudio product supports JSON Object output, but this workflow requires a strict JSON schema. Choose a strict-schema product. No request or credit charge was made.',
-      )
+  if (outputContract.mode === 'prose') {
+    if (productMode === 'request_json_schema') {
+      return {
+        responseFormat: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'story_studio_prose',
+            strict: true,
+            schema: PROSE_WRAPPER_SCHEMA,
+          },
+        },
+      }
     }
+    return {
+      responseFormat: { type: 'json_object' },
+      wrapperInstruction: PROSE_WRAPPER_INSTRUCTION,
+    }
+  }
+
+  const name = outputContract.name ?? 'story_studio_json_object'
+  const schema = outputContract.schema
+  const wrapperInstruction = schema
+    ? describeSchemaForInstructions(name, schema)
+    : JSON_OBJECT_WRAPPER_INSTRUCTION
+
+  // Only a product whose sole advertised mode is request_json_schema receives a
+  // provider-native schema, and only when the workflow actually supplies one.
+  if (productMode === 'request_json_schema' && schema) {
     return {
       responseFormat: {
         type: 'json_schema',
-        json_schema: {
-          name: outputContract.name,
-          strict: true,
-          schema: outputContract.schema,
-        },
+        json_schema: { name, strict: true, schema },
       },
+      wrapperInstruction,
     }
   }
-  if (outputContract.mode === 'json_object') {
-    if (productMode !== 'json_object') {
-      throw new Error(
-        'The selected GenStudio product requires a strict JSON schema, but this workflow supplied only a JSON Object contract. Choose a JSON Object product or update this workflow with a schema. No request or credit charge was made.',
-      )
-    }
-    return { responseFormat: { type: 'json_object' } }
-  }
-  if (productMode === 'request_json_schema') {
-    return {
-      responseFormat: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'story_studio_prose',
-          strict: true,
-          schema: PROSE_WRAPPER_SCHEMA,
-        },
-      },
-    }
-  }
-  return {
-    responseFormat: { type: 'json_object' },
-    wrapperInstruction: 'Return exactly one JSON object with one key named "text". Put the complete prose answer in that string and add no other keys.',
-  }
+  return { responseFormat: { type: 'json_object' }, wrapperInstruction }
 }
 
 function parseProductCompletion(
@@ -1532,7 +1747,7 @@ async function waitForImageJob(
   await recordGenStudioEvidence('image.generation', current)
   await reportQueueState(request, current)
   request.onState?.(current.state)
-  while (current.state !== 'succeeded' && current.state !== 'failed') {
+  while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
         baseUrl,
@@ -1556,8 +1771,8 @@ async function waitForImageJob(
     request.onState?.(current.state)
   }
   await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') {
-    throw new Error(`GenStudio KH image generation failed${current.failure_code ? ` (${current.failure_code})` : ''}.`)
+  if (current.state === 'failed' || current.cancelled === true) {
+    throw new GenStudioImageTerminalFailureError(current)
   }
   return current
 }
@@ -1569,7 +1784,9 @@ async function downloadImageArtifact(
   request: GenStudioOperationContext,
   deadline: number,
 ): Promise<string> {
-  if (!completed.image_url) throw new Error('GenStudio KH image completed without an image download URL')
+  if (!completed.image_url) {
+    throw new GenStudioImageArtifactUnavailableError(completed.id, 0, 'the job completed without a download URL')
+  }
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
     try {
@@ -1578,6 +1795,11 @@ async function downloadImageArtifact(
         signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
       })
       if (!response.ok) {
+        // A gone artifact is terminal: replaying the idempotency key returns
+        // the same settled job with the same missing bytes.
+        if (response.status === 404 || response.status === 410) {
+          throw new GenStudioImageArtifactUnavailableError(completed.id, response.status)
+        }
         const error = new Error(`GenStudio KH image download failed (HTTP ${response.status})`)
         if (!retryableStatus(response.status)) throw error
         lastError = error
@@ -1590,6 +1812,7 @@ async function downloadImageArtifact(
       }
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (error instanceof GenStudioImageArtifactUnavailableError) throw error
       lastError = error
       if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
         && !error.message.includes('fetch failed')) throw error
@@ -1613,7 +1836,23 @@ async function recoverImageWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioImageJob
-  const completed = await waitForImageJob(baseUrl, apiKey, initial, request, deadline)
+  // Classify BEFORE polling. A job that already failed (or was cancelled)
+  // cannot become an artifact, and a poll loop would only re-read the same
+  // terminal record; a job that already succeeded needs its bytes, not a poll.
+  if (initial.state === 'failed' || initial.cancelled === true) {
+    await recordGenStudioEvidence('image.generation', initial)
+    await reportQueueState(request, initial)
+    request.onState?.(initial.state)
+    throw new GenStudioImageTerminalFailureError(initial)
+  }
+  const completed = initial.state === 'succeeded'
+    ? initial
+    : await waitForImageJob(baseUrl, apiKey, initial, request, deadline)
+  if (completed === initial) {
+    await recordGenStudioEvidence('image.generation', initial)
+    await reportQueueState(request, initial)
+    request.onState?.(initial.state)
+  }
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
   return { url, jobId: completed.id, modelId: completed.model_id }
 }

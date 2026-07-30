@@ -79,7 +79,9 @@ describe('resolveAudioProvider()', () => {
     assert.equal(resolveAudioProvider('genaipro-multiling-v2', {}), 'genaipro')
   })
 
-  test('unknown id with no provider field defaults to fal (historical default)', () => {
-    assert.equal(resolveAudioProvider('turbo-v2.5', {}), 'fal')
+  test('unknown id with no provider field resolves to unknown, never a guessed provider', () => {
+    // Guessing a retired direct provider for an unrecognized id contradicts the
+    // GenStudio-only boundary; grouping must fall back to a neutral label instead.
+    assert.equal(resolveAudioProvider('turbo-v2.5', {}), 'unknown')
   })
 })

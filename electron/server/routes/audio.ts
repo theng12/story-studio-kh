@@ -16,8 +16,25 @@ import {
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 
 export const router = Router()
+
+/**
+ * Resolve the default text model for an expression-markup run when the
+ * caller didn't specify one. Never falls back to a hardcoded external
+ * product id — GenStudio owns the catalog, so this asks it directly and
+ * prefers the project's saved `prompt_model` preference when still usable.
+ */
+async function resolveExpressionDefaultModel(config: any): Promise<string> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+  }
+  const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
+  const resolved = await resolveDefaultChatModel(apiKey, saved)
+  return resolved.modelId
+}
 
 router.use((req, res, next) => {
   if (req.path.startsWith('/voicestudio/') || req.path.startsWith('/macos/voices')) {
@@ -200,12 +217,13 @@ router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
 // operator leaves the page (saves the sidecar after each section).
 router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req, res) => {
   const { slug, code } = req.params
-  const model = typeof req.body?.model === 'string' && req.body.model.trim()
-    ? req.body.model.trim() : 'deepseek-v4-flash'
+  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
   try {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
+    const config = await pm.getConfig(slug)
+    const model = requestedModel || await resolveExpressionDefaultModel(config)
     const { dialectForModel } = await import('../services/audio-expression.js')
     const dialect = dialectForModel(req.body?.audio_model) || 'fish'
     if (jq.isDuplicate(slug, code, 'expression_markup')) {
@@ -229,14 +247,14 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
   const { slug, code } = req.params
   const requestedSlugs: string[] | null = Array.isArray(req.body?.slugs)
     ? req.body.slugs.filter((x: any) => typeof x === 'string') : null
-  const model = typeof req.body?.model === 'string' && req.body.model.trim()
-    ? req.body.model.trim() : 'deepseek-v4-flash'
+  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
   try {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const config = await pm.getConfig(slug)
     if (!config) return res.status(404).json({ detail: 'Project config not found' })
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
+    const model = requestedModel || await resolveExpressionDefaultModel(config)
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
     const {
       readExpression, writeExpression, markupSectionText, dialectForModel,

@@ -12,8 +12,17 @@ export type GenStudioRecoveryState =
   | 'succeeded'
   | 'failed'
 
+/** Durable GenStudio operations that carry a typed Story-side checkpoint. */
+export type GenStudioRecoveryOperation = 'tts' | 'transcription' | 'image'
+
+const RECOVERABLE_OPERATIONS: ReadonlySet<string> = new Set<GenStudioRecoveryOperation>([
+  'tts',
+  'transcription',
+  'image',
+])
+
 interface GenStudioAssetRecovery {
-  operation: 'tts' | 'transcription'
+  operation: GenStudioRecoveryOperation
   idempotency_key: string
   job_id?: string
   state: GenStudioRecoveryState
@@ -58,9 +67,12 @@ export function hasRecoverableGenStudioCheckpoint(value: unknown): boolean {
   return Object.values(checkpoint.assets).some(asset => {
     if (!asset || typeof asset !== 'object') return false
     const item = asset as Partial<GenStudioAssetRecovery>
-    return (item.operation === 'tts' || item.operation === 'transcription')
+    return typeof item.operation === 'string'
+      && RECOVERABLE_OPERATIONS.has(item.operation)
       && typeof item.idempotency_key === 'string'
       && item.idempotency_key.startsWith('story-')
+      // A terminal failure is never "recoverable": reconnecting to it just
+      // re-reads the same settled job. Only a fresh identity can help.
       && item.state !== 'failed'
   })
 }

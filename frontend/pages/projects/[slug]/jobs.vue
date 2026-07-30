@@ -450,8 +450,9 @@
             <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
               {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
               <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
+              <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
               <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
-              <template v-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
+              <template v-else-if="genStudioReservationReleased(remote)"> · reservation released</template>
             </span>
           </div>
           <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
@@ -639,8 +640,9 @@
               <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
                 {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
                 <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
+                <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
                 <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
-                <template v-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
+                <template v-else-if="genStudioReservationReleased(remote)"> · reservation released</template>
               </span>
             </div>
             <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
@@ -855,8 +857,35 @@ function genStudioCreditState(remote: NonNullable<RJob['genstudio_jobs']>[number
   return String(remote.queue_state || remote.state || '').toLowerCase()
 }
 
+/**
+ * Authoritative settlement, merged from GenStudio's own account-jobs history.
+ *
+ * An image job's own API response carries only `credit_cost` and
+ * `remaining_credits` — there is no released/reserved/settled field on it. The
+ * full triad exists only on the account history, so that is the only place a
+ * released reservation can be read from. Never computed locally.
+ */
+type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }
+const genStudioSettlement = ref<Record<string, GenStudioSettlement>>({})
+let settlementFetched = false
+
+function genStudioSettled(
+  remote: NonNullable<RJob['genstudio_jobs']>[number],
+): GenStudioSettlement {
+  const authoritative = genStudioSettlement.value[remote.id]
+  return {
+    reserved_credits: authoritative?.reserved_credits ?? remote.reserved_credits,
+    settled_credits: authoritative?.settled_credits ?? remote.settled_credits,
+    released_credits: authoritative?.released_credits ?? remote.returned_credits,
+  }
+}
+
+function genStudioTerminalFailure(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
+  return !!remote.failure_code || /fail|error|cancel|reject/.test(genStudioCreditState(remote))
+}
+
 function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  const settled = genStudioNumeric(remote.settled_credits)
+  const settled = genStudioNumeric(genStudioSettled(remote).settled_credits)
   if (settled > 0) return settled
   return /success|succeed|complete|done|settled/.test(genStudioCreditState(remote))
     ? genStudioNumeric(remote.credit_cost)
@@ -864,14 +893,58 @@ function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[num
 }
 
 function genStudioReturnedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  return genStudioNumeric(remote.returned_credits)
+  return genStudioNumeric(genStudioSettled(remote).released_credits)
 }
 
+/**
+ * Credits genuinely on hold. Only a reservation GenStudio published counts;
+ * defaulting to `credit_cost` is what made settled and failed jobs keep
+ * reporting "on hold 13 credits" days after GenStudio released them.
+ */
 function genStudioHeldCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
   if (genStudioChargedCredits(remote) > 0 || genStudioReturnedCredits(remote) > 0) return 0
-  const reserved = genStudioNumeric(remote.reserved_credits)
-  return reserved > 0 ? reserved : genStudioNumeric(remote.credit_cost)
+  if (genStudioTerminalFailure(remote)) return 0
+  return genStudioNumeric(genStudioSettled(remote).reserved_credits)
 }
+
+/** A failed job whose released amount GenStudio has not published. */
+function genStudioReservationReleased(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
+  return genStudioTerminalFailure(remote) && genStudioReturnedCredits(remote) === 0
+}
+
+/**
+ * One read-only pull of GenStudio's account history so released reservations
+ * can be shown as released. Best-effort: no key, no network, or no permission
+ * simply leaves the per-job values as GenStudio published them.
+ */
+async function refreshGenStudioSettlement(): Promise<void> {
+  if (settlementFetched) return
+  settlementFetched = true
+  try {
+    const snapshot = await get<{ jobs?: { items?: Array<{ id: string } & GenStudioSettlement> } }>(
+      '/app-settings/genstudio/usage',
+      { cache: 'no-store' },
+    )
+    const merged: Record<string, GenStudioSettlement> = {}
+    for (const item of snapshot?.jobs?.items || []) {
+      if (!item?.id) continue
+      merged[item.id] = {
+        reserved_credits: item.reserved_credits,
+        settled_credits: item.settled_credits,
+        released_credits: item.released_credits,
+      }
+    }
+    genStudioSettlement.value = merged
+  } catch { /* settlement stays as GenStudio published it per job */ }
+}
+
+// Jobs stream in after mount, so pull settlement the first time this view
+// actually has remote GenStudio items to explain.
+watch(jobs, (list) => {
+  if (!settlementFetched && list.some((j: RJob) => j.genstudio_jobs?.length)) {
+    void refreshGenStudioSettlement()
+  }
+}, { immediate: true })
 
 const expanded = ref<string | null>(null)
 const errorExpanded = ref<string | null>(null)

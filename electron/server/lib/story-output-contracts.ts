@@ -1,11 +1,18 @@
 import type { TextOutputContract } from './json-output-contract.js'
 
-function strictSchema(name: string, schema: Record<string, unknown>): TextOutputContract {
-  return { mode: 'json_schema', name, schema }
+/**
+ * Story workflows ask GenStudio language products for a JSON object and state
+ * the required structure in the request instructions. The schema is retained on
+ * the contract so the returned object is validated LOCALLY, and so the required
+ * shape can be described to the product. GenStudio language products are never
+ * required to enforce a provider-native strict JSON schema.
+ */
+function localSchema(name: string, schema: Record<string, unknown>): TextOutputContract {
+  return { mode: 'json_object', name, schema }
 }
 
 export function thumbnailPromptsOutputContract(count: number): TextOutputContract {
-  return strictSchema('story_thumbnail_prompts', {
+  return localSchema('story_thumbnail_prompts', {
     type: 'object',
     properties: {
       thumbnails: {
@@ -29,7 +36,7 @@ export function thumbnailPromptsOutputContract(count: number): TextOutputContrac
 }
 
 export function videoPromptsOutputContract(count: number): TextOutputContract {
-  return strictSchema('story_video_prompts', {
+  return localSchema('story_video_prompts', {
     type: 'object',
     properties: {
       scenes: {
@@ -58,7 +65,7 @@ export function scenePromptPackOutputContract(
   kind: 'visual' | 'motion',
 ): TextOutputContract {
   const promptKey = kind === 'motion' ? 'motion_prompt' : 'visual_prompt'
-  return strictSchema('story_scene_prompt_pack', {
+  return localSchema('story_scene_prompt_pack', {
     type: 'object',
     properties: {
       results: {
@@ -81,7 +88,7 @@ export function scenePromptPackOutputContract(
   })
 }
 
-export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = strictSchema(
+export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = localSchema(
   'story_contextual_cues',
   {
     type: 'object',
@@ -116,7 +123,7 @@ export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = strictSchema(
 )
 
 export function outlineOutputContract(chapterCount: number): TextOutputContract {
-  return strictSchema('story_outline', {
+  return localSchema('story_outline', {
     type: 'object',
     properties: {
       chapters: {

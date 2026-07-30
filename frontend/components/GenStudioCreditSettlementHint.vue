@@ -12,9 +12,11 @@ type RemoteJob = {
   state?: string
   queue_state?: string
   credit_cost?: number
+  /** Published by GenStudio only. `credit_cost` is a quote, never a hold. */
   reserved_credits?: number
   settled_credits?: number
   returned_credits?: number
+  released_credits?: number
   failure_code?: string | null
 }
 
@@ -33,18 +35,26 @@ function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'fail
   return 'active'
 }
 
-const heldOrFailedCount = computed(() => props.remoteJobs.filter(remote => {
+/**
+ * Only an unfinished job can be holding credits, and only when GenStudio has
+ * actually published a reservation. Treating `credit_cost` as a hold made every
+ * settled batch keep claiming credits were on hold long after they were
+ * released — the reservation is unknown, not held.
+ */
+const heldCount = computed(() => props.remoteJobs.filter(remote => {
   const bucket = stateBucket(remote)
-  return (bucket === 'active' || bucket === 'queued' || bucket === 'failed')
-    && (numeric(remote.reserved_credits) > 0 || numeric(remote.credit_cost) > 0)
+  return (bucket === 'active' || bucket === 'queued') && numeric(remote.reserved_credits) > 0
 }).length)
 const failedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed').length)
 
 const message = computed(() => {
-  if (!heldOrFailedCount.value) return ''
   if (failedCount.value) {
-    return 'Failed items are not charged a second time. Any amount on hold stays provisional while GenStudio settles the result and returns unused credits.'
+    return 'Failed items are not charged a second time — GenStudio releases their reservation and returns unused credits.'
+      + (heldCount.value
+        ? ' Amounts still on hold stay provisional until it settles the remaining work.'
+        : '')
   }
+  if (!heldCount.value) return ''
   return 'Amounts on hold are provisional while GenStudio completes this work. It settles the final charge and returns unused credits automatically.'
 })
 </script>

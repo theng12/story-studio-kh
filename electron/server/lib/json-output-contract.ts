@@ -1,8 +1,19 @@
 export type JsonSchema = Record<string, unknown>
 
+/**
+ * How a workflow declares the shape it needs back from a language product.
+ *
+ * - `prose`: free text, carried through the safe `{ text }` wrapper.
+ * - `json_object`: one JSON object. It may carry a `name` + `schema`, which are
+ *   used to describe the required shape in the request instructions and to
+ *   validate the returned object LOCALLY. A GenStudio product is never required
+ *   to enforce this schema natively.
+ * - `json_schema`: the product itself must accept a strict JSON schema. Reserve
+ *   this for workflows that genuinely need provider-native enforcement.
+ */
 export type TextOutputContract =
   | { mode: 'prose' }
-  | { mode: 'json_object' }
+  | { mode: 'json_object'; name?: string; schema?: JsonSchema }
   | { mode: 'json_schema'; name: string; schema: JsonSchema }
 
 export const PROSE_OUTPUT_CONTRACT: TextOutputContract = { mode: 'prose' }
@@ -88,6 +99,11 @@ export const PROSE_WRAPPER_SCHEMA: JsonSchema = {
   additionalProperties: false,
 }
 
+/**
+ * Validate a completed language-product response. Every failure here happens
+ * AFTER GenStudio accepted and completed the request, so no message in this
+ * function may claim that nothing was requested or charged.
+ */
 export function validateStructuredOutput(
   raw: string,
   contract: TextOutputContract,
@@ -97,11 +113,18 @@ export function validateStructuredOutput(
     if (!isPlainObject(value)) {
       throw new Error('GenStudio returned JSON, but this workflow requires one JSON object.')
     }
+    if (contract.schema && !jsonValueMatchesSchema(value, contract.schema)) {
+      throw new Error(
+        `GenStudio completed the request, but the output did not match the ${contract.name ?? 'requested'} response schema. The result was rejected locally.`,
+      )
+    }
     return value
   }
   if (contract.mode === 'json_schema') {
     if (!jsonValueMatchesSchema(value, contract.schema)) {
-      throw new Error(`GenStudio output did not match the ${contract.name} response schema.`)
+      throw new Error(
+        `GenStudio completed the request, but the output did not match the ${contract.name} response schema. The result was rejected locally.`,
+      )
     }
     return value
   }

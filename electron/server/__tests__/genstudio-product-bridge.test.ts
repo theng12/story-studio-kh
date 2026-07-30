@@ -48,6 +48,24 @@ function catalog(mode: 'json_object' | 'request_json_schema', id = 'writer-alpha
   }]
 }
 
+/** Any phrasing that promises the caller nothing was requested or charged. */
+const UNCHARGED_CLAIM = /no request or credit charge|uncharged|not charged|without charge/i
+
+function completion(content: string) {
+  return {
+    id: 'job_product_1',
+    object: 'chat.completion',
+    model: 'writer-alpha',
+    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+  }
+}
+
+function systemPrompt(body: Record<string, any>): string {
+  const messages = body.messages as Array<{ role: string; content: string }>
+  return messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n')
+}
+
 function accountOverview() {
   return {
     paid_concurrency_limit: 5,
@@ -74,7 +92,7 @@ test('GenStudio catalog preserves exact product ids, modes, and advertised limit
   }
 })
 
-test('strict workflows submit the actual schema through the product endpoint', async () => {
+test('a strict-schema workflow on a strict-schema product still submits the actual schema', async () => {
   const originalFetch = globalThis.fetch
   const requests: Array<{ url: string; init?: RequestInit }> = []
   try {
@@ -83,7 +101,9 @@ test('strict workflows submit the actual schema through the product endpoint', a
       requests.push({ url, init })
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog('request_json_schema'))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      assert.equal(url, 'http://127.0.0.1:8000/v1/chat/completions')
+      // Assert the endpoint, not the host: the base URL is operator-configurable, so
+      // pinning a literal host couples this test to ambient app-settings state.
+      assert.ok(url.endsWith('/v1/chat/completions'), `unexpected chat endpoint: ${url}`)
       const body = JSON.parse(String(init?.body))
       assert.equal(body.model, 'writer-alpha')
       assert.deepEqual(body.response_format, {
@@ -96,6 +116,8 @@ test('strict workflows submit the actual schema through the product endpoint', a
       })
       assert.equal(body.stream, false)
       assert.equal(body.max_completion_tokens, 60_000)
+      // The required shape is stated in words as well, so json_object products behave the same.
+      assert.match(systemPrompt(body), /Required top-level keys: title, score/)
       assert.match(
         (init?.headers as Record<string, string>)['Idempotency-Key'],
         /^story-chat-[a-f0-9]{47}$/,
@@ -128,7 +150,7 @@ test('strict workflows submit the actual schema through the product endpoint', a
   }
 })
 
-test('output-mode mismatch and advertised limits stop before spend', async () => {
+test('advertised output-token limits still stop before spend', async () => {
   const originalFetch = globalThis.fetch
   let submissions = 0
   try {
@@ -138,15 +160,6 @@ test('output-mode mismatch and advertised limits stop before spend', async () =>
       submissions++
       throw new Error(`Unexpected request ${url}`)
     }
-    await assert.rejects(
-      callChatWithGenStudio('mode-mismatch-key', {
-        modelId: 'writer-alpha',
-        system: '',
-        userMessage: 'Return one object.',
-        outputContract: { mode: 'json_object' },
-      }),
-      /requires a strict JSON schema.*No request or credit charge was made/i,
-    )
     await assert.rejects(
       callChatWithGenStudio('limit-mismatch-key', {
         modelId: 'writer-alpha',
@@ -158,6 +171,145 @@ test('output-mode mismatch and advertised limits stop before spend', async () =>
       /65,536-token limit.*No request or credit charge was made/i,
     )
     assert.equal(submissions, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a schema-only product adapts a plain JSON Object workflow instead of refusing it', async () => {
+  const originalFetch = globalThis.fetch
+  const sent: Array<Record<string, any>> = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('request_json_schema'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      const body = JSON.parse(String(init?.body))
+      sent.push(body)
+      return Response.json(completion('{"any":"object"}'))
+    }
+    const result = await callChatWithGenStudio('mode-adapt-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Return one object.',
+      outputContract: { mode: 'json_object' },
+    })
+    assert.deepEqual(JSON.parse(result.text), { any: 'object' })
+    assert.equal(sent.length, 1)
+    // No schema to request, so the JSON Object contract is honoured directly.
+    assert.deepEqual(sent[0]!.response_format, { type: 'json_object' })
+    assert.match(systemPrompt(sent[0]!), /exactly one JSON object/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a JSON Object product accepts a schema-carrying workflow and states the shape in instructions', async () => {
+  const originalFetch = globalThis.fetch
+  const sent: Array<Record<string, any>> = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      // Assert the endpoint, not the host: the base URL is operator-configurable, so
+      // pinning a literal host couples this test to ambient app-settings state.
+      assert.ok(url.endsWith('/v1/chat/completions'), `unexpected chat endpoint: ${url}`)
+      const body = JSON.parse(String(init?.body))
+      sent.push(body)
+      return Response.json(completion(JSON.stringify({
+        thumbnails: [
+          { title: 'First', prompt: 'A moonlit road.' },
+          { title: 'Second', prompt: 'A quiet library.' },
+        ],
+      })))
+    }
+    const result = await callChatWithGenStudio('json-object-product-key', {
+      modelId: 'writer-alpha',
+      system: 'Write two thumbnails.',
+      userMessage: 'Two thumbnails please.',
+      outputContract: thumbnailPromptsOutputContract(2),
+    })
+
+    // (c) JSON Object output is requested, never provider-native strict schema.
+    assert.equal(sent.length, 1)
+    assert.deepEqual(sent[0]!.response_format, { type: 'json_object' })
+    assert.equal(sent[0]!.model, 'writer-alpha')
+
+    // (b) The required structure travels in the instructions.
+    const system = systemPrompt(sent[0]!)
+    assert.match(system, /Write two thumbnails\./)
+    assert.match(system, /story_thumbnail_prompts/)
+    assert.match(system, /Required top-level key: thumbnails/)
+    assert.match(system, /title: string.*\[required\]/)
+    assert.match(system, /prompt: string.*\[required\]/)
+    assert.match(system, /exactly 2 items/)
+
+    // (d) A valid response passes local validation and is returned intact.
+    assert.deepEqual(JSON.parse(result.text), {
+      thumbnails: [
+        { title: 'First', prompt: 'A moonlit road.' },
+        { title: 'Second', prompt: 'A quiet library.' },
+      ],
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('local validation rejects bad output without ever claiming the request was uncharged', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    // (e) Well-formed request, unparseable answer.
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(completion('not json at all'))
+    }
+    const invalidJson = await callChatWithGenStudio('invalid-json-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Two thumbnails please.',
+      outputContract: thumbnailPromptsOutputContract(2),
+    }).then(() => null, (error: Error) => error)
+    assert.ok(invalidJson instanceof Error)
+    assert.match(invalidJson.message, /invalid JSON.*rejected locally/i)
+    assert.doesNotMatch(invalidJson.message, UNCHARGED_CLAIM)
+
+    // (f) Valid JSON of the wrong shape.
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(completion('{"thumbnails":[{"title":"Only one"}]}'))
+    }
+    const wrongShape = await callChatWithGenStudio('wrong-shape-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Two thumbnails please.',
+      outputContract: thumbnailPromptsOutputContract(2),
+    }).then(() => null, (error: Error) => error)
+    assert.ok(wrongShape instanceof Error)
+    assert.match(wrongShape.message, /did not match the story_thumbnail_prompts response schema/i)
+
+    // (g) Both failures happened after a completed provider request.
+    assert.doesNotMatch(wrongShape.message, UNCHARGED_CLAIM)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('an absent or unrecognized structured-output mode is read as json_object', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json([
+      { ...catalog('json_object')[0], structured_output_mode: undefined },
+      { ...catalog('json_object')[0], id: 'writer-beta', structured_output_mode: 'sorcery' },
+    ])
+    const models = await listChatModels('default-mode-key')
+    assert.equal(models[0]?.structured_output_mode, 'json_object')
+    assert.equal(models[1]?.structured_output_mode, 'json_object')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -232,10 +384,13 @@ test('story workflow schemas accept complete output and reject partial output', 
   ]
 
   for (const { contract, valid, partial } of schemas) {
-    assert.equal(contract.mode, 'json_schema')
-    if (contract.mode !== 'json_schema') continue
-    assert.equal(jsonValueMatchesSchema(valid, contract.schema), true)
-    assert.equal(jsonValueMatchesSchema(partial, contract.schema), false)
+    // Story workflows ask for a JSON object and keep the schema for local validation.
+    assert.equal(contract.mode, 'json_object')
+    if (contract.mode !== 'json_object') continue
+    assert.ok(contract.name)
+    assert.ok(contract.schema, 'the workflow schema must be retained for local validation')
+    assert.equal(jsonValueMatchesSchema(valid, contract.schema!), true)
+    assert.equal(jsonValueMatchesSchema(partial, contract.schema!), false)
   }
 })
 

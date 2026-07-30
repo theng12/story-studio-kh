@@ -6,7 +6,10 @@
       <span v-if="chargedCredits > 0" class="gs-batch-credit">{{ chargedCredits.toLocaleString() }} charged</span>
       <span v-if="heldCredits > 0" class="gs-batch-credit held">{{ heldCredits.toLocaleString() }} on hold</span>
       <span v-if="returnedCredits > 0" class="gs-batch-credit returned">{{ returnedCredits.toLocaleString() }} returned</span>
-      <span v-if="chargedCredits === 0 && heldCredits === 0 && returnedCredits === 0" class="gs-batch-credit muted">Awaiting settlement</span>
+      <span v-if="releasedCount > 0 && returnedCredits === 0" class="gs-batch-credit returned">
+        {{ releasedCount.toLocaleString() }} reservation{{ releasedCount === 1 ? '' : 's' }} released
+      </span>
+      <span v-if="chargedCredits === 0 && heldCredits === 0 && returnedCredits === 0 && releasedCount === 0" class="gs-batch-credit muted">Awaiting settlement</span>
     </div>
 
     <div class="gs-batch-progress" aria-label="Remote item status distribution">
@@ -43,8 +46,9 @@
           <span>{{ remote.operation }}</span>
           <strong :class="stateClass(remote)">{{ displayState(remote) }}</strong>
           <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} charged</span>
+          <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} returned</span>
           <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} on hold</span>
-          <span v-else-if="numeric(remote.returned_credits) > 0">{{ numeric(remote.returned_credits).toLocaleString() }} returned</span>
+          <span v-else-if="isReleased(remote)">reservation released</span>
           <span v-else>—</span>
         </li>
       </ul>
@@ -66,9 +70,17 @@ type RemoteJob = {
   state: string
   queue_state?: string
   credit_cost?: number
+  /**
+   * Settlement values arrive ONLY when GenStudio publishes them. Image and chat
+   * jobs never carry them (their API response exposes credit_cost and
+   * remaining_credits and nothing else); the authoritative triad lives on the
+   * account-jobs snapshot, which the Jobs page merges in when it is available.
+   * `credit_cost` is a quote, NOT a hold — never render it as one.
+   */
   reserved_credits?: number
   settled_credits?: number
   returned_credits?: number
+  released_credits?: number
   failure_code?: string | null
 }
 
@@ -102,10 +114,26 @@ function chargedFor(remote: RemoteJob): number {
   return stateBucket(remote) === 'settled' ? numeric(remote.credit_cost) : 0
 }
 
+function returnedFor(remote: RemoteJob): number {
+  return numeric(remote.returned_credits) || numeric(remote.released_credits)
+}
+
+/** A terminal failure has already given the reservation back. */
+function isReleased(remote: RemoteJob): boolean {
+  return stateBucket(remote) === 'failed'
+}
+
+/**
+ * Credits actually on hold — only ever the reservation GenStudio published.
+ *
+ * Falling back to `credit_cost` used to invent a hold for every job, so a batch
+ * whose reservations had already been released still read "13 credits on hold"
+ * days later. An unpublished reservation is unknown, not held.
+ */
 function heldFor(remote: RemoteJob): number {
-  if (chargedFor(remote) > 0 || numeric(remote.returned_credits) > 0) return 0
-  const held = numeric(remote.reserved_credits)
-  return held > 0 ? held : numeric(remote.credit_cost)
+  if (chargedFor(remote) > 0 || returnedFor(remote) > 0) return 0
+  if (isReleased(remote)) return 0
+  return numeric(remote.reserved_credits)
 }
 
 const settledCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'settled').length)
@@ -114,7 +142,9 @@ const queuedCount = computed(() => props.remoteJobs.filter(remote => stateBucket
 const failedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed').length)
 const chargedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + chargedFor(remote), 0))
 const heldCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + heldFor(remote), 0))
-const returnedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + numeric(remote.returned_credits), 0))
+const returnedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + returnedFor(remote), 0))
+/** Terminal failures whose reservation is released but whose amount GenStudio has not published. */
+const releasedCount = computed(() => props.remoteJobs.filter(remote => isReleased(remote) && returnedFor(remote) === 0).length)
 const exceptionJobs = computed(() => props.remoteJobs.filter(remote => {
   const bucket = stateBucket(remote)
   return bucket === 'active' || bucket === 'failed'

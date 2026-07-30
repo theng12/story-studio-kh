@@ -41,6 +41,10 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   // vs cloud is obvious; v1.0.498 — the Local/Free/Paid tier TAB distinguishes
   // free from paid within this group, so the label stays neutral.
   'chatstudio-cloud': 'Chat Studio (cloud)',
+  // Neutral bucket for an id `resolveAudioProvider` couldn't attribute to
+  // any known vendor (no explicit `.provider` field, no recognized legacy
+  // prefix). Display-only — never guess a specific vendor here.
+  unknown: 'Other',
 }
 
 /**
@@ -113,5 +117,10 @@ export function resolveAudioProvider(id: string, m: { provider?: string }): stri
   if (id.startsWith('macos-')) return 'macos'
   // v1.0.378+ — Fish Audio (direct cloud TTS).
   if (id.startsWith('fishaudio-')) return 'fishaudio'
-  return 'fal'
+  // No explicit provider and no recognized legacy prefix: group it under a
+  // neutral "Other" bucket rather than guessing a specific vendor. This is
+  // display-only optgroup labeling — it never selects execution authority —
+  // but silently mislabeling an unrecognized id as fal.ai was still
+  // actively misleading in the picker UI.
+  return 'unknown'
 }

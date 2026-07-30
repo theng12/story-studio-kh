@@ -9,13 +9,20 @@ import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
-import { recordTask, hashInput } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
+import {
+  isTerminalGenStudioImageTaskFailure,
+  resolveImageRetryScope,
+  terminalImageManifestEntry,
+  tryRecoverImageFromManifestEntry,
+  type ImageRecoveryOutcome,
+} from '../lib/manifest-recovery.js'
+import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -500,6 +507,103 @@ export async function generateImages(job: Job): Promise<void> {
   let processed = 0
   let totalToProcess = 0
 
+  const providerId = (): string => imageProvider!.meta.providerId || imageProvider!.meta.id
+
+  interface DurableImageAttempt {
+    recovery: ImageRecoveryOutcome
+    /** Token folded into the idempotency identity for a fresh submission. */
+    scope: string
+    inputHash: string
+    submittedAt: string
+    notes: string[]
+  }
+
+  /**
+   * Decide, for ONE image asset, whether a saved GenStudio job can still be
+   * reclaimed and — when it cannot — under which request identity a single
+   * fresh job should be submitted.
+   *
+   * The identity is derived only from persisted values, so a lost submit
+   * response replays the same idempotency key (GenStudio hands back the same
+   * job) instead of paying for a second render.
+   */
+  async function prepareImageAttempt(
+    dir: string,
+    manifest: Manifest,
+    filename: string,
+    prompt: string,
+  ): Promise<DurableImageAttempt> {
+    const baseScope = force ? `force:${job.job_id}` : 'default'
+    const entry = manifest.tasks[filename] || null
+    let scope = resolveImageRetryScope(entry, baseScope).scope
+    let inputHash = hashInput(`${scope}\n${prompt}`)
+    const notes: string[] = []
+    // A pre-scope manifest entry stays reclaimable on its task id alone, which
+    // is exactly how this generator behaved before retry scopes existed. What
+    // is new is that a job we already know settled is never reopened.
+    const reclaimable = !force
+      && entry
+      && (entry.request_scope ? entry.input_hash === inputHash : true)
+      && !isTerminalGenStudioImageTaskFailure(entry)
+      ? entry
+      : null
+    const recovery = await tryRecoverImageFromManifestEntry(
+      reclaimable,
+      apiKey,
+      resolvedModelConfig,
+      () => jq.isCancelled(job.job_id),
+    )
+    let carried: TaskManifestEntry | null = entry
+    if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {
+      // Persist the settled outcome first so the promoted retry scope stays
+      // reproducible if this run dies before the fresh submission lands.
+      carried = terminalImageManifestEntry(entry!, recovery)
+      await recordTask(dir, filename, carried)
+      scope = resolveImageRetryScope(carried, baseScope).scope
+      inputHash = hashInput(`${scope}\n${prompt}`)
+      notes.push(
+        `saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal ` +
+        `(${recovery.kind === 'artifact-unavailable' ? 'artifact expired' : 'failed'}); ` +
+        'submitting one fresh job under a new retry identity.',
+      )
+    }
+    const submittedAt = carried?.request_scope === scope && carried.submitted_at
+      ? carried.submitted_at
+      : new Date().toISOString()
+    return { recovery, scope, inputHash, submittedAt, notes }
+  }
+
+  async function recordImageState(
+    dir: string,
+    filename: string,
+    attempt: DurableImageAttempt,
+    state: string,
+    taskId: string,
+    idempotencyKey: string,
+    strict = false,
+  ): Promise<void> {
+    const payload: TaskManifestEntry = {
+      provider: providerId(),
+      task_id: taskId,
+      submitted_at: attempt.submittedAt,
+      input_hash: attempt.inputHash,
+      request_scope: attempt.scope,
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      operation: 'image',
+      last_state: state,
+    }
+    if (strict) await recordTaskStrict(dir, filename, payload)
+    else await recordTask(dir, filename, payload)
+  }
+
+  function uncertainRecoveryError(recovery: ImageRecoveryOutcome & { kind: 'uncertain' }): Error {
+    // Never let an unconfirmed outcome become a duplicate paid submission.
+    return new Error(
+      `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
+      'No duplicate image was submitted; Retry reconnects to the same job.',
+    )
+  }
+
   async function runScene(scene: { number: number; title: string; prompt: string }) {
     const stem = `${episode_id.toUpperCase()}_Scene${scene.number.toString().padStart(2, '0')}`
     const v1Path = path.join(bgDir, `${stem}_v1.png`)
@@ -520,20 +624,31 @@ export async function generateImages(job: Job): Promise<void> {
       return
     }
     // Auto-recovery: before issuing a fresh (charged) submit, see if the
-    // task-manifest sidecar has a stored task_id from a previous run. If
-    // the provider still has the result (success / pending), download it
-    // for free. Skip when --force regen was requested. Failures here
-    // silently fall through to the fresh-submit path below.
-    if (!force) {
-      const recovered = await tryRecoverImageFromManifest(
-        sceneManifest.tasks[`${stem}_v1.png`] || null,
-        apiKey, resolvedModelConfig,
-        () => jq.isCancelled(job.job_id),
-      )
-      if (recovered) {
+    // task-manifest sidecar has a stored task_id from a previous run. If the
+    // provider still has the result (succeeded / still running), reclaim it for
+    // free. A job GenStudio already settled as failed is NOT reclaimed — it can
+    // only ever return the same failure — and an unconfirmed outcome fails this
+    // one scene instead of turning into a duplicate paid submission. Everything
+    // is inside the try so no single scene can abort the whole batch.
+    const filename = `${stem}_v1.png`
+    let attempt: DurableImageAttempt | null = null
+    let acceptedTaskId = ''
+    let acceptedKey = ''
+    try {
+      // Multi-source reference resolution. text2img mode → only character
+      // refs (Phase 8 default); img2img mode → master + per-scene + chars
+      // + chain depending on the user's reference_sources toggles.
+      const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
+      const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
+      attempt = await prepareImageAttempt(bgDir, sceneManifest, filename, finalPrompt)
+      if (attempt.recovery.kind === 'uncertain') throw uncertainRecoveryError(attempt.recovery)
+      for (const note of attempt.notes) job.output_lines.push(`Scene ${scene.number}: ${note}`)
+      if (attempt.recovery.kind === 'recovered') {
+        const recovered = attempt.recovery
         for (let i = 0; i < recovered.urls.length; i++) {
           await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
         }
+        await recordImageState(bgDir, filename, attempt, 'succeeded', recovered.taskId, '')
         processed++
         job.output_lines.push(
           `Scene ${scene.number}/${totalToProcess}: ${scene.title} — recovered ` +
@@ -541,27 +656,20 @@ export async function generateImages(job: Job): Promise<void> {
         )
         return
       }
-    }
-    try {
-      // Multi-source reference resolution. text2img mode → only character
-      // refs (Phase 8 default); img2img mode → master + per-scene + chars
-      // + chain depending on the user's reference_sources toggles.
-      const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
-      const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
+      // Persist the request identity BEFORE the charged POST so a lost response
+      // replays the same idempotency key instead of creating a second job.
+      await recordImageState(bgDir, filename, attempt, 'prepared', '', '', true)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
-        idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image`,
+        idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${attempt.scope}`,
         isCancelled: () => jq.isCancelled(job.job_id),
-        onJobAccepted: async (taskId) => {
-          await recordTask(bgDir, `${stem}_v1.png`, {
-            provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
-            task_id: taskId,
-            submitted_at: new Date().toISOString(),
-            input_hash: hashInput(finalPrompt),
-          })
+        onJobAccepted: async (taskId, idempotencyKey) => {
+          acceptedTaskId = taskId
+          acceptedKey = idempotencyKey
+          await recordImageState(bgDir, filename, attempt!, 'accepted', taskId, idempotencyKey, true)
         },
       })
       const urls = result.urls
@@ -573,12 +681,9 @@ export async function generateImages(job: Job): Promise<void> {
       // variant — the reconciler picks the right URL by parsing the _vN
       // suffix at recovery time.
       if (result.taskId) {
-        await Promise.all(urls.map((_, i) => recordTask(bgDir, `${stem}_v${i + 1}.png`, {
-          provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
-          task_id: result.taskId!,
-          submitted_at: new Date().toISOString(),
-          input_hash: hashInput(scene.prompt),
-        })))
+        await Promise.all(urls.map((_, i) => recordImageState(
+          bgDir, `${stem}_v${i + 1}.png`, attempt!, 'succeeded', result.taskId!, acceptedKey,
+        )))
       }
       for (let i = 0; i < urls.length; i++) {
         await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
@@ -586,6 +691,11 @@ export async function generateImages(job: Job): Promise<void> {
       processed++
       job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
     } catch (e: any) {
+      // Remember a settled provider failure so the next Retry mints a fresh
+      // identity instead of replaying this dead job forever.
+      if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+        await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
+      }
       processed++
       job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: FAILED — ${e.message}`)
       errors.push(`Scene ${scene.number}: ${e.message}`)
@@ -607,26 +717,14 @@ export async function generateImages(job: Job): Promise<void> {
       )
       return
     }
-    // Auto-recovery (same as runScene above) — try to recover from a
-    // previously-submitted task before charging for a fresh submit.
-    if (!force) {
-      const recovered = await tryRecoverImageFromManifest(
-        thumbManifest.tasks[`${stem}_v1.png`] || null,
-        apiKey, resolvedModelConfig,
-        () => jq.isCancelled(job.job_id),
-      )
-      if (recovered) {
-        for (let i = 0; i < recovered.urls.length; i++) {
-          await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
-        }
-        processed++
-        job.output_lines.push(
-          `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
-          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
-        )
-        return
-      }
-    }
+    // Auto-recovery (same as runScene above) — reclaim a previously-submitted
+    // task before charging for a fresh submit, but never reopen a job GenStudio
+    // already settled, and never treat an unconfirmed outcome as "nothing was
+    // submitted". Inside the try so one thumbnail cannot abort the batch.
+    const filename = `${stem}_v1.png`
+    let attempt: DurableImageAttempt | null = null
+    let acceptedTaskId = ''
+    let acceptedKey = ''
     try {
       // The thumbnail prompt already carries its (format-aware) title-text
       // directive from image-prompts.ts — render it verbatim. Character
@@ -652,32 +750,43 @@ export async function generateImages(job: Job): Promise<void> {
       const thumbProviderParams = hasThumbnailReference
         ? { ...providerParams, image_strength: strengthValue }
         : providerParams
+      attempt = await prepareImageAttempt(thumbDir, thumbManifest, filename, finalPrompt)
+      if (attempt.recovery.kind === 'uncertain') throw uncertainRecoveryError(attempt.recovery)
+      for (const note of attempt.notes) job.output_lines.push(`Thumbnail ${thumb.number}: ${note}`)
+      if (attempt.recovery.kind === 'recovered') {
+        const recovered = attempt.recovery
+        for (let i = 0; i < recovered.urls.length; i++) {
+          await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+        }
+        await recordImageState(thumbDir, filename, attempt, 'succeeded', recovered.taskId, '')
+        processed++
+        job.output_lines.push(
+          `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
+          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
+        )
+        return
+      }
+      await recordImageState(thumbDir, filename, attempt, 'prepared', '', '', true)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
         width: renderWidth, height: renderHeight,
         steps: req.image_steps,
         seed: req.seed,
         ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
-        idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image`,
+        idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${attempt.scope}`,
         isCancelled: () => jq.isCancelled(job.job_id),
-        onJobAccepted: async (taskId) => {
-          await recordTask(thumbDir, `${stem}_v1.png`, {
-            provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
-            task_id: taskId,
-            submitted_at: new Date().toISOString(),
-            input_hash: hashInput(finalPrompt),
-          })
+        onJobAccepted: async (taskId, idempotencyKey) => {
+          acceptedTaskId = taskId
+          acceptedKey = idempotencyKey
+          await recordImageState(thumbDir, filename, attempt!, 'accepted', taskId, idempotencyKey, true)
         },
       })
       const urls = result.urls
       if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
       if (result.taskId) {
-        await Promise.all(urls.map((_, i) => recordTask(thumbDir, `${stem}_v${i + 1}.png`, {
-          provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
-          task_id: result.taskId!,
-          submitted_at: new Date().toISOString(),
-          input_hash: hashInput(thumb.prompt),
-        })))
+        await Promise.all(urls.map((_, i) => recordImageState(
+          thumbDir, `${stem}_v${i + 1}.png`, attempt!, 'succeeded', result.taskId!, acceptedKey,
+        )))
       }
       for (let i = 0; i < urls.length; i++) {
         await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
@@ -685,6 +794,9 @@ export async function generateImages(job: Job): Promise<void> {
       processed++
       job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
     } catch (e: any) {
+      if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+        await recordImageState(thumbDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
+      }
       processed++
       job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
       errors.push(`Thumbnail ${thumb.number}: ${e.message}`)

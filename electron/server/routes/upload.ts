@@ -29,6 +29,8 @@ import * as orphans from '../services/upload-orphans.js'
 import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -104,10 +106,17 @@ router.post('/projects/:slug/upload/playlists/generate-description', async (req,
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,
     }
-    // Default model — uses whatever the project has set for script
-    // generation if available, else a reliable fast cloud default.
-    const model = (typeof req.body?.model === 'string' && req.body.model)
-      || 'gpt-4o-mini'
+    // Default model — uses whatever the caller/project provided; a missing
+    // model is resolved against GenStudio's live catalog rather than a
+    // hardcoded external product id (GenStudio owns the catalog; a
+    // retired/renamed literal must never be submitted blind).
+    const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+    const model = requestedModel || await (async () => {
+      const apiKey = await getApiKey('genstudio').catch(() => '')
+      if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating a playlist description.')
+      const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
+      return (await resolveDefaultChatModel(apiKey, saved)).modelId
+    })()
 
     // Optional caller-provided overrides
     const videoCount = typeof req.body?.video_count === 'number' && req.body.video_count > 0

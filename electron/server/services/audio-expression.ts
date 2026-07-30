@@ -298,7 +298,9 @@ export async function mapExpressionConcurrent<T, R>(
 export interface ExpressionMarkupParams {
   episode_id: string
   title?: string
-  /** Text model for the markup pass; defaults to deepseek-v4-flash. */
+  /** Text model for the markup pass. When omitted, resolved against
+   *  GenStudio's live catalog (see resolveDefaultChatModel in
+   *  services/genstudio-default-model.ts) — never a hardcoded default. */
   model?: string
   /** Tag dialect to write (matches the target TTS model). Defaults to 'fish'. */
   dialect?: TagDialect
@@ -316,7 +318,7 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
   const params = job.params as ExpressionMarkupParams
   const episodeId = params.episode_id
   if (!episodeId) throw new Error('episode_id is required')
-  const model = (typeof params.model === 'string' && params.model.trim()) ? params.model.trim() : 'deepseek-v4-flash'
+  const requestedModel = (typeof params.model === 'string') ? params.model.trim() : ''
   const dialect: TagDialect = params.dialect === 'elevenlabs' ? 'elevenlabs' : 'fish'
 
   const pm = await import('./project-manager.js')
@@ -326,6 +328,19 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
 
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
+  // A job enqueued without a model resolves against GenStudio's live
+  // catalog rather than a hardcoded external product id — GenStudio owns
+  // the catalog and a retired/renamed literal must never be submitted
+  // blind (see services/genstudio-default-model.ts).
+  let model = requestedModel
+  if (!model) {
+    const { getApiKey } = await import('./app-secrets-store.js')
+    const { resolveDefaultChatModel } = await import('./genstudio-default-model.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+    const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
+    model = (await resolveDefaultChatModel(apiKey, saved)).modelId
+  }
   const narrationPath = await findNarrationFile(job.project_slug, episodeId)
   const parsed = await parseNarrationDocx(narrationPath)
   const targets = (Array.isArray(params.slugs) && params.slugs.length)
