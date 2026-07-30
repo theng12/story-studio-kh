@@ -30,9 +30,32 @@
       <article>
         <span>Last refresh</span>
         <strong>{{ lastRefreshLabel }}</strong>
-        <small>{{ loading ? 'Checking live account data…' : 'Catalogs are never saved to the project' }}</small>
+        <small>{{ loading ? 'Checking live account data…' : `Catalogs are never saved to the project · fresh for ${CATALOG_FRESH_MINUTES}m, unusable past ${CATALOG_CEILING_MINUTES}m` }}</small>
       </article>
     </div>
+
+    <WorkspaceNotice
+      v-if="anyExpired"
+      tone="error"
+      title="Catalog data is too old to use for new work"
+    >
+      <p>
+        {{ expiredSections.join(', ') }} {{ expiredSections.length > 1 ? 'have' : 'has' }} not refreshed in
+        over {{ CATALOG_CEILING_MINUTES }} minutes. Availability, pricing, and capabilities shown may no
+        longer be real — refresh before starting anything new.
+      </p>
+    </WorkspaceNotice>
+    <WorkspaceNotice
+      v-else-if="anyStale"
+      tone="warning"
+      title="Catalog data is stale"
+    >
+      <p>
+        {{ staleSections.join(', ') }} {{ staleSections.length > 1 ? 'haven\'t' : 'hasn\'t' }} refreshed in the
+        last {{ CATALOG_FRESH_MINUTES }} minutes. What's shown below may be out of date — refresh to confirm
+        before relying on it.
+      </p>
+    </WorkspaceNotice>
 
     <WorkspaceNotice
       v-if="combinedErrors.length"
@@ -49,6 +72,11 @@
         <span>{{ entry.label }}</span>
         <strong>{{ entry.available }}/{{ entry.total }}</strong>
         <small>available</small>
+        <em
+          v-if="freshnessBadge(entry)"
+          class="freshness-badge"
+          :class="`tone-${freshnessBadge(entry)!.tone}`"
+        >{{ freshnessBadge(entry)!.label }}</em>
       </article>
     </div>
 
@@ -105,18 +133,49 @@
 </template>
 
 <script setup lang="ts">
+import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
+import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
+
 const { get } = useApi()
 const {
   models: imageModels,
   error: imageError,
   refresh: refreshImages,
+  lastFetchedAt: imageLastFetchedAt,
+  isStale: imageIsStale,
+  isExpired: imageIsExpired,
 } = useGenStudioImageModels()
 const {
   voiceModels,
   videoModels,
   error: mediaError,
   refresh: refreshMedia,
+  lastFetchedAt: mediaLastFetchedAt,
+  isStale: mediaIsStale,
+  isExpired: mediaIsExpired,
 } = useGenStudioMediaModels()
+// Sharing the same underlying catalog cache Subtitles/B-Roll use — this
+// panel is read-only diagnostics, it must not fetch a second copy of the
+// /app-settings/genstudio/transcription-models list on its own freshness
+// clock (see useGenStudioTranscription.ts for the shared cache instance).
+const transcriptionCatalog = useGenStudioTranscriptionCatalog()
+// No dedicated shared composable owns the chat-model/voice catalogs today;
+// these two stay component-local but run on the exact same fresh/ceiling
+// policy as everything else via the shared cache factory.
+const chatModelsCache = createGenStudioCatalogCache<CatalogEntry[]>({
+  empty: [],
+  fetcher: async () => {
+    const response = await get<{ models: CatalogEntry[] }>('/app-settings/genstudio/chat-models', { cache: 'no-store' })
+    return Array.isArray(response.models) ? response.models : []
+  },
+})
+const voicesCache = createGenStudioCatalogCache<CatalogEntry[]>({
+  empty: [],
+  fetcher: async () => {
+    const response = await get<{ voices: CatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
+    return Array.isArray(response.voices) ? response.voices : []
+  },
+})
 
 interface CatalogEntry {
   id: string
@@ -133,9 +192,6 @@ interface CatalogDiagnostic {
   available: boolean
 }
 
-const chatModels = ref<CatalogEntry[]>([])
-const transcriptionModels = ref<CatalogEntry[]>([])
-const voices = ref<CatalogEntry[]>([])
 const accountConfigured = ref(false)
 const configurationChecked = ref(false)
 const loading = ref(false)
@@ -146,6 +202,9 @@ const {
   error: accessError,
   planNotice,
   refresh: refreshAccess,
+  lastFetchedAt: accessLastFetchedAt,
+  isStale: accessIsStale,
+  isExpired: accessIsExpired,
 } = useGenStudioAccess()
 
 function isAvailable(entry: CatalogEntry): boolean {
@@ -153,12 +212,12 @@ function isAvailable(entry: CatalogEntry): boolean {
 }
 
 const summaries = computed(() => [
-  { label: 'LLM', total: chatModels.value.length, available: chatModels.value.filter(isAvailable).length },
-  { label: 'Images', total: imageModels.value.length, available: imageModels.value.filter(isAvailable).length },
-  { label: 'TTS models', total: voiceModels.value.length, available: voiceModels.value.filter(isAvailable).length },
-  { label: 'Voices', total: voices.value.length, available: voices.value.filter(isAvailable).length },
-  { label: 'Transcription', total: transcriptionModels.value.length, available: transcriptionModels.value.filter(isAvailable).length },
-  { label: 'Video', total: videoModels.value.length, available: videoModels.value.filter(isAvailable).length },
+  { label: 'LLM', total: chatModelsCache.data.value.length, available: chatModelsCache.data.value.filter(isAvailable).length, ...freshnessOf(chatModelsCache) },
+  { label: 'Images', total: imageModels.value.length, available: imageModels.value.filter(isAvailable).length, lastFetchedAt: imageLastFetchedAt.value, isStale: imageIsStale.value, isExpired: imageIsExpired.value },
+  { label: 'TTS models', total: voiceModels.value.length, available: voiceModels.value.filter(isAvailable).length, lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
+  { label: 'Voices', total: voicesCache.data.value.length, available: voicesCache.data.value.filter(isAvailable).length, ...freshnessOf(voicesCache) },
+  { label: 'Transcription', total: transcriptionCatalog.data.value.length, available: transcriptionCatalog.data.value.filter(isAvailable).length, ...freshnessOf(transcriptionCatalog) },
+  { label: 'Video', total: videoModels.value.length, available: videoModels.value.filter(isAvailable).length, lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
 ])
 
 function diagnosticRows(entries: readonly CatalogEntry[]): CatalogDiagnostic[] {
@@ -170,11 +229,11 @@ function diagnosticRows(entries: readonly CatalogEntry[]): CatalogDiagnostic[] {
 }
 
 const catalogGroups = computed(() => [
-  { label: 'Language models', items: diagnosticRows(chatModels.value) },
+  { label: 'Language models', items: diagnosticRows(chatModelsCache.data.value) },
   { label: 'Image models', items: diagnosticRows(imageModels.value) },
   { label: 'TTS models', items: diagnosticRows(voiceModels.value) },
-  { label: 'Voices', items: diagnosticRows(voices.value) },
-  { label: 'Transcription models', items: diagnosticRows(transcriptionModels.value) },
+  { label: 'Voices', items: diagnosticRows(voicesCache.data.value) },
+  { label: 'Transcription models', items: diagnosticRows(transcriptionCatalog.data.value) },
   { label: 'Video models', items: diagnosticRows(videoModels.value) },
 ])
 
@@ -183,7 +242,58 @@ const combinedErrors = computed(() => Array.from(new Set([
   accessError.value,
   imageError.value,
   mediaError.value,
+  chatModelsCache.error.value,
+  voicesCache.error.value,
+  transcriptionCatalog.error.value,
 ].filter(Boolean))))
+
+// ── Staleness visibility (release-hardening requirement: never silently
+// present old catalog data as current). Every catalog source above runs on
+// the exact same fresh/ceiling policy via the shared cache — this just
+// rolls their individual `isStale`/`isExpired`/`lastFetchedAt` up into one
+// place the template can render banners and per-tile badges from.
+function freshnessOf(source: { lastFetchedAt: { value: number | null }; isStale: { value: boolean }; isExpired: { value: boolean } }) {
+  return {
+    lastFetchedAt: source.lastFetchedAt.value,
+    isStale: source.isStale.value,
+    isExpired: source.isExpired.value,
+  }
+}
+
+const freshnessEntries = computed(() => [
+  { label: 'Language models', ...freshnessOf(chatModelsCache) },
+  { label: 'Image models', lastFetchedAt: imageLastFetchedAt.value, isStale: imageIsStale.value, isExpired: imageIsExpired.value },
+  { label: 'TTS & Video models', lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
+  { label: 'Voices', ...freshnessOf(voicesCache) },
+  { label: 'Transcription models', ...freshnessOf(transcriptionCatalog) },
+  { label: 'Account access', lastFetchedAt: accessLastFetchedAt.value, isStale: accessIsStale.value, isExpired: accessIsExpired.value },
+])
+
+const CATALOG_FRESH_MINUTES = Math.round(GENSTUDIO_CATALOG_FRESH_MS / 60_000)
+const CATALOG_CEILING_MINUTES = Math.round(GENSTUDIO_CATALOG_STALE_CEILING_MS / 60_000)
+
+/** Any section past the hard ceiling — must not be treated as usable for new submissions. */
+const anyExpired = computed(() => freshnessEntries.value.some(entry => entry.isExpired))
+/** Any section past the fresh window but still under the ceiling — displayable, flagged. */
+const anyStale = computed(() => freshnessEntries.value.some(entry => entry.isStale && !entry.isExpired))
+const staleSections = computed(() => freshnessEntries.value.filter(entry => entry.isStale && !entry.isExpired).map(entry => entry.label))
+const expiredSections = computed(() => freshnessEntries.value.filter(entry => entry.isExpired).map(entry => entry.label))
+
+function formatCatalogAge(lastFetchedAt: number | null): string {
+  if (lastFetchedAt === null) return 'never fetched'
+  const minutes = Math.max(0, Math.round((Date.now() - lastFetchedAt) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes === 1) return '1 minute ago'
+  if (minutes < 60) return `${minutes} minutes ago`
+  const hours = Math.round(minutes / 60)
+  return hours === 1 ? '1 hour ago' : `${hours} hours ago`
+}
+
+function freshnessBadge(entry: { isStale: boolean; isExpired: boolean; lastFetchedAt: number | null }): { label: string; tone: 'warning' | 'error' } | null {
+  if (entry.isExpired) return { label: `Too old to use · ${formatCatalogAge(entry.lastFetchedAt)}`, tone: 'error' }
+  if (entry.isStale) return { label: `Stale · ${formatCatalogAge(entry.lastFetchedAt)}`, tone: 'warning' }
+  return null
+}
 
 const connectionState = computed(() => {
   if (!configurationChecked.value) {
@@ -221,11 +331,17 @@ async function refresh(): Promise<void> {
   loading.value = true
   requestErrors.value = []
   try {
-    const [keys, chat, transcription, voiceResult] = await Promise.allSettled([
+    const [keys] = await Promise.allSettled([
       get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys', { cache: 'no-store' }),
-      get<{ models: CatalogEntry[] }>('/app-settings/genstudio/chat-models', { cache: 'no-store' }),
-      get<{ models: CatalogEntry[] }>('/app-settings/genstudio/transcription-models', { cache: 'no-store' }),
-      get<{ voices: CatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' }),
+    ])
+    // Every catalog fetch below goes through the shared cache's own
+    // refresh() — it never throws (failures land in that cache's `error`,
+    // already folded into `combinedErrors` above), so a plain `Promise.all`
+    // is enough; nothing here needs its own try/catch.
+    await Promise.all([
+      chatModelsCache.refresh(true),
+      transcriptionCatalog.refresh(true),
+      voicesCache.refresh(true),
       refreshImages(true),
       refreshMedia(true),
       refreshAccess(true),
@@ -238,24 +354,6 @@ async function refresh(): Promise<void> {
       requestErrors.value.push(errorMessage(keys.reason, 'Could not verify the GenStudio API key.'))
     }
     configurationChecked.value = true
-
-    if (chat.status === 'fulfilled') chatModels.value = chat.value.models || []
-    else {
-      chatModels.value = []
-      requestErrors.value.push(errorMessage(chat.reason, 'Language model catalog unavailable.'))
-    }
-
-    if (transcription.status === 'fulfilled') transcriptionModels.value = transcription.value.models || []
-    else {
-      transcriptionModels.value = []
-      requestErrors.value.push(errorMessage(transcription.reason, 'Transcription model catalog unavailable.'))
-    }
-
-    if (voiceResult.status === 'fulfilled') voices.value = voiceResult.value.voices || []
-    else {
-      voices.value = []
-      requestErrors.value.push(errorMessage(voiceResult.reason, 'Voice catalog unavailable.'))
-    }
   } finally {
     lastRefreshedAt.value = new Date()
     loading.value = false
@@ -282,6 +380,9 @@ onMounted(() => { void refresh() })
 .error-list li + li { margin-top: 4px; }
 .catalog-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
 .catalog-grid strong { display: block; margin: 3px 0; font-size: 19px; }
+.freshness-badge { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 6px; font-size: var(--font-xs); font-weight: 700; font-style: normal; letter-spacing: .02em; }
+.freshness-badge.tone-warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.freshness-badge.tone-error { color: var(--danger, #dc2626); background: color-mix(in srgb, var(--danger, #dc2626) 16%, transparent); }
 .catalog-details { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); }
 .catalog-details > summary { display: flex; justify-content: space-between; gap: 12px; padding: 13px 14px; cursor: pointer; font-weight: 700; list-style-position: inside; }
 .catalog-details > summary small { color: var(--text-muted); font-size: var(--font-xs); font-weight: 500; }

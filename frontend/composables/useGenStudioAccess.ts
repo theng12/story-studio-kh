@@ -1,42 +1,37 @@
 import type { GenStudioAccessStatus } from '~/utils/genstudio-relaxed'
 import { genStudioPlanNotice, genStudioUnlimitedBadge } from '~/utils/genstudio-relaxed'
+import { useApi } from './useApi.js'
+import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 
-const access = ref<GenStudioAccessStatus | null>(null)
-const loading = ref(false)
-const loaded = ref(false)
-const error = ref('')
+const cache = createGenStudioCatalogCache<GenStudioAccessStatus | null>({
+  empty: null,
+  fetcher: async () => {
+    const { get } = useApi()
+    return await get<GenStudioAccessStatus>('/app-settings/genstudio/access', { cache: 'no-store' })
+  },
+})
 
-/** Shared account entitlement cache used by every GenStudio model picker. */
+/**
+ * Shared account entitlement cache used by every GenStudio model picker.
+ * Credits/plan status is exactly the kind of thing that must not be shown
+ * stale-and-unmarked — see `useGenStudioCatalogCache.ts` for the shared
+ * freshness policy this now runs on.
+ */
 export function useGenStudioAccess() {
-  const { get } = useApi()
-
-  async function refresh(force = false): Promise<void> {
-    if (loading.value || (loaded.value && !force)) return
-    loading.value = true
-    error.value = ''
-    try {
-      access.value = await get<GenStudioAccessStatus>(
-        '/app-settings/genstudio/access',
-        { cache: 'no-store' },
-      )
-    } catch (cause: any) {
-      access.value = null
-      error.value = cause?.data?.detail || cause?.message || 'GenStudio plan status is unavailable.'
-    } finally {
-      loaded.value = true
-      loading.value = false
-    }
-  }
-
+  const access = cache.data
   const planNotice = computed(() => genStudioPlanNotice(access.value))
 
   return {
-    access: readonly(access),
-    loading: readonly(loading),
-    loaded: readonly(loaded),
-    error: readonly(error),
+    access,
+    loading: cache.loading,
+    loaded: cache.loaded,
+    error: cache.error,
+    lastFetchedAt: cache.lastFetchedAt,
+    isStale: cache.isStale,
+    isExpired: cache.isExpired,
+    isUsable: cache.isUsable,
     planNotice,
     badgeFor: (supportsUnlimited: boolean) => genStudioUnlimitedBadge(supportsUnlimited, access.value),
-    refresh,
+    refresh: cache.refresh,
   }
 }

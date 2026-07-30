@@ -13,12 +13,13 @@ export type GenStudioRecoveryState =
   | 'failed'
 
 /** Durable GenStudio operations that carry a typed Story-side checkpoint. */
-export type GenStudioRecoveryOperation = 'tts' | 'transcription' | 'image'
+export type GenStudioRecoveryOperation = 'tts' | 'transcription' | 'image' | 'video'
 
 const RECOVERABLE_OPERATIONS: ReadonlySet<string> = new Set<GenStudioRecoveryOperation>([
   'tts',
   'transcription',
   'image',
+  'video',
 ])
 
 interface GenStudioAssetRecovery {

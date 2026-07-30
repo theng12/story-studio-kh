@@ -27,14 +27,44 @@ import * as jq from '../services/job-queue.js'
 import type { Job, ScenePlan } from '../models/types.js'
 import { auditSceneClipCompletion, checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { hashInput, recordTask } from '../services/task-manifest.js'
+import { createHash } from 'crypto'
+import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
+import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
+  buildGenStudioVideoIdempotencyKey,
   generateVideoWithGenStudio,
+  GenStudioTerminalFailureError,
   listVideoModels as listGenStudioVideoModels,
+  recoverVideoWithGenStudio,
+  resolveGenStudioRetryScope,
   type GenStudioVideoModel,
+  type GenStudioVideoRequest,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
+
+/**
+ * Local `last_state` values that mean the saved GenStudio video job can never
+ * yield a clip again. Mirrors `isTerminalGenStudioTaskFailure` in
+ * generators/audio.ts — the proven pattern.
+ *
+ * NOTE: there is no `cancelled` JobState in GenStudio; cancellation arrives as
+ * a boolean and is normalised into `failed` before it reaches the manifest.
+ */
+const TERMINAL_CLIP_TASK_STATES: ReadonlySet<string> = new Set(['failed', 'artifact_expired'])
+
+/**
+ * An accepted GenStudio video task can be safely reconnected after a restart or
+ * a lost network response. A terminal provider failure cannot: its idempotency
+ * key intentionally resolves to the same failed GenStudio job forever, so
+ * reusing it can never produce a new clip.
+ */
+export function isTerminalGenStudioClipTaskFailure(entry: {
+  task_id?: string
+  last_state?: string
+} | null | undefined): boolean {
+  return Boolean(entry?.task_id && entry.last_state && TERMINAL_CLIP_TASK_STATES.has(entry.last_state))
+}
 
 /**
  * Canonical "11 Video Assets" directory for an episode — the named folder
@@ -120,6 +150,9 @@ export async function requireSceneClipGenStudioModel(selectedModel: string): Pro
   if (!apiKey) {
     throw new Error('Add the scoped GenStudio API key in Settings → This Mac before generating motion clips.')
   }
+  // A catalogue beyond the staleness window throws GenStudioCatalogUnavailableError
+  // and is deliberately NOT caught: never submit paid video work against a
+  // product Story Studio cannot currently verify is published and priced.
   const catalog = await listGenStudioVideoModels(apiKey)
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
   if (!modelId) {
@@ -165,30 +198,165 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
-  const result = await generateVideoWithGenStudio(apiKey, {
+  // Resolve the output folder BEFORE submitting: the request identity has to be
+  // persisted beside the expected clip before any paid POST leaves this process.
+  const outDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  await fs.mkdir(outDir, { recursive: true })
+  const manifestKey = `${scene_id}.mp4`
+  const outPath = path.join(outDir, manifestKey)
+  const requestAspect = aspectRatio === 'portrait' ? '9:16' : '16:9'
+  const durationSeconds = 5 as const
+  const resolution = '720p' as const
+
+  const manifest = await readManifest(outDir)
+  const savedEntry = manifest.tasks[manifestKey]?.provider === 'genstudio'
+    ? manifest.tasks[manifestKey]!
+    : null
+  const sourceSha256 = createHash('sha256')
+    .update(await fs.readFile(resolvedImagePath))
+    .digest('hex')
+  const baseIdentity = `${job.project_slug}:${episode_id}:${scene_id}:motion`
+  // A terminal saved job promotes the scope to a NEW retry identity, derived
+  // deterministically from the dead job id — never a clock, never a random.
+  const retry = resolveGenStudioRetryScope(savedEntry, 'missing', isTerminalGenStudioClipTaskFailure)
+  const requestScope = retry.scope
+  const requestIdentity = requestScope === 'missing' ? baseIdentity : `${baseIdentity}:${requestScope}`
+  const inputHash = hashInput(JSON.stringify({
+    requestIdentity,
+    prompt: scene.motion_prompt,
+    modelId,
+    sourceSha256,
+    aspectRatio: requestAspect,
+    durationSeconds,
+    resolution,
+  }))
+  // Reconnect ONLY to a saved job that belongs to this exact request AND has
+  // not already settled. Hash equality alone would let an old failed job
+  // satisfy every future Retry.
+  const recoveryEntry = savedEntry
+    && savedEntry.input_hash === inputHash
+    && !isTerminalGenStudioClipTaskFailure(savedEntry)
+    ? savedEntry
+    : null
+  if (retry.isRetry) {
+    job.output_lines.push(
+      `Previous GenStudio video task ${(retry.previousTaskId || '').slice(0, 12)}… is terminal; `
+      + 'submitting one fresh job under a new retry identity.',
+    )
+  }
+  const idempotencyKey = recoveryEntry?.idempotency_key || buildGenStudioVideoIdempotencyKey({
+    prompt: scene.motion_prompt.trim(),
+    modelId,
+    sourceSha256,
+    aspectRatio: requestAspect,
+    durationSeconds,
+    resolution,
+    requestIdentity,
+  })
+  const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
+  const preparedState = (recoveryEntry?.last_state || 'prepared') as GenStudioRecoveryState
+
+  function clipManifestEntry(overrides: Partial<TaskManifestEntry>): TaskManifestEntry {
+    return {
+      provider: 'genstudio',
+      task_id: '',
+      submitted_at: submittedAt,
+      input_hash: inputHash,
+      idempotency_key: idempotencyKey,
+      operation: 'video',
+      request_scope: requestScope,
+      ...overrides,
+    }
+  }
+
+  // Persist the request identity BEFORE the POST. If the response is lost, the
+  // next attempt reads this key back and re-attaches instead of paying twice.
+  await recordTaskStrict(outDir, manifestKey, clipManifestEntry({
+    task_id: recoveryEntry?.task_id || '',
+    last_state: preparedState,
+  }))
+  await checkpointGenStudioAsset(job, manifestKey, {
+    operation: 'video',
+    idempotency_key: idempotencyKey,
+    ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
+    state: preparedState,
+  })
+  job.output_lines.push(`GenStudio request: ${scene_id} -> ${idempotencyKey}`)
+
+  const videoRequest: GenStudioVideoRequest = {
     prompt: scene.motion_prompt,
     modelId,
     sourceImagePath: resolvedImagePath,
-    aspectRatio: aspectRatio === 'portrait' ? '9:16' : '16:9',
-    durationSeconds: 5,
-    resolution: '720p',
-    requestIdentity: `${job.project_slug}:${episode_id}:${scene_id}:motion`,
+    aspectRatio: requestAspect,
+    durationSeconds,
+    resolution,
+    requestIdentity,
+    idempotencyKey,
     isCancelled: () => jq.isCancelled(job.job_id),
-  })
+    onJobAccepted: async (providerJobId, acceptedIdempotencyKey) => {
+      await recordTaskStrict(outDir, manifestKey, clipManifestEntry({
+        task_id: providerJobId,
+        idempotency_key: acceptedIdempotencyKey,
+        last_state: 'accepted',
+      }))
+      await checkpointGenStudioAsset(job, manifestKey, {
+        operation: 'video',
+        idempotency_key: acceptedIdempotencyKey,
+        job_id: providerJobId,
+        state: 'accepted',
+      })
+      job.output_lines.push(`GenStudio task: ${scene_id} -> ${providerJobId}`)
+    },
+    onState: async (state, providerJobId) => {
+      await recordTaskStrict(outDir, manifestKey, clipManifestEntry({
+        task_id: providerJobId,
+        last_state: state,
+      }))
+      await checkpointGenStudioAsset(job, manifestKey, {
+        operation: 'video',
+        idempotency_key: idempotencyKey,
+        job_id: providerJobId,
+        state: state as GenStudioRecoveryState,
+      })
+    },
+    onReconnect: (providerJobId) => {
+      job.output_lines.push(`Connection interrupted; reconnecting accepted GenStudio task ${providerJobId}.`)
+    },
+  }
+
+  let result: Awaited<ReturnType<typeof generateVideoWithGenStudio>>
+  try {
+    if (recoveryEntry?.task_id) {
+      job.output_lines.push(`Reclaiming accepted GenStudio task ${recoveryEntry.task_id.slice(0, 12)}… for ${manifestKey}.`)
+      result = await recoverVideoWithGenStudio(apiKey, recoveryEntry.task_id, videoRequest)
+    } else {
+      result = await generateVideoWithGenStudio(apiKey, videoRequest)
+    }
+  } catch (error) {
+    // Record a settled provider failure locally. Without this the next Retry
+    // has no way to know the saved job can never succeed.
+    if (error instanceof GenStudioTerminalFailureError && error.modality === 'video') {
+      await recordTask(outDir, manifestKey, clipManifestEntry({
+        task_id: error.jobId || recoveryEntry?.task_id || '',
+        last_state: 'failed',
+      }))
+      await checkpointGenStudioAsset(job, manifestKey, {
+        operation: 'video',
+        idempotency_key: idempotencyKey,
+        ...(error.jobId ? { job_id: error.jobId } : {}),
+        state: 'failed',
+      })
+    }
+    throw error
+  }
 
   job.progress = 70
-  const outDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
-  await fs.mkdir(outDir, { recursive: true })
-  const outPath = path.join(outDir, `${scene_id}.mp4`)
-  const taskId = result.jobId
-  if (taskId) {
-    await recordTask(outDir, `${scene_id}.mp4`, {
-      provider: 'genstudio',
-      task_id: taskId,
-      submitted_at: new Date().toISOString(),
-      input_hash: hashInput(scene.motion_prompt),
+  if (result.jobId) {
+    await recordTask(outDir, manifestKey, clipManifestEntry({
+      task_id: result.jobId,
       result_url: result.videoUrl,
-    })
+      last_state: 'succeeded',
+    }))
   }
   await downloadVideo(result.videoUrl, outPath, (received) => {
     // Coarse 70→95 progress band while the clip downloads.

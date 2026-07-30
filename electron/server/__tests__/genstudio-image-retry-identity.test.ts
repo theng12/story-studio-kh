@@ -16,16 +16,26 @@ import {
   MOCK_GENSTUDIO_FULL_KEY,
   startMockGenStudioService,
 } from './fixtures/mock-genstudio-service.js'
-import {
-  isTerminalGenStudioImageTaskFailure,
-  resolveImageRetryScope,
-  terminalImageManifestEntry,
-  tryRecoverImageFromManifestEntry,
-} from '../lib/manifest-recovery.js'
 import { completionErrorMessage } from '../services/job-completion.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
 import type { ImageModelConfig } from '../models/types.js'
+
+// services/app-settings.ts resolves its settings-file path ONCE at module load,
+// so anything that transitively imports it must be loaded AFTER
+// STORY_STUDIO_DATA_DIR points at this test's own directory. Importing
+// lib/manifest-recovery.js (→ lib/genstudio-client.ts → services/app-settings.ts)
+// at the top of the file instead bound the REAL user app-settings.json, so the
+// `setGenStudioUrl` calls below rewrote the developer's live settings — and,
+// during a parallel test run, changed the GenStudio base URL out from under
+// other test processes mid-assertion.
+const temp = await useTempDataDir()
+const {
+  isTerminalGenStudioImageTaskFailure,
+  resolveImageRetryScope,
+  terminalImageManifestEntry,
+  tryRecoverImageFromManifestEntry,
+} = await import('../lib/manifest-recovery.js')
 
 const MODEL_CONFIG = { provider: 'genstudio-image' } as ImageModelConfig
 
@@ -40,7 +50,6 @@ function manifestEntry(overrides: Partial<TaskManifestEntry> = {}): TaskManifest
 }
 
 void test('GenStudio image retry identity is fresh after failure and stable on a lost response', async (suite) => {
-  const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 

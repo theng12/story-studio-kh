@@ -104,66 +104,262 @@ export function isSettledGenStudioJob(job: { state?: unknown; cancelled?: boolea
   return isTerminalGenStudioJobState(job.state) || job.cancelled === true
 }
 
+/** Every GenStudio product family Story Studio submits durable work to. */
+export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription'
+
+/** The shape every settled GenStudio job response shares. */
+export interface GenStudioSettledJobShape {
+  id: string
+  state?: unknown
+  failure_code?: string | null
+  /** image / TTS / transcription jobs. */
+  cancelled?: boolean | null
+  cancellation_note?: string | null
+  /** video jobs use this instead of `cancellable`. */
+  cancellation_requested?: boolean | null
+}
+
+function settledFailureCode(job: GenStudioSettledJobShape): string | null {
+  return typeof job.failure_code === 'string' && job.failure_code ? job.failure_code : null
+}
+
 /**
- * GenStudio finished this image job and it will never yield an artifact.
+ * GenStudio finished this job and it will never yield an artifact.
  *
  * Reconnecting to the same job id — or replaying its idempotency key — can only
- * ever return the same failure, so a caller that wants new pixels MUST mint a
- * new retry identity instead of reopening this one. Typed so callers never have
- * to match on an error message.
+ * ever return the same failure, so a caller that wants a new asset MUST mint a
+ * new retry identity instead of reopening this one. Typed per modality so
+ * callers branch on `instanceof`, never on an error message.
  */
-export class GenStudioImageTerminalFailureError extends Error {
+export class GenStudioTerminalFailureError extends Error {
   readonly terminal = true as const
+  readonly state: GenStudioTerminalJobState = 'failed'
+  readonly modality: GenStudioModality
   readonly jobId: string
-  readonly state: GenStudioTerminalJobState
   readonly failureCode: string | null
   readonly cancelled: boolean
 
-  constructor(job: {
-    id: string
-    state?: unknown
-    failure_code?: string | null
-    cancelled?: boolean | null
-    cancellation_note?: string | null
-  }) {
-    const cancelled = job.cancelled === true
-    const failureCode = typeof job.failure_code === 'string' && job.failure_code ? job.failure_code : null
+  constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
+    super(message)
+    this.name = 'GenStudioTerminalFailureError'
+    this.modality = modality
+    this.jobId = job.id
+    this.failureCode = settledFailureCode(job)
+    this.cancelled = job.cancelled === true
+  }
+}
+
+export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
     super(
-      cancelled
+      'image',
+      job,
+      job.cancelled === true
         ? `GenStudio KH image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + 'Its reservation was released; Retry submits a new job.'
-        : `GenStudio KH image generation failed${failureCode ? ` (${failureCode})` : ''}. `
+        : `GenStudio KH image generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + 'The reservation was released and this job cannot be reopened; Retry submits a new job.',
     )
     this.name = 'GenStudioImageTerminalFailureError'
-    this.jobId = job.id
-    this.state = 'failed'
-    this.failureCode = failureCode
-    this.cancelled = cancelled
+  }
+}
+
+export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
+    super(
+      'video',
+      job,
+      job.cancelled === true
+        ? `GenStudio KH video job ${job.id} was cancelled. `
+          + 'Its reservation was released; Retry submits a new job. No legacy fallback was attempted.'
+        : `GenStudio video generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+          + 'The reservation was released and this job cannot be reopened; Retry submits a new job. '
+          + 'No legacy fallback was attempted.',
+    )
+    this.name = 'GenStudioVideoTerminalFailureError'
+  }
+}
+
+export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
+    super(
+      'tts',
+      job,
+      job.cancelled === true
+        ? `GenStudio KH TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+          + 'Its reservation was released; Retry submits a new job. No direct Studio Hub fallback was attempted.'
+        : `GenStudio KH generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+          + 'No direct Studio Hub fallback was attempted.',
+    )
+    this.name = 'GenStudioTtsTerminalFailureError'
+  }
+}
+
+export class GenStudioTranscriptionTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
+    super(
+      'transcription',
+      job,
+      job.cancelled === true
+        ? `GenStudio KH transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+          + 'Its reservation was released; Retry submits a new job. '
+          + 'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.'
+        : `GenStudio KH transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+          + 'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.',
+    )
+    this.name = 'GenStudioTranscriptionTerminalFailureError'
   }
 }
 
 /**
- * The image job succeeded but GenStudio no longer serves its private artifact
+ * A transcription quote settled before it could be confirmed into a job.
+ *
+ * Quotes carry `expires_at`, so a saved idempotency key can outlive the quote
+ * it was minted for. Replaying that key only re-reads the dead quote, which is
+ * why this is typed: the next Retry has to mint a NEW identity instead of
+ * matching on the provider's wording.
+ */
+export class GenStudioTranscriptionQuoteExpiredError extends Error {
+  readonly terminal = true as const
+  readonly modality: GenStudioModality = 'transcription'
+  readonly status: number
+
+  constructor(status: number, detail: string) {
+    super(
+      `GenStudio KH could not confirm this transcription quote (HTTP ${status}): ${detail}. `
+      + 'The quote expired or was already settled; no transcription was created and nothing was charged. '
+      + 'Retry submits one fresh quote.',
+    )
+    this.name = 'GenStudioTranscriptionQuoteExpiredError'
+    this.status = status
+  }
+}
+
+/**
+ * The job succeeded but GenStudio no longer serves its private artifact
  * (expired asset, or a completion with no download URL). Replaying the same
  * idempotency key would return the same job and the same missing bytes, so this
  * is terminal for recovery purposes even though the job itself did not fail.
  */
-export class GenStudioImageArtifactUnavailableError extends Error {
+export class GenStudioArtifactUnavailableError extends Error {
   readonly terminal = true as const
+  readonly modality: GenStudioModality
   readonly jobId: string
   readonly status: number
 
+  constructor(modality: GenStudioModality, jobId: string, status: number, message: string) {
+    super(message)
+    this.name = 'GenStudioArtifactUnavailableError'
+    this.modality = modality
+    this.jobId = jobId
+    this.status = status
+  }
+}
+
+export class GenStudioImageArtifactUnavailableError extends GenStudioArtifactUnavailableError {
   constructor(jobId: string, status: number, detail?: string) {
     super(
+      'image',
+      jobId,
+      status,
       `GenStudio KH image download failed${status ? ` (HTTP ${status})` : ''}`
       + `${detail ? ` — ${detail}` : ''}: job ${jobId} no longer serves its artifact. `
       + 'Retry submits a new job; the original reservation was already settled.',
     )
     this.name = 'GenStudioImageArtifactUnavailableError'
-    this.jobId = jobId
-    this.status = status
   }
+}
+
+export class GenStudioTtsArtifactUnavailableError extends GenStudioArtifactUnavailableError {
+  constructor(jobId: string, status: number, detail?: string) {
+    super(
+      'tts',
+      jobId,
+      status,
+      status
+        ? `GenStudio KH audio download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
+          + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
+        : `GenStudio KH job completed without an audio download URL: job ${jobId} `
+          + 'no longer serves its artifact. Retry submits a new job.',
+    )
+    this.name = 'GenStudioTtsArtifactUnavailableError'
+  }
+}
+
+export class GenStudioTranscriptionArtifactUnavailableError extends GenStudioArtifactUnavailableError {
+  constructor(jobId: string, status: number, detail?: string) {
+    super(
+      'transcription',
+      jobId,
+      status,
+      status
+        ? `GenStudio KH SRT download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
+          + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
+        : `GenStudio KH transcription completed without an SRT download URL: job ${jobId} `
+          + 'no longer serves its artifact. Retry submits a new job.',
+    )
+    this.name = 'GenStudioTranscriptionArtifactUnavailableError'
+  }
+}
+
+/**
+ * True when GenStudio has already settled this request's outcome, for any
+ * modality. Reconnecting to a settled job re-reads the same record forever, so
+ * this is the single check every reconnect/recovery path branches on.
+ */
+export function isGenStudioSettledOutcomeError(error: unknown): boolean {
+  return error instanceof GenStudioTerminalFailureError
+    || error instanceof GenStudioArtifactUnavailableError
+    || error instanceof GenStudioTranscriptionQuoteExpiredError
+}
+
+export interface GenStudioRetryScope {
+  /**
+   * Opaque token folded into the provider idempotency identity. Same token ⇒
+   * same idempotency key ⇒ GenStudio replays the existing job instead of
+   * charging for a second one.
+   */
+  scope: string
+  /** True when this scope was minted to escape a terminal provider failure. */
+  isRetry: boolean
+  /** The terminal job this retry replaces, when there is one. */
+  previousTaskId?: string
+}
+
+/**
+ * Resolve the request scope for one durable asset (video / TTS / transcription).
+ *
+ * The identity has to be two things at once:
+ *
+ *  - FRESH after a terminal failure, or a manual Retry replays the dead job's
+ *    idempotency key forever and never submits new work.
+ *  - STABLE if the fresh submission's response is lost, or a reconnect mints a
+ *    second scope and pays twice for the same asset.
+ *
+ * Both fall out of deriving the scope deterministically from persisted state —
+ * the base scope plus the id of the job that failed — and never from a clock or
+ * a random value. This is the modality-agnostic twin of `resolveImageRetryScope`
+ * in lib/manifest-recovery.ts.
+ */
+export function resolveGenStudioRetryScope(
+  entry: { task_id?: string; last_state?: string; request_scope?: string } | null | undefined,
+  baseScope: string,
+  isTerminalEntry: (entry: { task_id?: string; last_state?: string }) => boolean,
+): GenStudioRetryScope {
+  const saved = typeof entry?.request_scope === 'string' ? entry.request_scope.trim() : ''
+  // Only adopt (and only promote) a saved scope that belongs to this base
+  // attempt. A pre-scope manifest entry counts as belonging — it was submitted
+  // under the bare base.
+  const inChain = !saved || saved === baseScope || saved.startsWith(`${baseScope}:retry:`)
+  const current = inChain && saved ? saved : baseScope
+  if (!entry || !inChain || !isTerminalEntry(entry)) {
+    return { scope: current, isRetry: current !== baseScope }
+  }
+  const token = createHash('sha256')
+    .update(`${current}\n${entry.task_id || entry.request_scope || ''}`)
+    .digest('hex')
+    .slice(0, 12)
+  return { scope: `${baseScope}:retry:${token}`, isRetry: true, previousTaskId: entry.task_id }
 }
 
 export interface GenStudioTtsRequest extends GenStudioOperationContext {
@@ -272,6 +468,18 @@ interface GenStudioTranscriptionJob {
   failure_code?: string | null
   routing_status_code?: string | null
   srt_url?: string | null
+  credit_cost?: number
+  remaining_credits?: number
+  /**
+   * `TranscriptionJobResponse` DOES publish `released_credits` (image, chat,
+   * video and music jobs do not). Story Studio forwards it verbatim so the UI
+   * can show real settlement instead of a permanent "on hold".
+   */
+  released_credits?: number | null
+  price_version?: string | null
+  cancellable?: boolean | null
+  cancelled?: boolean | null
+  cancellation_note?: string | null
 }
 
 export interface GenStudioTranscriptionRequest extends GenStudioOperationContext {
@@ -403,6 +611,11 @@ interface GenStudioVideoSourceAsset {
 interface GenStudioVideoJob extends GenStudioJob {
   model_id: string
   video_url?: string | null
+  /**
+   * `VideoJobResponse` carries `cancellation_requested` / `cancelled` — there
+   * is no `cancellable` and no `cancellation_note`, and (unlike TTS and
+   * transcription) no `released_credits`. Never invent one.
+   */
   cancellation_requested?: boolean
   cancelled?: boolean
 }
@@ -415,8 +628,24 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
   durationSeconds: 5 | 10
   resolution: '720p' | '1080p'
   requestIdentity?: string
+  /**
+   * Reuse a key already checkpointed beside the Story asset. Persisting the key
+   * BEFORE the POST is what turns a lost submit response into a replay instead
+   * of a second paid job.
+   */
+  idempotencyKey?: string
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+}
+
+export interface GenStudioVideoResult {
+  videoUrl: string
+  jobId: string
+  modelId: string
+  downloadHeaders: Record<string, string>
+  creditCost?: number
+  remainingCredits?: number
+  priceVersion?: string | null
 }
 
 export interface GenStudioAccountOverview {
@@ -603,6 +832,11 @@ async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenSt
     // Settlement is forwarded ONLY when GenStudio published it. An absent field
     // stays absent so the UI can say "not settled yet" instead of inventing a
     // hold out of credit_cost.
+    //
+    // Per the live contract, `released_credits` ships on ClientTTSJobResponse
+    // and TranscriptionJobResponse; image, chat, video and music jobs omit it.
+    // This forwards whatever actually arrived for the two that publish it and
+    // never fabricates one for the four that do not.
     ...(Number.isFinite(job.reserved_credits) ? { reserved_credits: job.reserved_credits as number } : {}),
     ...(Number.isFinite(job.settled_credits) ? { settled_credits: job.settled_credits as number } : {}),
     ...(Number.isFinite(job.released_credits) ? { returned_credits: job.released_credits as number } : {}),
@@ -683,9 +917,9 @@ function shouldReconnectAcceptedTask(
 ): boolean {
   if (request.isCancelled?.() || request.signal?.aborted) return false
   // A settled provider outcome is not lost connectivity. Reconnecting to it
-  // would just re-read the same terminal job forever.
-  if (error instanceof GenStudioImageTerminalFailureError) return false
-  if (error instanceof GenStudioImageArtifactUnavailableError) return false
+  // would just re-read the same terminal job forever. One typed check covers
+  // image, video, TTS and transcription.
+  if (isGenStudioSettledOutcomeError(error)) return false
   if (error instanceof GenStudioApiError) return retryableStatus(error.status)
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
   return /timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|invalid JSON/i.test(message)
@@ -860,15 +1094,97 @@ async function readJson(response: Response): Promise<any> {
 
 interface CatalogCacheEntry<T> {
   value: T
+  loadedAt: number
   freshUntil: number
   staleUntil: number
+}
+
+/** One cache policy for every GenStudio catalogue Story Studio reads. */
+export type GenStudioCatalogKind =
+  | 'capabilities'
+  | 'voices'
+  | 'chat'
+  | 'image'
+  | 'video'
+  | 'transcription'
+
+/**
+ * `live`  — fetched during this call.
+ * `fresh` — served from cache inside the 5-minute freshness window.
+ * `stale` — served from cache only because a refresh failed; still inside the
+ *           30-minute staleness window, and the UI must say so.
+ */
+export type GenStudioCatalogFreshness = 'live' | 'fresh' | 'stale'
+
+export interface GenStudioCatalogSnapshot<T> {
+  kind: GenStudioCatalogKind
+  value: T
+  freshness: GenStudioCatalogFreshness
+  /** True while the value is only usable because a refresh failed. */
+  stale: boolean
+  /** When the cached copy was actually loaded from GenStudio. */
+  loadedAt: string
+  ageMs: number
+}
+
+const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
+  capabilities: 'capability',
+  voices: 'voice',
+  chat: 'language product',
+  image: 'image model',
+  video: 'video model',
+  transcription: 'transcription model',
+}
+
+/**
+ * The catalogue could not be refreshed AND no copy remains inside the staleness
+ * window. Typed so a submission path refuses loudly instead of spending against
+ * a product nobody can currently verify exists, is available, or is priced the
+ * way Story Studio last saw it.
+ */
+export class GenStudioCatalogUnavailableError extends Error {
+  readonly kind: GenStudioCatalogKind
+  /** Age of the last cached copy, when there was one at all. */
+  readonly ageMs: number | null
+
+  constructor(kind: GenStudioCatalogKind, ageMs: number | null, cause?: unknown) {
+    super(
+      `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
+      + `${ageMs == null
+        ? ' and Story Studio has no cached copy'
+        : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
+          + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
+      + 'Story Studio refused to submit work against an unverified product; nothing was requested '
+      + 'and no credits were charged. Check your connection, then Retry.',
+      cause === undefined ? undefined : { cause },
+    )
+    this.name = 'GenStudioCatalogUnavailableError'
+    this.kind = kind
+    this.ageMs = ageMs
+  }
 }
 
 const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
 const catalogRefreshes = new Map<string, Promise<unknown>>()
 
-function catalogCacheKey(kind: string, baseUrl: string, apiKey: string): string {
+function catalogCacheKey(kind: GenStudioCatalogKind, baseUrl: string, apiKey: string): string {
   return `${kind}:${createHash('sha256').update(`${baseUrl}\0${apiKey}`).digest('hex')}`
+}
+
+/**
+ * Forget every cached catalogue. Use when the account key changes — a snapshot
+ * loaded under a different key must never authorise a submission.
+ */
+export function clearGenStudioCatalogCache(): void {
+  catalogCache.clear()
+}
+
+/**
+ * Force the next read of every catalogue to revalidate, while keeping the
+ * cached copy usable as a stale fallback during a short service interruption.
+ */
+export function invalidateGenStudioCatalogFreshness(): void {
+  for (const entry of catalogCache.values()) entry.freshUntil = 0
 }
 
 async function fetchCatalogJson(url: string, apiKey: string): Promise<unknown> {
@@ -893,19 +1209,40 @@ async function fetchCatalogJson(url: string, apiKey: string): Promise<unknown> {
   )
 }
 
+function catalogSnapshot<T>(
+  kind: GenStudioCatalogKind,
+  entry: CatalogCacheEntry<T>,
+  freshness: GenStudioCatalogFreshness,
+  now: number,
+): GenStudioCatalogSnapshot<T> {
+  return {
+    kind,
+    value: entry.value,
+    freshness,
+    stale: freshness === 'stale',
+    loadedAt: new Date(entry.loadedAt).toISOString(),
+    ageMs: Math.max(0, now - entry.loadedAt),
+  }
+}
+
 /**
  * Catalog reads are free and idempotent. Share one refresh across concurrent
  * jobs, keep a successful snapshot warm for normal generation, and use that
  * snapshot during a short service interruption. Authentication and scope
- * failures never fall back to stale account data.
+ * failures never fall back to stale account data, and a copy older than the
+ * staleness window is refused outright rather than used to authorise spend.
+ *
+ * Every modality goes through this one function: capabilities, voices, chat,
+ * image, video and transcription.
  */
-async function cachedCatalog<T>(
+async function cachedCatalogSnapshot<T>(
+  kind: GenStudioCatalogKind,
   key: string,
   load: () => Promise<T>,
-): Promise<T> {
+): Promise<GenStudioCatalogSnapshot<T>> {
   const now = Date.now()
   const cached = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
-  if (cached && cached.freshUntil > now) return cached.value
+  if (cached && cached.freshUntil > now) return catalogSnapshot(kind, cached, 'fresh', now)
 
   let refresh = catalogRefreshes.get(key) as Promise<T> | undefined
   if (!refresh) {
@@ -913,6 +1250,7 @@ async function cachedCatalog<T>(
       const loadedAt = Date.now()
       catalogCache.set(key, {
         value,
+        loadedAt,
         freshUntil: loadedAt + CATALOG_FRESH_MS,
         staleUntil: loadedAt + CATALOG_STALE_MS,
       })
@@ -924,22 +1262,38 @@ async function cachedCatalog<T>(
   }
 
   try {
-    return await refresh
+    await refresh
+    const loaded = catalogCache.get(key) as CatalogCacheEntry<T>
+    return catalogSnapshot(kind, loaded, 'live', Date.now())
   } catch (error) {
+    // Never serve account data the key is not (or no longer) entitled to.
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) throw error
+    const settledAt = Date.now()
     const fallback = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
-    if (fallback && fallback.staleUntil > Date.now()) return fallback.value
-    throw error
+    if (fallback && fallback.staleUntil > settledAt) return catalogSnapshot(kind, fallback, 'stale', settledAt)
+    throw new GenStudioCatalogUnavailableError(
+      kind,
+      fallback ? Math.max(0, settledAt - fallback.loadedAt) : null,
+      error,
+    )
   }
 }
 
+async function cachedCatalog<T>(
+  kind: GenStudioCatalogKind,
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  return (await cachedCatalogSnapshot(kind, key, load)).value
+}
+
 /** Fetch the account-visible catalog so callers never need to know voice IDs. */
-export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
+export async function listVoicesSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioVoice[]>> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/voices`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
+  return cachedCatalogSnapshot('voices', catalogCacheKey('voices', baseUrl, apiKey), async () => {
+  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/voices`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -957,6 +1311,11 @@ export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
     preview_url: typeof value?.preview_url === 'string' ? value.preview_url.trim() : null,
     preview_text: typeof value?.preview_text === 'string' ? value.preview_text.trim() : null,
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
+  })
+}
+
+export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
+  return (await listVoicesSnapshot(apiKey)).value
 }
 
 /**
@@ -989,12 +1348,12 @@ export async function downloadVoicePreview(
 }
 
 /** Fetch GenStudio's provider-owned capability registry without copying it into project config. */
-export async function listModelCapabilities(apiKey: string): Promise<GenStudioModelCapability[]> {
+export async function listModelCapabilitiesSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioModelCapability[]>> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/models`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
+  return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
+  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid capability catalog')
   const modalities = new Set(['audio', 'image', 'text', 'video'])
   const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
@@ -1014,14 +1373,19 @@ export async function listModelCapabilities(apiKey: string): Promise<GenStudioMo
   })).filter((model: GenStudioModelCapability) => (
     !!model.id && !!model.display_name && modalities.has(model.modality) && operations.has(model.operation)
   ))
+  })
 }
 
-export async function listChatModels(apiKey: string): Promise<GenStudioChatModel[]> {
+export async function listModelCapabilities(apiKey: string): Promise<GenStudioModelCapability[]> {
+  return (await listModelCapabilitiesSnapshot(apiKey)).value
+}
+
+export async function listChatModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioChatModel[]>> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/chat/models`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
+  return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
+  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -1073,14 +1437,19 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
         : 'json_object'
     ) as GenStudioChatModel['structured_output_mode'],
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
+  })
 }
 
-export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
+export async function listChatModels(apiKey: string): Promise<GenStudioChatModel[]> {
+  return (await listChatModelsSnapshot(apiKey)).value
+}
+
+export async function listVideoModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
   const baseUrl = await getGenStudioUrl()
-  const payload = await readJson(await fetch(`${apiBase(baseUrl)}/v1/videos/models`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  }))
+  return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
+  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -1109,6 +1478,11 @@ export async function listVideoModels(apiKey: string): Promise<GenStudioVideoMod
         }))
       : [],
   })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
+  })
+}
+
+export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
+  return (await listVideoModelsSnapshot(apiKey)).value
 }
 
 function videoSourceMediaType(filename: string): string {
@@ -1143,19 +1517,125 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   return `story-video-${digest.slice(0, 44)}`
 }
 
+/**
+ * Poll one accepted video job to a settled outcome.
+ *
+ * Terminal is `succeeded` | `failed` ONLY — there is no `cancelled` JobState.
+ * Cancellation rides on the `cancelled` boolean, so it is treated as an extra
+ * terminal signal via `isSettledGenStudioJob`.
+ */
+async function waitForVideoJob(
+  baseUrl: string,
+  apiKey: string,
+  submitted: GenStudioVideoJob,
+  request: GenStudioVideoRequest,
+  deadline: number,
+): Promise<GenStudioVideoJob> {
+  let current = submitted
+  let reportedState = ''
+  let reportedRoutingState = ''
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || ''
+    if (reportedState === current.state && reportedRoutingState === routingState) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    await recordGenStudioEvidence('video.generation', current)
+    await reportQueueState(request, current)
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
+  while (!isSettledGenStudioJob(current)) {
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await cancelGenStudioJob(
+        baseUrl,
+        apiKey,
+        `/v1/videos/${encodeURIComponent(current.id)}/cancel`,
+        deadline,
+      )
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
+    if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioVideoJob
+    await reportState()
+  }
+  await genStudioAdmission.notifyTerminal(apiKey)
+  if (current.state === 'failed' || current.cancelled === true) {
+    throw new GenStudioVideoTerminalFailureError(current)
+  }
+  return current
+}
+
+function videoResult(
+  baseUrl: string,
+  apiKey: string,
+  completed: GenStudioVideoJob,
+): GenStudioVideoResult {
+  const videoUrl = completed.video_url || `/v1/videos/${encodeURIComponent(completed.id)}/file`
+  return {
+    videoUrl: requestUrl(baseUrl, videoUrl),
+    jobId: completed.id,
+    modelId: completed.model_id,
+    downloadHeaders: authorization(apiKey),
+    creditCost: completed.credit_cost,
+    remainingCredits: completed.remaining_credits,
+    priceVersion: completed.price_version,
+  }
+}
+
+/** Reconnect to an already accepted video task. Never submits new work. */
+async function recoverVideoWithGenStudioAdmitted(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioVideoRequest,
+): Promise<GenStudioVideoResult> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const initial = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioVideoJob
+  // Classify BEFORE polling. A job that already failed (or was cancelled)
+  // cannot become a clip, and a poll loop would only re-read the same terminal
+  // record forever.
+  if (initial.state === 'failed' || initial.cancelled === true) {
+    await recordGenStudioEvidence('video.generation', initial)
+    await reportQueueState(request, initial)
+    await request.onState?.(initial.state, initial.id)
+    throw new GenStudioVideoTerminalFailureError(initial)
+  }
+  const completed = initial.state === 'succeeded'
+    ? initial
+    : await waitForVideoJob(baseUrl, apiKey, initial, request, deadline)
+  if (completed === initial) {
+    await recordGenStudioEvidence('video.generation', initial)
+    await reportQueueState(request, initial)
+    await request.onState?.(initial.state, initial.id)
+  }
+  return videoResult(baseUrl, apiKey, completed)
+}
+
+export async function recoverVideoWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioVideoRequest,
+): Promise<GenStudioVideoResult> {
+  return recoverVideoWithGenStudioAdmitted(apiKey, jobId, request)
+}
+
 /** Submit image-to-video work only through GenStudio's durable video boundary. */
 async function generateVideoWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioVideoRequest,
-): Promise<{
-  videoUrl: string
-  jobId: string
-  modelId: string
-  downloadHeaders: Record<string, string>
-  creditCost?: number
-  remainingCredits?: number
-  priceVersion?: string | null
-}> {
+): Promise<GenStudioVideoResult> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
   if (prompt.length < 3 || prompt.length > 4_000) throw new Error('GenStudio video prompts must contain 3 to 4,000 characters.')
@@ -1163,7 +1643,10 @@ async function generateVideoWithGenStudioAdmitted(
   const source = await fs.readFile(request.sourceImagePath)
   if (!source.length) throw new Error('GenStudio video source image is empty.')
   const sourceSha256 = createHash('sha256').update(source).digest('hex')
-  const idempotencyKey = buildGenStudioVideoIdempotencyKey({
+  // A caller that checkpointed its key before this call is authoritative: that
+  // persisted key is exactly what makes a lost submit response replay instead
+  // of creating a second paid job.
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioVideoIdempotencyKey({
     prompt,
     modelId,
     sourceSha256,
@@ -1214,68 +1697,21 @@ async function generateVideoWithGenStudioAdmitted(
   await recordGenStudioEvidence('video.generation', submitted)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
-  let current = submitted
-  let reportedState = ''
-  let reportedRoutingState = ''
-  const reportState = async (): Promise<void> => {
-    const routingState = current.routing_status_code || ''
-    if (reportedState === current.state && reportedRoutingState === routingState) return
-    reportedState = current.state
-    reportedRoutingState = routingState
-    await recordGenStudioEvidence('video.generation', current)
-    await reportQueueState(request, current)
-    await request.onState?.(current.state, current.id)
-  }
-  await reportState()
-  while (current.state !== 'succeeded' && current.state !== 'failed') {
-    if (request.isCancelled?.() || request.signal?.aborted) {
-      await cancelGenStudioJob(
-        baseUrl,
-        apiKey,
-        `/v1/videos/${encodeURIComponent(current.id)}/cancel`,
-        deadline,
-      )
-      await request.onQueueState?.('cancelled', current.id)
-      throw new Error('Cancelled by user')
-    }
-    if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    current = await requestJsonWithRetry(
-      `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
-      { headers: authorization(apiKey) },
-      request,
-      deadline,
-    ) as GenStudioVideoJob
-    await reportState()
-  }
-  await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') {
-    throw new Error(`GenStudio video generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No legacy fallback was attempted.`)
-  }
-  const videoUrl = current.video_url || `/v1/videos/${encodeURIComponent(current.id)}/file`
-  return {
-    videoUrl: requestUrl(baseUrl, videoUrl),
-    jobId: current.id,
-    modelId: current.model_id,
-    downloadHeaders: authorization(apiKey),
-    creditCost: current.credit_cost,
-    remainingCredits: current.remaining_credits,
-    priceVersion: current.price_version,
+  try {
+    return videoResult(baseUrl, apiKey, await waitForVideoJob(baseUrl, apiKey, submitted, request, deadline))
+  } catch (error) {
+    // A settled outcome is never reopened; only a lost connection reconnects,
+    // and it reconnects to the job we already paid for.
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    return recoverVideoWithGenStudioAdmitted(apiKey, submitted.id, request)
   }
 }
 
 export async function generateVideoWithGenStudio(
   apiKey: string,
   request: GenStudioVideoRequest,
-): Promise<{
-  videoUrl: string
-  jobId: string
-  modelId: string
-  downloadHeaders: Record<string, string>
-  creditCost?: number
-  remainingCredits?: number
-  priceVersion?: string | null
-}> {
+): Promise<GenStudioVideoResult> {
   return generateVideoWithGenStudioAdmitted(apiKey, request)
 }
 
@@ -1623,12 +2059,12 @@ export async function uploadImageSourceWithGenStudio(
 }
 
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */
-export async function listTranscriptionModels(
+export async function listTranscriptionModelsSnapshot(
   apiKey: string,
-): Promise<GenStudioTranscriptionModel[]> {
+): Promise<GenStudioCatalogSnapshot<GenStudioTranscriptionModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('transcription', baseUrl, apiKey)
-  return cachedCatalog(key, async () => {
+  return cachedCatalogSnapshot('transcription', key, async () => {
     const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
     if (!Array.isArray(payload)) {
       throw new Error('GenStudio KH returned an invalid transcription model catalog')
@@ -1655,11 +2091,19 @@ export async function listTranscriptionModels(
   })
 }
 
+export async function listTranscriptionModels(
+  apiKey: string,
+): Promise<GenStudioTranscriptionModel[]> {
+  return (await listTranscriptionModelsSnapshot(apiKey)).value
+}
+
 /** Fetch the account-visible image catalog owned by GenStudio. */
-export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
+export async function listImageModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
-  return cachedCatalog(key, async () => {
+  return cachedCatalogSnapshot('image', key, async () => {
     const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
     return payload.map((value: any) => ({
@@ -1707,6 +2151,10 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
       : undefined,
     })).filter((model: GenStudioImageModel) => model.id && model.display_name)
   })
+}
+
+export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
+  return (await listImageModelsSnapshot(apiKey)).value
 }
 
 export function buildGenStudioImageIdempotencyKey(input: {
@@ -1957,6 +2405,15 @@ function transcriptionMediaType(filename: string): string {
   }
 }
 
+/**
+ * Statuses that mean this quote can never be confirmed: it is gone, already
+ * settled, or no longer valid for this account. 402/429/5xx are deliberately
+ * excluded — those are retryable and must not retire a paid identity.
+ */
+function isTerminalQuoteStatus(status: number): boolean {
+  return status === 400 || status === 404 || status === 409 || status === 410 || status === 422
+}
+
 export function buildGenStudioTranscriptionIdempotencyKey(input: {
   requestIdentity: string
   fileSha256: string
@@ -1996,7 +2453,7 @@ async function waitForTranscriptionJob(
     await request.onState?.(current.state, current.id)
   }
   await reportState()
-  while (current.state !== 'succeeded' && current.state !== 'failed') {
+  while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
         baseUrl,
@@ -2020,11 +2477,8 @@ async function waitForTranscriptionJob(
     await reportState()
   }
   await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') {
-    throw new Error(
-      `GenStudio KH transcription failed${current.failure_code ? ` (${current.failure_code})` : ''}. ` +
-      'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.',
-    )
+  if (current.state === 'failed' || current.cancelled === true) {
+    throw new GenStudioTranscriptionTerminalFailureError(current)
   }
   return current
 }
@@ -2037,7 +2491,9 @@ async function downloadTranscriptionArtifact(
   deadline: number,
 ): Promise<string> {
   if (!completed.srt_url) {
-    throw new Error('GenStudio KH transcription completed without an SRT download URL')
+    throw new GenStudioTranscriptionArtifactUnavailableError(
+      completed.id, 0, 'the job completed without a download URL',
+    )
   }
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
@@ -2047,6 +2503,11 @@ async function downloadTranscriptionArtifact(
         signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
       })
       if (!response.ok) {
+        // A gone artifact is terminal: replaying the idempotency key returns
+        // the same settled job with the same missing bytes.
+        if (response.status === 404 || response.status === 410) {
+          throw new GenStudioTranscriptionArtifactUnavailableError(completed.id, response.status)
+        }
         const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
         if (!retryableStatus(response.status)) throw error
         lastError = error
@@ -2057,6 +2518,7 @@ async function downloadTranscriptionArtifact(
       }
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (error instanceof GenStudioArtifactUnavailableError) throw error
       lastError = error
       if (error instanceof Error && !/HTTP (408|425|429|5\d\d)/.test(error.message)
         && !error.message.includes('fetch failed')) throw error
@@ -2084,6 +2546,15 @@ async function recoverTranscriptionWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioTranscriptionJob
+  // Classify BEFORE polling. A job that already failed (or was cancelled)
+  // cannot become a transcript, and a poll loop would only re-read the same
+  // terminal record — the "reopen a six-day-old failure forever" bug.
+  if (initial.state === 'failed' || initial.cancelled === true) {
+    await recordGenStudioEvidence('audio.transcription', initial)
+    await reportQueueState(request, initial)
+    await request.onState?.(initial.state, initial.id)
+    throw new GenStudioTranscriptionTerminalFailureError(initial)
+  }
   const completed = await waitForTranscriptionJob(baseUrl, apiKey, initial, request, deadline)
   const srt = await downloadTranscriptionArtifact(baseUrl, apiKey, completed, request, deadline)
   return { srt, jobId: completed.id, modelId: completed.model_id }
@@ -2132,6 +2603,9 @@ async function transcribeWithGenStudioAdmitted(
 
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  // A quote carries `expires_at`. When a saved idempotency key outlives its
+  // quote, the quote/confirm exchange fails permanently — surface that as a
+  // typed outcome so the caller retires the key instead of matching wording.
   const quote = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`,
@@ -2145,7 +2619,12 @@ async function transcribeWithGenStudioAdmitted(
     },
     request,
     deadline,
-  ) as { id?: string }
+  ).catch((error: unknown) => {
+    if (error instanceof GenStudioApiError && isTerminalQuoteStatus(error.status)) {
+      throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
+    }
+    throw error
+  }) as { id?: string }
   if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
   const submitted = await submitJsonWithAdmission(
@@ -2160,7 +2639,12 @@ async function transcribeWithGenStudioAdmitted(
     },
     request,
     deadline,
-  ) as GenStudioTranscriptionJob
+  ).catch((error: unknown) => {
+    if (error instanceof GenStudioApiError && isTerminalQuoteStatus(error.status)) {
+      throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
+    }
+    throw error
+  }) as GenStudioTranscriptionJob
   await recordGenStudioEvidence('audio.transcription', submitted)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
@@ -2202,7 +2686,7 @@ async function waitForJob(
     await request.onState?.(current.state, current.id)
   }
   await reportState()
-  while (current.state !== 'succeeded' && current.state !== 'failed') {
+  while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
         baseUrl,
@@ -2226,8 +2710,8 @@ async function waitForJob(
     await reportState()
   }
   await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') {
-    throw new Error(`GenStudio KH generation failed${current.failure_code ? ` (${current.failure_code})` : ''}. No direct Studio Hub fallback was attempted.`)
+  if (current.state === 'failed' || current.cancelled === true) {
+    throw new GenStudioTtsTerminalFailureError(current)
   }
   return current
 }
@@ -2241,7 +2725,9 @@ async function completeTtsJobToFile(
   deadline: number,
 ): Promise<void> {
   const completed = await waitForJob(baseUrl, apiKey, submitted, request, deadline)
-  if (!completed.audio_url) throw new Error('GenStudio KH job completed without an audio download URL')
+  if (!completed.audio_url) {
+    throw new GenStudioTtsArtifactUnavailableError(completed.id, 0, 'the job completed without a download URL')
+  }
 
   const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.wav`)
   try {
@@ -2254,6 +2740,11 @@ async function completeTtsJobToFile(
           signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
         })
         if (!audioResponse.ok) {
+          // A gone artifact is terminal: replaying the idempotency key returns
+          // the same settled job with the same missing bytes.
+          if (audioResponse.status === 404 || audioResponse.status === 410) {
+            throw new GenStudioTtsArtifactUnavailableError(completed.id, audioResponse.status)
+          }
           const error = new Error(`GenStudio KH audio download failed (HTTP ${audioResponse.status})`)
           if (!retryableStatus(audioResponse.status)) throw error
           downloadError = error
@@ -2280,6 +2771,7 @@ async function completeTtsJobToFile(
         }
       } catch (error) {
         if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+        if (error instanceof GenStudioArtifactUnavailableError) throw error
         downloadError = error
       }
       if (!downloaded && attempt < NETWORK_RETRY_ATTEMPTS) {
@@ -2350,7 +2842,15 @@ async function generateTtsToFileAdmitted(
   await recordGenStudioEvidence('voice.tts', submitted)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
-  await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
+  try {
+    await completeTtsJobToFile(baseUrl, apiKey, outPath, submitted, request, deadline)
+  } catch (error) {
+    // A settled outcome is never reopened; a lost connection reconnects to the
+    // job this submission already paid for instead of submitting another.
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    await recoverTtsToFileAdmitted(apiKey, outPath, submitted.id, request)
+  }
 }
 
 export async function generateTtsToFile(

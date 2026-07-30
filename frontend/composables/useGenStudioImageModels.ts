@@ -1,3 +1,6 @@
+import { useApi } from './useApi.js'
+import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
+
 export interface GenStudioImageSize {
   aspect_ratio: string
   width: number
@@ -27,42 +30,36 @@ export interface GenStudioImageModelInfo {
   legacy_ids?: string[]
 }
 
-const catalog = ref<GenStudioImageModelInfo[]>([])
-const loading = ref(false)
-const loaded = ref(false)
-const error = ref('')
+const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({
+  empty: [],
+  fetcher: async () => {
+    const { get } = useApi()
+    const response = await get<{ models?: GenStudioImageModelInfo[] }>('/app-settings/genstudio/image-models', { cache: 'no-store' })
+    return Array.isArray(response.models) ? response.models : []
+  },
+})
 
-/** One app-wide live catalog cache shared by every image picker/workspace. */
+/**
+ * One app-wide live catalog cache shared by every image picker/workspace.
+ * See `useGenStudioCatalogCache.ts` for the freshness/staleness policy —
+ * `models` stays populated with the last good snapshot while stale, and is
+ * only cleared once it is past the hard ceiling with no successful refresh.
+ */
 export function useGenStudioImageModels() {
-  const { get } = useApi()
-
-  async function refresh(force = false): Promise<void> {
-    if (loading.value || (loaded.value && !force)) return
-    loading.value = true
-    error.value = ''
-    try {
-      const response = await get<{ models?: GenStudioImageModelInfo[] }>('/app-settings/genstudio/image-models')
-      catalog.value = Array.isArray(response.models) ? response.models : []
-      loaded.value = true
-    } catch (e: any) {
-      catalog.value = []
-      loaded.value = true
-      error.value = e?.data?.detail || e?.message || 'GenStudio KH image catalog unavailable'
-    } finally {
-      loading.value = false
-    }
-  }
-
   function find(modelId: string): GenStudioImageModelInfo | undefined {
-    return catalog.value.find(model => model.id === modelId)
+    return cache.data.value.find(model => model.id === modelId)
   }
 
   return {
-    models: readonly(catalog),
-    loading: readonly(loading),
-    loaded: readonly(loaded),
-    error: readonly(error),
-    refresh,
+    models: cache.data,
+    loading: cache.loading,
+    loaded: cache.loaded,
+    error: cache.error,
+    lastFetchedAt: cache.lastFetchedAt,
+    isStale: cache.isStale,
+    isExpired: cache.isExpired,
+    isUsable: cache.isUsable,
+    refresh: cache.refresh,
     find,
   }
 }

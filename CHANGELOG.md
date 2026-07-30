@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.758 — 2026-07-31
+
+- **Lost connections can no longer charge you twice** — Video, Voice, and
+  Subtitle transcription now save their request identity before sending it. If the
+  network drops the reply on the way back, Story Studio reattaches to the request
+  already running at GenStudio instead of paying for a second one. Image generation
+  already worked this way; the rest of the app now matches.
+- **A failed job stops being reopened forever** — Video, Voice, and Subtitle jobs
+  now recognise a genuinely finished-and-failed request by its reported state rather
+  than by reading its error text, so Retry starts fresh work instead of reconnecting
+  to something already dead. Failed Voice and Subtitle jobs also show the credits
+  GenStudio returned.
+- **The model list can no longer go quietly out of date** — every catalogue now
+  refreshes on one shared schedule. Lists older than a few minutes are marked as
+  stale in Settings, and Story Studio refuses to start new work against a product it
+  has not been able to confirm recently rather than guessing it still exists.
+- **Provider names stay private** — voice and transcription catalogues no longer
+  carry GenStudio's internal engine and vendor names out to the app.
+
+---
+
 ## v1.0.757 — 2026-07-31
 
 - **Retry actually retries a failed scene image** — a scene whose image failed at

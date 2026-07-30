@@ -62,7 +62,19 @@ describe('shared model menus', () => {
     }
     assert.doesNotMatch(imagePicker, /model\.execution_label|model\.description/)
     assert.doesNotMatch(imageCatalog, /execution_label/)
-    assert.match(appSettings, /delete customerModel\.execution_label/)
+    // The backend strips private provider identity before any catalogue reaches the
+    // client. This used to be a single inline `delete` on the image route; it is now
+    // one shared helper applied to images, voices, and transcription models — so
+    // assert the guarantee (every private field is listed and stripped) rather than
+    // the old one-line implementation detail.
+    assert.match(appSettings, /function withoutProviderIdentity/)
+    for (const privateField of [
+      'provider', 'engine_id', 'engine_name', 'model_family', 'model_revision_id', 'execution_label',
+    ]) {
+      assert.match(appSettings, new RegExp(`'${privateField}'`), `${privateField} must be stripped`)
+    }
+    // Every catalogue route that returns provider-authored rows must run the strip.
+    assert.equal((appSettings.match(/\.map\(withoutProviderIdentity\)/g) || []).length, 3)
   })
 
   test('thumbnail generator enables reference guidance only for qualified GenStudio models', () => {

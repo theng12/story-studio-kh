@@ -7,7 +7,7 @@ import { once } from 'node:events'
 
 export const MOCK_GENSTUDIO_FULL_KEY = 'gsk_mock_story_full_scope'
 
-export type MockGenStudioOperation = 'chat' | 'image' | 'tts' | 'transcription'
+export type MockGenStudioOperation = 'chat' | 'image' | 'tts' | 'transcription' | 'video'
 
 export type MockGenStudioState =
   | 'accepted'
@@ -26,6 +26,7 @@ export type MockGenStudioScope =
   | 'audio:transcribe'
   | 'images:generate'
   | 'chat:generate'
+  | 'video:generate'
   | 'usage:read'
 
 export interface MockCreditSnapshot {
@@ -100,6 +101,7 @@ const FULL_SCOPES: MockGenStudioScope[] = [
   'audio:transcribe',
   'images:generate',
   'chat:generate',
+  'video:generate',
   'usage:read',
 ]
 
@@ -108,6 +110,7 @@ const OPERATION_NAME: Record<MockGenStudioOperation, string> = {
   image: 'image.generation',
   tts: 'voice.tts',
   transcription: 'audio.transcription',
+  video: 'video.generation',
 }
 
 const DEFAULT_CREDITS: Record<MockGenStudioOperation, number> = {
@@ -115,7 +118,15 @@ const DEFAULT_CREDITS: Record<MockGenStudioOperation, number> = {
   image: 7,
   tts: 5,
   transcription: 7,
+  video: 50,
 }
+
+/** Not a playable clip — just deterministic, non-empty bytes with an ftyp box. */
+const TINY_MP4 = Buffer.concat([
+  Buffer.from([0, 0, 0, 0x18]),
+  Buffer.from('ftypisom', 'ascii'),
+  Buffer.alloc(16, 0x21),
+])
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -225,6 +236,7 @@ function requiredScope(pathname: string, method: string): MockGenStudioScope | n
     return 'audio:transcribe'
   }
   if (pathname.startsWith('/v1/audio/jobs') || pathname.startsWith('/v1/jobs')) return 'tts:generate'
+  if (pathname.startsWith('/v1/videos')) return 'video:generate'
   return method === 'POST' ? null : null
 }
 
@@ -244,9 +256,12 @@ export class MockGenStudioService {
     image: 0,
     tts: 0,
     transcription: 0,
+    video: 0,
   }
 
   baseUrl = ''
+
+  private sourceAssets = 1
 
   constructor() {
     this.server = http.createServer((request, response) => {
@@ -392,6 +407,7 @@ export class MockGenStudioService {
     if (operation === 'chat') return 'mock-chat-v1'
     if (operation === 'image') return 'mock-image-v1'
     if (operation === 'transcription') return 'mock-whisper-v1'
+    if (operation === 'video') return 'mock-video-v1'
     return 'mock-tts-v1'
   }
 
@@ -449,9 +465,27 @@ export class MockGenStudioService {
         image_url: state === 'succeeded' ? `/v1/images/${job.id}/file` : null,
       }
     }
+    if (job.operation === 'video') {
+      // VideoJobResponse: cancellation_requested/cancelled, and deliberately NO
+      // released_credits — only TTS and transcription publish that field.
+      return {
+        ...base,
+        prompt: String(job.body.prompt || ''),
+        mode: String(job.body.mode || 'image-to-video'),
+        aspect_ratio: String(job.body.aspect_ratio || '16:9'),
+        duration_seconds: Number(job.body.duration_seconds) || 5,
+        resolution: String(job.body.resolution || '720p'),
+        price_version: 'mock-video-price-v1',
+        cancellation_requested: false,
+        cancelled: false,
+        video_url: state === 'succeeded' ? `/v1/videos/${job.id}/file` : null,
+      }
+    }
     if (job.operation === 'transcription') {
       return {
         ...base,
+        // TranscriptionJobResponse publishes released_credits.
+        released_credits: state === 'succeeded' || state === 'failed' ? job.credits.returned : null,
         filename: 'mock.wav',
         language: job.body.language || null,
         word_timestamps: job.body.word_timestamps === 'true',
@@ -465,6 +499,8 @@ export class MockGenStudioService {
     }
     return {
       ...base,
+      // ClientTTSJobResponse publishes released_credits.
+      released_credits: state === 'succeeded' || state === 'failed' ? job.credits.returned : null,
       voice_id: String(job.body.voice_id || 'mock-voice'),
       model_revision_id: 'mock-tts-r1',
       speed: Number(job.body.speed) || 1,
@@ -593,6 +629,17 @@ export class MockGenStudioService {
           json(response, 202, this.responseBody(job, replay))
           return
         }
+        if (url.pathname === '/v1/videos/source-images' || url.pathname === '/v1/images/source-images') {
+          json(response, 201, {
+            id: `mock-source-asset-${this.sourceAssets++}`,
+            media_type: 'image/png',
+            byte_size: body.length,
+            width: 1_280,
+            height: 720,
+            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          })
+          return
+        }
         const operation = this.submitOperation(url.pathname)
         if (operation) {
           if (idempotencyKey.length < 8) {
@@ -634,6 +681,9 @@ export class MockGenStudioService {
           const wav = silentWav()
           response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
           response.end(wav)
+        } else if (artifact.kind === 'video') {
+          response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(TINY_MP4.length) })
+          response.end(TINY_MP4)
         } else {
           const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock GenStudio.\n')
           response.writeHead(200, { 'Content-Type': 'application/x-subrip', 'Content-Length': String(srt.length) })
@@ -747,6 +797,7 @@ export class MockGenStudioService {
     if (pathname === '/v1/images/generations') return 'image'
     if (pathname === '/v1/audio/jobs') return 'tts'
     if (pathname === '/v1/audio/transcriptions') return 'transcription'
+    if (pathname === '/v1/videos/generations') return 'video'
     return null
   }
 
@@ -756,6 +807,7 @@ export class MockGenStudioService {
       ['image', /^\/v1\/images\/([^/]+)$/],
       ['transcription', /^\/v1\/transcriptions\/([^/]+)$/],
       ['tts', /^\/v1\/jobs\/([^/]+)$/],
+      ['video', /^\/v1\/videos\/([^/]+)$/],
     ]
     for (const [operation, pattern] of patterns) {
       const match = pathname.match(pattern)
@@ -766,11 +818,12 @@ export class MockGenStudioService {
     return null
   }
 
-  private artifactJob(pathname: string): { job: MockJob; kind: 'audio' | 'image' | 'srt' } | null {
-    const patterns: Array<[MockGenStudioOperation, 'audio' | 'image' | 'srt', RegExp]> = [
+  private artifactJob(pathname: string): { job: MockJob; kind: 'audio' | 'image' | 'srt' | 'video' } | null {
+    const patterns: Array<[MockGenStudioOperation, 'audio' | 'image' | 'srt' | 'video', RegExp]> = [
       ['tts', 'audio', /^\/v1\/jobs\/([^/]+)\/audio$/],
       ['image', 'image', /^\/v1\/images\/([^/]+)\/file$/],
       ['transcription', 'srt', /^\/v1\/transcriptions\/([^/]+)\/srt$/],
+      ['video', 'video', /^\/v1\/videos\/([^/]+)\/file$/],
     ]
     for (const [operation, kind, pattern] of patterns) {
       const match = pathname.match(pattern)

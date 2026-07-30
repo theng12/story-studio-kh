@@ -52,8 +52,17 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     'voice_qwen3_ryan',
     'voice_qwen3_aiden',
   ])
-  assert.equal(response.body.voices[0].engine_id, 'genstudio-standard-v1')
-  assert.equal(response.body.voices[0].model_family, 'qwen3')
+  // Which upstream engine served a voice is private routing detail. Story Studio
+  // presents one GenStudio KH boundary, so these never reach the customer payload.
+  const [voice] = response.body.voices
+  assert.equal(voice.engine_id, undefined, 'engine_id must not leave the backend')
+  assert.equal(voice.engine_name, undefined, 'engine_name must not leave the backend')
+  assert.equal(voice.model_family, undefined, 'model_family must not leave the backend')
+  assert.equal(voice.model_revision_id, undefined, 'model_revision_id must not leave the backend')
+  assert.equal(voice.provider, undefined, 'provider must not leave the backend')
+  // Customer-facing selection data still survives the strip.
+  assert.equal(voice.voice_tier, 'standard')
+  assert.equal(voice.id, 'voice_qwen3_ryan')
 })
 
 test('GenStudio media and LLM discovery use provider-owned live catalogs', async () => {

@@ -17,6 +17,10 @@ import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { scanEpisodeAssets } from './video.js'
 import {
   buildGenStudioTranscriptionIdempotencyKey,
+  GenStudioArtifactUnavailableError,
+  GenStudioCatalogUnavailableError,
+  GenStudioTerminalFailureError,
+  GenStudioTranscriptionQuoteExpiredError,
   listTranscriptionModels,
   recoverTranscriptionWithGenStudio,
   transcribeWithGenStudio,
@@ -54,6 +58,25 @@ export interface TranscribeSubtitlesRequest {
 }
 
 /**
+ * Local `last_state` values that mean the saved GenStudio transcription can
+ * never produce an SRT again.
+ *
+ * There is no `cancelled` or `rejected` JobState in GenStudio — the enum is
+ * accepted|reserved|dispatched|running|validating|reconciling|succeeded|failed
+ * and cancellation rides on a boolean. Those two names are retained ONLY so
+ * manifests written by older Story Studio releases still classify correctly;
+ * nothing writes them any more. `expired`/`artifact_expired` are Story-local
+ * markers for a settled job whose quote or artifact is gone.
+ */
+const TERMINAL_TRANSCRIPTION_TASK_STATES: ReadonlySet<string> = new Set([
+  'failed',
+  'expired',
+  'artifact_expired',
+  'cancelled',
+  'rejected',
+])
+
+/**
  * An accepted transcription can be reconnected safely after an app restart
  * or network interruption. A terminal GenStudio task cannot: replaying its
  * idempotency key only returns the same failed/expired provider task.
@@ -63,16 +86,36 @@ export function isTerminalGenStudioTranscriptionTaskFailure(entry: {
   idempotency_key?: string
   last_state?: string
 } | null | undefined): boolean {
-  return Boolean((entry?.task_id || entry?.idempotency_key) && /^(failed|cancelled|rejected|expired)$/i.test(entry.last_state || ''))
+  return Boolean(
+    (entry?.task_id || entry?.idempotency_key)
+    && TERMINAL_TRANSCRIPTION_TASK_STATES.has((entry.last_state || '').toLowerCase()),
+  )
 }
 
-/** A provider quote can expire before it yields a task id, so classify that
- * terminal response separately and retire its idempotency key on Retry. */
+/**
+ * GenStudio settled this transcription request and no replay of its identity
+ * can change that: the job failed/was cancelled, its quote expired before it
+ * could be confirmed, or the finished SRT is no longer served.
+ *
+ * Typed on purpose. The previous implementation matched words like "failed" or
+ * "expired" anywhere in an error message, which classified unrelated failures
+ * (and would silently reclassify on any provider wording change).
+ */
 export function isTerminalGenStudioTranscriptionProviderError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return /(?:transcription|task|quote).*(?:failed|expired|cancelled|rejected)|(?:failed|expired|cancelled|rejected).*(?:transcription|task|quote)/i.test(message)
+  if (error instanceof GenStudioTranscriptionQuoteExpiredError) return true
+  if (error instanceof GenStudioTerminalFailureError) return error.modality === 'transcription'
+  if (error instanceof GenStudioArtifactUnavailableError) return error.modality === 'transcription'
+  return false
 }
 
+/**
+ * Persist the terminal outcome of one transcription request.
+ *
+ * A settled SRT that GenStudio no longer serves is recorded as
+ * `artifact_expired` rather than `failed` so the manifest keeps the real
+ * reason; both classify as terminal, so either way the next Retry mints a
+ * fresh identity instead of replaying a dead key.
+ */
 async function markTerminalTranscriptionRequest(input: {
   job: Job
   outDir: string
@@ -81,7 +124,11 @@ async function markTerminalTranscriptionRequest(input: {
   idempotencyKey: string
   submittedAt: string
   taskId?: string
+  error?: unknown
 }): Promise<void> {
+  const lastState = input.error instanceof GenStudioArtifactUnavailableError
+    ? 'artifact_expired'
+    : 'failed'
   await recordTaskStrict(input.outDir, input.manifestKey, {
     provider: 'genstudio',
     task_id: input.taskId || '',
@@ -89,7 +136,7 @@ async function markTerminalTranscriptionRequest(input: {
     input_hash: input.inputHash,
     idempotency_key: input.idempotencyKey,
     operation: 'transcription',
-    last_state: 'failed',
+    last_state: lastState,
   })
   await checkpointGenStudioAsset(input.job, input.manifestKey, {
     operation: 'transcription',
@@ -119,6 +166,10 @@ async function resolveGenStudioTranscription(
   try {
     models = await listTranscriptionModels(apiKey)
   } catch (error) {
+    // A catalogue beyond the staleness window is already a clear, typed
+    // refusal that names the cost consequence — do not flatten it into a
+    // generic message, and never fall back to an unverified product.
+    if (error instanceof GenStudioCatalogUnavailableError) throw error
     throw new Error(
       'Could not load transcription models after automatic reconnect attempts. ' +
       'No transcription was submitted or charged; check your connection and Retry.',
@@ -325,6 +376,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
         await markTerminalTranscriptionRequest({
           job, outDir, manifestKey, inputHash: currentInputHash,
           idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
+          error,
         })
         if (!recoveryTask) {
           job.output_lines.push('GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.')
@@ -357,6 +409,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
             await markTerminalTranscriptionRequest({
               job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
+              error: replacementError,
             })
           }
           throw replacementError
@@ -619,6 +672,7 @@ async function transcribePerChapter(
           await markTerminalTranscriptionRequest({
             job, outDir, manifestKey, inputHash: currentInputHash,
             idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
+            error,
           })
           if (!recoveryTask) {
             job.output_lines.push(`  ${sec.slug}: GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.`)
@@ -647,6 +701,7 @@ async function transcribePerChapter(
             if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
               await markTerminalTranscriptionRequest({
                 job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
+                error: replacementError,
               })
             }
             throw replacementError

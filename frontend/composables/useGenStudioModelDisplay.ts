@@ -1,5 +1,6 @@
 import { readonly, ref } from 'vue'
 import { useApi } from './useApi.js'
+import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import {
   buildGenStudioModelLabelEntries,
   genStudioTtsDisplayName,
@@ -9,8 +10,43 @@ import {
 
 const STORAGE_KEY = 'genstudio_model_display_labels_v1'
 const labels = ref<Record<string, string>>({})
-const loaded = ref(false)
-const loading = ref(false)
+
+// The label map is cumulative and localStorage-persisted by design: once a
+// model has been seen, its human-readable name stays available for old
+// jobs/usage rows even after the model retires from the live catalog. What
+// still needs the shared freshness policy is the underlying fetch — this
+// cache tracks "how current is our view of the 4 catalogs" so `loaded`/
+// `isStale`/`lastFetchedAt` behave the same way as every other GenStudio
+// catalog composable, without ever going backwards on `labels` itself.
+const catalogCache = createGenStudioCatalogCache<Record<string, GenStudioDisplayCatalogEntry[]>>({
+  empty: {},
+  fetcher: async () => {
+    const { get } = useApi()
+    const endpoints = [
+      ['chat', '/app-settings/genstudio/chat-models'],
+      ['image', '/app-settings/genstudio/image-models'],
+      ['video', '/app-settings/genstudio/video-models'],
+      ['transcription', '/app-settings/genstudio/transcription-models'],
+    ] as const
+    const results = await Promise.allSettled(endpoints.map(async ([kind, endpoint]) => {
+      const response = await get<{ models?: GenStudioDisplayCatalogEntry[] }>(endpoint)
+      return [kind, Array.isArray(response.models) ? response.models : []] as const
+    }))
+    const catalogs: Record<string, GenStudioDisplayCatalogEntry[]> = {}
+    let anyFulfilled = false
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        catalogs[result.value[0]] = result.value[1]
+        anyFulfilled = true
+      }
+    }
+    // Only a total failure (every catalog rejected) is a real fetch error —
+    // a single endpoint being down still yields a usable partial map, same
+    // as before this composable had a shared cache underneath it.
+    if (!anyFulfilled && endpoints.length) throw new Error('GenStudio model catalogs are unavailable.')
+    return catalogs
+  },
+})
 
 function readRememberedLabels(): Record<string, string> {
   if (!import.meta.client) return {}
@@ -33,31 +69,16 @@ function rememberLabels(next: Record<string, string>): void {
  * customer-facing boundary is Regular, Premium, or Clone.
  */
 export function useGenStudioModelDisplay() {
-  const { get } = useApi()
-
   async function refresh(force = false): Promise<void> {
-    if (loading.value || (loaded.value && !force)) return
-    loading.value = true
     const remembered = { ...readRememberedLabels(), ...labels.value }
-    const endpoints = [
-      ['chat', '/app-settings/genstudio/chat-models'],
-      ['image', '/app-settings/genstudio/image-models'],
-      ['video', '/app-settings/genstudio/video-models'],
-      ['transcription', '/app-settings/genstudio/transcription-models'],
-    ] as const
-    const results = await Promise.allSettled(endpoints.map(async ([kind, endpoint]) => {
-      const response = await get<{ models?: GenStudioDisplayCatalogEntry[] }>(endpoint)
-      return [kind, Array.isArray(response.models) ? response.models : []] as const
-    }))
-    const catalogs: Record<string, GenStudioDisplayCatalogEntry[]> = {}
-    for (const result of results) {
-      if (result.status === 'fulfilled') catalogs[result.value[0]] = result.value[1]
-    }
-    const current = Object.fromEntries(buildGenStudioModelLabelEntries(catalogs))
+    await catalogCache.refresh(force)
+    // A total failure keeps `catalogCache.data` at its last good value (or
+    // empty if nothing ever loaded) per the shared ceiling policy — either
+    // way `labels` only ever grows, never regresses to raw ids that were
+    // previously resolved.
+    const current = Object.fromEntries(buildGenStudioModelLabelEntries(catalogCache.data.value))
     labels.value = { ...remembered, ...current }
     rememberLabels(labels.value)
-    loaded.value = true
-    loading.value = false
   }
 
   function displayName(
@@ -77,8 +98,12 @@ export function useGenStudioModelDisplay() {
 
   return {
     labels: readonly(labels),
-    loaded: readonly(loaded),
-    loading: readonly(loading),
+    loaded: catalogCache.loaded,
+    loading: catalogCache.loading,
+    error: catalogCache.error,
+    lastFetchedAt: catalogCache.lastFetchedAt,
+    isStale: catalogCache.isStale,
+    isExpired: catalogCache.isExpired,
     refresh,
     displayName,
     hasReadableName,

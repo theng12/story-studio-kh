@@ -12,6 +12,7 @@ import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
+  GenStudioArtifactUnavailableError,
   recoverTtsToFile as recoverTtsGenStudio,
   splitGenStudioApiRequests,
 } from '../lib/genstudio-client.js'
@@ -20,7 +21,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
-import { recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -48,6 +49,13 @@ export function resolveAudioProvider(
 }
 
 /**
+ * Local `last_state` values that mean the saved GenStudio TTS job can never
+ * yield audio again. There is no `cancelled` JobState — cancellation arrives
+ * as a boolean and is normalised into `failed` before it reaches the manifest.
+ */
+const TERMINAL_TTS_TASK_STATES: ReadonlySet<string> = new Set(['failed', 'artifact_expired'])
+
+/**
  * An accepted GenStudio task can be safely reconnected after a restart or a
  * lost network response. A terminal provider failure cannot: its idempotency
  * key intentionally resolves to the same failed GenStudio job forever.
@@ -56,7 +64,7 @@ export function isTerminalGenStudioTaskFailure(entry: {
   task_id?: string
   last_state?: string
 } | null | undefined): boolean {
-  return Boolean(entry?.task_id && entry.last_state === 'failed')
+  return Boolean(entry?.task_id && entry.last_state && TERMINAL_TTS_TASK_STATES.has(entry.last_state))
 }
 
 /**
@@ -606,6 +614,10 @@ export async function generateAudio(job: Job): Promise<void> {
           `  Previous GenStudio task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
         )
       }
+      // The fresh identity above is minted ONCE, then persisted below before the
+      // POST. Any later attempt reads the saved (non-terminal) entry back and
+      // reuses its idempotency_key, so a lost response replays the paid job
+      // instead of minting a second `manual-retry:` identity.
 
       // Persist identity before POST. Legacy manifest entries are deliberately
       // ignored unless they already represent this exact GenStudio request.
@@ -685,6 +697,20 @@ export async function generateAudio(job: Job): Promise<void> {
       if (isCancelled() || /cancell?ed|abort/i.test(e?.message || '')) {
         job.output_lines.push('  Cancelled.')
         return
+      }
+      // A settled GenStudio outcome must be recorded locally, or the next Retry
+      // has no way to know the saved job can never succeed and will replay its
+      // dead idempotency key forever. `onState` covers a failed job state; this
+      // covers the succeeded-but-artifact-gone case, which has no state change.
+      if (e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts') {
+        const chunkFilename = path.basename(task.outputPath)
+        await recordTask(audioDir, chunkFilename, {
+          provider: 'genstudio',
+          task_id: e.jobId,
+          submitted_at: new Date().toISOString(),
+          operation: 'tts',
+          last_state: 'artifact_expired',
+        }).catch(() => { /* evidence write must never mask the real failure */ })
       }
       // Settled-pool semantics: one chunk failure doesn't kill the batch.
       // The queue stamps status='error' after the loop if errors.length > 0.
