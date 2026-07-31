@@ -20,7 +20,6 @@ import {
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
-  GENSTUDIO_MAX_TTS_CHARACTERS,
   listImageModels,
   listChatModels,
   listModelCapabilities,
@@ -69,34 +68,57 @@ test('only the authoritative exact-release charging failure opens the global sub
   )
 })
 
-test('GenStudio accepts exactly 15,000 characters as one public API request', () => {
-  const text = 'a'.repeat(GENSTUDIO_MAX_TTS_CHARACTERS)
-  assert.equal(splitGenStudioApiRequests(text).length, 1)
+// The boundary is whatever the SELECTED model publishes. These fixtures pin a
+// figure on purpose — that is what a contract test is for — but the client
+// itself owns no constant to pin.
+const PUBLISHED_MAX_CHARACTERS = 12_000
+
+test('a request exactly at the published boundary stays one GenStudio request', () => {
+  const text = 'a'.repeat(PUBLISHED_MAX_CHARACTERS)
+  assert.equal(splitGenStudioApiRequests(text, PUBLISHED_MAX_CHARACTERS).length, 1)
   const submission = buildGenStudioSubmission({
     text,
     voiceId: 'voice_live',
     speed: 0.9,
+    maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
   })
-  assert.equal(submission.body.text.length, 15_000)
+  assert.equal(submission.body.text.length, PUBLISHED_MAX_CHARACTERS)
 })
 
-test('GenStudio splits 15,001 characters only at the outer API boundary', () => {
-  const text = 'a'.repeat(GENSTUDIO_MAX_TTS_CHARACTERS + 1)
-  const requests = splitGenStudioApiRequests(text)
+test('one character over the published boundary splits, and a submission refuses', () => {
+  const text = 'a'.repeat(PUBLISHED_MAX_CHARACTERS + 1)
+  const requests = splitGenStudioApiRequests(text, PUBLISHED_MAX_CHARACTERS)
   assert.equal(requests.length, 2)
   assert.equal(requests.join(''), text)
-  assert.ok(requests.every(part => part.length <= GENSTUDIO_MAX_TTS_CHARACTERS))
-  assert.throws(() => buildGenStudioSubmission({ text, voiceId: 'voice_live', speed: 1 }), /15,000/)
+  assert.ok(requests.every(part => part.length <= PUBLISHED_MAX_CHARACTERS))
+  assert.throws(
+    () => buildGenStudioSubmission({ text, voiceId: 'voice_live', speed: 1, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }),
+    /12,000/,
+  )
+})
+
+test('a different published boundary immediately changes where Story Studio splits', () => {
+  const text = 'a'.repeat(9_000)
+  assert.equal(splitGenStudioApiRequests(text, PUBLISHED_MAX_CHARACTERS).length, 1)
+  assert.ok(splitGenStudioApiRequests(text, 4_000).length > 1)
+})
+
+test('an unpublished boundary refuses loudly instead of assuming one', () => {
+  assert.throws(() => splitGenStudioApiRequests('narration', 0), /maximum_input_characters/)
+  assert.throws(
+    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', speed: 1 }),
+    /maximum_input_characters/,
+  )
 })
 
 test('text longer than the retired 375-character cap remains one GenStudio request', () => {
-  const requests = splitGenStudioApiRequests('Long-form narration. '.repeat(30))
+  const requests = splitGenStudioApiRequests('Long-form narration. '.repeat(30), PUBLISHED_MAX_CHARACTERS)
   assert.equal(requests.length, 1)
   assert.ok(requests[0]!.length > 375)
 })
 
 test('GenStudio JSON carries speed and retries reuse the same idempotency key', () => {
-  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', speed: 0.9 }
+  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', speed: 0.9, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }
   const first = buildGenStudioSubmission(request)
   const retry = buildGenStudioSubmission(request)
   assert.deepEqual(first.body, {
@@ -259,6 +281,8 @@ test('GenStudio authentication failures are immediate and actionable', async () 
       generateTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-auth-retry.mp3'), {
         text: 'A safe idempotent retry.',
         voiceId: 'voice_live',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
       }),
       /did not accept this API key.*valid account key/i,
@@ -965,6 +989,8 @@ test('accepted TTS IDs are polled directly without submitting replacement work',
       recoverTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-existing.mp3'), 'tts_existing', {
         text: 'Existing accepted task.',
         voiceId: 'voice_live',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
         requestIdentity: 'project:EP0001:audio:chapter.mp3',
       }),

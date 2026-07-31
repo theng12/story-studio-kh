@@ -15,6 +15,8 @@ import {
   GenStudioArtifactUnavailableError,
   recoverTtsToFile as recoverTtsGenStudio,
   splitGenStudioApiRequests,
+  listTtsModels as listGenStudioTtsModels,
+  listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
@@ -210,11 +212,11 @@ export async function generateAudio(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  // Story's Regular, Premium, and Clone choices are virtual commercial tiers.
-  // A GenStudio voice ID (not a physical TTS capability ID) is authoritative
-  // for submission, so keep a valid tier selection intact.
-  const requestedTier = pm.storyTtsTierForModelId(req.model || '')
-  const resolvedVoiceModel = requestedTier ? req.model.trim() : pm.resolveStoryTtsModelId(req.model)
+  // The customer chooses a GenStudio TTS model and is charged by it; the voice
+  // is picked from the ones that model serves. Both are resolved against the
+  // live catalogue here so the request boundary and price in force are the ones
+  // GenStudio publishes right now.
+  const resolvedVoiceModel = (req.model || '').trim()
   if (!resolvedVoiceModel) throw new Error(unavailableLegacyModelMessage('voice', req.model || '(none)'))
   req.model = resolvedVoiceModel
 
@@ -223,6 +225,26 @@ export async function generateAudio(job: Job): Promise<void> {
   const providerId = resolveAudioProvider(req.model, config.audio_models)
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac.')
+
+  // `maximum_input_characters` belongs to the model, is read fresh on every
+  // run, and is never remembered between runs. Without it Story Studio has no
+  // legitimate request boundary and refuses rather than guessing one.
+  const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === req.model)
+  if (!ttsModel) {
+    throw new Error(
+      `The selected voice model "${req.model}" is not in your GenStudio KH catalogue. `
+      + 'Reopen the Audio Generator and choose a current model.',
+    )
+  }
+  if (!ttsModel.generation_enabled) {
+    throw new Error(`GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.`)
+  }
+  const genStudioMaxCharacters = ttsModel.maximum_input_characters
+  job.output_lines.push(
+    `Voice model: ${ttsModel.display_name}`
+    + `${ttsModel.provider_name ? ` (served by ${ttsModel.provider_name})` : ''}`
+    + ` · ${genStudioMaxCharacters.toLocaleString()} characters per request`,
+  )
 
   const narrationPath = await findNarrationFile(project_slug, episode_id)
   job.output_lines.push(`Found narration: ${path.basename(narrationPath)}`)
@@ -489,7 +511,7 @@ export async function generateAudio(job: Job): Promise<void> {
     }
 
     const chunks = providerId === 'genstudio'
-      ? splitGenStudioApiRequests(section.text)
+      ? splitGenStudioApiRequests(section.text, genStudioMaxCharacters)
       : chunkText(section.text, ttsChunkCap)
     job.output_lines.push(
       `${section.label} (${section.text.length.toLocaleString()} chars${chunks.length > 1 ? `, ${chunks.length} parts` : ''})`,
@@ -586,6 +608,7 @@ export async function generateAudio(job: Job): Promise<void> {
         text: task.chunkText,
         voiceId: effectiveVoice || '',
         speed: req.speed ?? 1,
+        maxInputCharacters: genStudioMaxCharacters,
       }))
       const legacyTextHash = hashInput(task.chunkText)
       const reusableEntry = manifestEntry?.provider === 'genstudio'
@@ -599,6 +622,7 @@ export async function generateAudio(job: Job): Promise<void> {
         text: task.chunkText,
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
+        maxInputCharacters: genStudioMaxCharacters,
         // A manual Story Studio retry owns a new queue job. Give only a
         // terminal external failure a fresh GenStudio identity; unfinished
         // accepted work must retain its original key for safe recovery.

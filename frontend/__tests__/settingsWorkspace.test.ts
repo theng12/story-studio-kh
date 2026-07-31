@@ -28,9 +28,14 @@ describe('Settings workspace navigation', () => {
   })
 
   test('model pricing is split by media type', () => {
-    for (const view of ['image', 'audio', 'video']) {
+    for (const view of ['image', 'video']) {
       assert.match(settingsSource, new RegExp(`modelPricingView === '${view}'`))
     }
+    // The audio pricing table is gone: GenStudio publishes TTS pricing per
+    // model on the live catalogue, so there was nothing left for a project to
+    // edit but a misleading "0 per 1k chars".
+    assert.doesNotMatch(settingsSource, /modelPricingView === 'audio'/)
+    assert.doesNotMatch(settingsSource, /cost_per_1k_chars|saveAudioPricing|editAudioModels/)
 
     assert.match(settingsSource, /aria-label="Model pricing categories"/)
   })

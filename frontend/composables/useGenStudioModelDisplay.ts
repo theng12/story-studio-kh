@@ -3,7 +3,6 @@ import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import {
   buildGenStudioModelLabelEntries,
-  genStudioTtsDisplayName,
   isGenStudioModelId,
   type GenStudioDisplayCatalogEntry,
 } from '../utils/genstudio-model-display.js'
@@ -27,6 +26,7 @@ const catalogCache = createGenStudioCatalogCache<Record<string, GenStudioDisplay
       ['image', '/app-settings/genstudio/image-models'],
       ['video', '/app-settings/genstudio/video-models'],
       ['transcription', '/app-settings/genstudio/transcription-models'],
+      ['tts', '/app-settings/genstudio/tts-models'],
     ] as const
     const results = await Promise.allSettled(endpoints.map(async ([kind, endpoint]) => {
       const response = await get<{ models?: GenStudioDisplayCatalogEntry[] }>(endpoint)
@@ -64,9 +64,10 @@ function rememberLabels(next: Record<string, string>): void {
 }
 
 /**
- * Resolves opaque GenStudio dispatch ids into the account catalog's published
- * model names. TTS is deliberately excluded from the catalog map because its
- * customer-facing boundary is Regular, Premium, or Clone.
+ * Resolves GenStudio model ids into the account catalog's published model
+ * names. Speech is in the map like every other modality now: the customer picks
+ * a TTS model and is charged by it, so the model's own published name is the
+ * customer-facing one.
  */
 export function useGenStudioModelDisplay() {
   async function refresh(force = false): Promise<void> {
@@ -81,12 +82,8 @@ export function useGenStudioModelDisplay() {
     rememberLabels(labels.value)
   }
 
-  function displayName(
-    modelId: unknown,
-    options: { tts?: boolean; ttsTier?: unknown } = {},
-  ): string {
+  function displayName(modelId: unknown): string {
     const id = typeof modelId === 'string' ? modelId.trim() : ''
-    if (options.tts) return genStudioTtsDisplayName(id, options.ttsTier)
     if (!id) return ''
     return labels.value[id] || id
   }

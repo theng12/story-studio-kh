@@ -59,16 +59,15 @@ const MODULE_SPECIFIER_CONTEXT = /\b(?:from|import|require)\s*\(?\s*$/
  * Story Studio's OWN identifiers, not catalogue products.
  *
  * `genstudio-chat` / `genstudio-image` / … are provider-registry keys: the
- * transport a request travels over. `genstudio-tts-regular|premium|clone` are
- * the three voice TIERS the Story selector offers — `resolveStoryTtsModelId`
- * returns null for them precisely because they are not GenStudio model ids;
- * GenStudio owns engine routing behind the tier. A real product id such as
+ * transport a request travels over. The three `genstudio-tts-regular|premium|
+ * clone` voice-tier tokens are gone: the customer now picks a real GenStudio
+ * TTS model from `/v1/tts/models` and is charged by it, so there is no Story-
+ * owned speech token left to exempt. A real product id such as
  * `genstudio-qwen3-standard` is NOT exempt.
  */
 const STORY_OWNED_IDENTIFIERS = new RegExp(
   '^genstudio-(?:'
   + 'chat|image|video|audio|tts|speech|transcription|subtitles|client|runtime|relaxed|llm|web'
-  + '|tts-regular|tts-premium|tts-clone'
   + ')$',
 )
 

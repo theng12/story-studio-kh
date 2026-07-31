@@ -1765,7 +1765,6 @@ export interface ImageModelConfig {
 
 export interface AudioModelConfig {
   label: string
-  cost_per_1k_chars: number
   /**
    * Which provider to route this model to. Optional for backward compat —
    * if missing, the audio generator falls back to prefix-based detection

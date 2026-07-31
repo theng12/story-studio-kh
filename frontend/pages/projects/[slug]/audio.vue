@@ -7,7 +7,7 @@
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Audio generator context">
-          <span class="workspace-metric" data-tone="info"><strong>{{ currentAudioProviderLabel }}</strong> provider</span>
+          <span class="workspace-metric" data-tone="info"><strong>{{ selectedProviderName || 'GenStudio KH' }}</strong> provider</span>
           <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'">
             <strong>{{ form.episode_id || 'No episode' }}</strong> target
           </span>
@@ -25,7 +25,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting || audioJobActiveForEpisode"
       :generate-disabled="!form.episode_id || !scriptReady || !form.voice || !selectedVoiceCompatible"
-      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? `This voice is not labelled for ${currentAudioProviderLabel}.` : '')))"
+      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? 'This voice cannot be generated with right now.' : '')))"
       @generate="submit"
     >
       <template #actions>
@@ -70,13 +70,23 @@
             v-model="form.model"
             :options="audioModelOptions"
             media-type="tts"
-            title="Choose a voice tier"
-            placeholder="Pick a GenStudio voice tier…"
-            search-placeholder="Search voice tiers…"
-            aria-label="GenStudio TTS tier options"
+            title="Choose a voice model"
+            placeholder="Pick a GenStudio voice model…"
+            search-placeholder="Search voice models…"
+            aria-label="GenStudio TTS model options"
             :catalog-notice="genstudioPlanNotice"
             catalog-notice-href="/usage"
           />
+          <p v-if="ttsModelsError" class="text-muted text-xs hint-line">{{ ttsModelsError }}</p>
+          <p v-else-if="ttsModelsLoading && !audioModelOptions.length" class="text-muted text-xs hint-line">
+            Loading voice models from GenStudio KH…
+          </p>
+          <p v-else-if="selectedTtsModel" class="text-muted text-xs hint-line">
+            Served by <strong>{{ selectedTtsModel.provider_name || 'GenStudio KH' }}</strong>.
+            <span :title="modelRate.title">{{ modelRate.text }}</span>,
+            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
+            <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
+          </p>
         </div>
       </div>
 
@@ -86,14 +96,13 @@
           <VoicePicker
             v-model="form.voice"
             :project-slug="slug"
-            :custom-voices="config?.voice_presets || []"
-            :custom-voices-loaded="!!config"
             :audio-model-provider="currentAudioProvider"
-            :audio-model-id="form.model"
+            :tts-model-id="form.model"
+            :tts-model-name="selectedTtsModel?.display_name || ''"
+            :model-credits-per1000-characters="selectedTtsModel?.credits_per_1000_characters ?? null"
             require-selection
             class="voice-picker-flex"
             @preview="previewVoiceId"
-            @voice-saved="refreshConfig(slug)"
             @catalog-updated="onVoiceCatalogUpdated"
           />
           <button
@@ -107,15 +116,24 @@
           </button>
         </div>
         <span class="text-muted text-xs">
-          <template v-if="currentAudioProvider === 'genstudio'">
-            Voices are fetched securely from the selected tier in your live <strong>GenStudio KH</strong> catalog. Story Studio enforces the current public TTS boundary of <strong>15,000 characters per request</strong>.
+          <template v-if="selectedTtsModel">
+            Voices GenStudio KH serves on <strong>{{ selectedTtsModel.display_name }}</strong>. Save one with ★ to keep it in
+            your GenStudio account, or browse the provider libraries from inside the picker.
           </template>
           <template v-else>
-            Only voices labelled for <strong>{{ currentAudioProviderLabel }}</strong> are shown. Add one in the picker, or manage multi-provider labels in
-            <NuxtLink :to="`/projects/${slug}/settings#voices`">Settings → Voices</NuxtLink>.
+            Pick a voice model above — voices are listed for the model that serves them.
           </template>
-          <template v-if="isFish"> Speed maps to Fish prosody; Stability and Similarity do not apply.</template>
         </span>
+        <p v-if="selectedVoice" class="text-muted text-xs hint-line">
+          <template v-if="selectedVoice.language">{{ selectedVoice.language }} · </template>
+          <template v-if="selectedVoiceProviderText">{{ selectedVoiceProviderText }} · </template>
+          <template v-if="voiceRateDiffers">
+            This voice is priced at {{ formatCredits(selectedVoice.credits_per_1000_characters!) }} / 1,000 characters —
+            different from the model's rate.
+          </template>
+          <template v-else>Priced at the model's rate.</template>
+          <template v-if="selectedVoice.preview_notice"> {{ selectedVoice.preview_notice }}</template>
+        </p>
       </div>
 
       <!-- Section selector replaces the old free-text "Sections" input.
@@ -136,11 +154,20 @@
       />
 
       <div class="grid-3">
-        <div class="form-group">
+        <!-- GenStudio publishes `supports_speed` per model. A model that does
+             not take a speed control does not get one. -->
+        <div v-if="supportsSpeed" class="form-group">
           <label>Speed ({{ form.speed.toFixed(2) }}) <span class="field-hint">Playback pace</span></label>
           <SliderWithNumber v-model="form.speed" :min="0.5" :max="2" :step="0.01" :decimals="2" />
           <p class="text-muted text-xs hint-line">
-            ElevenLabs recommends <strong>0.95–1.05</strong> for natural narration. Below 0.9 can sound sluggish; above 1.1 rushes the delivery.
+            <strong>0.95–1.05</strong> reads most naturally for narration. Below 0.9 can sound sluggish; above 1.1 rushes the delivery.
+          </p>
+        </div>
+        <div v-else-if="selectedTtsModel" class="form-group">
+          <label>Speed <span class="field-hint">Not available on this model</span></label>
+          <p class="text-muted text-xs hint-line">
+            GenStudio does not publish a speed control for <strong>{{ selectedTtsModel.display_name }}</strong>, so Story Studio
+            sends none. Choose a model that supports speed to change the pace.
           </p>
         </div>
         <div class="form-group">
@@ -159,26 +186,54 @@
         </div>
       </div>
 
-      <!-- The GenStudio TTS boundary is a public API contract, enforced in the
-           Story Studio client. It is intentionally read-only: tiers select a
-           live voice catalog, not a per-project request-size setting. -->
-      <div v-if="form.model" class="form-group mb-2">
-        <label>GenStudio request boundary <span class="field-hint">— characters per TTS call</span></label>
+      <!-- The enforced request boundary, shown because it is enforced
+           (AGENTS.md). It is the selected model's published
+           `maximum_input_characters`, never a Story Studio constant. -->
+      <div v-if="resolvedChunkCap" class="form-group mb-2">
+        <label>Request boundary <span class="field-hint">— characters per TTS call</span></label>
         <div class="chunk-display" :title="chunkSizeTooltip">
           <span class="chunk-value">
-            <template v-if="resolvedChunkCap">
-              {{ resolvedChunkCap.toLocaleString() }} chars
-              <span class="text-muted text-xs"> · ≈ {{ formatChunkSeconds(resolvedChunkCap) }} of audio</span>
-            </template>
-            <template v-else>
-              <span class="text-muted">auto</span>
-              <span class="text-muted text-xs"> · chunker default ≈4,800 chars (≈5 min)</span>
-            </template>
+            {{ resolvedChunkCap.toLocaleString() }} chars
+            <span class="text-muted text-xs"> · ≈ {{ formatChunkSeconds(resolvedChunkCap) }} of audio</span>
           </span>
         </div>
         <p class="text-muted text-xs hint-line">
-          This is the current public GenStudio TTS limit enforced by Story Studio; it is not a project setting.
-          The selected tier only chooses which live voice catalog you can use.
+          GenStudio publishes this limit for <strong>{{ selectedTtsModel?.display_name }}</strong>. Longer sections are split at
+          sentence boundaries within it. It is not a project setting.
+        </p>
+      </div>
+
+      <!-- Cost: the model's published rate until there is real text, then
+           GenStudio's own quote for that exact narration. Never an estimate. -->
+      <div v-if="selectedTtsModel" class="form-group mb-2">
+        <label>Cost <span class="field-hint">— GenStudio's figures</span></label>
+        <div class="chunk-display" :title="quotedCost ? quotedCost.title : modelRate.title">
+          <span class="chunk-value">
+            <template v-if="quotedCost">
+              {{ quotedCost.text }}
+              <span class="text-muted text-xs">
+                · {{ quote!.billable_characters.toLocaleString() }} billable characters
+                <template v-if="!quote!.chargeable"> · GenStudio marks this request non-chargeable</template>
+              </span>
+            </template>
+            <template v-else>
+              {{ modelRate.text }}
+              <span class="text-muted text-xs"> · rate, not a total</span>
+            </template>
+          </span>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="!quoteEligible || !form.episode_id || quoting"
+            :title="quoteEligible ? 'Ask GenStudio for the exact credits for this narration' : 'GenStudio does not offer a quote for this voice'"
+            @click="refreshQuote"
+          >{{ quoting ? 'Asking…' : 'Get quote' }}</button>
+        </div>
+        <p v-if="quoteError" class="text-muted text-xs hint-line">{{ quoteError }}</p>
+        <p v-else-if="quote?.notice" class="text-muted text-xs hint-line">{{ quote.notice }}</p>
+        <p v-else class="text-muted text-xs hint-line">
+          A quote is GenStudio's own figure for this exact script, not a Story Studio estimate.
+          GenStudio reports the actual charge on the finished job.
         </p>
       </div>
 
@@ -328,19 +383,9 @@
 </template>
 
 <script setup lang="ts">
-import {
-  normalizeSavedVoices,
-  voiceProviderLabel,
-  voiceSupportsProvider,
-  type SavedVoice,
-  type VoiceProviderId,
-} from '~/utils/voice-providers'
-import {
-  GENSTUDIO_TTS_TIER_OPTIONS,
-  genStudioTtsModelForTier,
-  genStudioTtsTierForModel,
-  normalizeStoryTtsTierModel,
-} from '~/utils/genstudio-tts-tiers'
+import type { GenStudioTtsModel, GenStudioVoice, GenStudioTtsQuote } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { describeVoiceRate, describeQuotedCost, formatCredits } from '~/utils/genstudio-credit-cost'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
@@ -348,59 +393,53 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
-const { voiceModels: genstudioVoiceModels, refresh: refreshMediaModels } = useGenStudioMediaModels()
 const {
   planNotice: genstudioPlanNotice,
   badgeFor: genstudioUnlimitedBadge,
   refresh: refreshGenstudioAccess,
 } = useGenStudioAccess()
 
-const runtimeAudioModels = computed<Record<string, any>>(() => {
-  const models: Record<string, any> = {}
-  for (const option of GENSTUDIO_TTS_TIER_OPTIONS) {
-    models[option.id] = {
-      label: option.label,
-      description: option.description,
-      provider: 'genstudio',
-      // model-drift-allow: legacy AudioModelConfig field, required by the type
-      // and not a price claim — GenStudio owns TTS pricing and publishes it
-      // live per voice tier. Pending removal with the audio-pricing panel.
-      cost_per_1k_chars: 0,
-      tts_soft_max_chars: 15_000,
-      available: true,
-      voice_tier: option.tier,
-    }
-  }
-  return models
-})
+const {
+  models: ttsModels,
+  modelsLoading: ttsModelsLoading,
+  modelsError: ttsModelsError,
+  loadModels: loadTtsModels,
+  quote: requestTtsQuote,
+} = useGenStudioVoices()
 
-const visibleAudioModels = runtimeAudioModels
-const regularTierSupportsUnlimited = computed(() => genstudioVoiceModels.value.some(model => (
-  model.available
-  && model.unlimited_relaxed === true
-  && Array.isArray(model.controls?.voice_tiers)
-  && model.controls.voice_tiers.includes('regular')
-)))
-const audioModelOptions = computed(() => GENSTUDIO_TTS_TIER_OPTIONS.map((option) => {
-  const unlimited = genstudioUnlimitedBadge(
-    option.tier === 'regular' && regularTierSupportsUnlimited.value,
-  )
+/**
+ * The voice-model picker. Every line comes from `GET /v1/tts/models`: the
+ * provider serving the model (AGENTS.md → Provider Transparency), the rate it
+ * charges, its minimum, and the request boundary it enforces. `generation_enabled`
+ * is respected — a model GenStudio has switched off cannot be chosen.
+ */
+const audioModelOptions = computed(() => ttsModels.value.map((model) => {
+  const unlimited = genstudioUnlimitedBadge(false)
   return {
-    id: option.id,
-    label: option.label,
-    group: 'GenStudio KH',
-    provider: 'GenStudio KH',
-    meta: `${option.tier[0]?.toUpperCase()}${option.tier.slice(1)} voice catalog`,
-    description: option.description,
+    id: model.id,
+    label: model.display_name,
+    group: model.provider_name || 'GenStudio KH',
+    provider: model.provider_name || '',
+    meta: [
+      `${formatCredits(model.credits_per_1000_characters)} / 1,000 characters`,
+      `min ${formatCredits(model.minimum_credits)}`,
+      `up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
+    ].join(' · '),
+    description: model.description,
+    disabled: !model.generation_enabled,
+    disabledReason: model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.',
     badges: [
-      {
-        label: option.tier === 'cloned' ? 'Private' : option.tier[0]!.toUpperCase() + option.tier.slice(1),
-        tone: option.tier === 'regular' ? 'local' as const : option.tier === 'premium' ? 'paid' as const : 'info' as const,
-      },
+      ...(model.provider_name ? [{ label: model.provider_name, tone: 'info' as const }] : []),
+      ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
+      ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
       ...(unlimited ? [unlimited] : []),
     ],
   }
 }))
+
+/** The one model every published figure on this page is read from. */
+const selectedTtsModel = computed<GenStudioTtsModel | null>(() =>
+  ttsModels.value.find(model => model.id === form.model) || null)
 
 // v1.0.157 — `currentAudioProvider` computed + the cross-source voice
 // reset watcher moved BELOW the `form = reactive({...})` declaration
@@ -421,16 +460,10 @@ const submitting = ref(false)
 
 const form = reactive({
   episode_id: '',
-  // Not a literal GenStudio product id: 'genstudio-tts-*' are Story's own
-  // customer-facing TTS TIER tokens (see utils/genstudio-tts-tiers.ts),
-  // never submitted to GenStudio as a model_id — buildGenStudioSubmission's
-  // TTS payload is { voice_id, text, speed } only. The bootstrap value below
-  // is immediately superseded by useRememberedForm's restore() (a saved
-  // selection) or by onVoiceCatalogUpdated once the live GenStudio voice
-  // catalog loads and reports the selected voice's actual tier — so this is
-  // never treated as execution authority, only an initial reactive-state
-  // placeholder. Sourced from the shared tier list, not a duplicated literal.
-  model: GENSTUDIO_TTS_TIER_OPTIONS[0].id,
+  // A GenStudio TTS model id from the live `/v1/tts/models` catalogue. Empty
+  // until either a remembered selection restores or the catalogue loads — the
+  // page never invents a model id, and never falls back to one.
+  model: '',
   voice: null as string | null,
   // Empty by default — AudioChapterSelector auto-fills with missing sections
   // once an episode is picked. submit() falls back to 'all' if nothing is
@@ -462,52 +495,49 @@ const form = reactive({
 useRememberedForm('audio', slug, form, {
   include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
 })
-watch(() => form.model, (model) => {
-  const normalized = normalizeStoryTtsTierModel(model)
-  if (normalized !== model) form.model = normalized
-}, { immediate: true })
-
-const currentAudioProvider = computed<string>(() => form.model ? 'genstudio' : '')
-
-const CLOUD_VOICE_PROVIDERS = new Set(['genstudio'])
-const discoveredProviderVoices = ref<SavedVoice[]>([])
-const voiceTierCatalogLoaded = ref(false)
-function onVoiceCatalogUpdated(voices: SavedVoice[]) {
-  discoveredProviderVoices.value = voices
-  const selected = !voiceTierCatalogLoaded.value
-    ? voices.find(voice => voice.voice_id === form.voice)
-    : null
-  if (selected?.voice_tier) {
-    form.model = genStudioTtsModelForTier(selected.voice_tier)
-  }
-  voiceTierCatalogLoaded.value = true
-}
-watch(() => form.model, (model, previous) => {
-  if (!previous || !voiceTierCatalogLoaded.value || !form.voice) return
-  const selectedTier = discoveredProviderVoices.value.find(voice => voice.voice_id === form.voice)?.voice_tier
-  if (selectedTier && selectedTier !== genStudioTtsTierForModel(model)) {
+/**
+ * A remembered selection is a SELECTION, never a remembered capability. Once
+ * the catalogue is in, drop a model GenStudio no longer publishes rather than
+ * carrying it into a request that would fail.
+ */
+watch([ttsModels, () => form.model], () => {
+  if (!ttsModels.value.length) return
+  if (form.model && ttsModels.value.some(model => model.id === form.model)) return
+  if (form.model) {
+    form.model = ''
     form.voice = null
-    showInfo('Choose a voice from the selected GenStudio TTS tier.')
+    showInfo('That voice model is no longer in your GenStudio KH catalogue. Choose a current one.')
   }
 })
-const currentAudioProviderLabel = computed(() => {
-  const provider = currentAudioProvider.value
-  return CLOUD_VOICE_PROVIDERS.has(provider)
-    ? voiceProviderLabel(provider as VoiceProviderId)
-    : provider === 'voicestudio' ? 'Voice Studio' : provider === 'macos' ? 'macOS' : 'the selected provider'
+
+const currentAudioProvider = computed<string>(() => 'genstudio')
+const discoveredProviderVoices = ref<GenStudioVoice[]>([])
+function onVoiceCatalogUpdated(voices: GenStudioVoice[]) {
+  discoveredProviderVoices.value = voices
+}
+const selectedVoice = computed<GenStudioVoice | null>(() =>
+  discoveredProviderVoices.value.find(voice => voice.id === form.voice) || null)
+const selectedVoiceCompatible = computed(() => !!selectedVoice.value && voiceIsGenerable(selectedVoice.value))
+
+/**
+ * Provider identity exactly as GenStudio published it, for display. Story
+ * Studio neither infers it nor sends it (AGENTS.md → Provider Transparency).
+ */
+const selectedProviderName = computed(() => selectedTtsModel.value?.provider_name || '')
+const selectedVoiceProviderText = computed(() => {
+  const voice = selectedVoice.value
+  if (!voice) return ''
+  return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
 })
-const selectedVoiceCompatible = computed(() => {
-  if (!form.voice) return false
-  const provider = currentAudioProvider.value
-  if (!CLOUD_VOICE_PROVIDERS.has(provider)) return true
-  const selectedTier = genStudioTtsTierForModel(form.model)
-  return normalizeSavedVoices([
-    ...(config.value?.voice_presets || []),
-    ...discoveredProviderVoices.value,
-  ]).some(voice =>
-    voice.voice_id === form.voice
-    && voiceSupportsProvider(voice, provider)
-    && (!selectedTier || voice.voice_tier === selectedTier))
+
+/** The model's published rate, shown before there is any text to quote. */
+const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
+/** The voice's own rate, shown only when GenStudio prices it differently. */
+const voiceRateDiffers = computed(() => {
+  const voiceRate = selectedVoice.value?.credits_per_1000_characters
+  return typeof voiceRate === 'number'
+    && selectedTtsModel.value !== null
+    && voiceRate !== selectedTtsModel.value.credits_per_1000_characters
 })
 
 // Fish S2-Pro is the only model with inline expression tags — gate the
@@ -520,15 +550,13 @@ const isFishS2Pro = computed(() => false)
 const isTagCapable = computed(() => false)
 watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
-// v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
-// chars). Null = use the chunker default (~4800). Surfaced read-only in the
-// form so the user knows exactly what's about to be sent to the TTS API.
-const resolvedChunkCap = computed<number | null>(() => {
-  if (!form.model) return null
-  const entry = visibleAudioModels.value[form.model] as any
-  const cap = Number(entry?.tts_soft_max_chars)
-  return Number.isFinite(cap) && cap > 0 ? Math.round(cap) : null
-})
+/**
+ * The request boundary in force, read from the selected model's published
+ * `maximum_input_characters`. AGENTS.md requires an enforced limit to be shown,
+ * so this is rendered at the point of choosing. There is no fallback: with no
+ * model selected there is no boundary to state.
+ */
+const resolvedChunkCap = computed<number | null>(() => selectedTtsModel.value?.maximum_input_characters ?? null)
 function formatChunkSeconds(chars: number): string {
   // ~15 chars/sec narration pace (English audiobook average).
   const sec = Math.round(chars / 15)
@@ -538,10 +566,70 @@ function formatChunkSeconds(chars: number): string {
   return s ? `${m}m ${s}s` : `${m} min`
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
-  ? currentAudioProvider.value === 'genstudio'
-    ? `Story Studio enforces GenStudio's current public TTS boundary: ${resolvedChunkCap.value.toLocaleString()} characters per request.`
-    : `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
-  : 'No per-model cap set — the chunker uses its ~4,800-char default. Set a value in Settings → Audio Models to make the chunk size explicit.')
+  ? `GenStudio publishes ${resolvedChunkCap.value.toLocaleString()} characters per request for `
+    + `${selectedTtsModel.value?.display_name || 'this model'}. Story Studio splits longer sections at sentence `
+    + 'boundaries within that limit.'
+  : 'Choose a voice model to see the request boundary GenStudio publishes for it.')
+
+/** GenStudio publishes whether a model takes a speed control. Gate on it. */
+const supportsSpeed = computed(() => selectedTtsModel.value?.supports_speed === true)
+
+// Effective section list = what the AudioChapterSelector says to actually
+// queue (selection minus already-generated when duplicate override is off).
+// We submit this instead of `form.sections` so the duplicate-prevention
+// promise the UI makes is honoured at the request boundary.
+const effectiveSections = ref<string[]>([])
+function onEffectiveSelectionChange(slugs: string[]) {
+  effectiveSections.value = slugs
+}
+
+// ── Quote ──────────────────────────────────────────────────────────────
+// GenStudio's own figure for the exact narration about to be sent. Shown as a
+// quote, never as an estimate. The model's published rate stands in until
+// there is real text to quote.
+const quote = ref<GenStudioTtsQuote | null>(null)
+const quoting = ref(false)
+const quoteError = ref('')
+const quotedCost = computed(() => quote.value ? describeQuotedCost(quote.value.credits, 'this narration') : null)
+const quoteEligible = computed(() =>
+  !!selectedTtsModel.value && !!form.voice && selectedVoice.value?.quote_enabled !== false)
+
+async function refreshQuote() {
+  quote.value = null
+  quoteError.value = ''
+  if (!quoteEligible.value || !form.episode_id) return
+  quoting.value = true
+  try {
+    // Quote exactly what Generate would send: the sections currently selected,
+    // in their on-disk narration text.
+    const narration = await get<{ sections?: Array<{ slug?: string; original?: string }> }>(
+      `/projects/${slug.value}/episodes/${form.episode_id}/expression`,
+    )
+    const wanted = new Set(effectiveSections.value)
+    const all = Array.isArray(narration.sections) ? narration.sections : []
+    const chosen = wanted.size ? all.filter(section => wanted.has(section?.slug || '')) : all
+    const text = chosen.map(section => section?.original || '').join('\n\n').trim()
+    if (!text) {
+      quoteError.value = 'There is no narration on disk yet to quote.'
+      return
+    }
+    quote.value = await requestTtsQuote({
+      model_id: form.model,
+      voice_id: form.voice!,
+      text,
+      speed: supportsSpeed.value ? form.speed : undefined,
+    })
+  } catch (e: any) {
+    quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
+  } finally {
+    quoting.value = false
+  }
+}
+// A quote belongs to one exact (model, voice, speed, text). Any change voids it.
+watch([() => form.model, () => form.voice, () => form.speed, () => form.episode_id, effectiveSections], () => {
+  quote.value = null
+  quoteError.value = ''
+})
 
 // v1.0.207+ — voice/model compatibility reconciliation now lives inside
 // VoicePicker (it has the catalogue + Voice Studio voice lists to judge
@@ -595,7 +683,7 @@ const inlineGenerateDisabled = computed(() =>
 const inlineGenerateDisabledReason = computed(() => {
   if (!scriptReady.value) return scriptGateReason.value || 'Generate the script first.'
   if (!form.voice) return 'Pick a voice first.'
-  if (!selectedVoiceCompatible.value) return `Pick a voice labelled for ${currentAudioProviderLabel.value}.`
+  if (!selectedVoiceCompatible.value) return 'Pick a voice this model can currently generate with.'
   if (submitting.value) return 'The audio request is being queued.'
   if (audioJobActiveForEpisode.value) return 'Another audio job for this episode is already queued or running.'
   return ''
@@ -634,11 +722,9 @@ const audioPresets = usePresets<any>({
   apply: (data) => {
     if (!data?.form) return
     Object.assign(form, data.form)
-    const selectedTier = discoveredProviderVoices.value
-      .find(voice => voice.voice_id === form.voice)?.voice_tier
-    form.model = selectedTier
-      ? genStudioTtsModelForTier(selectedTier)
-      : normalizeStoryTtsTierModel(form.model)
+    // A preset restores a SELECTION. The catalogue watcher above clears it if
+    // GenStudio no longer publishes that model, and VoicePicker clears a voice
+    // the model does not serve.
   },
   // Section selection belongs to the current episode, never to a reusable
   // voice/model preset. This also strips stale `sections` from old presets
@@ -680,19 +766,11 @@ onMounted(async () => {
   await Promise.all([
     applyAudioFormatDefaultsIfNoPreset(),
     audioPresets.load(),
-    refreshMediaModels(),
+    loadTtsModels(),
     refreshGenstudioAccess(),
   ])
 })
 
-// Effective section list = what the AudioChapterSelector says to actually
-// queue (selection minus already-generated when duplicate override is off).
-// We submit this instead of `form.sections` so the duplicate-prevention
-// promise the UI makes is honoured at the request boundary.
-const effectiveSections = ref<string[]>([])
-function onEffectiveSelectionChange(slugs: string[]) {
-  effectiveSections.value = slugs
-}
 
 // ── Voice preview ──────────────────────────────────────────────────────
 const previewing = ref(false)
@@ -855,7 +933,7 @@ async function queueAudio(sectionOverride?: string) {
     return
   }
   if (!selectedVoiceCompatible.value) {
-    showError(`The selected voice is not labelled for ${currentAudioProviderLabel.value}. Pick a compatible voice or update it in Settings → Voices.`)
+    showError('GenStudio cannot currently generate with the selected voice. Pick another from the voice list.')
     return
   }
   // Build the actual payload. If the user picked specific sections in the
@@ -873,6 +951,9 @@ async function queueAudio(sectionOverride?: string) {
   const no_overwrite = form.generation_mode === 'new_version'
   const { generation_mode: _gm, ...rest } = form
   const payload: any = { ...rest, sections, force, no_overwrite }
+  // A model that publishes no speed control gets none. Sending a pace it never
+  // advertised would be Story Studio asserting a capability GenStudio did not.
+  if (!supportsSpeed.value) payload.speed = 1
   if (!sectionOverride && form.episode_id && effectiveSections.value.length === 0 && form.sections) {
     // User selected items but every one was filtered out as already-generated.
     showError('Every selected section already has audio. Switch Generation Mode to "Regenerate" or "New version" to overwrite, or pick different sections.')

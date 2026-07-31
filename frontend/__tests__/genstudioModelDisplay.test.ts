@@ -4,7 +4,6 @@ import test from 'node:test'
 import {
   brandedGenStudioModelName,
   buildGenStudioModelLabelEntries,
-  genStudioTtsDisplayName,
 } from '../utils/genstudio-model-display.ts'
 
 test('GenStudio model catalogs expose real names with consistent branding', () => {
@@ -20,6 +19,7 @@ test('GenStudio model catalogs expose real names with consistent branding', () =
       id: 'genstudio-transcription-opaque-v1',
       display_name: 'Whisper Large V3 Turbo',
     }],
+    tts: [{ id: 'tts-qwen3', display_name: 'Qwen3 TTS' }],
   }))
 
   assert.equal(
@@ -36,23 +36,23 @@ test('GenStudio model catalogs expose real names with consistent branding', () =
     labels.get('genstudio-transcription-opaque-v1'),
     'Whisper Large V3 Turbo [GenStudio KH]',
   )
+  // Speech is in the map like every other modality now: the customer picks a
+  // TTS model and is charged by it, so its published name is the customer name.
+  assert.equal(labels.get('tts-qwen3'), 'Qwen3 TTS [GenStudio KH]')
+  assert.equal(labels.get('genstudio-tts:tts-qwen3'), 'Qwen3 TTS [GenStudio KH]')
   assert.equal(
     brandedGenStudioModelName('Existing [GenStudio]'),
     'Existing [GenStudio KH]',
   )
 })
 
-test('TTS remains masked behind the three GenStudio product tiers', () => {
-  assert.equal(genStudioTtsDisplayName('genstudio-standard-v1'), 'GenStudio TTS Regular')
-  assert.equal(genStudioTtsDisplayName('genstudio-clone-v1'), 'GenStudio TTS Clone')
-  assert.equal(
-    genStudioTtsDisplayName('private-premium-engine', 'premium'),
-    'GenStudio TTS Premium',
+test('the display layer keeps no voice-tier vocabulary of its own', () => {
+  const display = readFileSync(
+    new URL('../utils/genstudio-model-display.ts', import.meta.url),
+    'utf8',
   )
-  assert.equal(
-    genStudioTtsDisplayName('private-qwen-engine', 'cloned'),
-    'GenStudio TTS Clone',
-  )
+  assert.doesNotMatch(display, /genStudioTtsDisplayName|TTS_TIER_BY_ENGINE_ID|GenStudioTtsTier/)
+  assert.doesNotMatch(display, /GenStudio TTS (?:Regular|Premium|Clone)/)
 })
 
 test('Jobs and Usage resolve catalog names instead of printing dispatch ids', () => {
@@ -76,5 +76,7 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
   assert.match(previewRow, /\{\{\s*previewModelName\s*\}\}/)
-  assert.match(audioRoute, /req\.body\.tts_tier = requestedTier/)
+  // voice_tier is published metadata carried beside the job for history —
+  // taken from the SELECTED VOICE, no longer from a Story-owned tier token.
+  assert.match(audioRoute, /req\.body\.tts_tier = selectedVoice\.voice_tier/)
 })

@@ -49,6 +49,33 @@ false` for every model while silently dropping attached references and billing t
 an invented steps contract GenStudio never published; a 4,000-character prompt cap overruling
 a published 4,800; a chunking threshold derived from a retired provider's 16,000-token cap.
 
+## Provider Transparency — Superseding the Old Masking Rule
+
+**Story Studio now shows which provider serves a model, wherever GenStudio publishes it.**
+This reverses the earlier rule that treated provider and engine identity as private routing
+detail to be stripped before it reached the customer. The owner's decision, 2026-08-01: the
+product has moved from hiding providers to being transparent about them, across every
+modality — not voice alone.
+
+What that means concretely:
+
+- Fields such as `provider`, `provider_id`, `provider_name`, `engine_id`, `engine_name`,
+  `model_family` and `model_revision_id` are displayed when GenStudio publishes them, and are
+  no longer deleted at the backend boundary.
+- Provider-named catalogue endpoints are customer-facing surfaces. The voice libraries are
+  browsable **by provider**, and named as such.
+- **GenStudio remains the only authority on what is published.** Transparency means showing
+  what the catalogue states — it does not mean inferring, deriving or guessing a provider from
+  a model id, a name pattern, or anything else. If GenStudio does not publish the provider for
+  a product, Story Studio shows no provider for it. An unpublished provider is unknown, never
+  reconstructed.
+- **Provider is display, never dispatch.** Story Studio still does not select, prefer, rank or
+  route to a provider, and sends no provider field on any generation request. GenStudio owns
+  provider selection entirely. Showing who served a request must never become a control for
+  choosing who serves the next one.
+- The first rule still governs: a displayed provider is read live from the catalogue on every
+  selection change, never cached past it.
+
 ## Mandatory Release Integrity
 
 - Every shipped Story Studio change—including fixes, reliability work, UI/API

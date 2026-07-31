@@ -1,10 +1,4 @@
-import {
-  GENSTUDIO_TTS_TIER_OPTIONS,
-  genStudioTtsTierForModel,
-  type GenStudioTtsTier,
-} from './genstudio-tts-tiers'
-
-export type GenStudioModelKind = 'chat' | 'image' | 'video' | 'transcription'
+export type GenStudioModelKind = 'chat' | 'image' | 'video' | 'transcription' | 'tts'
 
 export interface GenStudioDisplayCatalogEntry {
   id: string
@@ -17,6 +11,7 @@ export interface GenStudioDisplayCatalogs {
   image?: GenStudioDisplayCatalogEntry[]
   video?: GenStudioDisplayCatalogEntry[]
   transcription?: GenStudioDisplayCatalogEntry[]
+  tts?: GenStudioDisplayCatalogEntry[]
 }
 
 const PREFIX_BY_KIND: Record<GenStudioModelKind, string> = {
@@ -24,13 +19,7 @@ const PREFIX_BY_KIND: Record<GenStudioModelKind, string> = {
   image: 'genstudio-image:',
   video: 'genstudio-video:',
   transcription: 'genstudio-transcription:',
-}
-
-// model-drift-allow: retired engine ids kept only so an old saved selection
-// still displays under the right current tier. Never offered as a choice.
-const TTS_TIER_BY_ENGINE_ID: Record<string, GenStudioTtsTier> = {
-  'genstudio-standard-v1': 'regular',
-  'genstudio-clone-v1': 'cloned',
+  tts: 'genstudio-tts:',
 }
 
 export function brandedGenStudioModelName(displayName: string): string {
@@ -60,25 +49,6 @@ export function buildGenStudioModelLabelEntries(
     }
   }
   return [...labels.entries()]
-}
-
-export function genStudioTtsDisplayName(
-  modelId: unknown,
-  explicitTier?: unknown,
-): string {
-  const tier = typeof explicitTier === 'string'
-    ? explicitTier.trim() as GenStudioTtsTier
-    : null
-  const normalizedId = typeof modelId === 'string' ? modelId.trim() : ''
-  const resolvedTier = (
-    GENSTUDIO_TTS_TIER_OPTIONS.some(option => option.tier === tier)
-      ? tier
-      : genStudioTtsTierForModel(normalizedId)
-        || TTS_TIER_BY_ENGINE_ID[normalizedId]
-        || 'regular'
-  )
-  return GENSTUDIO_TTS_TIER_OPTIONS.find(option => option.tier === resolvedTier)?.label
-    || GENSTUDIO_TTS_TIER_OPTIONS[0].label
 }
 
 export function isGenStudioModelId(modelId: unknown): boolean {

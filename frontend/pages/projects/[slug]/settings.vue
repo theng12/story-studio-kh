@@ -75,7 +75,7 @@
           <h3>Model pricing &amp; limits</h3>
           <p>Maintain only the operational values Story Studio needs for estimates and safe provider requests.</p>
         </div>
-        <span class="settings-section-count">{{ Object.keys(editImageModels).length + Object.keys(editAudioModels).length + Object.keys(editVideoModels).length }} models</span>
+        <span class="settings-section-count">{{ Object.keys(editImageModels).length + Object.keys(editVideoModels).length }} models</span>
       </div>
 
       <nav class="settings-segmented-nav" aria-label="Model pricing categories">
@@ -115,54 +115,6 @@
       <div class="flex gap-2 mt-2" style="align-items: center;">
         <button class="btn btn-primary" @click="saveImagePricing">Save Image Pricing</button>
         <SaveIndicator v-bind="savedHintProps('image_pricing')" />
-      </div>
-      </section>
-
-      <section v-if="modelPricingView === 'audio'" id="audio-models" class="settings-subpanel">
-      <div class="card-header">
-        <h3>Audio Model Pricing</h3>
-        <span class="text-muted" style="font-size:12px" v-if="config?.audio_pricing_last_updated">
-          Updated: {{ config.audio_pricing_last_updated }}
-        </span>
-      </div>
-      <table class="edit-table mt-1">
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>$/1K chars</th>
-            <th title="Max characters per outer TTS dispatch. Cloud providers keep their own limits. Qwen Base, Chatterbox, and VoxCPM2 can use 15,000 because Voice Studio performs stable sentence-safe synthesis internally. Leave blank to use the chunker default (~4,800).">
-              Max chunk chars
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(model, key) in editAudioModels" :key="key">
-            <td>{{ model.label }}</td>
-            <td>
-              <input v-model.number="model.cost_per_1k_chars" type="number" step="0.01" min="0" class="input input-sm" />
-            </td>
-            <td>
-              <!-- v1.0.313 — per-model outer dispatch cap. Cloud providers keep
-                   their audited request sizes; Voice Studio engines with verified
-                   internal chunking can accept 15,000 characters. Bound to AudioModelConfig.tts_soft_max_chars; backend
-                   already reads it (generators/audio.ts modelEntry.tts_soft_max_chars). -->
-              <input
-                v-model.number="model.tts_soft_max_chars"
-                type="number"
-                step="50"
-                min="0"
-                max="15000"
-                class="input input-sm"
-                placeholder="auto"
-                title="Maximum characters per outer TTS dispatch. Suggested: 4,800 for ElevenLabs / GenAIPro / fal; 15,000 for Qwen3 Base cloning, Chatterbox, and VoxCPM2 because Voice Studio chunks those internally."
-              />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="flex gap-2 mt-2" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveAudioPricing">Save Audio Pricing</button>
-        <SaveIndicator v-bind="savedHintProps('audio_pricing')" />
       </div>
       </section>
 
@@ -4234,11 +4186,10 @@ const activeZone = computed(() =>
 const activeTabMeta = computed(() => tabs.find(tab => tab.id === activeTab.value) || null)
 const isChannelTab = computed(() => activeTab.value === 'channel')
 
-type ModelPricingView = 'image' | 'audio' | 'video'
+type ModelPricingView = 'image' | 'video'
 const modelPricingView = ref<ModelPricingView>('image')
 const modelPricingViews: Array<{ id: ModelPricingView; label: string; icon: string; description: string }> = [
   { id: 'image', label: 'Image', icon: '▧', description: 'Per render' },
-  { id: 'audio', label: 'Audio', icon: '◖', description: 'Cost & chunking' },
   { id: 'video', label: 'Video', icon: '▶', description: 'Image to video' },
 ]
 
@@ -5137,7 +5088,6 @@ const confirmPrefs = reactive<Record<string, boolean>>({})
 
 // Editable copies of config data
 const editImageModels = ref<Record<string, any>>({})
-const editAudioModels = ref<Record<string, any>>({})
 const editVideoModels = ref<Record<string, any>>({})
 const videoModelSource = ref<'hub' | 'direct' | 'compatibility'>('compatibility')
 const refreshingVideoModels = ref(false)
@@ -5306,7 +5256,6 @@ watch(config, (c) => {
     projectForm.mark_as_ai_generated = typeof cAny?.mark_as_ai_generated === 'boolean'
       ? cAny.mark_as_ai_generated : undefined
     editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
-    editAudioModels.value = JSON.parse(JSON.stringify(c.audio_models || {}))
     editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
     videoModelSource.value = (c as any).video_models_source || 'compatibility'
     editVoices.value = normalizeSavedVoices(c.voice_presets || [])
@@ -5630,29 +5579,6 @@ async function saveImagePricing() {
     await refreshConfig(slug.value)
     stampSaved('image_pricing')
     success('Image pricing saved!')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save')
-  }
-}
-
-async function saveAudioPricing() {
-  try {
-    // v1.0.313 — normalize tts_soft_max_chars: an empty input gives NaN via
-    // v-model.number, which the backend would reject. Strip non-positive
-    // values so "blank" cleanly means "use the chunker default" (the same
-    // semantics as before the field existed).
-    const payload: Record<string, any> = {}
-    for (const [k, m] of Object.entries(editAudioModels.value)) {
-      const copy: any = { ...m }
-      const cap = Number(copy.tts_soft_max_chars)
-      if (!Number.isFinite(cap) || cap <= 0) delete copy.tts_soft_max_chars
-      else copy.tts_soft_max_chars = Math.round(cap)
-      payload[k] = copy
-    }
-    await put(`/projects/${slug.value}/settings/config`, { audio_models: payload })
-    await refreshConfig(slug.value)
-    stampSaved('audio_pricing')
-    success('Audio pricing saved!')
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
   }

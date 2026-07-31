@@ -106,6 +106,8 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
         client.generateTtsToFile(NO_SCOPES_KEY, path.join(temp.dir, 'scope.mp3'), {
           text: 'This TTS request must fail closed.',
           voiceId: 'mock-voice',
+          // The boundary a live /v1/tts/models row would supply.
+          maxInputCharacters: 12_000,
           speed: 1,
           requestIdentity: 'qualification:scope:tts',
         }),
@@ -214,6 +216,8 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
       await client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, mp3Path, {
         text: 'This speech exists only inside the deterministic mock service.',
         voiceId: 'mock-voice',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
         requestIdentity: 'qualification:tts:success',
       })
@@ -415,6 +419,8 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
         client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, 'failed.mp3'), {
           text: 'A failed job must never produce a completed Story asset.',
           voiceId: 'mock-voice',
+          // The boundary a live /v1/tts/models row would supply.
+          maxInputCharacters: 12_000,
           speed: 1,
           requestIdentity: 'qualification:tts:failed',
         }),

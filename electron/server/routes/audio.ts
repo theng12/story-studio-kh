@@ -12,8 +12,8 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import {
   catalogHasVoice,
   downloadVoicePreview,
-  listModelCapabilities as listGenStudioCapabilities,
   listVoices as listGenStudioVoices,
+  listTtsModels as listGenStudioTtsModels,
 } from '../lib/genstudio-client.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
@@ -65,20 +65,14 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const requestedModel = req.body.model || ''
-  const requestedTier = pm.storyTtsTierForModelId(requestedModel)
-  // The three Story TTS selections are customer-facing tiers, not literal
-  // /v1/models capability IDs. Their available voices and quote eligibility
-  // are determined by GenStudio's voice catalog.
-  const migratedModel = requestedTier ? requestedModel.trim() : pm.resolveStoryTtsModelId(requestedModel)
+  // The customer picks a GenStudio TTS model and is charged by it. The model id
+  // is GenStudio's own, validated against the live /v1/tts/models catalogue
+  // below; Story Studio neither maps nor renames it.
+  const migratedModel = (req.body.model || '').trim()
   if (!migratedModel) {
     return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', req.body.model || '(none)') })
   }
   req.body.model = migratedModel
-  // Keep the customer-facing product tier beside the internal GenStudio
-  // engine id. Job history can then show Regular, Premium, or Clone without
-  // exposing the private TTS model inventory.
-  if (requestedTier) req.body.tts_tier = requestedTier
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
@@ -89,28 +83,24 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   }
 
   try {
-    const voices = await listGenStudioVoices(apiKey)
+    const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === migratedModel)
+    if (!ttsModel) {
+      return res.status(409).json({ detail: `The saved voice model "${req.body.model}" is not currently in your GenStudio KH catalogue.` })
+    }
+    if (!ttsModel.generation_enabled) {
+      return res.status(409).json({ detail: `GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
+    }
+    const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
     const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
     if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
       return res.status(400).json({
-        detail: 'The selected voice is not available in your GenStudio KH catalog. Refresh the voice picker and choose an available voice.',
+        detail: `The selected voice is not available on ${ttsModel.display_name} in your GenStudio KH catalog. `
+          + 'Refresh the voice picker and choose an available voice.',
       })
     }
-    if (requestedTier && selectedVoice.voice_tier !== requestedTier) {
-      return res.status(400).json({
-        detail: `The selected voice belongs to the ${selectedVoice.voice_tier || 'unknown'} tier. Choose it under GenStudio TTS ${selectedVoice.voice_tier === 'cloned' ? 'Clone' : selectedVoice.voice_tier === 'premium' ? 'Premium' : 'Regular'}.`,
-      })
-    }
-    // Non-tier selections must still resolve to a live public capability.
-    // Tier selections are validated by the selected voice above: GenStudio
-    // intentionally does not expose a separate physical capability for every
-    // commercial voice tier.
-    if (!requestedTier) {
-      const capabilities = await listGenStudioCapabilities(apiKey)
-      if (!capabilities.some(model => model.id === migratedModel && model.operation === 'voice.tts' && model.availability === 'available')) {
-        return res.status(409).json({ detail: `The saved TTS model "${req.body.model}" is not currently available in the GenStudio catalog.` })
-      }
-    }
+    // voice_tier is published metadata, kept beside the job for history. It is
+    // no longer a selector and no longer a price band.
+    if (selectedVoice.voice_tier) req.body.tts_tier = selectedVoice.voice_tier
   } catch (error: any) {
     return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
   }
@@ -134,9 +124,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   const { voice_id, model } = req.body
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const requestedModel = model || ''
-  const requestedTier = pm.storyTtsTierForModelId(requestedModel)
-  const migratedModel = requestedTier ? requestedModel.trim() : pm.resolveStoryTtsModelId(requestedModel)
+  const migratedModel = (model || '').trim()
   if (!migratedModel) return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', model || '(none)') })
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
@@ -154,11 +142,6 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     if (!voice) {
       return res.status(404).json({ detail: 'That voice is no longer available in your GenStudio catalog.' })
     }
-    if (requestedTier && voice.voice_tier !== requestedTier) {
-      return res.status(400).json({
-        detail: `That voice belongs to the ${voice.voice_tier || 'unknown'} tier. Refresh the picker and choose it from the matching GenStudio TTS tier.`,
-      })
-    }
     if (!voice.preview_available || !voice.preview_url) {
       return res.status(404).json({ detail: 'No saved preview is available for this voice yet.' })
     }
@@ -166,6 +149,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     return res.json({
       audio_url: `data:${preview.mediaType};base64,${preview.bytes.toString('base64')}`,
       preview_text: voice.preview_text || null,
+      preview_notice: voice.preview_notice || null,
       generated: false,
     })
   } catch (e: any) {

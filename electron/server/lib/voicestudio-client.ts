@@ -257,12 +257,11 @@ export function modelShipsVoicepack(modelId: string): boolean {
  * (generation chunk-cap, preview, provider) — the live availability probe
  * only gates which are *shown* in the dropdown.
  */
-export function voicestudioAudioDefaults(): Record<string, { label: string; cost_per_1k_chars: number; provider: 'voicestudio'; tts_soft_max_chars: number }> {
-  const out: Record<string, { label: string; cost_per_1k_chars: number; provider: 'voicestudio'; tts_soft_max_chars: number }> = {}
+export function voicestudioAudioDefaults(): Record<string, { label: string; provider: 'voicestudio'; tts_soft_max_chars: number }> {
+  const out: Record<string, { label: string; provider: 'voicestudio'; tts_soft_max_chars: number }> = {}
   for (const e of VOICESTUDIO_ENGINES) {
     out[e.modelId] = {
       label: `${e.label} [Voice Studio · local]`,
-      cost_per_1k_chars: 0,
       provider: 'voicestudio',
       tts_soft_max_chars: e.softMaxChars,
     }

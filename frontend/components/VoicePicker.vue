@@ -3,7 +3,7 @@
     <button type="button" class="vp-trigger" :class="{ open: expanded }" @click="toggle">
       <span class="vp-current">{{ currentVoiceName || defaultLabel }}</span>
       <span v-if="currentVoiceProviderLabel" class="vp-provider-badge">{{ currentVoiceProviderLabel }}</span>
-      <span v-if="modelValue && isFavourite(modelValue)" class="vp-star-badge" aria-label="Favourite">★</span>
+      <span v-if="currentVoiceSaved" class="vp-star-badge" aria-label="Saved voice">★</span>
       <span class="vp-chev" aria-hidden="true">▾</span>
     </button>
 
@@ -15,31 +15,24 @@
           <span>{{ scopeDescription }}</span>
         </div>
         <button
-          v-if="scopeFamily === 'cloud' && activeProvider !== 'genstudio'"
+          v-if="isGenStudioScope"
           type="button"
           class="btn btn-sm btn-secondary"
-          @click="addOpen = !addOpen"
-        >+ Add voice</button>
+          @click="libraryOpen = !libraryOpen"
+        >{{ libraryOpen ? 'Close libraries' : 'Browse libraries' }}</button>
       </div>
 
-      <div v-if="scopeFamily === 'cloud' && addOpen" class="vp-add-panel">
-        <p>
-          Add a voice or clone ID for <strong>{{ activeProviderLabel }}</strong>.
-          You can add more provider labels later in Settings → Voices.
-        </p>
-        <div class="vp-add-row">
-          <input v-model.trim="addName" class="input input-sm" maxlength="80" placeholder="Voice name" @keydown.enter.prevent="saveNewVoice" />
-          <input v-model.trim="addVoiceId" class="input input-sm vp-add-id" placeholder="Voice or reference ID" spellcheck="false" @keydown.enter.prevent="saveNewVoice" />
-          <button type="button" class="btn btn-sm btn-primary" :disabled="addSaving || !addName || !addVoiceId" @click="saveNewVoice">
-            {{ addSaving ? 'Saving…' : 'Save' }}
-          </button>
-        </div>
+      <div v-if="isGenStudioScope && libraryOpen" class="vp-add-panel">
+        <VoiceLibraryBrowser @added="onLibraryVoiceAdded" />
       </div>
 
       <div class="vp-toolbar">
-        <input v-model="search" type="search" class="input input-sm vp-search" placeholder="Search saved voices…" autofocus />
+        <input v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" autofocus />
+        <label v-if="isGenStudioScope" class="vp-saved-toggle" title="Show only the voices saved in your GenStudio account">
+          <input type="checkbox" v-model="savedOnly" />
+          <span>Saved only</span>
+        </label>
         <button
-          v-if="scopeFamily === 'local' || activeProvider === 'genstudio'"
           type="button"
           class="btn btn-sm btn-secondary"
           :disabled="voiceListLoading"
@@ -59,43 +52,46 @@
           <span>Use the model's default voice</span>
         </button>
 
-        <section v-if="favouriteCloudVoices.length" class="vp-section">
-          <h4>Favourites</h4>
-          <VoicePickerRow
-            v-for="voice in favouriteCloudVoices"
-            :key="`favourite-${voice.voice_id}`"
-            :name="voice.name"
-            :selected="modelValue === voice.voice_id"
-            :favourite="true"
-            :provider-label="activeProviderLabel"
-            :preview-available="voice.preview_available === true"
-            @select="select(voice.voice_id)"
-            @favourite="toggleFavourite(voice.voice_id)"
-            @preview="$emit('preview', voice.voice_id)"
-          />
-        </section>
+        <template v-if="isGenStudioScope">
+          <div v-if="scopeToModel && !ttsModelId" class="vp-empty">
+            <strong>Choose a voice model first.</strong>
+            <span>Voices are listed for the model that serves them.</span>
+          </div>
+          <div v-else-if="voicesError" class="vp-warning">
+            {{ voicesError }}
+            <a href="#" @click.prevent="goToGenStudioSettings">Check GenStudio settings</a>
+          </div>
+          <div v-else-if="voicesLoading && !visibleVoices.length" class="vp-empty">Loading voices from GenStudio KH…</div>
 
-        <section v-if="scopeFamily === 'cloud' && regularCloudVoices.length" class="vp-section">
-          <h4>{{ activeProviderLabel }} voices</h4>
-          <VoicePickerRow
-            v-for="voice in regularCloudVoices"
-            :key="voice.voice_id"
-            :name="voice.name"
-            :selected="modelValue === voice.voice_id"
-            :favourite="false"
-            :provider-label="activeProviderLabel"
-            :preview-available="voice.preview_available === true"
-            @select="select(voice.voice_id)"
-            @favourite="toggleFavourite(voice.voice_id)"
-            @preview="$emit('preview', voice.voice_id)"
-          />
-        </section>
+          <section v-if="savedVoiceRows.length" class="vp-section">
+            <h4>Saved in your GenStudio account</h4>
+            <VoicePickerRow
+              v-for="voice in savedVoiceRows"
+              :key="`saved-${voice.id}`"
+              v-bind="rowProps(voice)"
+              @select="select(voice.id)"
+              @favourite="toggleSaved(voice)"
+              @preview="$emit('preview', voice.id)"
+            />
+          </section>
 
-        <div v-if="activeProvider === 'genstudio' && cloudError" class="vp-warning">
-          {{ cloudError }}
-          <a href="#" @click.prevent="goToGenStudioSettings">Check GenStudio settings</a>
-        </div>
-        <div v-else-if="activeProvider === 'genstudio' && cloudLoading" class="vp-empty">Loading voices from GenStudio KH…</div>
+          <section v-if="!savedOnly && otherVoiceRows.length" class="vp-section">
+            <h4>{{ scopeToModel ? `${ttsModelName || 'Model'} voices` : 'All voices on your account' }}</h4>
+            <VoicePickerRow
+              v-for="voice in otherVoiceRows"
+              :key="voice.id"
+              v-bind="rowProps(voice)"
+              @select="select(voice.id)"
+              @favourite="toggleSaved(voice)"
+              @preview="$emit('preview', voice.id)"
+            />
+          </section>
+
+          <div v-if="voicesReady && !voicesLoading && !voicesError && !visibleVoices.length" class="vp-empty">
+            <strong>{{ savedOnly ? 'No saved voices for this model.' : 'GenStudio KH returned no voices for this model.' }}</strong>
+            <span>{{ savedOnly ? 'Clear “Saved only”, or save a voice with the ★ control.' : 'Browse the provider libraries to add one, or refresh the catalog.' }}</span>
+          </div>
+        </template>
 
         <section v-if="scopeFamily === 'local'" class="vp-section vp-section-local">
           <div class="vp-section-heading">
@@ -114,9 +110,6 @@
             class="vp-row"
             :class="{ selected: isSelectedLocal(voice) }"
           >
-            <button type="button" class="vp-star" :class="{ favourite: isFavourite(encodedLocalVoice(voice)) }" @click="toggleFavourite(encodedLocalVoice(voice))">
-              {{ isFavourite(encodedLocalVoice(voice)) ? '★' : '☆' }}
-            </button>
             <button type="button" class="vp-select" @click="selectLocal(voice)">
               <strong>{{ voice.name }}</strong>
               <span>
@@ -127,11 +120,6 @@
             <button type="button" class="vp-preview" title="Preview voice" @click="$emit('preview', encodedLocalVoice(voice))">▶</button>
           </div>
         </section>
-
-        <div v-if="showCloudEmpty" class="vp-empty">
-          <strong>{{ activeProvider === 'genstudio' ? 'No voices were returned by GenStudio KH.' : `No voices labelled for ${activeProviderLabel}.` }}</strong>
-          <span>{{ activeProvider === 'genstudio' ? 'Refresh the catalog or check the API URL and key in This Mac settings.' : 'Add one here or update provider labels in Settings → Voices.' }}</span>
-        </div>
       </div>
     </div>
     </Teleport>
@@ -139,15 +127,23 @@
 </template>
 
 <script setup lang="ts">
-import {
-  mergeDiscoveredVoices,
-  normalizeSavedVoices,
-  voiceProviderLabel,
-  voiceSupportsProvider,
-  type SavedVoice,
-  type VoiceProviderId,
-} from '~/utils/voice-providers'
-import { genStudioTtsTierForModel } from '~/utils/genstudio-tts-tiers'
+/**
+ * Voice picker.
+ *
+ * For GenStudio the flow is model-first: the caller passes the selected TTS
+ * model, and this list shows the voices GenStudio says that model serves. Every
+ * attribute rendered — language, provider/engine name, description, the voice's
+ * own rate, preview availability and its notice, saved state — is published by
+ * GenStudio. Nothing is inferred from an id and nothing is cached past a model
+ * change. Provider identity is DISPLAY only; this component never sends one.
+ *
+ * Saved state belongs to GenStudio (`is_saved` + the save endpoints). There is
+ * deliberately no local favourites list for GenStudio voices — a second copy
+ * would drift from the account it claims to describe.
+ */
+import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { formatCredits } from '~/utils/genstudio-credit-cost'
 
 interface VoiceStudioVoice {
   id: string
@@ -161,91 +157,69 @@ interface VoiceStudioVoice {
   voice_kind?: 'voicestudio-pooled' | 'studiohub-shared'
 }
 
-interface GenStudioVoiceCatalogEntry {
-  id: string
-  display_name: string
-  engine_id?: string
-  engine_name?: string
-  model_revision_id?: string
-  model_family?: string
-  voice_tier?: 'regular' | 'premium' | 'cloned'
-  preview_available?: boolean
-  preview_url?: string | null
-  preview_text?: string | null
-}
-
 const props = withDefaults(defineProps<{
   modelValue: string | null
   projectSlug: string
-  customVoices?: unknown[]
-  customVoicesLoaded?: boolean
   defaultLabel?: string
+  /** '' or 'genstudio' for the GenStudio catalogue; a local engine id otherwise. */
   audioModelProvider?: string
+  /** Local (Voice Studio / macOS) engine id. Not used for GenStudio. */
   audioModelId?: string
+  /** The selected GenStudio TTS model. Voices are listed for this model only. */
+  ttsModelId?: string
+  ttsModelName?: string
+  /**
+   * Restrict the list to the voices the selected model serves. False lists
+   * every voice on the account with the model that serves it named on each
+   * row — for choosing a voice that is not being generated with right now.
+   */
+  scopeToModel?: boolean
+  /** The model's own published rate, so a voice only shows its own when it differs. */
+  modelCreditsPer1000Characters?: number | null
   requireSelection?: boolean
 }>(), {
-  customVoices: () => [],
-  customVoicesLoaded: false,
   defaultLabel: 'Default (let model pick)',
   audioModelProvider: '',
   audioModelId: '',
+  ttsModelId: '',
+  ttsModelName: '',
+  scopeToModel: true,
+  modelCreditsPer1000Characters: null,
   requireSelection: false,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [voiceId: string | null]
   preview: [voiceId: string]
-  'voice-saved': [voice: SavedVoice]
-  'catalog-updated': [voices: SavedVoice[]]
+  'catalog-updated': [voices: GenStudioVoice[]]
 }>()
 
-const { get, put } = useApi()
-const { success, error: showError, info } = useToast()
+const { get } = useApi()
+const { error: showError, info } = useToast()
 const router = useRouter()
+const {
+  voices,
+  voicesLoading,
+  voicesError,
+  loadVoices,
+  clearVoices,
+  setSaved,
+} = useGenStudioVoices()
 
-const CLOUD_PROVIDERS = new Set(['elevenlabs', 'fal', 'genaipro', 'kie', 'fishaudio', 'genstudio'])
+type Scope = 'genstudio' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin'
+
 const VOICEPACK_MODEL_IDS = new Set(['voicestudio-kokoro', 'voicestudio-qwen3-tts', 'voicestudio-bark'])
-type Scope = 'cloud' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin' | 'all'
 
 const scope = computed<Scope>(() => {
-  if (CLOUD_PROVIDERS.has(props.audioModelProvider)) return 'cloud'
   if (props.audioModelProvider === 'voicestudio') {
     return VOICEPACK_MODEL_IDS.has(props.audioModelId) ? 'voicestudio-voicepack' : 'voicestudio-cloning'
   }
   if (props.audioModelProvider === 'macos') return 'macos-builtin'
-  return 'all'
+  return 'genstudio'
 })
-const scopeFamily = computed<'cloud' | 'local'>(() => scope.value === 'cloud' || scope.value === 'all' ? 'cloud' : 'local')
+const scopeFamily = computed<'cloud' | 'local'>(() => scope.value === 'genstudio' ? 'cloud' : 'local')
+const isGenStudioScope = computed(() => scope.value === 'genstudio')
 const isMacosScope = computed(() => scope.value === 'macos-builtin')
-const activeProvider = computed<VoiceProviderId | null>(() =>
-  CLOUD_PROVIDERS.has(props.audioModelProvider) ? props.audioModelProvider as VoiceProviderId : null)
-const activeProviderLabel = computed(() => activeProvider.value ? voiceProviderLabel(activeProvider.value) : 'saved cloud')
-const savedVoices = computed(() => normalizeSavedVoices(props.customVoices))
-const discoveredCloudVoices = ref<GenStudioVoiceCatalogEntry[]>([])
-const filteredDiscoveredCloudVoices = computed(() => {
-  if (activeProvider.value !== 'genstudio') return discoveredCloudVoices.value
-  const selectedTier = genStudioTtsTierForModel(props.audioModelId)
-  if (!selectedTier) return discoveredCloudVoices.value
-  return discoveredCloudVoices.value.filter(voice => voice.voice_tier === selectedTier)
-})
-const mergedCloudVoices = computed(() => activeProvider.value
-  ? mergeDiscoveredVoices(
-      activeProvider.value === 'genstudio'
-        ? savedVoices.value.filter(saved => filteredDiscoveredCloudVoices.value.some(voice => voice.id === saved.voice_id))
-        : savedVoices.value,
-      filteredDiscoveredCloudVoices.value,
-      activeProvider.value,
-    )
-  : savedVoices.value)
-const compatibleCloudVoices = computed(() => {
-  const voices = activeProvider.value
-    ? mergedCloudVoices.value.filter(voice => voiceSupportsProvider(voice, activeProvider.value!))
-    : mergedCloudVoices.value
-  const q = search.value.trim().toLowerCase()
-  return q ? voices.filter(voice => `${voice.name} ${voice.voice_id}`.toLowerCase().includes(q)) : voices
-})
-const favouriteCloudVoices = computed(() => compatibleCloudVoices.value.filter(voice => favouriteIds.value.includes(voice.voice_id)))
-const regularCloudVoices = computed(() => compatibleCloudVoices.value.filter(voice => !favouriteIds.value.includes(voice.voice_id)))
 
 const expanded = ref(false)
 const rootEl = ref<HTMLElement | null>(null)
@@ -256,21 +230,78 @@ const { panelStyle } = useAnchoredPanel(expanded, rootEl, panelEl, {
   maxHeight: 620,
 })
 const search = ref('')
-const favouriteIds = ref<string[]>([])
-const addOpen = ref(false)
-const addName = ref('')
-const addVoiceId = ref('')
-const addSaving = ref(false)
+const savedOnly = ref(false)
+const libraryOpen = ref(false)
+const savingVoiceId = ref('')
 const localVoices = ref<VoiceStudioVoice[]>([])
 const localLoading = ref(false)
 const localError = ref('')
 const voiceStudioBaseUrl = ref('')
-const cloudLoading = ref(false)
-const cloudError = ref('')
-const cloudAttempted = ref(false)
-const voiceListLoading = computed(() => localLoading.value || cloudLoading.value)
+const voicesAttempted = ref(false)
+/** No `model_id` filter: every voice on the account, each naming its model. */
+const ALL_VOICES = ''
+const voicesReady = computed(() => !props.scopeToModel || !!props.ttsModelId)
+const voiceListLoading = computed(() => localLoading.value || voicesLoading.value)
+const searchPlaceholder = computed(() => isGenStudioScope.value ? 'Search voices…' : 'Search local voices…')
 
-const currentSavedVoice = computed(() => mergedCloudVoices.value.find(voice => voice.voice_id === props.modelValue) || null)
+const matchingVoices = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return voices.value
+  return voices.value.filter(voice => [
+    voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
+  ].filter(Boolean).join(' ').toLowerCase().includes(q))
+})
+const visibleVoices = computed(() => savedOnly.value
+  ? matchingVoices.value.filter(voice => voice.is_saved === true)
+  : matchingVoices.value)
+const savedVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved === true))
+const otherVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved !== true))
+
+/**
+ * Provider identity exactly as GenStudio published it. `engine_name` is the
+ * more specific fact when both are present; neither is ever reconstructed.
+ */
+function voiceProviderText(voice: GenStudioVoice): string {
+  const parts = [voice.provider, voice.engine_name].filter(Boolean) as string[]
+  const unique = [...new Set(parts)]
+  return unique.join(' · ')
+}
+
+/** Only worth showing when the voice is priced differently from its model. */
+function voiceRateText(voice: GenStudioVoice): string {
+  const rate = voice.credits_per_1000_characters
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) return ''
+  if (props.modelCreditsPer1000Characters === rate) return ''
+  return `${formatCredits(rate)} / 1,000 characters`
+}
+
+function unavailableReason(voice: GenStudioVoice): string {
+  if (voice.generation_enabled === false) return 'GenStudio has generation turned off for this voice.'
+  if (voice.catalog_status === 'qualification') return 'GenStudio lists this voice as qualification-only.'
+  if (voice.catalog_status === 'retired') return 'GenStudio has retired this voice.'
+  return ''
+}
+
+function rowProps(voice: GenStudioVoice) {
+  const generable = voiceIsGenerable(voice)
+  return {
+    name: voice.display_name,
+    selected: props.modelValue === voice.id,
+    favourite: voice.is_saved === true,
+    providerLabel: voiceProviderText(voice),
+    language: voice.language || '',
+    description: voice.description || '',
+    rateText: voiceRateText(voice),
+    modelName: props.scopeToModel ? '' : (voice.tts_model_name || ''),
+    previewAvailable: voice.preview_available === true,
+    previewNotice: voice.preview_notice || null,
+    disabled: !generable,
+    disabledReason: unavailableReason(voice),
+    saving: savingVoiceId.value === voice.id,
+  }
+}
+
+const currentGenStudioVoice = computed(() => voices.value.find(voice => voice.id === props.modelValue) || null)
 const currentLocalVoice = computed(() => {
   if (!props.modelValue) return null
   if (props.modelValue.startsWith('hubvoice:')) {
@@ -283,17 +314,16 @@ const currentLocalVoice = computed(() => {
   }
   return localVoices.value.find(voice => voice.id === props.modelValue) || null
 })
-const currentVoiceName = computed(() => currentSavedVoice.value?.name || currentLocalVoice.value?.name || (props.modelValue ? props.modelValue : ''))
-const currentVoiceProviderLabel = computed(() => currentSavedVoice.value
-  && activeProvider.value
-  && voiceSupportsProvider(currentSavedVoice.value, activeProvider.value)
-  ? activeProviderLabel.value
-  : '')
-const scopeTitle = computed(() => scopeFamily.value === 'cloud' ? `${activeProviderLabel.value} voice library` : localSectionTitle.value)
-const scopeDescription = computed(() => scopeFamily.value === 'cloud'
-  ? activeProvider.value === 'genstudio'
-    ? 'This tier is fetched securely from your GenStudio KH account.'
-    : 'Only voices labelled as compatible with this provider are shown.'
+const currentVoiceName = computed(() =>
+  currentGenStudioVoice.value?.display_name || currentLocalVoice.value?.name || (props.modelValue || ''))
+const currentVoiceProviderLabel = computed(() =>
+  currentGenStudioVoice.value ? voiceProviderText(currentGenStudioVoice.value) : '')
+const currentVoiceSaved = computed(() => currentGenStudioVoice.value?.is_saved === true)
+const scopeTitle = computed(() => isGenStudioScope.value
+  ? props.ttsModelName ? `${props.ttsModelName} voices` : 'GenStudio KH voices'
+  : localSectionTitle.value)
+const scopeDescription = computed(() => isGenStudioScope.value
+  ? 'Read live from your GenStudio KH account for the selected voice model.'
   : 'This list comes from the selected local voice engine.')
 const localSectionTitle = computed(() => {
   if (isMacosScope.value) return 'macOS built-in voices'
@@ -304,33 +334,6 @@ const filteredLocalVoices = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? localVoices.value.filter(voice => `${voice.name} ${voice.language || ''}`.toLowerCase().includes(q)) : localVoices.value
 })
-const showCloudEmpty = computed(() => scopeFamily.value === 'cloud'
-  && !compatibleCloudVoices.value.length
-  && !cloudLoading.value
-  && !cloudError.value)
-
-function hasValidSlug() {
-  return !!props.projectSlug && props.projectSlug !== 'undefined'
-}
-
-async function loadFavourites() {
-  if (!hasValidSlug()) return
-  try {
-    const data = await get<{ voice_ids: string[] }>(`/projects/${props.projectSlug}/voices/favourites`)
-    favouriteIds.value = Array.isArray(data.voice_ids) ? data.voice_ids : []
-  } catch { /* Favourites are optional; the voice list still works. */ }
-}
-
-async function toggleFavourite(voiceId: string) {
-  const next = favouriteIds.value.filter(id => id !== voiceId)
-  if (next.length === favouriteIds.value.length) next.unshift(voiceId)
-  favouriteIds.value = next
-  try {
-    await put(`/projects/${props.projectSlug}/voices/favourites`, { voice_ids: next })
-  } catch (error: any) {
-    showError(error?.data?.detail || 'Could not save voice favourites')
-  }
-}
 
 async function loadLocalVoices() {
   if (scopeFamily.value !== 'local') {
@@ -360,69 +363,41 @@ async function loadLocalVoices() {
   }
 }
 
-async function loadCloudVoices() {
-  if (activeProvider.value !== 'genstudio') {
-    discoveredCloudVoices.value = []
+/** Re-read the whole voice list whenever the model selection changes. */
+async function loadGenStudioVoices() {
+  if (!isGenStudioScope.value || (props.scopeToModel && !props.ttsModelId)) {
+    voicesAttempted.value = false
+    clearVoices()
     emit('catalog-updated', [])
-    cloudError.value = ''
-    cloudAttempted.value = false
     return
   }
-  cloudLoading.value = true
-  cloudError.value = ''
-  cloudAttempted.value = true
-  try {
-    const data = await get<{ voices: GenStudioVoiceCatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
-    discoveredCloudVoices.value = Array.isArray(data.voices) ? data.voices : []
-    emit('catalog-updated', mergeDiscoveredVoices([], discoveredCloudVoices.value, 'genstudio'))
-  } catch (error: any) {
-    discoveredCloudVoices.value = []
-    emit('catalog-updated', [])
-    cloudError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice catalog is unavailable.'
-  } finally {
-    cloudLoading.value = false
-    reconcileSelection()
-  }
+  voicesAttempted.value = true
+  await loadVoices(props.scopeToModel ? props.ttsModelId : ALL_VOICES)
+  emit('catalog-updated', voices.value)
+  reconcileSelection()
 }
 
 function refreshVoices() {
   if (scopeFamily.value === 'local') void loadLocalVoices()
-  else void loadCloudVoices()
+  else void loadGenStudioVoices()
 }
 
-async function saveNewVoice() {
-  if (!activeProvider.value || addSaving.value) return
-  const name = addName.value.trim()
-  const voiceId = addVoiceId.value.trim()
-  if (!name || !voiceId) return
-  const existing = savedVoices.value.find(voice => voice.voice_id === voiceId)
-  const next = savedVoices.value.map(voice => ({ ...voice, providers: [...voice.providers] }))
-  if (existing) {
-    const target = next.find(voice => voice.voice_id === voiceId)!
-    if (target.providers.includes(activeProvider.value)) {
-      showError('That voice is already saved for this provider.')
-      return
-    }
-    target.providers.push(activeProvider.value)
-  } else {
-    next.push({ name, voice_id: voiceId, providers: [activeProvider.value] })
-  }
-  addSaving.value = true
+async function toggleSaved(voice: GenStudioVoice) {
+  if (savingVoiceId.value) return
+  savingVoiceId.value = voice.id
   try {
-    await put(`/projects/${props.projectSlug}/settings/config`, { voice_presets: next })
-    const saved = { name: existing?.name || name, voice_id: voiceId, providers: existing ? [...existing.providers, activeProvider.value] : [activeProvider.value] } as SavedVoice
-    emit('voice-saved', saved)
-    emit('update:modelValue', voiceId)
-    addName.value = ''
-    addVoiceId.value = ''
-    addOpen.value = false
-    expanded.value = false
-    success(`Saved “${saved.name}” for ${activeProviderLabel.value}.`)
+    await setSaved(voice.id, voice.is_saved !== true)
+    emit('catalog-updated', voices.value)
   } catch (error: any) {
-    showError(error?.data?.detail || error?.message || 'Could not save the voice')
+    showError(error?.data?.detail || error?.message || 'GenStudio could not update the saved state of this voice')
   } finally {
-    addSaving.value = false
+    savingVoiceId.value = ''
   }
+}
+
+async function onLibraryVoiceAdded(voiceId: string) {
+  await loadGenStudioVoices()
+  if (voices.value.some(voice => voice.id === voiceId)) select(voiceId)
 }
 
 function encodedLocalVoice(voice: VoiceStudioVoice) {
@@ -439,24 +414,20 @@ function select(voiceId: string | null) {
 function selectLocal(voice: VoiceStudioVoice) {
   select(encodedLocalVoice(voice))
 }
-function isFavourite(voiceId: string) {
-  return favouriteIds.value.includes(voiceId)
-}
 
+/**
+ * A voice that the newly selected model does not serve cannot be submitted, so
+ * it is cleared rather than left as a selection that would fail at generation.
+ */
 function reconcileSelection() {
   if (!props.modelValue) return
-  if (scopeFamily.value === 'cloud') {
-    if (!props.customVoicesLoaded || !activeProvider.value) return
-    if (activeProvider.value === 'genstudio'
-      && (!cloudAttempted.value || cloudLoading.value || !!cloudError.value)) return
-    if (activeProvider.value === 'genstudio'
-      && discoveredCloudVoices.value.some(voice => voice.id === props.modelValue)) return
-    const compatible = mergedCloudVoices.value.some(voice =>
-      voice.voice_id === props.modelValue && voiceSupportsProvider(voice, activeProvider.value!))
-    if (!compatible) {
-      emit('update:modelValue', null)
-      info(`Voice cleared because it is not labelled for ${activeProviderLabel.value}.`)
-    }
+  if (isGenStudioScope.value) {
+    if (!voicesReady.value || !voicesAttempted.value || voicesLoading.value || voicesError.value) return
+    if (voices.value.some(voice => voice.id === props.modelValue)) return
+    emit('update:modelValue', null)
+    info(props.scopeToModel
+      ? 'Voice cleared: the selected voice model does not serve it.'
+      : 'Voice cleared: it is no longer in your GenStudio catalogue.')
     return
   }
   if (localLoading.value || localError.value || !localVoices.value.length) return
@@ -469,9 +440,8 @@ function reconcileSelection() {
 function toggle() {
   expanded.value = !expanded.value
   if (!expanded.value) return
-  void loadFavourites()
   if (scopeFamily.value === 'local' && !localVoices.value.length) void loadLocalVoices()
-  if (activeProvider.value === 'genstudio') void loadCloudVoices()
+  if (isGenStudioScope.value) void loadGenStudioVoices()
 }
 function openVoiceStudioWeb() {
   if (!voiceStudioBaseUrl.value) {
@@ -497,9 +467,8 @@ function onClickOutside(event: MouseEvent) {
 }
 
 onMounted(() => {
-  void loadFavourites()
   void loadLocalVoices()
-  void loadCloudVoices()
+  void loadGenStudioVoices()
   window.addEventListener('keydown', onKey)
   document.addEventListener('click', onClickOutside)
 })
@@ -507,14 +476,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   document.removeEventListener('click', onClickOutside)
 })
-watch(() => [props.audioModelId, props.audioModelProvider], () => {
-  addOpen.value = false
+// The first rule: a model change invalidates the voice list, so re-read it.
+watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], () => {
+  libraryOpen.value = false
   search.value = ''
   void loadLocalVoices()
-  void loadCloudVoices()
-  reconcileSelection()
+  void loadGenStudioVoices()
 })
-watch(() => [props.customVoices, props.customVoicesLoaded], reconcileSelection, { deep: true })
 </script>
 
 <style scoped>
@@ -537,7 +505,8 @@ watch(() => [props.customVoices, props.customVoicesLoaded], reconcileSelection, 
 .vp-add-panel p { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .vp-add-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(180px,1.3fr) auto; gap: 6px; }
 .vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.vp-toolbar { display: flex; gap: 8px; padding: 0 10px 8px; }
+.vp-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
+.vp-saved-toggle { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .vp-search { flex: 1; }
 .vp-list { flex: 1; overflow-y: auto; padding: 0 8px 10px; }
 .vp-section { margin-top: 8px; }

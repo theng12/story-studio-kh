@@ -84,7 +84,6 @@ const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
 const CATALOG_FRESH_MS = 5 * 60_000
 const CATALOG_STALE_MS = 30 * 60_000
-export const GENSTUDIO_MAX_TTS_CHARACTERS = 15_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
@@ -446,6 +445,15 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   text: string
   voiceId?: string
   speed: number
+  /**
+   * `TTSModelResponse.maximum_input_characters` for the model that will serve
+   * this request. Story Studio never assumes a boundary: the caller resolves it
+   * from the live catalogue and passes it in, so a catalogue change takes effect
+   * on the very next submission. Required to SUBMIT — `buildGenStudioSubmission`
+   * refuses without it. The recovery path reclaims an already-accepted job and
+   * never re-derives a boundary for it, so it is optional at the type level.
+   */
+  maxInputCharacters?: number
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
   /** Reuse a key already checkpointed beside the Story asset. */
@@ -668,6 +676,11 @@ export interface GenStudioSubmission {
   idempotencyKey: string
 }
 
+/**
+ * `StandardVoiceResponse`. Every field here is published by GenStudio; none is
+ * derived. Provider and engine identity are customer-facing (AGENTS.md
+ * "Provider Transparency") and travel all the way to the picker.
+ */
 export interface GenStudioVoice {
   id: string
   display_name: string
@@ -679,10 +692,98 @@ export interface GenStudioVoice {
   model_revision_id?: string
   model_family?: string
   voice_tier?: string
+  voice_revision?: string
+  custom_voice_id?: string | null
+  public_voice_id?: string | null
+  /** The voice's own rate. Differs from the model's rate on some voices. */
+  credits_per_1000_characters?: number
+  output_format?: string
+  catalog_status?: string
+  unlimited_relaxed?: boolean
+  quote_enabled?: boolean
   generation_enabled?: boolean
   preview_available?: boolean
   preview_url?: string | null
   preview_text?: string | null
+  preview_notice?: string | null
+  /** GenStudio owns this. Story Studio reflects it and never shadows it. */
+  is_saved?: boolean
+  /** The TTS model this voice runs on — the compatibility key for the picker. */
+  tts_model_id?: string | null
+  tts_model_name?: string | null
+}
+
+/** `TTSModelResponse` — the selection and pricing axis for speech. */
+export interface GenStudioTtsModel {
+  id: string
+  display_name: string
+  provider_id: string
+  provider_name: string
+  description: string
+  credits_per_1000_characters: number
+  minimum_credits: number
+  maximum_input_characters: number
+  supports_speed: boolean
+  supports_voice_cloning: boolean
+  preview_policy: string
+  generation_enabled: boolean
+}
+
+/** `TTSQuoteResponse` — GenStudio's own figure for one exact script. */
+export interface GenStudioTtsQuote {
+  model_id?: string | null
+  model_name?: string | null
+  voice_id: string
+  voice_tier: string
+  billable_characters: number
+  speed: number
+  estimated_duration_ms: number
+  maximum_input_characters: number
+  credits: number
+  credits_per_1000_characters: number
+  price_version: string
+  output_format: string
+  chargeable: boolean
+  generation_enabled: boolean
+  notice: string
+}
+
+/**
+ * GenStudio publishes one browsable library route per provider and no
+ * discovery endpoint for them, so the published set lives here — in ONE place,
+ * named after the providers exactly as GenStudio names them. A third library
+ * is one entry. Nothing else in Story Studio may enumerate voice providers.
+ */
+export const GENSTUDIO_VOICE_LIBRARIES = [
+  { id: 'elevenlabs', label: 'ElevenLabs', path: '/v1/voice-library/elevenlabs' },
+  { id: 'fish', label: 'Fish Audio', path: '/v1/voice-library/fish' },
+] as const
+
+export type GenStudioVoiceLibraryId = typeof GENSTUDIO_VOICE_LIBRARIES[number]['id']
+
+/** A row from either library page response. Both publish the same core shape. */
+export interface GenStudioLibraryVoice {
+  public_voice_id: string
+  name: string
+  description: string
+  language: string
+  accent?: string | null
+  gender?: string | null
+  age?: string | null
+  use_case?: string | null
+  category?: string | null
+  preview_available: boolean
+  preview_url: string | null
+  notice_period_days?: number | null
+  genstudio_voice_id?: string | null
+  is_saved?: boolean
+  credits_per_1000_characters?: number
+}
+
+export interface GenStudioLibraryPage {
+  page: number
+  has_more: boolean
+  voices: GenStudioLibraryVoice[]
 }
 
 export interface GenStudioModelCapability {
@@ -1440,15 +1541,24 @@ function authorization(apiKey: string): Record<string, string> {
 }
 
 /**
- * Split only at GenStudio's public API boundary. VoiceStudio owns every
- * smaller model-sized chunk, join, and final speed operation behind it.
+ * Split only at the boundary the selected model publishes
+ * (`maximum_input_characters`). VoiceStudio owns every smaller model-sized
+ * chunk, join, and final speed operation behind it. The caller must pass the
+ * live figure — there is no default, because a wrong one bills a failed job.
  */
-export function splitGenStudioApiRequests(text: string): string[] {
-  return chunkText(text, GENSTUDIO_MAX_TTS_CHARACTERS).flatMap(part => {
-    if (part.length <= GENSTUDIO_MAX_TTS_CHARACTERS) return [part]
+export function splitGenStudioApiRequests(text: string, maxCharacters: number): string[] {
+  if (!Number.isFinite(maxCharacters) || maxCharacters <= 0) {
+    throw new Error(
+      'GenStudio KH published no maximum_input_characters for the selected voice model, '
+      + 'so Story Studio cannot decide where to split this script. Refresh the voice catalogue and try again.',
+    )
+  }
+  const cap = Math.floor(maxCharacters)
+  return chunkText(text, cap).flatMap(part => {
+    if (part.length <= cap) return [part]
     const slices: string[] = []
-    for (let offset = 0; offset < part.length; offset += GENSTUDIO_MAX_TTS_CHARACTERS) {
-      slices.push(part.slice(offset, offset + GENSTUDIO_MAX_TTS_CHARACTERS))
+    for (let offset = 0; offset < part.length; offset += cap) {
+      slices.push(part.slice(offset, offset + cap))
     }
     return slices
   })
@@ -1459,9 +1569,16 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   const voiceId = request.voiceId?.trim() || ''
   if (!voiceId) throw new Error('Select a GenStudio KH voice before generating audio.')
   if (!request.text.trim()) throw new Error('GenStudio KH text cannot be empty.')
+  const maxCharacters = request.maxInputCharacters as number
+  if (!Number.isFinite(maxCharacters) || maxCharacters <= 0) {
+    throw new Error(
+      'GenStudio KH published no maximum_input_characters for the selected voice model. '
+      + 'Story Studio will not guess a request boundary — refresh the voice catalogue and try again.',
+    )
+  }
   const characterCount = Array.from(request.text.normalize('NFC')).length
-  if (characterCount > GENSTUDIO_MAX_TTS_CHARACTERS) {
-    throw new Error(`GenStudio KH accepts at most ${GENSTUDIO_MAX_TTS_CHARACTERS.toLocaleString()} characters per request.`)
+  if (characterCount > maxCharacters) {
+    throw new Error(`GenStudio KH accepts at most ${Math.floor(maxCharacters).toLocaleString()} characters per request for this voice model.`)
   }
   if (!Number.isFinite(request.speed) || request.speed < 0.5 || request.speed > 2) {
     throw new Error('GenStudio KH speed must be between 0.5 and 2.0.')
@@ -2049,6 +2166,7 @@ interface CatalogCacheEntry<T> {
 export type GenStudioCatalogKind =
   | 'capabilities'
   | 'voices'
+  | 'tts-models'
   | 'chat'
   | 'image'
   | 'video'
@@ -2076,6 +2194,7 @@ export interface GenStudioCatalogSnapshot<T> {
 const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
   capabilities: 'capability',
   voices: 'voice',
+  'tts-models': 'voice model',
   chat: 'language product',
   image: 'image model',
   video: 'video model',
@@ -2233,35 +2352,253 @@ async function cachedCatalog<T>(
   return (await cachedCatalogSnapshot(kind, key, load)).value
 }
 
-/** Fetch the account-visible catalog so callers never need to know voice IDs. */
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function optionalCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * Fetch the account-visible voice catalog. `modelId` forwards GenStudio's own
+ * `model_id` filter so compatibility is decided by GenStudio, not by Story
+ * Studio comparing strings.
+ */
 export async function listVoicesSnapshot(
   apiKey: string,
+  options: { modelId?: string; collection?: string; search?: string } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVoice[]>> {
   const baseUrl = await getGenStudioUrl()
-  return cachedCatalogSnapshot('voices', catalogCacheKey('voices', baseUrl, apiKey), async () => {
-  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/voices`, apiKey)
+  const query = new URLSearchParams()
+  if (options.modelId?.trim()) query.set('model_id', options.modelId.trim())
+  if (options.collection?.trim()) query.set('collection', options.collection.trim())
+  if (options.search?.trim()) query.set('search', options.search.trim())
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return cachedCatalogSnapshot('voices', catalogCacheKey('voices', `${baseUrl}${suffix}`, apiKey), async () => {
+  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
-    language: typeof value?.language === 'string' ? value.language : undefined,
-    description: typeof value?.description === 'string' ? value.description : undefined,
-    provider: typeof value?.provider === 'string' ? value.provider : undefined,
-    engine_id: typeof value?.engine_id === 'string' ? value.engine_id.trim() : undefined,
-    engine_name: typeof value?.engine_name === 'string' ? value.engine_name.trim() : undefined,
-    model_revision_id: typeof value?.model_revision_id === 'string' ? value.model_revision_id.trim() : undefined,
-    model_family: typeof value?.model_family === 'string' ? value.model_family.trim() : undefined,
-    voice_tier: typeof value?.voice_tier === 'string' ? value.voice_tier.trim() : undefined,
+    language: optionalText(value?.language),
+    description: optionalText(value?.description),
+    provider: optionalText(value?.provider),
+    engine_id: optionalText(value?.engine_id),
+    engine_name: optionalText(value?.engine_name),
+    model_revision_id: optionalText(value?.model_revision_id),
+    model_family: optionalText(value?.model_family),
+    voice_tier: optionalText(value?.voice_tier),
+    voice_revision: optionalText(value?.voice_revision),
+    custom_voice_id: nullableText(value?.custom_voice_id),
+    public_voice_id: nullableText(value?.public_voice_id),
+    credits_per_1000_characters: optionalCount(value?.credits_per_1000_characters),
+    output_format: optionalText(value?.output_format),
+    catalog_status: optionalText(value?.catalog_status),
+    unlimited_relaxed: typeof value?.unlimited_relaxed === 'boolean' ? value.unlimited_relaxed : undefined,
+    quote_enabled: typeof value?.quote_enabled === 'boolean' ? value.quote_enabled : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
     preview_available: typeof value?.preview_available === 'boolean' ? value.preview_available : undefined,
-    preview_url: typeof value?.preview_url === 'string' ? value.preview_url.trim() : null,
-    preview_text: typeof value?.preview_text === 'string' ? value.preview_text.trim() : null,
-  })).filter((voice: GenStudioVoice) => voice.id && voice.display_name && voice.generation_enabled !== false)
+    preview_url: nullableText(value?.preview_url),
+    preview_text: nullableText(value?.preview_text),
+    preview_notice: nullableText(value?.preview_notice),
+    is_saved: typeof value?.is_saved === 'boolean' ? value.is_saved : undefined,
+    tts_model_id: nullableText(value?.tts_model_id),
+    tts_model_name: nullableText(value?.tts_model_name),
+  })).filter((voice: GenStudioVoice) => voice.id && voice.display_name)
   })
 }
 
-export async function listVoices(apiKey: string): Promise<GenStudioVoice[]> {
-  return (await listVoicesSnapshot(apiKey)).value
+export async function listVoices(
+  apiKey: string,
+  options: { modelId?: string; collection?: string; search?: string } = {},
+): Promise<GenStudioVoice[]> {
+  return (await listVoicesSnapshot(apiKey, options)).value
+}
+
+/**
+ * `GET /v1/tts/models` — the speech selection and pricing axis. Every field is
+ * required by the published contract, so a row missing one is a broken row and
+ * is dropped rather than repaired with an invented value.
+ */
+export async function listTtsModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioTtsModel[]>> {
+  const baseUrl = await getGenStudioUrl()
+  return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
+    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
+    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice model catalog')
+    return payload.flatMap((value: any): GenStudioTtsModel[] => {
+      const id = typeof value?.id === 'string' ? value.id.trim() : ''
+      const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
+      const rate = optionalCount(value?.credits_per_1000_characters)
+      const minimum = optionalCount(value?.minimum_credits)
+      const maxCharacters = optionalCount(value?.maximum_input_characters)
+      if (!id || !displayName || rate === undefined || minimum === undefined || maxCharacters === undefined) return []
+      return [{
+        id,
+        display_name: displayName,
+        provider_id: typeof value?.provider_id === 'string' ? value.provider_id.trim() : '',
+        provider_name: typeof value?.provider_name === 'string' ? value.provider_name.trim() : '',
+        description: typeof value?.description === 'string' ? value.description.trim() : '',
+        credits_per_1000_characters: rate,
+        minimum_credits: minimum,
+        maximum_input_characters: maxCharacters,
+        supports_speed: value?.supports_speed === true,
+        supports_voice_cloning: value?.supports_voice_cloning === true,
+        preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
+        generation_enabled: value?.generation_enabled === true,
+      }]
+    })
+  })
+}
+
+export async function listTtsModels(apiKey: string): Promise<GenStudioTtsModel[]> {
+  return (await listTtsModelsSnapshot(apiKey)).value
+}
+
+/**
+ * Toggle GenStudio's own saved flag. GenStudio owns the saved state; Story
+ * Studio drops its cached voice rows afterwards so the next read comes back
+ * with the authoritative `is_saved` rather than a local guess at it.
+ */
+export async function setGenStudioVoiceSaved(
+  apiKey: string,
+  voiceId: string,
+  saved: boolean,
+): Promise<void> {
+  const id = voiceId.trim()
+  if (!id) throw new Error('A GenStudio voice id is required to change its saved state.')
+  const baseUrl = await getGenStudioUrl()
+  const response = await fetch(`${apiBase(baseUrl)}/v1/voices/${encodeURIComponent(id)}/save`, {
+    method: saved ? 'POST' : 'DELETE',
+    headers: authorization(apiKey),
+    signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) {
+    throw new GenStudioApiError(response.status, `voice save returned HTTP ${response.status}`)
+  }
+  invalidateGenStudioCatalogFreshness()
+}
+
+function voiceLibraryPath(library: string): string {
+  const match = GENSTUDIO_VOICE_LIBRARIES.find(entry => entry.id === library.trim())
+  if (!match) {
+    throw new Error(`GenStudio KH publishes no voice library named "${library}".`)
+  }
+  return match.path
+}
+
+/** Browse one provider's public voice library page. Not a Story Studio cache. */
+export async function listGenStudioVoiceLibrary(
+  apiKey: string,
+  library: string,
+  options: { search?: string; page?: number } = {},
+): Promise<GenStudioLibraryPage> {
+  const baseUrl = await getGenStudioUrl()
+  const query = new URLSearchParams()
+  if (options.search?.trim()) query.set('search', options.search.trim())
+  if (Number.isFinite(options.page) && (options.page as number) > 0) query.set('page', String(Math.floor(options.page as number)))
+  const suffix = query.size ? `?${query.toString()}` : ''
+  const payload: any = await fetchCatalogJson(`${apiBase(baseUrl)}${voiceLibraryPath(library)}${suffix}`, apiKey)
+  if (!payload || !Array.isArray(payload.voices)) {
+    throw new Error('GenStudio KH returned an invalid voice library page')
+  }
+  return {
+    page: optionalCount(payload.page) ?? 0,
+    has_more: payload.has_more === true,
+    voices: payload.voices.flatMap((value: any): GenStudioLibraryVoice[] => {
+      const publicVoiceId = typeof value?.public_voice_id === 'string' ? value.public_voice_id.trim() : ''
+      if (!publicVoiceId) return []
+      return [{
+        public_voice_id: publicVoiceId,
+        name: typeof value?.name === 'string' ? value.name.trim() : '',
+        description: typeof value?.description === 'string' ? value.description.trim() : '',
+        language: typeof value?.language === 'string' ? value.language.trim() : '',
+        accent: nullableText(value?.accent),
+        gender: nullableText(value?.gender),
+        age: nullableText(value?.age),
+        use_case: nullableText(value?.use_case),
+        category: nullableText(value?.category),
+        preview_available: value?.preview_available === true,
+        preview_url: nullableText(value?.preview_url),
+        notice_period_days: optionalCount(value?.notice_period_days) ?? null,
+        genstudio_voice_id: nullableText(value?.genstudio_voice_id),
+        is_saved: typeof value?.is_saved === 'boolean' ? value.is_saved : undefined,
+        credits_per_1000_characters: optionalCount(value?.credits_per_1000_characters),
+      }]
+    }),
+  }
+}
+
+/** Bring a public library voice into the customer's own GenStudio library. */
+export async function addGenStudioVoiceLibraryVoice(
+  apiKey: string,
+  library: string,
+  publicVoiceId: string,
+): Promise<{ voice_id: string; created: boolean; saved?: boolean; credits_per_1000_characters?: number }> {
+  const id = publicVoiceId.trim()
+  if (!id) throw new Error('A public voice id is required to add a library voice.')
+  const baseUrl = await getGenStudioUrl()
+  const response = await fetch(`${apiBase(baseUrl)}${voiceLibraryPath(library)}/add`, {
+    method: 'POST',
+    headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ public_voice_id: id }),
+    signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  const payload: any = await readJson(response)
+  invalidateGenStudioCatalogFreshness()
+  return {
+    voice_id: typeof payload?.voice_id === 'string' ? payload.voice_id : '',
+    created: payload?.created === true,
+    saved: typeof payload?.saved === 'boolean' ? payload.saved : undefined,
+    credits_per_1000_characters: optionalCount(payload?.credits_per_1000_characters),
+  }
+}
+
+/**
+ * `POST /v1/tts/quotes` — GenStudio's exact credit figure for one exact script.
+ * Never cached: a quote belongs to the text it was asked about.
+ */
+export async function requestGenStudioTtsQuote(
+  apiKey: string,
+  request: { modelId?: string | null; voiceId: string; text: string; speed?: number },
+): Promise<GenStudioTtsQuote> {
+  const voiceId = request.voiceId.trim()
+  if (!voiceId) throw new Error('Select a GenStudio KH voice before asking for a quote.')
+  if (!request.text.trim()) throw new Error('There is no text to quote.')
+  const baseUrl = await getGenStudioUrl()
+  const body: Record<string, unknown> = { voice_id: voiceId, text: request.text }
+  if (request.modelId?.trim()) body.model_id = request.modelId.trim()
+  if (Number.isFinite(request.speed)) body.speed = request.speed
+  const response = await fetch(`${apiBase(baseUrl)}/v1/tts/quotes`, {
+    method: 'POST',
+    headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  const payload: any = await readJson(response)
+  return {
+    model_id: nullableText(payload?.model_id),
+    model_name: nullableText(payload?.model_name),
+    voice_id: typeof payload?.voice_id === 'string' ? payload.voice_id : voiceId,
+    voice_tier: typeof payload?.voice_tier === 'string' ? payload.voice_tier : '',
+    billable_characters: optionalCount(payload?.billable_characters) ?? 0,
+    speed: optionalCount(payload?.speed) ?? 1,
+    estimated_duration_ms: optionalCount(payload?.estimated_duration_ms) ?? 0,
+    maximum_input_characters: optionalCount(payload?.maximum_input_characters) ?? 0,
+    credits: optionalCount(payload?.credits) ?? 0,
+    credits_per_1000_characters: optionalCount(payload?.credits_per_1000_characters) ?? 0,
+    price_version: typeof payload?.price_version === 'string' ? payload.price_version : '',
+    output_format: typeof payload?.output_format === 'string' ? payload.output_format : '',
+    chargeable: payload?.chargeable === true,
+    generation_enabled: payload?.generation_enabled === true,
+    notice: typeof payload?.notice === 'string' ? payload.notice : '',
+  }
 }
 
 /**
@@ -2273,7 +2610,10 @@ export async function downloadVoicePreview(
   previewPath: string,
 ): Promise<{ bytes: Buffer; mediaType: string }> {
   const baseUrl = await getGenStudioUrl()
-  if (!previewPath.startsWith('/v1/voices/') || !previewPath.endsWith('/preview')) {
+  const isCatalogPreview = previewPath.startsWith('/v1/voices/') && previewPath.endsWith('/preview')
+  const isLibraryPreview = GENSTUDIO_VOICE_LIBRARIES.some(library => previewPath.startsWith(`${library.path}/`))
+    && previewPath.endsWith('/preview')
+  if (!isCatalogPreview && !isLibraryPreview) {
     throw new Error('GenStudio KH returned an invalid voice preview path')
   }
   const response = await fetch(requestUrl(baseUrl, previewPath), {
@@ -4574,8 +4914,9 @@ async function generateTtsToFileAdmitted(
   const submission = buildGenStudioSubmission(request)
   const idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
   // Narration text is deliberately summarised as a character count rather than
-  // stored: the audio pipeline submits up to 15,000 characters per request and
-  // the operator's question here is "which voice/speed/length went out?".
+  // stored: a single request carries up to the model's published
+  // maximum_input_characters, and the operator's question here is
+  // "which voice/speed/length went out?".
   const requestPreview = await recordGenStudioRequestPreview('voice.tts', {
     method: 'POST',
     path: '/v1/audio/jobs',

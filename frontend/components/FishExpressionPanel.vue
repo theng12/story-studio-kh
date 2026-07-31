@@ -8,14 +8,13 @@
           @change="$emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
         />
         <span>Use expression markup</span>
-        <span class="fish-expr-badge">{{ dialectLabel }}</span>
+        <span class="fish-expr-badge">{{ DIALECT_LABEL }}</span>
       </label>
       <span v-if="sections.length" class="text-muted text-xs">{{ taggedCount }}/{{ sections.length }} tagged</span>
     </div>
     <p class="text-muted text-xs fish-expr-hint">
-      {{ dialectLabel }} performs inline <code>[tags]</code> —
-      <template v-if="dialect === 'elevenlabs'">e.g. <code>[whispers]</code>, <code>[excited]</code>, <code>[sighs]</code>, <code>[pause]</code>.</template>
-      <template v-else>e.g. <code>[whispering]</code>, <code>[excited]</code>, <code>[long&nbsp;pause]</code>, or free-form like <code>[dead&nbsp;tired]</code>.</template>
+      {{ DIALECT_LABEL }} performs inline <code>[tags]</code> —
+      e.g. <code>[whispering]</code>, <code>[excited]</code>, <code>[long&nbsp;pause]</code>, or free-form like <code>[dead&nbsp;tired]</code>.
       Draft them with AI, then review &amp; edit. When the toggle is on, the audio renders this tagged script instead of the plain narration —
       and any section you haven't tagged yet is <strong>auto-tagged at render time</strong> (including Pipeline runs), so it works hands-off.
     </p>
@@ -94,7 +93,7 @@ const props = defineProps<{
   modelValue: boolean
   /** Text model used to write the expression tags. */
   expressionModel?: string
-  /** The selected audio (TTS) model — picks the tag dialect. */
+  /** The selected audio (TTS) model. Passed to the backend with each request. */
   audioModel?: string
 }>()
 const emit = defineEmits<{
@@ -104,31 +103,22 @@ const emit = defineEmits<{
 
 const { get, post, put } = useApi()
 
-// Tag dialect follows the chosen TTS model: ElevenLabs v3 vs Fish S2. Drives the
-// quick-insert palette + the badge, and is sent so the backend tags in-dialect.
-// model-drift-allow: retired direct-provider ids, matched only so a project
-// that still carries one keeps the tag dialect it was written in. GenStudio-only
-// selections never reach this branch; it goes when the legacy ids do.
-const dialect = computed<'fish' | 'elevenlabs'>(() =>
-  (props.audioModel === 'eleven-v3' || props.audioModel === 'genaipro-v3') ? 'elevenlabs' : 'fish')
-const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs v3' : 'Fish S2')
+// One tag dialect. The alternative branch keyed off two retired direct-provider
+// model ids that no current GenStudio selection can produce, so it was
+// unreachable; `audio_model` still travels to the backend, which resolves the
+// dialect from the live catalogue rather than from a literal matched here.
+const DIALECT_LABEL = 'Fish S2'
 
 // Text models for the tagging pass come only from the live GenStudio catalog.
 const markupModel = computed<string>({
   get: () => props.expressionModel || '',
   set: (value) => emit('update:expressionModel', value),
 })
-// Quick-insert palette — dialect-specific so the chips match the chosen model
-// (Fish uses -ing verbs + short/long pause; ElevenLabs v3 uses -s verbs + pause).
-const FISH_TAGS = [
+// Quick-insert palette for the Fish S2 tag dialect (-ing verbs, short/long pause).
+const TAGS = [
   'whispering', 'soft voice', 'warmly', 'excited', 'emphasis', 'sad', 'angry', 'shouting',
   'sigh', 'exhale', 'gasp', 'laughing', 'chuckling', 'short pause', 'long pause',
 ]
-const EL_TAGS = [
-  'whispers', 'excited', 'sad', 'angry', 'sarcastic', 'curious', 'sighs', 'exhales',
-  'laughs', 'chuckles', 'clears throat', 'gasps', 'pause',
-]
-const TAGS = computed(() => dialect.value === 'elevenlabs' ? EL_TAGS : FISH_TAGS)
 
 const sections = ref<ExprSection[]>([])
 const edits = reactive<Record<string, string>>({})   // working expressive text per slug

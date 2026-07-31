@@ -821,10 +821,7 @@ function isTtsJob(job: RJob): boolean {
 }
 
 function jobModelDisplay(job: RJob): string {
-  return genStudioModels.displayName(job.params?.model, {
-    tts: isTtsJob(job),
-    ttsTier: job.params?.tts_tier,
-  })
+  return genStudioModels.displayName(job.params?.model)
 }
 
 function jobModelTitle(job: RJob): string {
@@ -839,12 +836,7 @@ function genStudioJobTitle(
   job: RJob,
 ): string {
   const isTts = remote.operation === 'voice.tts'
-  const modelLabel = remote.model_id
-    ? genStudioModels.displayName(remote.model_id, {
-        tts: isTts,
-        ttsTier: job.params?.tts_tier,
-      })
-    : ''
+  const modelLabel = remote.model_id ? genStudioModels.displayName(remote.model_id) : ''
   return [
     `Remote job: ${remote.id}`,
     modelLabel ? `Model: ${modelLabel}` : '',

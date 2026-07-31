@@ -980,60 +980,16 @@ export function sanitizeAudioGeneratorPresets(value: unknown): unknown {
 }
 
 /**
- * Build the read-only runtime TTS catalog exposed to current Story Studio
- * code. Historical audio_models remain untouched on disk for audit/import
- * evidence, but legacy provider ids and forged provider fields never become
- * executable configuration.
+ * Story Studio keeps no local TTS product catalogue. The customer picks a model
+ * from GenStudio's live `/v1/tts/models` and is charged by it, so there is
+ * nothing here to synthesise. Historical `audio_models` stay untouched on disk
+ * as audit/import evidence and never become executable configuration.
  */
 export function genStudioOnlyAudioModels(
   _saved: Record<string, AudioModelConfig> | null | undefined,
 ): Record<string, AudioModelConfig> {
   void _saved
-  const tiers = [
-    ['genstudio-tts-regular', 'GenStudio TTS Regular'],
-    ['genstudio-tts-premium', 'GenStudio TTS Premium'],
-    ['genstudio-tts-clone', 'GenStudio TTS Clone'],
-  ] as const
-  return Object.fromEntries(tiers.map(([id, label]) => [id, {
-    label,
-    // model-drift-allow: legacy AudioModelConfig field, required by the type and
-    // not a price claim — GenStudio owns TTS pricing and publishes it live per
-    // voice tier. Pending removal with the Settings audio-pricing panel.
-    cost_per_1k_chars: 0,
-    provider: 'genstudio',
-    tts_soft_max_chars: 15_000,
-  }]))
-}
-
-export type StoryTtsTier = 'regular' | 'premium' | 'cloned'
-
-/** The Story selector is a voice-tier picker; GenStudio owns engine routing. */
-export function storyTtsTierForModelId(modelId: string): StoryTtsTier | null {
-  // model-drift-allow: retired engine ids a saved project may still carry,
-  // mapped onto the current tier so an old selection keeps working. Recognising
-  // a retired id is not the same as offering it.
-  switch (modelId.trim()) {
-    case 'genstudio-tts-regular':
-    case 'genstudio-qwen3-standard':
-    case 'genstudio-standard-v1':
-      return 'regular'
-    case 'genstudio-tts-premium':
-      return 'premium'
-    case 'genstudio-tts-clone':
-    case 'genstudio-clone-v1':
-      return 'cloned'
-    default:
-      return null
-  }
-}
-
-/** Resolve a Story voice tier to the GenStudio capability that executes it. */
-export function resolveStoryTtsModelId(modelId: string): string | null {
-  const value = modelId.trim()
-  if (value === 'genstudio-tts-regular' || value === 'genstudio-tts-premium' || value === 'genstudio-tts-clone') {
-    return null
-  }
-  return resolveGenStudioModelId('voice', value)
+  return {}
 }
 
 export function isPresetConfigKey(key: string): boolean {

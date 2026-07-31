@@ -23,6 +23,7 @@ import { readManifest } from './task-manifest.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
   splitGenStudioApiRequests,
+  listTtsModels as listGenStudioTtsModels,
 } from '../lib/genstudio-client.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -98,6 +99,7 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   // job's model. Dynamic imports avoid an import cycle (this module is a
   // static dep of the job-queue's executor graph). Fail-quiet → chunker default.
   let ttsChunkCap: number | undefined
+  let genStudioMaxCharacters: number | undefined
   let provider = ''
   try {
     const { getJobs } = await import('./job-queue.js')
@@ -112,6 +114,16 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
       const entry = (config as any)?.audio_models?.[model]
       const cap = entry?.tts_soft_max_chars
       if (typeof cap === 'number' && cap > 0) ttsChunkCap = cap
+      // Reproduce the generator's GenStudio boundary from the same live source
+      // it used: the selected model's published maximum_input_characters. A
+      // remembered number here would silently predict the wrong filenames.
+      const { getApiKey } = await import('./app-secrets-store.js')
+      const apiKey = await getApiKey('genstudio').catch(() => '')
+      if (apiKey) {
+        const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
+          .find(candidate => candidate.id === model)
+        if (ttsModel) genStudioMaxCharacters = ttsModel.maximum_input_characters
+      }
       // Preserve the provider classification only so status calculation can
       // reproduce the old chunk boundaries. Recovery ignores this field and
       // accepts GenStudio manifest entries only.
@@ -135,8 +147,8 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     // used for recovery matching — match what the generator actually produced.
     const sectionText = normalizeForTts(section.text).text
     const sectionStats = narrationTextStats(sectionText)
-    const chunks = provider === 'genstudio'
-      ? splitGenStudioApiRequests(sectionText)
+    const chunks = provider === 'genstudio' && genStudioMaxCharacters
+      ? splitGenStudioApiRequests(sectionText, genStudioMaxCharacters)
       : chunkText(sectionText, ttsChunkCap)
 
     // v1.0.310 — imported / hand-placed whole-chapter override. If the

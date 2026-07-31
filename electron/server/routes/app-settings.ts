@@ -31,6 +31,13 @@ import {
   listTranscriptionModels as listGenStudioTranscriptionModels,
   listVideoModels as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
+  listTtsModels as listGenStudioTtsModels,
+  setGenStudioVoiceSaved,
+  listGenStudioVoiceLibrary,
+  addGenStudioVoiceLibraryVoice,
+  requestGenStudioTtsQuote,
+  downloadVoicePreview as downloadGenStudioVoicePreview,
+  GENSTUDIO_VOICE_LIBRARIES,
   getGenStudioAccountOverview,
   getGenStudioAccountSnapshot,
   refreshGenStudioAdmission,
@@ -448,33 +455,141 @@ router.put('/app-settings/genstudio', async (req, res) => {
   }
 })
 
-// GenStudio routes internally; which upstream vendor or engine actually served a
-// product is private routing detail, not a customer-facing attribute. Story Studio
-// presents one GenStudio KH boundary, so these fields never leave the backend.
-const PRIVATE_PROVIDER_IDENTITY_FIELDS = [
-  'provider',
-  'engine_id',
-  'engine_name',
-  'model_family',
-  'model_revision_id',
-  'execution_label',
-] as const
+// Provider and engine identity are published by GenStudio and shown to the
+// customer (AGENTS.md → "Provider Transparency"). They are display only:
+// Story Studio never infers a provider from an id or a name, and never sends a
+// provider field on a generation request. GenStudio owns routing entirely.
 
-function withoutProviderIdentity<T extends object>(row: T): Partial<T> {
-  const customerRow: Partial<T> = { ...row }
-  for (const field of PRIVATE_PROVIDER_IDENTITY_FIELDS) delete customerRow[field as keyof T]
-  return customerRow
+/** Ask for the key once, with the message every GenStudio route shares. */
+async function requireGenStudioKey(res: any): Promise<string | null> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey.trim()) {
+    res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
+    return null
+  }
+  return apiKey
 }
 
-router.get('/app-settings/genstudio/voices', async (_req, res) => {
+function queryText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+router.get('/app-settings/genstudio/voices', async (req, res) => {
   try {
-    const apiKey = await getApiKey('genstudio')
-    if (!apiKey.trim()) {
-      return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
-    }
-    res.json({ voices: (await listGenStudioVoices(apiKey)).map(withoutProviderIdentity) })
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const voices = await listGenStudioVoices(apiKey, {
+      modelId: queryText(req.query.model_id),
+      collection: queryText(req.query.collection),
+      search: queryText(req.query.search),
+    })
+    res.json({ voices })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH voice catalog'))
+  }
+})
+
+/** The speech selection and pricing axis: model first, voices below it. */
+router.get('/app-settings/genstudio/tts-models', async (_req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    res.json({ models: await listGenStudioTtsModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH voice models'))
+  }
+})
+
+/**
+ * GenStudio owns the saved state. Both verbs return the refreshed voice row so
+ * the client renders GenStudio's own `is_saved` instead of assuming the toggle
+ * landed the way it was clicked.
+ */
+async function respondWithSavedState(req: any, res: any, saved: boolean) {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const voiceId = String(req.params.voiceId || '').trim()
+    if (!voiceId) return res.status(400).json({ detail: 'A voice id is required.' })
+    await setGenStudioVoiceSaved(apiKey, voiceId, saved)
+    const voice = (await listGenStudioVoices(apiKey)).find(entry => entry.id === voiceId) || null
+    res.json({ voice, is_saved: voice?.is_saved ?? null })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not update the saved state of this voice'))
+  }
+}
+
+router.post('/app-settings/genstudio/voices/:voiceId/save', (req, res) => respondWithSavedState(req, res, true))
+router.delete('/app-settings/genstudio/voices/:voiceId/save', (req, res) => respondWithSavedState(req, res, false))
+
+/** The libraries GenStudio publishes, named after their providers. */
+router.get('/app-settings/genstudio/voice-libraries', (_req, res) => {
+  res.json({ libraries: GENSTUDIO_VOICE_LIBRARIES.map(({ id, label }) => ({ id, label })) })
+})
+
+router.get('/app-settings/genstudio/voice-libraries/:library', async (req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const page = Number(req.query.page)
+    res.json(await listGenStudioVoiceLibrary(apiKey, String(req.params.library || ''), {
+      search: queryText(req.query.search),
+      page: Number.isFinite(page) ? page : 0,
+    }))
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not browse this GenStudio KH voice library'))
+  }
+})
+
+router.post('/app-settings/genstudio/voice-libraries/:library/add', async (req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const publicVoiceId = String(req.body?.public_voice_id || '').trim()
+    if (!publicVoiceId) return res.status(400).json({ detail: 'A public voice id is required.' })
+    res.json(await addGenStudioVoiceLibraryVoice(apiKey, String(req.params.library || ''), publicVoiceId))
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not add this voice to your GenStudio KH library'))
+  }
+})
+
+/** Play a stored library sample. Never submits a TTS job, never spends credits. */
+router.get('/app-settings/genstudio/voice-libraries/:library/:publicVoiceId/preview', async (req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const library = GENSTUDIO_VOICE_LIBRARIES.find(entry => entry.id === String(req.params.library || '').trim())
+    if (!library) return res.status(404).json({ detail: 'GenStudio KH publishes no voice library by that name.' })
+    const publicVoiceId = String(req.params.publicVoiceId || '').trim()
+    if (!publicVoiceId) return res.status(400).json({ detail: 'A public voice id is required.' })
+    const preview = await downloadGenStudioVoicePreview(
+      apiKey,
+      `${library.path}/${encodeURIComponent(publicVoiceId)}/preview`,
+    )
+    res.json({ audio_url: `data:${preview.mediaType};base64,${preview.bytes.toString('base64')}` })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not play this library voice sample'))
+  }
+})
+
+/** GenStudio's own credit figure for one exact script. A quote, not an estimate. */
+router.post('/app-settings/genstudio/tts-quote', async (req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    const voiceId = String(req.body?.voice_id || '').trim()
+    const text = typeof req.body?.text === 'string' ? req.body.text : ''
+    if (!voiceId) return res.status(400).json({ detail: 'Select a voice before asking for a quote.' })
+    if (!text.trim()) return res.status(400).json({ detail: 'There is no text to quote.' })
+    const speed = Number(req.body?.speed)
+    res.json(await requestGenStudioTtsQuote(apiKey, {
+      modelId: queryText(req.body?.model_id) || null,
+      voiceId,
+      text,
+      speed: Number.isFinite(speed) ? speed : undefined,
+    }))
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not get a GenStudio KH quote for this text'))
   }
 })
 
@@ -485,30 +600,6 @@ router.get('/app-settings/genstudio/models', async (_req, res) => {
     res.json({ models: await listGenStudioCapabilities(apiKey) })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH capability catalog'))
-  }
-})
-
-router.get('/app-settings/genstudio/voice-models', async (_req, res) => {
-  try {
-    const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    const models = (await listGenStudioCapabilities(apiKey))
-      .filter(model => model.operation === 'voice.tts')
-      .map(model => ({
-        id: model.id,
-        display_name: model.display_name,
-        description: model.description,
-        available: model.availability === 'available',
-        qualification_only: model.qualification_only,
-        pricing_unit: model.pricing_unit,
-        limits: model.limits,
-        controls: model.controls,
-        unlimited_relaxed: model.controls?.unlimited_relaxed === true
-          || (Array.isArray(model.controls?.voice_tiers) && model.controls.voice_tiers.includes('regular')),
-      }))
-    res.json({ models })
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH voice models'))
   }
 })
 
@@ -540,7 +631,7 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = (await listGenStudioTranscriptionModels(apiKey)).map(withoutProviderIdentity)
+    const models = await listGenStudioTranscriptionModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
@@ -556,7 +647,7 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = (await listGenStudioImageModels(apiKey)).map(withoutProviderIdentity)
+    const models = await listGenStudioImageModels(apiKey)
     res.json({ models })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(

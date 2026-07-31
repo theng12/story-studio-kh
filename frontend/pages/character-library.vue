@@ -188,10 +188,8 @@
                       <VoicePicker
                         :model-value="profileFor(slug).voiceId || null"
                         :project-slug="slug"
-                        :custom-voices="channelConfigs[slug]?.voice_presets || []"
-                        :custom-voices-loaded="!!channelConfigs[slug]"
                         audio-model-provider="genstudio"
-                        audio-model-id="genstudio-tts-regular"
+                        :scope-to-model="false"
                         default-label="Use channel default"
                         @update:model-value="profileFor(slug).voiceId = $event || undefined"
                       />

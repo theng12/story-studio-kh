@@ -7,11 +7,6 @@ import {
   normalizeSavedVoices,
   voiceSupportsProvider,
 } from '../utils/voice-providers.ts'
-import {
-  GENSTUDIO_TTS_TIER_OPTIONS,
-  genStudioTtsTierForModel,
-  normalizeStoryTtsTierModel,
-} from '../utils/genstudio-tts-tiers.ts'
 
 test('frontend preserves legacy voice evidence without granting a removed provider route', () => {
   assert.deepEqual(normalizeSavedVoice({ name: 'Legacy', voice_id: 'legacy' })?.providers,
@@ -77,39 +72,61 @@ test('discovered GenStudio voices preserve tier and stored-preview metadata', ()
   }])
 })
 
-test('Story Studio exposes only Regular, Premium, and Clone TTS product tiers', () => {
-  assert.deepEqual(
-    GENSTUDIO_TTS_TIER_OPTIONS.map(option => [option.id, option.label]),
-    [
-      ['genstudio-tts-regular', 'GenStudio TTS Regular'],
-      ['genstudio-tts-premium', 'GenStudio TTS Premium'],
-      ['genstudio-tts-clone', 'GenStudio TTS Clone'],
-    ],
-  )
-  assert.equal(genStudioTtsTierForModel('genstudio-tts-premium'), 'premium')
-  assert.equal(normalizeStoryTtsTierModel('genstudio-qwen3-standard'), 'genstudio-tts-premium')
-  assert.equal(normalizeStoryTtsTierModel('turbo-v2.5'), 'genstudio-tts-regular')
+test('Story Studio holds no local TTS product list — the model catalogue is the selector', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  // The picker's options are built from the live /v1/tts/models rows.
+  assert.match(audioPage, /ttsModels\.value\.map\(/)
+  assert.match(audioPage, /loadTtsModels\(\)/)
+  // No Story-owned tier vocabulary survives anywhere on the page.
+  assert.doesNotMatch(audioPage, /genstudio-tts-regular|genstudio-tts-premium|genstudio-tts-clone/)
+  assert.doesNotMatch(audioPage, /genstudio-tts-tiers|GENSTUDIO_TTS_TIER_OPTIONS/)
 })
 
-test('Audio generation receives the live GenStudio catalog from VoicePicker', () => {
+test('Audio generation receives the live GenStudio voice catalog from VoicePicker', () => {
   const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
-  assert.match(picker, /'catalog-updated': \[voices: SavedVoice\[\]\]/)
-  assert.match(picker, /emit\('catalog-updated', mergeDiscoveredVoices/)
+  assert.match(picker, /'catalog-updated': \[voices: GenStudioVoice\[\]\]/)
+  assert.match(picker, /await loadVoices\(/)
   assert.match(audioPage, /@catalog-updated="onVoiceCatalogUpdated"/)
-  assert.match(audioPage, /\.\.\.discoveredProviderVoices\.value/)
-  assert.match(audioPage, /genStudioTtsModelForTier\(selected\.voice_tier\)/)
   assert.doesNotMatch(audioPage, /Qwen3 Standard Voices/)
 })
 
-test('Audio Generator explains the fixed GenStudio 15,000-character request boundary without a legacy settings control', () => {
+test('the voice picker shows the published provider identity and GenStudio-owned saved state', () => {
+  const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
+  // Provider transparency: the published identity is rendered, not stripped.
+  assert.match(picker, /voice\.provider, voice\.engine_name/)
+  // Saved state belongs to GenStudio; there is no local favourites list.
+  assert.match(picker, /setSaved\(voice\.id, voice\.is_saved !== true\)/)
+  assert.doesNotMatch(picker, /voices\/favourites/)
+  // Published gates are respected rather than reimplemented.
+  assert.match(picker, /voiceIsGenerable/)
+})
+
+test('Audio Generator shows the boundary it enforces, read from the selected model', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
-  assert.match(audioPage, /public TTS boundary of <strong>15,000 characters per request<\/strong>/)
-  assert.match(audioPage, /GenStudio request boundary/)
+  assert.match(audioPage, /selectedTtsModel\.value\?\.maximum_input_characters/)
+  assert.match(audioPage, /Request boundary/)
   assert.match(audioPage, /not a project setting/)
+  // No copy of the retired 15,000-character constant survives.
+  assert.doesNotMatch(audioPage, /15,000 characters|15_000/)
   assert.doesNotMatch(audioPage, /Configure in Settings/)
   assert.doesNotMatch(audioPage, /settings#audio-models/)
-  assert.doesNotMatch(audioPage, /GenStudio[^\n]{0,120}30[- ]?second/i)
+})
+
+test('cost is the model rate before there is text, and a GenStudio quote after', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)
+  assert.match(audioPage, /describeQuotedCost\(quote\.value\.credits/)
+  assert.match(audioPage, /requestTtsQuote\(\{/)
+  // A quote belongs to one exact request; any change to it voids the quote.
+  assert.match(audioPage, /quote\.value = null/)
+  assert.match(audioPage, /chargeable/)
+})
+
+test('speed is offered only when the selected model publishes supports_speed', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(audioPage, /selectedTtsModel\.value\?\.supports_speed === true/)
+  assert.match(audioPage, /v-if="supportsSpeed"/)
 })
 
 test('all Story Studio transcription UI uses the GenStudio model catalog only', () => {
@@ -137,7 +154,8 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
   const providerGroups = readFileSync(new URL('../utils/api-provider-groups.ts', import.meta.url), 'utf8')
 
-  assert.match(mediaModels, /\/app-settings\/genstudio\/voice-models/)
+  // Speech diagnostics read the same /v1/tts/models catalogue the picker uses.
+  assert.match(mediaModels, /\/app-settings\/genstudio\/tts-models/)
   assert.match(mediaModels, /\/app-settings\/genstudio\/video-models/)
   assert.match(mediaModels, /Promise\.allSettled/)
   assert.match(imageModels, /\/app-settings\/genstudio\/image-models/)

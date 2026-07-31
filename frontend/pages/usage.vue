@@ -124,14 +124,12 @@ function formatDate(value: string): string {
 }
 
 function usageModelDisplay(job: Snapshot['jobs']['items'][number]): string {
-  return genStudioModels.displayName(job.model_id, {
-    tts: job.operation === 'voice.tts',
-  })
+  return genStudioModels.displayName(job.model_id)
 }
 
 function usageModelTitle(job: Snapshot['jobs']['items'][number]): string {
   const label = usageModelDisplay(job)
-  if (job.operation === 'voice.tts' || label === job.model_id) return label
+  if (label === job.model_id) return label
   return `${label} · Internal id: ${job.model_id}`
 }
 

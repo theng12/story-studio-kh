@@ -4,6 +4,34 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.773 — 2026-08-01
+
+- **You now pick a voice model, and voices appear beneath it** — voice tiers are gone. Choose
+  the model you want, see its rate per 1,000 characters, its minimum charge and how much text
+  it accepts, and then pick from the voices that model actually serves. Changing the model
+  reloads the voices and clears one the new model cannot use, rather than failing later.
+- **Story Studio now tells you which provider is behind a model or voice** — the provider is
+  shown on voice models, on individual voices, and across the voice libraries. Story Studio
+  still never chooses a provider or asks for one; it only shows you what GenStudio publishes.
+- **You can save voices you like** — star any voice to keep it in your library, unstar to
+  remove it, and filter the list down to just your saved ones. The list belongs to your
+  GenStudio account, so it is the same everywhere rather than a copy held by this Mac.
+- **Browse the full ElevenLabs and Fish Audio voice libraries from inside Story Studio** —
+  search them, listen to previews, and add a voice to your own library without leaving the
+  app.
+- **See the exact credit cost of narration before generating it** — Story Studio can now ask
+  GenStudio to quote the real charge for the exact text you have selected, rather than showing
+  only a rate. The quote is voided whenever you change the model, voice, speed, episode or
+  section selection, so a stale figure is never left on screen.
+- **The text limit is now the model's own** — narration used to be split at a fixed 15,000
+  characters regardless of which model was chosen. Each model publishes what it accepts, and
+  that figure is shown on the page. The speed control now appears only on models that support
+  speed, instead of sending a pace the model ignores.
+- **Voice names are the real ones** — Jobs and Usage showed invented names like "GenStudio TTS
+  Regular" derived from a tier guess. They now show the model's published name.
+
+---
+
 ## v1.0.772 — 2026-08-01
 
 - **Image models with no published price no longer appear to be free** — a model GenStudio

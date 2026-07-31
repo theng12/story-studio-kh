@@ -3,17 +3,12 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { UpdateConfigSchema } from '../contracts/index.js'
 import { isTerminalGenStudioTaskFailure, resolveAudioProvider } from '../generators/audio.js'
-import {
-  genStudioOnlyAudioModels,
-  resolveStoryTtsModelId,
-  storyTtsTierForModelId,
-} from '../services/project-manager.js'
+import { genStudioOnlyAudioModels } from '../services/project-manager.js'
 
 test('arbitrary project audio_models cannot select a direct TTS provider', () => {
   const malicious = {
     'genstudio-standard-v1': {
       label: 'Forged route',
-      cost_per_1k_chars: 0,
       provider: 'elevenlabs' as const,
     },
   }
@@ -28,47 +23,37 @@ test('a terminal GenStudio task failure starts a new manual recovery request', (
   assert.equal(isTerminalGenStudioTaskFailure({ task_id: '', last_state: 'failed' }), false)
 })
 
-test('project config healing exposes exactly the three customer-facing GenStudio TTS tiers', () => {
+test('Story Studio keeps no local TTS product catalogue', () => {
+  // The customer picks a model from GenStudio's live /v1/tts/models and is
+  // charged by it, so there is nothing for Story Studio to synthesise. Saved
+  // rows stay on disk as evidence and never become executable configuration.
   const healed = genStudioOnlyAudioModels({
     'genstudio-standard-v1': {
       label: 'Tampered canonical model',
-      cost_per_1k_chars: 99,
       provider: 'fal',
       tts_soft_max_chars: 25,
     },
     'fishaudio-s2.1-pro': {
       label: 'Historical Fish model',
-      cost_per_1k_chars: 0,
       provider: 'fishaudio',
     },
   })
-  assert.deepEqual(Object.keys(healed), [
-    'genstudio-tts-regular',
-    'genstudio-tts-premium',
-    'genstudio-tts-clone',
-  ])
-  assert.equal(healed['genstudio-tts-regular']?.provider, 'genstudio')
-  assert.equal(healed['genstudio-tts-premium']?.tts_soft_max_chars, 15_000)
-  assert.equal(healed['fishaudio-s2.1-pro'], undefined)
-  assert.ok(Object.values(healed).every(model => model.provider === 'genstudio'))
+  assert.deepEqual(healed, {})
 })
 
-test('Story TTS tiers map to GenStudio capabilities while preserving voice tier validation', () => {
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-regular'), null)
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-premium'), null)
-  assert.equal(resolveStoryTtsModelId('genstudio-tts-clone'), null)
-  assert.equal(storyTtsTierForModelId('genstudio-tts-regular'), 'regular')
-  assert.equal(storyTtsTierForModelId('genstudio-tts-premium'), 'premium')
-  assert.equal(storyTtsTierForModelId('genstudio-tts-clone'), 'cloned')
-})
-
-test('virtual Story TTS tiers are validated against the GenStudio voice catalog, not rejected as retired models', () => {
+test('the TTS request boundary and price come from the live model catalogue', () => {
   const generator = readFileSync(new URL('../generators/audio.ts', import.meta.url), 'utf8')
   const route = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
 
-  assert.match(route, /requestedTier \? requestedModel\.trim\(\) : pm\.resolveStoryTtsModelId\(requestedModel\)/)
-  assert.match(route, /if \(!requestedTier\) \{\s*const capabilities = await listGenStudioCapabilities\(apiKey\)/)
-  assert.match(generator, /requestedTier \? req\.model\.trim\(\) : pm\.resolveStoryTtsModelId\(req\.model\)/)
+  // Both the queueing route and the generator resolve the selected model
+  // against /v1/tts/models rather than mapping it through a Story-owned tier.
+  assert.match(route, /listGenStudioTtsModels\(apiKey\)/)
+  assert.doesNotMatch(route, /storyTtsTierForModelId|resolveStoryTtsModelId/)
+  assert.match(generator, /listGenStudioTtsModels\(apiKey\)/)
+  assert.match(generator, /ttsModel\.maximum_input_characters/)
+  assert.doesNotMatch(generator, /storyTtsTierForModelId|resolveStoryTtsModelId/)
+  // The split boundary is passed in, never taken from a constant.
+  assert.match(generator, /splitGenStudioApiRequests\(section\.text, genStudioMaxCharacters\)/)
 })
 
 test('legacy audio_models payloads are accepted but stripped before persistence', () => {

@@ -1,13 +1,17 @@
+/** A `/v1/tts/models` row — the same catalogue the voice picker selects from. */
 export interface GenStudioVoiceModelInfo {
   id: string
   display_name: string
-  description?: string
-  available: boolean
-  qualification_only: boolean
-  pricing_unit?: string
-  limits?: Record<string, unknown>
-  controls?: Record<string, unknown>
-  unlimited_relaxed?: boolean
+  provider_id: string
+  provider_name: string
+  description: string
+  credits_per_1000_characters: number
+  minimum_credits: number
+  maximum_input_characters: number
+  supports_speed: boolean
+  supports_voice_cloning: boolean
+  preview_policy: string
+  generation_enabled: boolean
   legacy_ids?: string[]
 }
 
@@ -49,7 +53,7 @@ const voiceCache = createGenStudioCatalogCache<GenStudioVoiceModelInfo[]>({
   empty: [],
   fetcher: async () => {
     const { get } = useApi()
-    const response = await get<{ models?: GenStudioVoiceModelInfo[] }>('/app-settings/genstudio/voice-models', { cache: 'no-store' })
+    const response = await get<{ models?: GenStudioVoiceModelInfo[] }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
     return Array.isArray(response.models) ? response.models : []
   },
 })

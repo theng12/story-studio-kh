@@ -1,27 +1,27 @@
 /**
- * Source-level regression: the Audio Generator's initial `form.model` must
- * not be a bare hardcoded literal — it should be sourced from the shared
- * GENSTUDIO_TTS_TIER_OPTIONS list (utils/genstudio-tts-tiers.ts), the single
- * place that owns Story's three customer-facing TTS tier tokens.
- *
- * Note: those tier tokens ('genstudio-tts-regular' etc.) are NOT literal
- * GenStudio product ids — buildGenStudioSubmission's TTS payload is only
- * { voice_id, text, speed }, so the tier token itself is never submitted to
- * GenStudio as execution authority. This test only pins that the page
- * doesn't duplicate the literal a second time in its own reactive state.
+ * Source-level regression: the Audio Generator must not seed `form.model` with
+ * any model id at all. GenStudio's live `/v1/tts/models` is the only source of
+ * a valid selection, so the page starts empty and waits for the catalogue —
+ * inventing a default here is exactly the drift AGENTS.md forbids.
  */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-test('Audio Generator seeds its initial TTS model from the shared tier list, not a duplicated literal', () => {
+test('Audio Generator seeds no TTS model id of its own', () => {
   const source = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
-  assert.match(source, /model:\s*GENSTUDIO_TTS_TIER_OPTIONS\[0\]\.id,/)
-  assert.doesNotMatch(source, /model:\s*'genstudio-tts-regular'/)
+  assert.match(source, /model: '',/)
+  assert.doesNotMatch(source, /model:\s*'genstudio-tts-/)
 })
 
-test('GenStudio TTS submission is keyed by voice_id only, never by the Story tier token', () => {
+test('a remembered model that GenStudio no longer publishes is dropped, not submitted', () => {
+  const source = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(source, /watch\(\[ttsModels, \(\) => form\.model\]/)
+  assert.match(source, /no longer in your GenStudio KH catalogue/)
+})
+
+test('GenStudio TTS submission is keyed by voice_id only', () => {
   const source = readFileSync(new URL('../../electron/server/lib/genstudio-client.ts', import.meta.url), 'utf8')
   assert.match(source, /const body = \{ voice_id: voiceId, text: request\.text, speed: request\.speed \}/)
 })

@@ -57,6 +57,8 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, outFile), {
         text: 'This speech exists only inside the deterministic mock service.',
         voiceId: 'mock-voice',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
         requestIdentity,
         idempotencyKey,
@@ -199,6 +201,8 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       await client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, 'poll.mp3'), {
         text: 'This speech exists only inside the deterministic mock service.',
         voiceId: 'mock-voice',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
         requestIdentity: 'tts:poll',
         onState: state => { states.push(state) },
@@ -280,6 +284,8 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       const retryKey = client.buildGenStudioSubmission({
         text: 'This speech exists only inside the deterministic mock service.',
         voiceId: 'mock-voice',
+        // The boundary a live /v1/tts/models row would supply.
+        maxInputCharacters: 12_000,
         speed: 1,
         requestIdentity: retryIdentity,
       }).idempotencyKey

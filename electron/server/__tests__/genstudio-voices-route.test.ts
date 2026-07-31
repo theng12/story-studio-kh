@@ -38,8 +38,9 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     return new Response(JSON.stringify([
       {
         id: 'voice_qwen3_ryan', display_name: 'Ryan', language: 'en',
-        engine_id: 'genstudio-standard-v1', engine_name: 'Qwen3 TTS',
+        provider: 'fish', engine_id: 'genstudio-standard-v1', engine_name: 'Qwen3 TTS',
         model_revision_id: 'qwen-r1', model_family: 'qwen3', voice_tier: 'standard',
+        tts_model_id: 'tts-qwen3', tts_model_name: 'Qwen3 TTS', is_saved: true,
       },
       { id: 'voice_qwen3_aiden', display_name: 'Aiden', language: 'en' },
       { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
@@ -48,21 +49,59 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
 
   const response = await request(app).get('/api/app-settings/genstudio/voices')
   assert.equal(response.status, 200)
+  // A voice GenStudio has disabled is still listed. The customer needs to see
+  // why a saved selection stopped working; `generation_enabled` gates the
+  // action, not the row.
   assert.deepEqual(response.body.voices.map((voice: any) => voice.id), [
     'voice_qwen3_ryan',
     'voice_qwen3_aiden',
+    'voice_disabled',
   ])
-  // Which upstream engine served a voice is private routing detail. Story Studio
-  // presents one GenStudio KH boundary, so these never reach the customer payload.
+  // AGENTS.md → "Provider Transparency": the published provider and engine
+  // identity is customer-facing and reaches the picker intact.
   const [voice] = response.body.voices
-  assert.equal(voice.engine_id, undefined, 'engine_id must not leave the backend')
-  assert.equal(voice.engine_name, undefined, 'engine_name must not leave the backend')
-  assert.equal(voice.model_family, undefined, 'model_family must not leave the backend')
-  assert.equal(voice.model_revision_id, undefined, 'model_revision_id must not leave the backend')
-  assert.equal(voice.provider, undefined, 'provider must not leave the backend')
-  // Customer-facing selection data still survives the strip.
+  assert.equal(voice.engine_id, 'genstudio-standard-v1', 'engine_id is published to the customer')
+  assert.equal(voice.engine_name, 'Qwen3 TTS', 'engine_name is published to the customer')
+  assert.equal(voice.model_family, 'qwen3', 'model_family is published to the customer')
+  assert.equal(voice.model_revision_id, 'qwen-r1', 'model_revision_id is published to the customer')
+  assert.equal(voice.provider, 'fish', 'provider is published to the customer')
+  assert.equal(voice.tts_model_id, 'tts-qwen3', 'the serving model is published to the customer')
+  assert.equal(voice.is_saved, true, "GenStudio's own saved flag reaches the picker")
   assert.equal(voice.voice_tier, 'standard')
   assert.equal(voice.id, 'voice_qwen3_ryan')
+})
+
+test('the voice model catalogue is published with its price, minimum and boundary', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_test_story_catalog' })
+    .expect(200)
+
+  globalThis.fetch = async (input) => {
+    assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/models')
+    return Response.json([{
+      id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
+      description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
+      maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
+      preview_policy: 'catalog', generation_enabled: true,
+    }])
+  }
+
+  const response = await request(app).get('/api/app-settings/genstudio/tts-models').expect(200)
+  const [model] = response.body.models
+  assert.equal(model.provider_name, 'Fish Audio', 'the serving provider is named for the customer')
+  assert.equal(model.credits_per_1000_characters, 48)
+  assert.equal(model.minimum_credits, 10)
+  assert.equal(model.maximum_input_characters, 12_000)
+  assert.equal(model.supports_speed, true)
+})
+
+test('the published voice libraries are named after their providers', async () => {
+  const response = await request(app).get('/api/app-settings/genstudio/voice-libraries').expect(200)
+  assert.deepEqual(response.body.libraries, [
+    { id: 'elevenlabs', label: 'ElevenLabs' },
+    { id: 'fish', label: 'Fish Audio' },
+  ])
 })
 
 test('GenStudio media and LLM discovery use provider-owned live catalogs', async () => {
@@ -106,10 +145,6 @@ test('GenStudio media and LLM discovery use provider-owned live catalogs', async
 
   const capabilities = await request(app).get('/api/app-settings/genstudio/models').expect(200)
   assert.equal(capabilities.body.models.length, 2)
-
-  const voice = await request(app).get('/api/app-settings/genstudio/voice-models').expect(200)
-  assert.deepEqual(voice.body.models.map((model: any) => model.id), ['voice-v1'])
-  assert.equal(voice.body.models[0].limits.max_characters, 15_000)
 
   const chat = await request(app).get('/api/app-settings/genstudio/chat-models').expect(200)
   assert.deepEqual(chat.body.models.map((model: any) => model.id), ['chat-v1'])
