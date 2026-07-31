@@ -1,8 +1,10 @@
 # Request to GenStudio: own the per-model step default
 
 **From:** Story Studio KH
-**Status:** open — **action needed before/alongside the next Story Studio release**
-**Why it matters:** Story Studio has stopped sending `steps`. If a model needs one, GenStudio must now supply it.
+**Status:** **ANSWERED — shipped.** GenStudio owns fixed server-side steps; FLUX.2 Klein
+uses 4. Story Studio correctly sends no `steps` field.
+**Why it mattered:** Story Studio stopped sending `steps`, so the model-specific default had
+to live in GenStudio.
 
 ## What changed on our side
 

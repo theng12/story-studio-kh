@@ -2,10 +2,12 @@
 
 **From:** Story Studio KH
 **Follows:** `docs/genstudio-web-search-request.md`
-**Status:** Story Studio is building the Research web-search mode now. The catalogue
-fields and request shape you sent are enough to build the UI, the capability filtering,
-the depth control and the cost estimate. The one thing still missing is the **response**
-side — what comes back, and where.
+**Status:** **CONTRACT SHIPPED — runtime activation pending.** The catalogue fields,
+request shape, and response envelope are available. Live results remain unavailable until
+GenStudio has a qualified direct-provider research route. Citations arrive in the response
+envelope as `citations`; the run-level fields are `research_ran_at`,
+`web_searches_executed`, and `web_search_credit_cost`. Per-source `retrieved_at` is not
+provided, and `citation_claims` is currently empty when a provider supplies no claim map.
 
 Please answer the questions below, including "we are not building that" where true. A
 clear no is genuinely useful: Story Studio will just not render the field, rather than

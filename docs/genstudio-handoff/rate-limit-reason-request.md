@@ -1,7 +1,11 @@
 # Request to GenStudio: say which layer applied backpressure
 
 **From:** Story Studio KH
-**Status:** open
+**Status:** **ANSWERED — shipped.** GenStudio language HTTP 429 responses now include
+`capacity_reason` and `retry_after_seconds`, plus matching `Retry-After` and
+`X-GenStudio-Capacity-Reason` headers. Codes are provider-agnostic:
+`account_concurrency`, `account_rate_limit`, `account_queue_limit`,
+`provider_backpressure`, and `request_in_progress`.
 **Urgency:** low, but it produces a misleading customer message today
 
 ## The problem
