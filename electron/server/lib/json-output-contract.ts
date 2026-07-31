@@ -90,10 +90,35 @@ export function parseJsonOutput(raw: string): unknown {
   }
 }
 
+/**
+ * The `{ "text": ... }` transport wrapper for prose.
+ *
+ * NO `maxLength`, deliberately. It carried `maxLength: 500_000` until this
+ * release, and that number was wrong twice over:
+ *
+ *   1. It is not a local bound. `validateStructuredOutput` routes prose to
+ *      `unwrapProseOutput`, which never consults this schema. The only place
+ *      the cap ever reached was the REQUEST — this object is sent verbatim as
+ *      a `strict: true` provider schema for products publishing
+ *      `structured_output_mode: 'request_json_schema'`. So it constrained
+ *      generation rather than validating a result.
+ *   2. It can now bite. Output allowances published by GenStudio reach 128,000
+ *      tokens; at roughly four characters per token that is already past
+ *      500,000 characters, so a legitimately long answer would be constrained
+ *      or rejected after the customer was charged for it. Worse, a character
+ *      cap cannot stand in for a token budget at all: characters per token
+ *      differ sharply by language, and Khmer and mixed-script narration sit
+ *      nowhere near the English ratio any such number would be tuned to.
+ *
+ * The real ceiling is the model's published `max_output_tokens`, which is
+ * enforced against the live catalogue before the request leaves this process,
+ * and by GenStudio server-side after it. An empty answer is still rejected —
+ * that check lives in `unwrapProseOutput`, where it belongs.
+ */
 export const PROSE_WRAPPER_SCHEMA: JsonSchema = {
   type: 'object',
   properties: {
-    text: { type: 'string', minLength: 1, maxLength: 500_000 },
+    text: { type: 'string', minLength: 1 },
   },
   required: ['text'],
   additionalProperties: false,

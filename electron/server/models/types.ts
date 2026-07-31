@@ -3177,6 +3177,10 @@ export interface ResearchWebRunReport {
   /** The per-search rate the catalogue published at run time. Recorded for
    *  the record; it is a RATE, never multiplied into a total by this app. */
   credits_per_search?: number
+  /** The flat per-request web-research rate the catalogue published at run
+   *  time, charged on top of the per-search figure. Also a RATE, also never
+   *  multiplied into a total by this app. */
+  credits_per_request?: number
   /** The domain filters that were actually sent with the request. */
   allowed_domains?: string[]
   blocked_domains?: string[]

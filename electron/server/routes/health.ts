@@ -119,7 +119,10 @@ router.get('/models', async (_req, res) => {
       // the picker once an image reference is attached.
       supports_vision: model.supports_vision,
       unlimited_relaxed: model.unlimited_relaxed,
-      context_limit_tokens: model.context_limit_tokens,
+      // Published live per model. The UI derives its output-allowance options
+      // and its available-input estimate from these two numbers — Story Studio
+      // holds no context window, output ceiling, or character cap of its own.
+      context_window_tokens: model.context_window_tokens,
       max_output_tokens: model.max_output_tokens,
       structured_output_mode: model.structured_output_mode,
     }))

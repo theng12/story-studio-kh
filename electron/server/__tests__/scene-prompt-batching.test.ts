@@ -39,8 +39,33 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(parseScenePromptPackSetting(0), 'auto')
     assert.equal(parseScenePromptPackSetting(7.5), 'auto')
     assert.equal(parseScenePromptPackSetting('20'), 20)
-    assert.equal(parseScenePromptTokenSetting(32000), 'auto')
+    assert.equal(parseScenePromptTokenSetting(0), 'auto')
+    assert.equal(parseScenePromptTokenSetting(-1), 'auto')
+    assert.equal(parseScenePromptTokenSetting(8_192.5), 'auto')
+    assert.equal(parseScenePromptTokenSetting('nonsense'), 'auto')
     assert.equal(parseScenePromptTokenSetting(32768), 32768)
     assert.equal(parseScenePromptTokenSetting('8192'), 8192)
+  })
+
+  /**
+   * An allowance is NOT validated against a fixed ladder any more. It used to
+   * be, and that quietly discarded any value the ladder had not anticipated —
+   * including every allowance only a large product can offer. What is legal
+   * belongs to the SELECTED product, so parsing keeps any positive whole
+   * number and `resolveScenePromptTokenBudget` clamps it to the live maximum.
+   */
+  test('an off-ladder allowance is kept and clamped, not thrown away', () => {
+    assert.equal(parseScenePromptTokenSetting(32_000), 32_000)
+    assert.equal(parseScenePromptTokenSetting(128_000), 128_000)
+    // Usable in full on a product that publishes at least that much…
+    assert.equal(resolveScenePromptTokenBudget(128_000, 128_000), 128_000)
+    assert.equal(resolveScenePromptTokenBudget(1_050_000, 128_000), 128_000)
+    // …and clamped down, never rejected, on one that publishes less.
+    assert.equal(resolveScenePromptTokenBudget(32_768, 128_000), 32_768)
+  })
+
+  test('no 32,768 ceiling survives: a big product is asked for its full allowance', () => {
+    assert.equal(resolveScenePromptTokenBudget(128_000, 'auto'), 128_000)
+    assert.equal(resolveScenePromptTokenBudget(65_536, 'auto'), 65_536)
   })
 })

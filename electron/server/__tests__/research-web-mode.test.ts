@@ -52,7 +52,7 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     display_name: 'Research Product 1',
     available: true,
     qualification_only: false,
-    context_limit_tokens: 128_000,
+    context_window_tokens: 128_000,
     max_output_tokens: 8_192,
     controls: [],
     activation_blockers: [],
@@ -76,6 +76,7 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     supports_domain_filters: false,
     research_qualified: true,
     web_search_credits_per_search: 5,
+    web_research_credits_per_request: 20,
     max_web_searches: null,
     ...overrides,
   }

@@ -355,9 +355,19 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
       assert.equal(obsolete in params, false, `${obsolete} must not leak into the staged planner`)
     }
 
-    const unsafePreset = fakePreset({ prompt_max_tokens: 32000 })
-    const safeParams = resolveStepParams('scene_plan', 'EP0042', 'Title', unsafePreset, TIMESTAMP_FORMAT)
-    assert.equal(safeParams.prompt_max_tokens, 'auto')
+    // An off-ladder allowance is NO LONGER discarded. It is a legal request on
+    // a product that publishes at least that much, and is clamped to the live
+    // maximum at resolve time on one that does not — so the pipeline carries it
+    // through rather than silently resetting the user's choice to auto.
+    const offLadderPreset = fakePreset({ prompt_max_tokens: 32000 })
+    const safeParams = resolveStepParams('scene_plan', 'EP0042', 'Title', offLadderPreset, TIMESTAMP_FORMAT)
+    assert.equal(safeParams.prompt_max_tokens, 32000)
+    // A genuinely malformed allowance still heals.
+    const malformedPreset = fakePreset({ prompt_max_tokens: -1 })
+    assert.equal(
+      resolveStepParams('scene_plan', 'EP0042', 'Title', malformedPreset, TIMESTAMP_FORMAT).prompt_max_tokens,
+      'auto',
+    )
     assert.equal(safeParams.prompt_pack_size, 'auto')
     assert.equal('opening_mode' in safeParams, false, 'legacy presets keep the project-level opening fallback')
   })

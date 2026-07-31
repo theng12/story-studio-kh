@@ -669,6 +669,9 @@ interface WebResearchModel {
   id: string
   display_name: string
   credits_per_search: number | null
+  /** Flat per-request web-research rate, charged on top of the per-search
+   *  figure. Published alongside it; both are RATES, neither is a total. */
+  credits_per_request: number | null
   max_web_searches: number | null
   supports_domain_filters: boolean
 }
@@ -719,13 +722,24 @@ const depthCapLimit = computed<number | null>(() => {
   const cap = selectedWebModel.value?.max_web_searches
   return typeof cap === 'number' && cap > 0 ? cap : null
 })
-/** Cost stated as a RATE only. With no depth control and the provider deciding
- *  how many searches to run, there is no honest total to quote up front — so
- *  this page never multiplies anything into a customer charge. */
+/** Cost stated as RATES only. GenStudio publishes two: a flat per-REQUEST
+ *  web-research charge and a per-SEARCH charge, and a run pays both. With no
+ *  depth control and the provider deciding how many searches to run, there is
+ *  still no honest total to quote up front — so this page discloses each
+ *  published rate and multiplies nothing into a customer charge. */
 const webCostNote = computed(() => {
-  const rate = selectedWebModel.value?.credits_per_search
-  if (typeof rate !== 'number') return ''
-  return `Each web search costs ${rate} credit${rate === 1 ? '' : 's'}. `
+  const perSearch = selectedWebModel.value?.credits_per_search
+  const perRequest = selectedWebModel.value?.credits_per_request
+  const rates: string[] = []
+  if (typeof perRequest === 'number') {
+    rates.push(`Web research costs ${perRequest} credit${perRequest === 1 ? '' : 's'} per request`)
+  }
+  if (typeof perSearch === 'number') {
+    rates.push(`${rates.length ? 'plus' : 'Each web search costs'} ${perSearch} credit${perSearch === 1 ? '' : 's'}`
+      + `${rates.length ? ' per search' : ''}`)
+  }
+  if (!rates.length) return ''
+  return `${rates.join(', ')}. `
     + 'The model decides how many searches to make, so the total varies per run — the actual charge is shown '
     + 'here once the run finishes.'
 })
@@ -788,6 +802,8 @@ interface ResearchWebRunReport {
    *  citations still back the RUN, never an individual claim. */
   citation_claims?: Array<{ claim_id: string; citation_ids: string[] }>
   credits_per_search?: number
+  /** Flat per-request web-research rate published at run time. */
+  credits_per_request?: number
   allowed_domains?: string[]
   blocked_domains?: string[]
   /** @deprecated read-only back-compat */

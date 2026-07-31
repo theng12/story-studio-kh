@@ -552,7 +552,16 @@ export interface GenStudioChatModel {
   description?: string
   available: boolean
   qualification_only: boolean
-  context_limit_tokens: number
+  /**
+   * Total prompt-plus-output budget published for this product.
+   *
+   * Read from GenStudio's `context_window_tokens`. The older
+   * `context_limit_tokens` is a BACKWARDS-COMPATIBILITY ALIAS ONLY and is
+   * consulted only when the current field is absent (an older GenStudio).
+   * 0 means "not published" — never a Story Studio guess.
+   */
+  context_window_tokens: number
+  /** Maximum selectable output allowance published for this product. */
   max_output_tokens: number
   controls: string[]
   activation_blockers: string[]
@@ -589,6 +598,10 @@ export interface GenStudioChatModel {
   /** Published per-search rate. A RATE, not a total: this app never multiplies
    *  it into a customer charge. Null when the catalogue does not publish one. */
   web_search_credits_per_search: number | null
+  /** Published FLAT per-request web-research rate, charged in addition to the
+   *  per-search figure. Also a RATE, never multiplied into a total here.
+   *  Null when the catalogue does not publish one. */
+  web_research_credits_per_request: number | null
   /** Enforceable cap on searches per request, or null when GenStudio cannot
    *  honestly enforce one (the current state — the provider searches
    *  autonomously). Null means "no depth control exists to offer". */
@@ -1647,6 +1660,21 @@ export async function listModelCapabilities(apiKey: string): Promise<GenStudioMo
   return (await listModelCapabilitiesSnapshot(apiKey)).value
 }
 
+/**
+ * Read a published token limit, preferring GenStudio's CURRENT field name and
+ * accepting a deprecated alias only when the current one is absent.
+ *
+ * Story Studio never substitutes a number of its own here: a limit this app
+ * invented would be a promise GenStudio has not made, and would go stale the
+ * moment the catalogue changes. `0` means "not published", which every caller
+ * must treat as "unknown", not as "zero budget".
+ */
+function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): number {
+  if (Number.isInteger(preferred)) return Math.max(1, preferred as number)
+  if (Number.isInteger(deprecatedAlias)) return Math.max(1, deprecatedAlias as number)
+  return 0
+}
+
 export async function listChatModelsSnapshot(
   apiKey: string,
 ): Promise<GenStudioCatalogSnapshot<GenStudioChatModel[]>> {
@@ -1660,9 +1688,10 @@ export async function listChatModelsSnapshot(
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
-    context_limit_tokens: Number.isInteger(value?.context_limit_tokens)
-      ? Math.max(1, value.context_limit_tokens)
-      : 0,
+    context_window_tokens: readPublishedTokenLimit(
+      value?.context_window_tokens,
+      value?.context_limit_tokens,
+    ),
     max_output_tokens: Number.isInteger(value?.max_output_tokens)
       ? Math.max(1, value.max_output_tokens)
       : 2_048,
@@ -1716,6 +1745,9 @@ export async function listChatModelsSnapshot(
     research_qualified: value?.research_qualified === true,
     web_search_credits_per_search: Number.isFinite(value?.web_search_credits_per_search)
       ? Math.max(0, value.web_search_credits_per_search)
+      : null,
+    web_research_credits_per_request: Number.isFinite(value?.web_research_credits_per_request)
+      ? Math.max(0, value.web_research_credits_per_request)
       : null,
     // Only a positive integer is a usable cap. Null (and any junk) means
     // GenStudio cannot enforce a search count, so no depth control is offered.

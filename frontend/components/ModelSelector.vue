@@ -26,6 +26,7 @@ import {
   isUsableLiveGenStudioModel,
   selectLiveGenStudioModel,
 } from '../utils/live-genstudio-model-selection.js'
+import { invalidateModelCatalogCache } from '../composables/useApi.js'
 
 interface LlmModelRow {
   id: string
@@ -36,7 +37,12 @@ interface LlmModelRow {
   hint?: string | null
   supports_vision?: boolean
   unlimited_relaxed?: boolean
+  /** Total prompt-plus-output budget, published live by GenStudio. */
+  context_window_tokens?: number
+  /** @deprecated Backwards-compatibility alias for older GenStudio releases.
+   *  Read only when `context_window_tokens` is absent. */
   context_limit_tokens?: number
+  /** Maximum selectable output allowance, published live by GenStudio. */
   max_output_tokens?: number
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
@@ -122,7 +128,15 @@ function syncModelSelection(): void {
   emit('model-meta', selected)
 }
 
-async function loadModels(): Promise<void> {
+/**
+ * Load the catalogue through the shared `/models?` read cache.
+ *
+ * `force` drops that shared entry first, so the next read goes to the network.
+ * It is used when GenStudio itself has told us our view of the published limits
+ * is wrong — see `reloadCatalog` below.
+ */
+async function loadModels(force = false): Promise<void> {
+  if (force) invalidateModelCatalogCache()
   loading.value = true
   loadError.value = ''
   try {
@@ -140,9 +154,21 @@ async function loadModels(): Promise<void> {
   }
 }
 
-watch(() => props.projectSlug, loadModels, { immediate: true })
+watch(() => props.projectSlug, () => { void loadModels() }, { immediate: true })
 watch(() => props.modelValue, syncModelSelection)
 watch(() => props.requireVision, syncModelSelection)
+
+/**
+ * Re-read the published catalogue from the network and re-emit the selected
+ * model's live limits. Owning pages call this after GenStudio — the final
+ * validator — rejects a request for exceeding a context or output limit, so the
+ * UI clamps to what the model publishes NOW instead of to a stale snapshot.
+ */
+async function reloadCatalog(): Promise<void> {
+  await loadModels(true)
+}
+
+defineExpose({ reloadCatalog })
 </script>
 
 <style scoped>

@@ -45,7 +45,7 @@ function researchProduct() {
     display_name: 'Research Alpha',
     available: true,
     qualification_only: false,
-    context_limit_tokens: 200_000,
+    context_window_tokens: 200_000,
     max_output_tokens: 16_384,
     controls: [],
     activation_blockers: [],

@@ -39,7 +39,7 @@ function catalog(mode: 'json_object' | 'request_json_schema', id = 'writer-alpha
     display_name: 'Writer Alpha',
     available: true,
     qualification_only: false,
-    context_limit_tokens: 1_048_576,
+    context_window_tokens: 1_048_576,
     max_output_tokens: 65_536,
     controls: ['temperature', 'max_output_tokens'],
     activation_blockers: [],
@@ -84,7 +84,7 @@ test('GenStudio catalog preserves exact product ids, modes, and advertised limit
     const [model] = await listChatModels('product-catalog-key')
     assert.equal(model?.id, 'claude-sonnet-4-6')
     assert.equal(model?.structured_output_mode, 'request_json_schema')
-    assert.equal(model?.context_limit_tokens, 1_048_576)
+    assert.equal(model?.context_window_tokens, 1_048_576)
     assert.equal(model?.max_output_tokens, 65_536)
     assert.equal(resolveGenStudioModelId('chat', 'claude-sonnet-4-6'), 'claude-sonnet-4-6')
   } finally {

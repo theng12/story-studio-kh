@@ -115,6 +115,9 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       ...(product.web_search_credits_per_search !== null
         ? { credits_per_search: product.web_search_credits_per_search }
         : {}),
+      ...(product.web_research_credits_per_request !== null
+        ? { credits_per_request: product.web_research_credits_per_request }
+        : {}),
       ...(webSearch.allowed_domains.length ? { allowed_domains: webSearch.allowed_domains } : {}),
       ...(webSearch.blocked_domains.length ? { blocked_domains: webSearch.blocked_domains } : {}),
     }

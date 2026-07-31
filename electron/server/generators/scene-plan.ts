@@ -31,6 +31,7 @@ import {
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
   type ScenePromptPackSetting,
+  type ScenePromptTokenSetting,
 } from '../services/scene-prompt-batching.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
@@ -150,8 +151,10 @@ interface ScenePlanRunParams {
   prompt_limit?: number
   /** The selected GenStudio model's published output limit determines Auto. */
   prompt_pack_size?: ScenePromptPackSetting
-  /** Advanced override, clamped to the live GenStudio model maximum. */
-  prompt_max_tokens?: 'auto' | 4096 | 6144 | 8192 | 12288 | 16384 | 24576 | 32768
+  /** Advanced override. Any positive allowance is accepted and clamped to the
+   *  SELECTED product's published `max_output_tokens` — never to a fixed list,
+   *  which would cap a 128,000-token product at a stale 32,768. */
+  prompt_max_tokens?: ScenePromptTokenSetting
   /** Single-pass visual interpretation controls. Strategies are assigned
    * locally across the full episode before existing prompt packs are sent. */
   creative_direction?: Partial<SceneCreativeDirection>

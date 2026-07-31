@@ -115,7 +115,16 @@
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
-          <ModelSelector v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <!-- Published live per model. An estimate for transparency: token
+               budgets are never converted into a character limit, because
+               characters per token differ by language (Khmer especially). -->
+          <dl class="model-budget">
+            <div><dt>Context window</dt><dd>{{ contextWindowLabel }} tokens</dd></div>
+            <div><dt>Output allowance</dt><dd>{{ outputAllowanceLabel }} tokens</dd></div>
+            <div><dt>Available input budget at this setting</dt><dd>{{ availableInputBudgetLabel }} tokens</dd></div>
+          </dl>
+          <p class="model-budget-note">Estimated from the limits GenStudio publishes for this model. GenStudio validates every request.</p>
           <label v-if="status?.research_available" class="scene-inline-toggle text-sm">
             <input type="checkbox" v-model="form.use_research" />
             Include <code>research.json</code> as optional context
@@ -709,6 +718,16 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import {
+  availableInputTokens,
+  clampOutputAllowance,
+  contextWindowTokens,
+  formatTokenCount,
+  isModelTokenLimitError,
+  maxOutputTokens as publishedMaxOutputTokens,
+  outputAllowanceOptions,
+  type ModelTokenLimits,
+} from '../../../utils/model-token-budget.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -1140,21 +1159,43 @@ function setSceneType(scene: ScenePlanEntry, value: string): void {
 }
 
 type PromptPackSetting = 'auto' | number
-type PromptTokenSetting = 'auto' | 4096 | 6144 | 8192 | 12288 | 16384 | 24576 | 32768
-interface SelectedModelMeta {
-  id: string
-  context_limit_tokens?: number
-  max_output_tokens?: number
-}
+/** 'auto' = this product's published maximum. A number is an explicit
+ *  allowance, always clamped to that same published maximum. */
+type PromptTokenSetting = 'auto' | number
+type SelectedModelMeta = ModelTokenLimits & { id: string }
 const PROMPT_PACK_PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 50] as const
 const PROMPT_PACK_MIN = 1
 const PROMPT_PACK_MAX = 50
-const OUTPUT_BUDGET_OPTIONS = [4096, 6144, 8192, 12288, 16384, 24576, 32768] as const
-const DEFAULT_OUTPUT_BUDGET = 8192
+/**
+ * Used ONLY before the catalogue has been read, or when the selected product
+ * published no usable allowance, purely so the local batch-size estimate has
+ * something to work with. It is not a cap: once GenStudio publishes a number
+ * for the selected product, that number is what is offered and enforced.
+ */
+const FALLBACK_OUTPUT_TOKENS = 8192
 const TOKENS_PER_FULL_DETAIL_SCENE = 300
 const OUTPUT_SAFETY_FRACTION = 0.75
 
 const selectedModelMeta = ref<SelectedModelMeta | null>(null)
+const modelSelector = ref<{ reloadCatalog: () => Promise<void> } | null>(null)
+
+/**
+ * GenStudio is the FINAL validator of context and output limits, and its
+ * catalogue can change under a page that has been open a while.
+ *
+ * When it rejects a request for exceeding one, do three things and nothing
+ * else: re-read the published catalogue, clamp the selected allowance to what
+ * the model publishes NOW, and show GenStudio's own message. Never invent a
+ * smaller number locally — that would replace the server's answer with a guess.
+ */
+async function reportGenerationError(error: any, fallback: string): Promise<void> {
+  const message = error?.data?.detail || error?.message || fallback
+  showError(message)
+  if (!isModelTokenLimitError(message)) return
+  await modelSelector.value?.reloadCatalog().catch(() => {})
+  const maximum = publishedMaxOutput.value
+  if (maximum) form.value.prompt_max_tokens = clampOutputAllowance(form.value.prompt_max_tokens, maximum)
+}
 
 const form = ref({
   model: '',  // ModelSelector auto-picks first usable
@@ -1182,6 +1223,13 @@ function normalizePromptPackSetting(value: unknown): PromptPackSetting {
   if (value === 'auto' || value == null || value === '') return 'auto'
   const size = Math.round(Number(value))
   return Number.isInteger(Number(value)) && size >= PROMPT_PACK_MIN && size <= PROMPT_PACK_MAX ? size : 'auto'
+}
+/** Shape check only — 'auto' or a positive whole number. What is LEGAL is the
+ *  selected product's business, so no fixed option list is consulted here. */
+function normalizePromptTokenSetting(value: unknown): PromptTokenSetting {
+  if (value === 'auto' || value == null || value === '') return 'auto'
+  const budget = Number(value)
+  return Number.isInteger(budget) && budget >= 1 ? budget : 'auto'
 }
 function setPromptPackSetting(value: unknown): void {
   const normalized = normalizePromptPackSetting(value)
@@ -1211,9 +1259,10 @@ function applyCustomPromptPackSize(): void {
 // preset still auto-applies on top).
 useRememberedForm('scene-plan', slug, form)
 setPromptPackSetting(form.value.prompt_pack_size)
-if (!['auto', ...OUTPUT_BUDGET_OPTIONS].includes(form.value.prompt_max_tokens)) {
-  form.value.prompt_max_tokens = 'auto'
-}
+// A remembered allowance is only checked for SHAPE here. Its legality belongs
+// to the selected product, so the clamp happens against the live catalogue
+// once the model's published limits arrive (see the publishedMaxOutput watch).
+form.value.prompt_max_tokens = normalizePromptTokenSetting(form.value.prompt_max_tokens)
 if (!CREATIVE_PROFILES.some(profile => profile.id === form.value.creative_profile)) {
   form.value.creative_profile = 'narrative'
 }
@@ -1249,16 +1298,33 @@ function creativeStrategyLabel(strategy?: CreativeStrategy): string {
   return strategy ? CREATIVE_STRATEGY_LABELS[strategy] : ''
 }
 
-const selectedModelMaxOutput = computed(() => {
-  const value = selectedModelMeta.value?.id === form.value.model
-    ? Number(selectedModelMeta.value.max_output_tokens) : 0
-  return Number.isInteger(value) && value > 0 ? Math.min(32_768, value) : DEFAULT_OUTPUT_BUDGET
-})
-const selectedModelContextLabel = computed(() => {
-  const value = selectedModelMeta.value?.id === form.value.model
-    ? Number(selectedModelMeta.value.context_limit_tokens) : 0
-  return Number.isInteger(value) && value > 0 ? `${value.toLocaleString()} tokens` : 'published by GenStudio when available'
-})
+/** The catalogue entry for the CURRENTLY selected model, or null while the
+ *  picker and the emitted metadata disagree (mid-switch). */
+const liveModelLimits = computed<SelectedModelMeta | null>(() =>
+  selectedModelMeta.value?.id === form.value.model ? selectedModelMeta.value : null,
+)
+/** Published `max_output_tokens`. No local ceiling: a product publishing
+ *  128,000 is offered 128,000. */
+const publishedMaxOutput = computed(() => publishedMaxOutputTokens(liveModelLimits.value))
+const selectedModelMaxOutput = computed(() => publishedMaxOutput.value || FALLBACK_OUTPUT_TOKENS)
+/** Published `context_window_tokens`, falling back to the deprecated
+ *  `context_limit_tokens` alias only when the current field is absent. */
+const selectedModelContextWindow = computed(() => contextWindowTokens(liveModelLimits.value))
+const selectedModelContextLabel = computed(() =>
+  selectedModelContextWindow.value
+    ? `${selectedModelContextWindow.value.toLocaleString()} tokens`
+    : 'published by GenStudio when available',
+)
+const contextWindowLabel = computed(() => formatTokenCount(selectedModelContextWindow.value))
+const outputAllowanceLabel = computed(() => formatTokenCount(publishedMaxOutput.value))
+/** available_input_tokens = max(0, context_window - selected_max_output).
+ *  An ESTIMATE for transparency — never turned into a character limit. */
+const availableInputBudget = computed(() =>
+  availableInputTokens(selectedModelContextWindow.value, effectivePromptTokenBudget.value),
+)
+const availableInputBudgetLabel = computed(() =>
+  selectedModelContextWindow.value ? availableInputBudget.value.toLocaleString() : 'not published',
+)
 const automaticTokenBudget = computed<number>(() => selectedModelMaxOutput.value)
 const effectivePromptTokenBudget = computed<number>(() => {
   const requested = form.value.prompt_max_tokens === 'auto'
@@ -1276,7 +1342,20 @@ const effectivePromptPackSize = computed<number>(() => {
   return Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
 })
 const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
-const availableOutputBudgets = computed(() => OUTPUT_BUDGET_OPTIONS.filter(budget => budget <= selectedModelMaxOutput.value))
+/** Derived from the SELECTED product's published `max_output_tokens`, never
+ *  from a fixed list. The product's own maximum is always the top option. */
+const availableOutputBudgets = computed(() => outputAllowanceOptions(selectedModelMaxOutput.value))
+
+/**
+ * Recompute the moment the model changes: an allowance too large for the newly
+ * selected product is clamped DOWN to what that product publishes. 'auto'
+ * always survives — it means "this product's maximum" and so is correct for
+ * every product by construction.
+ */
+watch(publishedMaxOutput, (maximum) => {
+  if (!maximum) return
+  form.value.prompt_max_tokens = clampOutputAllowance(form.value.prompt_max_tokens, maximum)
+})
 
 // v1.0.468 — labels for the motion-intensity slider stops. Every level stays
 // slow/smooth; the scale only controls how much movement is allowed.
@@ -1487,7 +1566,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
     success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued in Studio Hub${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || `Failed to start ${stage} prompt stage`)
+    await reportGenerationError(e, `Failed to start ${stage} prompt stage`)
   } finally {
     if (planningEpisode.value === ep) planningEpisode.value = null
   }
@@ -1697,7 +1776,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
       success(`Regenerated ${filled} visual prompt${filled === 1 ? '' : 's'} across your pool.`)
     }
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to start bulk regen')
+    await reportGenerationError(e, 'Failed to start bulk regen')
   } finally {
     bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
   }
@@ -1985,9 +2064,12 @@ const planPresets = usePresets<any>({
       openingPresetControlsActive.value = true
     }
     setPromptPackSetting(form.value.prompt_pack_size)
-    if (!['auto', ...OUTPUT_BUDGET_OPTIONS].includes(form.value.prompt_max_tokens)) {
-      form.value.prompt_max_tokens = 'auto'
-    }
+    // A preset stores the SELECTION, never a copied catalogue limit. Clamp the
+    // restored allowance against what the model publishes right now.
+    form.value.prompt_max_tokens = clampOutputAllowance(
+      normalizePromptTokenSetting(form.value.prompt_max_tokens),
+      publishedMaxOutput.value,
+    )
   },
 })
 
@@ -2076,6 +2158,29 @@ onMounted(() => { void planPresets.load() })
   font-size: 12px;
 }
 .scene-batch-summary strong { color: var(--text-primary); font-size: 14px; }
+.model-budget {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+.model-budget > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.model-budget dt { color: var(--text-muted); font-size: var(--font-xs); }
+.model-budget dd { margin: 0; color: var(--text-primary); font-size: var(--font-xs); font-weight: 600; }
+.model-budget-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
 .scene-advanced-batches { color: var(--text-secondary); }
 .scene-advanced-batches summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
 .scene-advanced-batches[open] summary { margin-bottom: 8px; }

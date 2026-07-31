@@ -94,6 +94,21 @@ function invalidateGetCache(mutatedPath: string): void {
 }
 
 /**
+ * Drop every cached GenStudio model catalogue read.
+ *
+ * Reuses the SHARED `/models?` cache above — this is deliberately not a second
+ * fetch path. It exists because GenStudio is the final validator of context and
+ * output limits: when it rejects a request for exceeding one, the catalogue this
+ * page is showing is out of date, and the next read must go to the network
+ * rather than serve the stale entry for the rest of its 5-minute TTL.
+ */
+export function invalidateModelCatalogCache(): void {
+  for (const key of new Set([...getCache.keys(), ...getInflight.keys()])) {
+    if (key.startsWith('/models?')) expireCacheKey(key)
+  }
+}
+
+/**
  * Pre-resolve the boot-ready gate. The frontend test runner calls this
  * in setup.ts so unit tests don't fire an unexpected `/api/health`
  * probe (which pollutes their captured-fetches assertions). No-op in

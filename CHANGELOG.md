@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.766 — 2026-07-31
+
+- **Scene Plan can finally use your model's full output** — its output-allowance list was
+  fixed at a maximum of 32,768 tokens no matter which model you picked. On a model that
+  publishes 128,000 you were being held to a quarter of it. The list is now generated from
+  whatever the selected model actually allows, and a saved allowance the old list didn't
+  recognise is kept and adjusted instead of being quietly thrown away.
+- **Story Studio shows the room you have to work with** — near the model controls you now
+  see the model's context window, the output allowance you've chosen, and roughly how much
+  input budget that leaves. Shown as guidance, not a hard character limit, because
+  characters-per-token differ by language.
+- **A hidden 500,000-character ceiling on long writing is gone** — it was being sent to the
+  model as a generation constraint rather than used as a check on the result, so very long
+  work could be cut short after you had already paid for it.
+- **Limits always come from GenStudio, never remembered** — Story Studio saves only your
+  chosen model and output allowance, and reads the real limits fresh each time. If GenStudio
+  says a request is too large, the catalogue is refreshed and your setting adjusted to what
+  it now publishes.
+- **Web research shows both of its costs** — the per-search rate and the flat per-request
+  research cost, instead of only one of them.
+
+---
+
 ## v1.0.765 — 2026-07-31
 
 - **Long writing is no longer cut off at a fixed ceiling** — Research, chapters, outlines,

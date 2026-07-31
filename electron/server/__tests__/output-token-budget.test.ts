@@ -36,7 +36,7 @@ function catalog(maxOutputTokens: number) {
     display_name: 'Writer Alpha',
     available: true,
     qualification_only: false,
-    context_limit_tokens: 1_048_576,
+    context_window_tokens: 1_048_576,
     max_output_tokens: maxOutputTokens,
     controls: ['temperature', 'max_output_tokens'],
     activation_blockers: [],

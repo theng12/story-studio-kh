@@ -22,10 +22,11 @@
  * itself on with no Story Studio code change and no release.
  *
  * ── What this module does NOT do ────────────────────────────────────────────
- * It never computes a customer charge. `web_search_credits_per_search` is a
- * RATE that is quoted to the user before the run; the provider decides how
- * many searches to make, so no honest total exists in advance. The ACTUAL
- * charge comes back from GenStudio after the run, or is reported as unknown.
+ * It never computes a customer charge. `web_search_credits_per_search` and
+ * `web_research_credits_per_request` are both RATES that are quoted to the
+ * user before the run; the provider decides how many searches to make, so no
+ * honest total exists in advance. The ACTUAL charge comes back from GenStudio
+ * after the run, or is reported as unknown.
  */
 
 import type { GenStudioChatModel, GenStudioCitation, GenStudioWebSearchBlock } from '../../lib/genstudio-client.js'
@@ -86,6 +87,9 @@ export interface WebResearchModelOption {
   display_name: string
   /** Per-search RATE, or null when unpublished. Quoted, never multiplied. */
   credits_per_search: number | null
+  /** Flat per-REQUEST web-research RATE, charged on top of the per-search
+   *  figure. Null when unpublished. Also quoted, also never multiplied. */
+  credits_per_request: number | null
   /** Enforceable search cap, or null when GenStudio cannot enforce one. Null
    *  means the depth control is hidden — there is nothing honest to offer. */
   max_web_searches: number | null
@@ -98,6 +102,7 @@ export function toWebResearchModelOption(model: GenStudioChatModel): WebResearch
     id: model.id,
     display_name: model.display_name,
     credits_per_search: model.web_search_credits_per_search,
+    credits_per_request: model.web_research_credits_per_request,
     max_web_searches: model.max_web_searches,
     supports_domain_filters: model.supports_domain_filters === true,
   }

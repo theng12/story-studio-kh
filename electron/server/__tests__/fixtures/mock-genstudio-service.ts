@@ -768,7 +768,8 @@ export class MockGenStudioService {
     if (pathname === '/v1/chat/models') {
       json(response, 200, [{
         id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
-        available: true, qualification_only: false, max_output_tokens: 4_096,
+        available: true, qualification_only: false,
+        context_window_tokens: 128_000, max_output_tokens: 4_096,
         controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
         supports_structured_output: true, structured_output_mode: 'request_json_schema',
       }])
