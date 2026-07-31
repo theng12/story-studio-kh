@@ -1753,6 +1753,14 @@ export interface VideoModelConfig {
   modes: Array<'frames'>
   /** Max duration in seconds, if known */
   max_duration?: number
+  /**
+   * Whether this compatibility entry is still a usable model.
+   *
+   * Absent means "never published as available" and the entry is dropped —
+   * see `sanitizeVideoCatalog`. This replaced a regex over the entry's LABEL,
+   * which decided a model's fate from a display string.
+   */
+  available?: boolean
 }
 
 export interface VoicePreset {

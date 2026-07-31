@@ -16,11 +16,19 @@ export interface GenStudioVideoModelInfo {
   display_name: string
   description?: string
   available: boolean
-  modes: Array<'image-to-video'>
+  /** Every mode GenStudio publishes. Story Studio only SUBMITS
+   *  'image-to-video' (AGENTS.md), and filters for it at the picker, but the
+   *  catalogue is carried through whole. */
+  modes: string[]
   aspect_ratios: string[]
+  /** Published (duration, resolution) options with their own prices.
+   *  Deliberately `number` / `string`: GenStudio publishes durations across
+   *  3-15s and resolutions across 480p|720p|1080p|4k, and a literal union
+   *  here would be a copy of the catalogue that goes stale on their release,
+   *  not ours. */
   variants: Array<{
-    duration_seconds: 5 | 10
-    resolution: '720p' | '1080p'
+    duration_seconds: number
+    resolution: string
     credits_per_video: number
     minimum_credits: number
     price_version: string

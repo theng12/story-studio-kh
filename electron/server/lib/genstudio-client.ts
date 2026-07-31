@@ -485,7 +485,21 @@ export interface GenStudioTranscriptionModel {
   available_workers: number
   qualification_only: boolean
   unlimited_relaxed: boolean
-  credits_per_minute: number
+  /**
+   * Published per-SECOND rate for this model.
+   *
+   * GenStudio prices transcription by the second (see
+   * docs/genstudio-handoff/pricing-display-request.md). This previously read
+   * `credits_per_minute` — a field GenStudio has never published — so the
+   * parse always fell through to 0 and every model looked free. 0 now means
+   * only what it has always meant elsewhere on this transport: GenStudio
+   * published no rate. It is never a Story Studio guess, and it is never
+   * rendered as "free".
+   */
+  credits_per_second: number
+  /** Floor applied to a priced request. A per-second rate with a floor is how
+   *  transcription is actually billed, so both must be read together — a short
+   *  clip is charged the floor, not rate × seconds. */
   minimum_credits: number
   price_version: string
 }
@@ -750,20 +764,95 @@ export interface GenStudioImageSourceAsset {
   expires_at: string
 }
 
+/**
+ * One published `(duration, resolution)` pair with its own price.
+ *
+ * `duration_seconds` and `resolution` are DELIBERATELY a plain number and a
+ * plain string. GenStudio publishes durations across 3-15 seconds and
+ * resolutions across `480p|720p|1080p|4k`, and will publish more; a literal
+ * union here is a copy of the catalogue, which the first rule in AGENTS.md
+ * forbids. The parse validates SHAPE — a positive duration, a non-empty
+ * resolution label, finite prices — never MEMBERSHIP of a list this app
+ * happens to know today.
+ */
+export interface GenStudioVideoVariant {
+  duration_seconds: number
+  resolution: string
+  credits_per_video: number
+  minimum_credits: number
+  price_version: string
+}
+
 export interface GenStudioVideoModel {
   id: string
   display_name: string
   description?: string
   available: boolean
-  modes: Array<'image-to-video'>
+  /**
+   * Every mode GenStudio publishes for this model, unfiltered.
+   *
+   * Story Studio's own surfaces are image-to-video only (AGENTS.md, "Video
+   * Model Boundary"), but that is a CALL-SITE rule, not a reason to discard
+   * published catalogue data on the way in. Discarding it here would mean a
+   * future surface needs a transport change to see what GenStudio already
+   * said. Callers select with `supportsGenStudioVideoMode`.
+   */
+  modes: string[]
   aspect_ratios: string[]
-  variants: Array<{
-    duration_seconds: 5 | 10
-    resolution: '720p' | '1080p'
-    credits_per_video: number
-    minimum_credits: number
-    price_version: string
-  }>
+  variants: GenStudioVideoVariant[]
+}
+
+/** Story Studio's one video mode. Enforced where a request is BUILT, never by
+ *  dropping modes during the catalogue parse. */
+export const STORY_STUDIO_VIDEO_MODE = 'image-to-video'
+
+/** Does this model publish the mode Story Studio actually submits? */
+export function supportsGenStudioVideoMode(
+  model: Pick<GenStudioVideoModel, 'modes'>,
+  mode: string = STORY_STUDIO_VIDEO_MODE,
+): boolean {
+  return Array.isArray(model.modes) && model.modes.includes(mode)
+}
+
+/**
+ * The cheapest published variant, or null when the model publishes none.
+ *
+ * Null is a real answer and callers must handle it by failing loudly: a model
+ * with no published variant has no price and no honest default, and inventing
+ * "5 seconds at 720p" is exactly the hardcoded ladder the first rule forbids.
+ * Ties break towards the shorter clip, then the lexically first resolution, so
+ * the choice is deterministic across catalogue reorderings.
+ */
+export function cheapestGenStudioVideoVariant(
+  variants: readonly GenStudioVideoVariant[] | undefined | null,
+): GenStudioVideoVariant | null {
+  if (!Array.isArray(variants) || !variants.length) return null
+  return [...variants].sort((a, b) => (
+    a.credits_per_video - b.credits_per_video
+    || a.minimum_credits - b.minimum_credits
+    || a.duration_seconds - b.duration_seconds
+    || a.resolution.localeCompare(b.resolution)
+  ))[0]!
+}
+
+/** The published variant matching an exact (duration, resolution), or null.
+ *  Null means "GenStudio does not publish this combination" and must be
+ *  REJECTED by the caller — never quietly replaced with a nearby one. */
+export function findGenStudioVideoVariant(
+  variants: readonly GenStudioVideoVariant[] | undefined | null,
+  durationSeconds: number,
+  resolution: string,
+): GenStudioVideoVariant | null {
+  if (!Array.isArray(variants)) return null
+  return variants.find(variant => (
+    variant.duration_seconds === durationSeconds
+    && variant.resolution.toLowerCase() === String(resolution).trim().toLowerCase()
+  )) || null
+}
+
+/** How a published variant reads in a picker, an error, or a job log. */
+export function describeGenStudioVideoVariant(variant: GenStudioVideoVariant): string {
+  return `${variant.duration_seconds}s at ${variant.resolution}`
 }
 
 /**
@@ -824,8 +913,10 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
   modelId: string
   sourceImagePath: string
   aspectRatio: string
-  durationSeconds: 5 | 10
-  resolution: '720p' | '1080p'
+  /** Taken from a variant the model PUBLISHES. Not a literal union: the
+   *  catalogue owns the list, and the caller resolves against it. */
+  durationSeconds: number
+  resolution: string
   requestIdentity?: string
   /**
    * Reuse a key already checkpointed beside the Story asset. Persisting the key
@@ -1377,6 +1468,10 @@ function shouldReconnectAcceptedTask(
   // took the request. Reconnecting is exactly the duplicate-charge risk it
   // refused to take on our behalf.
   if (isGenStudioSubmissionUncertain(error)) return false
+  // The opposite case, stated explicitly rather than left to fall through the
+  // status test below: GenStudio has CONFIRMED this request is running, so
+  // reattaching to it is exactly right — and is the only correct response.
+  if (isGenStudioRequestInProgress(error)) return true
   if (error instanceof GenStudioApiError) return retryableStatus(error.status)
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
   return /timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|invalid JSON/i.test(message)
@@ -1397,6 +1492,123 @@ export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
   PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
   SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
 } as const
+
+/**
+ * GenStudio's published capacity reason codes, carried on a language HTTP 429.
+ *
+ * They arrive in the response BODY as `capacity_reason` (with
+ * `retry_after_seconds` beside it) and are mirrored on the
+ * `X-GenStudio-Capacity-Reason` and `Retry-After` headers. Body first, header
+ * as fallback — a proxy can strip or rewrite a header, but the body is what
+ * GenStudio itself wrote.
+ *
+ * The codes are PROVIDER-AGNOSTIC by design and Story Studio keeps them that
+ * way: no message below names, or lets a user infer, an upstream vendor.
+ *
+ * Story Studio previously rendered all five as one "GenStudio KH is busy or
+ * rate-limited", which is how a real incident became unreadable — the user
+ * could not tell an account limit they could act on from transient load they
+ * could only wait out, and could not tell either from a request that was
+ * ALREADY RUNNING.
+ */
+export const GENSTUDIO_CAPACITY_REASONS = {
+  /** The account is already at its concurrent-job limit. */
+  ACCOUNT_CONCURRENCY: 'account_concurrency',
+  /** The account exceeded its submissions-per-minute allowance. */
+  ACCOUNT_RATE_LIMIT: 'account_rate_limit',
+  /** The account's pending-job queue is full. */
+  ACCOUNT_QUEUE_LIMIT: 'account_queue_limit',
+  /** GenStudio itself is shedding load. Transient, not account-specific. */
+  PROVIDER_BACKPRESSURE: 'provider_backpressure',
+  /** GenStudio already has THIS EXACT request running. Not a failure. */
+  REQUEST_IN_PROGRESS: 'request_in_progress',
+} as const
+
+export type GenStudioCapacityReason =
+  typeof GENSTUDIO_CAPACITY_REASONS[keyof typeof GENSTUDIO_CAPACITY_REASONS]
+
+/** Normalize a published code. Unknown values are PRESERVED (lower-cased) so
+ *  they can be logged, but they will not match any known-code branch and so
+ *  degrade to the generic message. Never throws. */
+export function normalizeGenStudioCapacityReason(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized || null
+}
+
+/**
+ * Read the capacity reason from a 429: response body first, header fallback.
+ *
+ * Tolerates a missing body, a non-object body and a missing header set. An
+ * absent code returns null, which the error constructor renders as today's
+ * generic message rather than treating as an error in itself.
+ */
+export function readGenStudioCapacityReason(
+  body: unknown,
+  headers?: Headers | null,
+): string | null {
+  const fromBody = body && typeof body === 'object'
+    ? normalizeGenStudioCapacityReason((body as Record<string, unknown>).capacity_reason)
+    : null
+  if (fromBody) return fromBody
+  try {
+    return normalizeGenStudioCapacityReason(headers?.get('x-genstudio-capacity-reason'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A distinct, actionable message per published capacity code, or null when the
+ * code is absent or one this build does not know.
+ *
+ * Two shapes of message, deliberately different in voice:
+ *   - an ACCOUNT code is the customer's own limit, so it says so and says what
+ *     they can do about it;
+ *   - a PROVIDER/QUEUE code is transient and already being retried, so it says
+ *     that and asks nothing of them.
+ * And `request_in_progress` is neither: it is not a failure at all.
+ */
+export function describeGenStudioCapacityReason(code: string | null | undefined): string | null {
+  switch (normalizeGenStudioCapacityReason(code)) {
+    case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_CONCURRENCY:
+      return 'Your GenStudio KH account is already running as many jobs at once as its plan allows, so this '
+        + 'one is waiting for a slot. Nothing failed and nothing was charged. It starts on its own as soon as '
+        + 'one of your running jobs finishes — or run fewer steps at once, or raise your account\'s '
+        + 'concurrency limit, to clear the queue faster.'
+    case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_RATE_LIMIT:
+      return 'Your GenStudio KH account has sent more requests per minute than its plan allows, so this one '
+        + 'was held back. Nothing failed and nothing was charged. Story Studio is spacing out its retries for '
+        + 'you; to stop hitting the limit, run fewer steps at once or raise your account\'s per-minute rate.'
+    case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_QUEUE_LIMIT:
+      return 'Your GenStudio KH account\'s job queue is full, so this request could not be accepted. Nothing '
+        + 'was charged. Wait for queued jobs to finish, or cancel some in your GenStudio account, then Retry '
+        + '— raising your account\'s queue limit also clears it.'
+    case GENSTUDIO_CAPACITY_REASONS.PROVIDER_BACKPRESSURE:
+      return 'GenStudio KH is under heavy load right now and asked Story Studio to wait before trying again. '
+        + 'This is temporary and is not a problem with your account, your credits, or this request. Story '
+        + 'Studio is retrying automatically at the pace GenStudio asked for.'
+    case GENSTUDIO_CAPACITY_REASONS.REQUEST_IN_PROGRESS:
+      return 'GenStudio KH is already running this exact request. Story Studio did NOT send it again — a '
+        + 'second submission would abandon the run already in progress and could be charged twice. The work '
+        + 'is still going: leave this step alone and it will be picked up when it finishes. If Story Studio '
+        + 'was restarted, use Retry to RECONNECT to the running job rather than starting the step over.'
+    default:
+      return null
+  }
+}
+
+/**
+ * True when GenStudio says it already has this exact request running.
+ *
+ * This is the one capacity code that must never be treated as a failure and
+ * must never lead to another submission. Re-POSTing here is precisely what
+ * abandons work already in flight.
+ */
+export function isGenStudioRequestInProgress(error: unknown): boolean {
+  return error instanceof GenStudioApiError
+    && error.capacityReason === GENSTUDIO_CAPACITY_REASONS.REQUEST_IN_PROGRESS
+}
 
 /**
  * A user-facing explanation for a known language failure code, or null.
@@ -1452,15 +1664,40 @@ function readLanguageFailureCode(detail: string, code?: string): string | null {
   return quoted ? quoted[0].toUpperCase() : null
 }
 
+/** GenStudio's capacity signal for one response, as read off body + headers. */
+export interface GenStudioCapacitySignal {
+  /** Published `capacity_reason`, already normalized. Null when absent. */
+  reason?: string | null
+  /** Published `retry_after_seconds`, or the parsed `Retry-After`. */
+  retryAfterSeconds?: number | null
+}
+
 export class GenStudioApiError extends Error {
   /** A published `LANGUAGE_PROVIDER_*` code, when the response identified one. */
   readonly languageFailureCode: string | null
+  /** A published capacity code, when the response carried one. Preserved even
+   *  when this build does not recognise it, so it can still be logged. */
+  readonly capacityReason: string | null
+  /** GenStudio's own "ask again in N seconds", when it sent one. */
+  readonly retryAfterSeconds: number | null
 
-  constructor(public readonly status: number, public readonly detail: string, public readonly code?: string) {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+    public readonly code?: string,
+    capacity?: GenStudioCapacitySignal,
+  ) {
     const languageFailureCode = readLanguageFailureCode(detail, code)
     const languageFailureMessage = describeGenStudioLanguageFailure(languageFailureCode)
+    const capacityReason = normalizeGenStudioCapacityReason(capacity?.reason)
+    // A recognised capacity code replaces the generic status wording. An
+    // unrecognised or absent one falls straight through to it — degrading, not
+    // throwing, is the required behaviour for a code this build has not met.
+    const capacityMessage = describeGenStudioCapacityReason(capacityReason)
     const message = languageFailureMessage
       ? languageFailureMessage
+      : capacityMessage
+      ? capacityMessage
       : status === 401
       ? `GenStudio KH did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
       : status === 402
@@ -1481,6 +1718,11 @@ export class GenStudioApiError extends Error {
     super(message)
     this.name = 'GenStudioApiError'
     this.languageFailureCode = languageFailureCode
+    this.capacityReason = capacityReason
+    this.retryAfterSeconds = Number.isFinite(capacity?.retryAfterSeconds)
+      && (capacity!.retryAfterSeconds as number) >= 0
+      ? capacity!.retryAfterSeconds as number
+      : null
   }
 }
 
@@ -1529,7 +1771,11 @@ export function readGenStudioPollHintMs(payload: unknown, now = Date.now()): num
   const row = payload as Record<string, unknown>
   const ms = row.poll_after_ms ?? row.retry_after_ms
   if (typeof ms === 'number' && Number.isFinite(ms) && ms >= 0) return Math.ceil(ms)
-  const seconds = row.poll_after_seconds ?? row.poll_after
+  // `retry_after_seconds` is GenStudio's published capacity hint. It rides the
+  // SAME reader as every other server hint on purpose — one mechanism decides
+  // "how long before we ask again", so a hint can never be honoured in the
+  // poll loop and ignored in the retry loop.
+  const seconds = row.retry_after_seconds ?? row.poll_after_seconds ?? row.poll_after
   if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) {
     return Math.ceil(seconds * 1_000)
   }
@@ -1651,12 +1897,29 @@ async function requestJsonWithRetry(
       if (!response.ok) {
         const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
         const bodyCode = typeof body?.code === 'string' ? body.code : undefined
-        const error = new GenStudioApiError(response.status, detail, bodyCode)
+        // Body first, header as fallback, for BOTH the reason and the delay.
+        const capacityReason = readGenStudioCapacityReason(body, response.headers)
+        const capacityHintMs = readGenStudioPollHintMs(body)
+          ?? parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+        const error = new GenStudioApiError(response.status, detail, bodyCode, {
+          reason: capacityReason,
+          retryAfterSeconds: capacityHintMs == null ? null : capacityHintMs / 1_000,
+        })
         // A submission GenStudio could not confirm must not be resubmitted by
         // machine, whatever its HTTP status says about retryability. This is
         // checked BEFORE the status test so a 502/503 cannot slip past it.
         if (isGenStudioSubmissionUncertain(error)) {
           await request.onQueueState?.('failed')
+          throw error
+        }
+        // GenStudio already has this exact request running. Re-POSTing it is
+        // the one thing that must not happen — the retry loop below IS the
+        // resubmission path, so leave it before reaching it. The queue state
+        // is a WAITING state, never 'failed': this request has not failed, and
+        // rendering it as a failure is what abandoned in-flight work.
+        if (isGenStudioRequestInProgress(error)) {
+          if (apiKey) genStudioAdmission.noteSubmissionReachable()
+          await request.onQueueState?.('waiting_account_capacity')
           throw error
         }
         if (isGenStudioReleaseGenerationUnavailable(response.status, detail)) {
@@ -1675,7 +1938,8 @@ async function requestJsonWithRetry(
           throw error
         }
         lastError = error
-        retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+        // GenStudio's own hint wins over the local schedule.
+        retryAfterMs = capacityHintMs
         if (response.status === 429 && apiKey) {
           const retryBaseMs = retryAfterMs ?? 1_000
           await genStudioAdmission.noteRateLimit(apiKey, retryBaseMs)
@@ -1700,6 +1964,11 @@ async function requestJsonWithRetry(
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
       if (isGenStudioSubmissionUncertain(error)) throw error
+      // Re-checked here as well as above: 429 is a retryable status, so
+      // without this an in-progress request would fall through to the retry
+      // loop and be POSTed again — the exact resubmission this code exists to
+      // prevent.
+      if (isGenStudioRequestInProgress(error)) throw error
       if (
         error instanceof GenStudioApiError
         && (
@@ -1736,7 +2005,12 @@ async function readJson(response: Response): Promise<any> {
   if (!response.ok) {
     const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
     const code = typeof body?.code === 'string' ? body.code : undefined
-    throw new GenStudioApiError(response.status, detail, code)
+    const hintMs = readGenStudioPollHintMs(body)
+      ?? parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+    throw new GenStudioApiError(response.status, detail, code, {
+      reason: readGenStudioCapacityReason(body, response.headers),
+      retryAfterSeconds: hintMs == null ? null : hintMs / 1_000,
+    })
   }
   return body
 }
@@ -2143,22 +2417,34 @@ export async function listVideoModelsSnapshot(
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
+    // Every published mode survives the transport. Story Studio submits only
+    // image-to-video, but that is enforced where a request is built, not by
+    // deleting what GenStudio said.
     modes: Array.isArray(value?.modes)
-      ? value.modes.filter((item: unknown): item is 'image-to-video' => item === 'image-to-video')
+      ? value.modes
+        .filter((item: unknown): item is string => typeof item === 'string' && !!item.trim())
+        .map((item: string) => item.trim())
       : [],
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((item: unknown): item is string => typeof item === 'string')
       : [],
+    // SHAPE, not membership. A variant is kept when it is well-formed: a
+    // positive finite duration, a non-empty resolution label, finite prices
+    // and a price version. A 4k or 8-second product GenStudio publishes today
+    // therefore reaches the UI unchanged; the old filter dropped it silently,
+    // leaving the model looking as if it had no variants at all.
     variants: Array.isArray(value?.variants)
       ? value.variants.filter((item: any) => (
-          (item?.duration_seconds === 5 || item?.duration_seconds === 10)
-          && (item?.resolution === '720p' || item?.resolution === '1080p')
+          Number.isFinite(item?.duration_seconds)
+          && item.duration_seconds > 0
+          && typeof item?.resolution === 'string'
+          && item.resolution.trim().length > 0
           && Number.isFinite(item?.credits_per_video)
           && Number.isFinite(item?.minimum_credits)
           && typeof item?.price_version === 'string'
-        )).map((item: any) => ({
+        )).map((item: any): GenStudioVideoVariant => ({
           duration_seconds: item.duration_seconds,
-          resolution: item.resolution,
+          resolution: item.resolution.trim(),
           credits_per_video: item.credits_per_video,
           minimum_credits: item.minimum_credits,
           price_version: item.price_version,
@@ -2188,8 +2474,8 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   modelId: string
   sourceSha256: string
   aspectRatio: string
-  durationSeconds: 5 | 10
-  resolution: '720p' | '1080p'
+  durationSeconds: number
+  resolution: string
   requestIdentity?: string
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
@@ -3334,8 +3620,10 @@ export async function listTranscriptionModelsSnapshot(
         : 0,
       qualification_only: value?.qualification_only !== false,
       unlimited_relaxed: value?.unlimited_relaxed === true,
-      credits_per_minute: Number.isFinite(value?.credits_per_minute)
-        ? Math.max(0, value.credits_per_minute)
+      // GenStudio publishes a per-SECOND rate. Reading `credits_per_minute`
+      // here (a field it does not publish) made every model parse as 0.
+      credits_per_second: Number.isFinite(value?.credits_per_second)
+        ? Math.max(0, value.credits_per_second)
         : 0,
       minimum_credits: Number.isFinite(value?.minimum_credits)
         ? Math.max(0, value.minimum_credits)

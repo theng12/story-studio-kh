@@ -3,13 +3,20 @@
  *
  * ── The rule ────────────────────────────────────────────────────────────────
  * A GenStudio language product may be used for evidence-backed ("Search the
- * web") research ONLY when it passes ALL FIVE published conditions:
+ * web") research ONLY when it passes ALL SIX published conditions, which are
+ * GenStudio's own picker filter, in its order:
  *
  *   1. available                        — the product is usable at all
- *   2. supports_web_search              — it can search
- *   3. returns_citations                — it reports what it read
- *   4. citation_format === 'structured' — those citations are machine-readable
- *   5. research_qualified               — GenStudio has qualified it for research
+ *   2. !qualification_only              — it is customer-live, not internal review
+ *   3. supports_web_search              — it can search
+ *   4. returns_citations                — it reports what it read
+ *   5. citation_format === 'structured' — those citations are machine-readable
+ *   6. research_qualified               — GenStudio has qualified it for research
+ *
+ * Condition 2 is DEFENSIVE. GenStudio states it should never publish a
+ * research-qualified product that is also qualification-only, so this should
+ * never be the deciding condition — but a product visible only for internal
+ * qualification must not become selectable here if that ever slips.
  *
  * The filter is CAPABILITY-ONLY. Never match on provider or model name: a name
  * is not a promise, and hardcoding one would silently break the moment
@@ -46,7 +53,7 @@ export const WEB_MODE_CATALOG_UNAVAILABLE_REASON =
   'Could not check which models can search the web — the GenStudio catalog was unreachable. '
   + 'Model-knowledge research still works.'
 
-/** The five published conditions, one per entry, so a caller (or a test) can
+/** The six published conditions, one per entry, so a caller (or a test) can
  *  ask WHICH condition excluded a product rather than only that it failed. */
 export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   readonly id: string
@@ -54,6 +61,11 @@ export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   readonly test: (model: GenStudioChatModel) => boolean
 }> = [
   { id: 'available', label: 'published and available', test: m => m.available === true },
+  {
+    id: 'qualification_only',
+    label: 'released to customers (not qualification-only)',
+    test: m => m.qualification_only !== true,
+  },
   { id: 'supports_web_search', label: 'can search the web', test: m => m.supports_web_search === true },
   { id: 'returns_citations', label: 'returns citations', test: m => m.returns_citations === true },
   {
@@ -64,19 +76,21 @@ export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   { id: 'research_qualified', label: 'qualified by GenStudio for research', test: m => m.research_qualified === true },
 ]
 
-/** Does this product pass ALL five conditions? Capability only. */
+/** Does this product pass ALL six conditions? Capability only. */
 export function isWebResearchQualified(model: GenStudioChatModel): boolean {
   return WEB_RESEARCH_CONDITIONS.every(condition => condition.test(model))
 }
 
 /** Which published conditions this product FAILS. Empty means it qualifies.
+ *  `qualification_only` appearing here means the product is visible for
+ *  internal qualification only — not that the user must do anything.
  *  Used for diagnostics; never rendered as a demand on the user, who cannot
  *  change any of these flags. */
 export function failedWebResearchConditions(model: GenStudioChatModel): string[] {
   return WEB_RESEARCH_CONDITIONS.filter(condition => !condition.test(model)).map(condition => condition.id)
 }
 
-/** The web-mode model list: every product passing all five conditions. */
+/** The web-mode model list: every product passing all six conditions. */
 export function selectWebResearchModels(catalog: readonly GenStudioChatModel[]): GenStudioChatModel[] {
   return catalog.filter(isWebResearchQualified)
 }

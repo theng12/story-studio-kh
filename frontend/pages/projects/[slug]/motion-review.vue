@@ -238,20 +238,54 @@ const motionPresets = usePresets({
   apply: (data: any) => { if (typeof data?.model === 'string') videoModel.value = data.model },
 })
 
+// The clip a model will actually produce: its CHEAPEST published variant,
+// which is exactly what the generator submits. Read live from the catalogue
+// on every render, so changing model re-derives it — never cached, never a
+// constant in this file. Returns null when GenStudio publishes no variant,
+// which is a real state the picker has to be able to say out loud.
+function cheapestVariant(model: { variants?: Array<{ duration_seconds: number, resolution: string, credits_per_video: number, minimum_credits: number }> }) {
+  const variants = Array.isArray(model.variants) ? model.variants : []
+  if (!variants.length) return null
+  return [...variants].sort((a, b) => (
+    a.credits_per_video - b.credits_per_video
+    || a.minimum_credits - b.minimum_credits
+    || a.duration_seconds - b.duration_seconds
+    || a.resolution.localeCompare(b.resolution)
+  ))[0]!
+}
+
 const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
+    // Story Studio submits image-to-video only. The catalogue carries every
+    // published mode; the restriction is applied here, at the picker.
     .filter(model => model.modes.includes('image-to-video'))
-    .map(model => ({
-      id: `genstudio-video:${model.id}`,
-      label: model.display_name,
-      group: 'GenStudio KH',
-      provider: 'GenStudio KH',
-      meta: 'Quote at submission',
-      description: 'Image-to-video generation through GenStudio KH.',
-      disabled: !model.available,
-      disabledReason: model.available ? undefined : 'This video model is not available in GenStudio KH.',
-      badges: [{ label: 'GenStudio KH', tone: 'info' as const }],
-    }))
+    .map((model) => {
+      const variant = cheapestVariant(model)
+      // An enforced limit has to be visible at the point of choosing. This is
+      // the length and resolution the clip WILL be, not an example.
+      const noVariant = 'No published length or resolution'
+      return {
+        id: `genstudio-video:${model.id}`,
+        label: model.display_name,
+        group: 'GenStudio KH',
+        provider: 'GenStudio KH',
+        meta: variant
+          ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
+          : noVariant,
+        description: variant
+          ? `Image-to-video generation through GenStudio KH. Clips are generated at ${variant.duration_seconds}s `
+            + `and ${variant.resolution}, the cheapest option GenStudio publishes for this model.`
+          : 'Image-to-video generation through GenStudio KH. GenStudio publishes no priced length or '
+            + 'resolution for this model, so Story Studio cannot generate a clip with it.',
+        disabled: !model.available || !variant,
+        disabledReason: !model.available
+          ? 'This video model is not available in GenStudio KH.'
+          : !variant
+            ? 'GenStudio publishes no priced length or resolution for this model.'
+            : undefined,
+        badges: [{ label: 'GenStudio KH', tone: 'info' as const }],
+      }
+    })
   return discovered
 })
 watch(i2vModels, (models) => {

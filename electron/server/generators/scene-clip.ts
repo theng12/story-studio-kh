@@ -33,11 +33,15 @@ import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../servic
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
   buildGenStudioVideoIdempotencyKey,
+  cheapestGenStudioVideoVariant,
+  describeGenStudioVideoVariant,
   generateVideoWithGenStudio,
   GenStudioTerminalFailureError,
   listVideoModels as listGenStudioVideoModels,
   recoverVideoWithGenStudio,
   resolveGenStudioRetryScope,
+  supportsGenStudioVideoMode,
+  type GenStudioVideoVariant,
   type GenStudioVideoModel,
   type GenStudioVideoRequest,
 } from '../lib/genstudio-client.js'
@@ -129,7 +133,9 @@ export function resolveSceneClipCatalogModel(
 ): string | null {
   const raw = selectedModel.trim().replace(/^genstudio-video:/, '')
   if (!raw) return null
-  const available = catalog.filter(model => model.available && model.modes.includes('image-to-video'))
+  // The image-to-video restriction is applied HERE, at the selection call
+  // site, rather than by discarding other published modes during the parse.
+  const available = catalog.filter(model => model.available && supportsGenStudioVideoMode(model))
   const canonical = resolveGenStudioModelId('video', raw)
   const exact = available.find(model => model.id === canonical || model.id === raw)
   if (exact) return exact.id
@@ -142,9 +148,20 @@ export function resolveSceneClipCatalogModel(
   return matches.length === 1 ? matches[0]!.id : null
 }
 
+/**
+ * Resolve the selected model AND the variant its clip will be billed at.
+ *
+ * The variant is the model's CHEAPEST PUBLISHED one. Story Studio used to pin
+ * `5s / 720p` here regardless of what the model published, which is the
+ * hardcoded ladder AGENTS.md's first rule forbids — and it meant a model that
+ * publishes neither 5s nor 720p was submitted with a combination it does not
+ * support. A model publishing no variant at all has no price and no honest
+ * default, so it fails loudly rather than falling back to a remembered number.
+ */
 export async function requireSceneClipGenStudioModel(selectedModel: string): Promise<{
   apiKey: string
   modelId: string
+  variant: GenStudioVideoVariant
 }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
@@ -161,7 +178,16 @@ export async function requireSceneClipGenStudioModel(selectedModel: string): Pro
       + 'Choose an available GenStudio image-to-video model; no fal.ai, Kie.ai, or Studio Hub fallback was attempted.',
     )
   }
-  return { apiKey, modelId }
+  const resolved = catalog.find(model => model.id === modelId)!
+  const variant = cheapestGenStudioVideoVariant(resolved.variants)
+  if (!variant) {
+    throw new Error(
+      `GenStudio publishes no priced duration/resolution variant for "${resolved.display_name}", `
+      + 'so Story Studio cannot tell what a clip from it would cost or how long it would be. '
+      + 'Choose a different GenStudio image-to-video model.',
+    )
+  }
+  return { apiKey, modelId, variant }
 }
 
 export async function generateSceneClipJob(job: Job): Promise<void> {
@@ -190,11 +216,18 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
 
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
-  const { apiKey, modelId } = await requireSceneClipGenStudioModel(model)
+  const { apiKey, modelId, variant } = await requireSceneClipGenStudioModel(model)
 
   const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
+  // The duration and resolution actually submitted are the model's cheapest
+  // published variant. Say so, with its price: an enforced limit the user was
+  // never told about is what turns a clear constraint into a mystery.
+  job.output_lines.push(
+    `Variant: ${describeGenStudioVideoVariant(variant)} — GenStudio's cheapest published option for this model `
+    + `(${variant.credits_per_video} credits, minimum ${variant.minimum_credits}, price ${variant.price_version}).`,
+  )
   job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
@@ -205,8 +238,9 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const manifestKey = `${scene_id}.mp4`
   const outPath = path.join(outDir, manifestKey)
   const requestAspect = aspectRatio === 'portrait' ? '9:16' : '16:9'
-  const durationSeconds = 5 as const
-  const resolution = '720p' as const
+  // From the model's published catalogue, never a constant in this file.
+  const durationSeconds = variant.duration_seconds
+  const resolution = variant.resolution
 
   const manifest = await readManifest(outDir)
   const savedEntry = manifest.tasks[manifestKey]?.provider === 'genstudio'

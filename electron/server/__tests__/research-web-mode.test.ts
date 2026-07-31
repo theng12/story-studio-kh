@@ -43,7 +43,7 @@ import type { GenStudioChatModel } from '../lib/genstudio-client.js'
 import type { ResearchOutput } from '../models/types.js'
 
 // ── Catalogue fixtures ──────────────────────────────────────────────────
-// A model that passes ALL FIVE conditions. Every exclusion test below starts
+// A model that passes ALL SIX conditions. Every exclusion test below starts
 // from this and breaks exactly one condition, so a test can never pass because
 // two things were wrong at once.
 function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatModel {
@@ -100,7 +100,7 @@ function todaysCatalog(): GenStudioChatModel[] {
 }
 
 describe('web research capability filter', () => {
-  it('accepts a model that passes all five published conditions', () => {
+  it('accepts a model that passes all six published conditions', () => {
     assert.equal(isWebResearchQualified(qualifiedModel()), true)
     assert.deepEqual(failedWebResearchConditions(qualifiedModel()), [])
   })
@@ -108,6 +108,7 @@ describe('web research capability filter', () => {
   it('excludes a model on EACH condition independently', () => {
     const breakers: Array<[string, Partial<GenStudioChatModel>]> = [
       ['available', { available: false }],
+      ['qualification_only', { qualification_only: true }],
       ['supports_web_search', { supports_web_search: false }],
       ['returns_citations', { returns_citations: false }],
       ['citation_format', { citation_format: 'text' }],
@@ -129,6 +130,20 @@ describe('web research capability filter', () => {
 
   it('treats a missing citation_format as unusable rather than assuming structured', () => {
     assert.equal(isWebResearchQualified(qualifiedModel({ citation_format: null })), false)
+  })
+
+  it('excludes a qualification-only product even when it is research_qualified', () => {
+    // GenStudio says it should never publish this combination. If it ever
+    // does, an internal-review-only product must not become selectable.
+    const internalOnly = qualifiedModel({
+      id: 'gs-internal-review',
+      qualification_only: true,
+      research_qualified: true,
+    })
+    assert.equal(isWebResearchQualified(internalOnly), false)
+    assert.deepEqual(failedWebResearchConditions(internalOnly), ['qualification_only'])
+    assert.deepEqual(selectWebResearchModels([internalOnly]), [])
+    assert.equal(describeWebResearchAvailability([internalOnly]).available, false)
   })
 
   it('filters by capability only — never by provider or model name', () => {

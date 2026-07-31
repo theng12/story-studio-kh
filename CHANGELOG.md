@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.768 — 2026-07-31
+
+- **Subtitle costs are no longer shown as free** — Story Studio was reading a price field
+  GenStudio does not publish, so every transcription model appeared to cost nothing. It now
+  reads the real per-second rate, and says "rate not published" when a model genuinely
+  states none rather than implying it is free.
+- **Longer and higher-resolution video clips can finally be used** — Story Studio was
+  discarding any clip length or resolution outside 5 or 10 seconds at 720p or 1080p, before
+  they ever reached you. A model offering 4K, or an 8- or 15-second clip, looked like it
+  offered nothing. Every published option now comes through, with its exact length,
+  resolution and price shown beside it.
+- **"Busy" now tells you which kind of busy** — a refused request used to give one vague
+  message whether your own account was at its limit, GenStudio was under load, or the exact
+  request was already running. Each now says what actually happened and what to do about it.
+- **A request already running is never sent twice** — when GenStudio reports it is already
+  working on exactly this request, Story Studio now waits for it and tells you so, instead
+  of treating it as a failure and risking a second charge for the same work.
+
+---
+
 ## v1.0.767 — 2026-07-31
 
 - **Long writing can no longer be abandoned and still billed** — chapter and script
