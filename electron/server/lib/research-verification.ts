@@ -243,8 +243,12 @@ export function autoCompleteResearchReview<T extends ResearchOutput>(research: T
  * research is fine. Used by the Pipeline preflight and downstream gates so
  * every surface reports the SAME reason in the SAME words.
  *
- * Wording rule: research runs on a language model with no live web access, so
- * nothing here may claim the user checked anything against cited sources.
+ * Wording rule: this text is MODE-NEUTRAL and must stay that way. It is shown
+ * for research produced either by the model's own knowledge (no live sources)
+ * or by a web search (sources recorded for the run, never per claim), so it
+ * may only talk about the triage decision — never about where the claims came
+ * from or what backs them. Mode-specific provenance lives in
+ * services/research/provenance.ts.
  */
 export function describeResearchGap(input: {
   episodeId: string

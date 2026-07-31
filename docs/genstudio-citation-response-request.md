@@ -101,6 +101,38 @@ fields?
 
 ---
 
+## Q7. What are the actual field names for search count and charge? (NEW — blocking nothing, but currently guessed)
+
+Story Studio has now built web mode. It does not estimate a total cost up front (correct
+per your answer — with no enforceable depth there is nothing to multiply), so instead it
+reports the ACTUAL search count and charge afterwards.
+
+The contract pins `citations`, but not how those two arrive. Story Studio currently
+parses defensively, accepting either of:
+
+- search count: `web_search_count` or `web_searches_performed`
+- charge: `credits_charged` or `credit_cost`
+
+and displays **"not reported"** rather than a locally computed number when neither is
+present — it never derives a customer charge itself.
+
+Please confirm the real field names, or tell us they are not reported at all. Either
+answer is fine; "not reported" is already handled honestly. We would just rather read the
+right field than guess correctly by accident.
+
+## Q8. Should `qualification_only` be part of the research filter?
+
+The agreed filter is five conditions: `available && supports_web_search &&
+returns_citations && citation_format === 'structured' && research_qualified`.
+
+But the chat transport rejects `qualification_only` products. So a model that were both
+`research_qualified: true` and `qualification_only: true` would appear selectable in Story
+Studio and then fail at submission time.
+
+Not reachable today, and Story Studio has NOT deviated from the agreed filter. Should
+`!qualification_only` be added as a sixth condition, or does `research_qualified: true`
+already imply a product is out of qualification?
+
 ## What Story Studio does while this is open
 
 Everything except the citation mapping is being built now and does not depend on these

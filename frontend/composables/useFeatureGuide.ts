@@ -95,15 +95,15 @@ export const featureGuides: Record<string, FeatureGuide> = {
   research: {
     title: 'Research',
     summary: 'Gather model-generated claims and decide which ones may be used. Only claims you keep flow into the Script Generator.',
-    workflow: ['Confirm the research topic and questions.', 'Choose the GenStudio model and source depth.', 'Decide every claim — Verified to keep it, Ignore to drop it. That decision is what marks the research reviewed.'],
+    workflow: ['Confirm the research topic and questions.', 'Pick the research mode and model.', 'Decide every claim — Verified to keep it, Ignore to drop it. That decision is what marks the research reviewed.'],
     topics: [
       { title: 'Research topic', purpose: 'Sets the factual boundary for this episode rather than rewriting its title.' },
       { title: 'Questions to answer', purpose: 'Focuses evidence gathering on uncertainties, causes, dates, or disputed claims.' },
-      { title: 'Source depth', purpose: 'Guides how many claims and references the run should gather.', effect: 'Higher depth provides broader evidence but increases review work.' },
+      { title: 'Research mode', purpose: 'Model knowledge only answers from what the model already knows; Search the web looks sources up live and records them.', effect: 'Web search needs a qualified model and costs credits per search; model knowledge costs only the usual generation.' },
       { title: 'Claim status', purpose: 'Verified claims may inform the script; ignored or unreviewed claims do not.' },
       { title: 'Sources for metadata', purpose: 'Controls which reviewed citations may appear in the final description.' },
     ],
-    tips: ['Research blocks completion only when the channel requires it (Settings → Channel).', 'Claims come from a language model with no live web access, so most carry no citation; keeping a claim is your editorial decision, not a fact-check.'],
+    tips: ['Research blocks completion only when the channel requires it (Settings → Channel).', 'Model knowledge is reliable on well-established facts but cites nothing, so check anything specific or recent. Web search records the sources it read for the run as a whole, not per claim.'],
   },
   scripts: {
     title: 'Script Generator',

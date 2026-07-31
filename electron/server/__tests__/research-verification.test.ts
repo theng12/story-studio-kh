@@ -268,9 +268,14 @@ describe('research completion rule', () => {
   })
 
   test('no wording anywhere claims the user checked the cited sources', () => {
-    // The adapter is llm-only with no live web access and usually no citations.
+    // These notes describe the TRIAGE only. They are shown for both research
+    // modes, so they must stay mode-neutral: model-knowledge output cites
+    // nothing, and web output cites the run rather than each claim.
     assert.doesNotMatch(rv.HUMAN_REVIEW_NOTE, /cited sources|checked .* against/i)
     assert.doesNotMatch(rv.PIPELINE_AUTO_REVIEW_NOTE, /cited sources/i)
+    for (const note of [rv.HUMAN_REVIEW_NOTE, rv.PIPELINE_AUTO_REVIEW_NOTE]) {
+      assert.doesNotMatch(note, /no live web access|searched the web/i)
+    }
   })
 
   test('untriaging resets every claim and drops both review records', () => {
@@ -597,8 +602,14 @@ describe('the research generator resets the triage', () => {
     assert.match(md, /Review auto-completed/)
     assert.match(md, /No human read these claims/)
     assert.doesNotMatch(md, /checked .* against the cited sources/i)
-    // llm-only provenance is disclosed rather than dressed up as fact-checking.
-    assert.match(md, /no live web access/)
+    // Provenance is disclosed rather than dressed up as fact-checking — but in
+    // the softened, mode-specific wording. The old copy ("no live web access")
+    // read as if the output were worthless, and it is also simply wrong for a
+    // web-search run, so it must not come back.
+    assert.match(md, /Model knowledge only · research ran on/)
+    assert.match(md, /Reliable on well-established facts/)
+    assert.match(md, /can’t cite live sources/)
+    assert.doesNotMatch(md, /no live web access/)
   })
 
   test('research.md shows when a claim has no source behind it', async () => {
@@ -618,6 +629,82 @@ describe('the research generator resets the triage', () => {
     const written = await readResearch(epDir)
     assert.ok(written.claims.every(c => c.status === 'unreviewed'))
     assert.equal(written.review, undefined)
+  })
+
+  // ── Web-search mode ────────────────────────────────────────────────────
+  // Same generator, same triage rules, DIFFERENT provenance. Nothing here
+  // touches GenStudio: the web adapter is stubbed with a fixture envelope.
+  async function runWebGenerator(citations: ResearchOutput['citations']): Promise<Job> {
+    const { genStudioWebResearch } = await import('../services/research/genstudio-web.js')
+    const generator = await import('../generators/research.js')
+    const adapter = genStudioWebResearch as any
+    const originalIsConfigured = adapter.isConfigured
+    const originalRun = adapter.run
+    adapter.isConfigured = async () => true
+    adapter.run = async () => ({
+      ...researchFixture({
+        source_provider: 'genstudio-web',
+        research_mode: 'web-search',
+        citations,
+        web_run: { searches_performed: 3, credits_per_search: 5 },
+      }),
+      // Claims are never mapped to sources in web mode — the sources back the
+      // run as a whole.
+      claims: [{ id: 'claim_1', text: 'A searched claim.', status: 'unreviewed', citation_indices: [] }],
+    })
+    const job: Job = {
+      job_id: 'jw', project_slug: SLUG, type: 'research_run', episode_id: CODE,
+      title: 'Research', status: 'running', created_at: '', started_at: '', finished_at: null,
+      error: null, output_lines: [], params: {
+        episode_id: CODE, source_provider: 'genstudio-web', research_mode: 'web-search',
+        topic: 'Volcanic soil fertility',
+      },
+    }
+    try {
+      await generator.runResearchJob(job)
+    } finally {
+      adapter.isConfigured = originalIsConfigured
+      adapter.run = originalRun
+    }
+    return job
+  }
+
+  test('a web run records run-level sources and never borrows model-knowledge copy', async () => {
+    const epDir = await makeProject(true)
+    const job = await runWebGenerator([{ title: 'USGS', url: 'https://example.invalid/usgs' }])
+
+    const written = await readResearch(epDir)
+    assert.equal(written.research_mode, 'web-search')
+    assert.equal(written.source_provider, 'genstudio-web')
+    // Sources are recorded; no claim points at one.
+    assert.equal(written.citations.length, 1)
+    assert.deepEqual(written.claims[0]!.citation_indices, [])
+
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /Search the web · research ran on/)
+    assert.match(md, /Searched the web and cited its sources below/)
+    assert.match(md, /back the run as a whole/)
+    // The model-knowledge copy must never appear in a web run.
+    assert.doesNotMatch(md, /no live web access/)
+    assert.doesNotMatch(md, /Reliable on well-established facts/)
+    assert.doesNotMatch(md, /no source cited/i)
+    // Actual usage is reported exactly as GenStudio reported it — the
+    // unreported charge says so instead of being computed locally.
+    assert.match(md, /Searches performed: 3\. Credits charged: not reported\./)
+    assert.ok(job.output_lines.some(l => /Mode: Search the web/.test(l)))
+    assert.ok(job.output_lines.some(l => /Credits charged: not reported/.test(l)))
+  })
+
+  test('a web run that cited nothing says so rather than implying sources exist', async () => {
+    const epDir = await makeProject(true)
+    const job = await runWebGenerator([])
+
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /came back with no sources/)
+    assert.doesNotMatch(md, /Searched the web and cited its sources below/)
+    assert.ok(job.output_lines.some(l => /returned no sources/.test(l)))
   })
 })
 

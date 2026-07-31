@@ -565,6 +565,29 @@ export interface GenStudioChatModel {
   supported_detail_levels: Array<'low' | 'high' | 'auto'>
   supports_structured_output: boolean
   structured_output_mode: 'json_object' | 'request_json_schema'
+  // ── Live web-search capability (published per product) ────────────────
+  // Story Studio selects a web-research product by CAPABILITY ONLY. Never
+  // infer any of this from a provider or model name.
+  /** The product can run provider-side web searches. */
+  supports_web_search: boolean
+  /** The product returns citations for what it searched. */
+  returns_citations: boolean
+  /** Shape of those citations. Only 'structured' is machine-readable; any
+   *  other value (including a prose format) is unusable as evidence. */
+  citation_format: string | null
+  /** The product accepts allow/block domain lists on the `web_search` block. */
+  supports_domain_filters: boolean
+  /** GenStudio has qualified this product for evidence-backed research. Until
+   *  GenStudio flips this, web research mode stays unavailable — Story Studio
+   *  must not second-guess the flag. */
+  research_qualified: boolean
+  /** Published per-search rate. A RATE, not a total: this app never multiplies
+   *  it into a customer charge. Null when the catalogue does not publish one. */
+  web_search_credits_per_search: number | null
+  /** Enforceable cap on searches per request, or null when GenStudio cannot
+   *  honestly enforce one (the current state — the provider searches
+   *  autonomously). Null means "no depth control exists to offer". */
+  max_web_searches: number | null
 }
 
 export interface GenStudioImageSourceAsset {
@@ -718,6 +741,43 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   outputContract?: TextOutputContract
   /** @deprecated Use outputContract. Preserved for older JSON Object callers. */
   jsonObject?: boolean
+  /**
+   * Live web search for this request. Serialized verbatim as the request's
+   * `web_search` block. Built by services/research/web-capability.ts against
+   * the SELECTED product's published capability — `max_searches` is present
+   * only when that product publishes a non-null `max_web_searches`, and the
+   * domain lists are present only when it publishes
+   * `supports_domain_filters`. Omit the field entirely for a normal request.
+   */
+  webSearch?: GenStudioWebSearchBlock
+}
+
+/** The request's `web_search` block, exactly as GenStudio accepts it. */
+export interface GenStudioWebSearchBlock {
+  enabled: true
+  allowed_domains: string[]
+  blocked_domains: string[]
+  /** Present ONLY when the product publishes a non-null `max_web_searches`. */
+  max_searches?: number
+}
+
+/**
+ * One provider citation from the response ENVELOPE.
+ *
+ * Envelope, not model output: these are the provider's record of what it
+ * actually read, so they are evidence rather than model-authored claims. A
+ * model that writes a URL into its JSON answer is making a claim; a citation
+ * here is not.
+ */
+export interface GenStudioCitation {
+  id: string
+  url: string
+  title: string | null
+  publisher: string | null
+  published_at: string | null
+  quote: string | null
+  start_index: number | null
+  end_index: number | null
 }
 
 /**
@@ -1485,6 +1545,25 @@ export async function listChatModelsSnapshot(
         ? 'request_json_schema'
         : 'json_object'
     ) as GenStudioChatModel['structured_output_mode'],
+    // Web-search capability. Every flag defaults to the SAFE value (false /
+    // null) when the catalogue omits it: an older GenStudio release that has
+    // never heard of web search must read as "not web-capable", never as
+    // "capable and unrestricted".
+    supports_web_search: value?.supports_web_search === true,
+    returns_citations: value?.returns_citations === true,
+    citation_format: typeof value?.citation_format === 'string' && value.citation_format.trim()
+      ? value.citation_format.trim()
+      : null,
+    supports_domain_filters: value?.supports_domain_filters === true,
+    research_qualified: value?.research_qualified === true,
+    web_search_credits_per_search: Number.isFinite(value?.web_search_credits_per_search)
+      ? Math.max(0, value.web_search_credits_per_search)
+      : null,
+    // Only a positive integer is a usable cap. Null (and any junk) means
+    // GenStudio cannot enforce a search count, so no depth control is offered.
+    max_web_searches: Number.isInteger(value?.max_web_searches) && value.max_web_searches > 0
+      ? value.max_web_searches
+      : null,
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
   })
 }
@@ -1840,6 +1919,67 @@ interface GenStudioChatCompletion {
     completion_tokens?: number
     total_tokens?: number
   }
+  /** Provider citations for a web-search request. Envelope-level on purpose:
+   *  sources are provider evidence, not something the model wrote. */
+  citations?: unknown
+  /** What the run actually did / cost, when GenStudio reports it. Read through
+   *  readWebSearchUsage() — absence is reported as "not reported", never
+   *  substituted with a locally computed number. */
+  web_search_count?: unknown
+  web_searches_performed?: unknown
+  credit_cost?: unknown
+  credits_charged?: unknown
+}
+
+/** Parse the envelope citation list. Unknown/garbage entries are dropped
+ *  rather than passed through: a citation with no URL is not evidence. */
+export function parseGenStudioCitations(value: unknown): GenStudioCitation[] {
+  if (!Array.isArray(value)) return []
+  const out: GenStudioCitation[] = []
+  for (let index = 0; index < value.length; index += 1) {
+    const raw = value[index] as Record<string, unknown> | null
+    if (!raw || typeof raw !== 'object') continue
+    const url = typeof raw.url === 'string' ? raw.url.trim() : ''
+    if (!url) continue
+    const text = (key: string): string | null => {
+      const item = raw[key]
+      return typeof item === 'string' && item.trim() ? item.trim() : null
+    }
+    const offset = (key: string): number | null => {
+      const item = raw[key]
+      return Number.isInteger(item) && (item as number) >= 0 ? item as number : null
+    }
+    out.push({
+      id: text('id') || `source-${index + 1}`,
+      url,
+      title: text('title'),
+      publisher: text('publisher'),
+      published_at: text('published_at'),
+      quote: text('quote') || text('snippet'),
+      start_index: offset('start_index'),
+      end_index: offset('end_index'),
+    })
+  }
+  return out
+}
+
+/** What a web-search run actually did / cost, as reported. Every field is
+ *  null when GenStudio did not report it — this app never fills the gap with
+ *  a locally computed estimate. */
+export interface GenStudioWebSearchUsage {
+  searchesPerformed: number | null
+  creditsCharged: number | null
+}
+
+function readWebSearchUsage(completion: GenStudioChatCompletion): GenStudioWebSearchUsage {
+  const count = [completion.web_search_count, completion.web_searches_performed]
+    .find(value => Number.isInteger(value) && (value as number) >= 0)
+  const credits = [completion.credits_charged, completion.credit_cost]
+    .find(value => Number.isFinite(value) && (value as number) >= 0)
+  return {
+    searchesPerformed: count === undefined ? null : count as number,
+    creditsCharged: credits === undefined ? null : credits as number,
+  }
 }
 
 const SCHEMA_INSTRUCTION_MAX_DEPTH = 5
@@ -2010,11 +2150,25 @@ function parseProductCompletion(
   }
 }
 
+/** Result of one language-product call. `citations` and `webSearch` are only
+ *  populated for a request that carried a `web_search` block. */
+export interface GenStudioChatResult {
+  text: string
+  jobId: string
+  modelId: string
+  /** Provider citations from the response envelope. Empty for a normal call,
+   *  and legitimately empty for a web call where the provider searched nothing
+   *  or cited nothing — that outcome is surfaced, never hidden. */
+  citations: GenStudioCitation[]
+  /** Actual searches / charge, when reported. Null fields mean "not reported". */
+  webSearch: GenStudioWebSearchUsage
+}
+
 /** Execute one exact published language product through GenStudio's product API. */
 async function callChatWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioChatRequest,
-): Promise<{ text: string; jobId: string; modelId: string }> {
+): Promise<GenStudioChatResult> {
   const modelId = request.modelId.trim().replace(/^genstudio-chat:/, '')
   if (!modelId) throw new Error('Select a GenStudio KH chat model.')
   if (!request.userMessage.trim()) throw new Error('GenStudio KH chat input cannot be empty.')
@@ -2065,6 +2219,14 @@ async function callChatWithGenStudioAdmitted(
       ['top_p', request.topP ?? 1],
       ['output_contract', outputContract.mode],
       ['structured_output_mode', product.structured_output_mode],
+      ...(request.webSearch
+        ? [
+            ['web_search', true] as [string, unknown],
+            ['web_search_max_searches', request.webSearch.max_searches ?? null] as [string, unknown],
+            ['web_search_allowed_domains', request.webSearch.allowed_domains.length] as [string, unknown],
+            ['web_search_blocked_domains', request.webSearch.blocked_domains.length] as [string, unknown],
+          ]
+        : []),
     ],
   })
   const completion = await submitJsonWithAdmission(
@@ -2085,12 +2247,23 @@ async function callChatWithGenStudioAdmitted(
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 1,
         max_completion_tokens: maxOutputTokens,
+        // Present only for a deliberate web-search request. The block is built
+        // from the selected product's published capability, so an ordinary
+        // request is byte-for-byte what it always was.
+        ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
     request,
     deadline,
   ) as GenStudioChatCompletion
-  const result = parseProductCompletion(completion, outputContract)
+  const parsed = parseProductCompletion(completion, outputContract)
+  const result: GenStudioChatResult = {
+    ...parsed,
+    citations: request.webSearch ? parseGenStudioCitations(completion.citations) : [],
+    webSearch: request.webSearch
+      ? readWebSearchUsage(completion)
+      : { searchesPerformed: null, creditsCharged: null },
+  }
   const evidence: GenStudioJob = {
     id: result.jobId,
     state: 'succeeded',
@@ -2107,7 +2280,7 @@ async function callChatWithGenStudioAdmitted(
 export async function callChatWithGenStudio(
   apiKey: string,
   request: GenStudioChatRequest,
-): Promise<{ text: string; jobId: string; modelId: string }> {
+): Promise<GenStudioChatResult> {
   return callChatWithGenStudioAdmitted(apiKey, request)
 }
 

@@ -23,17 +23,19 @@ describe('Research workspace flow', () => {
     assert.doesNotMatch(research, /@preset-(?:applied|saved|renamed|deleted).*success/)
     assert.match(research, /class="research-setup-surface"/)
     assert.match(research, /Tune the evidence run/)
-    assert.match(research, /<ModelSelector v-model="form\.source_model"/)
+    assert.match(research, /<ModelSelector v-else v-model="form\.source_model"/)
     assert.doesNotMatch(research, /<PresetPicker/)
     assert.match(research, /Episode topics remain episode-specific/)
     assert.doesNotMatch(research, /label="Run settings and reusable preset"/)
     assert.doesNotMatch(research, /research_run_settings_open_/)
   })
 
-  test('uses one fixed GenStudio LLM route without a provider selector', () => {
+  // The MODE choice added in this release is not a provider choice: both
+  // modes run through the same GenStudio boundary on the same API key.
+  test('uses one fixed GenStudio route without a provider selector', () => {
     assert.match(research, />GenStudio LLM</)
     assert.match(research, /Only published GenStudio LLM models appear here/)
-    assert.match(research, /<ModelSelector v-model="form\.source_model"/)
+    assert.match(research, /<ModelSelector v-else v-model="form\.source_model"/)
     assert.doesNotMatch(research, /form\.source_provider/)
     assert.doesNotMatch(research, /v-for="src in sources"/)
     assert.doesNotMatch(research, /Perplexity \(direct\)/)
@@ -97,8 +99,81 @@ describe('Research workspace flow', () => {
     assert.match(research, /No human read them/)
   })
 
-  test('is honest about where the claims came from', () => {
-    assert.match(research, /no live web access/)
-    assert.match(research, /No source cited/)
+  test('is honest about where the claims came from, per mode', () => {
+    // Provenance is read from the SIDECAR, not the form: the form may have
+    // been changed since the run, and the page must describe what happened.
+    assert.match(research, /const resultMode = computed/)
+    assert.match(research, /resultProvenanceNotice/)
+    // Softened model-knowledge copy. The old wording read as if the output
+    // were worthless, and it is simply wrong for a web run.
+    assert.match(research, /Reliable on well-established facts/)
+    assert.match(research, /From model knowledge — no source cited/)
+    assert.doesNotMatch(research, /no live web access/)
+    assert.doesNotMatch(research, /nothing backs this claim but the model/)
+    // Web copy never borrows the model-knowledge framing.
+    assert.match(research, /Searched the web and cited its sources below/)
+    assert.match(research, /aren’t linked to specific sources yet/)
+  })
+
+  // ── "Search the web" mode ──────────────────────────────────────────────
+  test('offers both research modes with customer-facing names', () => {
+    assert.match(research, /Model knowledge only/)
+    assert.match(research, />Search the web</)
+    assert.match(research, /name="research-mode"/)
+    assert.match(research, /value="model-knowledge"/)
+    assert.match(research, /value="web-search"/)
+    // "LLM" must not appear in the mode copy the customer reads.
+    assert.doesNotMatch(research, /Model knowledge only[^<]*LLM/)
+  })
+
+  test('keeps web mode visible and self-explaining when nothing qualifies', () => {
+    // The option is disabled with a reason, not hidden — and the reason comes
+    // from the backend capability check, never invented here.
+    assert.match(research, /:disabled="!webModeAvailable"/)
+    assert.match(research, /\{\{ webModeReason \}\}/)
+    assert.match(research, /'\/research\/web-models'/)
+    // A failed request must not be reported as "nothing qualifies".
+    assert.match(research, /Could not check which models can search the web/)
+    // Web mode can never be ACTIVE while unavailable, whatever a preset says.
+    assert.match(research, /form\.value\.research_mode === 'web-search' && webModeAvailable\.value/)
+  })
+
+  test('hides the depth control unless the selected model publishes a cap', () => {
+    assert.match(research, /v-if="depthCapLimit"/)
+    assert.match(research, /max_web_searches/)
+    // The old always-on "Source depth" control is gone: in model-knowledge
+    // mode it only ever changed prompt text.
+    assert.doesNotMatch(research, />Source depth</)
+  })
+
+  test('shows domain filters only when the selected model advertises them', () => {
+    assert.match(research, /v-if="webMode && selectedWebModel\?\.supports_domain_filters"/)
+    assert.match(research, /allowed_domains/)
+    assert.match(research, /blocked_domains/)
+  })
+
+  test('quotes a per-search rate and never computes a total charge locally', () => {
+    assert.match(research, /Each web search costs/)
+    assert.match(research, /the total varies per run|total varies/)
+    // The ACTUAL charge is whatever GenStudio reported — unreported stays
+    // unreported rather than becoming a number this app made up.
+    assert.match(research, /not reported/)
+    assert.match(research, /webRunReportLabel/)
+  })
+
+  test('shows citations at run level and never fabricates per-claim links', () => {
+    assert.match(research, /These sources back the whole run/)
+    assert.match(research, /resultMode !== 'web-search'/)
+    // A web run with no sources is stated plainly instead of left blank.
+    assert.match(research, /research-nosources-note/)
+  })
+
+  test('round-trips mode and domain filters through research presets', () => {
+    assert.match(research, /research_mode: form\.value\.research_mode/)
+    assert.match(research, /allowed_domains: form\.value\.allowed_domains/)
+    assert.match(research, /blocked_domains: form\.value\.blocked_domains/)
+    // A preset with no mode predates web search and can only mean model
+    // knowledge — never optimistically upgraded into a credit-spending mode.
+    assert.match(research, /data\.form\.research_mode === 'web-search' \? 'web-search' : 'model-knowledge'/)
   })
 })

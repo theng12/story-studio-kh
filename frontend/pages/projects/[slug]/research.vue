@@ -1,7 +1,7 @@
 <!--
   v1.0.142+ — Research page real content. First production step of the
-  timestamp-driven pipeline. Research generation is routed exclusively
-  through the published GenStudio LLM catalog.
+  timestamp-driven pipeline. Research runs exclusively through the published
+  GenStudio catalog.
 
   Output is two sidecars in the episode dir:
     - research.json  (machine-readable, claims/citations/structure)
@@ -13,10 +13,15 @@
   v1.0.761 — there is exactly ONE decision on this page: the per-claim
   Verified / Ignore triage. The research-level state is derived from it
   (every claim decided = reviewed; at least one kept = usable), so the
-  separate "Verify research" attestation banner is gone. Do not bring it
-  back, and never word anything here as though the claims were checked
-  against their citations: research runs on a language model with no live
-  web access and usually returns no citations at all.
+  separate "Verify research" attestation banner is gone. Do not bring it back.
+
+  ── TWO MODES, TWO DIFFERENT PROMISES ────────────────────────────────────
+  "Model knowledge only" answers from what the model already knows: reliable
+  on well-established facts, unable to cite live sources. "Search the web"
+  runs a qualified GenStudio model that searches and records what it read;
+  those sources back the RUN, never an individual claim (claim-to-citation
+  mapping does not exist yet). Never let either mode borrow the other's
+  wording, and never render a per-claim source link in web mode.
 -->
 <template>
   <div class="workspace-page creation-workspace research-workspace">
@@ -137,28 +142,120 @@
           </div>
           <p>Save, apply, or rename reusable research presets in the command bar above. Episode topics remain episode-specific.</p>
         </div>
+
+        <!-- Research mode. Two genuinely different promises, so they are a
+             visible choice rather than a hidden setting. Web mode is offered
+             only when GenStudio publishes a model that qualifies for it; when
+             none does, the option stays visible and explains itself instead of
+             disappearing without a word. -->
+        <fieldset class="research-mode-field">
+          <legend>Research mode</legend>
+          <div class="research-mode-options">
+            <label class="research-mode-option" :class="{ selected: form.research_mode === 'model-knowledge' }">
+              <input
+                v-model="form.research_mode"
+                type="radio"
+                name="research-mode"
+                value="model-knowledge"
+              />
+              <span class="research-mode-copy">
+                <strong>Model knowledge only</strong>
+                <small>{{ MODEL_KNOWLEDGE_NOTICE }}</small>
+              </span>
+            </label>
+            <label
+              class="research-mode-option"
+              :class="{ selected: form.research_mode === 'web-search', disabled: !webModeAvailable }"
+            >
+              <input
+                v-model="form.research_mode"
+                type="radio"
+                name="research-mode"
+                value="web-search"
+                :disabled="!webModeAvailable"
+              />
+              <span class="research-mode-copy">
+                <strong>Search the web</strong>
+                <small v-if="webModeLoading">Checking which models can search the web…</small>
+                <small v-else-if="!webModeAvailable">{{ webModeReason }}</small>
+                <small v-else>{{ WEB_SEARCH_NOTICE }}</small>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         <div class="research-run-controls">
           <div class="research-model-field">
-            <label>Research model</label>
-            <ModelSelector v-model="form.source_model" :project-slug="slug" />
-            <span class="research-field-note">Only published GenStudio LLM models appear here. Your last choice remains selected for this project.</span>
+            <label v-if="webMode" for="research-web-model">Research model</label>
+            <label v-else>Research model</label>
+            <!-- Web mode may only offer models that GenStudio has qualified,
+                 so it uses its own list rather than the full catalog picker. -->
+            <select
+              v-if="webMode"
+              id="research-web-model"
+              v-model="form.web_model"
+              class="input"
+            >
+              <option v-for="m in webModels" :key="m.id" :value="m.id">{{ m.display_name }}</option>
+            </select>
+            <ModelSelector v-else v-model="form.source_model" :project-slug="slug" />
+            <span class="research-field-note">
+              <template v-if="webMode">Only models qualified to search the web and return structured citations appear here.</template>
+              <template v-else>Only published GenStudio LLM models appear here. Your last choice remains selected for this project.</template>
+            </span>
           </div>
-          <div class="research-depth-field">
-            <label for="research-max-sources">Source depth</label>
+          <!-- Depth control. Hidden unless the SELECTED web model publishes an
+               enforceable search cap. GenStudio cannot enforce a provider-side
+               search count today (max_web_searches is null), and in
+               model-knowledge mode the number was only ever a prompt hint —
+               offering a control that changes nothing would be a lie. This
+               path stays so the control reappears by itself if that changes. -->
+          <div v-if="depthCapLimit" class="research-depth-field">
+            <label for="research-max-sources">Search depth</label>
             <div class="research-depth-control">
               <input
                 id="research-max-sources"
                 v-model.number="form.max_sources"
                 class="input input-sm"
                 type="number"
-                min="3"
-                max="20"
+                min="1"
+                :max="depthCapLimit"
               />
-              <span>sources</span>
+              <span>searches</span>
             </div>
-            <span class="research-field-note">Guides the number of claims and references requested from the selected model.</span>
+            <span class="research-field-note">This model caps a run at {{ depthCapLimit }} searches.</span>
           </div>
         </div>
+
+        <!-- Domain filters: only when the SELECTED model advertises them. A
+             filter the provider ignores is worse than none — the user would
+             believe their sources were constrained when they were not. -->
+        <div v-if="webMode && selectedWebModel?.supports_domain_filters" class="research-domain-controls">
+          <div class="research-domain-field">
+            <label for="research-allowed-domains">Only search these sites <span class="research-optional-label">optional</span></label>
+            <input
+              id="research-allowed-domains"
+              v-model="form.allowed_domains"
+              class="input input-sm"
+              placeholder="nature.com, nasa.gov"
+            />
+          </div>
+          <div class="research-domain-field">
+            <label for="research-blocked-domains">Never search these sites <span class="research-optional-label">optional</span></label>
+            <input
+              id="research-blocked-domains"
+              v-model="form.blocked_domains"
+              class="input input-sm"
+              placeholder="example-content-farm.com"
+            />
+          </div>
+          <span class="research-field-note">Comma-separated domains. Saved with your research presets.</span>
+        </div>
+
+        <!-- Cost, stated as a RATE. There is no depth control and the provider
+             decides how many searches to make, so there is no honest total to
+             show before the run. The ACTUAL charge is reported afterwards. -->
+        <p v-if="webMode && webCostNote" class="research-cost-note">{{ webCostNote }}</p>
       </div>
     </WorkspaceSection>
 
@@ -246,11 +343,14 @@
           </div>
         </div>
 
-        <!-- Honest provenance. The research route is a language model with no
-             live web access, so nothing here was checked for the user. -->
+        <!-- Provenance for the mode this run ACTUALLY used (read from the
+             sidecar, not from the form — the form may have been changed since).
+             The two modes never share wording: model-knowledge output cites
+             nothing, and web output cites the RUN, not each claim. -->
         <p class="research-provenance-note">
-          These claims were written by a language model with no live web access. They have not been checked
-          against live sources — confirm anything load-bearing yourself before it reaches the script.
+          {{ resultProvenanceNotice }}
+          <span v-if="resultRanOnLabel"> Research ran on {{ resultRanOnLabel }}.</span>
+          <span v-if="resultMode === 'web-search'"> {{ webRunReportLabel }}</span>
         </p>
 
         <div class="research-review-dashboard">
@@ -302,9 +402,14 @@
                   Source {{ idx + 1 }}
                 </a>
               </div>
-              <!-- An absent citation is a fact the reviewer needs. The llm-only
-                   route is told not to invent URLs, so most claims land here. -->
-              <div v-else class="research-claim-nocite">No source cited — nothing backs this claim but the model.</div>
+              <!-- An absent citation is a fact the reviewer needs — but only in
+                   model-knowledge mode. In web mode the sources are recorded
+                   for the whole run and are never mapped to a claim, so
+                   labelling each claim "no source cited" would misreport a run
+                   that did cite sources. -->
+              <div v-else-if="resultMode !== 'web-search'" class="research-claim-nocite">
+                {{ MODEL_KNOWLEDGE_CLAIM_NOTE }}
+              </div>
             </div>
             <div class="research-claim-actions">
               <button
@@ -338,12 +443,24 @@
           </ol>
         </AdvancedDisclosure>
 
+        <!-- A web run that cited nothing is surfaced, not hidden. Without this
+             the page would promise "cited its sources" over an empty space. -->
+        <p v-if="resultMode === 'web-search' && !result.citations?.length" class="research-nosources-note">
+          This run searched the web but came back with no sources. Treat these claims as model knowledge until
+          you find sources yourself, or run it again.
+        </p>
+
         <div v-if="result.citations?.length" class="research-sources-panel">
           <div class="research-sources-head">
             <div>
               <span class="research-panel-kicker">Source handoff</span>
               <h3>Sources in the video description</h3>
-              <p>{{ includedSourceCount }} of {{ result.citations.length }} selected. Metadata will append their titles and links.</p>
+              <p>
+                {{ includedSourceCount }} of {{ result.citations.length }} selected. Metadata will append their titles and links.
+                <template v-if="resultMode === 'web-search'">
+                  These sources back the whole run — they are not linked to individual claims.
+                </template>
+              </p>
             </div>
             <div class="research-sources-bulk">
               <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('all')">All</button>
@@ -366,6 +483,9 @@
               <div class="research-source-content">
                 <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
                 <strong v-else>{{ c.title }}</strong>
+                <!-- publisher / published_at are shown only when the provider
+                     actually supplied them; neither is reliable today. -->
+                <span v-if="sourceAttribution(c)" class="research-source-meta">{{ sourceAttribution(c) }}</span>
                 <p v-if="c.snippet">{{ c.snippet }}</p>
               </div>
               <span v-if="c.url && verifiedBackingIdx.has(i)" class="research-source-vbadge" title="Cited by a verified claim">Verified evidence</span>
@@ -449,14 +569,40 @@ async function loadSources(): Promise<void> {
   }
 }
 
+// ── Provenance wording ──────────────────────────────────────────────────
+// Mirrors electron/server/services/research/provenance.ts. The two modes make
+// different promises and must never borrow each other's words: model-knowledge
+// output cites nothing, web output cites the RUN and not each claim.
+const MODEL_KNOWLEDGE_NOTICE =
+  'Based on the model’s own knowledge. Reliable on well-established facts, but it can’t cite live sources — '
+  + 'worth checking anything specific or recent before you rely on it.'
+const MODEL_KNOWLEDGE_CLAIM_NOTE = 'From model knowledge — no source cited'
+const WEB_SEARCH_NOTICE =
+  'Searched the web and cited its sources below. Sources are listed for the whole run — individual claims '
+  + 'aren’t linked to specific sources yet.'
+const WEB_SEARCH_NO_SOURCES_NOTICE =
+  'This run searched the web but came back with no sources. Treat these claims as model knowledge until you '
+  + 'find sources yourself, or run it again.'
+
+type ResearchMode = 'model-knowledge' | 'web-search'
+
 // Form state contains no provider selector. The backend always dispatches to
-// GenStudio; only the published GenStudio model remains user-selectable.
+// GenStudio; the user picks the MODE and the published GenStudio model.
 interface ResearchForm {
   topic: string
   specific_questions: string
   max_sources: number
   // Empty means the GenStudio Research adapter's compatibility default.
   source_model: string
+  /** Which route to run. Default = the unchanged model-knowledge path. */
+  research_mode: ResearchMode
+  /** Web-mode model, kept separate from `source_model` so switching modes
+   *  never silently submits a model the other mode cannot use. */
+  web_model: string
+  /** Comma-separated domain filters. Only sent in web mode, and only when the
+   *  selected model advertises domain filters. */
+  allowed_domains: string
+  blocked_domains: string
 }
 // Per-project memory of the last GenStudio model picked.
 const RESEARCH_MODEL_KEY = `research_llm_model_${slug.value}`
@@ -465,6 +611,10 @@ const form = ref<ResearchForm>({
   specific_questions: '',
   max_sources: 8,
   source_model: (typeof localStorage !== 'undefined' && localStorage.getItem(RESEARCH_MODEL_KEY)) || '',
+  research_mode: 'model-knowledge',
+  web_model: '',
+  allowed_domains: '',
+  blocked_domains: '',
 })
 // Remember breadth only. Historical `source_provider` values in saved form
 // state are deliberately ignored; all runs now use GenStudio.
@@ -478,6 +628,10 @@ const researchPresets = usePresets<any>({
       source_model: form.value.source_model,
       specific_questions: form.value.specific_questions,
       max_sources: form.value.max_sources,
+      research_mode: form.value.research_mode,
+      web_model: form.value.web_model,
+      allowed_domains: form.value.allowed_domains,
+      blocked_domains: form.value.blocked_domains,
     },
   }),
   apply: (data) => {
@@ -485,6 +639,13 @@ const researchPresets = usePresets<any>({
     if (typeof data.form.source_model === 'string') form.value.source_model = data.form.source_model
     if (typeof data.form.specific_questions === 'string') form.value.specific_questions = data.form.specific_questions
     if (typeof data.form.max_sources === 'number') form.value.max_sources = data.form.max_sources
+    // A preset saved before web search existed has no mode; it can only have
+    // meant model knowledge. Anything unrecognised resolves the same way —
+    // never optimistically upgrade a preset into a mode that spends credits.
+    form.value.research_mode = data.form.research_mode === 'web-search' ? 'web-search' : 'model-knowledge'
+    if (typeof data.form.web_model === 'string') form.value.web_model = data.form.web_model
+    if (typeof data.form.allowed_domains === 'string') form.value.allowed_domains = data.form.allowed_domains
+    if (typeof data.form.blocked_domains === 'string') form.value.blocked_domains = data.form.blocked_domains
   },
 })
 // Persist the model choice whenever it changes.
@@ -493,6 +654,80 @@ watch(() => form.value.source_model, (m) => {
     if (m) localStorage.setItem(RESEARCH_MODEL_KEY, m)
     else localStorage.removeItem(RESEARCH_MODEL_KEY)
   }
+})
+
+// ── Web-search availability ─────────────────────────────────────────────
+// The backend filters the published catalog by CAPABILITY ONLY (five
+// conditions — see services/research/web-capability.ts). This page never
+// decides eligibility itself and never matches on a model name.
+//
+// TODAY every model reports research_qualified:false, so `available` is false
+// and `reason` explains why. That is the expected launch state: the option
+// stays visible and self-explaining, and turns itself on with no code change
+// here the moment GenStudio qualifies a model.
+interface WebResearchModel {
+  id: string
+  display_name: string
+  credits_per_search: number | null
+  max_web_searches: number | null
+  supports_domain_filters: boolean
+}
+const webModels = ref<WebResearchModel[]>([])
+const webModeAvailable = ref(false)
+const webModeReason = ref('')
+const webModeLoading = ref(false)
+
+async function loadWebModels(): Promise<void> {
+  webModeLoading.value = true
+  try {
+    const r = await get<{ available: boolean; reason: string; models: WebResearchModel[] }>(
+      '/research/web-models',
+    )
+    webModels.value = Array.isArray(r.models) ? r.models : []
+    webModeAvailable.value = r.available === true && webModels.value.length > 0
+    webModeReason.value = r.reason || ''
+    if (!webModels.value.some(m => m.id === form.value.web_model)) {
+      form.value.web_model = webModels.value[0]?.id || ''
+    }
+  } catch {
+    // Never claim "nothing qualifies" from a failed request — that would be a
+    // guess about GenStudio's inventory drawn from a local network problem.
+    webModels.value = []
+    webModeAvailable.value = false
+    webModeReason.value = 'Could not check which models can search the web. Model-knowledge research still works.'
+  } finally {
+    webModeLoading.value = false
+  }
+}
+
+// Web mode can never be the ACTIVE mode while it is unavailable, no matter
+// what a preset or remembered form restored.
+const webMode = computed(() => form.value.research_mode === 'web-search' && webModeAvailable.value)
+watch(webModeAvailable, (available) => {
+  if (!available && form.value.research_mode === 'web-search') form.value.research_mode = 'model-knowledge'
+})
+
+const selectedWebModel = computed<WebResearchModel | null>(() =>
+  webModels.value.find(m => m.id === form.value.web_model) || webModels.value[0] || null,
+)
+/** The depth control exists ONLY when the selected web model publishes an
+ *  enforceable cap. Null (today's real value) hides it: GenStudio cannot
+ *  enforce a provider-side search count, and in model-knowledge mode the
+ *  number was only ever a prompt hint. */
+const depthCapLimit = computed<number | null>(() => {
+  if (!webMode.value) return null
+  const cap = selectedWebModel.value?.max_web_searches
+  return typeof cap === 'number' && cap > 0 ? cap : null
+})
+/** Cost stated as a RATE only. With no depth control and the provider deciding
+ *  how many searches to run, there is no honest total to quote up front — so
+ *  this page never multiplies anything into a customer charge. */
+const webCostNote = computed(() => {
+  const rate = selectedWebModel.value?.credits_per_search
+  if (typeof rate !== 'number') return ''
+  return `Each web search costs ${rate} credit${rate === 1 ? '' : 's'}. `
+    + 'The model decides how many searches to make, so the total varies per run — the actual charge is shown '
+    + 'here once the run finishes.'
 })
 
 const canRun = computed(() => {
@@ -520,7 +755,18 @@ interface ResearchClaim {
   confidence?: 'high' | 'medium' | 'low' | 'unknown'
   note?: string
 }
-interface ResearchCitation { title: string; url: string; snippet?: string; include_in_description?: boolean }
+interface ResearchCitation {
+  title: string
+  url: string
+  snippet?: string
+  include_in_description?: boolean
+  /** Neither is reliable yet — shown only when the provider supplied it. */
+  publisher?: string
+  published_at?: string
+  /** Stored for future span mapping. NOT used for per-claim links today. */
+  start_index?: number
+  end_index?: number
+}
 interface ResearchStructureSection { heading: string; brief: string; claim_ids: string[] }
 /** v1.0.761 — WHO finished the per-claim triage. Provenance only: whether the
  *  research counts as reviewed is derived from the claim statuses. */
@@ -529,10 +775,22 @@ interface ResearchReviewRecord {
   completed_at?: string
   note?: string
 }
+interface ResearchWebRunReport {
+  searches_performed?: number
+  credits_charged?: number
+  credits_per_search?: number
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+}
 interface ResearchOutput {
   schema_version: 1
   source_provider: string
   source_model?: string
+  /** ABSENT = model-knowledge. Every sidecar written before web search existed
+   *  came from the no-web-access route, so that is its only honest reading. */
+  research_mode?: ResearchMode
+  /** What a web run actually did / cost, when GenStudio reported it. */
+  web_run?: ResearchWebRunReport
   generated_at: string
   topic: string
   specific_questions?: string
@@ -621,6 +879,49 @@ const researchReadinessTone = computed(() => {
   if (completedByPipeline.value) return 'warning'
   return 'success'
 })
+// ── Provenance of the LOADED result ─────────────────────────────────────
+// Read from the sidecar, never from the form: the form may have been changed
+// since the run, and the page must describe what actually happened.
+//
+// A sidecar with no `research_mode` predates web search, so it can only be
+// model-knowledge. Never treat an unknown value as web-search.
+const resultMode = computed<ResearchMode>(() => {
+  const raw = result.value?.research_mode
+  if (raw === 'web-search') return 'web-search'
+  if (raw === 'model-knowledge') return 'model-knowledge'
+  return result.value?.source_provider === 'genstudio-web' ? 'web-search' : 'model-knowledge'
+})
+const resultProvenanceNotice = computed(() => {
+  if (resultMode.value !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
+  return (result.value?.citations?.length || 0) > 0 ? WEB_SEARCH_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
+})
+/** Run-level recency. There is no per-source retrieval timestamp on purpose —
+ *  GenStudio does not fetch the pages, so one would be falsely precise. */
+const resultRanOnLabel = computed(() => {
+  const at = result.value?.generated_at
+  if (!at) return ''
+  const d = new Date(at)
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleString()
+})
+/** The ACTUAL charge and search count, exactly as GenStudio reported them.
+ *  Nothing is computed locally, and an unreported value says so. */
+const webRunReportLabel = computed(() => {
+  const run = result.value?.web_run
+  const searches = run?.searches_performed
+  const credits = run?.credits_charged
+  if (searches === undefined && credits === undefined) {
+    return 'GenStudio did not report how many searches this run made or what it charged.'
+  }
+  const parts: string[] = []
+  parts.push(searches === undefined ? 'Searches: not reported.' : `Searches: ${searches}.`)
+  parts.push(credits === undefined ? 'Charged: not reported.' : `Charged: ${credits} credits.`)
+  return parts.join(' ')
+})
+/** Publisher / date, only when the provider actually supplied them. */
+function sourceAttribution(c: ResearchCitation): string {
+  return [c.publisher, c.published_at].filter(Boolean).join(' · ')
+}
+
 // v1.0.197 — which sources flow into the YouTube description. Absent flag =
 // included (default-on). The Metadata generator appends the kept ones.
 function isSourceIncluded(c: ResearchCitation): boolean { return c.include_in_description !== false }
@@ -661,8 +962,20 @@ async function loadExisting(): Promise<void> {
       // source_provider values remain audit evidence and never restore a route.
       form.value.topic = r.research.topic
       form.value.specific_questions = r.research.specific_questions || ''
-      if (r.research.source_model) {
-        form.value.source_model = r.research.source_model
+      // Re-running should repeat what this episode last did — but only if that
+      // mode is still on offer. A previously-web episode falls back to model
+      // knowledge rather than presenting a mode that cannot run.
+      const loadedMode = resultMode.value
+      if (loadedMode === 'web-search' && webModeAvailable.value) {
+        form.value.research_mode = 'web-search'
+        if (r.research.source_model && webModels.value.some(m => m.id === r.research!.source_model)) {
+          form.value.web_model = r.research.source_model
+        }
+      } else {
+        form.value.research_mode = 'model-knowledge'
+        if (r.research.source_model && loadedMode !== 'web-search') {
+          form.value.source_model = r.research.source_model
+        }
       }
     } else {
       result.value = null
@@ -697,11 +1010,21 @@ async function runResearch(): Promise<void> {
   const ep = episodeId.value          // pin the episode this run belongs to
   researchingEpisode.value = ep
   try {
+    // Domain filters are sent only in web mode; the backend drops them again
+    // unless the SELECTED model advertises domain filters, so a filter the
+    // provider would ignore never looks like it was applied.
     await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, {
       topic: form.value.topic.trim(),
       specific_questions: form.value.specific_questions.trim() || undefined,
       max_sources: form.value.max_sources,
-      model: form.value.source_model || undefined,
+      research_mode: webMode.value ? 'web-search' : 'model-knowledge',
+      model: (webMode.value ? form.value.web_model : form.value.source_model) || undefined,
+      ...(webMode.value
+        ? {
+            allowed_domains: form.value.allowed_domains,
+            blocked_domains: form.value.blocked_domains,
+          }
+        : {}),
       title: form.value.topic.trim(),  // best-effort title hint for path resolution
     })
     success('Research job queued — watch the Jobs panel for progress')
@@ -800,6 +1123,7 @@ function bulkClaims(status: ResearchClaim['status']): void {
 onMounted(async () => {
   await Promise.all([
     loadSources(),
+    loadWebModels(),
     researchPresets.load(),
   ])
 })
@@ -1082,6 +1406,91 @@ watch(
 }
 .research-model-field,
 .research-depth-field { min-width: 0; }
+
+/* Research mode. Both options stay visible even when web search is
+   unavailable — the disabled option explains itself instead of vanishing. */
+.research-mode-field {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.research-mode-field legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.research-mode-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 9px;
+}
+.research-mode-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 7px);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.research-mode-option.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-dim);
+}
+.research-mode-option.disabled { opacity: 0.62; cursor: not-allowed; }
+.research-mode-option input { margin-top: 2px; }
+.research-mode-copy { display: grid; min-width: 0; gap: 3px; }
+.research-mode-copy strong { font-size: 12px; }
+.research-mode-copy small {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+
+.research-domain-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  grid-column: 1 / -1;
+  margin-top: 11px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 7px);
+  background: var(--bg-secondary);
+}
+.research-domain-field { min-width: 0; }
+.research-domain-controls .research-field-note { grid-column: 1 / -1; margin-top: 0; }
+
+/* Cost is quoted as a RATE. Never a computed total — the provider decides how
+   many searches to run, so no honest total exists before the run. */
+.research-cost-note {
+  grid-column: 1 / -1;
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+/* A web run that cited nothing is stated plainly rather than left blank. */
+.research-nosources-note {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--research-warning) 45%, var(--border));
+  border-radius: var(--radius-sm, 7px);
+  background: color-mix(in srgb, var(--research-warning) 9%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.research-source-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
 .research-depth-control { display: flex; align-items: center; gap: 8px; }
 .research-depth-control .input { width: 80px; }
 .research-depth-control span { color: var(--text-muted); font-size: var(--font-xs); }

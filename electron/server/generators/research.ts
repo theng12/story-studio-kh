@@ -9,11 +9,20 @@
  */
 
 import fs from 'fs/promises'
-import { getResearchAdapter } from '../services/research/index.js'
+import {
+  getResearchAdapterForMode,
+  normalizeResearchMode,
+  researchModeForProvider,
+} from '../services/research/index.js'
+import {
+  researchModeLabel,
+  researchModeNotice,
+  MODEL_KNOWLEDGE_CLAIM_NOTE,
+} from '../services/research/provenance.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveResearchPaths, RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
 import type { Job } from '../models/types.js'
-import type { ResearchOutput, ResearchSourceProvider } from '../models/types.js'
+import type { ResearchMode, ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
   autoCompleteResearchReview,
@@ -30,11 +39,17 @@ interface ResearchRunParams {
   episode_id: string
   title?: string
   source_provider: ResearchSourceProvider
+  /** Which route to run. Absent = derived from source_provider, which for
+   *  every job queued before web search existed means model-knowledge. */
+  research_mode?: ResearchMode
   topic: string
   specific_questions?: string
   max_sources?: number
-  /** v1.0.175 — optional text model for the LLM-only adapter. */
+  /** v1.0.175 — optional GenStudio language-product id. */
   model?: string
+  /** Web-mode domain filters. Ignored in model-knowledge mode. */
+  allowed_domains?: string[]
+  blocked_domains?: string[]
 }
 
 export async function runResearchJob(job: Job): Promise<void> {
@@ -44,13 +59,20 @@ export async function runResearchJob(job: Job): Promise<void> {
   if (!source_provider) throw new Error('source_provider is required')
   if (!topic || !topic.trim()) throw new Error('topic is required')
 
-  job.output_lines.push(`Source: ${source_provider}`)
+  // A job queued before web search existed carries no mode; its provider is
+  // the only thing that can tell us what it meant, and it can only have meant
+  // model knowledge.
+  const mode: ResearchMode = params.research_mode
+    ? normalizeResearchMode(params.research_mode)
+    : researchModeForProvider(source_provider)
+
+  job.output_lines.push(`Mode: ${researchModeLabel(mode)}`)
   job.output_lines.push(`Topic: ${topic}`)
   if (params.specific_questions?.trim()) {
     job.output_lines.push(`Specific questions:\n${params.specific_questions.trim()}`)
   }
 
-  const adapter = getResearchAdapter(source_provider)
+  const adapter = getResearchAdapterForMode(mode)
   const configured = await adapter.isConfigured()
   if (!configured) {
     throw new Error(
@@ -61,7 +83,7 @@ export async function runResearchJob(job: Job): Promise<void> {
   job.output_lines.push(`Running ${adapter.displayName}…`)
   job.progress = 10
 
-  if (params.model && source_provider === 'llm-only') {
+  if (params.model) {
     job.output_lines.push(`Model: ${params.model}`)
   }
   const result = await adapter.run({
@@ -69,6 +91,15 @@ export async function runResearchJob(job: Job): Promise<void> {
     specific_questions: params.specific_questions,
     max_sources: params.max_sources,
     model: params.model,
+    mode,
+    ...(mode === 'web-search'
+      ? {
+          web_search: {
+            allowed_domains: params.allowed_domains,
+            blocked_domains: params.blocked_domains,
+          },
+        }
+      : {}),
   })
 
   job.progress = 80
@@ -100,12 +131,30 @@ export async function runResearchJob(job: Job): Promise<void> {
       ? 'Claim review: AUTO-COMPLETED (unattended Pipeline run). Every claim was accepted by the machine — no human read them. Open Research to review them.'
       : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
   )
-  const uncited = persisted.claims.filter(c => !c.citation_indices?.length).length
-  if (uncited) {
+  // Provenance in the job log, per mode. The two modes made different
+  // promises, so they must not share a sentence here either.
+  if (mode === 'web-search') {
     job.output_lines.push(
-      `${uncited} of ${persisted.claims.length} claim(s) carry no citation. Research runs on a language model `
-      + 'with no live web access, so nothing here was checked against a live source.',
+      persisted.citations.length
+        ? `${persisted.citations.length} source(s) recorded for this run. `
+          + 'Sources back the run as a whole — individual claims are not linked to specific sources yet.'
+        : 'This run searched the web but returned no sources. Treat these claims as model knowledge until '
+          + 'you find sources yourself, or run it again.',
     )
+    const searches = persisted.web_run?.searches_performed
+    const credits = persisted.web_run?.credits_charged
+    job.output_lines.push(
+      // Never compute a charge locally: report exactly what GenStudio reported.
+      `Searches performed: ${searches ?? 'not reported'}. Credits charged: ${credits ?? 'not reported'}.`,
+    )
+  } else {
+    const uncited = persisted.claims.filter(c => !c.citation_indices?.length).length
+    if (uncited) {
+      job.output_lines.push(
+        `${uncited} of ${persisted.claims.length} claim(s) carry no citation. ${MODEL_KNOWLEDGE_CLAIM_NOTE} — `
+        + 'reliable on well-established facts, worth checking anything specific or recent.',
+      )
+    }
   }
 
   await fs.writeFile(jsonPath, JSON.stringify(persisted, null, 2), 'utf-8')
@@ -140,16 +189,26 @@ export async function runResearchJob(job: Job): Promise<void> {
  *  JSON so the user can read the research in any markdown viewer
  *  (incl. inside Finder's QuickLook) without firing up the app. */
 function renderResearchMarkdown(r: ResearchOutput): string {
+  const mode = readResearchOutputMode(r)
   const lines: string[] = []
   lines.push(`# Research — ${r.topic}`)
   lines.push('')
-  lines.push(`*Generated ${r.generated_at} via ${r.source_provider}${r.source_model ? ` (${r.source_model})` : ''}*`)
+  // "Research ran on <date>" is the run-level recency signal for web sources.
+  // There is deliberately no per-source retrieval timestamp — GenStudio does
+  // not fetch the pages, so one would be falsely precise.
+  lines.push(`*${researchModeLabel(mode)} · research ran on ${r.generated_at}`
+    + `${r.source_model ? ` · ${r.source_model}` : ''}*`)
   lines.push('')
-  // Provenance disclaimer. The shipping adapter has no live web access, so the
-  // record must never read as if the app checked anything for the user.
-  if (r.source_provider === 'llm-only') {
-    lines.push('*Model-generated research. It was produced by a language model with no live web access, '
-      + 'so these claims were not checked against live sources — confirm anything load-bearing yourself.*')
+  // Provenance, per mode. Model-knowledge output was never checked for the
+  // user; web output cites the run, not each claim. Neither may borrow the
+  // other's wording.
+  lines.push(`*${researchModeNotice(mode, r.citations.length)}*`)
+  lines.push('')
+  if (mode === 'web-search' && r.web_run) {
+    const searches = r.web_run.searches_performed
+    const credits = r.web_run.credits_charged
+    lines.push(`*Searches performed: ${searches ?? 'not reported'}. `
+      + `Credits charged: ${credits ?? 'not reported'}.*`)
     lines.push('')
   }
   // Review state is part of the human-readable record too — a reader opening
@@ -197,9 +256,15 @@ function renderResearchMarkdown(r: ResearchOutput): string {
       const conf = c.confidence ? ` *(confidence: ${c.confidence})*` : ''
       // An absent citation is a fact the reader needs, not a blank to gloss
       // over: most llm-only claims arrive with nothing behind them.
+      // An uncited claim means different things per mode. In model-knowledge
+      // mode it is the honest "no source cited" marker. In web mode, sources
+      // are recorded at RUN level and never mapped to claims, so marking each
+      // claim "no source cited" would misreport a run that DID cite sources.
       const refs = c.citation_indices?.length
         ? ` [${c.citation_indices.map(idx => idx + 1).join(', ')}]`
-        : ' *(no source cited)*'
+        : mode === 'web-search'
+          ? ''
+          : ` *(${MODEL_KNOWLEDGE_CLAIM_NOTE.toLowerCase()})*`
       const decision = c.status === 'verified' ? ' — kept'
         : c.status === 'ignored' ? ' — ignored'
         : ' — not reviewed'
@@ -220,25 +285,40 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     }
   }
 
+  lines.push('## Sources')
+  lines.push('')
   if (!r.citations.length) {
-    lines.push('## Sources')
+    lines.push(mode === 'web-search'
+      ? 'None. This run searched the web but came back with no sources. Treat these claims as model knowledge '
+        + 'until you find sources yourself, or run it again.'
+      : 'None. This run used the model’s own knowledge, which cannot cite live sources — it is deliberately '
+        + 'not allowed to invent URLs. Find sources yourself for anything specific or recent.')
     lines.push('')
-    lines.push('None. This run returned no citations, which is normal for the model-only research route — '
-      + 'it is instructed not to invent URLs. Find and check sources yourself before relying on these claims.')
-    lines.push('')
-  }
-
-  if (r.citations.length) {
-    lines.push('## Sources')
-    lines.push('')
+  } else {
+    if (mode === 'web-search') {
+      lines.push('*These sources back the run as a whole. Individual claims are not linked to specific '
+        + 'sources yet.*')
+      lines.push('')
+    }
     for (let i = 0; i < r.citations.length; i++) {
       const c = r.citations[i]!
       const link = c.url ? `[${c.title}](${c.url})` : c.title
-      lines.push(`${i + 1}. ${link}`)
+      // publisher / published_at are carried through only when the provider
+      // actually supplied them — they are not reliable today.
+      const attribution = [c.publisher, c.published_at].filter(Boolean).join(', ')
+      lines.push(`${i + 1}. ${link}${attribution ? ` — ${attribution}` : ''}`)
       if (c.snippet) lines.push(`   > ${c.snippet}`)
     }
     lines.push('')
   }
 
   return lines.join('\n')
+}
+
+/** The mode a sidecar was produced in. Absent mode + legacy provider both
+ *  resolve to model-knowledge — the only route that existed before. */
+function readResearchOutputMode(r: ResearchOutput): ResearchMode {
+  return r.research_mode
+    ? normalizeResearchMode(r.research_mode)
+    : researchModeForProvider(r.source_provider)
 }

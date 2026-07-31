@@ -3100,13 +3100,64 @@ export interface AudioMergeRequest {
 // and injects its `claims` (filtered to `status === 'verified'`) into
 // the prompt context, so only the claims the user kept reach the script.
 //
-// NOTE on provenance: the shipping adapter is `llm-only`, which is told it
-// has NO live web access and must not invent URLs. Claims are therefore
-// model-generated statements the user triages, NOT statements the app checked
-// against a live source, and most runs return no citations at all. No UI,
-// message, or sidecar text may say otherwise.
+// NOTE on provenance: Research has TWO modes and they make different promises.
+//
+//   • 'model-knowledge' (default, provider `llm-only`) — an ordinary GenStudio
+//     language product with no web access. Claims are model-generated
+//     statements the user triages, NOT statements the app checked against a
+//     live source, and most runs return no citations at all.
+//   • 'web-search' (provider `genstudio-web`) — a GenStudio language product
+//     that searched the web and returned provider citations in the RESPONSE
+//     ENVELOPE. Sources are provider evidence for the run as a whole; claim-to-
+//     citation mapping is not available yet.
+//
+// No UI, message, or sidecar text may overstate either one: model-knowledge
+// output was never checked for the user, and web-mode sources back the RUN,
+// not any individual claim.
 
-export type ResearchSourceProvider = 'perplexity' | 'llm-only'
+export type ResearchSourceProvider = 'perplexity' | 'llm-only' | 'genstudio-web'
+
+/**
+ * Which research route produced (or should produce) an output.
+ *
+ *   'model-knowledge' — the model's own training knowledge, no web access.
+ *   'web-search'      — a web-search-capable GenStudio language product.
+ *
+ * ABSENT means 'model-knowledge': every sidecar written before this field
+ * existed came from the no-web-access route, so the missing value has exactly
+ * one honest reading. Never default an unknown value to 'web-search'.
+ */
+export type ResearchMode = 'model-knowledge' | 'web-search'
+
+/**
+ * Domain allow/block lists forwarded to GenStudio's `web_search` block.
+ * Only meaningful when the selected product advertises
+ * `supports_domain_filters`; ignored (and hidden in the UI) otherwise.
+ */
+export interface ResearchWebSearchSettings {
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+}
+
+/**
+ * What a web-mode run ACTUALLY cost and did, as reported by GenStudio.
+ *
+ * Every field is optional because GenStudio does not always report them, and
+ * Story Studio must never compute a customer charge locally: an absent value
+ * is surfaced as "not reported", never as zero and never as an estimate.
+ */
+export interface ResearchWebRunReport {
+  /** How many searches the provider actually performed, when reported. */
+  searches_performed?: number
+  /** Credits actually charged for the run, when reported. */
+  credits_charged?: number
+  /** The per-search rate the catalogue published at run time. Recorded for
+   *  the record; it is a RATE, never multiplied into a total by this app. */
+  credits_per_search?: number
+  /** The domain filters that were actually sent with the request. */
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+}
 
 /** One factual claim the research adapter returned, with status flags
  *  the user can toggle in the Research page UI. */
@@ -3149,6 +3200,24 @@ export interface ResearchCitation {
    *  block. Toggled per-source on the Research page (bulk: all / verified-
    *  backing / none). Absent = included (default-on for existing research). */
   include_in_description?: boolean
+  /** Publisher / site name, when the provider supplies one. NOT reliable
+   *  today — GenStudio's citation envelope frequently omits it, so surfaces
+   *  must treat absence as normal rather than as a defect. */
+  publisher?: string
+  /** ISO8601 publication date, when the provider supplies one. Same
+   *  reliability caveat as `publisher`.
+   *
+   *  There is deliberately NO `retrieved_at`: GenStudio does not fetch the
+   *  page itself (the upstream provider does), so a per-source fetch timestamp
+   *  would be falsely precise. Run-level recency comes from
+   *  ResearchOutput.generated_at. */
+  published_at?: string
+  /** Character offsets of the cited span inside the provider's answer text,
+   *  when reported. STORED ONLY — claim-to-citation mapping is not available
+   *  yet, so nothing may render a per-claim link from these. Kept so a future
+   *  release can map spans without a schema migration. */
+  start_index?: number
+  end_index?: number
 }
 
 /** Adapter's recommended episode structure: a starting point for the
@@ -3171,7 +3240,18 @@ export interface ResearchOutput {
    *  `sonar-medium-online` for direct Perplexity, or the underlying
    *  LLM id for llm-only). Useful for cost-tracing in the future. */
   source_model?: string
-  /** When the research run completed. ISO8601. */
+  /** Which research route produced this. ABSENT means 'model-knowledge' —
+   *  every sidecar written before this field existed came from the no-web-
+   *  access route. Read it through readResearchMode() rather than inline, so
+   *  legacy sidecars are never mislabelled. */
+  research_mode?: ResearchMode
+  /** What a web-mode run actually cost and did, as GenStudio reported it.
+   *  Absent for model-knowledge runs, and for web runs where GenStudio
+   *  reported nothing. */
+  web_run?: ResearchWebRunReport
+  /** When the research run completed. ISO8601. This is ALSO the answer to
+   *  "how recent are these web sources?" — there is no per-source retrieval
+   *  timestamp, on purpose (see ResearchCitation.published_at). */
   generated_at: string
   /** The episode topic the research was framed around. */
   topic: string
@@ -3235,12 +3315,14 @@ export interface ResearchRunOptions {
   /** Cap on the number of distinct sources the adapter should consult.
    *  Adapters round / interpret as appropriate. */
   max_sources?: number
-  /** v1.0.175 — optional text model id for the LLM-only adapter. Lets the
-   *  user pick any provider (kie.ai, OpenAI, DeepSeek, Anthropic…) instead
-   *  of the hardcoded Anthropic default. The web-search adapter (Perplexity)
-   *  ignores this — it's bound to search-capable models. Unset = the
-   *  adapter's own default. */
+  /** v1.0.175 — optional GenStudio language-product id. Unset = the adapter's
+   *  own default (resolved against the live catalogue, never a literal). */
   model?: string
+  /** Which route to run. Unset = 'model-knowledge' (the unchanged default). */
+  mode?: ResearchMode
+  /** Web-mode domain filters. Only sent when the selected product advertises
+   *  `supports_domain_filters`; silently dropped otherwise. */
+  web_search?: ResearchWebSearchSettings
 }
 
 // ── Continuity-chain config (v1.0.189+ — continuity-chain pipeline) ─────

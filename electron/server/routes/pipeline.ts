@@ -30,6 +30,11 @@ import {
   isResearchReviewed,
   resolveResearchRequired,
 } from '../lib/research-verification.js'
+import {
+  normalizeResearchMode,
+  providerForResearchMode,
+} from '../services/research/index.js'
+import { normalizeDomainList } from '../services/research/web-capability.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
@@ -510,14 +515,24 @@ export function resolveStepParams(
   }
   if (step === 'research') {
     const form = data.form || data
+    // A preset saved before web search existed carries no mode, and its
+    // `source_provider` can only mean the no-web-access route. Never let an
+    // unknown value upgrade an unattended batch into a mode that spends
+    // web-search credits.
+    const mode = normalizeResearchMode(form.research_mode)
+    const allowedDomains = mode === 'web-search' ? normalizeDomainList(form.allowed_domains) : []
+    const blockedDomains = mode === 'web-search' ? normalizeDomainList(form.blocked_domains) : []
     return {
       episode_id: episodeId,
       title: title || '',
       topic: title || episodeId,
-      source_provider: form.source_provider || 'llm-only',
+      source_provider: providerForResearchMode(mode),
+      research_mode: mode,
       specific_questions: form.specific_questions || undefined,
       max_sources: Number(form.max_sources) > 0 ? Number(form.max_sources) : 8,
       model: form.source_model || form.model || undefined,
+      ...(allowedDomains.length ? { allowed_domains: allowedDomains } : {}),
+      ...(blockedDomains.length ? { blocked_domains: blockedDomains } : {}),
     }
   }
   if (step === 'script-only') {

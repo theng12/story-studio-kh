@@ -16,9 +16,11 @@
 import type {
   ResearchClaim,
   ResearchCitation,
+  ResearchMode,
   ResearchOutput,
   ResearchRunOptions,
   ResearchStructureSection,
+  ResearchWebRunReport,
 } from '../../models/types.js'
 
 export interface ResearchJsonContract {
@@ -79,13 +81,31 @@ IMPORTANT — you do NOT have live web access on this call. Don't fabricate URLs
   - Leave \`citation_indices\` empty for any unverifiable claim — the user will research these manually.
   - \`citations\` can be empty (or list well-known canonical sources like "Encyclopedia Britannica entry on X" with empty URL).`
 
-export function buildResearchPrompt(opts: ResearchRunOptions, mode: 'web' | 'llm-only' = 'web'): {
+/**
+ * Web-mode note. The provider records what it actually read in the RESPONSE
+ * ENVELOPE, so the model is told not to hand-copy URLs into its JSON: a URL
+ * the model types is a model claim, while an envelope citation is provider
+ * evidence. Keeping the two apart is the whole reason web mode can say
+ * "cited its sources" at all.
+ */
+const WEB_SEARCH_SYSTEM_NOTE = `
+
+IMPORTANT — you DO have live web search on this call. Use it.
+  - Search for current, primary sources before answering. Prefer them over recollection.
+  - Do NOT hand-copy URLs into the \`citations\` array. The search tool records what you actually read; anything you type there is treated as an unverified model claim, not as a source.
+  - Leave \`citations\` empty and leave every \`citation_indices\` empty. Sources are attached automatically from what you searched.
+  - Set \`confidence\` honestly: "high" only for claims you just confirmed in a source you read on this call.`
+
+export function buildResearchPrompt(
+  opts: ResearchRunOptions,
+  mode: 'web' | 'llm-only' = 'web',
+): {
   system: string
   user: string
 } {
   const system = mode === 'llm-only'
     ? SYSTEM_TEMPLATE + LLM_ONLY_SYSTEM_NOTE
-    : SYSTEM_TEMPLATE
+    : SYSTEM_TEMPLATE + WEB_SEARCH_SYSTEM_NOTE
 
   const sourceCap = opts.max_sources ?? 8
   const userParts: string[] = [
@@ -141,18 +161,30 @@ export function assembleOutput(
     specific_questions?: string
     provider: ResearchOutput['source_provider']
     model?: string
+    /** Which route produced this. Absent = 'model-knowledge' (unchanged). */
+    mode?: ResearchMode
+    /** Actual cost / search count for a web run, when GenStudio reported it. */
+    web_run?: ResearchWebRunReport
   },
 ): ResearchOutput {
   const parsed = parseResearchJson(raw)
+  const mode: ResearchMode = meta.mode ?? 'model-knowledge'
 
   // Merge LLM-supplied citations (from the JSON block) with adapter-
   // supplied ones (annotations / top-level), deduped by URL.
+  //
+  // WEB MODE IS DIFFERENT, on purpose: only the provider's ENVELOPE citations
+  // count. A URL the model typed into its own JSON is a model claim, not
+  // evidence that anything was read — accepting those would let web mode
+  // present a hallucinated URL with the same authority as a real source.
   const byUrl = new Map<string, ResearchCitation>()
   for (const c of liveCitations) {
     if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
   }
-  for (const c of parsed.citations || []) {
-    if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
+  if (mode !== 'web-search') {
+    for (const c of parsed.citations || []) {
+      if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
+    }
   }
   const finalCitations = Array.from(byUrl.values())
 
@@ -195,6 +227,8 @@ export function assembleOutput(
     schema_version: 1,
     source_provider: meta.provider,
     source_model: meta.model,
+    research_mode: mode,
+    ...(meta.web_run ? { web_run: meta.web_run } : {}),
     generated_at: new Date().toISOString(),
     topic: meta.topic,
     specific_questions: meta.specific_questions,

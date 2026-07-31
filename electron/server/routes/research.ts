@@ -22,9 +22,19 @@ import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
+  GENSTUDIO_RESEARCH_PROVIDER,
   RESEARCH_ADAPTERS,
+  normalizeResearchMode,
   normalizeResearchSourceProvider,
+  providerForResearchMode,
 } from '../services/research/index.js'
+import {
+  WEB_MODE_CATALOG_UNAVAILABLE_REASON,
+  describeWebResearchAvailability,
+  normalizeDomainList,
+} from '../services/research/web-capability.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listChatModels } from '../lib/genstudio-client.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
   readResearchReview,
@@ -57,6 +67,45 @@ router.get('/research/sources', async (_req, res) => {
     res.json({ sources: results })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list research sources'))
+  }
+})
+
+// ── GET /research/web-models ──────────────────────────────────────────
+// Which published GenStudio products may be used for "Search the web"
+// research, filtered by CAPABILITY ONLY (see services/research/web-capability
+// .ts for the five published conditions). Never filtered by provider or model
+// name.
+//
+// An empty list is a NORMAL, EXPECTED answer today — every product currently
+// reports `research_qualified: false` — so this returns 200 with
+// `available: false` and a plain reason, not an error. When GenStudio
+// qualifies a product, web mode turns itself on here with no code change.
+router.get('/research/web-models', async (_req, res) => {
+  try {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey.trim()) {
+      return res.json({
+        available: false,
+        configured: false,
+        reason: 'Connect GenStudio in Settings to see which models can search the web.',
+        models: [],
+      })
+    }
+    try {
+      const catalog = await listChatModels(apiKey)
+      return res.json({ configured: true, ...describeWebResearchAvailability(catalog) })
+    } catch {
+      // An unreachable catalogue is NOT "nothing qualifies". Saying so would
+      // be a guess about GenStudio's inventory made from a network failure.
+      return res.json({
+        available: false,
+        configured: true,
+        reason: WEB_MODE_CATALOG_UNAVAILABLE_REASON,
+        models: [],
+      })
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to check web research availability'))
   }
 })
 
@@ -94,16 +143,33 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
+  // The MODE is what the user picked; the provider id is derived from it. When
+  // a caller sends only a legacy `source_provider` (older clients, replayed
+  // jobs), fall back to what that provider means. Absent everything =
+  // model-knowledge, the unchanged default.
+  const researchMode = body.research_mode == null && typeof body.source_provider === 'string'
+    ? undefined
+    : normalizeResearchMode(body.research_mode)
   let sourceProvider: ResearchSourceProvider
   try {
     // Old presets and queued requests may still say `perplexity`. Treat that
     // value as a migration alias, never as permission to call Perplexity.
-    sourceProvider = normalizeResearchSourceProvider(body.source_provider)
+    sourceProvider = researchMode
+      ? providerForResearchMode(researchMode)
+      : normalizeResearchSourceProvider(body.source_provider)
   } catch (e: unknown) {
     return res.status(400).json({
       detail: e instanceof Error ? e.message : 'Unknown research source',
     })
   }
+  const mode = researchMode
+    ?? (sourceProvider === GENSTUDIO_RESEARCH_PROVIDER ? 'model-knowledge' : 'web-search')
+  // Domain filters are only meaningful in web mode. They are normalized here
+  // and dropped again inside buildWebSearchBlock unless the SELECTED product
+  // publishes `supports_domain_filters` — a filter the provider ignores must
+  // never look like it was applied.
+  const allowedDomains = mode === 'web-search' ? normalizeDomainList(body.allowed_domains) : []
+  const blockedDomains = mode === 'web-search' ? normalizeDomainList(body.blocked_domains) : []
   const topic = typeof body.topic === 'string' ? body.topic.trim() : ''
   const specificQuestions = typeof body.specific_questions === 'string'
     ? body.specific_questions
@@ -130,10 +196,13 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
       episode_id: episodeId,
       title,
       source_provider: sourceProvider,
+      research_mode: mode,
       topic,
       specific_questions: specificQuestions,
       max_sources: maxSources,
       model,
+      ...(allowedDomains.length ? { allowed_domains: allowedDomains } : {}),
+      ...(blockedDomains.length ? { blocked_domains: blockedDomains } : {}),
     },
   })
   res.status(201).json(job)

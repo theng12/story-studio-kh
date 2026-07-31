@@ -17,7 +17,8 @@ class GenStudioResearchAdapter implements ResearchAdapter {
   readonly provider = 'llm-only' as const
   readonly displayName = 'GenStudio LLM'
   readonly helperText =
-    'Uses your published GenStudio language-model catalog. Claims remain unverified until you review them.'
+    'Uses the model’s own knowledge through your published GenStudio catalog. Reliable on well-established '
+    + 'facts, but it cannot cite live sources.'
 
   async isConfigured(): Promise<boolean> {
     const key = await getApiKey('genstudio').catch(() => '')
@@ -46,6 +47,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       specific_questions: opts.specific_questions,
       provider: 'llm-only',
       model,
+      mode: 'model-knowledge',
     })
   }
 }

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.764 — 2026-07-31
+
+- **Research can now search the web** — choose between **Model knowledge only**, which
+  works from what the model already knows, and **Search the web**, which uses a model that
+  looks things up live and cites the pages it used. Sources appear with the finished
+  research and flow into your YouTube description's sources list automatically.
+- **Research says which kind it is** — model-knowledge runs are marked as working from the
+  model's own knowledge and worth checking for anything specific or recent, while
+  web-backed runs list the sources behind them and show the date the research ran. Sources
+  are listed for the run as a whole; individual claims aren't linked to specific sources
+  yet.
+- **Web research turns on by itself** — until an evidence-backed model is published,
+  Search the web is shown but unavailable with a short explanation, and it becomes
+  selectable the moment one exists, with no update needed here.
+- **Your research setup travels with your presets** — the mode and any site restrictions
+  save into research presets and into Pipeline runs, so a channel keeps the way you work.
+
+---
+
 ## v1.0.763 — 2026-07-31
 
 - **Saved locations are resolved when they're used, not once at startup** — named media
