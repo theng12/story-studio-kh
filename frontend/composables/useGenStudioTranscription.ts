@@ -12,7 +12,15 @@ export interface GenStudioTranscriptionModel {
    * "GenStudio KH" string so a vendor identity never reaches the screen.
    */
   provider: string
+  /** Raw `TranscriptionModelResponse.language`. EMPTY when GenStudio published
+   *  nothing — never defaulted to a code or to a sentinel. */
   language: string
+  /** Published language codes, empty when GenStudio has not published a list.
+   *  Optional so an older backend response still types. See
+   *  utils/transcription-language.ts for how the three states are rendered. */
+  supported_languages?: string[]
+  /** Null when GenStudio has not said whether omitting `language` detects it. */
+  supports_language_auto_detect?: boolean | null
   available: boolean
   available_workers: number
   qualification_only: boolean
@@ -52,7 +60,9 @@ export function useGenStudioTranscriptionModels() {
       label: model.display_name,
       group: 'GenStudio KH',
       provider: 'GenStudio KH',
-      meta: model.language,
+      // Honest about a gap: an unpublished language is missing data, not
+      // "multilingual" and not a blank that reads as a value.
+      meta: model.language || 'language not published',
       description: model.qualification_only
         ? 'Available for qualified accounts.'
         : 'Available for transcription.',

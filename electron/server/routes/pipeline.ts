@@ -618,10 +618,10 @@ export function resolveStepParams(
   }
   if (step === 'thumb_images') {
     const form = data.form || {}
-    // Inference steps are selected by the current GenStudio model at
-    // submission time. Old image-generator presets can contain an obsolete
-    // image_steps value (for example 4 for GPT Image 2, which only accepts
-    // 1); Pipeline must never forward it.
+    // Inference steps are not a customer control and are no part of the
+    // GenStudio image request. Presets saved by older builds can still carry
+    // an obsolete image_steps/image_quality pair on disk; strip them so a
+    // saved project keeps working without reviving a retired field.
     const automaticForm = { ...form }
     delete automaticForm.image_steps
     delete automaticForm.image_quality
@@ -841,7 +841,6 @@ export function resolveStepParams(
       title: title || '',
       model: data.model,
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
-      image_steps: Number.isInteger(data.image_steps) ? data.image_steps : undefined,
       seed: Number.isInteger(data.seed) ? data.seed : undefined,
       auto_approve_generated: data.auto_approve_generated === true,
     }

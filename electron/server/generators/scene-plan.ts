@@ -33,6 +33,12 @@ import {
   type ScenePromptPackSetting,
   type ScenePromptTokenSetting,
 } from '../services/scene-prompt-batching.js'
+import {
+  buildPromptCharCapInstruction,
+  describeOverCapPrompts,
+  parsePromptCharCap,
+  readPromptLength,
+} from '../services/prompt-char-cap.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -155,6 +161,19 @@ interface ScenePlanRunParams {
    *  SELECTED product's published `max_output_tokens` — never to a fixed list,
    *  which would cap a 128,000-token product at a stale 32,768. */
   prompt_max_tokens?: ScenePromptTokenSetting
+  /**
+   * The character CEILING every visual prompt is written under, so the prompt
+   * survives the image model that will render it. It is never a length to fill:
+   * a scene that needs 500 characters keeps 500 under an 8,000 ceiling.
+   *
+   * The number is GenStudio's published `max_prompt_characters` for the image
+   * model the workspace has selected, resolved there (only the workspace knows
+   * which image model that is) and sent as a plain number. Absent means the
+   * selected model publishes no cap, or the user chose no target: no
+   * instruction is added and nothing is warned about. Nothing is ever
+   * truncated — see services/prompt-char-cap.ts.
+   */
+  prompt_char_cap?: number
   /** Single-pass visual interpretation controls. Strategies are assigned
    * locally across the full episode before existing prompt packs are sent. */
   creative_direction?: Partial<SceneCreativeDirection>
@@ -418,6 +437,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
   const promptPackSize = resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting)
+  // A published image-model figure or nothing. No default is invented here.
+  const promptCharCap = parsePromptCharCap(params.prompt_char_cap)
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
@@ -518,6 +539,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_lines.push(
       `Prompt batching: ${promptPackSize} scenes per request (up to ${activePromptOutputBudget.toLocaleString()} output tokens${promptPackSetting === 'auto' ? ', automatic' : ', override'})`,
     )
+    job.output_lines.push(promptCharCap
+      ? `Prompt length ceiling: ${promptCharCap.toLocaleString()} characters per visual prompt. A ceiling only — prompts stay as short as the scene needs, and an over-length prompt is reported, never shortened.`
+      : 'Prompt length ceiling: none — no image-model limit is in force for this run.')
     if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
     if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   }
@@ -760,6 +784,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const task = isMotion
       ? `Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image. When a scene specifies motion_mode, follow it exactly: gentle means slow camera drift with one or two ambient elements only; limited means one narration-supported focal movement plus a slow camera move. Never add frantic or ungrounded action. Scenes marked still are intentionally excluded from this request. If no motion_mode is supplied, use the fallback intensity — ${motionSpec.label}: ${motionSpec.allow} Camera: ${motionSpec.camera}`
       : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
+    // The image model that will RENDER these prompts publishes the ceiling, so
+    // the writer is told to fit it up front. Empty when nothing is published.
+    const promptCharCapInstruction = isMotion ? '' : buildPromptCharCapInstruction(promptCharCap)
     const payloadBySceneId = new Map<string, ScenePromptPayload>()
     const buildPackMessages = (
       scenePayloads: ScenePromptPayload[],
@@ -776,7 +803,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return [
         {
           role: 'system',
-          content: `${task}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
         },
         {
           role: 'user',
@@ -1035,6 +1062,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
     job.progress = 100
     job.output_lines.push(`Verified ${completion.completed_ids.length}/${targets.length} ${stage} prompt(s) on disk by stable scene ID.`)
+    // Advisory only. Every prompt was saved in full; a prompt that overran the
+    // ceiling is named so the user can decide, and is never shortened for them.
+    if (!isMotion) {
+      const overCapNotice = describeOverCapPrompts(
+        completion.plan.scenes
+          .filter(scene => targetIds.has(scene.id))
+          .map(scene => ({ label: `scene #${scene.scene_index}`, text: scene.visual_prompt })),
+        promptCharCap,
+      )
+      if (overCapNotice) job.output_lines.push(overCapNotice)
+    }
     return
   }
 
@@ -1085,6 +1123,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       custom_instructions: params.custom_instructions,
       creative_direction: creativeDirectionForRewrite,
       creative_strategy: target.creative_strategy,
+      prompt_char_cap: promptCharCap,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
       slug: job.project_slug,
     })
@@ -1107,7 +1146,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
     job.output_dir = paths.episode_dir
     job.progress = 100
-    job.output_lines.push(`✓ Prompt regenerated (${newPrompt.length} chars). Other scenes untouched.`)
+    const rewriteLength = readPromptLength(newPrompt, promptCharCap)
+    job.output_lines.push(
+      `✓ Prompt regenerated (${rewriteLength.characters.toLocaleString()}`
+      + `${rewriteLength.cap ? ` / ${rewriteLength.cap.toLocaleString()}` : ''} chars). Other scenes untouched.`,
+    )
+    if (rewriteLength.over_cap) {
+      job.output_lines.push(
+        `⚠ ${rewriteLength.overage.toLocaleString()} characters over the ${rewriteLength.cap!.toLocaleString()}-character limit. `
+        + 'The prompt was saved in full — shorten it, raise the limit, or render as-is.',
+      )
+    }
     return
   }
 

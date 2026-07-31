@@ -33,7 +33,7 @@ import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
 import type { ImageModelConfig } from '../models/types.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 
 export const router = Router()
 
@@ -94,14 +94,21 @@ router.get('/projects/:slug/episodes/:episodeId/image-prompts', async (req, res)
 // ── POST generate / fetch-from-cache preview ──────────────────────────────
 
 const PreviewImageSchema = z.object({
-  prompt: z.string().min(1).max(8000),
+  /**
+   * No local length ceiling. `ImageModelConfig.prompt_char_cap` is advisory by
+   * contract ("NEVER enforced server-side", models/types.ts) precisely so a
+   * shifting provider limit cannot turn into a false-positive block, and the
+   * old fixed `.max(8000)` contradicted that. When GenStudio publishes a cap
+   * for the selected model it is checked below, against that model; otherwise
+   * the provider stays the single source of truth.
+   */
+  prompt: z.string().min(1),
   model: z.string().min(1),
   aspect_ratio: z.string().min(1),
   /** Tier id for variable-priced models (e.g. nano-banana high/low).
    *  Flat-priced models ignore this; we still include it in the cache
    *  key so a user toggling tier on a tiered model gets a fresh render. */
   tier: z.string().optional(),
-  image_steps: z.number().int().min(1).max(100).optional(),
   seed: z.number().int().min(0).max(2147483647).optional(),
 })
 
@@ -114,12 +121,11 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   const modelName = req.body.model as string
   const aspectRatio = req.body.aspect_ratio as string
   const tier = (req.body.tier as string | undefined) || ''
-  const steps = req.body.image_steps as number | undefined
   const seed = req.body.seed as number | undefined
 
   // Cache lookup first — the whole point of the feature is "free for
   // re-use". Hit short-circuits the provider entirely.
-  const cached = await getCached({ prompt, modelId: modelName, aspectRatio, tier, steps, seed })
+  const cached = await getCached({ prompt, modelId: modelName, aspectRatio, tier, seed })
   if (cached) {
     return res.json({
       hash: cached.hash,
@@ -136,22 +142,13 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
-  const modelConfig = resolveImageModelConfig(config, modelName)
-  if (!modelConfig) {
-    return res.status(400).json({ detail: `Unknown image model: ${modelName}` })
-  }
-
-  const providerId = (modelConfig as any).provider || 'kie'
-  const imageProvider = registry.getImageProvider(providerId)
+  // The key comes first now: the model's capabilities are read from the live
+  // GenStudio catalogue rather than synthesised locally, and the resolver
+  // only ever returns GenStudio-routed image models.
+  const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) {
-    return res.status(400).json({ detail: `No image provider registered for: ${providerId}` })
+    return res.status(400).json({ detail: 'No image provider registered for: genstudio-image' })
   }
-
-  // Provider params + tier override. Same shape generators/images.ts uses;
-  // for tiered models we layer the picked tier's api_model on top so the
-  // sample render uses the same tier the user is about to pay for.
-  const providerParams = resolveImageProviderParams(modelConfig, tier)
-
   const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model: modelName })
   if (!apiKey) {
     return res.status(400).json({
@@ -159,15 +156,45 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
     })
   }
 
+  let modelConfig
+  try {
+    modelConfig = await resolveImageModelConfig(config, modelName, apiKey)
+  } catch (e: any) {
+    return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
+  }
+  if (!modelConfig) {
+    return res.status(400).json({ detail: `Unknown image model: ${modelName}` })
+  }
+
+  // Prompt length is checked against THIS model's published ceiling, when
+  // GenStudio publishes one. No published cap means no check here — the
+  // provider decides, exactly as the advisory-cap contract states.
+  if (modelConfig.prompt_char_cap && prompt.length > modelConfig.prompt_char_cap) {
+    return res.status(400).json({
+      detail: `${modelConfig.label} accepts up to ${modelConfig.prompt_char_cap.toLocaleString()} prompt characters; this prompt is ${prompt.length.toLocaleString()}.`,
+    })
+  }
+
+  let resolvedAspectRatio: string
+  try {
+    resolvedAspectRatio = resolveConfiguredAspectRatio(modelConfig, aspectRatio)
+  } catch (e: any) {
+    return res.status(400).json({ detail: e?.message || 'Unsupported aspect ratio' })
+  }
+
+  // Provider params + tier override. Same shape generators/images.ts uses;
+  // for tiered models we layer the picked tier's api_model on top so the
+  // sample render uses the same tier the user is about to pay for.
+  const providerParams = resolveImageProviderParams(modelConfig, tier)
+
   let urls: string[] = []
   try {
     const result = await imageProvider.generateImage({
       prompt,
       apiKey,
-      aspectRatio,
+      aspectRatio: resolvedAspectRatio,
       modelId: modelName,
       providerParams,
-      steps,
       seed,
     })
     urls = result.urls || []
@@ -191,7 +218,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
     return res.status(502).json({ detail: `Failed to download generated preview: ${e?.message || e}` })
   }
 
-  const saved = await savePreview({ prompt, modelId: modelName, aspectRatio, tier, steps, seed, imageBytes })
+  const saved = await savePreview({ prompt, modelId: modelName, aspectRatio, tier, seed, imageBytes })
   res.json({
     hash: saved.hash,
     url: `/api/image-preview-cache/${saved.hash}`,

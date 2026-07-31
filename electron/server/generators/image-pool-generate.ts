@@ -32,7 +32,7 @@ import {
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 interface ImagePoolGenerateParams {
@@ -40,7 +40,6 @@ interface ImagePoolGenerateParams {
   prompts: string[]
   model: string
   aspect_ratio?: string
-  image_steps?: number
   seed?: number
   /** Images to generate per prompt (1–4). Default 1. */
   variants?: number
@@ -59,7 +58,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   if (!prompts.length) throw new Error('At least one prompt is required')
   if (!model) throw new Error('model is required')
   const variants = Math.max(1, Math.min(4, Math.floor(Number(params.variants) || 1)))
-  const aspectRatio = params.aspect_ratio || '16:9'
 
   const pool = await bp.getPool(poolId)
   if (!pool) throw new Error(`Pool '${poolId}' not found`)
@@ -74,8 +72,11 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   // including the synthesized config for dynamic local Image Studio models).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
+  const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
 
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
@@ -89,8 +90,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   const total = prompts.length * variants
   job.output_lines.push(
@@ -232,7 +231,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           aspectRatio,
           modelId: modelConfig.api_model || model,
         providerParams,
-        steps: params.image_steps,
         seed: params.seed,
         idempotencyIdentity: `${generationIdentity}:${item.filename}:${scope}`,
           isCancelled: () => jq.isCancelled(job.job_id),

@@ -294,7 +294,6 @@ function enqueueContinuityRender(
       aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
       width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
       height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-      image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
       seed: Number.isInteger(body.seed) ? body.seed : undefined,
       force: body.force === true,
       render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
@@ -339,8 +338,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
         width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
         height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-        image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
-        seed: Number.isInteger(body.seed) ? body.seed : undefined,
+          seed: Number.isInteger(body.seed) ? body.seed : undefined,
         auto_approve_generated: body.auto_approve_generated === true,
       },
     })
@@ -616,8 +614,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
         width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
         height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-        image_steps: Number.isInteger(body.image_steps) ? body.image_steps : undefined,
-        seed: Number.isInteger(body.seed) ? body.seed : undefined,
+          seed: Number.isInteger(body.seed) ? body.seed : undefined,
         force: body.force === true,
         render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
           ? body.render_attempt_id.trim()

@@ -1,32 +1,52 @@
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 
-export interface GenStudioImageSize {
+/** One published `(resolution, aspect_ratio)` pair from the image catalog. */
+export interface GenStudioImageOutputOption {
+  resolution: string
   aspect_ratio: string
   width: number
   height: number
-  label?: string
-  default?: boolean
+  is_default: boolean
+  credits_per_image?: number
+  base_credits_per_image?: number
+  price_version?: string
 }
 
+/**
+ * The customer-facing view of one live GenStudio image model.
+ *
+ * Optional here means GenStudio published nothing for that model — render "—"
+ * or omit the control rather than filling in a plausible value.
+ */
 export interface GenStudioImageModelInfo {
   id: string
   display_name: string
   description?: string
   available: boolean
+  availability_note?: string
   chargeable: boolean
   qualification_only: boolean
   unlimited_relaxed?: boolean
+  credits_per_image?: number | null
+  base_credits_per_image?: number | null
+  promotion_name?: string
+  promotion_discount_percent?: number
   aspect_ratios: string[]
   default_aspect_ratio: string
-  default_steps: number
-  min_steps: number
-  max_steps: number
+  default_resolution?: string
+  output_options?: GenStudioImageOutputOption[]
   supports_reference_images: boolean
+  supports_image_to_image?: boolean
+  supports_seed?: boolean
+  min_reference_images?: number
   max_reference_images: number
+  reference_image_max_dimension?: number
   reference_strength_mode: string
   supported_reference_strengths: string[]
-  sizes?: GenStudioImageSize[]
+  max_prompt_characters?: number
+  prompt_token_allowance?: number
+  operations?: string[]
   legacy_ids?: string[]
 }
 

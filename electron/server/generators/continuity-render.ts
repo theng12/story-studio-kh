@@ -24,7 +24,7 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
   isTerminalGenStudioImageTaskFailure,
@@ -59,8 +59,7 @@ interface ContinuityRenderParams {
   /** Optional provider-published output dimensions. */
   width?: number
   height?: number
-  /** Provider-published inference steps and optional reproducible seed. */
-  image_steps?: number
+  /** Optional reproducible seed. */
   seed?: number
 }
 
@@ -118,7 +117,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // Resolve model + provider (mirrors the per-scene generator).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
@@ -128,9 +129,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
   const providerParams = { ...((modelConfig as any).provider_params || {}) }
   if (cfg.negative_prompt) (providerParams as any).negative_prompt = cfg.negative_prompt
-
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   // Anchor character descriptions reinforce identity as text.
   const characterDescs: Array<{ name: string; description: string }> = []
@@ -190,7 +188,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   }
   const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
 
-  const aspectRatio = params.aspect_ratio || '16:9'
+  const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   if (renderWidth && renderHeight) {
@@ -401,7 +399,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                 providerParams: sref.params,
                 width: renderWidth,
                 height: renderHeight,
-                steps: params.image_steps,
                 seed: params.seed,
                 idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`,
                 isCancelled: () => jq.isCancelled(job.job_id),

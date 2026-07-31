@@ -26,6 +26,7 @@ import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
+import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
 
 export const router = Router()
 
@@ -47,6 +48,11 @@ const RegenerateSchema = z.object({
   aspect_ratio: z.string().optional(),
   /** Recipe-owned copy strategy; short hooks are re-rendered as hooks, not full titles. */
   headline_mode: z.enum(['episode-title', 'curiosity-hook']).optional(),
+  /** The character CEILING the rewrite is written under — the intended image
+   *  model's published `max_prompt_characters`, resolved by the workspace.
+   *  Absent = no limit in force. Never a length to fill; the result is never
+   *  truncated. See services/prompt-char-cap.ts. */
+  prompt_char_cap: z.number().int().min(1).optional(),
 })
 
 const UpdatePromptSchema = z.object({
@@ -133,6 +139,7 @@ router.post(
         styleTag,
         notes,
         headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+        promptCharCap: parsePromptCharCap(req.body.prompt_char_cap),
       })
 
       const apiKeys = {
@@ -247,6 +254,8 @@ function buildRegenPrompt(opts: {
   styleTag: string
   notes?: string
   headlineMode?: 'episode-title' | 'curiosity-hook'
+  /** Published image-model ceiling, or absent for "no limit in force". */
+  promptCharCap?: number
 }): string {
   const kindLabel = opts.kind === 'scene' ? 'scene' : 'thumbnail'
   const peerList = opts.peers
@@ -258,6 +267,10 @@ function buildRegenPrompt(opts: {
   const userNotes = opts.notes?.trim()
     ? `\n\nUser feedback for this retry:\n${opts.notes.trim()}`
     : ''
+  // A ceiling layered on top of requirement 2's length guidance, never a
+  // length to reach. Empty when no limit is in force.
+  const charCapInstruction = buildPromptCharCapInstruction(opts.promptCharCap)
+  const charCapRequirement = charCapInstruction ? `\n${charCapInstruction}` : ''
   const kindSpecific = opts.kind === 'thumbnail'
     ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${opts.headlineMode === 'curiosity-hook' ? '\n7. Keep the current title as a truthful 1–4 word thumbnail hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
     : ''
@@ -279,7 +292,7 @@ REQUIREMENTS:
 3. Match the visual voice of the surrounding ${kindLabel}s — same style language, same image quality.
 4. End with this exact style tag: "${opts.styleTag || '(retain the style from the original prompt)'}"
 ${kindSpecific}
-${opts.kind === 'thumbnail' ? (opts.headlineMode === 'curiosity-hook' ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.
+${opts.kind === 'thumbnail' ? (opts.headlineMode === 'curiosity-hook' ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.${charCapRequirement}
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }

@@ -2,7 +2,9 @@
  * GenStudio web-search Research adapter ("Search the web" mode).
  *
  * Same GenStudio boundary as the model-knowledge adapter — same key, same
- * `/v1/chat/completions` path — with two differences that matter:
+ * durable `POST /v1/chat/responses` job (`web_search` is available on that
+ * route, so research reconnects and recovers like every other modality
+ * instead of dying with its connection) — with two differences that matter:
  *
  *   1. The request carries a `web_search` block, built from the SELECTED
  *      product's published capability (see web-capability.ts). Story Studio
@@ -94,8 +96,9 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     // Report what GenStudio actually reported, and nothing more. A null field
     // stays ABSENT so the UI can say "not reported" instead of showing a
     // number this app made up. Field names are GenStudio's confirmed contract
-    // (schemas.py :: OpenAIChatCompletionResponse), not the names v1.0.764
-    // guessed.
+    // (schemas.py :: ChatJobResponse, which carries the same top-level
+    // evidence envelope as OpenAIChatCompletionResponse did), not the names
+    // v1.0.764 guessed.
     const webRun: ResearchWebRunReport = {
       ...(result.webSearch.searchesExecuted !== null
         ? { web_searches_executed: result.webSearch.searchesExecuted }

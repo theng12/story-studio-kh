@@ -466,7 +466,6 @@ export const GenerateImagesSchema = z.object({
   // ("push the subject closer, bigger title") without the prompt-reprompt
   // round-trip. Applies to thumbnails only.
   extra_details: z.string().max(2000).optional(),
-  image_steps: z.number().int().min(1).max(100).optional(),
   seed: z.number().int().min(0).max(2147483647).optional(),
 }).passthrough()
 export type GenerateImagesBody = z.infer<typeof GenerateImagesSchema>

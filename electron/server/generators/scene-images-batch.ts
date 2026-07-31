@@ -26,7 +26,7 @@ import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import { resolveImageRetryScope, terminalImageManifestEntry } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
@@ -38,7 +38,6 @@ interface SceneImagesBatchParams {
   aspect_ratio?: string
   width?: number
   height?: number
-  image_steps?: number
   seed?: number
   auto_approve_generated?: boolean
   /** Specific scenes to render; when omitted, every scene missing an image. */
@@ -87,7 +86,9 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   // Resolve the configured image model + provider (mirrors scene-image.ts).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   if (modelConfig.provider !== 'genstudio-image') {
@@ -99,10 +100,8 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     endpoint: modelConfig.endpoint, poll: modelConfig.poll, type: modelConfig.type,
     api_model: modelConfig.api_model, aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
-  const aspectRatio = params.aspect_ratio || '16:9'
+  const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   const total = targets.length
@@ -159,7 +158,6 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
     prompt: scene.visual_prompt!,
     apiKey, aspectRatio, modelId: modelConfig.api_model || model, providerParams,
     width: renderWidth, height: renderHeight,
-    steps: params.image_steps,
     seed: params.seed,
     idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${attempt.scope}`,
     onJobAccepted: async (taskId, idempotencyKey) => {

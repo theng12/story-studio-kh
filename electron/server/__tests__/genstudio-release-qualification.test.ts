@@ -98,7 +98,6 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           prompt: 'This image request must fail closed.',
           modelId: 'mock-image-v1',
           aspectRatio: '16:9',
-          steps: 4,
           requestIdentity: 'qualification:scope:image',
         }),
         /missing required scope: images:generate/,
@@ -146,16 +145,33 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
       })
 
       assert.equal(result.text, 'One durable mock response.')
-      assert.deepEqual(states, ['succeeded'])
+      // The durable route reports the job's real progression, exactly as image,
+      // video, TTS and transcription already do, and always settles on a
+      // terminal state.
+      assert.equal(states.at(-1), 'succeeded')
+      assert.ok(states.includes('running'), `expected a live progression, got ${states.join(' → ')}`)
       assert.equal(accepted.length, 1)
       assert.equal(service.jobCount('chat'), 1)
       assert.equal(service.providerSubmissionCount('chat'), 1)
       assert.equal(service.replayCount(result.jobId), 1)
       const submitRequests = service.requests.filter(request => (
-        request.method === 'POST' && request.path === '/v1/chat/completions'
+        request.method === 'POST' && request.path === '/v1/chat/responses'
       ))
+      // Two POSTs, ONE provider submission: the first response was destroyed on
+      // the wire, and the retry carried the identical key, so GenStudio replayed
+      // the running job instead of starting (and charging for) a second one.
       assert.equal(submitRequests.length, 2)
       assert.equal(new Set(submitRequests.map(request => request.idempotencyKey)).size, 1)
+      assert.ok(
+        submitRequests.every(request => request.idempotencyKey === accepted[0]!.idempotencyKey),
+        'the key handed to the caller must be the key that was on the wire',
+      )
+      assert.ok(
+        service.requests.some(request => (
+          request.method === 'GET' && request.path === `/v1/chat/responses/${result.jobId}`
+        )),
+        'the accepted job must be polled, not assumed',
+      )
       assert.deepEqual(service.creditSnapshot(result.jobId), {
         quoted: 9,
         reserved: 9,
@@ -189,7 +205,6 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
         prompt: 'A deterministic one-pixel qualification image.',
         modelId: 'mock-image-v1',
         aspectRatio: '16:9',
-        steps: 4,
         seed: 17,
         requestIdentity: 'qualification:image:success',
       })
@@ -242,7 +257,6 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           prompt: 'Cancelled before submission.',
           modelId: 'mock-image-v1',
           aspectRatio: '1:1',
-          steps: 4,
           requestIdentity: 'qualification:image:cancel-before-submit',
           signal: preSubmit.signal,
         }),
@@ -263,7 +277,6 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           prompt: 'Cancel monitoring after durable acceptance.',
           modelId: 'mock-image-v1',
           aspectRatio: '1:1',
-          steps: 4,
           requestIdentity: 'qualification:image:cancel-after-accept',
           signal: afterAccept.signal,
           onJobAccepted: jobId => {
@@ -290,28 +303,41 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
     })
 
     await suite.test('distinguishes provider-network failure from submission uncertainty', async () => {
+      // THE REASON LANGUAGE MOVED TO THE DURABLE ROUTE. Over
+      // `/v1/chat/completions` both of these arrive as the same 502 whose body
+      // is `{"detail": "language generation failed"}` with no code, so the app
+      // could not tell "retry is free" from "retrying might be charged twice".
+      // The durable job publishes `failure_code`, and the two now produce two
+      // different messages and two different pieces of advice.
       service.reset()
       service.queueScenario('chat', {
         states: ['failed'],
         quotedCredits: 11,
         reservedCredits: 11,
-        failureCode: 'CHAT_PROVIDER_NETWORK_UNAVAILABLE',
+        failureCode: 'LANGUAGE_PROVIDER_FAILED',
       })
       service.queueScenario('chat', {
         states: ['failed'],
         quotedCredits: 13,
         reservedCredits: 13,
-        failureCode: 'CHAT_PROVIDER_SUBMISSION_UNCERTAIN',
+        failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
       })
 
       await assert.rejects(
         client.callChatWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
           modelId: 'mock-chat-v1',
           system: '',
-          userMessage: 'Definitive provider network failure.',
-          requestIdentity: 'qualification:chat:network-unavailable',
+          userMessage: 'Definitive provider failure.',
+          requestIdentity: 'qualification:chat:provider-failed',
         }),
-        /provider behind this GenStudio KH product failed.*No direct provider or Studio Hub fallback was attempted/i,
+        (error: unknown) => {
+          assert.ok(error instanceof client.GenStudioChatTerminalFailureError)
+          assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_FAILED')
+          // Safe to retry: the reservation was released.
+          assert.match(error.message, /Retry this step, or pick a different language product/i)
+          assert.equal(client.isGenStudioSubmissionUncertain(error), false)
+          return true
+        },
       )
       await assert.rejects(
         client.callChatWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
@@ -320,12 +346,22 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           userMessage: 'Uncertain provider submission.',
           requestIdentity: 'qualification:chat:submission-uncertain',
         }),
-        /provider behind this GenStudio KH product failed.*No direct provider or Studio Hub fallback was attempted/i,
+        (error: unknown) => {
+          assert.ok(error instanceof client.GenStudioChatTerminalFailureError)
+          assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
+          // NOT safe to retry by machine — check the account first.
+          assert.match(error.message, /could not confirm/i)
+          assert.match(error.message, /Check the run in your\s+GenStudio account/i)
+          assert.equal(client.isGenStudioSubmissionUncertain(error), true)
+          return true
+        },
       )
 
       const failedJobs = service.submissions.filter(submission => !submission.replay)
       assert.equal(failedJobs.length, 2)
+      // Exactly one provider submission each: neither code was auto-resubmitted.
       assert.equal(service.providerSubmissionCount('chat'), 2)
+      assert.equal(service.submissions.filter(submission => submission.replay).length, 0)
       assert.deepEqual(service.creditSnapshot(failedJobs[0]!.jobId), {
         quoted: 11, reserved: 11, final: 0, returned: 11,
       })
@@ -348,7 +384,6 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           prompt: 'The retained image has expired.',
           modelId: 'mock-image-v1',
           aspectRatio: '16:9',
-          steps: 4,
           requestIdentity: 'qualification:image:expired',
         }),
         /image download failed \(HTTP 404\)/,

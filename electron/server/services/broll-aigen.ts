@@ -18,14 +18,16 @@ import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import type { BrollBeat } from './broll-plan.js'
-import { resolveImageModelConfig } from './image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from './image-model-resolver.js'
 import { getApiKey } from './app-secrets-store.js'
 
 /** Resolve the project's image provider + key for `model` (mirrors image-pool-generate). */
 async function resolveImageGen(slug: string, model: string) {
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
@@ -36,9 +38,7 @@ async function resolveImageGen(slug: string, model: string) {
     endpoint: modelConfig.endpoint, poll: modelConfig.poll, type: modelConfig.type,
     api_model: modelConfig.api_model, aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
-  return { imageProvider, apiKey, providerParams, model: modelConfig.api_model || model }
+  return { imageProvider, apiKey, providerParams, modelConfig, model: modelConfig.api_model || model }
 }
 
 export async function isAiGenAvailable(slug: string, model: string): Promise<boolean> {
@@ -74,7 +74,7 @@ export async function aiGenFallbackForBeat(
   pool: bp.BrollPool,
   brollStyle: string,
   model: string,
-  controls: { aspectRatio?: string; imageSteps?: number; seed?: number } = {},
+  controls: { aspectRatio?: string; seed?: number } = {},
 ): Promise<string | null> {
   const gen = await resolveImageGen(slug, model).catch(() => null)
   if (!gen) return null
@@ -84,10 +84,9 @@ export async function aiGenFallbackForBeat(
     const result = await gen.imageProvider.generateImage({
       prompt,
       apiKey: gen.apiKey,
-      aspectRatio: controls.aspectRatio || '16:9',
+      aspectRatio: resolveConfiguredAspectRatio(gen.modelConfig, controls.aspectRatio),
       modelId: gen.model,
       providerParams: gen.providerParams,
-      steps: controls.imageSteps,
       seed: controls.seed,
       idempotencyIdentity: `broll:${slug}:${beat.start_sec}:${beat.end_sec}:${prompt}`,
       isCancelled: () => false,

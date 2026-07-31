@@ -63,7 +63,6 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
         prompt,
         modelId: 'mock-image-v1',
         aspectRatio: '16:9',
-        steps: 4,
         requestIdentity,
       })
 

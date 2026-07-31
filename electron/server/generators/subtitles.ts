@@ -151,10 +151,33 @@ async function hashTranscriptionAudio(audioPath: string): Promise<string> {
   return `sha256:${createHash('sha256').update(audio).digest('hex')}`
 }
 
+/**
+ * The language a transcription submits with.
+ *
+ * Story Studio produces Khmer, English and mixed-script narration, so pinning
+ * `'en'` was actively wrong: it told a multilingual model to decode Khmer
+ * audio as English. The order is (1) what the user explicitly asked for,
+ * (2) the language the MODEL publishes, and (3) nothing at all — a model that
+ * publishes `multilingual` (or publishes no language) is left to detect,
+ * which is what it is for. No local default is invented anywhere.
+ */
+export function resolveTranscriptionLanguage(
+  publishedLanguage: string | undefined,
+  requested: string | undefined,
+): string | undefined {
+  const wanted = (requested || '').trim()
+  if (wanted) return wanted
+  const published = (publishedLanguage || '').trim().toLowerCase()
+  if (!published || published === 'multilingual' || published === 'multi' || published === 'auto') {
+    return undefined
+  }
+  return published
+}
+
 async function resolveGenStudioTranscription(
   job: Job,
   req: TranscribeSubtitlesRequest,
-): Promise<{ apiKey: string; modelId: string }> {
+): Promise<{ apiKey: string; modelId: string; language: string | undefined }> {
   const { getApiKey } = await import('../services/app-secrets-store.js')
   const apiKey = await getApiKey('genstudio')
   if (!apiKey.trim()) {
@@ -187,7 +210,13 @@ async function resolveGenStudioTranscription(
     job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)
   }
   job.output_lines.push(`Model: ${selected.display_name}`)
-  return { apiKey, modelId: selected.id }
+  const language = resolveTranscriptionLanguage(selected.language, req.language)
+  job.output_lines.push(
+    language
+      ? `Language: ${language}${req.language?.trim() ? ' (requested)' : ` (published by ${selected.display_name})`}`
+      : `Language: auto-detected — ${selected.display_name} publishes "${selected.language || 'no language'}".`,
+  )
+  return { apiKey, modelId: selected.id, language }
 }
 
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
@@ -265,7 +294,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       requestIdentity: `${project_slug}:${code}:transcription:${manifestKey}`,
       audioHash: currentAudioHash,
       modelId: genstudio.modelId,
-      language: req.language || 'en',
+      language: genstudio.language,
       wordTimestamps: false,
     }))
     const reusableTask = savedTask?.provider === 'genstudio'
@@ -284,7 +313,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
         requestIdentity: terminalFailure ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
         fileSha256: currentAudioHash.slice('sha256:'.length),
         modelId: genstudio.modelId,
-        language: req.language || 'en',
+        language: genstudio.language,
       })
     let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
     if (terminalFailure) {
@@ -311,7 +340,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       modelId: genstudio.modelId,
       requestIdentity,
       idempotencyKey,
-      language: req.language || 'en',
+      language: genstudio.language,
       signal: controller.signal,
       isCancelled: () => jq.isCancelled(job.job_id),
       onState: async (state, providerJobId) => {
@@ -390,7 +419,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
           fileSha256: currentAudioHash.slice('sha256:'.length),
           modelId: genstudio.modelId,
-          language: req.language || 'en',
+          language: genstudio.language,
         })
         submittedAt = new Date().toISOString()
         transcriptionRequest.idempotencyKey = idempotencyKey
@@ -572,7 +601,7 @@ async function transcribePerChapter(
         requestIdentity: `${projectSlug}:${code}:transcription:${manifestKey}`,
         audioHash: currentAudioHash,
         modelId: genstudio.modelId,
-        language: req.language || 'en',
+        language: genstudio.language,
         wordTimestamps: false,
       }))
       const reusableTask = savedTask?.provider === 'genstudio'
@@ -591,7 +620,7 @@ async function transcribePerChapter(
           requestIdentity: terminalFailure ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
           fileSha256: currentAudioHash.slice('sha256:'.length),
           modelId: genstudio.modelId,
-          language: req.language || 'en',
+          language: genstudio.language,
         })
       let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
       if (terminalFailure) {
@@ -620,7 +649,7 @@ async function transcribePerChapter(
         modelId: genstudio.modelId,
         requestIdentity,
         idempotencyKey,
-        language: req.language || 'en',
+        language: genstudio.language,
         signal: controller.signal,
         isCancelled: () => jq.isCancelled(job.job_id),
         onState: async (state, providerJobId) => {
@@ -682,7 +711,7 @@ async function transcribePerChapter(
             requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
             fileSha256: currentAudioHash.slice('sha256:'.length),
             modelId: genstudio.modelId,
-            language: req.language || 'en',
+            language: genstudio.language,
           })
           submittedAt = new Date().toISOString()
           transcriptionRequest.idempotencyKey = idempotencyKey

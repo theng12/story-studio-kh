@@ -1,12 +1,12 @@
 /**
  * Chunked narration + image-prompt generation.
  *
- * Single-call LLM generation tops out at the model's `max_tokens` cap
- * (~16k for streaming Anthropic, ~8k non-streaming, similar for
- * OpenAI). At ≥25 chapters × 500 words the model truncates mid-output
- * or shrinks per-chapter wordcount to fit. This module handles the
- * "big request" case by splitting into outline + per-batch expansion
- * and writing chapters incrementally so cancel / crash / restart
+ * Single-call LLM generation tops out at the SELECTED PRODUCT's published
+ * `max_output_tokens`, read live from the GenStudio catalogue — never a
+ * constant, and never inferred from a model name. Past that point the model
+ * truncates mid-output or shrinks per-chapter wordcount to fit. This module
+ * handles the "big request" case by splitting into outline + per-batch
+ * expansion and writing chapters incrementally so cancel / crash / restart
  * never lose work that's already on disk.
  *
  * Two modes share the same orchestration:
@@ -28,10 +28,13 @@
  * resume call (re-running the job) skips chapters whose docx is on
  * disk AND in the sidecar.
  *
- * Threshold dispatch (in callers): use chunked mode when
- *   `chapters * words_per_chapter > CHUNK_THRESHOLD_WORDS`.
- * Below the threshold, the existing single-call path is more efficient
- * and produces tighter cohesion.
+ * Threshold dispatch: a run needs splitting when
+ *   `chapters * words_per_chapter > chunkThresholdWords(product.max_output_tokens)`.
+ * That number tracks the product that will actually execute the run — a
+ * 128,000-token product does not split at the same size a 16,000-token one
+ * does. Below the threshold a run fits one call, which is both cheaper and
+ * tighter in cohesion; the script generator still writes per chapter so a
+ * crash resumes from disk either way.
  *
  * Scaling: at chapter counts > COMPACT_OUTLINE_THRESHOLD, outline
  * entries shrink to title + 1-line hook (no synopsis / beats). Above
@@ -64,62 +67,206 @@ import type { Job, Format, Character } from '../models/types.js'
 // ── Tunables ───────────────────────────────────────────────────────────────
 
 /**
- * Word target above which `generateEpisode` dispatches to chunked mode.
- * Acts as a fast pre-check; the call site ALSO runs `shouldChunkByBudget`
- * with the actual assembled prompt sizes for projects that sit close to
- * the limit (heavy character cast, long production standards, big brand
- * persona). Either signal triggers chunking.
+ * LEGACY word target above which chunked mode used to be the only safe
+ * choice. It is now the FALLBACK ONLY — the value used when the selected
+ * product's published output limit could not be read. Prefer
+ * `chunkThresholdWords(product.max_output_tokens)`.
  *
- * 9000 words ≈ 11.7k output tokens; with a typical 2k-token system+user
- * prompt that leaves ~2.3k margin under the 16k streaming cap. Tuned
- * down from 10k after an audit found the prior 6% margin was too thin
- * for projects with a 5+ character cast or large standards block.
- * Common sleep-story shape (12 chapters × 700 words = 8400) still stays
- * on the proven single-call path.
+ * WHY IT IS NO LONGER A CONSTANT: 9000 words ≈ 11.7k output tokens; with a
+ * typical 2k-token system+user prompt that left ~2.3k margin under the 16k
+ * STREAMING ANTHROPIC cap this app no longer uses. Every language call now
+ * goes through a published GenStudio product, and those products publish
+ * their own `max_output_tokens` — 128,000 on the current default. Chunking a
+ * run at 9,000 words against a 128,000-token product splits work the model
+ * could have written in a fraction of the calls, and every extra call is
+ * another chance to hit GenStudio backpressure mid-run. It is also the exact
+ * "no static output ceiling anywhere in Story Studio" rule that removed the
+ * Scene Plan 32,768 cap.
  */
 export const CHUNK_THRESHOLD_WORDS = 9000
 
-/** Output token cap for streaming Anthropic. Sets the budget the dynamic
- *  check works against. If we ever switch to a model with a different cap,
- *  pass the actual cap to `shouldChunkByBudget` instead. */
-const STREAMING_OUTPUT_TOKEN_CAP = 16_000
+/**
+ * The budget used when no product limit is available (an unreachable
+ * catalogue, a caller with no model in hand). The historical streaming
+ * Anthropic cap, kept ONLY so an unknown product degrades to exactly today's
+ * behaviour rather than to "unlimited".
+ */
+const FALLBACK_OUTPUT_TOKEN_CAP = 16_000
 
-/** Headroom buffer: tokenizer-vs-word drift, JSON nesting in the prompt,
- *  and provider-side stop-token handling all eat real tokens. 1500 keeps
- *  us comfortably away from truncation even when the input estimate is
- *  20% off. */
-const SAFETY_MARGIN_TOKENS = 1500
+/**
+ * Headroom buffer: tokenizer-vs-word drift, JSON nesting in the prompt, and
+ * provider-side stop-token handling all eat real tokens. That reasoning is
+ * unchanged — what changed is that a fixed 1,500 tokens is ~9% of a 16k
+ * budget and ~1% of a 128k one, so the same absolute number stops being
+ * headroom on a large product.
+ *
+ * Proportional, with the original 1,500 as a FLOOR: drift scales with the
+ * size of the thing being estimated, and the floor keeps small products
+ * exactly as protected as they were. At the legacy 16,000 cap this returns
+ * 1,500 — byte-for-byte the old behaviour.
+ */
+const SAFETY_MARGIN_FRACTION = 0.09
+const SAFETY_MARGIN_FLOOR_TOKENS = 1500
+
+/** Output tokens per English word, measured. An ESTIMATE used to decide how
+ *  to SPLIT work — never a ceiling imposed on output, and never converted
+ *  into a character or word limit (Khmer and mixed-script text break any
+ *  fixed ratio, which is why the 500,000-character cap was removed). */
+const OUTPUT_TOKENS_PER_WORD = 1.3
+
+/** Nominal system+user prompt allowance for the fast word-count threshold,
+ *  which by design does not have the assembled prompts in hand. The dynamic
+ *  check below uses the REAL prompt sizes instead. */
+const TYPICAL_PROMPT_TOKENS = 2000
+
+// ── Batch output-token estimate (reservation sizing) ───────────────────────
+//
+// WHY: an expansion batch used to declare `outputBudget: 'maximum'`, which
+// takes the selected product's ENTIRE published ceiling — 128,000 tokens on
+// the current default — to generate roughly 8,000. GenStudio settles a
+// language job on tokens actually generated, so that never changed the final
+// charge. What it did change is the up-front RESERVATION: GenStudio holds
+// credits for the requested ceiling while the job runs, so an account near
+// empty could be refused for a request that would have been cheap.
+//
+// So the batch sizes its own request from the work in hand:
+//
+//     ceil(sum(words per chapter in this batch) × tokens-per-word) + overhead
+//
+// clamped by the product's published `max_output_tokens` (done downstream in
+// output-token-budget.ts, so a small product still cannot be over-asked).
+//
+// This is an ESTIMATE used to SIZE A REQUEST. It is never a hard limit on
+// output, and it is never converted back into a character or word ceiling —
+// Khmer and mixed-script narration break any fixed ratio, which is exactly why
+// the 500,000-character cap was removed.
+//
+// GENEROUS BY DESIGN. Under-requesting truncates a chapter mid-sentence and
+// costs another request to repair; over-requesting only holds more of the
+// balance for the minute or two the job runs. Every constant below leans that
+// way: the tokens-per-word figure is nearly double the measured 1.3, the
+// overhead is a flat extra 2,048 for JSON scaffolding and chapter titles, and
+// a floor stops a tiny batch from asking for a uselessly small number.
+
+/** Tokens per output word for RESERVATION sizing. Deliberately ~1.9× the
+ *  measured `OUTPUT_TOKENS_PER_WORD` of 1.3: the measurement is an average,
+ *  and a batch that runs long must still fit. */
+const BUDGET_TOKENS_PER_WORD = 2.5
+
+/** Flat allowance for the JSON envelope, chapter keys, titles and whatever
+ *  formatting the model wraps around the prose. */
+const BUDGET_OVERHEAD_TOKENS = 2_048
+
+/** Never request less than this, however small the batch. Matches the
+ *  long-form floor in output-token-budget.ts. */
+const BUDGET_FLOOR_TOKENS = 8_192
+
+/** Rounded UP to this step — up, never down, so rounding can only add
+ *  headroom. */
+const BUDGET_ROUNDING_STEP = 256
+
+/**
+ * Output tokens to request for one expansion batch.
+ *
+ * `wordTargets` is the per-chapter word target for every chapter in the batch,
+ * so a batch carrying a longer chapter (the `words_per_chapter` override set
+ * in outline review) is sized for the chapter it actually holds rather than
+ * for an average.
+ */
+export function batchOutputTokenEstimate(wordTargets: number[]): number {
+  const words = wordTargets.reduce((sum, w) => sum + Math.max(0, Number.isFinite(w) ? w : 0), 0)
+  const wanted = Math.ceil(words * BUDGET_TOKENS_PER_WORD) + BUDGET_OVERHEAD_TOKENS
+  const floored = Math.max(BUDGET_FLOOR_TOKENS, wanted)
+  return Math.ceil(floored / BUDGET_ROUNDING_STEP) * BUDGET_ROUNDING_STEP
+}
+
+/**
+ * The output budget one expansion batch declares.
+ *
+ * `workload` rather than `maximum`: the number below is what this batch can
+ * plausibly generate, and `resolveOutputTokenBudget` still clamps it to the
+ * product's published ceiling.
+ */
+export function batchOutputBudget(
+  batch: OutlineEntry[],
+  wordsPerChapter: number,
+): { tier: 'workload'; minimumTokens: number } {
+  return {
+    tier: 'workload',
+    minimumTokens: batchOutputTokenEstimate(
+      batch.map(entry => entry.words_per_chapter || wordsPerChapter),
+    ),
+  }
+}
+
+export function chunkingSafetyMarginTokens(outputTokenCap: number): number {
+  return Math.max(SAFETY_MARGIN_FLOOR_TOKENS, Math.ceil(outputTokenCap * SAFETY_MARGIN_FRACTION))
+}
+
+/** The product ceiling to budget against, defended against a missing or
+ *  malformed catalogue value. */
+export function chunkingOutputBudget(productMaxOutputTokens?: number | null): number {
+  return Number.isInteger(productMaxOutputTokens) && (productMaxOutputTokens as number) >= 1
+    ? productMaxOutputTokens as number
+    : FALLBACK_OUTPUT_TOKEN_CAP
+}
+
+/**
+ * The word target above which a run cannot fit one call on THIS product.
+ *
+ * Tracks the selected product instead of a constant: a 16,000-token product
+ * still trips at ~9,600 words (essentially the old 9,000), while a
+ * 128,000-token product does not trip until ~88,000 — so an 18-chapter,
+ * 700-word episode is no longer treated as too big for the model that will
+ * actually write it.
+ *
+ * Floored at the legacy value so a product SMALLER than the old streaming cap
+ * can lower the threshold but a bug can never raise it above what the product
+ * supports.
+ */
+export function chunkThresholdWords(productMaxOutputTokens?: number | null): number {
+  const cap = chunkingOutputBudget(productMaxOutputTokens)
+  const usable = cap - TYPICAL_PROMPT_TOKENS - chunkingSafetyMarginTokens(cap)
+  if (usable <= 0) return 1
+  return Math.max(1, Math.floor(usable / OUTPUT_TOKENS_PER_WORD))
+}
 
 /**
  * Dynamic chunking decision. Returns true when the assembled prompt +
- * projected output would crowd the streaming output cap. Use ALONGSIDE
- * the word-count threshold above — either signal triggers chunked mode.
+ * projected output would crowd the SELECTED PRODUCT's published output
+ * budget. Use ALONGSIDE the word-count threshold above — either signal
+ * triggers chunked mode.
  *
  * Estimation:
  *   - Input tokens ≈ chars / 4 (English; safe for prose, slightly
  *     pessimistic for JSON-dense prompts which is what we want here)
  *   - Output tokens ≈ words × 1.3 (English narration, measured)
  *
- * If `(input + output + safety) > cap`, the single-call path can
- * truncate or shrink per-chapter wordcount. Chunked mode is safer.
+ * If `(input + output + safety) > budget`, one call can truncate or shrink
+ * per-chapter wordcount. Chunked mode is safer.
+ *
+ * `outputTokenCap` is the product's published `max_output_tokens`, read live
+ * from the catalogue. Omitting it degrades to the historical streaming cap —
+ * do that only when the product genuinely could not be resolved.
  */
 export function shouldChunkByBudget(opts: {
   systemPromptChars: number
   userPromptChars: number
   targetWords: number
-  outputTokenCap?: number
+  outputTokenCap?: number | null
 }): boolean {
-  const cap = opts.outputTokenCap ?? STREAMING_OUTPUT_TOKEN_CAP
+  const cap = chunkingOutputBudget(opts.outputTokenCap)
   const inputTokens = Math.ceil((opts.systemPromptChars + opts.userPromptChars) / 4)
-  const outputTokens = Math.ceil(opts.targetWords * 1.3)
-  return (inputTokens + outputTokens + SAFETY_MARGIN_TOKENS) > cap
+  const outputTokens = Math.ceil(opts.targetWords * OUTPUT_TOKENS_PER_WORD)
+  return (inputTokens + outputTokens + chunkingSafetyMarginTokens(cap)) > cap
 }
 
 /** Sequential batch size for narrative-mode expansion. Larger batches lose
  *  transition coherence; smaller burns more LLM round-trips for the same
  *  content. 3 is the sweet spot — enough context to write a smooth
  *  transition into chapter K+1, small enough to comfortably fit ~2k tokens
- *  output per call. */
+ *  output per call. This is a COHERENCE choice, not a token-cap choice, so a
+ *  bigger product does not raise it — see `batchSizeForBudget`. */
 const NARRATIVE_BATCH_SIZE = 3
 
 /** Parallel batch size for listicle-mode expansion. Listicle chapters are
@@ -133,13 +280,109 @@ const LISTICLE_CONCURRENCY = 4
 
 /** Above this chapter count, outline entries lose their synopsis +
  *  key_beats fields (title + 1-line hook only) so the outline call output
- *  doesn't blow the 16k cap. */
+ *  stays inside the selected product's published output budget. */
 const COMPACT_OUTLINE_THRESHOLD = 500
 
 /** Above this chapter count, expansion calls receive a "table of contents"
  *  (titles only) instead of the full outline so the INPUT window stays
  *  manageable. Below this, expansion calls see the whole outline. */
 const TOC_MODE_THRESHOLD = 300
+
+/**
+ * The selected product's live output budget, and what it implies for chunking.
+ *
+ * Read from the GenStudio catalogue at run time — never a constant. Resolution
+ * is NON-FATAL by design: a catalogue hiccup must not fail a script run, so it
+ * degrades to the historical streaming cap and says so in the log.
+ */
+export interface ChunkingBudget {
+  /** The product's published `max_output_tokens`, or the fallback. */
+  outputTokenCap: number
+  /** Words this product can produce in one call, per the same estimate. */
+  thresholdWords: number
+  /** The product the budget came from, or null when it could not be read. */
+  productId: string | null
+  productName: string | null
+}
+
+function fallbackChunkingBudget(): ChunkingBudget {
+  return {
+    outputTokenCap: chunkingOutputBudget(null),
+    thresholdWords: chunkThresholdWords(null),
+    productId: null,
+    productName: null,
+  }
+}
+
+export async function resolveChunkingBudget(model: string): Promise<ChunkingBudget> {
+  try {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) return fallbackChunkingBudget()
+    const [{ listChatModels }, { resolveGenStudioModelId }] = await Promise.all([
+      import('./genstudio-client.js'),
+      import('../services/genstudio-model-migration.js'),
+    ])
+    const modelId = resolveGenStudioModelId('chat', model)
+    const product = modelId
+      ? (await listChatModels(apiKey)).find(candidate => candidate.id === modelId)
+      : null
+    if (!product) return fallbackChunkingBudget()
+    return {
+      outputTokenCap: chunkingOutputBudget(product.max_output_tokens),
+      thresholdWords: chunkThresholdWords(product.max_output_tokens),
+      productId: product.id,
+      productName: product.display_name || product.id,
+    }
+  } catch {
+    return fallbackChunkingBudget()
+  }
+}
+
+/**
+ * Chapters per expansion call, bounded by what THIS product can actually
+ * write in one response.
+ *
+ * Only ever SHRINKS the mode's batch size. Growing it is a separate,
+ * quality-affecting decision: narrative's 3 is a transition-coherence choice
+ * (see the constant), not a token-budget one, so a 128,000-token product does
+ * not earn bigger narrative batches by arithmetic alone. What a small product
+ * DOES earn is protection — asking a 4,096-token product for three 700-word
+ * chapters in one call is how a batch comes back truncated.
+ */
+export function batchSizeForBudget(
+  mode: ChunkedMode,
+  budget: ChunkingBudget,
+  wordsPerChapter: number,
+): number {
+  const modeSize = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
+  const perChapterTokens = Math.max(1, Math.ceil(Math.max(1, wordsPerChapter) * OUTPUT_TOKENS_PER_WORD))
+  const usable = budget.outputTokenCap
+    - TYPICAL_PROMPT_TOKENS
+    - chunkingSafetyMarginTokens(budget.outputTokenCap)
+  const fits = Math.floor(usable / perChapterTokens)
+  return Math.max(1, Math.min(modeSize, fits))
+}
+
+/**
+ * One line saying WHY this run chunked, in numbers the owner can check
+ * without reading code: the computed total, the product-derived budget it was
+ * measured against, and which product published that budget.
+ */
+export function chunkingTriggerLine(
+  params: { totalChapters: number; wordsPerChapter: number; model: string },
+  budget: ChunkingBudget,
+): string {
+  const totalWords = params.totalChapters * params.wordsPerChapter
+  const source = budget.productId
+    ? `${budget.productName} (${budget.outputTokenCap.toLocaleString()} output tokens)`
+    : `no published product limit for "${params.model}" — using the ${budget.outputTokenCap.toLocaleString()}-token fallback`
+  const verdict = totalWords > budget.thresholdWords
+    ? `over the ~${budget.thresholdWords.toLocaleString()}-word single-call budget`
+    : `within the ~${budget.thresholdWords.toLocaleString()}-word single-call budget (chunked anyway for per-chapter resume)`
+  return `[chunked] Trigger: ${params.totalChapters} × ~${params.wordsPerChapter} words ≈ `
+    + `${totalWords.toLocaleString()} words, ${verdict}. Budget from ${source}.`
+}
 
 /**
  * Resume-integrity guard: a chapter docx counts as "done" only when the
@@ -555,11 +798,16 @@ export async function expandChapters(
     }
   }
 
+  // Read the SELECTED product's published output limit once, live, and size
+  // both the chunking verdict and the batch bound from it. Never a constant.
+  const budget = await resolveChunkingBudget(params.model)
+  const batchSize = batchSizeForBudget(mode, budget, params.wordsPerChapter)
+
   // Dispatch to mode-specific expansion.
   if (mode === 'listicle') {
-    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar)
+    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar, budget, batchSize)
   } else {
-    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar)
+    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar, budget, batchSize)
   }
 
   // Final sidecar sweep.
@@ -568,7 +816,7 @@ export async function expandChapters(
 
   return {
     chaptersWritten: written,
-    totalBatches: estimateBatchCount(pending.length, mode),
+    totalBatches: Math.ceil(pending.length / batchSize),
     fromResume: false,
     outlineCompletedThisRun: false,
   }
@@ -595,7 +843,9 @@ async function runChunked(
   }
 }
 
-function estimateBatchCount(pending: number, mode: ChunkedMode): number {
+/** Batch count for a run whose product budget has not been read (callers that
+ *  only need a rough figure). The real count comes from `batchSizeForBudget`. */
+export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
   const size = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
   return Math.ceil(pending / size)
 }
@@ -658,9 +908,10 @@ async function buildOutline(
   }
 
   // Outline is a one-shot non-streaming JSON array call. Use the same
-  // system prompt the caller built so the format role is in effect. The model
-  // returns 100 chapters × ~80 words ≈ 11k tokens —
-  // safely below the 16k streaming cap and the ~32k extended cap.
+  // system prompt the caller built so the format role is in effect. 100
+  // chapters × ~80 words ≈ 11k tokens, and the compact-outline threshold
+  // above keeps very large outlines inside whatever the selected product
+  // publishes rather than a hardcoded cap.
   const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
   const arr = await callForJsonArray(
     params.model, params.systemPrompt, prompt, params.apiKeys, ctx,
@@ -775,16 +1026,19 @@ Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}
 async function expandNarrativeSequential(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
+  budget: ChunkingBudget = fallbackChunkingBudget(),
+  batchSize: number = NARRATIVE_BATCH_SIZE,
 ): Promise<void> {
-  // Group pending into contiguous batches of NARRATIVE_BATCH_SIZE so we
-  // can pull a clean transition window (last 200 words of the chapter
-  // before the batch's first slot) when one exists on disk.
+  // Group pending into contiguous batches so we can pull a clean transition
+  // window (last 200 words of the chapter before the batch's first slot) when
+  // one exists on disk.
   const batches: OutlineEntry[][] = []
-  for (let i = 0; i < pending.length; i += NARRATIVE_BATCH_SIZE) {
-    batches.push(pending.slice(i, i + NARRATIVE_BATCH_SIZE))
+  for (let i = 0; i < pending.length; i += batchSize) {
+    batches.push(pending.slice(i, i + batchSize))
   }
 
-  job.output_lines.push(`[chunked] Mode: narrative (sequential, batches of ${NARRATIVE_BATCH_SIZE}). ${batches.length} batch(es) to run.`)
+  job.output_lines.push(`[chunked] Mode: narrative (sequential, batches of ${batchSize}). ${batches.length} batch(es) to run.`)
+  job.output_lines.push(chunkingTriggerLine(params, budget))
 
   let runningSidecar = sidecar
   for (let bi = 0; bi < batches.length; bi++) {
@@ -802,12 +1056,16 @@ async function expandNarrativeSequential(
     )
 
     job.output_lines.push(`[chunked] Batch ${bi + 1}/${batches.length} — chapters ${firstN}-${lastN}…`)
-    // Maximum: a batch is several full chapters of narration in one response.
-    // This is the workflow that must never be cut off — a truncated batch is
-    // a half-written chapter, and the repair pass below costs another request.
+    // A batch is several full chapters of narration in one response, and it
+    // must never be cut off — a truncated batch is a half-written chapter and
+    // the repair pass below costs another request. It used to ask for the
+    // product's whole ceiling to guarantee that. It now asks for what THIS
+    // batch can plausibly generate (see batchOutputTokenEstimate), which is
+    // still generous but no longer reserves 128,000 credits' worth of headroom
+    // to write 8,000 tokens.
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
-      outputBudget: 'maximum' as const,
+      outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
     }
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
@@ -981,14 +1239,17 @@ Output ONLY the ${t.singular} blocks above.`
 async function expandListicleParallel(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
+  budget: ChunkingBudget = fallbackChunkingBudget(),
+  batchSize: number = LISTICLE_BATCH_SIZE,
 ): Promise<void> {
   const batches: OutlineEntry[][] = []
-  for (let i = 0; i < pending.length; i += LISTICLE_BATCH_SIZE) {
-    batches.push(pending.slice(i, i + LISTICLE_BATCH_SIZE))
+  for (let i = 0; i < pending.length; i += batchSize) {
+    batches.push(pending.slice(i, i + batchSize))
   }
   job.output_lines.push(
-    `[chunked] Mode: listicle (parallel, batches of ${LISTICLE_BATCH_SIZE}, concurrency ${LISTICLE_CONCURRENCY}). ${batches.length} batch(es) to run.`,
+    `[chunked] Mode: listicle (parallel, batches of ${batchSize}, concurrency ${LISTICLE_CONCURRENCY}). ${batches.length} batch(es) to run.`,
   )
+  job.output_lines.push(chunkingTriggerLine(params, budget))
 
   let runningSidecar = sidecar
   let cursor = 0
@@ -1006,10 +1267,12 @@ async function expandListicleParallel(
 
       try {
         const prompt = listicleBatchPrompt(params, batch)
-        // Same as the narrative batch: several complete items per response.
+        // Same as the narrative batch: several complete items per response,
+        // sized from the batch's own word targets rather than from the
+        // product's whole published ceiling.
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
-          outputBudget: 'maximum' as const,
+          outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
         }
         const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
         const wrote = await parseAndWriteBatch(params, batch, text)

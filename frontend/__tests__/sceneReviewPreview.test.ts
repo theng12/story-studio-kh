@@ -17,21 +17,24 @@ const videoAssemblySource = readFileSync(
 )
 
 describe('Scene Review image preview', () => {
-  test('render controls expose one GenStudio image model and one quality control', () => {
+  test('render controls expose one GenStudio image model and no invented step control', () => {
     assert.match(sceneReviewSource, /class="sr-model-grid is-single"[\s\S]*Image model/)
     assert.match(sceneReviewSource, /image-mode="text2img"/)
     assert.doesNotMatch(sceneReviewSource, /Rewrite LLM|Rewrite with AI|<ModelSelector/)
     assert.match(sceneReviewSource, /\.sr-model-grid\.is-single\s*{\s*grid-template-columns:\s*minmax\(0, 1fr\)/)
-    assert.match(sceneReviewSource, /id="sr-gen-quality"[\s\S]*Custom steps…/)
-    assert.match(sceneReviewSource, /v-if="form\.image_quality === 'custom'"[\s\S]*for="sr-gen-steps">Custom steps/)
+    // GenStudio publishes no step contract and accepts no `steps` field, so
+    // the page must not offer a quality/steps control driving a phantom value.
+    assert.doesNotMatch(sceneReviewSource, /sr-gen-quality|sr-gen-steps|image_steps|image_quality:|genStudioQualitySteps/)
   })
 
   test('resolution ownership comes only from the live GenStudio catalog', () => {
-    assert.match(sceneReviewSource, /id="sr-gen-size"[\s\S]*selectedGenStudioSizes/)
+    // No pixel menu: `sizes` was never published, so nothing selects one and
+    // nothing falls back to a hardcoded table.
+    assert.doesNotMatch(sceneReviewSource, /sr-gen-size|selectedGenStudioSizes|genstudio_size|genStudioSizeKey/)
     assert.match(sceneReviewSource, /Managed by GenStudio/)
-    assert.match(sceneReviewSource, /pixel sizes not published/)
-    assert.match(sceneReviewSource, /genstudio_size: form\.value\.genstudio_size/)
-    assert.match(sceneReviewSource, /width: selectedGenStudioSize\.value\.width, height: selectedGenStudioSize\.value\.height/)
+    assert.match(sceneReviewSource, /selectedGenStudioModel\?\.default_resolution/)
+    // Seed is offered only where GenStudio publishes support for one.
+    assert.match(sceneReviewSource, /selectedGenStudioModel\.supports_seed !== false/)
     assert.doesNotMatch(sceneReviewSource, /isLocalModel|render_scale|imagestudio:/)
   })
 

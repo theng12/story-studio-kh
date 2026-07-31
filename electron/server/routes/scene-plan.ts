@@ -27,6 +27,7 @@ import {
   reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
 import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
+import { parsePromptCharCap } from '../services/prompt-char-cap.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -143,6 +144,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
   const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
+  // Resolved by the workspace from the SELECTED image model's published
+  // `max_prompt_characters`. Absent = nothing published = no target.
+  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
   const creativeDirection = parseCreativeDirection(body.creative_direction)
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
@@ -176,6 +180,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       prompt_limit: promptLimit,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
+      prompt_char_cap: promptCharCap,
       creative_direction: creativeDirection,
     },
   })
@@ -222,6 +227,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   const creativeDirection = parseCreativeDirection(body.creative_direction)
+  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
 
   // Shares the scene_plan_run lane — only one job per episode at a time.
   // The frontend bulk-regen loop polls for completion before queuing the next.
@@ -242,6 +248,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       creative_direction: creativeDirection,
+      prompt_char_cap: promptCharCap,
     },
   })
   res.status(201).json(job)
@@ -274,6 +281,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const creativeDirection = parseCreativeDirection(body.creative_direction)
   const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
+  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
   const useResearch = body.use_research !== false
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
@@ -295,6 +303,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
       creative_direction: creativeDirection,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
+      prompt_char_cap: promptCharCap,
       use_research: useResearch,
     },
   })

@@ -4,21 +4,21 @@
  * GenStudio owns model inventory, fleet routing, idempotent jobs, polling,
  * validation, and private artifact storage. Story Studio only supplies the
  * creative request and persists the verified PNG returned by that boundary.
+ *
+ * Every guard in `generateImage` runs against the LIVE catalogue entry before
+ * the charged POST. Nothing here infers a capability from a model's name, and
+ * nothing invents a value GenStudio did not publish.
  */
 
 import { registry } from '../registry.js'
 import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } from '../types.js'
 import { GenStudioApiError, generateImageWithGenStudio, listImageModels, uploadImageSourceWithGenStudio } from '../../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
-
-async function automaticGenStudioSteps(apiKey: string, modelId: string): Promise<number> {
-  const models = await listImageModels(apiKey)
-  const steps = models.find(model => model.id === modelId)?.default_steps
-  if (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 1) {
-    throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
-  }
-  return steps
-}
+import {
+  publishedAvailabilityProblem,
+  publishedSupportsReferenceImages,
+  resolvePublishedAspectRatio,
+} from '../../services/image-model-resolver.js'
 
 const genstudioImageProvider: ImageProvider = {
   meta: {
@@ -35,38 +35,90 @@ const genstudioImageProvider: ImageProvider = {
   async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     const modelId = resolveGenStudioModelId('image', request.modelId)
     if (!modelId) throw new Error(unavailableLegacyModelMessage('image', request.modelId))
-    // GenStudio owns every model's inference contract. Story Studio never
-    // forwards a saved/manual step count: fetch the current model default so
-    // old presets and Pipeline runs cannot submit an invalid value.
-    const steps = await automaticGenStudioSteps(request.apiKey, modelId)
-    const catalog = await listImageModels(request.apiKey)
-    const model = catalog.find(item => item.id === modelId)
-    const referencePath = request.referenceImagePaths?.[0]
-    if (referencePath && (!model?.available || !model.chargeable || !model.supports_reference_images || model.max_reference_images < 1)) {
+    // One cached, coalesced catalogue read serves every guard below, so a
+    // 25-scene batch still performs a single GET.
+    const model = (await listImageModels(request.apiKey)).find(item => item.id === modelId)
+    if (!model) {
+      throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
+    }
+
+    // Availability is checked on EVERY submit path, not only when a reference
+    // is attached — a plain text2img POST to a retired or qualification-only
+    // model would otherwise be accepted and billed. Mirrors the chat path.
+    const unavailable = publishedAvailabilityProblem(model)
+    if (unavailable) throw new Error(`${unavailable} No request or credit charge was made.`)
+
+    const supportsReferences = publishedSupportsReferenceImages(model)
+    const maxReferences = model.max_reference_images >= 1
+      ? model.max_reference_images
+      : (supportsReferences ? 1 : 0)
+    const minReferences = model.min_reference_images ?? 0
+
+    // Prompt ceiling comes from the model's own published cap, checked before
+    // the charged POST. No published cap means no local check — GenStudio
+    // decides. `prompt_token_allowance` is never converted into characters.
+    const promptLength = request.prompt.trim().length
+    if (model.max_prompt_characters && promptLength > model.max_prompt_characters) {
+      throw new Error(
+        `${model.display_name} accepts up to ${model.max_prompt_characters.toLocaleString()} prompt characters; ` +
+        `this prompt is ${promptLength.toLocaleString()}. No request or credit charge was made.`,
+      )
+    }
+
+    const requestedReferences = (request.referenceImagePaths || []).filter(Boolean)
+    if (requestedReferences.length && (!supportsReferences || !model.chargeable)) {
       throw new Error('The selected GenStudio KH image model does not support private reference-image generation. Choose a reference-capable model.')
     }
+    // Submit as many references as the model publishes room for, not the one
+    // the old `[0]` slice allowed. Extra references are dropped at the
+    // boundary rather than rejected: the render is still the one the user
+    // asked for, and GenStudio would reject the oversized list outright.
+    const referencePaths = requestedReferences.slice(0, maxReferences)
+    if (referencePaths.length < minReferences) {
+      throw new Error(
+        `${model.display_name} requires at least ${minReferences} reference image(s); ` +
+        `${referencePaths.length} were supplied. No request or credit charge was made.`,
+      )
+    }
+    if (!referencePaths.length && minReferences > 0) {
+      throw new Error(
+        `${model.display_name} renders only from reference images. Attach at least ${minReferences}. ` +
+        'No request or credit charge was made.',
+      )
+    }
+
+    // Ratio comes from the published list, defaulting to the model's own
+    // `default_aspect_ratio` — never a hardcoded '16:9'.
+    const aspectRatio = resolvePublishedAspectRatio(model, request.aspectRatio)
+
+    // `supports_seed` is honoured when published. Absent means GenStudio said
+    // nothing about seeds, and the request field is part of the published
+    // image contract, so the caller's seed still travels.
+    const seed = model.supports_seed === false ? undefined : request.seed
+
     const submit = async () => {
-      const source = referencePath ? await uploadImageSourceWithGenStudio(request.apiKey, referencePath) : null
+      const sources = referencePaths.length
+        ? await Promise.all(referencePaths.map(path => uploadImageSourceWithGenStudio(request.apiKey, path)))
+        : []
       return generateImageWithGenStudio(request.apiKey, {
-      prompt: request.prompt,
-      modelId,
-      aspectRatio: request.aspectRatio || '16:9',
-      steps,
-      width: request.width,
-      height: request.height,
-      seed: request.seed,
-      requestIdentity: request.idempotencyIdentity,
-      isCancelled: request.isCancelled,
-      onJobAccepted: request.onJobAccepted,
-      onReconnect: request.onReconnect,
-      ...(source ? { referenceAssetIds: [source.id] } : {}),
+        prompt: request.prompt,
+        modelId,
+        aspectRatio,
+        width: request.width,
+        height: request.height,
+        seed,
+        requestIdentity: request.idempotencyIdentity,
+        isCancelled: request.isCancelled,
+        onJobAccepted: request.onJobAccepted,
+        onReconnect: request.onReconnect,
+        ...(sources.length ? { referenceAssetIds: sources.map(source => source.id) } : {}),
       })
     }
     let result
     try { result = await submit() } catch (error) {
       // The project-owned reference is still present locally. Refresh its
       // short-lived private asset exactly once; never degrade to text-only.
-      if (!(error instanceof GenStudioApiError) || error.code !== 'REFERENCE_ASSET_EXPIRED' || !referencePath) throw error
+      if (!(error instanceof GenStudioApiError) || error.code !== 'REFERENCE_ASSET_EXPIRED' || !referencePaths.length) throw error
       result = await submit()
     }
     return { urls: [result.url], taskId: result.jobId }

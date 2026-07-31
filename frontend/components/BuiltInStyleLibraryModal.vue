@@ -300,7 +300,6 @@ async function generatePreview(style: BuiltInStyle): Promise<void> {
       model: previewModel.value,
       aspect_ratio: previewAspect.value,
       variant_id: 'style-proof',
-      image_steps: selectedImageModel.value?.default_steps,
     })
     previewStates.value[style.id] = { loading: false, url: data.url, error: null }
   } catch (error: any) {

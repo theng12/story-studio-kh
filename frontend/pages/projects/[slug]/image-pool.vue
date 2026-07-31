@@ -144,21 +144,9 @@
               <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
             </select>
           </label>
-          <label class="ip-inline-label">
-            Quality
-            <select v-model="genQuality" class="select" @change="applyGenStudioQuality">
-              <option value="draft">Draft</option>
-              <option value="balanced">Balanced</option>
-              <option value="detailed">Detailed</option>
-              <option value="maximum">Maximum</option>
-              <option value="custom">Custom steps</option>
-            </select>
-          </label>
-          <label class="ip-inline-label">
-            Steps
-            <input v-model.number="genSteps" class="input ip-num" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps" @input="genQuality = 'custom'" />
-          </label>
-          <label class="ip-inline-label">
+          <!-- No quality/steps control: GenStudio publishes no step contract
+               and its image request has no `steps` field. -->
+          <label v-if="selectedGenStudioModel.supports_seed !== false" class="ip-inline-label">
             Seed
             <input v-model.number="genSeed" class="input ip-seed" type="number" min="0" max="2147483647" placeholder="Random" />
           </label>
@@ -204,8 +192,6 @@ const genPrompts = ref('')
 const genModel = ref('')
 const genVariants = ref<number>(1)
 const genAspectRatio = ref('16:9')
-const genQuality = ref<'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'>('balanced')
-const genSteps = ref(4)
 const genSeed = ref<number | ''>('')
 const generating = ref(false)
 const suggestTopic = ref('')
@@ -215,28 +201,10 @@ const suggesting = ref(false)
 const promptLines = computed(() => genPrompts.value.split('\n').map(l => l.trim()).filter(Boolean))
 const { models: genStudioModels, refresh: refreshGenStudioModels } = useGenStudioImageModels()
 const selectedGenStudioModel = computed(() => genStudioModels.value.find(model => model.id === genModel.value))
-const genStudioQualitySteps = computed(() => {
-  const model = selectedGenStudioModel.value
-  if (!model) return { draft: 2, balanced: 4, detailed: 6, maximum: 8 }
-  return {
-    draft: model.min_steps,
-    balanced: model.default_steps,
-    detailed: Math.min(model.max_steps, model.default_steps + 2),
-    maximum: model.max_steps,
-  }
-})
-
-function applyGenStudioQuality(): void {
-  if (genQuality.value === 'custom') return
-  genSteps.value = genStudioQualitySteps.value[genQuality.value]
-}
-
 watch([genModel, () => genStudioModels.value.length], () => {
   const model = selectedGenStudioModel.value
   if (!model) return
   if (!model.aspect_ratios.includes(genAspectRatio.value)) genAspectRatio.value = model.default_aspect_ratio
-  genSteps.value = Math.max(model.min_steps, Math.min(model.max_steps, Number(genSteps.value) || model.default_steps))
-  if (genQuality.value !== 'custom') applyGenStudioQuality()
 })
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
@@ -323,8 +291,10 @@ async function generateIntoPool(): Promise<void> {
       prompts: promptLines.value,
       model: genModel.value,
       aspect_ratio: selectedGenStudioModel.value ? genAspectRatio.value : '16:9',
-      image_steps: selectedGenStudioModel.value ? genSteps.value : undefined,
-      seed: selectedGenStudioModel.value && typeof genSeed.value === 'number' ? genSeed.value : undefined,
+      seed: selectedGenStudioModel.value && selectedGenStudioModel.value.supports_seed !== false
+        && typeof genSeed.value === 'number'
+        ? genSeed.value
+        : undefined,
       variants: genVariants.value,
     })
     success(`Queued generation of ${promptLines.value.length * genVariants.value} image(s) → watch the Jobs panel.`)

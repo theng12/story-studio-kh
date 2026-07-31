@@ -186,6 +186,63 @@
           </details>
         </div>
 
+        <!-- Prompt length. An LLM writes these prompts; a separately chosen
+             image model renders them. Every number offered here is GenStudio's
+             own published `max_prompt_characters` — no ladder is hardcoded —
+             and it is given to the writer as a ceiling, never as a length to
+             fill. Nothing is truncated; over-length prompts are flagged amber
+             and left exactly as written. -->
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
+            <strong>Prompt length</strong>
+            <span>{{ promptCharCapSummary }}</span>
+          </div>
+          <div class="form-group">
+            <label>Intended image model <span class="text-muted text-xs">— writing hint</span></label>
+            <select v-model="form.intended_image_model" class="select">
+              <option value="">Not chosen yet — no limit</option>
+              <option
+                v-for="model in usableImageModels"
+                :key="model.id"
+                :value="model.id"
+                :title="imageModelCapHint(model)"
+              >
+                {{ model.display_name }} · {{ imageModelCapLabel(model) }}
+              </option>
+            </select>
+            <p class="scene-setting-help">
+              Prompts are shaped to suit this model. It only sets the character limit below — you can still render with a
+              different model in Scene Review, and this does not change what Scene Review is set to.
+            </p>
+          </div>
+          <div class="form-group">
+            <label>Character limit</label>
+            <select v-model="promptCharCapPickerValue" class="select">
+              <option value="auto">Auto · {{ autoPromptCharCapLabel }}</option>
+              <option value="none">No limit</option>
+              <option v-for="cap in publishedPromptCharCaps" :key="cap" :value="String(cap)">{{ cap.toLocaleString() }} characters</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <div v-if="promptCharCapPickerValue === 'custom'" class="scene-pack-custom">
+              <input v-model.number="customPromptCharCap" class="input" type="number" min="1" step="1" @change="applyCustomPromptCharCap" />
+              <span class="text-xs text-muted">characters</span>
+            </div>
+          </div>
+          <p v-if="promptCharCapExceedsModel" class="prompt-cap-notice">
+            ⚠ {{ effectivePromptCharCap.toLocaleString() }} characters is above the
+            {{ intendedImageModelCap.toLocaleString() }} that {{ intendedImageModel?.display_name }} publishes — prompts written to
+            this limit can still be refused at render time.
+          </p>
+          <p v-if="overCapPromptCount" class="prompt-cap-notice">
+            ⚠ {{ overCapPromptCount }} written prompt{{ overCapPromptCount === 1 ? ' is' : 's are' }} over this limit. Every one is
+            saved in full — generation is not blocked.
+          </p>
+          <p class="scene-setting-help">
+            A ceiling, not a length to reach: a scene that reads best in 500 characters stays at 500. A smaller limit also
+            keeps prompts — and the language bill for writing them — shorter. Nothing is ever shortened for you.
+          </p>
+        </div>
+
         <div class="scene-setting-card scene-creative-card">
           <div class="scene-setting-head">
             <strong>Visual interpretation</strong>
@@ -591,8 +648,19 @@
               />
             </div>
             <div class="form-group mt-1">
-              <label class="text-xs text-muted">
-                {{ scene.visual_prompt_raw ? 'Composed prompt (explainer layout — sent to the image generator)' : 'Visual prompt (sent to the image generator)' }}
+              <label class="text-xs text-muted prompt-length-label">
+                <span>{{ scene.visual_prompt_raw ? 'Composed prompt (explainer layout — sent to the image generator)' : 'Visual prompt (sent to the image generator)' }}</span>
+                <!-- Live count for every prompt, against the ceiling in force.
+                     Amber when over — a nudge, never a block. -->
+                <span
+                  class="prompt-char-badge"
+                  :class="`is-${scenePromptLengthTone(scene)}`"
+                  :title="scenePromptLength(scene).overCap
+                    ? `${scenePromptLength(scene).overage.toLocaleString()} characters over the ${scenePromptLength(scene).cap.toLocaleString()}-character limit. Nothing was shortened — trim it, raise the limit, or render as-is.`
+                    : effectivePromptCharCap
+                      ? `${scenePromptLength(scene).characters.toLocaleString()} of ${effectivePromptCharCap.toLocaleString()} characters.`
+                      : `${scenePromptLength(scene).characters.toLocaleString()} characters — no limit in force.`"
+                >{{ scenePromptLengthLabel(scene) }} chars</span>
               </label>
               <textarea
                 v-model="scene.visual_prompt"
@@ -600,6 +668,11 @@
                 rows="2"
                 @input="markPlanDirty"
               />
+              <p v-if="scenePromptLength(scene).overCap" class="prompt-cap-notice">
+                ⚠ {{ scenePromptLength(scene).overage.toLocaleString() }} characters over the
+                {{ scenePromptLength(scene).cap.toLocaleString() }}-character limit. Saved in full — you can shorten it, raise the
+                limit, or render it as-is.
+              </p>
             </div>
             <!-- v1.0.468 — per-scene motion prompt (image-to-video instruction).
                  Editable inline; saved via set-motion-prompt; regen via the LLM. -->
@@ -728,6 +801,18 @@ import {
   outputAllowanceOptions,
   type ModelTokenLimits,
 } from '../../../utils/model-token-budget.js'
+import {
+  normalizePromptCharCapSetting,
+  promptCharCapAboveModel,
+  promptCharCapOptions,
+  promptLengthLabel,
+  promptLengthState,
+  promptLengthTone,
+  publishedPromptCharCap,
+  resolvePromptCharCap,
+  type PromptCharCapSetting,
+} from '../../../utils/prompt-char-cap.js'
+import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -1202,6 +1287,13 @@ const form = ref({
   use_research: true,
   prompt_pack_size: 'auto' as PromptPackSetting,
   prompt_max_tokens: 'auto' as PromptTokenSetting,
+  // Which image model these prompts are being WRITTEN for. A prompt-writing
+  // hint only: it drives the Auto character ceiling and nothing else, and it
+  // never changes the model Scene Review actually renders with.
+  intended_image_model: '',
+  // 'auto' follows that model's published `max_prompt_characters`; 'none' means
+  // no limit; a number is an explicit ceiling (a smaller one is a cost control).
+  prompt_char_cap: 'auto' as PromptCharCapSetting,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
@@ -1345,6 +1437,106 @@ const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(siz
 /** Derived from the SELECTED product's published `max_output_tokens`, never
  *  from a fixed list. The product's own maximum is always the top option. */
 const availableOutputBudgets = computed(() => outputAllowanceOptions(selectedModelMaxOutput.value))
+
+// ── Prompt character ceiling ────────────────────────────────────────────────
+// An LLM writes these prompts; a separately chosen image model renders them.
+// The ceiling comes from GenStudio's published `max_prompt_characters` for the
+// image model the user intends to render with — never from a list kept here —
+// and is handed to the writer as a limit, not as a length to fill. Nothing is
+// ever truncated: an over-ceiling prompt is counted, flagged amber, and left
+// exactly as written.
+const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
+/** Only models this account can actually submit to are worth writing for. */
+const usableImageModels = computed(() =>
+  genStudioImageModels.value.filter(model => model.available !== false && model.qualification_only !== true),
+)
+const intendedImageModel = computed(() =>
+  usableImageModels.value.find(model => model.id === form.value.intended_image_model) || null,
+)
+/** What that model publishes right now, or 0 when it publishes nothing. */
+const intendedImageModelCap = computed(() => publishedPromptCharCap(intendedImageModel.value))
+/** Derived from the DISTINCT caps usable models publish — never a fixed ladder. */
+const publishedPromptCharCaps = computed(() => promptCharCapOptions(usableImageModels.value))
+const customPromptCharCap = ref(2000)
+function setPromptCharCapSetting(value: unknown): void {
+  const normalized = normalizePromptCharCapSetting(value)
+  form.value.prompt_char_cap = normalized
+  if (typeof normalized === 'number' && !publishedPromptCharCaps.value.includes(normalized)) {
+    customPromptCharCap.value = normalized
+  }
+}
+const promptCharCapPickerValue = computed<string>({
+  get: () => {
+    const value = normalizePromptCharCapSetting(form.value.prompt_char_cap)
+    if (value === 'auto' || value === 'none') return value
+    return publishedPromptCharCaps.value.includes(value) ? String(value) : 'custom'
+  },
+  set: (value) => {
+    if (value === 'custom') {
+      setPromptCharCapSetting(customPromptCharCap.value)
+      return
+    }
+    setPromptCharCapSetting(value)
+  },
+})
+function applyCustomPromptCharCap(): void {
+  setPromptCharCapSetting(customPromptCharCap.value)
+}
+/** The number in force. 0 = no ceiling, so no instruction and no warning. */
+const effectivePromptCharCap = computed(() =>
+  resolvePromptCharCap(normalizePromptCharCapSetting(form.value.prompt_char_cap), intendedImageModelCap.value),
+)
+/**
+ * What one image model publishes, shown AT THE POINT OF CHOOSING so models can
+ * be compared at a glance — a longer limit means room for more detailed (and
+ * more expensive to write) prompts. A model that publishes nothing says so;
+ * no default is ever displayed as if the model had stated it.
+ */
+function imageModelCapLabel(model: { max_prompt_characters?: number }): string {
+  const cap = publishedPromptCharCap(model)
+  return cap ? `up to ${cap.toLocaleString()} characters` : 'prompt limit not published'
+}
+function imageModelCapHint(model: { display_name?: string; max_prompt_characters?: number }): string {
+  const cap = publishedPromptCharCap(model)
+  const name = model.display_name || 'This model'
+  return cap
+    ? `${name} accepts prompts up to ${cap.toLocaleString()} characters. Picking it sets the Auto limit to that figure.`
+    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. GenStudio still validates every render.`
+}
+const autoPromptCharCapLabel = computed(() => {
+  if (!form.value.intended_image_model) return 'no image model chosen — no limit'
+  if (!intendedImageModelCap.value) return `${intendedImageModel.value?.display_name || 'this model'} publishes no limit`
+  return `${intendedImageModelCap.value.toLocaleString()} characters`
+})
+const promptCharCapSummary = computed(() =>
+  effectivePromptCharCap.value ? `${effectivePromptCharCap.value.toLocaleString()} char ceiling` : 'No limit',
+)
+/** The only combination that still ends in a render-time refusal. */
+const promptCharCapExceedsModel = computed(() =>
+  promptCharCapAboveModel(effectivePromptCharCap.value, intendedImageModelCap.value),
+)
+function scenePromptLength(scene: { visual_prompt?: string }) {
+  return promptLengthState(scene.visual_prompt, effectivePromptCharCap.value)
+}
+function scenePromptLengthLabel(scene: { visual_prompt?: string }): string {
+  return promptLengthLabel(scenePromptLength(scene))
+}
+function scenePromptLengthTone(scene: { visual_prompt?: string }): string {
+  return promptLengthTone(scenePromptLength(scene))
+}
+/** How many written prompts are over the ceiling. Advisory — never blocking. */
+const overCapPromptCount = computed(() => {
+  if (!effectivePromptCharCap.value) return 0
+  return (plan.value?.scenes || []).filter(scene => scenePromptLength(scene).overCap).length
+})
+// Auto has to follow SOMETHING, so the intended model is seeded from whatever
+// this project already renders scene images with. Seeding only — it is never
+// written back, so Scene Review's own render setting is left alone, and an
+// empty result stays empty (no limit, no warning) rather than picking a model.
+if (!form.value.intended_image_model && typeof window !== 'undefined') {
+  form.value.intended_image_model = readRememberedImageModelId(slug.value, window.localStorage)
+}
+setPromptCharCapSetting(form.value.prompt_char_cap)
 
 /**
  * Recompute the moment the model changes: an allowance too large for the newly
@@ -1558,6 +1750,9 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       prompt_pack_size: form.value.prompt_pack_size,
       use_research: form.value.use_research,
       prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
+      // The RESOLVED ceiling: the workspace is the only place that knows which
+      // image model these prompts are for. 0 → undefined → no limit is sent.
+      prompt_char_cap: stage === 'visual' ? (effectivePromptCharCap.value || undefined) : undefined,
       detail_level: 4,
       motion_level: form.value.motion_level,
       creative_direction: creativeDirectionPayload.value,
@@ -1669,6 +1864,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
       scene_id: scene.id,
       model: form.value.model,
       detail_level: 4,
+      prompt_char_cap: effectivePromptCharCap.value || undefined,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
@@ -1751,6 +1947,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
       detail_level: 4,
       prompt_pack_size: form.value.prompt_pack_size,
       prompt_max_tokens: form.value.prompt_max_tokens,
+      prompt_char_cap: effectivePromptCharCap.value || undefined,
       use_research: form.value.use_research,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
@@ -2031,6 +2228,10 @@ const planPresets = usePresets<any>({
     opening_reserved_sec: openingReservedSec.value,
     prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
+    // The SELECTION travels, never a resolved catalogue number: GenStudio may
+    // publish a different `max_prompt_characters` tomorrow.
+    intended_image_model: form.value.intended_image_model,
+    prompt_char_cap: form.value.prompt_char_cap,
     creative_direction: creativeDirectionPayload.value,
     detail_level: 4,
     custom_instructions: form.value.custom_instructions,
@@ -2064,6 +2265,10 @@ const planPresets = usePresets<any>({
       openingPresetControlsActive.value = true
     }
     setPromptPackSetting(form.value.prompt_pack_size)
+    // Restores the SELECTION only. A custom ceiling is NOT raised to the
+    // model's published cap — a smaller one is a deliberate cost control — and
+    // an unknown intended model simply resolves to "no limit".
+    setPromptCharCapSetting(form.value.prompt_char_cap)
     // A preset stores the SELECTION, never a copied catalogue limit. Clamp the
     // restored allowance against what the model publishes right now.
     form.value.prompt_max_tokens = clampOutputAllowance(
@@ -2076,7 +2281,11 @@ const planPresets = usePresets<any>({
 watch([slug, episodeId], () => {
   void Promise.all([loadStatus(), loadContinuity()])
 }, { immediate: true })
-onMounted(() => { void planPresets.load() })
+onMounted(() => {
+  void planPresets.load()
+  // The character ceiling is only as honest as the catalogue behind it.
+  void refreshGenStudioImageModels().catch(() => {})
+})
 </script>
 
 <style scoped>
@@ -2103,6 +2312,46 @@ onMounted(() => { void planPresets.load() })
   background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
 }
 .scene-setting-model { grid-column: 1 / -1; }
+/* Per-prompt character counter. Amber — never red — when a prompt is over the
+   ceiling: the prompt is intact, generation succeeded, and the user may still
+   render it. Nothing here disables a control. */
+.prompt-length-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prompt-char-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.prompt-char-badge.is-neutral { background: var(--bg-tertiary); color: var(--text-muted); }
+.prompt-char-badge.is-ok {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
+  color: var(--text-muted);
+}
+.prompt-char-badge.is-warn {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  color: var(--warning);
+  font-weight: 600;
+}
+.prompt-cap-notice {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, transparent);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
 .scene-setting-head {
   display: flex;
   align-items: center;

@@ -129,11 +129,12 @@ const props = defineProps<{
   /** Bumped by the parent (e.g. when the bulk image-prompts job
    *  completes) to force a re-read of the docx. */
   refreshKey?: number
-  /** Soft prompt-character cap for the image model these prompts will
-   *  feed (separate per kind in case the user has the Scene and Thumbnail
-   *  tabs configured for different models — Bound-style explainers do).
-   *  Each row renders a coloured char-counter against the relevant cap so
-   *  the user spots prompts that would be rejected before paying credits. */
+  /** The published prompt-character CEILING for the image model these prompts
+   *  will feed (separate per kind in case the Scene and Thumbnail tabs target
+   *  different models — Bound-style explainers do). Each row renders a
+   *  char-counter against the relevant ceiling, amber when over, so the user
+   *  spots prompts that would be refused before paying credits. Advisory only:
+   *  nothing here blocks a save, a regenerate, or a render. */
   scenePromptCap?: number | null
   thumbnailPromptCap?: number | null
   /** Friendly model labels for the row tooltips ("Seedream", etc.). */
@@ -249,6 +250,10 @@ async function regenerateOne(
         current_prompt: payload.prompt,
         notes: payload.notes,
         headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
+        // The same ceiling the row's counter is measured against, so a rewrite
+        // is written under the limit rather than back over it. Null/0 → omitted
+        // → no limit is in force and the writer is left unconstrained.
+        prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
       },
     )
     // Patch the in-memory list so the card reflects the new prompt

@@ -24,8 +24,20 @@
 
 import { isSensitiveFieldName, redactSecrets, redactSensitiveValue } from './redact-secrets.js'
 
-/** Characters kept per message/prompt before the truncation marker. */
-export const GENSTUDIO_REQUEST_MESSAGE_LIMIT = 2_000
+/**
+ * Characters kept per message/prompt before the truncation marker.
+ *
+ * Calibrated against real chat jobs, not the original image-batch workload:
+ * a representative system prompt runs ~8,200 characters and the accompanying
+ * user message ~3,100 — roughly 11.3 KB combined. 20,000 keeps that whole
+ * shape intact with headroom for a bigger-than-typical prompt, while still
+ * capping a pathological one (a runaway template, a pasted transcript) well
+ * below the point where it would dominate `jobs.json`. Chat requests only
+ * ever carry a couple of messages (see `GENSTUDIO_REQUEST_MAX_MESSAGES`), so
+ * raising this does not reintroduce the "hundreds of evidence entries"
+ * ballooning problem the retention/count caps below exist to prevent.
+ */
+export const GENSTUDIO_REQUEST_MESSAGE_LIMIT = 20_000
 /** Characters kept per scalar field value (ids, aspect ratios, file names). */
 export const GENSTUDIO_REQUEST_FIELD_LIMIT = 400
 /** Messages kept per request (system + user is the normal shape). */

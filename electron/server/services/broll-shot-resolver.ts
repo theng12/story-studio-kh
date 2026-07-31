@@ -71,7 +71,7 @@ export async function resolveBeats(
   plan: BrollPlan,
   opts: {
     poolId?: string
-    aiFallback?: { slug: string; model: string; aspectRatio?: string; imageSteps?: number; seed?: number }
+    aiFallback?: { slug: string; model: string; aspectRatio?: string; seed?: number }
   } = {},
 ): Promise<ResolveBeatsResult> {
   const pool = await pickVideoPool(opts.poolId)

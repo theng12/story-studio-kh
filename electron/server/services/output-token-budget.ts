@@ -41,10 +41,19 @@
  * - `standard` a description, a small structured pack, a batch of prompts.
  * - `long`     research, a chapter, an outline, an idea campaign.
  * - `maximum`  output that must not be cut off at any price: a full-episode
- *              scene plan, a whole-narration rewrite, a chunked narration
- *              batch. Takes the product's entire published ceiling.
+ *              scene plan or a whole-narration rewrite. Takes the product's
+ *              entire published ceiling.
+ * - `workload` the caller counted its own output BEFORE asking, so the number
+ *              comes from the work rather than from a fraction of whatever
+ *              product happens to be selected. Supply the count in
+ *              `minimumTokens`. See the reservation note below for why this
+ *              exists: a chapter batch that generates ~8,000 tokens has no
+ *              business reserving the whole 128,000-token ceiling. Omitting
+ *              `minimumTokens` falls back to the FULL ceiling, never to a
+ *              small number — a caller that fails to size its work must not
+ *              be able to under-request and get truncated.
  */
-export type OutputBudgetTier = 'short' | 'standard' | 'long' | 'maximum'
+export type OutputBudgetTier = 'short' | 'standard' | 'long' | 'maximum' | 'workload'
 
 /**
  * A tier plus an optional workload-derived floor.
@@ -120,7 +129,13 @@ export function resolveOutputTokenBudget(
   const floor = typeof budget === 'object' && Number.isFinite(budget.minimumTokens)
     ? Math.max(1, Math.floor(budget.minimumTokens as number))
     : 0
-  const wanted = Math.max(tierTokens(tier, ceiling), floor)
+  // `workload` is the one tier whose number comes ENTIRELY from the caller's
+  // own estimate. With no estimate in hand it degrades UPWARDS to the whole
+  // ceiling — under-requesting truncates the answer, which is far worse than
+  // holding too much of the balance while the job runs.
+  const wanted = tier === 'workload'
+    ? (floor > 0 ? floor : ceiling)
+    : Math.max(tierTokens(tier, ceiling), floor)
   return Math.max(1, Math.min(wanted, ceiling))
 }
 

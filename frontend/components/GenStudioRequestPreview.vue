@@ -50,9 +50,25 @@
           <div class="gs-req-message-head">
             <strong>{{ message.role }}</strong>
             <span>{{ message.length.toLocaleString() }} characters</span>
-            <span v-if="message.truncated" class="gs-req-truncated">preview truncated</span>
+            <span v-if="message.truncated" class="gs-req-truncated">
+              truncated —
+              {{ storedCharacterCount(message) !== null ? `${storedCharacterCount(message)!.toLocaleString()} of ${message.length.toLocaleString()} stored` : 'preview truncated' }}
+            </span>
+            <span v-else class="gs-req-complete">stored in full</span>
+            <span class="gs-req-message-actions">
+              <button
+                type="button"
+                class="gs-req-action"
+                @click="toggleExpand(messageKey(entry, index))"
+              >{{ isExpanded(messageKey(entry, index)) ? 'Collapse' : 'Expand' }}</button>
+              <button
+                type="button"
+                class="gs-req-action"
+                @click="copyMessage(messageKey(entry, index), message.text)"
+              >{{ copiedKey === messageKey(entry, index) ? 'Copied' : 'Copy' }}</button>
+            </span>
           </div>
-          <pre class="gs-req-text">{{ message.text }}</pre>
+          <pre class="gs-req-text" :class="{ 'gs-req-text-expanded': isExpanded(messageKey(entry, index)) }">{{ message.text }}</pre>
         </div>
       </article>
 
@@ -106,6 +122,52 @@ const props = defineProps<{ remoteJobs: readonly RemoteJob[] }>()
 
 const open = ref(false)
 const page = ref(1)
+/** Keys (`entryId:messageIndex`) whose `<pre>` block is expanded past the default 220px clamp. */
+const expandedMessages = ref<Set<string>>(new Set())
+/** Key of the message whose "Copy" button most recently succeeded, for transient "Copied" feedback. */
+const copiedKey = ref<string | null>(null)
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+// Mirrors the marker appended by `scrubAndClamp` in
+// electron/server/lib/genstudio-request-preview.ts:
+//   `\n… [truncated — showing ${limit} of ${length} characters]`
+// Parsed rather than duplicated so the displayed "stored" count can never
+// drift from whatever the backend actually clamped to.
+const TRUNCATION_MARKER_RE = /showing ([\d,]+) of ([\d,]+) characters\]\s*$/
+
+function storedCharacterCount(message: { text: string; truncated: boolean }): number | null {
+  if (!message.truncated) return null
+  const match = message.text.match(TRUNCATION_MARKER_RE)
+  if (!match) return null
+  return Number(match[1]!.replace(/,/g, ''))
+}
+
+function messageKey(entry: RemoteJob, index: number): string {
+  return `${entry.id}:${index}`
+}
+
+function isExpanded(key: string): boolean {
+  return expandedMessages.value.has(key)
+}
+
+function toggleExpand(key: string): void {
+  const next = new Set(expandedMessages.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedMessages.value = next
+}
+
+async function copyMessage(key: string, text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedKey.value = key
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => { copiedKey.value = null }, 1500)
+  } catch {
+    // Clipboard access can be denied by the embedding context; the button
+    // simply stays labelled "Copy" so the failure is silent but harmless.
+  }
+}
 
 const requests = computed(() => props.remoteJobs.filter(entry => !!entry.request))
 /** Calls whose preview the server dropped to keep `jobs.json` bounded. */
@@ -201,6 +263,14 @@ function formatTime(value: string): string {
 }
 .gs-req-message-head strong { color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
 .gs-req-truncated { color: var(--accent); }
+.gs-req-complete { color: var(--text-muted); }
+.gs-req-message-actions { display: inline-flex; gap: 6px; margin-left: auto; }
+.gs-req-action {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 1px 7px; background: var(--bg-primary); color: var(--text-secondary);
+  font: inherit; font-size: var(--font-xs); line-height: 1.5; cursor: pointer;
+}
+.gs-req-action:hover { color: var(--accent); border-color: var(--accent); }
 .gs-req-text {
   max-height: 220px; margin: 0; padding: 8px; overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -208,6 +278,7 @@ function formatTime(value: string): string {
   color: var(--text-secondary); font-family: 'SF Mono', Monaco, monospace;
   font-size: var(--font-xs); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.gs-req-text-expanded { max-height: none; }
 .gs-req-pagination {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   color: var(--text-muted); font-size: var(--font-xs);

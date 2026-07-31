@@ -579,9 +579,11 @@ async function generateEpisode(job: Job): Promise<void> {
     const introStandardsText = (config as any).intro_standards || ''
 
     // v1.0.71+: dispatch to chunked mode when the target wordcount would
-    // overflow a single LLM call. Single-call max output is ~16k tokens
-    // (Anthropic streaming) ≈ 12k words. Two signals can trigger chunking:
-    //   1. word-count heuristic (CHUNK_THRESHOLD_WORDS) — fast pre-check
+    // overflow a single LLM call. That ceiling is the SELECTED PRODUCT's
+    // published `max_output_tokens`, read live from the GenStudio catalogue
+    // (see resolveChunkingBudget) — never a constant. Two signals can trigger
+    // chunking:
+    //   1. word-count heuristic (chunkThresholdWords) — fast pre-check
     //   2. dynamic budget check — projects with a heavy character cast,
     //      long production standards or a large character cast can crowd
     //      the cap even at lower word counts. Assemble the user prompt

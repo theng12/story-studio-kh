@@ -150,8 +150,8 @@ export const featureGuides: Record<string, FeatureGuide> = {
     summary: 'Render, inspect, recover, pin, and choose final thumbnail images from approved thumbnail prompts.',
     workflow: ['Select a GenStudio image model and its supported controls.', 'Generate missing images or render one sample first.', 'Preview results and pin the preferred upload thumbnail.'],
     topics: [
-      { title: 'Model', purpose: 'Chooses a live, approved GenStudio image model. Available ratios, sizes, and controls come from its catalog capabilities.' },
-      { title: 'Aspect ratio and quality', purpose: 'Controls the output shape and model-qualified render effort.' },
+      { title: 'Model', purpose: 'Chooses a live, approved GenStudio image model. Available ratios and controls come from its catalog capabilities.' },
+      { title: 'Aspect ratio', purpose: 'Controls the output shape. GenStudio owns the output resolution and render effort.' },
       { title: 'Generate missing fresh', purpose: 'Submits only missing images as new paid work; verified existing images are skipped.' },
       { title: 'Image integrity', purpose: 'Compares expected thumbnail IDs with usable files and recoverable GenStudio jobs.' },
       { title: 'Pin for upload', purpose: 'Locks a specific thumbnail so automatic highest-version selection does not replace it.' },

@@ -4,6 +4,34 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.767 — 2026-07-31
+
+- **Long writing can no longer be abandoned and still billed** — chapter and script
+  generation now hands the work to GenStudio, gets a ticket back, and waits for it to
+  finish. Previously Story Studio gave up after 30 seconds and reported a failure while the
+  work carried on and was charged. If the app restarts mid-job it reconnects to the same
+  ticket instead of paying again.
+- **Reference images actually reach the image generator** — every reference attached to a
+  scene was being collected and then silently dropped, with the render billed as if no
+  reference had been given. Story Studio also assumed no model accepted references at all,
+  and never sent more than one. It now follows what each model actually supports, including
+  how many it accepts.
+- **Waiting on a job is far quieter** — Story Studio used to ask GenStudio whether a job had
+  finished every single second. It now starts quick and eases off as a job runs long, so a
+  ninety-second job asks about fourteen times instead of ninety. Cancel still responds
+  immediately.
+- **Prompt length is now something you control** — Scene Plan and Thumbnail Prompts let you
+  pick which image model you are writing for and see the character limit it accepts, shown
+  next to each model as you choose. Prompts are written to stay inside that limit, every
+  prompt shows its character count, and anything over is flagged in amber without blocking
+  you. Shorter limits mean shorter prompts and a smaller generation bill.
+- **Transcription language is yours to choose** — pick from the languages your model
+  supports, or auto-detect. Defaults to English.
+- **Smaller credit holds while a job runs** — chapter batches used to reserve far more
+  credit than they could ever use, which could refuse a job on a low balance for no reason.
+
+---
+
 ## v1.0.766 — 2026-07-31
 
 - **Scene Plan can finally use your model's full output** — its output-allowance list was

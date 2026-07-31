@@ -35,7 +35,7 @@ import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
@@ -101,7 +101,6 @@ interface SceneImageGenerateParams {
    *  size. Cloud providers ignore these. */
   width?: number
   height?: number
-  image_steps?: number
   seed?: number
   auto_approve_generated?: boolean
 }
@@ -132,7 +131,11 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // Resolve the configured image model + its provider.
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  // The key is resolved first: model capabilities come from the live
+  // GenStudio catalogue, not from a synthesised constant.
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   if (modelConfig.provider !== 'genstudio-image') {
@@ -148,14 +151,12 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — ${imageProvider.meta.name} / ${model}`)
   job.output_lines.push(`Prompt: ${scene.visual_prompt.slice(0, 200)}${scene.visual_prompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
-  const aspectRatio = params.aspect_ratio || '16:9'
+  const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   if (renderWidth && renderHeight) {
@@ -172,7 +173,6 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     providerParams,
     width: renderWidth,
     height: renderHeight,
-    steps: params.image_steps,
     seed: params.seed,
     idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene_id}:image`,
     isCancelled: () => false,

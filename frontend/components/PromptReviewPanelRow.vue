@@ -18,12 +18,12 @@
         <span class="prr-num">{{ String(row.number).padStart(2, '0') }}</span>
         <span class="prr-title">{{ prefix }} — {{ row.title || '(no title)' }}</span>
       </button>
-      <!-- Char counter badge — color-coded against the active image-model's
-           prompt cap (passed in by the parent). Green if well under, yellow
-           if approaching the cap (≥80%), red if over. When no cap is known
-           the badge shows the raw count in muted grey. -->
+      <!-- Char counter, measured against the published prompt ceiling the
+           parent passes in. Over the ceiling is AMBER, never red: the prompt is
+           intact, generation succeeded, and nothing here blocks saving,
+           regenerating, or rendering. No ceiling → the raw count in muted grey. -->
       <span class="prr-chars" :class="charStatusClass" :title="charBadgeTooltip">
-        {{ draftPromptLen }}<template v-if="cap"> / {{ cap }}</template> chars
+        {{ draftPromptLen.toLocaleString() }}<template v-if="cap"> / {{ cap.toLocaleString() }}</template> chars
       </span>
       <button
         type="button"
@@ -109,8 +109,8 @@ const props = defineProps<{
   busy: boolean
   saving?: boolean
   error: string | null
-  /** Provider's documented prompt char cap for the active model (advisory).
-   *  Pass 0 / null when no cap is known — the counter still renders but
+  /** GenStudio's published `max_prompt_characters` for the intended image
+   *  model (advisory). Pass 0 / null when nothing is published — the counter renders but
    *  without comparison. */
   cap?: number | null
   /** Friendly model label for the tooltip ("Seedream", "Nano Banana"). */
@@ -146,17 +146,17 @@ const charStatusClass = computed(() => {
   return 'prr-chars-ok'
 })
 const charBadgeTooltip = computed(() => {
-  if (!props.cap) return `${draftPromptLen.value} characters — no documented cap`
+  if (!props.cap) return `${draftPromptLen.value.toLocaleString()} characters — no published limit`
   const remaining = props.cap - draftPromptLen.value
   const modelHint = props.modelLabel ? ` (${props.modelLabel})` : ''
   if (remaining < 0) {
-    return `⚠ ${Math.abs(remaining)} chars over the ${props.cap}-char cap${modelHint}. ` +
-      `The provider will reject or silently truncate — regenerate prompts before paying credits.`
+    return `⚠ ${Math.abs(remaining).toLocaleString()} chars over the ${props.cap.toLocaleString()}-char limit${modelHint}. ` +
+      `Nothing was shortened — trim it, raise the limit, or render as-is. Rendering may still be refused at this length.`
   }
   if (remaining < props.cap * 0.2) {
-    return `Close to the ${props.cap}-char cap${modelHint} — ${remaining} chars left.`
+    return `Close to the ${props.cap.toLocaleString()}-char limit${modelHint} — ${remaining.toLocaleString()} chars left.`
   }
-  return `${draftPromptLen.value} / ${props.cap} chars${modelHint}.`
+  return `${draftPromptLen.value.toLocaleString()} / ${props.cap.toLocaleString()} chars${modelHint}.`
 })
 
 function resetDraft(): void {
@@ -224,7 +224,12 @@ function emitRegenerate(): void {
 }
 .prr-chars-ok      { background: rgba(34,197,94,0.10); color: rgb(21,128,61); border-color: rgba(34,197,94,0.25); }
 .prr-chars-warn    { background: rgba(234,179,8,0.12); color: rgb(161,98,7);  border-color: rgba(234,179,8,0.30); }
-.prr-chars-over    { background: rgba(220,38,38,0.12); color: rgb(185,28,28); border-color: rgba(220,38,38,0.35); font-weight: 600; }
+.prr-chars-over    {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  font-weight: 600;
+}
 .prr-chars-neutral { background: var(--bg-tertiary);   color: var(--text-muted); border-color: var(--border); }
 .prr-prompt {
   margin-top: 8px; padding: 8px 10px;

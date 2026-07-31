@@ -7,7 +7,7 @@
  * ONE sample image of that style against a fixed neutral baseline scene
  * and persist the PNG keyed by every input that affects the output:
  *
- *   sha256(style + model + aspect + tier + variant + steps + seed)
+ *   sha256(style + model + aspect + tier + variant + seed)
  *
  * Re-clicking the same combo is free; switching any input invalidates and
  * triggers a fresh render. Stored in userData (per-machine, not iCloud-
@@ -38,7 +38,6 @@ interface IndexEntry {
   aspect_ratio: string
   tier: string
   variant_id: string
-  image_steps?: number
   seed?: number
   created_at: string
   filename: string
@@ -80,6 +79,18 @@ function indexPath(): string {
 }
 
 /**
+ * Frozen value of the retired inference-steps key segment.
+ *
+ * Steps were never a customer control: every style preview this app has
+ * rendered went out with the image catalogue's `default_steps` fallback of 4,
+ * because GenStudio publishes no step contract. Freezing the segment keeps
+ * every previously cached preview addressable — dropping it from the blob
+ * would orphan the whole cache and bill a fresh render for pixels already on
+ * disk. Nothing reads or sends this value.
+ */
+const LEGACY_STEPS_KEY_SEGMENT = 4
+
+/**
  * Cache key. Normalises whitespace + lowercases so trivial formatting
  * differences ("Soft Watercolor" vs " soft watercolor ") don't generate
  * three separate cache entries.
@@ -90,15 +101,13 @@ export function hashStylePreviewKey(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
-  imageSteps?: number
   seed?: number
 }): string {
   const norm = opts.styleTag.replace(/\s+/g, ' ').trim().toLowerCase()
   const tier = opts.tier || ''
   const variantId = opts.variantId || 'default'
-  const imageSteps = opts.imageSteps ?? ''
   const seed = opts.seed ?? ''
-  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${variantId}|${imageSteps}|${seed}`
+  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${variantId}|${LEGACY_STEPS_KEY_SEGMENT}|${seed}`
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
 
@@ -127,7 +136,6 @@ export interface CachedStylePreview {
   aspect_ratio: string
   tier: string
   variant_id: string
-  image_steps?: number
   seed?: number
   created_at: string
   filename: string
@@ -141,7 +149,6 @@ export async function getCachedStylePreview(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
-  imageSteps?: number
   seed?: number
 }): Promise<CachedStylePreview | null> {
   const hash = hashStylePreviewKey(opts)
@@ -161,7 +168,6 @@ export async function getCachedStylePreview(opts: {
     aspect_ratio: entry.aspect_ratio,
     tier: entry.tier,
     variant_id: entry.variant_id || 'default',
-    image_steps: entry.image_steps,
     seed: entry.seed,
     created_at: entry.created_at,
     filename: entry.filename,
@@ -176,7 +182,6 @@ export async function saveStylePreview(opts: {
   aspectRatio: string
   tier?: string
   variantId?: string
-  imageSteps?: number
   seed?: number
   imageBytes: Buffer
 }): Promise<CachedStylePreview> {
@@ -195,7 +200,6 @@ export async function saveStylePreview(opts: {
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
     variant_id: opts.variantId || 'default',
-    image_steps: opts.imageSteps,
     seed: opts.seed,
     created_at: now,
     filename,
@@ -209,7 +213,6 @@ export async function saveStylePreview(opts: {
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
     variant_id: opts.variantId || 'default',
-    image_steps: opts.imageSteps,
     seed: opts.seed,
     created_at: now,
     filename,

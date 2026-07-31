@@ -119,6 +119,64 @@
               catalog-notice-href="/usage"
             />
           </div>
+          <!-- Spoken language. Three states, deliberately distinguishable:
+               a published list gets a real picker; a model that says only
+               "multilingual" gets auto-detect plus an UNVALIDATED free-entry
+               code; a model that published nothing gets the same controls with
+               different wording, because missing data is not a capability
+               statement. Auto-detect is always offered and is its own thing —
+               a choice, not a gap. See utils/transcription-language.ts. -->
+          <div v-if="genstudioSelectedModel" class="form-group mt-2">
+            <label for="sub-language">Spoken language</label>
+            <select
+              v-if="languageControl.mode === 'published'"
+              id="sub-language"
+              v-model="language"
+              class="input"
+            >
+              <option
+                v-for="option in languageControl.options"
+                :key="option.value"
+                :value="option.value"
+              >{{ option.label }}</option>
+            </select>
+            <div v-else class="flex gap-2 items-center">
+              <label class="flex items-center gap-1 text-sm">
+                <input
+                  type="checkbox"
+                  :checked="language === AUTO_DETECT_LANGUAGE"
+                  @change="toggleAutoDetect(($event.target as HTMLInputElement).checked)"
+                >
+                Auto-detect
+              </label>
+              <input
+                v-if="language !== AUTO_DETECT_LANGUAGE"
+                id="sub-language"
+                v-model="language"
+                class="input"
+                type="text"
+                placeholder="Language code, e.g. en"
+              >
+            </div>
+
+            <small v-if="languageControl.mode === 'published'" class="text-muted">
+              {{ genstudioSelectedModel.display_name }} publishes these languages.
+              <strong>Auto-detect</strong> sends no language and lets the model decide.
+            </small>
+            <small v-else-if="languageControl.mode === 'unenumerated'" class="text-muted">
+              {{ genstudioSelectedModel.display_name }} publishes
+              “{{ languageControl.publishedLanguage }}” but not the list of codes it accepts,
+              so this code is <strong>not validated</strong> — a wrong one is only caught by
+              GenStudio. <strong>Auto-detect</strong> sends no language at all.
+            </small>
+            <small v-else class="text-muted">
+              GenStudio published <strong>no language information</strong> for
+              {{ genstudioSelectedModel.display_name }} — that is missing catalogue data, not
+              a statement that the model detects the language. The code below is
+              <strong>not validated</strong>. <strong>Auto-detect</strong> sends no language
+              and lets the model decide.
+            </small>
+          </div>
         </div>
 
         <label class="flex items-center gap-1 mt-2 text-sm">
@@ -257,6 +315,15 @@
 </template>
 
 <script setup lang="ts">
+import {
+  AUTO_DETECT_LANGUAGE,
+  DEFAULT_TRANSCRIPTION_LANGUAGE,
+  defaultTranscriptionLanguage,
+  isTranscriptionLanguageUsable,
+  transcriptionLanguageControl,
+  transcriptionLanguageRequestFields,
+} from '~/utils/transcription-language'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Subtitles')
 
@@ -294,8 +361,20 @@ const loading = ref(false)
 
 const force = ref(false)
 const transcribing = ref(false)
+/**
+ * The chosen spoken language: a code, or `AUTO_DETECT_LANGUAGE` meaning
+ * "send no language field at all".
+ *
+ * Seeded to English because that is what this channel produces TODAY — a
+ * default, not a hardcode. The customer can change it, it round-trips through
+ * the subtitles preset, and nothing on the request path forces it: see
+ * `transcriptionLanguageRequestFields`, which omits the field entirely for
+ * auto-detect. When the owner adds more languages this line does not change.
+ */
+const language = ref(DEFAULT_TRANSCRIPTION_LANGUAGE)
 const {
   modelId: genstudioModel,
+  selectedModel: genstudioSelectedModel,
   options: genstudioModelOptions,
   loading: genstudioModelsLoading,
   error: genstudioModelsError,
@@ -303,6 +382,28 @@ const {
   planNotice: genstudioPlanNotice,
   load: loadGenstudioModels,
 } = useGenStudioTranscriptionModels()
+
+/** Published list vs unenumerated vs nothing published — three renders. */
+const languageControl = computed(() => transcriptionLanguageControl(genstudioSelectedModel.value))
+
+/** Auto-detect is a mode, not a code. Turning it off restores the working
+ *  default rather than leaving an empty box that silently means auto-detect —
+ *  the two must never look the same. */
+function toggleAutoDetect(on: boolean): void {
+  language.value = on
+    ? AUTO_DETECT_LANGUAGE
+    : defaultTranscriptionLanguage(genstudioSelectedModel.value)
+}
+
+// A remembered choice that the newly selected model cannot honour is replaced
+// by that model's default. A model with no published list validates nothing,
+// so a typed code survives a model switch.
+watch(genstudioSelectedModel, (model) => {
+  if (!model) return
+  if (!isTranscriptionLanguageUsable(language.value, model)) {
+    language.value = defaultTranscriptionLanguage(model)
+  }
+})
 
 const importPath = ref('')
 const importing = ref(false)
@@ -490,7 +591,9 @@ async function transcribe(): Promise<void> {
       per_chapter: true,
       engine: 'genstudio',
       model: genstudioModel.value,
-      language: 'en',
+      // Auto-detect is implemented by OMITTING `language` — there is no "auto"
+      // value on the wire. Any other choice is sent verbatim.
+      ...transcriptionLanguageRequestFields(language.value),
       force: force.value,
     })
     showInfo('Per-chapter transcription queued — progress shows in Jobs / the bell.')
@@ -558,12 +661,16 @@ async function deleteSrt(filename: string): Promise<void> {
 // same pattern as the other generator tabs — so the user's pick persists and
 // is shareable, instead of a hidden per-machine localStorage value. Distinct
 // configKey from Video Assembly's 'subtitles' (subtitle-STYLE) presets.
-const subtitlesPresets = usePresets<{ model?: string; force?: boolean }>({
+const subtitlesPresets = usePresets<{ model?: string; language?: string; force?: boolean }>({
   slug: slug.value,
   configKey: 'subtitles_generator',
-  snapshot: () => ({ model: genstudioModel.value, force: force.value }),
+  snapshot: () => ({ model: genstudioModel.value, language: language.value, force: force.value }),
   apply: (d) => {
     if (typeof d?.model === 'string' && d.model) genstudioModel.value = d.model
+    // The language choice round-trips as-is, including the auto-detect
+    // sentinel, so "let the model decide" survives a reload as a decision
+    // rather than degrading into a blank field.
+    if (typeof d?.language === 'string' && d.language) language.value = d.language
     if (typeof d?.force === 'boolean') force.value = d.force
   },
 })

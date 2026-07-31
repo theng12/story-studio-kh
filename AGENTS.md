@@ -1,5 +1,54 @@
 # Codex Notes
 
+## Everything Follows the Selected Model — The First Rule
+
+**Nothing about a model may be hardcoded, copied, or cached past the moment the selection
+changes.** This is the owner's most important rule and it outranks convenience everywhere.
+
+GenStudio publishes what each product can do. Story Studio reads it, live, and re-reads it
+whenever the selection changes. It never guesses, never remembers a number that belongs to
+the catalogue, and never infers capability from a product's name.
+
+When the user changes model, ALL of these must recompute immediately — not on reload, not on
+next launch:
+
+- **Prompt character cap** (`max_prompt_characters`) and any warning derived from it
+- **Context window and output allowance** (`context_window_tokens`, `max_output_tokens`),
+  plus the available-input budget that falls out of them
+- **Price and credit cost** — per image, per video variant, per 1,000 TTS characters, per
+  second of transcription, per million chat tokens, plus promotions, `chargeable`, and
+  Unlimited eligibility
+- **Reference-image support and counts** (`supports_reference_images`,
+  `min_reference_images`, `max_reference_images`)
+- **Aspect ratios, resolutions, durations, modes, voice tiers, languages** — every published
+  option list
+- **Capability flags** — `supports_seed`, `supports_vision`, `supports_web_search`,
+  `structured_output_mode`, `controls[]`, and the rest
+
+Concretely, this forbids:
+
+- A constant, ladder, or option list that duplicates something GenStudio publishes. Generate
+  the list from the catalogue.
+- Persisting a limit into a draft, preset, or project config. Persist the SELECTION (model
+  id, chosen allowance); resolve the limits fresh and re-clamp on load.
+- A value computed once into component state and not recomputed when the model changes. If a
+  model switch can invalidate it, it needs a watcher.
+- Inventing a fallback when GenStudio publishes nothing. Show nothing, disable the control,
+  or fail loudly — never a number the customer will mistake for the model's own.
+- Converting a token budget into a character or word limit by a fixed ratio. Tokens and
+  characters are different units; the ratio is not stable. Use the character figure GenStudio
+  publishes.
+
+And it requires: **a limit that is enforced must also be shown.** Silently refusing a request
+because of a published limit the user was never told about turns a clear constraint into a
+mystery error. Surface the figure at the point of choosing.
+
+Past violations, all real and all costly: a Scene Plan output ladder capped at 32,768 against
+a model publishing 128,000; a synthesised image config asserting `supports_reference_images:
+false` for every model while silently dropping attached references and billing text-to-image;
+an invented steps contract GenStudio never published; a 4,000-character prompt cap overruling
+a published 4,800; a chunking threshold derived from a retired provider's 16,000-token cap.
+
 ## Mandatory Release Integrity
 
 - Every shipped Story Studio change—including fixes, reliability work, UI/API

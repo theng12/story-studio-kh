@@ -60,13 +60,35 @@ function accountOverview() {
  *  product needs its own key or the first ceiling sticks for the whole file. */
 let keySeq = 0
 
+/** One settled `/v1/chat/responses` job. The durable route is now the default,
+ *  so a fixture that still returned an OpenAI-shaped completion would be
+ *  testing a rollback path rather than what ships. */
+function chatJob(fields: Record<string, unknown> = {}) {
+  return {
+    id: 'job_budget_1',
+    state: 'succeeded',
+    operation: 'chat.response',
+    dispatch_mode: 'asynchronous',
+    model_id: 'writer-alpha',
+    output_text: '{"ok":true}',
+    output_retained: true,
+    finish_reason: 'stop',
+    failure_code: null,
+    routing_status_code: null,
+    credit_cost: 3,
+    remaining_credits: 900,
+    idempotent_replay: false,
+    ...fields,
+  }
+}
+
 /** Run one chat call against a fixture product and report what it ASKED for. */
 async function submittedTokenLimit(
   request: Parameters<typeof callChatWithGenStudio>[1],
   productMaxOutputTokens = 65_536,
-): Promise<{ maxCompletionTokens: number; submissions: number }> {
+): Promise<{ maxOutputTokens: number; submissions: number }> {
   const originalFetch = globalThis.fetch
-  let maxCompletionTokens = -1
+  let maxOutputTokens = -1
   let submissions = 0
   try {
     globalThis.fetch = async (input, init) => {
@@ -74,25 +96,15 @@ async function submittedTokenLimit(
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog(productMaxOutputTokens))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       submissions += 1
-      maxCompletionTokens = JSON.parse(String(init?.body)).max_completion_tokens
-      return Response.json({
-        id: 'job_budget_1',
-        object: 'chat.completion',
-        model: 'writer-alpha',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: '{"ok":true}' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-      })
+      maxOutputTokens = JSON.parse(String(init?.body)).max_output_tokens
+      return Response.json(chatJob())
     }
     keySeq += 1
     await callChatWithGenStudio(`budget-key-${keySeq}`, request)
   } finally {
     globalThis.fetch = originalFetch
   }
-  return { maxCompletionTokens, submissions }
+  return { maxOutputTokens, submissions }
 }
 
 const baseRequest = {
@@ -166,32 +178,32 @@ test('a malformed catalogue entry degrades to short-form, never to unlimited', (
 
 test('a long-form workflow submits a product-derived limit, not 2,048', async () => {
   const long = await submittedTokenLimit({ ...baseRequest, outputBudget: 'long' })
-  assert.equal(long.maxCompletionTokens, 32_768)
-  assert.notEqual(long.maxCompletionTokens, 2_048)
+  assert.equal(long.maxOutputTokens, 32_768)
+  assert.notEqual(long.maxOutputTokens, 2_048)
 
   const maximum = await submittedTokenLimit({ ...baseRequest, outputBudget: 'maximum' })
-  assert.equal(maximum.maxCompletionTokens, 65_536)
+  assert.equal(maximum.maxOutputTokens, 65_536)
 
   // The SAME tier on a different product asks for a different number.
   const smaller = await submittedTokenLimit({ ...baseRequest, outputBudget: 'long' }, 8_192)
-  assert.equal(smaller.maxCompletionTokens, 8_192)
+  assert.equal(smaller.maxOutputTokens, 8_192)
 })
 
 test('short-form callers are unchanged — still exactly 2,048', async () => {
   const untouched = await submittedTokenLimit({ ...baseRequest })
-  assert.equal(untouched.maxCompletionTokens, 2_048)
+  assert.equal(untouched.maxOutputTokens, 2_048)
   const explicit = await submittedTokenLimit({ ...baseRequest, outputBudget: 'short' })
-  assert.equal(explicit.maxCompletionTokens, 2_048)
+  assert.equal(explicit.maxOutputTokens, 2_048)
   // And a product smaller than the default still wins.
   const tiny = await submittedTokenLimit({ ...baseRequest }, 1_024)
-  assert.equal(tiny.maxCompletionTokens, 1_024)
+  assert.equal(tiny.maxOutputTokens, 1_024)
 })
 
 test('an explicit number still wins over a tier', async () => {
   const explicit = await submittedTokenLimit({
     ...baseRequest, maxOutputTokens: 4_096, outputBudget: 'maximum',
   })
-  assert.equal(explicit.maxCompletionTokens, 4_096)
+  assert.equal(explicit.maxOutputTokens, 4_096)
 })
 
 test('the product ceiling is still enforced BEFORE anything is submitted', async () => {
@@ -229,33 +241,28 @@ test('a tier can never be the thing that trips the ceiling guard', async () => {
     for (const ceiling of [1_024, 65_536]) {
       const result = await submittedTokenLimit({ ...baseRequest, outputBudget: tier }, ceiling)
       assert.equal(result.submissions, 1, `${tier}@${ceiling} was refused`)
-      assert.ok(result.maxCompletionTokens <= ceiling)
+      assert.ok(result.maxOutputTokens <= ceiling)
     }
   }
 })
 
 // ── Truncation is never success ──────────────────────────────────────────
 
-test('a finish_reason "length" completion fails loudly and returns no partial', async () => {
+test('a finish_reason "length" job fails loudly and returns no partial', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog(65_536))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      return Response.json({
+      return Response.json(chatJob({
         id: 'job_truncated_1',
-        object: 'chat.completion',
-        model: 'writer-alpha',
-        choices: [{
-          index: 0,
-          // Valid JSON, so nothing else in the pipeline would have objected —
-          // only the finish reason says this answer was cut off.
-          message: { role: 'assistant', content: '{"summary":"half a thou' },
-          finish_reason: 'length',
-        }],
-        usage: { prompt_tokens: 10, completion_tokens: 2_048, total_tokens: 2_058 },
-      })
+        // Valid JSON, so nothing else in the pipeline would have objected —
+        // only the finish reason says this answer was cut off. The durable
+        // route reports it on the JOB, not on a choice.
+        output_text: '{"summary":"half a thou',
+        finish_reason: 'length',
+      }))
     }
     const error = await callChatWithGenStudio('truncated-key', baseRequest)
       .then(result => result as unknown, (err: unknown) => err)
@@ -283,13 +290,7 @@ test('every non-stop finish reason is rejected; genuine stops are not', async ()
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog(65_536))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      return Response.json({
-        id: 'job_finish_1',
-        object: 'chat.completion',
-        model: 'writer-alpha',
-        choices: [{ index: 0, message: { role: 'assistant', content: '{"ok":true}' }, finish_reason: finishReason }],
-        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-      })
+      return Response.json(chatJob({ id: 'job_finish_1', finish_reason: finishReason }))
     }
     return callChatWithGenStudio('finish-key', baseRequest).then(r => r as unknown, (e: unknown) => e)
   }
@@ -324,7 +325,9 @@ test('every long-form workflow declares a product-derived budget', () => {
     ['research (model knowledge)', '../services/research/genstudio.ts', /outputBudget: 'long'/],
     ['research (web search)', '../services/research/genstudio-web.ts', /outputBudget: 'long'/],
     ['chunked narration outline', '../lib/chunked-narration.ts', /outputBudget: 'long'/],
-    ['chunked narration batches', '../lib/chunked-narration.ts', /outputBudget: 'maximum' as const/],
+    // Batches size their own reservation from the batch's word targets rather
+    // than taking the product's whole ceiling — see chunking-budget.test.ts.
+    ['chunked narration batches', '../lib/chunked-narration.ts', /outputBudget: batchOutputBudget\(batch, params\.wordsPerChapter\)/],
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
     ['docx normalizer', '../services/docx-normalizer.ts', /outputBudget: 'maximum'/],
     ['audio expression markup', '../services/audio-expression.ts', /outputBudget: 'maximum'/],

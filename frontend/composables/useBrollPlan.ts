@@ -38,7 +38,6 @@ export interface AiImageControls {
   ai_fallback?: boolean
   image_model?: string
   image_aspect_ratio?: string
-  image_steps?: number
   image_seed?: number
 }
 

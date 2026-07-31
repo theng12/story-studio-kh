@@ -22,7 +22,7 @@ import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
@@ -52,7 +52,9 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   // Resolve the configured image model + its provider (mirrors scene-image.ts).
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig = resolveImageModelConfig(config, model)
+  const apiKey = await getApiKey('genstudio')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   if (modelConfig.provider !== 'genstudio-image') {
@@ -68,14 +70,12 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     aspect_field: (modelConfig as any).aspect_field,
   }
-  const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   job.output_lines.push(`Composition template — ${imageProvider.meta.name} / ${model}`)
   job.output_lines.push(`Prompt: ${prompt.slice(0, 200)}${prompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
-  const aspectRatio = params.aspect_ratio || '16:9'
+  const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   const outDir = path.join(paths.episode_dir, 'img2img-references')
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, COMPOSITION_FILENAME)

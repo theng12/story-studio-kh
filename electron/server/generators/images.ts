@@ -30,7 +30,7 @@ import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import fs from 'fs/promises'
@@ -215,7 +215,11 @@ export async function generateImages(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
   const modelName = req.model || 'grok-imagine'
-  const modelConfig = resolveImageModelConfig(config, modelName)
+  // The key is resolved first because the model's capabilities now come from
+  // the live GenStudio catalogue rather than a synthesised constant.
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  const modelConfig = await resolveImageModelConfig(config, modelName, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
   const resolvedModelConfig: ImageModelConfig = modelConfig
 
@@ -229,8 +233,6 @@ export async function generateImages(job: Job): Promise<void> {
   // This ensures the selected resolution affects the provider payload as well
   // as the credit estimate.
   const providerParams = resolveImageProviderParams(modelConfig, req.tier)
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
 
   // Find the prompt file for the requested independent pool.
   const mode = req.mode
@@ -306,11 +308,21 @@ export async function generateImages(job: Job): Promise<void> {
   // character can have keywords without uploading a reference image
   // (and vice versa). Both pools feed the same name-match function below.
   const castWithStyle = cast.filter(c => (c.references?.style_keywords?.length ?? 0) > 0)
+  // What this model actually does with references, read from the catalogue
+  // entry the resolver just carried through. The old text told every user
+  // their model ignored references because the flag was a hardcoded `false`.
+  const supportsReferences = modelConfig.supports_reference_images === true
+  const maxReferences = modelConfig.max_reference_images ?? (supportsReferences ? 1 : 0)
+  const minReferences = modelConfig.min_reference_images ?? 0
+  if (minReferences > 0) {
+    job.output_lines.push(
+      `Model '${modelName}' publishes a ${minReferences}-reference minimum — renders without references will be refused before submission.`,
+    )
+  }
   if (castWithRefs.length) {
-    const supports = providerParams?.supports_reference_images === true
-    const note = supports
-      ? `model '${modelName}' will receive their references`
-      : `model '${modelName}' does NOT support references — they'll be ignored (use Flux Kontext or Nano Banana for reference-driven gen)`
+    const note = supportsReferences
+      ? `model '${modelName}' will receive their references (up to ${maxReferences} per render as published by GenStudio)`
+      : `model '${modelName}' publishes no reference-image support — they'll be ignored; pick a reference-capable model for reference-driven gen`
     job.output_lines.push(
       `Cast with reference images: ${castWithRefs.map(c => c.name).join(', ')} — ${note}`,
     )
@@ -395,10 +407,9 @@ export async function generateImages(job: Job): Promise<void> {
     art_style: imageMode === 'img2img' && artStyleRefPaths.length > 0 && refSourcesRaw.art_style !== false,
   }
   if (imageMode === 'img2img' && refSources.art_style) {
-    const supports = providerParams?.supports_reference_images === true
     job.output_lines.push(
       `Art-style reference image attached (${artStyle?.name || artStyle?.source || 'active style'})` +
-      (supports ? '' : ` — but model '${modelName}' ignores references; style still applies via the prompt text`),
+      (supportsReferences ? '' : ` — but model '${modelName}' publishes no reference support; style still applies via the prompt text`),
     )
   }
   const referenceStrength: ThumbnailReferenceStrength = (req.reference_strength === 'loose' || req.reference_strength === 'strong')
@@ -482,7 +493,9 @@ export async function generateImages(job: Job): Promise<void> {
     return `${trimmed}, ${keywords.join(', ')}`
   }
 
-  const aspectRatio = req.aspect_ratio || '16:9'
+  // Defaults from the model's published `default_aspect_ratio` and refuses a
+  // ratio it does not publish, before any scene is submitted.
+  const aspectRatio = resolveConfiguredAspectRatio(resolvedModelConfig, req.aspect_ratio)
   // v1.0.308 — explicit render dimensions for LOCAL models (Image Studio). The
   // Scene/Thumbnail Generator's Size control sends a downscaled width/height to
   // cut a local model's GPU/VAE memory + render time at lower resolution. The
@@ -640,6 +653,23 @@ export async function generateImages(job: Job): Promise<void> {
       // + chain depending on the user's reference_sources toggles.
       const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
       const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
+      // Every reference the user configured for this scene, forwarded only
+      // when GenStudio publishes reference support for the selected model.
+      // Before v1.0.788 this list was computed and then thrown away, so an
+      // img2img scene run was silently billed as a text2img render.
+      const sceneReferences = supportsReferences
+        ? resolveSceneReferenceImages(scene).slice(0, Math.max(maxReferences, 0))
+        : []
+      if (sceneReferences.length) {
+        job.output_lines.push(
+          `Scene ${scene.number}: attaching ${sceneReferences.length} reference image(s) — ` +
+          sceneReferences.map(p => path.basename(p)).join(', '),
+        )
+      } else if (!supportsReferences && imageMode === 'img2img') {
+        job.output_lines.push(
+          `Scene ${scene.number}: model '${modelName}' publishes no reference support — rendering from the prompt text only.`,
+        )
+      }
       attempt = await prepareImageAttempt(bgDir, sceneManifest, filename, finalPrompt)
       if (attempt.recovery.kind === 'uncertain') throw uncertainRecoveryError(attempt.recovery)
       for (const note of attempt.notes) job.output_lines.push(`Scene ${scene.number}: ${note}`)
@@ -662,8 +692,8 @@ export async function generateImages(job: Job): Promise<void> {
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
         width: renderWidth, height: renderHeight,
-        steps: req.image_steps,
         seed: req.seed,
+        ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
         idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${attempt.scope}`,
         isCancelled: () => jq.isCancelled(job.job_id),
         onJobAccepted: async (taskId, idempotencyKey) => {
@@ -770,7 +800,6 @@ export async function generateImages(job: Job): Promise<void> {
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
         width: renderWidth, height: renderHeight,
-        steps: req.image_steps,
         seed: req.seed,
         ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
         idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${attempt.scope}`,

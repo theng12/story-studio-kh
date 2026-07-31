@@ -446,7 +446,6 @@ async function renderSample(variantId: string, force: boolean): Promise<void> {
       model: previewModel.value,
       aspect_ratio: previewAspect.value,
       variant_id: variantId,
-      image_steps: selectedImageModel.value?.default_steps,
       force,
     })
     patchSample(variantId, {

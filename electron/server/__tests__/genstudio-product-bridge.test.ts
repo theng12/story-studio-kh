@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   callChatWithGenStudio,
+  GENSTUDIO_CHAT_TRANSPORT_ENV,
   GenStudioApiError,
   listChatModels,
+  resolveGenStudioChatTransport,
 } from '../lib/genstudio-client.js'
 import {
   jsonValueMatchesSchema,
@@ -51,6 +53,26 @@ function catalog(mode: 'json_object' | 'request_json_schema', id = 'writer-alpha
 /** Any phrasing that promises the caller nothing was requested or charged. */
 const UNCHARGED_CLAIM = /no request or credit charge|uncharged|not charged|without charge/i
 
+/** One settled durable language job — what `/v1/chat/responses` returns. */
+function chatJob(outputText: string) {
+  return {
+    id: 'job_product_1',
+    state: 'succeeded',
+    operation: 'chat.response',
+    dispatch_mode: 'asynchronous',
+    model_id: 'writer-alpha',
+    output_text: outputText,
+    output_retained: true,
+    finish_reason: 'stop',
+    failure_code: null,
+    routing_status_code: null,
+    credit_cost: 4,
+    remaining_credits: 900,
+    idempotent_replay: false,
+  }
+}
+
+/** The rollback route's shape, for the one test that pins it. */
 function completion(content: string) {
   return {
     id: 'job_product_1',
@@ -61,8 +83,10 @@ function completion(content: string) {
   }
 }
 
+/** `input` on the durable route, `messages` on the rollback route — same
+ *  objects, so one reader serves both. */
 function systemPrompt(body: Record<string, any>): string {
-  const messages = body.messages as Array<{ role: string; content: string }>
+  const messages = (body.input ?? body.messages) as Array<{ role: string; content: string }>
   return messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n')
 }
 
@@ -103,9 +127,14 @@ test('a strict-schema workflow on a strict-schema product still submits the actu
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       // Assert the endpoint, not the host: the base URL is operator-configurable, so
       // pinning a literal host couples this test to ambient app-settings state.
-      assert.ok(url.endsWith('/v1/chat/completions'), `unexpected chat endpoint: ${url}`)
+      assert.ok(url.endsWith('/v1/chat/responses'), `unexpected chat endpoint: ${url}`)
       const body = JSON.parse(String(init?.body))
-      assert.equal(body.model, 'writer-alpha')
+      // ChatResponseRequest names: model_id / input / max_output_tokens — NOT
+      // the OpenAI-compatible model / messages / max_completion_tokens.
+      assert.equal(body.model_id, 'writer-alpha')
+      assert.equal(body.model, undefined)
+      assert.equal(body.messages, undefined)
+      assert.equal(body.max_completion_tokens, undefined)
       assert.deepEqual(body.response_format, {
         type: 'json_schema',
         json_schema: {
@@ -114,25 +143,14 @@ test('a strict-schema workflow on a strict-schema product still submits the actu
           schema: METADATA_CONTRACT.mode === 'json_schema' ? METADATA_CONTRACT.schema : {},
         },
       })
-      assert.equal(body.stream, false)
-      assert.equal(body.max_completion_tokens, 60_000)
+      assert.equal(body.max_output_tokens, 60_000)
       // The required shape is stated in words as well, so json_object products behave the same.
       assert.match(systemPrompt(body), /Required top-level keys: title, score/)
       assert.match(
         (init?.headers as Record<string, string>)['Idempotency-Key'],
         /^story-chat-[a-f0-9]{47}$/,
       )
-      return Response.json({
-        id: 'job_product_1',
-        object: 'chat.completion',
-        model: 'writer-alpha',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: '{"title":"Quiet Forest","score":92}' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
-      })
+      return Response.json(chatJob('{"title":"Quiet Forest","score":92}'))
     }
     const result = await callChatWithGenStudio('strict-product-key', {
       modelId: 'writer-alpha',
@@ -144,7 +162,7 @@ test('a strict-schema workflow on a strict-schema product still submits the actu
     })
     assert.deepEqual(JSON.parse(result.text), { title: 'Quiet Forest', score: 92 })
     assert.equal(result.modelId, 'writer-alpha')
-    assert.equal(requests.filter(request => request.url.endsWith('/v1/chat/completions')).length, 1)
+    assert.equal(requests.filter(request => request.url.endsWith('/v1/chat/responses')).length, 1)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -186,7 +204,7 @@ test('a schema-only product adapts a plain JSON Object workflow instead of refus
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       const body = JSON.parse(String(init?.body))
       sent.push(body)
-      return Response.json(completion('{"any":"object"}'))
+      return Response.json(chatJob('{"any":"object"}'))
     }
     const result = await callChatWithGenStudio('mode-adapt-key', {
       modelId: 'writer-alpha',
@@ -214,10 +232,10 @@ test('a JSON Object product accepts a schema-carrying workflow and states the sh
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       // Assert the endpoint, not the host: the base URL is operator-configurable, so
       // pinning a literal host couples this test to ambient app-settings state.
-      assert.ok(url.endsWith('/v1/chat/completions'), `unexpected chat endpoint: ${url}`)
+      assert.ok(url.endsWith('/v1/chat/responses'), `unexpected chat endpoint: ${url}`)
       const body = JSON.parse(String(init?.body))
       sent.push(body)
-      return Response.json(completion(JSON.stringify({
+      return Response.json(chatJob(JSON.stringify({
         thumbnails: [
           { title: 'First', prompt: 'A moonlit road.' },
           { title: 'Second', prompt: 'A quiet library.' },
@@ -234,7 +252,7 @@ test('a JSON Object product accepts a schema-carrying workflow and states the sh
     // (c) JSON Object output is requested, never provider-native strict schema.
     assert.equal(sent.length, 1)
     assert.deepEqual(sent[0]!.response_format, { type: 'json_object' })
-    assert.equal(sent[0]!.model, 'writer-alpha')
+    assert.equal(sent[0]!.model_id, 'writer-alpha')
 
     // (b) The required structure travels in the instructions.
     const system = systemPrompt(sent[0]!)
@@ -265,7 +283,7 @@ test('local validation rejects bad output without ever claiming the request was 
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      return Response.json(completion('not json at all'))
+      return Response.json(chatJob('not json at all'))
     }
     const invalidJson = await callChatWithGenStudio('invalid-json-key', {
       modelId: 'writer-alpha',
@@ -282,7 +300,7 @@ test('local validation rejects bad output without ever claiming the request was 
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      return Response.json(completion('{"thumbnails":[{"title":"Only one"}]}'))
+      return Response.json(chatJob('{"thumbnails":[{"title":"Only one"}]}'))
     }
     const wrongShape = await callChatWithGenStudio('wrong-shape-key', {
       modelId: 'writer-alpha',
@@ -297,6 +315,65 @@ test('local validation rejects bad output without ever claiming the request was 
     assert.doesNotMatch(wrongShape.message, UNCHARGED_CLAIM)
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('the synchronous completions route stays reachable for rollback', async () => {
+  // `/v1/chat/completions` is not deleted: one switch flips the whole app back
+  // to it, and when it does, the request must still be the OpenAI-compatible
+  // shape it always was — model / messages / max_completion_tokens.
+  const originalFetch = globalThis.fetch
+  const paths: string[] = []
+  const sent: Array<Record<string, any>> = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      paths.push(new URL(url).pathname)
+      sent.push(JSON.parse(String(init?.body)))
+      return Response.json(completion('{"any":"object"}'))
+    }
+    const result = await callChatWithGenStudio('rollback-route-key', {
+      modelId: 'writer-alpha',
+      system: 'Return one object.',
+      userMessage: 'Return one object.',
+      maxOutputTokens: 4_096,
+      outputContract: { mode: 'json_object' },
+      transport: 'completions',
+    })
+    assert.deepEqual(JSON.parse(result.text), { any: 'object' })
+    assert.deepEqual(paths, ['/v1/chat/completions'])
+    assert.equal(sent[0]!.model, 'writer-alpha')
+    assert.equal(sent[0]!.max_completion_tokens, 4_096)
+    assert.equal(sent[0]!.stream, false)
+    assert.ok(Array.isArray(sent[0]!.messages))
+    // …and it never speaks the durable route's dialect by accident.
+    assert.equal(sent[0]!.model_id, undefined)
+    assert.equal(sent[0]!.input, undefined)
+    assert.equal(sent[0]!.max_output_tokens, undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('the transport switch has exactly one resolution point', () => {
+  // Default is the durable route; only the documented env value rolls back.
+  const previous = process.env[GENSTUDIO_CHAT_TRANSPORT_ENV]
+  try {
+    delete process.env[GENSTUDIO_CHAT_TRANSPORT_ENV]
+    assert.equal(resolveGenStudioChatTransport(), 'responses')
+    process.env[GENSTUDIO_CHAT_TRANSPORT_ENV] = 'completions'
+    assert.equal(resolveGenStudioChatTransport(), 'completions')
+    process.env[GENSTUDIO_CHAT_TRANSPORT_ENV] = 'anything-else'
+    assert.equal(resolveGenStudioChatTransport(), 'responses')
+    // A per-call override still wins, so a test can pin either side.
+    assert.equal(resolveGenStudioChatTransport('responses'), 'responses')
+    delete process.env[GENSTUDIO_CHAT_TRANSPORT_ENV]
+    assert.equal(resolveGenStudioChatTransport('completions'), 'completions')
+  } finally {
+    if (previous === undefined) delete process.env[GENSTUDIO_CHAT_TRANSPORT_ENV]
+    else process.env[GENSTUDIO_CHAT_TRANSPORT_ENV] = previous
   }
 })
 

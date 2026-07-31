@@ -44,6 +44,12 @@ export interface MockGenStudioScenario {
   failureCode?: string
   routingStatusCode?: string
   outputText?: string
+  /** Chat only. Anything other than a stop must be refused, never returned as
+   *  a finished result. Defaults to `stop`. */
+  finishReason?: string
+  /** Chat only. Extra top-level response fields — the web-research evidence
+   *  envelope (`citations`, `research_ran_at`, …) rides here. */
+  envelope?: Record<string, unknown>
   artifactExpired?: boolean
   dropFirstSubmitResponse?: boolean
 }
@@ -66,10 +72,12 @@ export interface MockGenStudioSubmission {
 }
 
 interface StoredScenario extends Required<Omit<MockGenStudioScenario,
-  'failureCode' | 'routingStatusCode' | 'outputText'>> {
+  'failureCode' | 'routingStatusCode' | 'outputText' | 'finishReason' | 'envelope'>> {
   failureCode: string | null
   routingStatusCode: string | null
   outputText: string
+  finishReason: string
+  envelope: Record<string, unknown>
 }
 
 interface MockJob {
@@ -214,6 +222,8 @@ function normalizeScenario(
     failureCode: scenario.failureCode || null,
     routingStatusCode: scenario.routingStatusCode || null,
     outputText: scenario.outputText || 'Mock GenStudio output.',
+    finishReason: scenario.finishReason || 'stop',
+    envelope: scenario.envelope || {},
     artifactExpired: scenario.artifactExpired === true,
     dropFirstSubmitResponse: scenario.dropFirstSubmitResponse === true,
   }
@@ -432,6 +442,22 @@ export class MockGenStudioService {
     }
   }
 
+  /**
+   * A prose workflow asks for a one-key `{ "text": … }` wrapper, so honour the
+   * submitted `response_format` rather than always returning bare prose the
+   * client would then reject as a contract violation.
+   */
+  private chatOutputText(job: MockJob): string {
+    const responseFormat = job.body.response_format as Record<string, unknown> | undefined
+    const schemaDefinition = responseFormat?.json_schema as Record<string, unknown> | undefined
+    const schema = schemaDefinition?.schema as Record<string, unknown> | undefined
+    const properties = schema?.properties as Record<string, unknown> | undefined
+    if (properties && Object.keys(properties).length === 1 && properties.text) {
+      return JSON.stringify({ text: job.scenario.outputText })
+    }
+    return job.scenario.outputText
+  }
+
   private responseBody(job: MockJob, replay = false): Record<string, unknown> {
     const state = this.state(job)
     const base = {
@@ -450,7 +476,12 @@ export class MockGenStudioService {
     if (job.operation === 'chat') {
       return {
         ...base,
-        output_text: state === 'succeeded' ? job.scenario.outputText : null,
+        // ChatJobResponse also publishes the research evidence envelope at the
+        // top level, exactly like the synchronous completion envelope does.
+        ...job.scenario.envelope,
+        output_text: state === 'succeeded' ? this.chatOutputText(job) : null,
+        output_retained: state === 'succeeded',
+        finish_reason: state === 'succeeded' ? job.scenario.finishReason : null,
       }
     }
     if (job.operation === 'image') {
@@ -550,15 +581,9 @@ export class MockGenStudioService {
             json(response, 502, { detail: 'language generation failed' })
             return
           }
-          const responseFormat = parsedBody.response_format as Record<string, unknown> | undefined
-          const schemaDefinition = responseFormat?.json_schema as Record<string, unknown> | undefined
-          const schema = schemaDefinition?.schema as Record<string, unknown> | undefined
-          const properties = schema?.properties as Record<string, unknown> | undefined
-          let content = job.scenario.outputText
-          if (properties && Object.keys(properties).length === 1 && properties.text) {
-            content = JSON.stringify({ text: content })
-          }
+          const content = this.chatOutputText(job)
           json(response, 200, {
+            ...job.scenario.envelope,
             id: job.id,
             object: 'chat.completion',
             created: Math.floor(Date.now() / 1_000),
@@ -567,7 +592,7 @@ export class MockGenStudioService {
               index: 0,
               message: { role: 'assistant', content, refusal: null },
               logprobs: null,
-              finish_reason: 'stop',
+              finish_reason: job.scenario.finishReason,
             }],
             usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
             idempotent_replay: replay,
@@ -761,7 +786,14 @@ export class MockGenStudioService {
       json(response, 200, [{
         id: 'mock-image-v1', display_name: 'Mock Image', description: 'In-process PNG fixture.',
         available: true, qualification_only: false, aspect_ratios: ['16:9', '1:1'],
-        default_aspect_ratio: '16:9', default_steps: 4, min_steps: 2, max_steps: 8,
+        default_aspect_ratio: '16:9', default_resolution: '1K',
+        output_options: [
+          { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, is_default: true },
+          { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: false },
+        ],
+        supports_seed: true, supports_image_to_image: false, operations: ['image.generation'],
+        max_prompt_characters: 4800, prompt_token_allowance: 1200,
+        min_reference_images: 0, max_reference_images: 0,
       }])
       return true
     }

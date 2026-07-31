@@ -162,6 +162,48 @@ describe('GenStudio request preview — bounded size', () => {
     assert.equal(preview.messages?.[0]?.truncated, false)
   })
 
+  test('a real-world ~8K system prompt now stores whole under the raised cap', () => {
+    // Regression pin for the owner-reported bug: a SYSTEM message of 8,167
+    // characters used to be cut down to 2,000. It must now survive intact.
+    const systemPrompt = 'S'.repeat(8_167)
+    const userPrompt = 'U'.repeat(3_083)
+    const preview = buildGenStudioRequestPreview({
+      path: '/v1/chat/completions',
+      idempotencyKey: 'story-chat-real-world',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    })
+    const [system, user] = preview.messages!
+    assert.equal(system!.truncated, false, 'the system prompt must fit under the new cap whole')
+    assert.equal(system!.length, 8_167)
+    assert.equal(system!.text, systemPrompt, 'no characters are dropped and no marker is appended')
+    assert.equal(user!.truncated, false)
+    assert.equal(user!.text, userPrompt)
+  })
+
+  test('a message exactly at the cap is not truncated; one character over it is', () => {
+    const atLimit = buildGenStudioRequestPreview({
+      path: '/v1/chat/completions',
+      idempotencyKey: 'story-chat-at-limit',
+      messages: [{ role: 'user', content: 'A'.repeat(GENSTUDIO_REQUEST_MESSAGE_LIMIT) }],
+    })
+    assert.equal(atLimit.messages?.[0]?.truncated, false)
+    assert.equal(atLimit.messages?.[0]?.text, 'A'.repeat(GENSTUDIO_REQUEST_MESSAGE_LIMIT))
+
+    const overLimit = buildGenStudioRequestPreview({
+      path: '/v1/chat/completions',
+      idempotencyKey: 'story-chat-over-limit',
+      messages: [{ role: 'user', content: 'A'.repeat(GENSTUDIO_REQUEST_MESSAGE_LIMIT + 1) }],
+    })
+    const message = overLimit.messages?.[0]
+    assert.equal(message?.truncated, true)
+    assert.equal(message?.length, GENSTUDIO_REQUEST_MESSAGE_LIMIT + 1, 'the true length is always reported')
+    assert.match(message!.text, /showing [\d,]+ of [\d,]+ characters/,
+      'the marker states exactly how much was stored versus the true length, for the UI to render honestly')
+  })
+
   test('message and field counts are capped', () => {
     const preview = buildGenStudioRequestPreview({
       path: '/v1/chat/completions',

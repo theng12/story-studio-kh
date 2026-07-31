@@ -113,16 +113,25 @@
             {{ showVisualStyleGallery ? 'Hide visual style gallery' : 'Browse visual style gallery…' }}
           </button>
         </div>
+        <!-- Ratios come from the selected GenStudio image model's published
+             `aspect_ratios`, not a hardcoded list. The old static options
+             both hid ratios a model supports and offered ones it does not,
+             so a prompt sheet could be written for a frame that would be
+             rejected (or silently substituted) at render time. -->
         <div class="form-group">
           <label>Aspect Ratio</label>
           <select v-model="activeForm.aspect_ratio" class="select">
-            <option value="16:9">16:9 — Landscape (YouTube)</option>
-            <option value="1:1">1:1 — Square (Instagram)</option>
-            <option value="9:16">9:16 — Portrait (Stories/TikTok)</option>
-            <option value="4:3">4:3 — Classic</option>
-            <option value="3:4">3:4 — Portrait Classic</option>
-            <option value="21:9">21:9 — Ultrawide</option>
+            <option v-for="ar in aspectRatios" :key="ar.value" :value="ar.value">
+              {{ ar.value }} — {{ ar.label }}
+            </option>
           </select>
+          <small v-if="selectedGenStudioImageModel" class="text-muted">
+            Published by {{ selectedGenStudioImageModel.display_name }}.
+          </small>
+          <small v-else class="text-muted">
+            No image model selected yet — these are the ratios Story Studio can label. The
+            render page validates against the model you pick there.
+          </small>
         </div>
       </div>
 
@@ -408,6 +417,56 @@
           <div class="form-group">
             <label>Thumbnail Count</label>
             <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
+          </div>
+          <!-- Prompt length. Every number offered here is GenStudio's own
+               published `max_prompt_characters` — no ladder is hardcoded — and
+               it reaches the writing LLM as a ceiling, never as a length to
+               fill. Over-length prompts are counted and flagged amber on each
+               row below; nothing is ever truncated. -->
+          <div class="form-group">
+            <label>Intended image model <span class="text-muted text-xs">— writing hint</span></label>
+            <select v-model="form.thumbnail.intended_image_model" class="select">
+              <option value="">Not chosen yet — no limit</option>
+              <option
+                v-for="model in usableImageModels"
+                :key="model.id"
+                :value="model.id"
+                :title="imageModelCapHint(model)"
+              >
+                {{ model.display_name }} · {{ imageModelCapLabel(model) }}
+              </option>
+            </select>
+            <p class="text-muted text-xs hint-line">
+              Prompts are shaped to suit this model. It only sets the character limit — you can still render with a different
+              model on the Generator page, and this does not change what that page is set to.
+            </p>
+          </div>
+          <div class="form-group">
+            <label>Prompt character limit</label>
+            <select v-model="promptCharCapPickerValue" class="select">
+              <option value="auto">Auto · {{ autoPromptCharCapLabel }}</option>
+              <option value="none">No limit</option>
+              <option v-for="cap in publishedPromptCharCaps" :key="cap" :value="String(cap)">{{ cap.toLocaleString() }} characters</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input
+              v-if="promptCharCapPickerValue === 'custom'"
+              v-model.number="customPromptCharCap"
+              class="input mt-1"
+              type="number"
+              min="1"
+              step="1"
+              @change="applyCustomPromptCharCap"
+            />
+            <p v-if="promptCharCapExceedsModel" class="prompt-cap-notice">
+              ⚠ {{ effectivePromptCharCap.toLocaleString() }} characters is above the
+              {{ intendedImageModelCap.toLocaleString() }} that {{ intendedImageModel?.display_name }} publishes — prompts written to
+              this limit can still be refused at render time.
+            </p>
+            <p class="text-muted text-xs hint-line">
+              A ceiling, not a length to reach: a prompt that reads best short stays short. A smaller limit also keeps the
+              language bill for writing them down. Nothing is ever shortened for you — over-length prompts are flagged, not cut.
+            </p>
           </div>
           <div class="form-group">
             <label>Text Style</label>
@@ -788,6 +847,8 @@
       :model="activeForm.model"
       :refresh-key="reviewRefreshKey"
       :thumbnail-headline-mode="thumbnailHeadlineMode"
+      :thumbnail-prompt-cap="effectivePromptCharCap || null"
+      :thumbnail-model-label="intendedImageModel?.display_name || ''"
       pool="thumbnails"
     />
 
@@ -937,6 +998,15 @@
 
 <script setup lang="ts">
 import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
+import {
+  normalizePromptCharCapSetting,
+  promptCharCapAboveModel,
+  promptCharCapOptions,
+  publishedPromptCharCap,
+  resolvePromptCharCap,
+  type PromptCharCapSetting,
+} from '~/utils/prompt-char-cap'
+import { readRememberedImageModelId } from '~/utils/project-image-model'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -1260,6 +1330,10 @@ type ThumbnailForm = SharedFormFields & {
   thumb_creative_mode: 'strict' | 'guided' | 'open'
   thumb_strategy: 'auto' | 'character' | 'object' | 'environment' | 'typographic' | 'mystery' | 'documentary'
   thumb_creative_direction: string
+  /** Which image model these prompts are written FOR (a hint, not a render
+   *  decision) and the character ceiling in force. See utils/prompt-char-cap. */
+  intended_image_model: string
+  prompt_char_cap: PromptCharCapSetting
 }
 type SceneForm = SharedFormFields & {
   scenes_per_chapter: number
@@ -1293,6 +1367,12 @@ const form = reactive({
     thumb_creative_mode: 'guided',
     thumb_strategy: 'auto',
     thumb_creative_direction: '',
+    // Which image model these prompts are WRITTEN for. A writing hint only: it
+    // drives the Auto character ceiling and nothing else, and never changes
+    // what the Generator page renders with. Both fields ride the existing
+    // thumbnail preset (which snapshots this object wholesale).
+    intended_image_model: '',
+    prompt_char_cap: 'auto' as PromptCharCapSetting,
   } as ThumbnailForm,
   scene: {
     model: '',
@@ -1306,6 +1386,85 @@ const form = reactive({
     chapter_count_override: null as number | null,
   } as SceneForm,
 })
+
+// ── Prompt character ceiling ────────────────────────────────────────────────
+// An LLM writes these prompts; a separately chosen image model renders them.
+// The ceiling comes from GenStudio's published `max_prompt_characters` for the
+// model the user intends to render with — never from a list kept here — and is
+// handed to the writer as a limit, not as a length to fill. Nothing is
+// truncated: an over-ceiling prompt is counted and flagged amber on its row.
+const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
+const usableImageModels = computed(() =>
+  genStudioImageModels.value.filter(model => model.available !== false && model.qualification_only !== true),
+)
+const intendedImageModel = computed(() =>
+  usableImageModels.value.find(model => model.id === form.thumbnail.intended_image_model) || null,
+)
+const intendedImageModelCap = computed(() => publishedPromptCharCap(intendedImageModel.value))
+/** Derived from the DISTINCT caps usable models publish — never a fixed ladder. */
+const publishedPromptCharCaps = computed(() => promptCharCapOptions(usableImageModels.value))
+const customPromptCharCap = ref(2000)
+function setPromptCharCapSetting(value: unknown): void {
+  const normalized = normalizePromptCharCapSetting(value)
+  form.thumbnail.prompt_char_cap = normalized
+  if (typeof normalized === 'number' && !publishedPromptCharCaps.value.includes(normalized)) {
+    customPromptCharCap.value = normalized
+  }
+}
+const promptCharCapPickerValue = computed<string>({
+  get: () => {
+    const value = normalizePromptCharCapSetting(form.thumbnail.prompt_char_cap)
+    if (value === 'auto' || value === 'none') return value
+    return publishedPromptCharCaps.value.includes(value) ? String(value) : 'custom'
+  },
+  set: (value) => {
+    if (value === 'custom') {
+      setPromptCharCapSetting(customPromptCharCap.value)
+      return
+    }
+    setPromptCharCapSetting(value)
+  },
+})
+function applyCustomPromptCharCap(): void {
+  setPromptCharCapSetting(customPromptCharCap.value)
+}
+/** The number in force. 0 = no ceiling, so no instruction and no warning. */
+const effectivePromptCharCap = computed(() =>
+  resolvePromptCharCap(normalizePromptCharCapSetting(form.thumbnail.prompt_char_cap), intendedImageModelCap.value),
+)
+/**
+ * What one image model publishes, shown AT THE POINT OF CHOOSING so models can
+ * be compared at a glance — a longer limit means room for more detailed (and
+ * more expensive to write) prompts. A model that publishes nothing says so;
+ * no default is ever displayed as if the model had stated it.
+ */
+function imageModelCapLabel(model: { max_prompt_characters?: number }): string {
+  const cap = publishedPromptCharCap(model)
+  return cap ? `up to ${cap.toLocaleString()} characters` : 'prompt limit not published'
+}
+function imageModelCapHint(model: { display_name?: string; max_prompt_characters?: number }): string {
+  const cap = publishedPromptCharCap(model)
+  const name = model.display_name || 'This model'
+  return cap
+    ? `${name} accepts prompts up to ${cap.toLocaleString()} characters. Picking it sets the Auto limit to that figure.`
+    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. GenStudio still validates every render.`
+}
+const autoPromptCharCapLabel = computed(() => {
+  if (!form.thumbnail.intended_image_model) return 'no image model chosen — no limit'
+  if (!intendedImageModelCap.value) return `${intendedImageModel.value?.display_name || 'this model'} publishes no limit`
+  return `${intendedImageModelCap.value.toLocaleString()} characters`
+})
+/** The one combination that still ends in a render-time refusal. */
+const promptCharCapExceedsModel = computed(() =>
+  promptCharCapAboveModel(effectivePromptCharCap.value, intendedImageModelCap.value),
+)
+// Auto has to follow SOMETHING, so the intended model is seeded from whatever
+// this project already renders images with. Seeding only — never written back.
+if (!form.thumbnail.intended_image_model && typeof window !== 'undefined') {
+  form.thumbnail.intended_image_model = readRememberedImageModelId(slug.value, window.localStorage)
+}
+// The catalogue refresh already runs on mount further down; the ceiling reads
+// the same snapshot rather than fetching it a second time.
 
 const showVisualStyleGallery = ref(false)
 const THUMBNAIL_TREATMENTS = [
@@ -1419,6 +1578,38 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 const activeForm = computed<ThumbnailForm | SceneForm>(() =>
   formTab.value === 'thumbnails' ? form.thumbnail : form.scene,
 )
+
+// ── Catalogue-aware aspect ratios (same pattern as scene-review.vue) ───────
+// Labels are cosmetic; the VALUES always come from the selected model's
+// published `aspect_ratios`. The old static list both hid ratios a model
+// supports and offered ones it does not. Declared here, after `activeForm`,
+// for the TDZ reason documented below.
+const aspectRatioLabels: Record<string, string> = {
+  '16:9': 'Landscape (YouTube)',
+  '21:9': 'Ultrawide',
+  '4:3': 'Standard',
+  '3:4': 'Portrait Classic',
+  '1:1': 'Square (Instagram)',
+  '9:16': 'Portrait (Stories/TikTok)',
+}
+const selectedGenStudioImageModel = computed(() =>
+  genStudioImageModels.value.find(model => model.id === activeForm.value.model),
+)
+const aspectRatios = computed(() => {
+  const ratios = selectedGenStudioImageModel.value?.aspect_ratios
+  if (!ratios?.length) {
+    return Object.entries(aspectRatioLabels).map(([value, label]) => ({ value, label }))
+  }
+  return ratios.map(value => ({ value, label: aspectRatioLabels[value] || 'Supported by GenStudio' }))
+})
+// Keep the form on a ratio the selected model actually publishes.
+watch(selectedGenStudioImageModel, (model) => {
+  if (!model?.aspect_ratios?.length) return
+  if (!model.aspect_ratios.includes(activeForm.value.aspect_ratio)) {
+    activeForm.value.aspect_ratio = model.default_aspect_ratio || model.aspect_ratios[0]!
+  }
+})
+onMounted(() => { void refreshGenStudioImageModels().catch(() => {}) })
 
 // v1.0.304 — moved here from the `useCharacters` declaration above: watch()
 // evaluates its source getter during setup, so `() => activeForm.value.…` must
@@ -2154,6 +2345,9 @@ async function runGenerate(mode: PromptMode) {
       thumb_font_style: form.thumbnail.thumb_font_style,
       thumb_reference_style: form.thumbnail.thumb_reference_style,
       thumb_creative_direction: form.thumbnail.thumb_creative_direction,
+      // The RESOLVED ceiling. Only this page knows which image model these
+      // prompts are for; 0 → undefined → no limit is sent.
+      prompt_char_cap: effectivePromptCharCap.value || undefined,
       title: selectedEpisode.value?.title || '',
       mode,
       // Cast for this generation. Backend resolves these via
@@ -2533,6 +2727,19 @@ async function saveToFile() {
 
 /* Char-counter colour preview picker — mirrors the small inline controls
    the images.vue page uses for its cap pill. */
+/* Amber, non-blocking prompt-ceiling notice. Matches the row char-counter:
+   the prompt is intact and the user may still render it. */
+.prompt-cap-notice {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, transparent);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
 .cap-preview-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: 12px 0 4px;

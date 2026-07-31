@@ -25,7 +25,11 @@ import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { getApiKey } from './services/app-secrets-store.js'
-import { refreshGenStudioAdmission } from './lib/genstudio-client.js'
+import {
+  refreshGenStudioAdmission,
+  describeGenStudioChatTransport,
+  genStudioChatTransportLogLine,
+} from './lib/genstudio-client.js'
 
 const app = express()
 const SERVER_MODE = isServerMode()
@@ -159,6 +163,27 @@ mountRoutes(app)
 
 runBootMigrations()
 registerAllExecutors()
+
+// ── Runtime configuration, stated out loud at boot ─────────────────────────
+//
+// GenStudio once diagnosed a chapter-generation failure as Story Studio
+// overriding its transport to the synchronous route. There was no override —
+// the running build predated the durable-route code — but nobody could tell
+// which route was live without reading source. This line makes that a support
+// question anyone can answer from the log. It carries the route, the variable
+// that controls it, and whether that variable was set; it never carries the
+// API key or anything derived from it.
+{
+  const transport = describeGenStudioChatTransport()
+  console.log(genStudioChatTransportLogLine())
+  logLine('info', 'genstudio.transport', {
+    transport: transport.transport,
+    source: transport.source,
+    env_var: 'STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT',
+    env_value: transport.envValue,
+    env_recognised: transport.envRecognised,
+  })
+}
 
 // Warm the account-wide GenStudio admission snapshot at startup. This is
 // advisory only: every actual dispatch refreshes capacity again, and a

@@ -1,170 +1,617 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
-import { resolveImageModelConfig } from '../services/image-model-resolver.js'
+import {
+  buildImageModelConfig,
+  resolveConfiguredAspectRatio,
+  resolveImageModelConfig,
+} from '../services/image-model-resolver.js'
+import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { hashStylePreviewKey } from '../services/style-preview-cache.js'
+import { hashPreviewKey } from '../services/image-preview-cache.js'
+import { listImageModels } from '../lib/genstudio-client.js'
 import { registry } from '../providers/registry.js'
 import '../providers/image/genstudio.js'
 
-test('live GenStudio image models resolve without being copied into project config', () => {
-  const model = resolveImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1')
-
-  assert.equal(model?.provider, 'genstudio-image')
-  assert.equal(model?.api_model, 'genstudio-image-fast-v1')
-  assert.equal(model?.supports_reference_images, false)
-  assert.equal(model?.provider_params?.default_steps, 4)
-})
-
-test('GenStudio image adapter always submits the live model default instead of a saved step value', async () => {
-  const originalFetch = globalThis.fetch
-  try {
-    globalThis.fetch = async (input, init) => {
-      const url = String(input)
-      if (url.endsWith('/v1/image/models')) {
-        return Response.json([{
-          id: 'genstudio-image-studio-v1',
-          display_name: 'GPT Image 2',
-          available: true,
-          qualification_only: false,
-          aspect_ratios: ['16:9'],
-          default_aspect_ratio: '16:9',
-          default_steps: 1,
-          min_steps: 1,
-          max_steps: 1,
-        }])
-      }
-      if (url.endsWith('/v1/account/overview')) {
-        return Response.json({
-          credit_balance: 100,
-          credits_used_30d: 0,
-          subscription_plan_name: 'Test',
-          paid_concurrency_limit: 3,
-          paid_active_jobs: 0,
-          paid_queued_jobs: 0,
-          max_queued_jobs: 25,
-          generation_submissions_per_minute: 30,
-          relaxed_concurrency_limit: 0,
-        })
-      }
-      if (url.endsWith('/v1/images/generations')) {
-        const body = JSON.parse(String(init?.body || '{}'))
-        assert.equal(body.steps, 1)
-        return Response.json({
-          id: 'automatic-image-steps', state: 'succeeded', model_id: body.model_id,
-          prompt: body.prompt, width: 1024, height: 576, aspect_ratio: '16:9',
-          steps: body.steps, image_url: '/v1/images/automatic-image-steps/file',
-        }, { status: 202 })
-      }
-      if (url.endsWith('/v1/images/automatic-image-steps/file')) {
-        return new Response(Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
-          'base64',
-        ), { headers: { 'Content-Type': 'image/png' } })
-      }
-      throw new Error(`Unexpected request: ${url}`)
-    }
-    const provider = registry.getImageProvider('genstudio-image')
-    assert.ok(provider)
-    await provider.generateImage({
-      prompt: 'A clear moonlit temple above a calm river.',
-      apiKey: 'automatic-steps-test-key',
-      aspectRatio: '16:9',
-      modelId: 'genstudio-image-studio-v1',
-      providerParams: { provider: 'genstudio-image' },
-      steps: 4,
-      idempotencyIdentity: 'automatic-steps-test',
-    })
-  } finally {
-    globalThis.fetch = originalFetch
+/**
+ * One published catalogue row. Only fields GenStudio actually emits appear by
+ * default; per-test overrides add the optional capability fields so the
+ * readers are pinned against a real payload shape rather than an invented one.
+ */
+function publishedModel(overrides: Record<string, unknown> = {}): any {
+  return {
+    id: 'genstudio-image-fast-v1',
+    display_name: 'FLUX Fast',
+    available: true,
+    qualification_only: false,
+    unlimited_relaxed: false,
+    credits_per_image: 4,
+    minimum_credits: 4,
+    price_version: '2026-07-01',
+    chargeable: true,
+    aspect_ratios: ['16:9', '1:1'],
+    default_aspect_ratio: '16:9',
+    supports_reference_images: false,
+    max_reference_images: 0,
+    reference_strength_mode: 'none',
+    supported_reference_strengths: [],
+    ...overrides,
   }
+}
+
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+/** Real on-disk references — the uploader reads the bytes before dispatch. */
+function referenceFixtures(count: number): string[] {
+  const dir = mkdtempSync(path.join(tmpdir(), 'story-image-refs-'))
+  return Array.from({ length: count }, (_, index) => {
+    const file = path.join(dir, `reference-${index + 1}.png`)
+    writeFileSync(file, TINY_PNG)
+    return file
+  })
+}
+
+/** Minimal GenStudio stub: catalogue, admission, upload, generation, artifact. */
+function stubGenStudio(models: any[]) {
+  const calls = { catalog: 0, generations: 0, uploads: 0, bodies: [] as any[] }
+  const fetchStub = async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/image/models')) {
+      calls.catalog++
+      return Response.json(models)
+    }
+    if (url.endsWith('/v1/account/overview')) {
+      return Response.json({
+        credit_balance: 100,
+        credits_used_30d: 0,
+        subscription_plan_name: 'Test',
+        paid_concurrency_limit: 25,
+        paid_active_jobs: 0,
+        paid_queued_jobs: 0,
+        max_queued_jobs: 100,
+        generation_submissions_per_minute: 100,
+        relaxed_concurrency_limit: 0,
+      })
+    }
+    if (url.endsWith('/v1/images/source-images')) {
+      calls.uploads++
+      return Response.json({
+        id: `asset-${calls.uploads}`, media_type: 'image/png',
+        byte_size: TINY_PNG.length, width: 1, height: 1, expires_at: '',
+      })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      calls.generations++
+      const body = JSON.parse(String(init?.body || '{}'))
+      calls.bodies.push(body)
+      const id = `stub-image-${calls.generations}`
+      return Response.json({
+        id, state: 'succeeded', model_id: body.model_id, prompt: body.prompt,
+        width: 1024, height: 576, aspect_ratio: body.aspect_ratio, steps: 4,
+        image_url: `/v1/images/${id}/file`,
+      }, { status: 202 })
+    }
+    if (/\/v1\/images\/stub-image-\d+\/file$/.test(url)) {
+      return new Response(TINY_PNG, { headers: { 'Content-Type': 'image/png' } })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }
+  return { fetchStub, calls }
+}
+
+async function withGenStudio<T>(
+  models: any[],
+  run: (calls: ReturnType<typeof stubGenStudio>['calls']) => Promise<T>,
+): Promise<T> {
+  const originalFetch = globalThis.fetch
+  const { fetchStub, calls } = stubGenStudio(models)
+  globalThis.fetch = fetchStub as any
+  try { return await run(calls) } finally { globalThis.fetch = originalFetch }
+}
+
+// ── The resolver reads the live catalogue ─────────────────────────────────
+
+test('the image model resolver reads the live catalogue instead of synthesising capabilities', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true,
+    max_reference_images: 4,
+    aspect_ratios: ['21:9', '1:1'],
+    default_aspect_ratio: '21:9',
+  })], async (calls) => {
+    const model = await resolveImageModelConfig(
+      { image_models: {} }, 'genstudio-image-fast-v1', 'resolver-live-catalog-key',
+    )
+    assert.equal(model?.provider, 'genstudio-image')
+    assert.equal(model?.api_model, 'genstudio-image-fast-v1')
+    // Published, not hardcoded.
+    assert.equal(model?.supports_reference_images, true)
+    assert.equal(model?.max_reference_images, 4)
+    assert.deepEqual(model?.aspect_ratios, ['21:9', '1:1'])
+    assert.equal(model?.default_aspect_ratio, '21:9')
+    assert.equal(model?.credits_per_image, 4)
+    // The invented step fields are gone from Story Studio's config entirely.
+    assert.equal((model?.provider_params as any)?.default_steps, undefined)
+    assert.equal((model as any)?.default_steps, undefined)
+    assert.equal((model as any)?.min_steps, undefined)
+    assert.equal((model as any)?.max_steps, undefined)
+    // The capability flags reach provider_params, which is what generators read.
+    assert.equal((model?.provider_params as any)?.supports_reference_images, true)
+    assert.equal((model?.provider_params as any)?.max_reference_images, 4)
+    assert.equal(calls.catalog, 1)
+  })
 })
 
-test('concurrent GenStudio images share one model-default catalog refresh', async () => {
-  const originalFetch = globalThis.fetch
-  let catalogRequests = 0
-  let generationRequests = 0
-  try {
-    globalThis.fetch = async (input, init) => {
-      const url = String(input)
-      if (url.endsWith('/v1/image/models')) {
-        catalogRequests++
-        await new Promise(resolve => setTimeout(resolve, 20))
-        return Response.json([{
-          id: 'genstudio-image-fast-v1',
-          display_name: 'FLUX Fast',
-          available: true,
-          qualification_only: false,
-          aspect_ratios: ['16:9'],
-          default_aspect_ratio: '16:9',
-          default_steps: 4,
-          min_steps: 2,
-          max_steps: 8,
-        }])
-      }
-      if (url.endsWith('/v1/account/overview')) {
-        return Response.json({
-          credit_balance: 100,
-          credits_used_30d: 0,
-          subscription_plan_name: 'Test',
-          paid_concurrency_limit: 25,
-          paid_active_jobs: 0,
-          paid_queued_jobs: 0,
-          max_queued_jobs: 100,
-          generation_submissions_per_minute: 100,
-          relaxed_concurrency_limit: 0,
-        })
-      }
-      if (url.endsWith('/v1/images/generations')) {
-        generationRequests++
-        const body = JSON.parse(String(init?.body || '{}'))
-        const id = `coalesced-image-${generationRequests}`
-        return Response.json({
-          id, state: 'succeeded', model_id: body.model_id,
-          prompt: body.prompt, width: 1024, height: 576, aspect_ratio: '16:9',
-          steps: body.steps, image_url: `/v1/images/${id}/file`,
-        }, { status: 202 })
-      }
-      if (/\/v1\/images\/coalesced-image-\d+\/file$/.test(url)) {
-        return new Response(Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
-          'base64',
-        ), { headers: { 'Content-Type': 'image/png' } })
-      }
-      throw new Error(`Unexpected request: ${url}`)
-    }
-    const provider = registry.getImageProvider('genstudio-image')
-    assert.ok(provider)
-    await Promise.all(Array.from({ length: 25 }, (_, index) => provider.generateImage({
-      prompt: `Scene ${index + 1}: a distinct cinematic landscape.`,
-      apiKey: 'coalesced-steps-test-key',
+test('a model publishing supports_reference_images false is reported as reference-free', async () => {
+  await withGenStudio([publishedModel()], async () => {
+    const model = await resolveImageModelConfig(
+      { image_models: {} }, 'genstudio-image-fast-v1', 'resolver-no-references-key',
+    )
+    assert.equal(model?.supports_reference_images, false)
+    assert.equal(model?.max_reference_images, 0)
+    assert.equal((model?.provider_params as any)?.supports_reference_images, false)
+  })
+})
+
+test('a model absent from the live catalogue does not resolve', async () => {
+  await withGenStudio([publishedModel()], async () => {
+    const model = await resolveImageModelConfig(
+      { image_models: {} }, 'genstudio-image-retired-v9', 'resolver-missing-model-key',
+    )
+    assert.equal(model, undefined)
+  })
+})
+
+test('prompt caps come from max_prompt_characters and are absent when unpublished', () => {
+  const capped = buildImageModelConfig(
+    { image_models: {} }, 'genstudio-image-fast-v1', publishedModel({ max_prompt_characters: 1_200 }),
+  )
+  assert.equal(capped.prompt_char_cap, 1_200)
+  // No published cap means no cap — never a 4,000-character invention.
+  const uncapped = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel())
+  assert.equal(uncapped.prompt_char_cap, undefined)
+})
+
+test('unpublished capability fields stay undefined rather than defaulting', async () => {
+  await withGenStudio([publishedModel()], async () => {
+    const [bare] = await listImageModels('capabilities-bare-key')
+    assert.equal(bare?.max_prompt_characters, undefined)
+    assert.equal(bare?.min_reference_images, undefined)
+    assert.equal(bare?.supports_seed, undefined)
+    assert.equal(bare?.supports_image_to_image, undefined)
+    assert.equal(bare?.operations, undefined)
+  })
+  await withGenStudio([publishedModel({
+    max_prompt_characters: 900,
+    min_reference_images: 2,
+    supports_seed: false,
+    supports_image_to_image: true,
+    operations: ['image.generation', 'image.edit'],
+  })], async () => {
+    const [published] = await listImageModels('capabilities-published-key')
+    assert.equal(published?.max_prompt_characters, 900)
+    assert.equal(published?.min_reference_images, 2)
+    assert.equal(published?.supports_seed, false)
+    assert.equal(published?.supports_image_to_image, true)
+    assert.deepEqual(published?.operations, ['image.generation', 'image.edit'])
+  })
+})
+
+test('a published min_reference_images floor travels into the resolved config', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-edit-v1', publishedModel({
+    supports_reference_images: true, max_reference_images: 3, min_reference_images: 1,
+  }))
+  assert.equal(config.min_reference_images, 1)
+  assert.equal((config.provider_params as any)?.min_reference_images, 1)
+  // Absent stays absent — a saved project must not see an invented floor.
+  const plain = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel())
+  assert.equal(plain.min_reference_images, undefined)
+})
+
+// ── Aspect ratios ─────────────────────────────────────────────────────────
+
+test('aspect ratios default from the catalogue and reject unpublished values', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    aspect_ratios: ['9:16', '1:1'], default_aspect_ratio: '9:16',
+  }))
+  assert.equal(resolveConfiguredAspectRatio(config, undefined), '9:16')
+  assert.equal(resolveConfiguredAspectRatio(config, ''), '9:16')
+  assert.equal(resolveConfiguredAspectRatio(config, '1:1'), '1:1')
+  assert.throws(() => resolveConfiguredAspectRatio(config, '16:9'), /does not support 16:9/)
+})
+
+test('a saved config with no published ratios still resolves the caller value', () => {
+  // Degradation path for projects saved before the published fields existed.
+  const legacy = { label: 'Legacy', credits_per_image: 0, endpoint: '', poll: '', type: 'jobs', api_model: 'x' }
+  assert.equal(resolveConfiguredAspectRatio(legacy as any, '4:3'), '4:3')
+})
+
+test('an unpublished aspect ratio is never submitted', async () => {
+  await withGenStudio([publishedModel({ aspect_ratios: ['1:1'], default_aspect_ratio: '1:1' })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'unpublished-ratio-key',
+      aspectRatio: '21:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'unpublished-ratio',
+    }), /does not support 21:9/)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+test('an empty aspect ratio submits the model default rather than a hardcoded 16:9', async () => {
+  await withGenStudio([publishedModel({ aspect_ratios: ['9:16'], default_aspect_ratio: '9:16' })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'default-ratio-key',
+      aspectRatio: '',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'default-ratio',
+    })
+    assert.equal(calls.bodies[0].aspect_ratio, '9:16')
+  })
+})
+
+// ── Availability is checked on every submit path ──────────────────────────
+
+test('an unavailable model is blocked on the plain text2img path', async () => {
+  await withGenStudio([publishedModel({ available: false })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'unavailable-text2img-key',
       aspectRatio: '16:9',
       modelId: 'genstudio-image-fast-v1',
       providerParams: { provider: 'genstudio-image' },
-      idempotencyIdentity: `coalesced-steps-scene-${index + 1}`,
-    })))
-    assert.equal(catalogRequests, 1)
-    assert.equal(generationRequests, 25)
-  } finally {
-    globalThis.fetch = originalFetch
+      idempotencyIdentity: 'unavailable-text2img',
+    }), /currently unavailable/)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+test('a qualification-only model is blocked on the plain text2img path', async () => {
+  await withGenStudio([publishedModel({ qualification_only: true })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'qualification-text2img-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'qualification-text2img',
+    }), /qualification-only/)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+// ── References ───────────────────────────────────────────────────────────
+
+test('a model publishing supports_reference_images submits its references', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true, max_reference_images: 4,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'references-supported-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(2),
+      idempotencyIdentity: 'references-supported',
+    })
+    assert.equal(calls.uploads, 2)
+    assert.equal(calls.bodies[0].reference_asset_ids.length, 2)
+  })
+})
+
+test('references are sliced to the published max_reference_images', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true, max_reference_images: 2,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'references-sliced-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(3),
+      idempotencyIdentity: 'references-sliced',
+    })
+    // Exactly the published ceiling — never the old single-reference slice,
+    // and never more than the model declared room for.
+    assert.equal(calls.uploads, 2)
+    assert.equal(calls.bodies[0].reference_asset_ids.length, 2)
+  })
+})
+
+test('a model publishing no reference support refuses references instead of billing text2img', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: false, max_reference_images: 0,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'references-unsupported-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(1),
+      idempotencyIdentity: 'references-unsupported',
+    }), /does not support private reference-image generation/)
+    assert.equal(calls.generations, 0)
+    assert.equal(calls.uploads, 0)
+  })
+})
+
+test('a submission below a published min_reference_images floor is refused before any charge', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true, max_reference_images: 3, min_reference_images: 2,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'min-references-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(1),
+      idempotencyIdentity: 'min-references',
+    }), /requires at least 2 reference image\(s\)/)
+    // Refused before the upload AND before the charged POST.
+    assert.equal(calls.uploads, 0)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+test('the published floor is satisfied by enough references and the render proceeds', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true, max_reference_images: 3, min_reference_images: 2,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'min-references-met-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(2),
+      idempotencyIdentity: 'min-references-met',
+    })
+    assert.equal(calls.generations, 1)
+    assert.equal(calls.bodies[0].reference_asset_ids.length, 2)
+  })
+})
+
+// ── Seed ─────────────────────────────────────────────────────────────────
+
+test('seed is forwarded when GenStudio publishes nothing about seeds', async () => {
+  await withGenStudio([publishedModel()], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'seed-unpublished-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      seed: 1234,
+      idempotencyIdentity: 'seed-unpublished',
+    })
+    assert.equal(calls.bodies[0].seed, 1234)
+  })
+})
+
+test('seed is omitted from the request when supports_seed is published false', async () => {
+  await withGenStudio([publishedModel({ supports_seed: false })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'seed-unsupported-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      seed: 4321,
+      idempotencyIdentity: 'seed-unsupported',
+    })
+    assert.equal(calls.generations, 1)
+    assert.equal('seed' in calls.bodies[0], false)
+  })
+})
+
+test('seed travels when supports_seed is published true', async () => {
+  await withGenStudio([publishedModel({ supports_seed: true })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'seed-supported-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      seed: 4321,
+      idempotencyIdentity: 'seed-supported',
+    })
+    assert.equal(calls.bodies[0].seed, 4321)
+  })
+})
+
+// ── Prompt ceiling ───────────────────────────────────────────────────────
+
+test('a prompt over the published max_prompt_characters is refused before any charge', async () => {
+  await withGenStudio([publishedModel({ max_prompt_characters: 40 })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await assert.rejects(provider.generateImage({
+      prompt: 'x'.repeat(41),
+      apiKey: 'prompt-cap-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'prompt-cap',
+    }), /accepts up to 40 prompt characters/)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+test('a published cap above the old fixed 4,000 ceiling is honoured end to end', async () => {
+  // Regression pin: the transport used to refuse any prompt over 4,000
+  // characters, which would have silently overruled a model publishing 4,800.
+  await withGenStudio([publishedModel({ max_prompt_characters: 4_800 })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'x'.repeat(4_500),
+      apiKey: 'prompt-cap-high-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'prompt-cap-high',
+    })
+    assert.equal(calls.generations, 1)
+    await assert.rejects(provider.generateImage({
+      prompt: 'x'.repeat(4_801),
+      apiKey: 'prompt-cap-high-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'prompt-cap-high-over',
+    }), /accepts up to 4,800 prompt characters/)
+    assert.equal(calls.generations, 1)
+  })
+})
+
+test('an unpublished prompt ceiling leaves the provider as the only judge', async () => {
+  // No published cap and a long prompt: Story Studio must not invent a limit,
+  // and must not divide prompt_token_allowance by a made-up characters/token.
+  await withGenStudio([publishedModel({ prompt_token_allowance: 12 })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'x'.repeat(3_000),
+      apiKey: 'prompt-uncapped-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'prompt-uncapped',
+    })
+    assert.equal(calls.generations, 1)
+  })
+})
+
+test('no image request carries a steps field', async () => {
+  await withGenStudio([publishedModel()], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'no-steps-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'no-steps',
+    })
+    assert.equal('steps' in calls.bodies[0], false)
+    assert.deepEqual(Object.keys(calls.bodies[0]).sort(), ['aspect_ratio', 'model_id', 'prompt'])
+  })
+})
+
+// ── Transcription language ───────────────────────────────────────────────
+
+test('transcription defaults to the model published language rather than English', () => {
+  // A model that publishes one language transcribes in it.
+  assert.equal(resolveTranscriptionLanguage('km', undefined), 'km')
+  // A multilingual model auto-detects — nothing is pinned, least of all 'en'.
+  assert.equal(resolveTranscriptionLanguage('multilingual', undefined), undefined)
+  assert.equal(resolveTranscriptionLanguage('', undefined), undefined)
+  assert.equal(resolveTranscriptionLanguage(undefined, undefined), undefined)
+  // An explicit user choice always wins.
+  assert.equal(resolveTranscriptionLanguage('multilingual', 'km'), 'km')
+  assert.equal(resolveTranscriptionLanguage('en', 'km'), 'km')
+})
+
+// ── Regression pins ──────────────────────────────────────────────────────
+
+test('scene renders actually submit their resolved reference images', () => {
+  // Regression pin: `resolveSceneReferenceImages()` was defined and never
+  // called, so every img2img reference the UI collected for a scene was
+  // dropped and the render was billed as text2img.
+  const source = readFileSync(new URL('../generators/images.ts', import.meta.url), 'utf8')
+  assert.match(source, /const sceneReferences = supportsReferences/)
+  assert.match(source, /resolveSceneReferenceImages\(scene\)/)
+  assert.match(source, /referenceImagePaths: sceneReferences/)
+  // And the capability text is read from the resolved model, not a constant.
+  assert.match(source, /modelConfig\.supports_reference_images === true/)
+  assert.doesNotMatch(source, /does NOT support references/)
+})
+
+test('the image provider carries no invented step or capability constants', () => {
+  const provider = readFileSync(new URL('../providers/image/genstudio.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(provider, /min_steps|max_steps/)
+  assert.doesNotMatch(provider, /referenceImagePaths\?\.\[0\]/)
+  assert.doesNotMatch(provider, /aspectRatio \|\| '16:9'/)
+  assert.match(provider, /publishedAvailabilityProblem/)
+
+  const resolver = readFileSync(new URL('../services/image-model-resolver.ts', import.meta.url), 'utf8')
+  assert.match(resolver, /listImageModels/)
+  assert.doesNotMatch(resolver, /default_steps|min_steps|max_steps/)
+  assert.doesNotMatch(resolver, /prompt_char_cap: 4/)
+  assert.doesNotMatch(resolver, /supports_reference_images: false/)
+})
+
+test('the image preview route caps prompts from the catalogue, not a fixed number', () => {
+  const source = readFileSync(new URL('../routes/image-preview.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /z\.string\(\)\.min\(1\)\.max\(8000\)/)
+  assert.match(source, /modelConfig\.prompt_char_cap/)
+  assert.match(source, /resolveConfiguredAspectRatio/)
+})
+
+test('no image submit boundary defaults an aspect ratio to a hardcoded 16:9', () => {
+  for (const file of [
+    '../generators/images.ts',
+    '../generators/scene-image.ts',
+    '../generators/scene-images-batch.ts',
+    '../generators/composition-template.ts',
+    '../generators/continuity-render.ts',
+    '../generators/image-pool-generate.ts',
+    '../services/broll-aigen.ts',
+  ]) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /aspect_ratio \|\| '16:9'/, file)
+    assert.doesNotMatch(source, /aspectRatio \|\| '16:9'/, file)
+    assert.match(source, /resolveConfiguredAspectRatio/, file)
   }
 })
 
-test('style preview cache separates GenStudio steps and deterministic seeds', () => {
+// ── Untouched behaviour ──────────────────────────────────────────────────
+
+test('style preview cache keeps its old addresses and still separates seeds', () => {
   const base = {
     styleTag: 'textured paper collage',
     modelId: 'genstudio-image-fast-v1',
     aspectRatio: '16:9',
-    imageSteps: 4,
+    variantId: 'style-proof',
   }
-
-  assert.notEqual(
-    hashStylePreviewKey(base),
-    hashStylePreviewKey({ ...base, imageSteps: 6 }),
-  )
+  // Recorded from the build that still threaded an imageSteps value. Every
+  // preview it cached used 4 (the catalogue fallback), so freezing that key
+  // segment keeps previously rendered pixels reachable instead of orphaning
+  // the cache and billing a fresh render for them.
+  assert.equal(hashStylePreviewKey(base), 'fc80c23c9cfe540a')
   assert.notEqual(
     hashStylePreviewKey({ ...base, seed: 12 }),
     hashStylePreviewKey({ ...base, seed: 13 }),
   )
+})
+
+test('image preview cache keeps its old addresses too', () => {
+  assert.equal(hashPreviewKey({
+    prompt: 'A calm river at dusk.',
+    modelId: 'genstudio-image-fast-v1',
+    aspectRatio: '16:9',
+  }), '398b6257d36f9f18')
 })
 
 test('style previews use one GenStudio-only proof and no direct provider fallback', () => {

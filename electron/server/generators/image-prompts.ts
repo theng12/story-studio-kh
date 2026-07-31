@@ -26,6 +26,11 @@ import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 import { thumbnailPromptsOutputContract } from '../lib/story-output-contracts.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import {
+  buildPromptCharCapInstruction,
+  describeOverCapPrompts,
+  parsePromptCharCap,
+} from '../services/prompt-char-cap.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -46,6 +51,15 @@ interface ThumbnailPromptsParams {
   mode?: 'thumbnails'
   character_ids?: string[]
   fill_gaps?: boolean
+  /**
+   * The character CEILING each generated prompt is written under — GenStudio's
+   * published `max_prompt_characters` for the image model the user intends to
+   * render these thumbnails with, resolved by the workspace (only it knows
+   * which model that is). Absent means no limit is in force: no instruction is
+   * added and nothing is warned about. Never a length to fill, and no prompt is
+   * ever truncated to fit. See services/prompt-char-cap.ts.
+   */
+  prompt_char_cap?: number
 }
 
 interface ThumbnailFmt {
@@ -219,6 +233,8 @@ export function buildThumbnailPrompt(args: {
   thumbnailDirective: string
   targetNumbers: number[]
   headlineMode?: 'episode-title' | 'curiosity-hook'
+  /** Published image-model ceiling, or absent for "no limit in force". */
+  promptCharCap?: number
 }): string {
   const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
   const curiosityHook = args.headlineMode === 'curiosity-hook'
@@ -226,6 +242,10 @@ export function buildThumbnailPrompt(args: {
     ? '4. Invent a truthful 1–4 word curiosity hook for every variation. Return it in that variation\'s "title" field and render the exact same hook as legible in-image typography. Do not put the full episode title inside the artwork.'
     : '4. Render the exact episode title as legible in-image typography.'
   const titleExample = curiosityHook ? 'SHORT CURIOSITY HOOK' : args.title.replace(/"/g, '\\"')
+  // A ceiling, never a length to reach: requirement 2 above still decides how
+  // long a prompt should be. Empty when no limit is in force.
+  const charCapInstruction = buildPromptCharCapInstruction(args.promptCharCap)
+  const charCapRequirement = charCapInstruction ? `\n8. ${charCapInstruction}` : ''
   return `Create exactly ${args.count} distinct YouTube thumbnail briefs for this story episode.
 
 Episode: ${args.episodeId} — ${args.title}
@@ -240,7 +260,7 @@ REQUIREMENTS:
 ${headlineRequirement}
 5. End every prompt with this style tag: "${args.styleTag}".
 6. Compose every prompt for ${ratioInstruction} and explicitly state the "${args.aspectRatio}" aspect ratio.
-7. Include concrete inline descriptions for every visible recurring character.
+7. Include concrete inline descriptions for every visible recurring character.${charCapRequirement}
 
 FORMAT — return only this JSON object:
 {
@@ -311,7 +331,13 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const model = req.model?.trim() || await resolveDefaultImagePromptsModel(config)
   const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
   const fillGaps = req.fill_gaps === true
+  // Resolved by the workspace from the intended image model's published
+  // `max_prompt_characters`. Absent = no limit in force; nothing is invented.
+  const promptCharCap = parsePromptCharCap(req.prompt_char_cap)
   job.output_lines.push(`Target: ${count} thumbnail prompt(s).`)
+  job.output_lines.push(promptCharCap
+    ? `Prompt length ceiling: ${promptCharCap.toLocaleString()} characters per thumbnail prompt. A ceiling only — an over-length prompt is reported, never shortened.`
+    : 'Prompt length ceiling: none — no image-model limit is in force for this run.')
 
   const existing = fillGaps
     ? (await loadExistingThumbnails(projectSlug, episodeId, title))
@@ -443,6 +469,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       thumbnailDirective,
       targetNumbers,
       headlineMode,
+      promptCharCap,
     })
     if (artStyle?.negatives.length) {
       prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
@@ -503,6 +530,12 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const missing = Array.from({ length: count }, (_, index) => index + 1)
     .filter(number => !thumbnails.some(item => Number(item.number) === number && item.prompt?.trim()))
   job.output_lines.push(`Verified ${count - missing.length}/${count} thumbnail prompt(s).`)
+  // Advisory only. Every prompt is saved in full; nothing is shortened.
+  const overCapNotice = describeOverCapPrompts(
+    thumbnails.map(item => ({ label: `thumbnail ${item.number}`, text: item.prompt })),
+    promptCharCap,
+  )
+  if (overCapNotice) job.output_lines.push(overCapNotice)
 
   try {
     const { recordUsageForScope } = await import('../services/recency-tracker.js')

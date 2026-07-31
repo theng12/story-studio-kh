@@ -61,8 +61,6 @@ export interface ImageGenerationRequest {
    */
   width?: number
   height?: number
-  /** Exact inference-step count for providers that publish this control. */
-  steps?: number
   /** Optional deterministic seed. Omit to let the provider randomize. */
   seed?: number
   idempotencyIdentity?: string

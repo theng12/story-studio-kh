@@ -139,41 +139,22 @@
               </option>
             </select>
           </div>
-          <div v-if="selectedGenStudioSizes.length" class="sr-ratio-pick" title="Pixel dimensions published by the selected GenStudio model for this aspect ratio.">
-            <label class="sr-ratio-label" for="sr-gen-size">Resolution</label>
-            <select id="sr-gen-size" v-model="form.genstudio_size" class="select sr-ratio-select sr-size-select">
-              <option v-for="size in selectedGenStudioSizes" :key="genStudioSizeKey(size)" :value="genStudioSizeKey(size)">
-                {{ size.label || `${size.width}×${size.height}` }} · {{ size.width }}×{{ size.height }}
-              </option>
-            </select>
-          </div>
-          <div v-else-if="form.model" class="sr-ratio-pick" title="This provider currently publishes aspect ratios but not selectable output pixel dimensions.">
+          <div v-if="form.model" class="sr-ratio-pick" title="GenStudio decides the output resolution for this render.">
             <span class="sr-ratio-label">Resolution</span>
             <div class="sr-static-control">
               <strong>{{ selectedGenStudioModel ? 'Managed by GenStudio' : 'Managed by provider' }}</strong>
-              <small>Uses {{ form.aspect_ratio }} · pixel sizes not published</small>
+              <small>
+                Uses {{ form.aspect_ratio }}<template v-if="selectedGenStudioModel?.default_resolution"> · {{ selectedGenStudioModel.default_resolution }}</template>
+              </small>
             </div>
           </div>
-          <template v-if="selectedGenStudioModel">
-            <div class="sr-ratio-pick" title="One quality control mapped to GenStudio's real inference steps. Higher settings can add detail but take longer.">
-              <label class="sr-ratio-label" for="sr-gen-quality">Generation quality</label>
-              <select id="sr-gen-quality" v-model="form.image_quality" class="select sr-ratio-select" @change="applyGenStudioQuality">
-                <option value="draft">Draft · {{ genStudioQualitySteps.draft }} steps</option>
-                <option value="balanced">Balanced · {{ genStudioQualitySteps.balanced }} steps</option>
-                <option value="detailed">Detailed · {{ genStudioQualitySteps.detailed }} steps</option>
-                <option value="maximum">Maximum · {{ genStudioQualitySteps.maximum }} steps</option>
-                <option value="custom">Custom steps…</option>
-              </select>
-            </div>
-            <div v-if="form.image_quality === 'custom'" class="sr-ratio-pick" title="Exact inference steps published by the selected GenStudio model.">
-              <label class="sr-ratio-label" for="sr-gen-steps">Custom steps</label>
-              <input id="sr-gen-steps" v-model.number="form.image_steps" class="input sr-number-input" type="number" :min="selectedGenStudioModel.min_steps" :max="selectedGenStudioModel.max_steps">
-            </div>
-            <div class="sr-ratio-pick" title="Optional reproducible seed. Leave blank for a fresh random composition per scene.">
-              <label class="sr-ratio-label" for="sr-gen-seed">Seed</label>
-              <input id="sr-gen-seed" v-model="form.seed" class="input sr-number-input" type="number" min="0" max="2147483647" placeholder="Random">
-            </div>
-          </template>
+          <!-- Inference steps are not a customer control: GenStudio publishes
+               no step contract and its request schema has no `steps` field, so
+               no control is offered rather than one driving a phantom value. -->
+          <div v-if="selectedGenStudioModel && selectedGenStudioModel.supports_seed !== false" class="sr-ratio-pick" title="Optional reproducible seed. Leave blank for a fresh random composition per scene.">
+            <label class="sr-ratio-label" for="sr-gen-seed">Seed</label>
+            <input id="sr-gen-seed" v-model="form.seed" class="input sr-number-input" type="number" min="0" max="2147483647" placeholder="Random">
+          </div>
         </div>
         <label
           class="sr-auto-approve"
@@ -677,9 +658,6 @@ const cancelingRender = ref(false)
 const form = ref({
   model: '',
   aspect_ratio: '16:9',
-  image_quality: 'balanced' as 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom',
-  image_steps: 4,
-  genstudio_size: '',
   seed: '' as string | number,
 })
 // GenStudio-only state intentionally uses a new key. Retired reference,
@@ -690,12 +668,12 @@ useRememberedForm('scene-review-genstudio', slug, form)
 const autoApproveGenerated = ref(false)
 
 // Scene Review presets contain only current GenStudio render controls.
+// Presets saved by older builds can still carry retired quality, step-count,
+// and pixel-size keys. They are simply not read — a saved project keeps
+// loading, and nothing revives a control GenStudio never published.
 const srPresets = usePresets<{
   model: string
   aspect_ratio: string
-  image_quality?: 'draft' | 'balanced' | 'detailed' | 'maximum' | 'custom'
-  image_steps?: number
-  genstudio_size?: string
   seed?: string | number
   auto_approve_generated?: boolean
 }>({
@@ -705,18 +683,12 @@ const srPresets = usePresets<{
   snapshot: () => ({
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
-    image_quality: form.value.image_quality,
-    image_steps: form.value.image_steps,
-    genstudio_size: form.value.genstudio_size,
     seed: form.value.seed,
     auto_approve_generated: autoApproveGenerated.value,
   }),
   apply: (data) => {
     if (typeof data.model === 'string') form.value.model = data.model
     if (typeof data.aspect_ratio === 'string') form.value.aspect_ratio = data.aspect_ratio
-    if (typeof data.image_quality === 'string') form.value.image_quality = data.image_quality
-    if (typeof data.image_steps === 'number') form.value.image_steps = data.image_steps
-    if (typeof data.genstudio_size === 'string') form.value.genstudio_size = data.genstudio_size
     if (typeof data.seed === 'string' || typeof data.seed === 'number') form.value.seed = data.seed
     autoApproveGenerated.value = data.auto_approve_generated === true
   },
@@ -734,60 +706,23 @@ const defaultAspectRatios = [
 ]
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const selectedGenStudioModel = computed(() => genStudioImageModels.value.find(model => model.id === form.value.model))
-const selectedGenStudioSizes = computed(() => (
-  selectedGenStudioModel.value?.sizes || []
-).filter(size => size.aspect_ratio === form.value.aspect_ratio))
-function genStudioSizeKey(size: { width: number; height: number }): string {
-  return `${size.width}x${size.height}`
-}
-const selectedGenStudioSize = computed(() => selectedGenStudioSizes.value.find(
-  size => genStudioSizeKey(size) === form.value.genstudio_size,
-))
 const aspectRatios = computed(() => {
   const ratios = selectedGenStudioModel.value?.aspect_ratios
   if (!ratios?.length) return defaultAspectRatios
   const labels = Object.fromEntries(defaultAspectRatios.map(item => [item.value, item.label]))
   return ratios.map(value => ({ value, label: labels[value] || 'Supported by GenStudio' }))
 })
-const genStudioQualitySteps = computed(() => {
-  const model = selectedGenStudioModel.value
-  const min = model?.min_steps ?? 2
-  const max = model?.max_steps ?? 8
-  const balanced = Math.min(max, Math.max(min, model?.default_steps ?? 4))
-  return {
-    draft: min,
-    balanced,
-    detailed: Math.min(max, Math.max(balanced, balanced + 2)),
-    maximum: max,
-  }
-})
-function applyGenStudioQuality(): void {
-  const quality = form.value.image_quality
-  if (quality !== 'custom') form.value.image_steps = genStudioQualitySteps.value[quality]
-}
+// Aspect ratio and seed are the whole render request Story Studio owns. The
+// output resolution belongs to GenStudio, and a seed only travels when the
+// model publishes support for one.
 const genStudioImageBody = computed(() => selectedGenStudioModel.value ? {
-  image_steps: Math.min(
-    selectedGenStudioModel.value.max_steps,
-    Math.max(selectedGenStudioModel.value.min_steps, Number(form.value.image_steps) || selectedGenStudioModel.value.default_steps),
-  ),
-  ...(selectedGenStudioSize.value
-    ? { width: selectedGenStudioSize.value.width, height: selectedGenStudioSize.value.height }
-    : {}),
-  ...(form.value.seed === '' ? {} : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
+  ...(form.value.seed === '' || selectedGenStudioModel.value.supports_seed === false
+    ? {}
+    : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
 } : {})
 watch([selectedGenStudioModel, () => form.value.aspect_ratio], ([model]) => {
   if (!model) return
   if (!model.aspect_ratios.includes(form.value.aspect_ratio)) form.value.aspect_ratio = model.default_aspect_ratio
-  const sizes = (model.sizes || []).filter(size => size.aspect_ratio === form.value.aspect_ratio)
-  if (sizes.length && !sizes.some(size => genStudioSizeKey(size) === form.value.genstudio_size)) {
-    form.value.genstudio_size = genStudioSizeKey(sizes.find(size => size.default) || sizes[0]!)
-  } else if (!sizes.length) {
-    form.value.genstudio_size = ''
-  }
-  if (form.value.image_steps < model.min_steps || form.value.image_steps > model.max_steps) {
-    form.value.image_steps = model.default_steps
-    form.value.image_quality = 'balanced'
-  }
 })
 // CSS aspect-ratio string ("16:9" → "16 / 9") so the thumbnail boxes re-shape
 // to whatever ratio is selected — making the enforced frame visible.
@@ -1697,7 +1632,7 @@ watch(episodeId, () => {
   text-transform: uppercase;
   letter-spacing: .07em;
 }
-.sr-ratio-select, .sr-size-select { width: 100%; min-width: 0; }
+.sr-ratio-select { width: 100%; min-width: 0; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {

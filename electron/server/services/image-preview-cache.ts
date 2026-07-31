@@ -78,12 +78,15 @@ export function hashPreviewKey(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
-  steps?: number
   seed?: number
 }): string {
   const norm = opts.prompt.replace(/\s+/g, ' ').trim()
   const tier = opts.tier || ''
-  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${opts.steps ?? ''}|${opts.seed ?? ''}`
+  // The empty segment is where a retired `steps` input used to sit. No caller
+  // ever populated it, so keeping the slot leaves every previously cached
+  // preview addressable — dropping it would silently orphan the cache and
+  // bill a fresh render for pixels already on disk.
+  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}||${opts.seed ?? ''}`
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
 
@@ -122,7 +125,6 @@ export async function getCached(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
-  steps?: number
   seed?: number
 }): Promise<CachedPreview | null> {
   const hash = hashPreviewKey(opts)
@@ -155,7 +157,6 @@ export async function savePreview(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
-  steps?: number
   seed?: number
   imageBytes: Buffer
 }): Promise<CachedPreview> {

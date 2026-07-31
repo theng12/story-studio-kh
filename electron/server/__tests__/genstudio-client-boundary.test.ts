@@ -323,7 +323,6 @@ test('GenStudio image idempotency keeps network retries stable but separates del
     prompt: 'A moonlit Cambodian temple reflected in still water.',
     modelId: 'genstudio-image-fast-v1',
     aspectRatio: '16:9',
-    steps: 4,
     seed: 42,
     requestIdentity: 'story-job-1:scene-0001',
   }
@@ -345,7 +344,24 @@ test('GenStudio image idempotency keeps network retries stable but separates del
   assert.match(first, /^story-image-[a-f0-9]{44}$/)
 })
 
-test('GenStudio image catalog preserves only valid provider-published pixel sizes', async () => {
+test('removing the steps field left every image idempotency key byte-identical', () => {
+  // Recorded from the build that still sent `steps` on the wire. Every image
+  // request this app ever made carried steps=4 (the catalogue mapper's
+  // fallback, because GenStudio publishes no step contract), so freezing that
+  // component keeps a retry that crosses the upgrade boundary on the SAME key
+  // — it replays the in-flight job instead of submitting and billing a second.
+  assert.equal(
+    buildGenStudioImageIdempotencyKey({
+      prompt: 'A calm river at dusk.',
+      modelId: 'genstudio-image-fast-v1',
+      aspectRatio: '16:9',
+      requestIdentity: 'story-job-1:scene-0001',
+    }),
+    'story-image-6d52f9d2ec67a232ddab66fa26ca5d00197811081474',
+  )
+})
+
+test('GenStudio image catalog carries every published capability and invents none', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
@@ -355,24 +371,92 @@ test('GenStudio image catalog preserves only valid provider-published pixel size
           display_name: 'GenStudio Image Fast',
           aspect_ratios: ['16:9', '4:3'],
           default_aspect_ratio: '16:9',
-          default_steps: 4,
-          min_steps: 2,
-          max_steps: 8,
+          default_resolution: '1K',
           execution_label: 'Local fleet',
-          sizes: [
-            { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
-            { aspect_ratio: '4:3', width: 1024, height: 768 },
-            { aspect_ratio: '16:9', width: 0, height: 768 },
+          availability_note: 'Fleet capacity is limited tonight.',
+          base_credits_per_image: 6,
+          credits_per_image: 4,
+          promotion_name: 'Launch week',
+          promotion_discount_percent: 33.3,
+          supports_seed: false,
+          supports_image_to_image: true,
+          min_reference_images: 1,
+          max_reference_images: 3,
+          reference_image_max_dimension: 2048,
+          reference_generation_credits: 9,
+          reference_generation_price_version: '2026-07-01',
+          max_prompt_characters: 4800,
+          prompt_token_allowance: 1200,
+          operations: ['image.generation', 'image.edit', 7],
+          output_options: [
+            { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, is_default: true, credits_per_image: 4 },
+            { resolution: '2K', aspect_ratio: '16:9', width: 2688, height: 1536, is_default: false },
+            { resolution: '4K', aspect_ratio: '16:9', width: 0, height: 1536, is_default: false },
           ],
         }])
     }
-    const models = await listImageModels('scoped-key')
-    assert.deepEqual(models[0]?.sizes, [
-      { aspect_ratio: '16:9', width: 1344, height: 768, label: 'Full', default: true },
-      { aspect_ratio: '4:3', width: 1024, height: 768, label: undefined, default: false },
+    const [model] = await listImageModels('scoped-key')
+    assert.equal(model?.default_resolution, '1K')
+    assert.equal(model?.availability_note, 'Fleet capacity is limited tonight.')
+    assert.equal(model?.base_credits_per_image, 6)
+    assert.equal(model?.promotion_name, 'Launch week')
+    assert.equal(model?.promotion_discount_percent, 33.3)
+    assert.equal(model?.supports_seed, false)
+    assert.equal(model?.supports_image_to_image, true)
+    assert.equal(model?.min_reference_images, 1)
+    assert.equal(model?.reference_image_max_dimension, 2048)
+    assert.equal(model?.reference_generation_credits, 9)
+    assert.equal(model?.reference_generation_price_version, '2026-07-01')
+    assert.equal(model?.max_prompt_characters, 4800)
+    assert.equal(model?.prompt_token_allowance, 1200)
+    assert.deepEqual(model?.operations, ['image.generation', 'image.edit'])
+    // A half-published option row is dropped, never patched into validity.
+    assert.deepEqual(model?.output_options, [
+      {
+        resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, is_default: true,
+        credits_per_image: 4, base_credits_per_image: undefined, price_version: undefined,
+        reference_generation_credits: undefined, reference_generation_price_version: undefined,
+      },
+      {
+        resolution: '2K', aspect_ratio: '16:9', width: 2688, height: 1536, is_default: false,
+        credits_per_image: undefined, base_credits_per_image: undefined, price_version: undefined,
+        reference_generation_credits: undefined, reference_generation_price_version: undefined,
+      },
     ])
-    assert.equal(models[0]?.execution_label, 'Local fleet')
-    assert.equal(models[0]?.unlimited_relaxed, true)
+    assert.equal(model?.execution_label, 'Local fleet')
+    assert.equal(model?.unlimited_relaxed, true)
+    // Story Studio publishes no step contract of its own.
+    assert.equal((model as any)?.default_steps, undefined)
+    assert.equal((model as any)?.min_steps, undefined)
+    assert.equal((model as any)?.max_steps, undefined)
+    assert.equal((model as any)?.sizes, undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('an image model that publishes nothing optional reports nothing optional', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json([{
+      id: 'genstudio-image-bare-v1',
+      display_name: 'GenStudio Image Bare',
+      aspect_ratios: ['16:9'],
+      default_aspect_ratio: '16:9',
+    }])
+    const [model] = await listImageModels('bare-catalog-key')
+    for (const field of [
+      'availability_note', 'base_credits_per_image', 'promotion_name', 'promotion_discount_percent',
+      'default_resolution', 'output_options', 'supports_seed', 'supports_image_to_image',
+      'min_reference_images', 'reference_image_max_dimension', 'reference_generation_credits',
+      'reference_generation_price_version', 'max_prompt_characters', 'prompt_token_allowance',
+      'operations',
+    ] as const) {
+      assert.equal(
+        (model as any)?.[field] ?? undefined, undefined,
+        `${field} must stay absent when GenStudio publishes nothing`,
+      )
+    }
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -478,11 +562,12 @@ test('GenStudio image generation sends catalog controls and returns a verified p
       if (url.endsWith('/v1/images/generations')) {
         posts++
         const body = JSON.parse(String(init?.body || '{}'))
+        // `steps` is deliberately absent: ImageGenerationRequest does not
+        // declare it, so Story Studio never puts one on the wire.
         assert.deepEqual(body, {
           prompt: 'A textured paper collage of hope and renewal.',
           model_id: 'genstudio-image-fast-v1',
           aspect_ratio: '4:3',
-          steps: 6,
           width: 1152,
           height: 864,
           seed: 77,
@@ -491,7 +576,7 @@ test('GenStudio image generation sends catalog controls and returns a verified p
         return Response.json({
           id: 'image_job_ok', state: 'succeeded', model_id: body.model_id,
           prompt: body.prompt, width: 1024, height: 768, aspect_ratio: body.aspect_ratio,
-          steps: body.steps, seed: body.seed, image_url: '/v1/images/image_job_ok/file',
+          steps: 4, seed: body.seed, image_url: '/v1/images/image_job_ok/file',
         }, { status: 202 })
       }
       if (url.endsWith('/v1/images/image_job_ok/file')) return new Response(ONE_PIXEL_PNG)
@@ -501,7 +586,6 @@ test('GenStudio image generation sends catalog controls and returns a verified p
       prompt: 'A textured paper collage of hope and renewal.',
       modelId: 'genstudio-image-fast-v1',
       aspectRatio: '4:3',
-      steps: 6,
       width: 1152,
       height: 864,
       seed: 77,
@@ -601,7 +685,6 @@ test('image generation automatically reconnects an accepted task after polling i
       prompt: 'A resilient image request.',
       modelId: 'genstudio-image-fast-v1',
       aspectRatio: '16:9',
-      steps: 4,
       requestIdentity: 'project:EP0001:scene:0001',
       onReconnect: () => { reconnects++ },
     })

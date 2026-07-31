@@ -27,6 +27,7 @@ import {
   buildCreativeDirectionPrompt,
   CREATIVE_STRATEGY_INSTRUCTIONS,
 } from './scene-creative-direction.js'
+import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
 import type {
   ResearchOutput,
   SceneCreativeDirection,
@@ -1343,6 +1344,9 @@ export async function generatePromptsForScenes(
     style_prompt?: string
     custom_instructions?: string
     creative_direction?: Partial<SceneCreativeDirection>
+    /** The character ceiling these prompts are written under (see
+     *  `generateVisualPromptOnly`). Absent = no limit in force. */
+    prompt_char_cap?: number
     neighbor_context_back?: number
     neighbor_context_forward?: number
     apiKeys: Record<string, string | undefined>
@@ -1410,6 +1414,7 @@ export async function generatePromptsForScenes(
             custom_instructions: ctx.custom_instructions,
             creative_direction: ctx.creative_direction,
             creative_strategy: scene.creative_strategy,
+            prompt_char_cap: ctx.prompt_char_cap,
             apiKeys: ctx.apiKeys,
             slug: ctx.slug,
             prev_visual_prompts: prevPrompts,
@@ -1500,6 +1505,15 @@ export async function generateVisualPromptOnly(opts: {
   custom_instructions?: string
   creative_direction?: Partial<SceneCreativeDirection>
   creative_strategy?: SceneCreativeStrategy
+  /**
+   * The character CEILING this prompt is written under — GenStudio's published
+   * `max_prompt_characters` for the image model that will render it, or a
+   * smaller number the user chose. Absent means no limit is in force: the
+   * writer is left unconstrained rather than handed an invented number. It is
+   * never a length to fill, and the returned prompt is never trimmed to fit.
+   * See services/prompt-char-cap.ts.
+   */
+  prompt_char_cap?: number
   apiKeys: Record<string, string | undefined>
   slug?: string
   /**
@@ -1531,6 +1545,10 @@ export async function generateVisualPromptOnly(opts: {
       `ART STYLE / MEDIUM (context only): "${styleForLead}". This exact clause is placed automatically at the START of the final prompt, so do NOT restate the style — just describe the scene content (subject, action, setting, framing, lighting, mood) in a way that suits that style.`,
     )
   }
+  // The image model that will RENDER this prompt owns the ceiling. Empty string
+  // when GenStudio publishes none, so nothing is invented.
+  const charCapInstruction = buildPromptCharCapInstruction(opts.prompt_char_cap)
+  if (charCapInstruction) sysParts.push(charCapInstruction)
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
     sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
   }

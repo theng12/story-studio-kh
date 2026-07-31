@@ -1698,6 +1698,33 @@ export interface ImageModelConfig {
    * Nano Banana family uses `image_size`. Absent = `aspect_ratio`.
    */
   aspect_field?: string
+  /**
+   * Published capability mirror (v1.0.788). Every field below is copied
+   * verbatim from GenStudio's live image catalogue by
+   * `services/image-model-resolver.ts` — none of it is synthesised, and a
+   * field GenStudio does not publish is simply absent rather than guessed.
+   * Absent therefore means "not published", never "false" or "zero", and
+   * saved projects that predate these fields degrade to the same
+   * "capability unknown" path instead of breaking.
+   */
+  /** Ceiling on references this model accepts. 0 = references unsupported. */
+  max_reference_images?: number
+  /** Floor an image-to-image-only model requires before it will render. */
+  min_reference_images?: number
+  /** Explicit img2img declaration where a model separates it from references. */
+  supports_image_to_image?: boolean
+  /** Whether a deterministic seed is honoured. Absent = not published. */
+  supports_seed?: boolean
+  /** Ratios the model publishes. Empty/absent = nothing published to validate against. */
+  aspect_ratios?: string[]
+  /** Ratio used when a request names none. Never defaulted to '16:9' locally. */
+  default_aspect_ratio?: string
+  /** Live availability at resolve time. */
+  available?: boolean
+  /** Account cannot submit to this model without qualifying. */
+  qualification_only?: boolean
+  /** Whether submissions to this model consume credits. */
+  chargeable?: boolean
 }
 
 export interface AudioModelConfig {
@@ -2291,8 +2318,6 @@ export interface GenerateImagesRequest {
    */
   width?: number
   height?: number
-  /** Provider-published inference-step control (GenStudio currently 2-8). */
-  image_steps?: number
   /** Optional deterministic image seed. */
   seed?: number
   /**

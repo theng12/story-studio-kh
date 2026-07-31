@@ -40,7 +40,45 @@ import {
   type GenStudioRequestPreviewInput,
 } from './genstudio-request-preview.js'
 
-const POLL_INTERVAL_MS = 1_000
+/**
+ * Job-poll cadence — ONE schedule shared by all five wait loops.
+ *
+ * WHY THIS IS NOT A FLAT INTERVAL ANY MORE
+ * ----------------------------------------
+ * It used to be `POLL_INTERVAL_MS = 1_000`, asked once a second until the job
+ * settled. Every poll that answers "still running" is wasted work on both
+ * sides, and the numbers are not small: a 90-second chapter generation cost 90
+ * requests, 89 of them redundant; chapter batches run 4 concurrent, so one
+ * customer sustained 4 req/s; and the 4-hour ceiling meant a genuinely stuck
+ * job fired 14,400 requests before giving up. Story Studio is a desktop app
+ * the customer leaves open, so that is steady-state load on hosted GenStudio,
+ * not a burst.
+ *
+ * The ladder starts at 1s so a short operation still feels instant, then
+ * widens through 2s and 5s to 10s, capping at 15s:
+ *
+ *   polls 1-3   1s   →  t = 3s
+ *   polls 4-6   2s   →  t = 9s
+ *   polls 7-8   5s   →  t = 19s
+ *   polls 9-10  10s  →  t = 39s
+ *   polls 11+   15s
+ *
+ * A 90-second job settles inside ~14 polls instead of 90. A stuck job that
+ * runs the full 4-hour deadline costs ~968 polls instead of 14,400.
+ *
+ * JITTER: ±20% on every interval. Without it, four concurrent chapter batches
+ * (and every other copy of the app on every other customer machine) fall into
+ * lockstep and hand GenStudio synchronised request spikes. Jitter is applied
+ * to a SERVER HINT too, but upward only — never poll sooner than the server
+ * asked — matching what `noteRateLimit` already does with `Retry-After`.
+ */
+const POLL_LADDER_MS = [1_000, 1_000, 1_000, 2_000, 2_000, 2_000, 5_000, 5_000, 10_000, 10_000]
+export const GENSTUDIO_POLL_MAX_INTERVAL_MS = 15_000
+export const GENSTUDIO_POLL_JITTER_FRACTION = 0.2
+/** How often an in-progress wait re-checks cancellation. Keeps a 15-second
+ *  sleep from making the Cancel button feel dead. */
+const POLL_CANCEL_CHECK_MS = 250
+
 const NETWORK_RETRY_ATTEMPTS = 4
 const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
@@ -116,7 +154,7 @@ export function isSettledGenStudioJob(job: { state?: unknown; cancelled?: boolea
 }
 
 /** Every GenStudio product family Story Studio submits durable work to. */
-export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription'
+export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription' | 'chat'
 
 /** The shape every settled GenStudio job response shares. */
 export interface GenStudioSettledJobShape {
@@ -219,6 +257,37 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
           + 'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.',
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
+  }
+}
+
+/**
+ * A durable language job that GenStudio settled as `failed`.
+ *
+ * THIS IS THE WHOLE REASON `/v1/chat/responses` exists for Story Studio. Over
+ * `/v1/chat/completions` the same outcome arrives as a bare 502 whose body is
+ * `{"detail": "language generation failed"}` with NO code, so the app cannot
+ * tell "the provider failed, retry is free" apart from "GenStudio could not
+ * confirm the provider had NOT already accepted this, so retrying risks a
+ * SECOND CHARGE". The durable job publishes `failure_code`, and this error
+ * carries it through unchanged — the message comes from
+ * `describeGenStudioLanguageFailure()` whenever the code is one of the two
+ * published ones, so the wording and the no-auto-retry behaviour cannot drift
+ * apart.
+ */
+export class GenStudioChatTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
+    super(
+      'chat',
+      job,
+      describeGenStudioLanguageFailure(settledFailureCode(job))
+        ?? (job.cancelled === true
+          ? `GenStudio KH language job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+            + 'Its reservation was released; Retry submits a new job.'
+          : `GenStudio KH language generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+            + 'The reservation was released and this job cannot be reopened; Retry submits a new job. '
+            + 'No direct provider or Studio Hub fallback was attempted.'),
+    )
+    this.name = 'GenStudioChatTerminalFailureError'
   }
 }
 
@@ -390,7 +459,28 @@ export interface GenStudioTranscriptionModel {
   id: string
   display_name: string
   provider: string
+  /**
+   * `TranscriptionModelResponse.language` — one string, usually the sentinel
+   * `"multilingual"`. EMPTY when GenStudio published nothing, which is a
+   * different fact from "this model detects the language" and is rendered
+   * differently. Never defaulted to a language code.
+   */
   language: string
+  /**
+   * The language codes this model accepts, in the form the request's
+   * `language` field expects. GenStudio does not publish this yet (see
+   * docs/genstudio-handoff/transcription-language-request.md) so it is empty
+   * today — and empty means "not published", never "supports nothing". The
+   * moment GenStudio ships `supported_languages[]` the picker becomes a real
+   * list with no release on this side.
+   */
+  supported_languages: string[]
+  /**
+   * Whether omitting `language` means the model detects it. `null` when
+   * GenStudio has not said — Story Studio assumes detection and says so,
+   * rather than pretending it was told.
+   */
+  supports_language_auto_detect: boolean | null
   available: boolean
   available_workers: number
   qualification_only: boolean
@@ -400,34 +490,73 @@ export interface GenStudioTranscriptionModel {
   price_version: string
 }
 
+/** One published `(resolution, aspect_ratio)` pair from `ImageOutputOptionResponse`. */
+export interface GenStudioImageOutputOption {
+  resolution: string
+  aspect_ratio: string
+  width: number
+  height: number
+  is_default: boolean
+  credits_per_image?: number
+  base_credits_per_image?: number
+  price_version?: string
+  reference_generation_credits?: number
+  reference_generation_price_version?: string
+}
+
+/**
+ * `ImageModelResponse` — everything GenStudio publishes about one image model.
+ *
+ * Every optional field here means exactly one thing: GenStudio published
+ * nothing about that concept for this model. Consumers must treat `undefined`
+ * as "no contract", which is "omit the control" or "leave the behaviour to the
+ * provider" — never "assume false" and never "assume a plausible number".
+ * Nothing that GenStudio does not publish appears on this interface, so a
+ * capability cannot be invented on the way through the transport.
+ */
 export interface GenStudioImageModel {
   id: string
   display_name: string
   description?: string
   available: boolean
+  /** Why an unavailable model is unavailable, when GenStudio explains it. */
+  availability_note?: string
   qualification_only: boolean
   execution_label?: string
   unlimited_relaxed: boolean
   credits_per_image: number | null
+  /** Undiscounted list price; present when a promotion is running. */
+  base_credits_per_image: number | null
   minimum_credits: number | null
   price_version: string | null
+  promotion_name?: string
+  promotion_discount_percent?: number
   chargeable: boolean
   aspect_ratios: string[]
   default_aspect_ratio: string
-  default_steps: number
-  min_steps: number
-  max_steps: number
+  /** Published resolution label used when a request names none. */
+  default_resolution?: string
+  /** Valid `(resolution, aspect_ratio)` pairs with their own pricing. */
+  output_options?: GenStudioImageOutputOption[]
   supports_reference_images: boolean
+  /** Explicit img2img flag, where a model separates it from plain references. */
+  supports_image_to_image?: boolean
+  /** Whether a deterministic seed is honoured by this model. */
+  supports_seed?: boolean
+  min_reference_images?: number
   max_reference_images: number
+  /** Longest edge GenStudio accepts on an uploaded reference image. */
+  reference_image_max_dimension?: number
+  reference_generation_credits?: number
+  reference_generation_price_version?: string
   reference_strength_mode: string
   supported_reference_strengths: string[]
-  sizes?: Array<{
-    aspect_ratio: string
-    width: number
-    height: number
-    label?: string
-    default?: boolean
-  }>
+  /** Provider-declared prompt ceiling, in characters. */
+  max_prompt_characters?: number
+  /** Provider-declared prompt budget in tokens. NEVER converted to characters. */
+  prompt_token_allowance?: number
+  /** Operations this model serves (e.g. `image.generation`, `image.edit`). */
+  operations?: string[]
 }
 
 interface GenStudioImageJob {
@@ -456,11 +585,15 @@ interface GenStudioImageJob {
   image_url?: string | null
 }
 
+/**
+ * `ImageGenerationRequest` — prompt, model_id, aspect_ratio, resolution, seed,
+ * reference_asset_ids. There is no `steps` field: inference steps are not a
+ * customer control, and Story Studio does not send one.
+ */
 export interface GenStudioImageRequest extends GenStudioOperationContext {
   prompt: string
   modelId: string
   aspectRatio: string
-  steps: number
   width?: number
   height?: number
   seed?: number
@@ -633,17 +766,36 @@ export interface GenStudioVideoModel {
   }>
 }
 
-interface GenStudioChatJob {
+/**
+ * `ChatJobResponse` — one durable language job on `POST /v1/chat/responses`.
+ *
+ * Terminal states are `succeeded` and `failed` ONLY; there is no cancelled or
+ * rejected state on this route, which is why `waitForChatJob` polls on
+ * `isTerminalGenStudioJobState` rather than on the image/TTS `cancelled` flag.
+ *
+ * The research envelope (`citations`, `citation_claims`, `research_ran_at`,
+ * `web_searches_executed`, `web_search_credit_cost`) sits at the TOP LEVEL of
+ * this response, exactly as it does on the synchronous
+ * `OpenAIChatCompletionResponse` — see `GenStudioResearchEnvelope`, which both
+ * shapes extend so a single parser serves both routes.
+ */
+interface GenStudioChatJob extends GenStudioResearchEnvelope {
   id: string
   state: GenStudioJob['state']
+  operation?: string
+  dispatch_mode?: string
   model_id: string
   output_text?: string | null
+  /** False once GenStudio has dropped the retained text for this job. */
+  output_retained?: boolean | null
   finish_reason?: string | null
   failure_code?: string | null
   routing_status_code?: string | null
   credit_cost?: number
   remaining_credits?: number
   price_version?: string | null
+  /** True when this response replayed an existing job for the same key. */
+  idempotent_replay?: boolean | null
 }
 
 interface GenStudioVideoSourceAsset {
@@ -781,6 +933,110 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
    * `supports_domain_filters`. Omit the field entirely for a normal request.
    */
   webSearch?: GenStudioWebSearchBlock
+  /**
+   * Force one language route for this call. Leave unset in product code — the
+   * route is a deployment decision, resolved once by
+   * `resolveGenStudioChatTransport()`. Present so a test can pin either side
+   * of the switch without mutating process state.
+   */
+  transport?: GenStudioChatTransport
+}
+
+/**
+ * Which GenStudio language route a chat request takes.
+ *
+ * - `responses`   `POST /v1/chat/responses` → 202 + durable job + poll. The
+ *                 default, and the only route that publishes `failure_code`,
+ *                 so it is the only route on which Story Studio can tell a
+ *                 retryable provider failure apart from one that might already
+ *                 have been charged.
+ * - `completions` `POST /v1/chat/completions`, one blocking call. Kept for
+ *                 rollback only.
+ */
+export type GenStudioChatTransport = 'responses' | 'completions'
+
+/** Set to `completions` to roll the whole app back to the synchronous route. */
+export const GENSTUDIO_CHAT_TRANSPORT_ENV = 'STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT'
+
+/**
+ * THE SINGLE SWITCH POINT for the language route.
+ *
+ * Every language call in Story Studio funnels through `callChatWithGenStudio`,
+ * which asks this function once and branches once. Rolling back is therefore
+ * one environment variable — `STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT=completions`
+ * — and needs no code change, no redeploy of call sites, and no second copy of
+ * the guards: both routes run the identical pre-network checks, identical
+ * output-token resolution, identical truncation detection and identical local
+ * schema validation before and after the wire.
+ */
+export function resolveGenStudioChatTransport(
+  override?: GenStudioChatTransport,
+): GenStudioChatTransport {
+  if (override === 'completions' || override === 'responses') return override
+  return describeGenStudioChatTransport().transport
+}
+
+/**
+ * Which language route is live, and WHY — for the startup log.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * GenStudio once diagnosed a chapter-generation failure as Story Studio
+ * "overriding its transport to completions". There was no override: the
+ * running build simply predated the durable-route code. Nobody on either side
+ * could tell which route was live without reading source, so a support
+ * question about a customer machine had no answer. Now the answer is one line
+ * in the log.
+ *
+ * `envValue` is the literal contents of an environment variable the operator
+ * set. It is NEVER the API key or anything derived from it — this function has
+ * no access to a key and must never be given one.
+ */
+export interface GenStudioChatTransportChoice {
+  transport: GenStudioChatTransport
+  /** `default` when the env var is unset or blank, `environment` when set. */
+  source: 'default' | 'environment'
+  /** What the env var literally said, or null when it was not set. */
+  envValue: string | null
+  /** False when the env var was set to something that is not a route name. */
+  envRecognised: boolean
+}
+
+export function describeGenStudioChatTransport(
+  env: NodeJS.ProcessEnv = process.env,
+): GenStudioChatTransportChoice {
+  const raw = env[GENSTUDIO_CHAT_TRANSPORT_ENV]
+  const configured = (raw || '').trim().toLowerCase()
+  if (!configured) {
+    return { transport: 'responses', source: 'default', envValue: null, envRecognised: true }
+  }
+  const recognised = configured === 'completions' || configured === 'responses'
+  return {
+    transport: configured === 'completions' ? 'completions' : 'responses',
+    source: 'environment',
+    envValue: (raw || '').trim(),
+    envRecognised: recognised,
+  }
+}
+
+/**
+ * The startup line. Written to be answerable on its own: it names the route,
+ * the variable that controls it, and whether that variable was actually set.
+ */
+export function genStudioChatTransportLogLine(env: NodeJS.ProcessEnv = process.env): string {
+  const choice = describeGenStudioChatTransport(env)
+  const route = choice.transport === 'completions'
+    ? 'completions (POST /v1/chat/completions, synchronous — rollback route)'
+    : 'responses (POST /v1/chat/responses, durable job + poll — default route)'
+  if (choice.source === 'default') {
+    return `[genstudio] Language transport: ${route}. Source: built-in default `
+      + `(${GENSTUDIO_CHAT_TRANSPORT_ENV} is not set).`
+  }
+  const recognised = choice.envRecognised
+    ? ''
+    : ' That value is not a route name, so the default route was kept.'
+  return `[genstudio] Language transport: ${route}. Source: environment `
+    + `(${GENSTUDIO_CHAT_TRANSPORT_ENV}="${choice.envValue}").${recognised}`
 }
 
 /** The request's `web_search` block, exactly as GenStudio accepts it. */
@@ -1171,8 +1427,16 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
 /**
  * True when this error carries GenStudio's "we do not know if the provider
  * already took it" code. Such a request must never be resubmitted by machine.
+ *
+ * Two shapes carry the code, and both must answer the same way:
+ *   - an error BODY on the synchronous route (`GenStudioApiError.code`);
+ *   - a settled durable job's `failure_code` on `/v1/chat/responses`, which is
+ *     the only place the distinction is reliably published.
  */
 export function isGenStudioSubmissionUncertain(error: unknown): boolean {
+  if (error instanceof GenStudioTerminalFailureError) {
+    return error.failureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
+  }
   if (!(error instanceof GenStudioApiError)) return false
   return error.languageFailureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
 }
@@ -1245,6 +1509,107 @@ export function parseGenStudioRetryAfterMs(value: string | null, now = Date.now(
   const retryAt = Date.parse(value)
   if (!Number.isFinite(retryAt)) return null
   return Math.max(0, retryAt - now)
+}
+
+/**
+ * A GenStudio-supplied "ask me again in N" hint on a job payload, in ms.
+ *
+ * GenStudio does not publish a poll hint today (see
+ * docs/genstudio-handoff/job-poll-hint-request.md — the ask is open). This
+ * reads the shapes that ask proposes, plus the `Retry-After` header, which
+ * `requestJsonWithRetry` folds onto the body as `retry_after` the same way it
+ * already folds `location` and `http_status`. The moment GenStudio ships any
+ * of them, Story Studio honours it with no further code change.
+ *
+ * Returns null for anything absent, malformed or negative — a bad hint must
+ * never be able to turn into a busy-loop.
+ */
+export function readGenStudioPollHintMs(payload: unknown, now = Date.now()): number | null {
+  if (!payload || typeof payload !== 'object') return null
+  const row = payload as Record<string, unknown>
+  const ms = row.poll_after_ms ?? row.retry_after_ms
+  if (typeof ms === 'number' && Number.isFinite(ms) && ms >= 0) return Math.ceil(ms)
+  const seconds = row.poll_after_seconds ?? row.poll_after
+  if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1_000)
+  }
+  const header = row.retry_after ?? row.poll_after
+  if (typeof header === 'string') return parseGenStudioRetryAfterMs(header, now)
+  return null
+}
+
+/**
+ * The delay before poll number `attempt` (0-based), in ms.
+ *
+ * Pure and injectable so the schedule can be simulated in a test without any
+ * real waiting. Three rules, in order:
+ *
+ *   1. A server hint WINS over the local ladder, and is jittered upward only.
+ *   2. Otherwise walk the ladder, capped at GENSTUDIO_POLL_MAX_INTERVAL_MS,
+ *      with symmetric ±20% jitter.
+ *   3. Whatever comes out is clamped to the time left before the deadline, so
+ *      backoff can never overshoot the 4-hour ceiling. A widening interval
+ *      must not be able to delay the timeout that protects the pipeline.
+ */
+export function genStudioPollDelayMs(options: {
+  attempt: number
+  remainingMs: number
+  hintMs?: number | null
+  random?: () => number
+}): number {
+  const random = options.random ?? Math.random
+  const hint = typeof options.hintMs === 'number' && Number.isFinite(options.hintMs) && options.hintMs >= 0
+    ? options.hintMs
+    : null
+  let delay: number
+  if (hint != null) {
+    // Upward-only jitter: honouring the server means never asking sooner.
+    delay = Math.ceil(hint * (1 + GENSTUDIO_POLL_JITTER_FRACTION * random()))
+  } else {
+    const attempt = Math.max(0, Math.floor(options.attempt))
+    const base = attempt < POLL_LADDER_MS.length
+      ? POLL_LADDER_MS[attempt]!
+      : GENSTUDIO_POLL_MAX_INTERVAL_MS
+    const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
+    delay = Math.round(base * spread)
+  }
+  const remaining = Number.isFinite(options.remainingMs) ? options.remainingMs : 0
+  return Math.max(0, Math.min(delay, Math.max(0, remaining)))
+}
+
+/**
+ * One job's poll cadence, with an interruptible wait.
+ *
+ * Create one per wait loop and call `wait()` where the old flat
+ * `setTimeout(POLL_INTERVAL_MS)` used to be. The wait wakes every 250 ms to
+ * re-check cancellation, so widening to 15-second intervals does not make the
+ * Cancel button feel dead — it returns early and lets the loop's own
+ * cancellation branch do the cancelling, exactly as before.
+ */
+export function createGenStudioJobPoller(random: () => number = Math.random): {
+  attempts: () => number
+  wait: (deadline: number, ctx: GenStudioOperationContext, job?: unknown) => Promise<void>
+} {
+  let attempt = 0
+  return {
+    attempts: () => attempt,
+    async wait(deadline, ctx, job) {
+      const delay = genStudioPollDelayMs({
+        attempt,
+        remainingMs: deadline - Date.now(),
+        hintMs: readGenStudioPollHintMs(job),
+        random,
+      })
+      attempt++
+      const wakeAt = Date.now() + delay
+      for (;;) {
+        const left = wakeAt - Date.now()
+        if (left <= 0) return
+        if (ctx.isCancelled?.() || ctx.signal?.aborted) return
+        await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
+      }
+    },
+  }
 }
 
 async function retryDelay(
@@ -1324,6 +1689,10 @@ async function requestJsonWithRetry(
         if (body && typeof body === 'object') {
           body.location ||= response.headers.get('location')
           body.http_status ||= response.status
+          // Poll-cadence hint, if GenStudio ever sends one on a job GET. Folded
+          // onto the body so the wait loops can prefer it over their local
+          // backoff without every call site handling raw headers.
+          body.retry_after ||= response.headers.get('retry-after')
         }
         return body
       }
@@ -1862,6 +2231,7 @@ async function waitForVideoJob(
     await request.onState?.(current.state, current.id)
   }
   await reportState()
+  const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
@@ -1874,7 +2244,7 @@ async function waitForVideoJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
       { headers: authorization(apiKey) },
@@ -2103,23 +2473,21 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
   return `story-chat-${digest.slice(0, 47)}`
 }
 
-interface GenStudioChatCompletion {
-  id: string
-  model: string
-  choices: Array<{
-    message?: { content?: string }
-    finish_reason?: string
-  }>
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    total_tokens?: number
-  }
-  // ── GenStudio's evidence envelope ─────────────────────────────────────
-  // Field names confirmed against the published contract
-  // (cloud-api app/modules/chat/schemas.py :: OpenAIChatCompletionResponse
-  // and app/modules/chat/router.py :: create_chat_completion). These are NOT
-  // guesses and must not drift back to invented names.
+/**
+ * GenStudio's web-research evidence envelope.
+ *
+ * Field names confirmed against the published contract
+ * (cloud-api app/modules/chat/schemas.py :: OpenAIChatCompletionResponse AND
+ * :: ChatJobResponse, plus app/modules/chat/router.py). These are NOT guesses
+ * and must not drift back to invented names.
+ *
+ * CARRIED BY BOTH ROUTES: the durable `/v1/chat/responses` job publishes these
+ * at the same top level as the synchronous completion envelope does — see
+ * docs/genstudio-web-search-request.md §3, which asked for citations "as their
+ * own field on the job response". Modelling it once means the durable
+ * migration cannot silently drop research provenance.
+ */
+interface GenStudioResearchEnvelope {
   /** Provider citations for a web-search request. Envelope-level on purpose:
    *  sources are provider evidence, not something the model wrote. */
   citations?: unknown
@@ -2136,6 +2504,20 @@ interface GenStudioChatCompletion {
   /** Claim-to-source linkage. In the contract, but providers do not populate
    *  it yet, so it is parsed and carried without any per-claim display. */
   citation_claims?: unknown
+}
+
+interface GenStudioChatCompletion extends GenStudioResearchEnvelope {
+  id: string
+  model: string
+  choices: Array<{
+    message?: { content?: string }
+    finish_reason?: string
+  }>
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
 }
 
 /** Parse the envelope citation list. Unknown/garbage entries are dropped
@@ -2221,9 +2603,12 @@ function readReportedTimestamp(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
-function readWebSearchUsage(completion: GenStudioChatCompletion): GenStudioWebSearchUsage {
-  const executed = completion.web_searches_executed
-  const cost = completion.web_search_credit_cost
+/** Read the research envelope off EITHER route's response. Identical field
+ *  names, so one parser — a durable job and a synchronous completion report
+ *  their web run exactly the same way. */
+function readWebSearchUsage(envelope: GenStudioResearchEnvelope): GenStudioWebSearchUsage {
+  const executed = envelope.web_searches_executed
+  const cost = envelope.web_search_credit_cost
   return {
     searchesExecuted: Number.isInteger(executed) && (executed as number) >= 0
       ? executed as number
@@ -2231,8 +2616,8 @@ function readWebSearchUsage(completion: GenStudioChatCompletion): GenStudioWebSe
     searchCreditCost: Number.isInteger(cost) && (cost as number) >= 0
       ? cost as number
       : null,
-    researchRanAt: readReportedTimestamp(completion.research_ran_at),
-    citationClaims: parseGenStudioCitationClaims(completion.citation_claims),
+    researchRanAt: readReportedTimestamp(envelope.research_ran_at),
+    citationClaims: parseGenStudioCitationClaims(envelope.citation_claims),
   }
 }
 
@@ -2390,25 +2775,29 @@ function productResponseFormat(
   return { responseFormat: { type: 'json_object' }, wrapperInstruction }
 }
 
-function parseProductCompletion(
-  completion: GenStudioChatCompletion,
+/**
+ * Turn one finished language output into a validated Story Studio result.
+ *
+ * ONE implementation for BOTH routes on purpose: truncation detection and
+ * local schema validation are the two checks that stand between a half-written
+ * chapter and a docx on disk, so neither may exist in two places where one copy
+ * can rot. `/v1/chat/completions` feeds it `choices[0].message.content` +
+ * `choices[0].finish_reason`; `/v1/chat/responses` feeds it the job's
+ * `output_text` + `finish_reason`.
+ */
+function parseLanguageOutput(
+  output: GenStudioIncompleteOutput,
   outputContract: TextOutputContract,
 ): { text: string; jobId: string; modelId: string } {
-  const choice = completion.choices?.[0]
-  const raw = choice?.message?.content
+  const raw = output.output_text
   // Truncation is never success. GenStudio's own settlement path already
-  // refuses to charge a completion whose finish_reason is not a stop
+  // refuses to charge an output whose finish_reason is not a stop
   // (LANGUAGE_PROVIDER_INCOMPLETE), so a truncated envelope should not reach
   // us — but "should not" is not a guarantee, and the failure mode if it does
   // is the worst kind: a half-written chapter saved to disk as if it were
   // finished. Check it here, at the one place every language call passes.
-  if (!isCompleteFinishReason(choice?.finish_reason)) {
-    throw new GenStudioChatIncompleteError({
-      id: completion.id,
-      model_id: completion.model,
-      output_text: typeof raw === 'string' ? raw : null,
-      finish_reason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
-    })
+  if (!isCompleteFinishReason(output.finish_reason)) {
+    throw new GenStudioChatIncompleteError(output)
   }
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error('GenStudio KH language product succeeded without usable output.')
@@ -2417,15 +2806,28 @@ function parseProductCompletion(
   if (outputContract.mode === 'prose') {
     return {
       text: (value as { text: string }).text,
-      jobId: completion.id,
-      modelId: completion.model,
+      jobId: output.id,
+      modelId: output.model_id,
     }
   }
   return {
     text: JSON.stringify(value),
-    jobId: completion.id,
-    modelId: completion.model,
+    jobId: output.id,
+    modelId: output.model_id,
   }
+}
+
+function parseProductCompletion(
+  completion: GenStudioChatCompletion,
+  outputContract: TextOutputContract,
+): { text: string; jobId: string; modelId: string } {
+  const choice = completion.choices?.[0]
+  return parseLanguageOutput({
+    id: completion.id,
+    model_id: completion.model,
+    output_text: typeof choice?.message?.content === 'string' ? choice.message.content : null,
+    finish_reason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+  }, outputContract)
 }
 
 /** Result of one language-product call. `citations` and `webSearch` are only
@@ -2442,11 +2844,36 @@ export interface GenStudioChatResult {
   webSearch: GenStudioWebSearchUsage
 }
 
-/** Execute one exact published language product through GenStudio's product API. */
-async function callChatWithGenStudioAdmitted(
+/**
+ * Everything one language call needs on the wire, resolved BEFORE any network
+ * submission and shared byte-for-byte by both routes.
+ */
+interface PreparedChatSubmission {
+  modelId: string
+  product: GenStudioChatModel
+  maxOutputTokens: number
+  outputContract: TextOutputContract
+  responseFormat: Record<string, unknown>
+  /** system (+ wrapper instruction) then user. `messages` on the completions
+   *  route, `input` on the responses route — same objects either way. */
+  messages: Array<{ role: string; content: string }>
+  idempotencyKey: string
+  transport: GenStudioChatTransport
+}
+
+/**
+ * Run every pre-network guard and resolve the request shape.
+ *
+ * EVERY `throw` in this function happens STRICTLY BEFORE the submit call on
+ * both routes — that is what makes the "No request or credit charge was made"
+ * wording true rather than merely reassuring. Nothing here submits work: the
+ * only network access is the cached product catalogue read, which is a GET
+ * against `/v1/chat/models` and never creates a job.
+ */
+async function prepareChatSubmission(
   apiKey: string,
   request: GenStudioChatRequest,
-): Promise<GenStudioChatResult> {
+): Promise<PreparedChatSubmission> {
   const modelId = request.modelId.trim().replace(/^genstudio-chat:/, '')
   if (!modelId) throw new Error('Select a GenStudio KH chat model.')
   if (!request.userMessage.trim()) throw new Error('GenStudio KH chat input cannot be empty.')
@@ -2464,6 +2891,11 @@ async function callChatWithGenStudioAdmitted(
   // never from a constant that goes stale when GenStudio publishes a product
   // with a different limit. An absent budget resolves to the historical
   // short-form default, so callers that never opted in are unchanged.
+  //
+  // `/v1/chat/responses` publishes NO maximum of its own for
+  // `max_output_tokens` (the old 32,768 route cap is gone), so the product's
+  // published ceiling remains the real and only limit — the durable migration
+  // does not shrink any allowance shipped in v1.0.765/766.
   const maxOutputTokens = request.maxOutputTokens
     ?? resolveOutputTokenBudget(request.outputBudget, product.max_output_tokens)
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {
@@ -2477,41 +2909,291 @@ async function callChatWithGenStudioAdmitted(
     product.structured_output_mode,
     outputContract,
   )
-  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioChatIdempotencyKey(request)
+  return {
+    modelId,
+    product,
+    maxOutputTokens,
+    outputContract,
+    responseFormat,
+    messages: [
+      ...(request.system.trim() || wrapperInstruction
+        ? [{
+            role: 'system',
+            content: [request.system.trim(), wrapperInstruction].filter(Boolean).join('\n\n'),
+          }]
+        : []),
+      { role: 'user', content: request.userMessage },
+    ],
+    // Derived from the request CONTENT, never from a clock or a counter. That
+    // is what makes it survive a lost response: the retry inside
+    // `requestJsonWithRetry` re-sends the identical `Idempotency-Key`, and a
+    // whole new process computing it from the same request lands on the same
+    // string, so GenStudio replays the running job instead of charging twice.
+    idempotencyKey: request.idempotencyKey?.trim() || buildGenStudioChatIdempotencyKey(request),
+    transport: resolveGenStudioChatTransport(request.transport),
+  }
+}
+
+/** The diagnostic fields both routes record, minus the route-specific ones. */
+function chatPreviewFields(
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+): Array<[string, unknown]> {
+  return [
+    ['temperature', request.temperature ?? 0.7],
+    ['top_p', request.topP ?? 1],
+    ['output_contract', prepared.outputContract.mode],
+    ['structured_output_mode', prepared.product.structured_output_mode],
+    ...(request.webSearch
+      ? [
+          ['web_search', true] as [string, unknown],
+          ['web_search_max_searches', request.webSearch.max_searches ?? null] as [string, unknown],
+          ['web_search_allowed_domains', request.webSearch.allowed_domains.length] as [string, unknown],
+          ['web_search_blocked_domains', request.webSearch.blocked_domains.length] as [string, unknown],
+        ]
+      : []),
+  ]
+}
+
+/** A durable chat job in the shape the shared evidence recorder expects. */
+function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
+  return {
+    id: job.id,
+    state: job.state,
+    model_id: job.model_id,
+    ...(job.failure_code ? { failure_code: job.failure_code } : {}),
+    ...(job.routing_status_code ? { routing_status_code: job.routing_status_code } : {}),
+    ...(Number.isFinite(job.credit_cost) ? { credit_cost: job.credit_cost } : {}),
+    ...(Number.isFinite(job.remaining_credits) ? { remaining_credits: job.remaining_credits } : {}),
+    ...(job.price_version ? { price_version: job.price_version } : {}),
+  }
+}
+
+/**
+ * Poll one accepted language job to a terminal state.
+ *
+ * Mirrors `waitForImageJob` / the TTS `waitForJob` deliberately — same poll
+ * interval, same `deadline`, same cancellation check, same
+ * `recordGenStudioEvidence` + queue-state reporting, so the Jobs page shows a
+ * language job exactly the way it already shows every other modality.
+ *
+ * Terminal is `succeeded | failed` ONLY: unlike image/TTS/transcription this
+ * route publishes no `cancelled` flag and no cancel endpoint, so a local
+ * cancellation stops POLLING and says so rather than pretending it stopped the
+ * job. The job stays GenStudio-owned and reconnectable by id.
+ */
+async function waitForChatJob(
+  baseUrl: string,
+  apiKey: string,
+  job: GenStudioChatJob,
+  request: GenStudioChatRequest,
+  deadline: number,
+): Promise<GenStudioChatJob> {
+  let current = job
+  let reportedState: string | null = null
+  let reportedRoutingState: string | null = null
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || null
+    if (reportedState === current.state && reportedRoutingState === routingState) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    await recordGenStudioEvidence('chat.response', chatJobEvidence(current))
+    await reportQueueState(request, chatJobEvidence(current))
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
+  const poller = createGenStudioJobPoller()
+  while (!isTerminalGenStudioJobState(current.state)) {
+    if (request.isCancelled?.() || request.signal?.aborted) {
+      await request.onQueueState?.('cancelled', current.id)
+      throw new Error('Cancelled by user')
+    }
+    if (Date.now() >= deadline) {
+      // A slow job can never hang a pipeline step forever: the deadline is set
+      // once at submission from GENSTUDIO_LONG_JOB_TIMEOUT_MS and every poll,
+      // retry and backoff inside this loop is bounded by it.
+      throw new Error('GenStudio KH language job timed out while waiting for completion')
+    }
+    await poller.wait(deadline, request, current)
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/chat/responses/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioChatJob
+    await reportState()
+  }
+  await genStudioAdmission.notifyTerminal(apiKey)
+  if (current.state === 'failed') throw new GenStudioChatTerminalFailureError(current)
+  return current
+}
+
+/**
+ * Reconnect to an already accepted language job. NEVER submits new work.
+ *
+ * This is the whole point of the durable route: a dropped connection reclaims
+ * the job the account has already paid to start instead of buying a second one.
+ */
+async function recoverChatJobAdmitted(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioChatRequest,
+): Promise<GenStudioChatJob> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const messages = [
-    ...(request.system.trim() || wrapperInstruction
-      ? [{
-          role: 'system',
-          content: [request.system.trim(), wrapperInstruction].filter(Boolean).join('\n\n'),
-        }]
-      : []),
-    { role: 'user', content: request.userMessage },
-  ]
+  const initial = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/chat/responses/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioChatJob
+  // Classify BEFORE polling: a job that already failed cannot become output,
+  // and a poll loop would only re-read the same terminal record.
+  if (initial.state === 'failed') {
+    await recordGenStudioEvidence('chat.response', chatJobEvidence(initial))
+    await reportQueueState(request, chatJobEvidence(initial))
+    await request.onState?.(initial.state, initial.id)
+    await genStudioAdmission.notifyTerminal(apiKey)
+    throw new GenStudioChatTerminalFailureError(initial)
+  }
+  return waitForChatJob(baseUrl, apiKey, initial, request, deadline)
+}
+
+export async function recoverChatWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioChatRequest,
+): Promise<GenStudioChatResult> {
+  const prepared = await prepareChatSubmission(apiKey, request)
+  const completed = await recoverChatJobAdmitted(apiKey, jobId, request)
+  return finishChatJob(apiKey, request, prepared, completed)
+}
+
+/** Validate a settled language job and shape the caller's result. */
+async function finishChatJob(
+  apiKey: string,
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+  completed: GenStudioChatJob,
+): Promise<GenStudioChatResult> {
+  let parsed: ReturnType<typeof parseLanguageOutput>
+  try {
+    parsed = parseLanguageOutput(completed, prepared.outputContract)
+  } catch (error) {
+    // The job is settled either way, so the account slot is free: release it
+    // before rejecting the payload, or a run of unusable outputs (truncation,
+    // a contract violation) silently starves the admission pool.
+    await request.onQueueState?.('failed', completed.id)
+    await genStudioAdmission.notifyTerminal(apiKey)
+    throw error
+  }
+  const result: GenStudioChatResult = {
+    ...parsed,
+    citations: request.webSearch ? parseGenStudioCitations(completed.citations) : [],
+    webSearch: request.webSearch ? readWebSearchUsage(completed) : EMPTY_WEB_SEARCH_USAGE,
+  }
+  await request.onQueueState?.('succeeded', result.jobId)
+  await genStudioAdmission.notifyTerminal(apiKey)
+  return result
+}
+
+/**
+ * Submit one durable language job and poll it to a validated result.
+ *
+ * The durable twin of every other modality: submit through the admission pool,
+ * record evidence, hand the caller the accepted job id, then poll — and on a
+ * lost connection RECONNECT to the same job rather than submit a second one.
+ */
+async function callChatViaResponses(
+  apiKey: string,
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+): Promise<GenStudioChatResult> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  // Written BEFORE the POST: a submission whose response never arrives still
+  // leaves its idempotency key on the Story job's evidence entry (under
+  // `pending:<key>`), so the run that reattaches can prove which key was in
+  // flight instead of minting a new one and paying twice.
+  const requestPreview = await recordGenStudioRequestPreview('chat.response', {
+    method: 'POST',
+    path: '/v1/chat/responses',
+    modelId: prepared.modelId,
+    responseFormat: prepared.responseFormat,
+    tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+    idempotencyKey: prepared.idempotencyKey,
+    messages: prepared.messages,
+    fields: chatPreviewFields(request, prepared),
+  })
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
+    `${apiBase(baseUrl)}/v1/chat/responses`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        // Required by the route (8..128 characters). Computed once, above, and
+        // reused verbatim by every network retry of this submission.
+        'Idempotency-Key': prepared.idempotencyKey,
+      },
+      body: JSON.stringify({
+        // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
+        model_id: prepared.modelId,
+        input: prepared.messages,
+        response_format: prepared.responseFormat,
+        temperature: request.temperature ?? 0.7,
+        top_p: request.topP ?? 1,
+        max_output_tokens: prepared.maxOutputTokens,
+        // Present only for a deliberate web-search request. `web_search` is
+        // available on this route too, so web research is durable as well.
+        ...(request.webSearch ? { web_search: request.webSearch } : {}),
+      }),
+    },
+    request,
+    deadline,
+  ) as GenStudioChatJob
+  await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
+  await reportQueueState(request, chatJobEvidence(submitted))
+  await request.onJobAccepted?.(submitted.id, prepared.idempotencyKey)
+  let completed: GenStudioChatJob
+  try {
+    completed = await waitForChatJob(baseUrl, apiKey, submitted, request, deadline)
+  } catch (error) {
+    // `shouldReconnectAcceptedTask` refuses to reconnect a settled outcome AND
+    // refuses `LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN` specifically — a second
+    // submission is exactly the duplicate charge GenStudio declined to risk.
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    completed = await recoverChatJobAdmitted(apiKey, submitted.id, request)
+  }
+  return finishChatJob(apiKey, request, prepared, completed)
+}
+
+/**
+ * ROLLBACK ROUTE — the original synchronous `POST /v1/chat/completions`.
+ *
+ * Kept reachable and unchanged on purpose. It cannot distinguish
+ * `LANGUAGE_PROVIDER_FAILED` from `LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN`
+ * unless GenStudio happens to name the code in the error body, because a
+ * synchronous failure arrives as a bare 502 with no `failure_code`.
+ */
+async function callChatViaCompletions(
+  apiKey: string,
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+): Promise<GenStudioChatResult> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const requestPreview = await recordGenStudioRequestPreview('chat.response', {
     method: 'POST',
     path: '/v1/chat/completions',
-    modelId,
-    responseFormat,
-    tokenLimits: { max_completion_tokens: maxOutputTokens },
-    idempotencyKey,
-    messages,
-    fields: [
-      ['stream', false],
-      ['temperature', request.temperature ?? 0.7],
-      ['top_p', request.topP ?? 1],
-      ['output_contract', outputContract.mode],
-      ['structured_output_mode', product.structured_output_mode],
-      ...(request.webSearch
-        ? [
-            ['web_search', true] as [string, unknown],
-            ['web_search_max_searches', request.webSearch.max_searches ?? null] as [string, unknown],
-            ['web_search_allowed_domains', request.webSearch.allowed_domains.length] as [string, unknown],
-            ['web_search_blocked_domains', request.webSearch.blocked_domains.length] as [string, unknown],
-          ]
-        : []),
-    ],
+    modelId: prepared.modelId,
+    responseFormat: prepared.responseFormat,
+    tokenLimits: { max_completion_tokens: prepared.maxOutputTokens },
+    idempotencyKey: prepared.idempotencyKey,
+    messages: prepared.messages,
+    fields: [['stream', false], ...chatPreviewFields(request, prepared)],
   })
   const completion = await submitJsonWithAdmission(
     apiKey,
@@ -2521,19 +3203,16 @@ async function callChatWithGenStudioAdmitted(
       headers: {
         ...authorization(apiKey),
         'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey,
+        'Idempotency-Key': prepared.idempotencyKey,
       },
       body: JSON.stringify({
-        model: modelId,
-        messages,
-        response_format: responseFormat,
+        model: prepared.modelId,
+        messages: prepared.messages,
+        response_format: prepared.responseFormat,
         stream: false,
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 1,
-        max_completion_tokens: maxOutputTokens,
-        // Present only for a deliberate web-search request. The block is built
-        // from the selected product's published capability, so an ordinary
-        // request is byte-for-byte what it always was.
+        max_completion_tokens: prepared.maxOutputTokens,
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
@@ -2547,7 +3226,7 @@ async function callChatWithGenStudioAdmitted(
   // pool until it times out.
   let parsed: ReturnType<typeof parseProductCompletion>
   try {
-    parsed = parseProductCompletion(completion, outputContract)
+    parsed = parseProductCompletion(completion, prepared.outputContract)
   } catch (error) {
     await request.onState?.('failed', completion.id)
     await request.onQueueState?.('failed', completion.id)
@@ -2567,11 +3246,27 @@ async function callChatWithGenStudioAdmitted(
     model_id: result.modelId,
   }
   await recordGenStudioEvidence('chat.response', evidence, requestPreview)
-  await request.onJobAccepted?.(result.jobId, idempotencyKey)
+  await request.onJobAccepted?.(result.jobId, prepared.idempotencyKey)
   await request.onState?.('succeeded', result.jobId)
   await request.onQueueState?.('succeeded', result.jobId)
   await genStudioAdmission.notifyTerminal(apiKey)
   return result
+}
+
+/**
+ * Execute one exact published language product through GenStudio's product API.
+ *
+ * The guards run FIRST and identically for both routes; the transport decision
+ * is made ONCE, here, and nowhere else in the app.
+ */
+async function callChatWithGenStudioAdmitted(
+  apiKey: string,
+  request: GenStudioChatRequest,
+): Promise<GenStudioChatResult> {
+  const prepared = await prepareChatSubmission(apiKey, request)
+  return prepared.transport === 'completions'
+    ? callChatViaCompletions(apiKey, request, prepared)
+    : callChatViaResponses(apiKey, request, prepared)
 }
 
 export async function callChatWithGenStudio(
@@ -2622,7 +3317,17 @@ export async function listTranscriptionModelsSnapshot(
       id: typeof value?.id === 'string' ? value.id.trim() : '',
       display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
       provider: typeof value?.provider === 'string' ? value.provider.trim() : 'GenStudio KH',
-      language: typeof value?.language === 'string' ? value.language.trim() : 'multilingual',
+      // NOT defaulted to 'multilingual': an absent field is missing data, and
+      // collapsing it into a sentinel makes a gap look like a published fact.
+      language: typeof value?.language === 'string' ? value.language.trim() : '',
+      supported_languages: Array.isArray(value?.supported_languages)
+        ? value.supported_languages
+          .filter((code: unknown): code is string => typeof code === 'string' && !!code.trim())
+          .map((code: string) => code.trim())
+        : [],
+      supports_language_auto_detect: typeof value?.supports_language_auto_detect === 'boolean'
+        ? value.supports_language_auto_detect
+        : null,
       available: value?.available === true,
       available_workers: Number.isInteger(value?.available_workers)
         ? Math.max(0, value.available_workers)
@@ -2644,6 +3349,28 @@ export async function listTranscriptionModels(
   apiKey: string,
 ): Promise<GenStudioTranscriptionModel[]> {
   return (await listTranscriptionModelsSnapshot(apiKey)).value
+}
+
+/**
+ * Optional-field readers for the image catalogue.
+ *
+ * Each returns `undefined` — never a stand-in value — when GenStudio published
+ * nothing usable, so "absent" survives the trip to every consumer intact.
+ */
+function publishedText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function publishedFlag(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function publishedPositiveInteger(value: unknown): number | undefined {
+  return Number.isInteger(value) && (value as number) > 0 ? value as number : undefined
+}
+
+function publishedCredits(value: unknown): number | undefined {
+  return Number.isFinite(value) && (value as number) >= 0 ? value as number : undefined
 }
 
 /** Fetch the account-visible image catalog owned by GenStudio. */
@@ -2670,6 +3397,14 @@ export async function listImageModelsSnapshot(
       ? Math.max(0, value.minimum_credits)
       : null,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : null,
+    base_credits_per_image: Number.isFinite(value?.base_credits_per_image)
+      ? Math.max(0, value.base_credits_per_image)
+      : null,
+    promotion_name: publishedText(value?.promotion_name),
+    promotion_discount_percent: Number.isFinite(value?.promotion_discount_percent)
+      ? value.promotion_discount_percent
+      : undefined,
+    availability_note: publishedText(value?.availability_note),
     chargeable: value?.chargeable === true,
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
@@ -2677,26 +3412,49 @@ export async function listImageModelsSnapshot(
     default_aspect_ratio: typeof value?.default_aspect_ratio === 'string'
       ? value.default_aspect_ratio.trim()
       : '16:9',
-    default_steps: Number.isInteger(value?.default_steps) ? value.default_steps : 4,
-    min_steps: Number.isInteger(value?.min_steps) ? value.min_steps : 2,
-    max_steps: Number.isInteger(value?.max_steps) ? value.max_steps : 8,
+    default_resolution: publishedText(value?.default_resolution),
+    // Carried through the transport for the resolution surface. Rows missing
+    // any part of the pair are dropped rather than patched, so a half-published
+    // option can never be offered — or charged for — as if it were valid.
+    output_options: Array.isArray(value?.output_options)
+      ? value.output_options.filter((option: any) => (
+          typeof option?.resolution === 'string' && option.resolution.trim().length > 0
+          && typeof option?.aspect_ratio === 'string' && option.aspect_ratio.trim().length > 0
+          && Number.isInteger(option?.width) && option.width > 0
+          && Number.isInteger(option?.height) && option.height > 0
+        )).map((option: any): GenStudioImageOutputOption => ({
+          resolution: option.resolution.trim(),
+          aspect_ratio: option.aspect_ratio.trim(),
+          width: option.width,
+          height: option.height,
+          is_default: option.is_default === true,
+          credits_per_image: publishedCredits(option?.credits_per_image),
+          base_credits_per_image: publishedCredits(option?.base_credits_per_image),
+          price_version: publishedText(option?.price_version),
+          reference_generation_credits: publishedCredits(option?.reference_generation_credits),
+          reference_generation_price_version: publishedText(option?.reference_generation_price_version),
+        }))
+      : undefined,
     supports_reference_images: value?.supports_reference_images === true,
+    supports_image_to_image: publishedFlag(value?.supports_image_to_image),
+    supports_seed: publishedFlag(value?.supports_seed),
+    min_reference_images: Number.isInteger(value?.min_reference_images) && value.min_reference_images >= 0
+      ? value.min_reference_images
+      : undefined,
     max_reference_images: Number.isInteger(value?.max_reference_images) ? Math.max(0, value.max_reference_images) : 0,
+    reference_image_max_dimension: publishedPositiveInteger(value?.reference_image_max_dimension),
+    reference_generation_credits: publishedCredits(value?.reference_generation_credits),
+    reference_generation_price_version: publishedText(value?.reference_generation_price_version),
     reference_strength_mode: typeof value?.reference_strength_mode === 'string' ? value.reference_strength_mode : 'none',
     supported_reference_strengths: Array.isArray(value?.supported_reference_strengths)
       ? value.supported_reference_strengths.filter((item: unknown): item is string => typeof item === 'string') : [],
-    sizes: Array.isArray(value?.sizes)
-      ? value.sizes.filter((size: any) => (
-          typeof size?.aspect_ratio === 'string' && size.aspect_ratio.trim().length > 0
-          && Number.isInteger(size?.width) && size.width > 0
-          && Number.isInteger(size?.height) && size.height > 0
-        )).map((size: any) => ({
-          aspect_ratio: size.aspect_ratio.trim(),
-          width: size.width,
-          height: size.height,
-          label: typeof size.label === 'string' ? size.label.trim() : undefined,
-          default: size.default === true,
-        }))
+    max_prompt_characters: publishedPositiveInteger(value?.max_prompt_characters),
+    // Kept in its published unit. A token budget is never divided by a fixed
+    // ratio to manufacture a character cap — that is what `max_prompt_characters`
+    // is for, and Khmer script would be mis-capped by any such conversion.
+    prompt_token_allowance: publishedPositiveInteger(value?.prompt_token_allowance),
+    operations: Array.isArray(value?.operations)
+      ? value.operations.filter((item: unknown): item is string => typeof item === 'string' && !!item.trim())
       : undefined,
     })).filter((model: GenStudioImageModel) => model.id && model.display_name)
   })
@@ -2706,11 +3464,25 @@ export async function listImageModels(apiKey: string): Promise<GenStudioImageMod
   return (await listImageModelsSnapshot(apiKey)).value
 }
 
+/**
+ * Stable per-submission key GenStudio dedupes charged image jobs on.
+ *
+ * `steps` is FROZEN into the digest at its historical value and is not a
+ * parameter. Every image request this app has ever sent carried
+ * `steps: LEGACY_IMAGE_STEPS_DIGEST_COMPONENT` — the provider path always used
+ * the catalogue mapper's fallback (GenStudio publishes no step contract), and
+ * the style-preview path always used that same fallback. Keeping the component
+ * frozen makes every key computed after the field's removal byte-identical to
+ * the one computed before it, so a retry that crosses this upgrade boundary
+ * still replays the in-flight job instead of submitting — and billing — a
+ * second one. Dropping it from the digest would have changed every key.
+ */
+const LEGACY_IMAGE_STEPS_DIGEST_COMPONENT = 4
+
 export function buildGenStudioImageIdempotencyKey(input: {
   prompt: string
   modelId: string
   aspectRatio: string
-  steps: number
   width?: number
   height?: number
   seed?: number
@@ -2723,7 +3495,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
     prompt: input.prompt.trim(),
     model_id: input.modelId.trim(),
     aspect_ratio: input.aspectRatio,
-    steps: input.steps,
+    steps: LEGACY_IMAGE_STEPS_DIGEST_COMPONENT,
     width: hasDimensions ? input.width : null,
     height: hasDimensions ? input.height : null,
     seed: input.seed ?? null,
@@ -2744,6 +3516,7 @@ async function waitForImageJob(
   await recordGenStudioEvidence('image.generation', current)
   await reportQueueState(request, current)
   request.onState?.(current.state)
+  const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
@@ -2756,7 +3529,7 @@ async function waitForImageJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) throw new Error('GenStudio KH image job timed out while waiting for completion')
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/images/${encodeURIComponent(current.id)}`,
       { headers: authorization(apiKey) },
@@ -2869,20 +3642,20 @@ async function generateImageWithGenStudioAdmitted(
 ): Promise<{ url: string; jobId: string; modelId: string }> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
-  if (prompt.length < 3 || prompt.length > 4_000) {
-    throw new Error('GenStudio KH image prompts must contain 3 to 4,000 characters.')
+  // Bounds published on `ImageGenerationRequest.prompt` itself. The per-model
+  // ceiling is `max_prompt_characters` and is enforced against the selected
+  // model before this point — this check must never sit below it, or a prompt
+  // GenStudio publishes as acceptable would be refused by an invented limit.
+  if (prompt.length < 3 || prompt.length > 32_000) {
+    throw new Error('GenStudio KH image prompts must contain 3 to 32,000 characters.')
   }
   if (!modelId) throw new Error('Select a GenStudio KH image model.')
-  if (!Number.isInteger(request.steps) || request.steps < 1 || request.steps > 100) {
-    throw new Error('GenStudio KH image steps must be a whole number supported by the selected model.')
-  }
   const hasDimensions = Number.isInteger(request.width) && request.width! > 0
     && Number.isInteger(request.height) && request.height! > 0
   const body = {
     prompt,
     model_id: modelId,
     aspect_ratio: request.aspectRatio,
-    steps: request.steps,
     ...(hasDimensions
       ? { width: request.width, height: request.height }
       : {}),
@@ -2893,7 +3666,6 @@ async function generateImageWithGenStudioAdmitted(
     prompt,
     modelId,
     aspectRatio: request.aspectRatio,
-    steps: request.steps,
     width: request.width,
     height: request.height,
     seed: request.seed,
@@ -2910,7 +3682,6 @@ async function generateImageWithGenStudioAdmitted(
     messages: [{ role: 'prompt', content: prompt }],
     fields: [
       ['aspect_ratio', request.aspectRatio],
-      ['steps', request.steps],
       ['width', hasDimensions ? request.width : undefined],
       ['height', hasDimensions ? request.height : undefined],
       ['seed', request.seed],
@@ -3017,6 +3788,7 @@ async function waitForTranscriptionJob(
     await request.onState?.(current.state, current.id)
   }
   await reportState()
+  const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
@@ -3031,7 +3803,7 @@ async function waitForTranscriptionJob(
     if (Date.now() >= deadline) {
       throw new Error('GenStudio KH transcription timed out while waiting for completion')
     }
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/transcriptions/${encodeURIComponent(current.id)}`,
       { headers: authorization(apiKey) },
@@ -3263,6 +4035,7 @@ async function waitForJob(
     await request.onState?.(current.state, current.id)
   }
   await reportState()
+  const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await cancelGenStudioJob(
@@ -3277,7 +4050,7 @@ async function waitForJob(
     if (Date.now() >= deadline) {
       throw new Error('GenStudio KH TTS job timed out while waiting for completion')
     }
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/jobs/${encodeURIComponent(current.id)}`,
       { headers: authorization(apiKey) },

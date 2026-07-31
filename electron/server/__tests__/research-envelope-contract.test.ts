@@ -25,6 +25,8 @@ import {
   callChatWithGenStudio,
   describeGenStudioLanguageFailure,
   GenStudioApiError,
+  GenStudioChatTerminalFailureError,
+  isGenStudioSettledOutcomeError,
   isGenStudioSubmissionUncertain,
   parseGenStudioCitationClaims,
   parseGenStudioCitations,
@@ -72,34 +74,64 @@ function accountOverview() {
   }
 }
 
-/** Run one web-search chat call against a hand-written envelope. */
-async function webCall(envelopeExtras: Record<string, unknown>) {
+/**
+ * Run one web-search chat call against a hand-written envelope.
+ *
+ * The default route is now the durable `/v1/chat/responses` job, so this
+ * exercises the envelope as it arrives on `ChatJobResponse` — same top-level
+ * field names as the synchronous completion envelope carried. `transport`
+ * re-runs the identical assertions against the rollback route so the two
+ * cannot silently diverge.
+ */
+async function webCall(
+  envelopeExtras: Record<string, unknown>,
+  transport: 'responses' | 'completions' = 'responses',
+) {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(researchProduct())
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      if (transport === 'completions') {
+        return Response.json({
+          id: 'job_web_1',
+          object: 'chat.completion',
+          model: 'research-alpha',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: '{"summary":"ok"}' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          ...envelopeExtras,
+        })
+      }
       return Response.json({
         id: 'job_web_1',
-        object: 'chat.completion',
-        model: 'research-alpha',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: '{"summary":"ok"}' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+        state: 'succeeded',
+        operation: 'chat.response',
+        dispatch_mode: 'asynchronous',
+        model_id: 'research-alpha',
+        output_text: '{"summary":"ok"}',
+        output_retained: true,
+        finish_reason: 'stop',
+        failure_code: null,
+        routing_status_code: null,
+        credit_cost: 12,
+        remaining_credits: 800,
+        idempotent_replay: false,
         ...envelopeExtras,
       })
     }
-    return await callChatWithGenStudio('web-envelope-key', {
+    return await callChatWithGenStudio(`web-envelope-key-${transport}`, {
       modelId: 'research-alpha',
       system: '',
       userMessage: 'Research volcanic soil.',
       outputContract: { mode: 'json_object' },
       outputBudget: 'long',
       webSearch: { enabled: true, allowed_domains: [], blocked_domains: [] },
+      transport,
     })
   } finally {
     globalThis.fetch = originalFetch
@@ -109,17 +141,43 @@ async function webCall(envelopeExtras: Record<string, unknown>) {
 // ── The three confirmed names ────────────────────────────────────────────
 
 test('the confirmed envelope field names parse', async () => {
-  const result = await webCall({
+  const envelope = {
     web_search_requested: true,
     web_searches_executed: 4,
     web_search_credit_cost: 20,
     research_ran_at: RESEARCH_RAN_AT,
     citations: [{ id: 'src-1', url: 'https://example.invalid/a', title: 'A' }],
-  })
+  }
+  const result = await webCall(envelope)
   assert.equal(result.webSearch.searchesExecuted, 4)
   assert.equal(result.webSearch.searchCreditCost, 20)
   assert.equal(result.webSearch.researchRanAt, RESEARCH_RAN_AT)
   assert.equal(result.citations.length, 1)
+})
+
+test('the durable job and the completion envelope report a web run identically', async () => {
+  // Web research moved onto `/v1/chat/responses` with everything else, and
+  // `ChatJobResponse` carries the evidence envelope at the same top level the
+  // completion envelope did (docs/genstudio-web-search-request.md §3 asked for
+  // citations "as their own field on the job response"). If those two ever
+  // drift, research provenance silently empties out on the default route —
+  // so assert them equal rather than trusting one of them.
+  const envelope = {
+    web_search_requested: true,
+    web_searches_executed: 6,
+    web_search_credit_cost: 30,
+    research_ran_at: RESEARCH_RAN_AT,
+    citations: [{ id: 'src-1', url: 'https://example.invalid/a', title: 'A' }],
+    citation_claims: [{ claim_id: 'c1', citation_ids: ['src-1'] }],
+  }
+  const durable = await webCall(envelope, 'responses')
+  const synchronous = await webCall(envelope, 'completions')
+  assert.deepEqual(durable.webSearch, synchronous.webSearch)
+  assert.deepEqual(durable.citations, synchronous.citations)
+  assert.equal(durable.webSearch.searchesExecuted, 6)
+  assert.equal(durable.webSearch.searchCreditCost, 30)
+  assert.equal(durable.webSearch.researchRanAt, RESEARCH_RAN_AT)
+  assert.deepEqual(durable.webSearch.citationClaims, [{ claim_id: 'c1', citation_ids: ['src-1'] }])
 })
 
 test('the retired GUESSED names are no longer read off the wire', async () => {
@@ -307,6 +365,93 @@ test('SUBMISSION_UNCERTAIN never triggers an automatic resubmit', async () => {
     assert.equal(submissions, 1, 'an uncertain submission must be sent exactly once')
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+/**
+ * Settle a durable language job as `failed` with one published failure code and
+ * report what Story Studio did about it.
+ *
+ * THIS IS THE MIGRATION'S WHOLE POINT. Over `/v1/chat/completions` both codes
+ * arrive as the same bodiless 502 — `{"detail": "language generation failed"}`
+ * — so the app cannot tell "retry is free" from "retrying might be charged
+ * twice". `ChatJobResponse.failure_code` is the field that separates them.
+ */
+async function failedChatJob(failureCode: string, key: string) {
+  const originalFetch = globalThis.fetch
+  const submits: string[] = []
+  let polls = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(researchProduct())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      const method = (init?.method || 'GET').toUpperCase()
+      const settled = {
+        id: 'job_failed_1',
+        state: 'failed',
+        operation: 'chat.response',
+        model_id: 'research-alpha',
+        output_text: null,
+        finish_reason: null,
+        failure_code: failureCode,
+        routing_status_code: null,
+        credit_cost: 0,
+        remaining_credits: 800,
+      }
+      if (method === 'POST') {
+        submits.push(String((init?.headers as Record<string, string>)['Idempotency-Key']))
+        return Response.json({ ...settled, state: 'running', failure_code: null }, { status: 202 })
+      }
+      polls += 1
+      return Response.json(settled)
+    }
+    const error = await callChatWithGenStudio(key, {
+      modelId: 'research-alpha',
+      system: '',
+      userMessage: 'Research volcanic soil.',
+      outputContract: { mode: 'json_object' },
+      outputBudget: 'long',
+    }).then(() => null, (err: unknown) => err)
+    return { error, submits, polls }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
+test('a durable job distinguishes the two failure codes the 502 could not', async () => {
+  const failed = await failedChatJob(GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED, 'job-failed-key')
+  assert.ok(failed.error instanceof GenStudioChatTerminalFailureError)
+  assert.equal(failed.error.failureCode, GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED)
+  // Retryable: the reservation was released and nothing was charged twice.
+  assert.match((failed.error as Error).message, /Retry this step, or pick a different language product/i)
+  assert.equal(isGenStudioSubmissionUncertain(failed.error), false)
+
+  const uncertain = await failedChatJob(
+    GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN, 'job-uncertain-key',
+  )
+  assert.ok(uncertain.error instanceof GenStudioChatTerminalFailureError)
+  assert.equal(uncertain.error.failureCode, GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN)
+  assert.equal(isGenStudioSubmissionUncertain(uncertain.error), true)
+  // The user is told to check the account BEFORE resubmitting, and told that
+  // Story Studio deliberately did not do it for them.
+  assert.match((uncertain.error as Error).message, /could not confirm/i)
+  assert.match((uncertain.error as Error).message, /Check the run in your\s+GenStudio account/i)
+  assert.match((uncertain.error as Error).message, /did NOT retry it automatically/)
+
+  // Neither code resubmits, and the uncertain one is doubly protected: it is a
+  // settled outcome AND it is refused by name in shouldReconnectAcceptedTask.
+  assert.equal(failed.submits.length, 1, 'a failed job must not be resubmitted')
+  assert.equal(uncertain.submits.length, 1, 'an uncertain job must NEVER be resubmitted')
+})
+
+test('a terminal language failure is never reconnected into a second submission', async () => {
+  // A settled job can only ever re-read as settled, so reconnecting is dead
+  // work for PROVIDER_FAILED and an actual duplicate-charge risk for
+  // SUBMISSION_UNCERTAIN. One typed check covers both.
+  for (const code of Object.values(GENSTUDIO_LANGUAGE_FAILURE_CODES)) {
+    const error = new GenStudioChatTerminalFailureError({ id: 'job_x', state: 'failed', failure_code: code })
+    assert.equal(isGenStudioSettledOutcomeError(error), true, `${code} must be settled`)
   }
 })
 

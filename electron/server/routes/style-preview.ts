@@ -48,7 +48,6 @@ const StylePreviewSchema = z.object({
   /** Tier id for variable-priced models (nano-banana high/low etc.). */
   tier: z.string().optional(),
   variant_id: z.literal('style-proof').optional(),
-  image_steps: z.number().int().min(1).max(100).optional(),
   seed: z.number().int().min(0).max(2147483647).optional(),
   /** Explicit reroll: bypass the free cache hit and ask the provider for new pixels. */
   force: z.boolean().optional(),
@@ -66,14 +65,13 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const tier = (req.body.tier as string | undefined) || ''
   const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'style-proof')
   const force = req.body.force === true
-  const imageSteps = req.body.image_steps as number | undefined
   const seed = req.body.seed as number | undefined
 
   // Cache lookup short-circuits the provider entirely on hit.
   const cached = force
     ? null
     : await getCachedStylePreview({
-      styleTag, modelId: modelName, aspectRatio, tier, variantId, imageSteps, seed,
+      styleTag, modelId: modelName, aspectRatio, tier, variantId, seed,
     })
   if (cached) {
     return res.json({
@@ -118,21 +116,21 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
       detail: `${selectedModel.display_name} does not support ${aspectRatio}. Choose ${selectedModel.aspect_ratios.join(', ')}.`,
     })
   }
-  const steps = imageSteps ?? selectedModel.default_steps
-  if (steps < selectedModel.min_steps || steps > selectedModel.max_steps) {
+  // Prompt length is checked against THIS model's published ceiling, when
+  // GenStudio publishes one. No published cap means no local check.
+  const prompt = `${styleTag}. ${STYLE_PREVIEW_VARIANTS[variantId]}`
+  if (selectedModel.max_prompt_characters && prompt.length > selectedModel.max_prompt_characters) {
     return res.status(400).json({
-      detail: `${selectedModel.display_name} supports ${selectedModel.min_steps}-${selectedModel.max_steps} image steps.`,
+      detail: `${selectedModel.display_name} accepts up to ${selectedModel.max_prompt_characters.toLocaleString()} prompt characters; this preview prompt is ${prompt.length.toLocaleString()}.`,
     })
   }
 
-  const prompt = `${styleTag}. ${STYLE_PREVIEW_VARIANTS[variantId]}`
   const stablePreviewKey = hashStylePreviewKey({
     styleTag,
     modelId: modelName,
     aspectRatio,
     tier,
     variantId,
-    imageSteps: steps,
     seed,
   })
   let source: string
@@ -141,8 +139,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
       prompt,
       modelId: modelName,
       aspectRatio,
-      steps,
-      seed,
+      seed: selectedModel.supports_seed === false ? undefined : seed,
       requestIdentity: force
         ? `style-preview:${slug}:${randomUUID()}`
         : `style-preview:${slug}:${stablePreviewKey}`,
@@ -170,7 +167,6 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     aspectRatio,
     tier,
     variantId,
-    imageSteps: steps,
     seed,
     imageBytes,
   })
