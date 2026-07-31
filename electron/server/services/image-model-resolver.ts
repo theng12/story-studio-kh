@@ -241,7 +241,9 @@ export function buildImageModelConfig(
   }
   return {
     label: config.image_models?.[modelId]?.label || model.display_name || model.id,
-    credits_per_image: model.credits_per_image ?? 0,
+    // Absent stays absent: a model GenStudio publishes no price for shows no
+    // price, rather than a zero the customer would read as "free".
+    ...(typeof model.credits_per_image === 'number' ? { credits_per_image: model.credits_per_image } : {}),
     endpoint: '/v1/images/generations',
     poll: '/v1/images/{id}',
     type: 'jobs',

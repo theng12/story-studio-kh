@@ -106,6 +106,9 @@ const { get, post, put } = useApi()
 
 // Tag dialect follows the chosen TTS model: ElevenLabs v3 vs Fish S2. Drives the
 // quick-insert palette + the badge, and is sent so the backend tags in-dialect.
+// model-drift-allow: retired direct-provider ids, matched only so a project
+// that still carries one keeps the tag dialect it was written in. GenStudio-only
+// selections never reach this branch; it goes when the legacy ids do.
 const dialect = computed<'fish' | 'elevenlabs'>(() =>
   (props.audioModel === 'eleven-v3' || props.audioModel === 'genaipro-v3') ? 'elevenlabs' : 'fish')
 const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs v3' : 'Fish S2')

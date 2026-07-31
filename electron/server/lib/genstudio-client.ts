@@ -2797,6 +2797,10 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     user_message: request.userMessage,
     temperature: request.temperature ?? LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT,
     top_p: LEGACY_CHAT_TOP_P_DIGEST_COMPONENT,
+    // model-drift-allow: frozen digest component, not a limit. Every key ever
+    // computed for a caller that named no ceiling used this number; changing it
+    // would change every idempotency key and let a retry that crosses an
+    // upgrade submit — and bill — a second job instead of replaying the first.
     max_output_tokens: request.maxOutputTokens ?? 2_048,
     // Two tiers resolve to two different ceilings on the same product, so they
     // must not share a replay key. Emitted only when a tier was declared, so

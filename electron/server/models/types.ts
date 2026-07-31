@@ -1651,8 +1651,11 @@ export interface ImageModelConfig {
    * mirrors the credits of `default_tier` so legacy callers (no tier in
    * request) get a sensible default. The cost calculator looks up
    * `tiers[tier_id].credits` first, then falls through to this.
+   *
+   * ABSENT when GenStudio publishes no price for the product. It is never
+   * zero-filled: a customer cannot tell an invented 0 apart from a free model.
    */
-  credits_per_image: number
+  credits_per_image?: number
   /**
    * Optional price tiers. When present, the UI renders a tier picker
    * (resolution / speed / etc.) and the cost calculator routes requests

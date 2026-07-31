@@ -5662,6 +5662,9 @@ function formatVideoStudioPrice(model: any): string {
   const price = model?.provider_params?.price
   if (!price || !Number.isFinite(Number(price.usd))) return model?.provider_params?.is_cloud ? 'See provider' : 'Local compute'
   const unit = String(price.unit || 'generation').replace(/^per_/, '').replaceAll('_', ' ')
+  // model-drift-allow: the Video Studio catalogue's own published provider price,
+  // rendered verbatim under a "Provider price" column. Story Studio neither
+  // computes nor bills it — no GenStudio credit cost is ever shown in dollars.
   return `$${Number(price.usd).toFixed(2)} / ${unit}`
 }
 

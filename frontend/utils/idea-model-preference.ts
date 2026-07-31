@@ -24,6 +24,9 @@ const NON_GENERATION_MODELS = new Set([
  * and must never grow to cover newly-retired ids — that decision belongs
  * to the live catalogue via `isModelStillLive`, not to this file.
  */
+// model-drift-allow: a retired id recognised so a polluted saved preference is
+// not restored. It must never grow — new retirements are the live catalogue's
+// answer via `isModelStillLive`, never this file's.
 const KNOWN_STALE_DEFAULTS_WITHOUT_LIVE_CHECK = new Set(['gpt-4o'])
 
 function cleanModel(value: unknown): string {

@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.772 — 2026-08-01
+
+- **Image models with no published price no longer appear to be free** — a model GenStudio
+  publishes no price for was showing as costing 0 credits in Settings, which reads as free
+  rather than as unknown. It now shows that no price is published, the same way subtitle
+  pricing was corrected in an earlier release.
+- **The build now refuses to ship hardcoded model values** — prices, credit costs, context
+  windows, output limits, prompt caps, model names, aspect-ratio and resolution lists, and
+  any cost shown in dollars instead of credits are all checked automatically before a release
+  is packaged. Anything a model publishes has to be read from the model, every time. Values
+  that are deliberately frozen must now carry a written reason, and those reasons can be
+  listed and reviewed. This makes the rule enforce itself rather than relying on review.
+
+---
+
 ## v1.0.771 — 2026-08-01
 
 - **Your projects folder can no longer be reached by anything but the running app** — Story

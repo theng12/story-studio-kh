@@ -925,6 +925,9 @@ export function mergeCatalog<T extends Record<string, any>>(
   return out
 }
 
+// model-drift-allow: retired ids paired with the exact caps Story Studio once
+// shipped for them. The pair is historical evidence a migration matches on; it
+// must stay frozen or the migration stops recognising the values it heals.
 const RETIRED_AUDIO_CHAR_CAPS: Readonly<Record<string, ReadonlySet<number>>> = {
   // GenStudio retired its qualification-only ~30-second/375-character cap.
   // Heal existing projects to the public 15,000-character API boundary.
@@ -993,6 +996,9 @@ export function genStudioOnlyAudioModels(
   ] as const
   return Object.fromEntries(tiers.map(([id, label]) => [id, {
     label,
+    // model-drift-allow: legacy AudioModelConfig field, required by the type and
+    // not a price claim — GenStudio owns TTS pricing and publishes it live per
+    // voice tier. Pending removal with the Settings audio-pricing panel.
     cost_per_1k_chars: 0,
     provider: 'genstudio',
     tts_soft_max_chars: 15_000,
@@ -1003,6 +1009,9 @@ export type StoryTtsTier = 'regular' | 'premium' | 'cloned'
 
 /** The Story selector is a voice-tier picker; GenStudio owns engine routing. */
 export function storyTtsTierForModelId(modelId: string): StoryTtsTier | null {
+  // model-drift-allow: retired engine ids a saved project may still carry,
+  // mapped onto the current tier so an old selection keeps working. Recognising
+  // a retired id is not the same as offering it.
   switch (modelId.trim()) {
     case 'genstudio-tts-regular':
     case 'genstudio-qwen3-standard':

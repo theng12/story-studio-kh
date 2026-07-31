@@ -108,6 +108,9 @@ interface SceneClipGenerateParams {
 // multiple matches) returns null and the caller surfaces a clear error
 // instead of guessing. Keep this list from ever being consulted for a
 // model that wasn't explicitly chosen by the user in the past.
+// model-drift-allow: retired direct-provider ids, kept only so a saved legacy
+// selection can be fuzzy-matched onto a live GenStudio product. They are never
+// consulted for new work and can never select their former provider.
 const LEGACY_VIDEO_NAME_HINTS: Readonly<Record<string, readonly string[]>> = {
   'fal-veo-3.1-i2v': ['veo', '3.1'],
   'fal-hailuo-02-i2v': ['hailuo', '02'],

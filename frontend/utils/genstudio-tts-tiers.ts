@@ -52,6 +52,8 @@ export function normalizeStoryTtsTierModel(modelId: unknown): string {
   if (typeof modelId !== 'string') return GENSTUDIO_TTS_TIER_OPTIONS[0].id
   const value = modelId.trim()
   if (TIER_BY_MODEL_ID.has(value)) return value
+  // model-drift-allow: retired engine id recognised only to heal an old saved
+  // selection onto a current tier. Recognising it is not offering it.
   if (value === 'genstudio-clone-v1') return genStudioTtsModelForTier('cloned')
   if (/fish|clone|qwen|chatterbox|voxcpm|eleven|genaipro|kie/i.test(value)) {
     return genStudioTtsModelForTier('premium')

@@ -362,6 +362,9 @@ const runtimeAudioModels = computed<Record<string, any>>(() => {
       label: option.label,
       description: option.description,
       provider: 'genstudio',
+      // model-drift-allow: legacy AudioModelConfig field, required by the type
+      // and not a price claim — GenStudio owns TTS pricing and publishes it
+      // live per voice tier. Pending removal with the audio-pricing panel.
       cost_per_1k_chars: 0,
       tts_soft_max_chars: 15_000,
       available: true,

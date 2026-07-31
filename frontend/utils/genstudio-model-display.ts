@@ -26,6 +26,8 @@ const PREFIX_BY_KIND: Record<GenStudioModelKind, string> = {
   transcription: 'genstudio-transcription:',
 }
 
+// model-drift-allow: retired engine ids kept only so an old saved selection
+// still displays under the right current tier. Never offered as a choice.
 const TTS_TIER_BY_ENGINE_ID: Record<string, GenStudioTtsTier> = {
   'genstudio-standard-v1': 'regular',
   'genstudio-clone-v1': 'cloned',
