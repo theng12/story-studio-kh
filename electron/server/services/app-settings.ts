@@ -49,7 +49,27 @@ function resolveAppSettingsPath(): string {
   return path.join(ROOT, 'app-settings.json')
 }
 
-const APP_SETTINGS_PATH = resolveAppSettingsPath()
+/**
+ * The settings-file path, resolved on EVERY access.
+ *
+ * Deliberately not captured in a module-scope `const`. `STORY_STUDIO_DATA_DIR`
+ * is what redirects this store to an isolated directory, and it is set by the
+ * caller — the Electron main process at boot, `useTempDataDir()` in tests.
+ * A module-load-time capture froze the path to whatever it happened to be when
+ * the FIRST importer anywhere in the graph pulled this module in, which is
+ * before a test's `before()` hook can claim its temp dir. Any test file whose
+ * *static* import chain reached this module therefore bound the developer's
+ * real app-settings.json and read/wrote it for the rest of the process —
+ * corrupting live settings and leaking real state (server-mode credentials,
+ * GenStudio base URL) into unrelated suites.
+ *
+ * Resolving per call costs a couple of string joins and removes that entire
+ * class of import-order bug: correctness no longer depends on which module got
+ * imported first. See `writeSettings` for the guard that keeps it that way.
+ */
+function appSettingsPath(): string {
+  return resolveAppSettingsPath()
+}
 
 type AppSettings = Record<string, any>
 
@@ -57,22 +77,56 @@ type AppSettings = Record<string, any>
 // upgrade, tighten perms to 0600 so the ffmpeg_path value isn't world-
 // readable. Best-effort: no-op on Windows, ignored on failure — the next
 // atomic write will still land a 0600 replacement either way.
-let modeTightened = false
-async function tightenModeOnce(): Promise<void> {
-  if (modeTightened) return
-  modeTightened = true
+// Tracked per resolved path, not by a single boolean: the path is no longer
+// fixed for the life of the process, so a bare flag would skip the tighten
+// on every file after the first.
+const modeTightened = new Set<string>()
+async function tightenModeOnce(target: string): Promise<void> {
+  if (modeTightened.has(target)) return
+  modeTightened.add(target)
   if (process.platform === 'win32') return
-  if (!existsSync(APP_SETTINGS_PATH)) return
-  await fs.chmod(APP_SETTINGS_PATH, APP_SETTINGS_MODE).catch(() => {})
+  if (!existsSync(target)) return
+  await fs.chmod(target, APP_SETTINGS_MODE).catch(() => {})
 }
 
 async function readSettings(): Promise<AppSettings> {
-  await tightenModeOnce()
-  return readJsonOr<AppSettings>(APP_SETTINGS_PATH, {})
+  const target = appSettingsPath()
+  await tightenModeOnce(target)
+  return readJsonOr<AppSettings>(target, {})
+}
+
+/**
+ * Test-isolation guard.
+ *
+ * Under the node test runner (`NODE_TEST_CONTEXT` is set by node:test in every
+ * child test process) a suite must never write app settings outside a data dir
+ * it claimed for itself. Writing the developer's real app-settings.json is how
+ * one test file corrupts live config and leaks state into every later file —
+ * the failure then shows up as an unrelated, intermittent test failure far from
+ * the cause. Fail loudly, at the write, pointing at the real fix.
+ *
+ * No effect outside tests: the app itself legitimately writes the real file.
+ */
+function assertWriteIsolatedInTests(target: string): void {
+  if (!process.env.NODE_TEST_CONTEXT) return
+  const dataDir = process.env.STORY_STUDIO_DATA_DIR
+  // Compare the resolved TARGET against the currently-claimed dir rather than
+  // merely checking that the env var is set. That also catches a path captured
+  // earlier and gone stale — the original bug — instead of only the simpler
+  // "never claimed a temp dir at all" case.
+  if (dataDir && target === path.join(dataDir, 'app-settings.json')) return
+  throw new Error(
+    `app-settings isolation violation: a test tried to write ${target}, which is not inside the `
+    + `claimed data dir (STORY_STUDIO_DATA_DIR=${dataDir ?? '<unset>'}). `
+    + 'Call useTempDataDir() before anything that writes app settings. If a static import of this '
+    + 'module runs first, import the module under test dynamically instead.',
+  )
 }
 
 async function writeSettings(settings: AppSettings): Promise<void> {
-  await writeJsonAtomic(APP_SETTINGS_PATH, settings, { mode: APP_SETTINGS_MODE })
+  const target = appSettingsPath()
+  assertWriteIsolatedInTests(target)
+  await writeJsonAtomic(target, settings, { mode: APP_SETTINGS_MODE })
 }
 
 export async function getAppSetting(key: string): Promise<any> {
@@ -81,7 +135,7 @@ export async function getAppSetting(key: string): Promise<any> {
 }
 
 export async function setAppSetting(key: string, value: any): Promise<void> {
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     settings[key] = value
     await writeSettings(settings)
@@ -233,7 +287,7 @@ export async function getServerModeSettingsSafe(): Promise<ServerModeSafeView> {
  * mistyped port can't accidentally clobber the password.
  */
 export async function setServerModeNetworking(patch: ServerModeNetworkingPatch): Promise<ServerModeSafeView> {
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (patch.enabled !== undefined) cur.enabled = !!patch.enabled
@@ -279,7 +333,7 @@ export async function setServerModeCredentials(opts: {
   // Preserve the existing rate-limit knob when the caller doesn't pass
   // one — the credentials form doesn't surface it on every change, so
   // a "Change Password" save shouldn't reset the cap back to the default.
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     const prevAuth = (cur.auth || {}) as Record<string, any>
@@ -314,7 +368,7 @@ export async function setServerModeRateLimit(maxAttemptsPerMinute: number): Prom
   if (typeof maxAttemptsPerMinute !== 'number' || maxAttemptsPerMinute < 1 || maxAttemptsPerMinute > 1000) {
     throw new Error('login_max_attempts_per_minute must be between 1 and 1000')
   }
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (!cur.auth || !cur.auth.password_hash) {
@@ -333,7 +387,7 @@ export async function setServerModeRateLimit(maxAttemptsPerMinute: number): Prom
  * everywhere" button in the Settings UI.
  */
 export async function rotateServerModeSessionSecret(): Promise<ServerModeSafeView> {
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (!cur.auth || !cur.auth.password_hash) {
@@ -378,7 +432,7 @@ export async function getYoutubeDefaults(): Promise<YoutubeDefaultsView> {
 }
 
 export async function setYoutubeDefaults(patch: Partial<YoutubeDefaultsView>): Promise<YoutubeDefaultsView> {
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     if (typeof patch.default_mark_as_ai_generated === 'boolean') {
       settings[DEFAULT_MARK_AS_AI_GENERATED_KEY] = patch.default_mark_as_ai_generated
@@ -514,7 +568,7 @@ export async function setEndpointLabelsForUrls(
     const name = typeof raw === 'string' ? raw.trim() : ''
     if (name) filtered[u] = name.slice(0, 80)  // cap — it's a label, not prose
   }
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const all = (settings[ENDPOINT_LABELS_KEY] as EndpointLabelStore) || {}
     if (Object.keys(filtered).length) all[providerId] = filtered
@@ -564,7 +618,7 @@ export async function setDisabledEndpointsForUrls(
   const kept = Array.isArray(disabled)
     ? [...new Set(disabled.filter((u): u is string => typeof u === 'string' && urlSet.has(u)))]
     : []
-  await withLock(APP_SETTINGS_PATH, async () => {
+  await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     const all = (settings[ENDPOINT_DISABLED_KEY] as EndpointDisabledStore) || {}
     if (kept.length) all[providerId] = kept

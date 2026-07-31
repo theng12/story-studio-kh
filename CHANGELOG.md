@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.762 — 2026-07-31
+
+- **Settings can no longer be overwritten by the wrong copy of the app** — the app now
+  resolves your settings file each time it reads or writes it, instead of deciding once
+  at startup. Previously a component that loaded early could bind to the wrong location
+  and later write there, which is how a development run could quietly overwrite the saved
+  GenStudio address. Added a safeguard that stops a write to an unexpected settings
+  location rather than letting it through.
+
+---
+
 ## v1.0.761 — 2026-07-31
 
 - **One decision per research claim, not two** — the separate `Verify research` step is
