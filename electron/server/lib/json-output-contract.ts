@@ -108,6 +108,7 @@ export function validateStructuredOutput(
   raw: string,
   contract: TextOutputContract,
 ): unknown {
+  if (contract.mode === 'prose') return unwrapProseOutput(raw)
   const value = parseJsonOutput(raw)
   if (contract.mode === 'json_object') {
     if (!isPlainObject(value)) {
@@ -128,8 +129,33 @@ export function validateStructuredOutput(
     }
     return value
   }
-  if (!jsonValueMatchesSchema(value, PROSE_WRAPPER_SCHEMA)) {
-    throw new Error('GenStudio prose output did not match its safe response wrapper.')
-  }
   return value
+}
+
+/**
+ * Prose workflows have no schema of their own. The `{"text": ...}` wrapper exists
+ * only because the language-product endpoint requires a `response_format` — it is
+ * transport packaging, not a requirement of the workflow. So any non-empty answer
+ * is valid prose:
+ *
+ *   - the wrapper, unwrapped;
+ *   - a wrapper carrying extra keys, still unwrapped (the extras are ignored);
+ *   - plain prose the product returned without wrapping, taken as-is.
+ *
+ * Only a genuinely empty response fails. Rejecting readable prose because the
+ * product declined to wrap it would discard work GenStudio has already completed
+ * and charged for, which is strictly worse than accepting the text we asked for.
+ */
+function unwrapProseOutput(raw: string): { text: string } {
+  const trimmed = raw.trim()
+  if (!trimmed) throw new Error('GenStudio completed the request but returned an empty response.')
+  try {
+    const wrapped = JSON.parse(trimmed)
+    if (isPlainObject(wrapped) && typeof wrapped.text === 'string' && wrapped.text.trim()) {
+      return { text: wrapped.text }
+    }
+  } catch {
+    // Not JSON at all — the product answered in plain prose, which is what we wanted.
+  }
+  return { text: trimmed }
 }

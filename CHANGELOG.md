@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.759 — 2026-07-31
+
+- **AI steps stop discarding answers they already paid for** — a text step
+  (Idea Campaign, Metadata, Research, Scene Plan helpers) no longer fails when the
+  chosen model replies with plain prose instead of wrapping it in the internal
+  envelope Story Studio asks for. That envelope is only packaging the request needs;
+  the answer itself was always valid. Story Studio now accepts the wrapped form, the
+  wrapped form with extra keys, and plain prose alike, and only reports a failure
+  when the model genuinely returns nothing.
+
+---
+
 ## v1.0.758 — 2026-07-31
 
 - **Lost connections can no longer charge you twice** — Video, Voice, and
