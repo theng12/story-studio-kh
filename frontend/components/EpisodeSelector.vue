@@ -468,18 +468,24 @@ function statusSuffix(ep: any): string {
     return ''
   }
   if (props.filterField === 'research') {
-    // v1.0.760 — "generated" and "done" are different states now. Research that
-    // ran but has not been verified stays in the pending list, so the label has
-    // to say WHY it is still there or the user reads it as "never ran".
+    // v1.0.760 — "generated" and "done" are different states now. Research
+    // whose claims still need a Verified / Ignore decision stays in the pending
+    // list, so the label has to say WHY it is still there or the user reads it
+    // as "never ran". v1.0.761 — that state is the per-claim triage itself.
     if (s.research) {
       // Gate off = research is optional enrichment; "researched" is the whole
-      // story and there is nothing to attest to.
+      // story and no review is required of anyone.
       if (s.research_required !== true) return ' ✓ researched'
-      return (ep.status as any)?.research_verified_by === 'pipeline-auto'
-        ? ' ✓ auto-verified'
-        : ' ✓ verified'
+      return (ep.status as any)?.research_reviewed_by === 'pipeline-auto'
+        ? ' ✓ auto-accepted'
+        : ' ✓ reviewed'
     }
-    if (s.research_generated) return ' ⚠ needs verification'
+    if (s.research_generated) {
+      // Reviewed but nothing kept is a different problem from "unreviewed",
+      // and sending the user to review claims they already read would be wrong.
+      if (s.research_reviewed && !s.research_has_usable_claims) return ' ⚠ all claims ignored'
+      return ' ⚠ claims need review'
+    }
     return ''
   }
   // v1.0.338 — generic per-page suffix. In "Show all" mode the dropdown

@@ -9,11 +9,11 @@ const research = readFileSync(
 )
 
 describe('Research workspace flow', () => {
-  test('uses a compact brief, gather, and verify workflow', () => {
+  test('uses a compact brief, gather, and review workflow', () => {
     assert.match(research, /class="research-flow-rail"/)
     assert.match(research, /> Brief</)
     assert.match(research, /> Gather</)
-    assert.match(research, /> Verify</)
+    assert.match(research, /> Review</)
     assert.match(research, /title="Define what needs evidence"/)
   })
 
@@ -61,17 +61,44 @@ describe('Research workspace flow', () => {
     assert.doesNotMatch(research, /Research stays optional and never blocks the production pipeline/)
   })
 
-  test('exposes a deliberate, reversible episode-level verification action', () => {
-    // Verify / un-verify, both routed through the dedicated backend endpoint.
-    assert.match(research, /research\/\$\{episodeId\.value\}\/verify/)
-    assert.match(research, /setVerified\(true\)/)
-    assert.match(research, /setVerified\(false\)/)
-    assert.match(research, /'Verify research'/)
-    assert.match(research, /'Un-verify'/)
-    // It must be obvious what is being attested, not a bare toggle.
-    assert.match(research, /checked its claims against the cited\s+sources/)
-    // Auto-verification must stay visibly distinct from a human attestation.
-    assert.match(research, /verifiedByPipeline/)
-    assert.match(research, /No human reviewed these claims/)
+  // v1.0.761 — this replaces the former "exposes a deliberate, reversible
+  // episode-level verification action" test. There is now ONE decision: the
+  // per-claim triage. See AGENTS.md → "Gated Research and Retired Co-writer".
+  test('keeps the per-claim triage as the only review decision', () => {
+    // Per-claim Verified / Ignore, plus the bulk actions, are real editorial
+    // work and must survive.
+    assert.match(research, /setClaimStatus\(claim, claim\.status === 'verified' \? 'unreviewed' : 'verified'\)/)
+    assert.match(research, /setClaimStatus\(claim, claim\.status === 'ignored' \? 'unreviewed' : 'ignored'\)/)
+    assert.match(research, /bulkClaims\('verified'\)/)
+    assert.match(research, /bulkClaims\('unreviewed'\)/)
+    assert.match(research, /bulkClaims\('ignored'\)/)
+  })
+
+  test('the separate research-level attestation is gone and must not return', () => {
+    assert.doesNotMatch(research, /research\/\$\{episodeId\.value\}\/verify/)
+    assert.doesNotMatch(research, /setVerified\(/)
+    assert.doesNotMatch(research, /'Verify research'/)
+    assert.doesNotMatch(research, /'Un-verify'/)
+    // The false claim that made the banner wrong in the first place: the
+    // adapter is llm-only, has no live web access, and returns no citations.
+    assert.doesNotMatch(research, /against the cited sources/i)
+  })
+
+  test('derives the review state from the claim decisions and says what it means', () => {
+    assert.match(research, /const reviewed = computed/)
+    assert.match(research, /const reviewComplete = computed/)
+    assert.match(research, /reviewState/)
+    // The all-ignored outcome gets its own, distinct message rather than
+    // reading as "still pending" or silently counting as complete.
+    assert.match(research, /Reviewed — every claim ignored/)
+    assert.match(research, /hands the Script Generator nothing/)
+    // Machine completion stays visibly distinct from a person's review.
+    assert.match(research, /completedByPipeline/)
+    assert.match(research, /No human read them/)
+  })
+
+  test('is honest about where the claims came from', () => {
+    assert.match(research, /no live web access/)
+    assert.match(research, /No source cited/)
   })
 })

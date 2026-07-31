@@ -16,10 +16,11 @@ import type { Job } from '../models/types.js'
 import type { ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
+  autoCompleteResearchReview,
   hasResearchEvidence,
-  readResearchVerification,
-  withResearchUnverified,
-  withResearchVerified,
+  readResearchReview,
+  readResearchTriage,
+  withResearchUntriaged,
 } from '../lib/research-verification.js'
 
 // Re-exported for back-compat with importers that referenced these here.
@@ -81,23 +82,31 @@ export async function runResearchJob(job: Job): Promise<void> {
   const { dir, jsonPath, mdPath } = await resolveResearchPaths(paths.episode_dir, episode_id)
   await fs.mkdir(dir, { recursive: true })
 
-  // v1.0.760 — a fresh generation is ALWAYS unverified: these claims have
-  // never been read by anyone. The one exception is an unattended one-click
-  // Pipeline run, which auto-verifies so the batch is never left blocked —
-  // and records `verified_by: 'pipeline-auto'` so the record never pretends a
-  // human reviewed it. `pipeline_batch_id` is stamped on every job the batch
-  // runner enqueues (and re-stamped by the job-queue chain hook), so it is the
-  // authoritative "this ran unattended" signal.
+  // v1.0.761 — a fresh generation is ALWAYS untriaged: every claim goes back
+  // to 'unreviewed' and any older review record is dropped, because nobody has
+  // read the NEW claims. The one exception is an unattended one-click Pipeline
+  // run, which machine-completes the triage so the batch is never left blocked
+  // — recorded as `review.completed_by: 'pipeline-auto'` so the record never
+  // pretends a human read it. `pipeline_batch_id` is stamped on every job the
+  // batch runner enqueues (and re-stamped by the job-queue chain hook), so it
+  // is the authoritative "this ran unattended" signal.
   const ranUnderPipeline = typeof (job.params as any)?.pipeline_batch_id === 'string'
     && !!(job.params as any).pipeline_batch_id
   const persisted = ranUnderPipeline
-    ? withResearchVerified(result, 'pipeline-auto')
-    : withResearchUnverified(result)
+    ? autoCompleteResearchReview(result)
+    : withResearchUntriaged(result)
   job.output_lines.push(
     ranUnderPipeline
-      ? 'Verification: AUTO-VERIFIED (unattended Pipeline run). No human reviewed these claims — open Research to review them.'
-      : 'Verification: NOT VERIFIED. Open Research, check the claims against their sources, then press Verify research.',
+      ? 'Claim review: AUTO-COMPLETED (unattended Pipeline run). Every claim was accepted by the machine — no human read them. Open Research to review them.'
+      : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
   )
+  const uncited = persisted.claims.filter(c => !c.citation_indices?.length).length
+  if (uncited) {
+    job.output_lines.push(
+      `${uncited} of ${persisted.claims.length} claim(s) carry no citation. Research runs on a language model `
+      + 'with no live web access, so nothing here was checked against a live source.',
+    )
+  }
 
   await fs.writeFile(jsonPath, JSON.stringify(persisted, null, 2), 'utf-8')
   job.output_lines.push(`Wrote ${RESEARCH_JSON_FILENAME}`)
@@ -136,15 +145,33 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   lines.push('')
   lines.push(`*Generated ${r.generated_at} via ${r.source_provider}${r.source_model ? ` (${r.source_model})` : ''}*`)
   lines.push('')
-  // Verification is part of the human-readable record too — a reader opening
-  // research.md in Finder must be able to see whether anyone checked this.
-  const verification = readResearchVerification(r)
-  if (!verification.verified) {
-    lines.push('> **NOT VERIFIED.** Nobody has checked these claims against their sources yet.')
-  } else if (verification.verified_by === 'pipeline-auto') {
-    lines.push(`> **Auto-verified** by an unattended Pipeline run${verification.verified_at ? ` on ${verification.verified_at}` : ''}. No human reviewed these claims.`)
+  // Provenance disclaimer. The shipping adapter has no live web access, so the
+  // record must never read as if the app checked anything for the user.
+  if (r.source_provider === 'llm-only') {
+    lines.push('*Model-generated research. It was produced by a language model with no live web access, '
+      + 'so these claims were not checked against live sources — confirm anything load-bearing yourself.*')
+    lines.push('')
+  }
+  // Review state is part of the human-readable record too — a reader opening
+  // research.md in Finder must be able to see what was decided about these
+  // claims, and by whom.
+  const triage = readResearchTriage(r)
+  const review = readResearchReview(r)
+  const reviewedAt = review?.completed_at ? ` on ${review.completed_at}` : ''
+  if (!triage.total) {
+    lines.push('> **NO CLAIMS.** This run returned nothing to review, so nothing will reach the Script Generator.')
+  } else if (!triage.reviewed) {
+    lines.push(`> **REVIEW PENDING.** ${triage.pending} of ${triage.total} claim(s) still need a Verified / Ignore `
+      + 'decision on the Research page. Only kept claims reach the Script Generator.')
+  } else if (!triage.hasUsableClaims) {
+    lines.push(`> **REVIEWED — EVERY CLAIM IGNORED.** All ${triage.total} claim(s) were rejected${reviewedAt}, `
+      + 'so this research hands the Script Generator nothing.')
+  } else if (review?.completed_by === 'pipeline-auto') {
+    lines.push(`> **Review auto-completed** by an unattended Pipeline run${reviewedAt}. `
+      + `No human read these claims. ${triage.verified} kept, ${triage.ignored} ignored.`)
   } else {
-    lines.push(`> **Verified**${verification.verified_at ? ` on ${verification.verified_at}` : ''}. ${verification.note || ''}`.trim())
+    lines.push(`> **Reviewed**${reviewedAt} — ${triage.verified} claim(s) kept, ${triage.ignored} ignored. `
+      + 'Only the kept claims reach the Script Generator.')
   }
   lines.push('')
 
@@ -168,10 +195,15 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     for (let i = 0; i < r.claims.length; i++) {
       const c = r.claims[i]!
       const conf = c.confidence ? ` *(confidence: ${c.confidence})*` : ''
-      const refs = c.citation_indices.length
+      // An absent citation is a fact the reader needs, not a blank to gloss
+      // over: most llm-only claims arrive with nothing behind them.
+      const refs = c.citation_indices?.length
         ? ` [${c.citation_indices.map(idx => idx + 1).join(', ')}]`
-        : ''
-      lines.push(`${i + 1}. ${c.text}${refs}${conf}`)
+        : ' *(no source cited)*'
+      const decision = c.status === 'verified' ? ' — kept'
+        : c.status === 'ignored' ? ' — ignored'
+        : ' — not reviewed'
+      lines.push(`${i + 1}. ${c.text}${refs}${conf}${decision}`)
       if (c.note) lines.push(`   - *${c.note}*`)
     }
     lines.push('')
@@ -186,6 +218,14 @@ function renderResearchMarkdown(r: ResearchOutput): string {
       lines.push(s.brief)
       lines.push('')
     }
+  }
+
+  if (!r.citations.length) {
+    lines.push('## Sources')
+    lines.push('')
+    lines.push('None. This run returned no citations, which is normal for the model-only research route — '
+      + 'it is instructed not to invent URLs. Find and check sources yourself before relying on these claims.')
+    lines.push('')
   }
 
   if (r.citations.length) {

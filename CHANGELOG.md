@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.761 — 2026-07-31
+
+- **One decision per research claim, not two** — the separate `Verify research` step is
+  gone. You now just keep or ignore each claim (or use Verify all), and the episode's
+  research is complete once every claim has been decided and at least one was kept.
+  Ignoring every claim counts as reviewed but not complete, and says so plainly, because
+  a script with no kept evidence has nothing to work from.
+- **Research now tells you what it actually is** — the Research page states that its
+  output was written by a language model with no live web access and has not been checked
+  against live sources, and any claim that came back without a citation is labelled as
+  having nothing behind it but the model. The saved research file carries the same notice.
+  This matters before you lean on it for science or history topics.
+
+---
+
 ## v1.0.760 — 2026-07-31
 
 - **Research can now be required, and generating it is no longer the same as

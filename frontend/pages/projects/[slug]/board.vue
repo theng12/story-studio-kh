@@ -337,7 +337,7 @@ function onImported() {
 // Research is CONDITIONAL (v1.0.760). When the project's `research_required`
 // gate is off it earns no column — it's optional enrichment and would read as
 // forever-pending noise. When the gate is on, research is a real shipping
-// requirement (verified, not merely generated) and gets a column like any other
+// requirement (claims reviewed, not merely generated) and gets a column like any other
 // step. See `researchColumnActive` below and lib/research-verification.ts.
 const STEP_FIELD: Record<string, string> = {
   script: 'script',

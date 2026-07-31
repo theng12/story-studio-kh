@@ -5,8 +5,14 @@
  *   GET    /api/projects/:slug/research/:episodeId            — read existing research.json
  *   POST   /api/projects/:slug/research/:episodeId/run        — queue a research_run job
  *   PUT    /api/projects/:slug/research/:episodeId            — replace the research.json (user-edited claims/status)
- *   POST   /api/projects/:slug/research/:episodeId/verify     — attest / withdraw attestation (v1.0.760)
  *   DELETE /api/projects/:slug/research/:episodeId            — remove the sidecar
+ *
+ * v1.0.761 — there is NO research-level verify endpoint. Whether research
+ * counts as reviewed is DERIVED from the per-claim triage saved through PUT
+ * (see lib/research-verification.ts). The retired POST …/verify recorded a
+ * second, separate attestation that duplicated the claim decisions and whose
+ * wording ("checked against the cited sources") was untrue for an llm-only
+ * adapter that returns no citations. Do not reintroduce it.
  */
 
 import { Router } from 'express'
@@ -21,12 +27,17 @@ import {
 } from '../services/research/index.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
-  hasResearchEvidence,
-  readResearchVerification,
-  withResearchUnverified,
-  withResearchVerified,
+  readResearchReview,
+  readResearchTriage,
+  withResearchReviewRecord,
 } from '../lib/research-verification.js'
-import type { JobType, ResearchOutput, ResearchSourceProvider } from '../models/types.js'
+import type {
+  JobType,
+  ResearchClaim,
+  ResearchOutput,
+  ResearchReviewRecord,
+  ResearchSourceProvider,
+} from '../models/types.js'
 
 export const router = Router()
 
@@ -149,73 +160,56 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const { dir, jsonPath: sidecarPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
     await fs.mkdir(dir, { recursive: true })
-    // Editing claims never grants an attestation. Normalize whatever the client
-    // sent through the shared reader so a hand-crafted `verification` block
-    // can't fake `verified_by` or smuggle in a truthy non-boolean.
-    const normalized: ResearchOutput = {
-      ...(body as ResearchOutput),
-      verification: readResearchVerification(body),
+
+    // v1.0.761 — the per-claim triage IS the research-level state, so saving it
+    // is the only "verify" action there is. The client cannot hand us a review
+    // record: we derive it here from what the save actually did.
+    //
+    //   • triage incomplete → no record at all (nothing was finished)
+    //   • a claim decision changed by this save → recorded as 'human'
+    //   • nothing changed → whatever finished it before is preserved, so a
+    //     Pipeline-completed sidecar never gets relabelled as human-reviewed
+    //     just because someone opened the page and pressed Save.
+    let previous: ResearchOutput | null = null
+    try {
+      previous = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ResearchOutput
+    } catch { /* first save for this episode — no prior decisions to compare */ }
+
+    const triage = readResearchTriage(body)
+    let normalized: ResearchOutput = { ...(body as ResearchOutput) }
+    delete (normalized as { verification?: unknown }).verification  // retired v1.0.760 block
+    delete normalized.review
+    if (triage.reviewed) {
+      const carried: ResearchReviewRecord | null = readResearchReview(previous)
+      normalized = (!carried || claimDecisionsChanged(previous, body as ResearchOutput))
+        ? withResearchReviewRecord(normalized, 'human')
+        : { ...normalized, review: carried }
     }
+
     await fs.writeFile(sidecarPath, JSON.stringify(normalized, null, 2), 'utf-8')
     await invalidateEpisodeStatus(slug, episodeId)
-    res.json({ ok: true, sidecar_path: sidecarPath, verification: normalized.verification })
+    res.json({
+      ok: true,
+      sidecar_path: sidecarPath,
+      review: normalized.review ?? null,
+      triage,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save research sidecar'))
   }
 })
 
-// ── POST /projects/:slug/research/:episodeId/verify ───────────────────
-// Deliberate human attestation (or withdrawal of one).
-//
-//   { verified: true }  — "I read this research and checked its claims
-//                          against the cited sources." Recorded as
-//                          verified_by: 'human'.
-//   { verified: false } — un-verify, e.g. after spotting a bad claim.
-//
-// Verification is per generated output: any regeneration resets it (see
-// generators/research.ts), so an old attestation can never carry onto claims
-// nobody has read. Auto-verification by the unattended Pipeline is a separate
-// path and is stamped verified_by: 'pipeline-auto'.
-router.post('/projects/:slug/research/:episodeId/verify', async (req, res) => {
-  const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+/** Did this save actually change a Verified / Ignore decision? Claims added or
+ *  removed count as a change too — the saved set is not the reviewed set. */
+function claimDecisionsChanged(previous: ResearchOutput | null, next: ResearchOutput): boolean {
+  if (!previous) return true
+  const before = new Map((previous.claims || []).map((c: ResearchClaim) => [c?.id, c?.status]))
+  const after = (next.claims || []) as ResearchClaim[]
+  if (before.size !== after.length) return true
+  return after.some(c => !before.has(c?.id) || before.get(c?.id) !== c?.status)
+}
 
-  const wantVerified = (req.body || {}).verified !== false
-  try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const { jsonPath: sidecarPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
-    let existing: ResearchOutput
-    try {
-      existing = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ResearchOutput
-    } catch (e: any) {
-      if (e?.code === 'ENOENT') {
-        return res.status(409).json({
-          detail: `No research exists for ${episodeId}, so there is nothing to verify. `
-            + 'Run research for this episode first, then verify it.',
-        })
-      }
-      throw e
-    }
-    // Never let an empty sidecar be attested — that would satisfy the
-    // completion gate with no evidence behind it.
-    if (wantVerified && !hasResearchEvidence(existing)) {
-      return res.status(409).json({
-        detail: `Research for ${episodeId} has no summary and no claims, so there is nothing to verify. `
-          + 'Re-run research for this episode, then verify it.',
-      })
-    }
-    const next = wantVerified
-      ? withResearchVerified(existing, 'human')
-      : withResearchUnverified(existing)
-    await fs.writeFile(sidecarPath, JSON.stringify(next, null, 2), 'utf-8')
-    await invalidateEpisodeStatus(slug, episodeId)
-    res.json({ ok: true, verification: next.verification, sidecar_path: sidecarPath })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to update research verification'))
-  }
-})
-
-/** Verification flips rewrite research.json in place; drop the cached episode
+/** Claim decisions rewrite research.json in place; drop the cached episode
  *  status so the Production Board and pending filters see it immediately. */
 async function invalidateEpisodeStatus(slug: string, episodeId: string): Promise<void> {
   try {

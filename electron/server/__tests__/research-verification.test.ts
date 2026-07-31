@@ -1,16 +1,20 @@
 /**
- * Research gate + verification contract (v1.0.760).
+ * Research gate + derived claim-review contract (v1.0.760, reworked v1.0.761).
  *
- * This reverses the old "research is always optional" rule, so the tests pin
- * BOTH directions:
+ * v1.0.761 removed the separate research-level attestation. The research-level
+ * state is DERIVED from the per-claim Verified / Ignore triage, so these tests
+ * pin the derivation itself as well as both gate directions:
  *
- *   - `research_required` ON  → research blocks completion until verified
+ *   - `research_required` ON  → research blocks completion until every claim
+ *                               is triaged AND at least one is kept
  *   - `research_required` OFF → byte-for-byte today's optional behaviour
  *   - setting ABSENT (a project created before the gate) → resolves OFF
- *   - generating / regenerating research resets it to unverified
- *   - verifying completes it; un-verifying takes it back
- *   - Pipeline runs auto-verify, and that is distinguishable from a human
- *   - the Research pending filter lists unverified research
+ *   - any pending claim → not complete; zero claims → not complete
+ *   - all claims ignored → REVIEWED, surfaced as such, still not complete
+ *   - generating / regenerating research resets every claim to untriaged
+ *   - Pipeline runs machine-complete the triage, and that stays distinguishable
+ *     from a human's review
+ *   - the Research pending filter lists research whose claims still need review
  *
  * Every dependent module is dynamic-imported inside `before()` — a static
  * import would evaluate project-manager's PROJECTS_ROOT before
@@ -23,7 +27,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
-import type { Job, ResearchOutput } from '../models/types.js'
+import type { Job, ResearchClaim, ResearchOutput } from '../models/types.js'
 
 let pm: typeof import('../services/project-manager.js')
 let assetStatus: typeof import('../services/asset-status.js')
@@ -36,7 +40,11 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 const SLUG = 'research-gate-test'
 const CODE = 'EP0001'
 
-/** A research sidecar with real evidence in it. */
+function claim(id: string, status: ResearchClaim['status'], text = `Claim ${id} text.`): ResearchClaim {
+  return { id, text, status, citation_indices: [] }
+}
+
+/** A research sidecar with real evidence in it. Claims default to untriaged. */
 function researchFixture(overrides: Partial<ResearchOutput> = {}): ResearchOutput {
   return {
     schema_version: 1,
@@ -53,6 +61,12 @@ function researchFixture(overrides: Partial<ResearchOutput> = {}): ResearchOutpu
     citations: [{ title: 'USGS', url: 'https://example.invalid/usgs' }],
     ...overrides,
   }
+}
+
+/** The same fixture with every claim triaged as `status`. */
+function triaged(status: ResearchClaim['status'], overrides: Partial<ResearchOutput> = {}): ResearchOutput {
+  const base = researchFixture(overrides)
+  return { ...base, claims: base.claims.map(c => ({ ...c, status })) }
 }
 
 /**
@@ -123,6 +137,50 @@ describe('research gate default resolution', () => {
   })
 })
 
+describe('the derived triage rule', () => {
+  before(async () => {
+    tmp = await useTempDataDir()
+    rv = await import('../lib/research-verification.js')
+  })
+  after(async () => { await tmp.cleanup() })
+
+  test('counts each decision and only calls it reviewed when nothing is pending', () => {
+    const mixed = rv.readResearchTriage({
+      claims: [claim('a', 'verified'), claim('b', 'ignored'), claim('c', 'unreviewed')],
+    })
+    assert.deepEqual(
+      { total: mixed.total, verified: mixed.verified, ignored: mixed.ignored, pending: mixed.pending },
+      { total: 3, verified: 1, ignored: 1, pending: 1 },
+    )
+    assert.equal(mixed.reviewed, false, 'one pending claim means the review is not finished')
+
+    const done = rv.readResearchTriage({ claims: [claim('a', 'verified'), claim('b', 'ignored')] })
+    assert.equal(done.reviewed, true)
+    assert.equal(done.hasUsableClaims, true)
+  })
+
+  test('a missing or junk status counts as still pending, never as decided', () => {
+    const t = rv.readResearchTriage({
+      claims: [{ id: 'a', text: 'no status field' }, { id: 'b', text: 'junk', status: 'approved' }],
+    })
+    assert.equal(t.pending, 2)
+    assert.equal(t.reviewed, false)
+  })
+
+  test('claims with no real text are not countable review work', () => {
+    const t = rv.readResearchTriage({ claims: [claim('a', 'verified'), { id: 'b', text: '   ', status: 'unreviewed' }] })
+    assert.equal(t.total, 1, 'a blank placeholder must not hold an episode hostage')
+    assert.equal(t.reviewed, true)
+  })
+
+  test('zero claims is never "reviewed", however the sidecar is shaped', () => {
+    assert.equal(rv.readResearchTriage({ claims: [] }).reviewed, false)
+    assert.equal(rv.readResearchTriage({}).reviewed, false)
+    assert.equal(rv.readResearchTriage(null).reviewed, false)
+    assert.equal(rv.isResearchReviewed({ summary: 'text but no claims', claims: [] }), false)
+  })
+})
+
 describe('research completion rule', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -143,56 +201,134 @@ describe('research completion rule', () => {
   test('gate OFF: evidence alone completes it (unchanged behaviour)', () => {
     const generated = researchFixture()
     assert.equal(rv.isResearchComplete(generated, false), true)
-    assert.equal(rv.isResearchComplete(rv.withResearchUnverified(generated), false), true)
+    assert.equal(rv.isResearchComplete(rv.withResearchUntriaged(generated), false), true)
+    // Gate OFF ignores the triage entirely — all-pending and all-ignored alike.
+    assert.equal(rv.isResearchComplete(triaged('ignored'), false), true)
     assert.equal(rv.isResearchComplete({ summary: '', claims: [] }, false), false)
+    assert.equal(rv.isResearchComplete({ summary: 'summary only', claims: [] }, false), true)
   })
 
-  test('gate ON: evidence is not enough — it must also be verified', () => {
-    const generated = rv.withResearchUnverified(researchFixture())
-    assert.equal(rv.isResearchComplete(generated, true), false)
-    assert.equal(rv.isResearchComplete(rv.withResearchVerified(generated, 'human'), true), true)
+  test('gate ON: every claim triaged and at least one kept completes it', () => {
+    assert.equal(rv.isResearchComplete(triaged('verified'), true), true)
+    assert.equal(rv.isResearchComplete({
+      ...researchFixture(),
+      claims: [claim('a', 'verified'), claim('b', 'ignored')],
+    }, true), true)
   })
 
-  test('gate ON: verified but EMPTY research is still not complete', () => {
-    const empty = rv.withResearchVerified(researchFixture({ summary: '', claims: [] }), 'human')
-    assert.equal(rv.isResearchComplete(empty, true), false)
+  test('gate ON: ANY pending claim keeps it incomplete', () => {
+    assert.equal(rv.isResearchComplete(rv.withResearchUntriaged(researchFixture()), true), false)
+    assert.equal(rv.isResearchComplete({
+      ...researchFixture(),
+      claims: [claim('a', 'verified'), claim('b', 'verified'), claim('c', 'unreviewed')],
+    }, true), false, 'one undecided claim out of three still blocks it')
   })
 
-  test('a forged verification block cannot fake an attestation', () => {
-    assert.equal(rv.isResearchVerified({ verification: { verified: 'yes' } }), false)
-    assert.equal(rv.isResearchVerified({ verification: true }), false)
-    // A truthy `verified` with a junk actor still reads as verified, but the
-    // actor is dropped rather than trusted.
-    assert.equal(rv.readResearchVerification({ verification: { verified: true, verified_by: 'admin' } }).verified_by, undefined)
+  test('gate ON: zero claims is not complete even with a rich summary', () => {
+    const summaryOnly = { ...researchFixture(), claims: [] }
+    assert.equal(rv.hasResearchEvidence(summaryOnly), true, 'the summary is real evidence')
+    assert.equal(rv.isResearchComplete(summaryOnly, true), false,
+      'there is nothing for the Script Generator to use, so it cannot be complete')
   })
 
-  test('human vs pipeline attestations stay distinguishable', () => {
-    const human = rv.withResearchVerified(researchFixture(), 'human')
-    const auto = rv.withResearchVerified(researchFixture(), 'pipeline-auto')
-    assert.equal(human.verification?.verified_by, 'human')
-    assert.equal(auto.verification?.verified_by, 'pipeline-auto')
-    assert.match(auto.verification?.note || '', /no human reviewed/i)
-    assert.ok(auto.verification?.verified_at, 'automatic verification must be timestamped too')
+  test('gate ON: all-ignored is REVIEWED but not complete', () => {
+    const allIgnored = triaged('ignored')
+    const t = rv.readResearchTriage(allIgnored)
+    assert.equal(t.reviewed, true, 'rejecting everything is a real editorial outcome')
+    assert.equal(t.hasUsableClaims, false)
+    assert.equal(rv.isResearchComplete(allIgnored, true), false,
+      'the gate exists to guarantee the script has evidence; all-ignored hands it none')
   })
 
-  test('un-verifying clears the attestation entirely', () => {
-    const verified = rv.withResearchVerified(researchFixture(), 'human')
-    const cleared = rv.withResearchUnverified(verified)
-    assert.equal(cleared.verification?.verified, false)
-    assert.equal(cleared.verification?.verified_by, undefined)
-    assert.equal(cleared.verification?.verified_at, undefined)
+  test('the retired v1.0.760 attestation can no longer complete anything', () => {
+    // A legacy sidecar that was "verified" at the research level, with claims
+    // nobody ever triaged, must now read as incomplete rather than done.
+    const legacy = {
+      ...rv.withResearchUntriaged(researchFixture()),
+      verification: { verified: true, verified_by: 'human', verified_at: '2026-07-30T00:00:00.000Z' },
+    }
+    assert.equal(rv.isResearchComplete(legacy, true), false)
+  })
+
+  test('a forged review record cannot fake an actor', () => {
+    assert.equal(rv.readResearchReview({ review: { completed_by: 'admin' } }), null)
+    assert.equal(rv.readResearchReview({ review: true }), null)
+    assert.equal(rv.readResearchReview({}), null)
+    assert.equal(rv.readResearchReview({ review: { completed_by: 'human' } })?.completed_by, 'human')
+  })
+
+  test('human vs pipeline review records stay distinguishable', () => {
+    const human = rv.withResearchReviewRecord(triaged('verified'), 'human')
+    const auto = rv.autoCompleteResearchReview(rv.withResearchUntriaged(researchFixture()))
+    assert.equal(human.review?.completed_by, 'human')
+    assert.equal(auto.review?.completed_by, 'pipeline-auto')
+    assert.match(auto.review?.note || '', /no human read these claims/i)
+    assert.doesNotMatch(auto.review?.note || '', /cited sources/i)
+    assert.ok(auto.review?.completed_at, 'automatic completion must be timestamped too')
+  })
+
+  test('no wording anywhere claims the user checked the cited sources', () => {
+    // The adapter is llm-only with no live web access and usually no citations.
+    assert.doesNotMatch(rv.HUMAN_REVIEW_NOTE, /cited sources|checked .* against/i)
+    assert.doesNotMatch(rv.PIPELINE_AUTO_REVIEW_NOTE, /cited sources/i)
+  })
+
+  test('untriaging resets every claim and drops both review records', () => {
+    const reviewed = rv.withResearchReviewRecord(triaged('verified'), 'human')
+    const legacy = { ...reviewed, verification: { verified: true, verified_by: 'human' } }
+    const cleared = rv.withResearchUntriaged(legacy)
+    assert.equal(cleared.review, undefined)
+    assert.equal((cleared as { verification?: unknown }).verification, undefined)
+    assert.ok(cleared.claims.every(c => c.status === 'unreviewed'))
+    assert.equal(rv.isResearchComplete(cleared, true), false)
+  })
+
+  test('auto-completion keeps decisions a human already made', () => {
+    const partly = {
+      ...researchFixture(),
+      claims: [claim('a', 'ignored'), claim('b', 'unreviewed')],
+    }
+    const auto = rv.autoCompleteResearchReview(partly)
+    assert.equal(auto.claims[0]!.status, 'ignored', 'a human Ignore must never be flipped back to kept')
+    assert.equal(auto.claims[1]!.status, 'verified')
+    assert.equal(rv.isResearchComplete(auto, true), true)
   })
 
   test('gap messages name what is missing AND how to fix it', () => {
-    assert.equal(rv.describeResearchGap({ episodeId: CODE, researchRequired: false, hasEvidence: false, verified: false }), null)
-    const missing = rv.describeResearchGap({ episodeId: CODE, researchRequired: true, hasEvidence: false, verified: false })
+    assert.equal(rv.describeResearchGap({
+      episodeId: CODE, researchRequired: false, hasEvidence: false, reviewed: false, hasUsableClaims: false,
+    }), null)
+
+    const missing = rv.describeResearchGap({
+      episodeId: CODE, researchRequired: true, hasEvidence: false, reviewed: false, hasUsableClaims: false,
+    })
     assert.match(missing || '', /EP0001/)
     assert.match(missing || '', /no research evidence exists/)
     assert.match(missing || '', /run it for this episode/)
-    const unverified = rv.describeResearchGap({ episodeId: CODE, researchRequired: true, hasEvidence: true, verified: false })
-    assert.match(unverified || '', /not verified/)
-    assert.match(unverified || '', /Verify research/)
-    assert.equal(rv.describeResearchGap({ episodeId: CODE, researchRequired: true, hasEvidence: true, verified: true }), null)
+
+    const pending = rv.describeResearchGap({
+      episodeId: CODE, researchRequired: true, hasEvidence: true, reviewed: false, hasUsableClaims: false,
+    })
+    assert.match(pending || '', /still waiting for a decision/)
+    assert.match(pending || '', /Verified or Ignore/)
+    assert.match(pending || '', /Verify all/)
+
+    // The all-ignored outcome gets its OWN sentence — reporting it as generic
+    // "pending" would send the user looking for claims to review that aren't there.
+    const allIgnored = rv.describeResearchGap({
+      episodeId: CODE, researchRequired: true, hasEvidence: true, reviewed: true, hasUsableClaims: false,
+    })
+    assert.match(allIgnored || '', /every research claim was ignored/i)
+    assert.match(allIgnored || '', /keep at least one claim/)
+
+    assert.equal(rv.describeResearchGap({
+      episodeId: CODE, researchRequired: true, hasEvidence: true, reviewed: true, hasUsableClaims: true,
+    }), null)
+
+    // None of them may imply the app or the user checked a live source.
+    for (const message of [missing, pending, allIgnored]) {
+      assert.doesNotMatch(message || '', /cited sources/i)
+    }
   })
 })
 
@@ -214,37 +350,47 @@ describe('research status through computeEpisodeStatus', () => {
     cacheMod.episodeStatusCache.clear()
   })
 
-  test('gate ON + generated-but-unverified → NOT complete, but flagged as generated', async () => {
+  test('gate ON + claims still pending → NOT complete, but flagged as generated', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture()))
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture()))
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(status.research, false, 'unverified research must not count as complete')
+    assert.equal(status.research, false, 'untriaged research must not count as complete')
     assert.equal(status.research_generated, true, 'the evidence itself is present')
-    assert.equal(status.research_verified, false)
+    assert.equal(status.research_reviewed, false)
     assert.equal(status.research_required, true)
   })
 
-  test('gate ON + verified → complete, and the actor is surfaced', async () => {
+  test('gate ON + every claim triaged → complete, and the actor is surfaced', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture(), 'human'))
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified'), 'human'))
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, true)
-    assert.equal(status.research_verified, true)
-    assert.equal(status.research_verified_by, 'human')
+    assert.equal(status.research_reviewed, true)
+    assert.equal(status.research_has_usable_claims, true)
+    assert.equal(status.research_reviewed_by, 'human')
   })
 
-  test('gate ON + pipeline auto-verified → complete, and marked automatic', async () => {
+  test('gate ON + all claims ignored → reviewed, no usable claims, NOT complete', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture(), 'pipeline-auto'))
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('ignored'), 'human'))
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.research_reviewed, true, 'the reviewing itself happened and must be visible')
+    assert.equal(status.research_has_usable_claims, false, 'and the UI must be able to say why it is stuck')
+    assert.equal(status.research, false)
+  })
+
+  test('gate ON + pipeline-completed review → complete, and marked automatic', async () => {
+    const epDir = await makeProject(true)
+    await writeResearch(epDir, rv.autoCompleteResearchReview(rv.withResearchUntriaged(researchFixture())))
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, true, 'an unattended run must not be blocked')
-    assert.equal(status.research_verified_by, 'pipeline-auto',
-      'the record must never imply a human reviewed these claims')
+    assert.equal(status.research_reviewed_by, 'pipeline-auto',
+      'the record must never imply a human read these claims')
   })
 
-  test('gate OFF: unverified research is complete, exactly as before the gate', async () => {
+  test('gate OFF: untriaged research is complete, exactly as before the gate', async () => {
     const epDir = await makeProject(false)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture()))
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture()))
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, true)
     assert.equal(status.research_required, false)
@@ -252,24 +398,24 @@ describe('research status through computeEpisodeStatus', () => {
 
   test('setting ABSENT (legacy project): behaves exactly like gate OFF', async () => {
     const epDir = await makeProject(undefined)
-    await writeResearch(epDir, researchFixture())  // no verification block at all
+    await writeResearch(epDir, researchFixture())  // no review record at all
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, true, 'an upgraded project must not regress to incomplete')
     assert.equal(status.research_required, false)
-    assert.equal(status.research_verified, false)
+    assert.equal(status.research_reviewed, false)
   })
 
-  test('no sidecar at all → not generated, not verified, not complete', async () => {
+  test('no sidecar at all → not generated, not reviewed, not complete', async () => {
     await makeProject(true)
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, false)
     assert.equal(status.research_generated, false)
-    assert.equal(status.research_verified, false)
+    assert.equal(status.research_reviewed, false)
   })
 
-  test('gate ON + an empty sidecar is never complete, verified or not', async () => {
+  test('gate ON + an empty sidecar is never complete, reviewed or not', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture({ summary: '', claims: [] }), 'human'))
+    await writeResearch(epDir, rv.withResearchReviewRecord(researchFixture({ summary: '', claims: [] }), 'human'))
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.research, false, 'directory/file presence is never proof of completion')
     assert.equal(status.research_generated, false)
@@ -294,44 +440,44 @@ describe('pending filter + the Pipeline skip contract', () => {
     cacheMod.episodeStatusCache.clear()
   })
 
-  test('pending filter lists unverified research and drops it once verified', async () => {
+  test('pending filter lists untriaged research and drops it once reviewed', async () => {
     // The Research page's "Pending only" filter keys off `status.research`, so
     // that boolean IS the pending contract.
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture()))
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture()))
     const pendingBefore = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(pendingBefore.research, false, 'must still appear in the pending list')
 
     cacheMod.episodeStatusCache.clear()
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture(), 'human'))
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified'), 'human'))
     const pendingAfter = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(pendingAfter.research, true, 'verifying must drop it out of pending')
+    assert.equal(pendingAfter.research, true, 'finishing the triage must drop it out of pending')
   })
 
   test('isStepAlreadyDone("research") follows the SAME gated rule as the board', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture()))
-    const unverified = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(pipeline.isStepAlreadyDone(unverified, 'research'), false)
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture()))
+    const untriaged = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(pipeline.isStepAlreadyDone(untriaged, 'research'), false)
 
     cacheMod.episodeStatusCache.clear()
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture(), 'human'))
-    const verified = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(pipeline.isStepAlreadyDone(verified, 'research'), true)
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified'), 'human'))
+    const reviewed = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(pipeline.isStepAlreadyDone(reviewed, 'research'), true)
   })
 
-  test('Pipeline auto-verifies EXISTING evidence instead of regenerating it', async () => {
+  test('Pipeline completes the review of EXISTING evidence instead of regenerating it', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture()))
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture()))
 
-    const changed = await pipeline.autoVerifyResearchForPipeline(SLUG, CODE)
+    const changed = await pipeline.autoCompleteResearchReviewForPipeline(SLUG, CODE)
     assert.equal(changed, true)
 
     const after = await readResearch(epDir)
-    assert.equal(after.verification?.verified, true)
-    assert.equal(after.verification?.verified_by, 'pipeline-auto',
-      'automatic verification must never be recorded as human')
-    // The evidence itself must be untouched — this promotes, it does not rerun.
+    assert.equal(after.review?.completed_by, 'pipeline-auto',
+      'automatic completion must never be recorded as human')
+    assert.ok(after.claims.every(c => c.status === 'verified'), 'pending claims are accepted so the batch runs')
+    // The evidence itself must be untouched — this triages, it does not rerun.
     assert.equal(after.claims.length, 1)
     assert.equal(after.summary, researchFixture().summary)
 
@@ -340,27 +486,38 @@ describe('pending filter + the Pipeline skip contract', () => {
     assert.equal(status.research, true, 'the unattended run is no longer blocked')
   })
 
-  test('Pipeline auto-verification never overwrites a human attestation', async () => {
+  test('Pipeline auto-completion never overwrites a review a human finished', async () => {
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture(), 'human'))
-    const changed = await pipeline.autoVerifyResearchForPipeline(SLUG, CODE)
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified'), 'human'))
+    const changed = await pipeline.autoCompleteResearchReviewForPipeline(SLUG, CODE)
     assert.equal(changed, false)
-    assert.equal((await readResearch(epDir)).verification?.verified_by, 'human')
+    assert.equal((await readResearch(epDir)).review?.completed_by, 'human')
   })
 
-  test('Pipeline auto-verification never invents evidence that is not there', async () => {
+  test('Pipeline auto-completion leaves a deliberate all-ignored review alone', async () => {
+    // The batch stays blocked on purpose: flipping the user's Ignore decisions
+    // back to kept would destroy editorial work to make a number go green.
     const epDir = await makeProject(true)
-    await writeResearch(epDir, rv.withResearchUnverified(researchFixture({ summary: '', claims: [] })))
-    assert.equal(await pipeline.autoVerifyResearchForPipeline(SLUG, CODE), false)
-    assert.equal((await readResearch(epDir)).verification?.verified, false)
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('ignored'), 'human'))
+    assert.equal(await pipeline.autoCompleteResearchReviewForPipeline(SLUG, CODE), false)
+    const after = await readResearch(epDir)
+    assert.ok(after.claims.every(c => c.status === 'ignored'))
+    assert.equal(after.review?.completed_by, 'human')
+  })
+
+  test('Pipeline auto-completion never invents evidence that is not there', async () => {
+    const epDir = await makeProject(true)
+    await writeResearch(epDir, rv.withResearchUntriaged(researchFixture({ summary: '', claims: [] })))
+    assert.equal(await pipeline.autoCompleteResearchReviewForPipeline(SLUG, CODE), false)
+    assert.equal((await readResearch(epDir)).review, undefined)
 
     // And with no sidecar at all it is a silent no-op, so the step just runs.
     await fs.rm(path.join(epDir, researchPaths.researchFolderName(CODE)), { recursive: true, force: true })
-    assert.equal(await pipeline.autoVerifyResearchForPipeline(SLUG, CODE), false)
+    assert.equal(await pipeline.autoCompleteResearchReviewForPipeline(SLUG, CODE), false)
   })
 })
 
-describe('the research generator resets verification', () => {
+describe('the research generator resets the triage', () => {
   before(async () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
@@ -388,7 +545,9 @@ describe('the research generator resets verification', () => {
     const originalIsConfigured = adapter.isConfigured
     const originalRun = adapter.run
     adapter.isConfigured = async () => true
-    adapter.run = async () => researchFixture()
+    // The adapter hands back claims already marked verified to prove the
+    // generator resets them rather than trusting whatever it was given.
+    adapter.run = async () => triaged('verified')
     const job: Job = {
       job_id: 'j1', project_slug: SLUG, type: 'research_run', episode_id: CODE,
       title: 'Research', status: 'running', created_at: '', started_at: '', finished_at: null,
@@ -405,38 +564,60 @@ describe('the research generator resets verification', () => {
     return job
   }
 
-  test('a manual run writes UNVERIFIED research even over a previously verified sidecar', async () => {
+  test('a manual run writes UNTRIAGED claims even over a reviewed sidecar', async () => {
     const epDir = await makeProject(true)
-    // Pre-existing, human-verified research for an OLDER generation.
-    await writeResearch(epDir, rv.withResearchVerified(researchFixture({ summary: 'stale' }), 'human'))
+    // Pre-existing, human-reviewed research for an OLDER generation.
+    await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified', { summary: 'stale' }), 'human'))
 
     const job = await runGeneratorWithStubAdapter({})
 
     const written = await readResearch(epDir)
-    assert.equal(written.verification?.verified, false,
-      'regeneration must clear the old attestation — nobody has read the NEW claims')
-    assert.ok(job.output_lines.some(l => /NOT VERIFIED/.test(l)),
-      'the job log must tell the user verification is still owed')
+    assert.ok(written.claims.every(c => c.status === 'unreviewed'),
+      'regeneration must clear old decisions — nobody has read the NEW claims')
+    assert.equal(written.review, undefined, 'and the old review record must not carry over')
+    assert.equal(rv.isResearchComplete(written, true), false)
+    assert.ok(job.output_lines.some(l => /Claim review: PENDING/.test(l)),
+      'the job log must tell the user the review is still owed')
+    assert.ok(!job.output_lines.some(l => /cited sources/i.test(l)))
   })
 
-  test('a Pipeline run auto-verifies and records that it was automatic', async () => {
+  test('a Pipeline run completes the triage and records that it was automatic', async () => {
     const epDir = await makeProject(true)
     const job = await runGeneratorWithStubAdapter({ pipeline_batch_id: 'batch-123' })
 
     const written = await readResearch(epDir)
-    assert.equal(written.verification?.verified, true, 'unattended runs must not be left blocked')
-    assert.equal(written.verification?.verified_by, 'pipeline-auto')
-    assert.ok(job.output_lines.some(l => /AUTO-VERIFIED/.test(l)))
+    assert.equal(rv.isResearchComplete(written, true), true, 'unattended runs must not be left blocked')
+    assert.equal(written.review?.completed_by, 'pipeline-auto')
+    assert.ok(job.output_lines.some(l => /AUTO-COMPLETED/.test(l)))
 
-    // And the markdown a human reads in Finder says so too.
+    // And the markdown a human reads in Finder says so too, without ever
+    // implying a person read the claims or that sources were checked.
     const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
-    assert.match(await fs.readFile(mdPath, 'utf-8'), /Auto-verified/)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /Review auto-completed/)
+    assert.match(md, /No human read these claims/)
+    assert.doesNotMatch(md, /checked .* against the cited sources/i)
+    // llm-only provenance is disclosed rather than dressed up as fact-checking.
+    assert.match(md, /no live web access/)
+  })
+
+  test('research.md shows when a claim has no source behind it', async () => {
+    const epDir = await makeProject(true)
+    await runGeneratorWithStubAdapter({})
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    // The fixture's single claim cites source 1, so the citation is shown…
+    assert.match(md, /\[1\]/)
+    // …and the review state is stated for the reader.
+    assert.match(md, /REVIEW PENDING/)
   })
 
   test('an empty pipeline_batch_id is not treated as a Pipeline run', async () => {
     const epDir = await makeProject(true)
     await runGeneratorWithStubAdapter({ pipeline_batch_id: '' })
-    assert.equal((await readResearch(epDir)).verification?.verified, false)
+    const written = await readResearch(epDir)
+    assert.ok(written.claims.every(c => c.status === 'unreviewed'))
+    assert.equal(written.review, undefined)
   })
 })
 
@@ -457,5 +638,25 @@ describe('new projects opt in, upgraded projects do not', () => {
     // Stamped, not inferred — this is what makes "absent means legacy" safe.
     assert.equal(onDisk.research_required, true)
     assert.equal(rv.resolveResearchRequired(onDisk), true)
+  })
+})
+
+describe('there is no separate research-level attestation any more', () => {
+  before(async () => {
+    tmp = await useTempDataDir()
+  })
+  after(async () => { await tmp.cleanup() })
+
+  test('the retired POST …/verify route is gone from the research routes', async () => {
+    const source = await fs.readFile(
+      new URL('../routes/research.ts', import.meta.url),
+      'utf-8',
+    )
+    assert.doesNotMatch(source, /router\.post\([^)]*\/verify/)
+    // No user-facing string may claim anything was checked against a source.
+    // (The header comment names the retired wording on purpose, so only
+    // response/message literals are scanned here.)
+    const userFacingStrings = source.match(/detail: [^\n]+/g) || []
+    for (const line of userFacingStrings) assert.doesNotMatch(line, /cited sources/i)
   })
 })

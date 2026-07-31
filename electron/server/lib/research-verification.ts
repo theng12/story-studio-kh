@@ -1,5 +1,5 @@
 /**
- * Research gate + verification contract (v1.0.760).
+ * Research gate + claim-review contract (v1.0.760, reworked in v1.0.761).
  *
  * THIS MODULE IS THE SINGLE SOURCE OF TRUTH for two questions:
  *
@@ -13,49 +13,65 @@
  * re-deriving the rule. That is the Verified Completion Contract requirement
  * that one authoritative rule is shared by every reader.
  *
- * ── Why research got a verification state ────────────────────────────────
+ * ── Why research has a review state ──────────────────────────────────────
  * Research used to be a pure enrichment step: generating it made it "done".
  * For scientific / historical channels that is wrong — an LLM returning
  * plausible prose is not evidence that the claims are true. So a generated
- * research sidecar now enters an explicit `unverified` state and only
- * counts as complete once someone attests to it.
+ * sidecar is not complete until the claims have been triaged.
  *
- * ── Why the gate is per project, not global ──────────────────────────────
- * Turning this on globally would retroactively mark every already-shipped
- * episode incomplete. The gate therefore defaults ON for newly created
- * projects (project-manager.createProject stamps `research_required: true`)
- * and OFF for every project that predates the field. That default is
- * resolved EXPLICITLY below — absence means "legacy project", not "someone
- * forgot to set a boolean". Never replace resolveResearchRequired() with a
- * bare truthiness check.
+ * ── ONE decision, derived (v1.0.761) ─────────────────────────────────────
+ * v1.0.760 shipped TWO stacked "verify" actions: the per-claim
+ * Verified / Ignore triage that decides which claims reach the Script
+ * Generator, AND a separate research-level attestation banner. That was one
+ * decision too many, and the banner's wording ("checked against the cited
+ * sources") was false: Story Studio's only research adapter is `llm-only`,
+ * which is explicitly told it has NO live web access and must not invent
+ * URLs. Real runs come back with zero citations, so nothing could have been
+ * checked against them.
+ *
+ * The research-level state is therefore DERIVED from the per-claim triage:
+ *
+ *   reviewed        = there is at least one claim AND none are 'unreviewed'
+ *   usable          = at least one claim was kept ('verified')
+ *   complete (gate ON) = evidence exists AND reviewed AND usable
+ *
+ * The all-ignored case is a legitimate editorial outcome ("I read these and
+ * none of them are good enough"), so it counts as REVIEWED — but it leaves
+ * the script with no evidence at all, which is exactly what the gate exists
+ * to prevent. It therefore does NOT satisfy completion, and every surface
+ * says so in those words rather than reporting a generic "pending".
  *
  * ── Where the state lives ────────────────────────────────────────────────
- * In the research sidecar itself (`{code} - 11 Research/research.json`,
- * see lib/research-paths.ts) under the `verification` key, so it travels
- * with the artifact it describes and survives folder renames / re-imports.
+ * In the claims themselves (`{code} - 11 Research/research.json`, see
+ * lib/research-paths.ts), so it travels with the artifact it describes and
+ * survives folder renames / re-imports. The sidecar also carries a `review`
+ * PROVENANCE record — who finished the triage (a person, or an unattended
+ * Pipeline run) — which is recorded for honesty and is never an input to the
+ * completion rule.
  */
 
 import type {
   ProjectMeta,
+  ResearchClaim,
   ResearchOutput,
-  ResearchVerification,
-  ResearchVerifiedBy,
+  ResearchReviewRecord,
+  ResearchReviewedBy,
 } from '../models/types.js'
 
-/** Note stamped on sidecars auto-verified by an unattended Pipeline run. */
-export const PIPELINE_AUTO_VERIFY_NOTE =
-  'Auto-verified by an unattended one-click Pipeline run — no human reviewed these claims.'
+/** Note stamped on sidecars whose triage was completed by an unattended run. */
+export const PIPELINE_AUTO_REVIEW_NOTE =
+  'Claim review auto-completed by an unattended one-click Pipeline run — no human read these claims.'
 
-/** What the user is attesting to when they press Verify on the Research page. */
-export const HUMAN_VERIFY_ATTESTATION =
-  'I have read this research and checked its claims against the cited sources.'
+/** Note stamped when a person triaged every claim on the Research page. */
+export const HUMAN_REVIEW_NOTE =
+  'Every claim was triaged by hand on the Research page — kept or ignored.'
 
 /**
  * Resolve the per-project research gate.
  *
  * EXPLICIT default resolution — do not inline this as `!!meta.research_required`:
  *
- *   • `true`      → gate ON  (research must be verified to count as complete)
+ *   • `true`      → gate ON  (research must be reviewed to count as complete)
  *   • `false`     → gate OFF (research is optional, exactly as before)
  *   • absent/other → gate OFF, because the project predates the field.
  *     New projects are stamped `true` at creation time, so "absent" can only
@@ -86,85 +102,170 @@ export function hasResearchEvidence(research: unknown): boolean {
     && r.claims.some(claim => typeof claim?.text === 'string' && claim.text.trim().length > 0)
 }
 
-/** Normalized verification block. Missing/legacy blocks read as unverified. */
-export function readResearchVerification(research: unknown): ResearchVerification {
-  const raw = (research as { verification?: unknown } | null | undefined)?.verification
-  if (!raw || typeof raw !== 'object') return { verified: false }
-  const v = raw as Partial<ResearchVerification>
-  if (v.verified !== true) return { verified: false }
-  const by: ResearchVerifiedBy | undefined =
-    v.verified_by === 'human' || v.verified_by === 'pipeline-auto' ? v.verified_by : undefined
+/** Counts + derived flags for the per-claim triage. THE state of a sidecar. */
+export interface ResearchTriage {
+  /** Claims that carry real text. Blank placeholders are not countable work. */
+  total: number
+  /** Kept — these are the claims the Script Generator receives. */
+  verified: number
+  /** Read and rejected. Recorded, but not passed downstream. */
+  ignored: number
+  /** Still waiting for a Verified / Ignore decision. */
+  pending: number
+  /** Every claim has a decision, and there is at least one claim. */
+  reviewed: boolean
+  /** At least one claim was kept, so the script has something to work from. */
+  hasUsableClaims: boolean
+}
+
+/**
+ * Read the per-claim triage. Only claims with real text are counted: a blank
+ * placeholder cannot be meaningfully reviewed and must not be able to hold an
+ * episode hostage (it is not evidence either — see hasResearchEvidence).
+ */
+export function readResearchTriage(research: unknown): ResearchTriage {
+  const raw = (research as { claims?: unknown } | null | undefined)?.claims
+  const claims: Partial<ResearchClaim>[] = Array.isArray(raw) ? raw as Partial<ResearchClaim>[] : []
+  let verified = 0
+  let ignored = 0
+  let pending = 0
+  for (const claim of claims) {
+    if (!claim || typeof claim !== 'object') continue
+    if (typeof claim.text !== 'string' || !claim.text.trim()) continue
+    if (claim.status === 'verified') verified++
+    else if (claim.status === 'ignored') ignored++
+    else pending++          // 'unreviewed', absent, or junk → still owed a decision
+  }
+  const total = verified + ignored + pending
   return {
-    verified: true,
-    ...(v.verified_at ? { verified_at: String(v.verified_at) } : {}),
-    ...(by ? { verified_by: by } : {}),
-    ...(v.note ? { note: String(v.note) } : {}),
+    total,
+    verified,
+    ignored,
+    pending,
+    reviewed: total > 0 && pending === 0,
+    hasUsableClaims: verified > 0,
   }
 }
 
-/** Has someone (human or the unattended Pipeline) attested to this research? */
-export function isResearchVerified(research: unknown): boolean {
-  return readResearchVerification(research).verified
+/** Has every claim been triaged? (Zero claims is never "reviewed".) */
+export function isResearchReviewed(research: unknown): boolean {
+  return readResearchTriage(research).reviewed
+}
+
+/** Normalized review provenance, or null when nobody has finished a triage.
+ *  This is a RECORD, never an input to isResearchComplete(). */
+export function readResearchReview(research: unknown): ResearchReviewRecord | null {
+  const raw = (research as { review?: unknown } | null | undefined)?.review
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Partial<ResearchReviewRecord>
+  // Only the two known actors are trusted; anything else is dropped rather
+  // than echoed back to the UI as if the app had vouched for it.
+  if (r.completed_by !== 'human' && r.completed_by !== 'pipeline-auto') return null
+  return {
+    completed_by: r.completed_by,
+    completed_at: r.completed_at ? String(r.completed_at) : '',
+    ...(r.note ? { note: String(r.note) } : {}),
+  }
 }
 
 /**
  * THE completion rule. `researchRequired` is the resolved project gate.
  *
  *   gate OFF → complete when evidence exists (identical to pre-gate behaviour)
- *   gate ON  → complete only when evidence exists AND it has been verified
+ *   gate ON  → complete only when evidence exists AND every claim has been
+ *              triaged AND at least one claim was kept.
+ *
+ * The last condition is why "I ignored all of them" is surfaced as reviewed
+ * but incomplete: the gate exists to guarantee the script has evidence, and
+ * an all-ignored sidecar hands the script nothing.
  */
 export function isResearchComplete(research: unknown, researchRequired: boolean): boolean {
   const hasEvidence = hasResearchEvidence(research)
   if (!researchRequired) return hasEvidence
-  return hasEvidence && isResearchVerified(research)
+  const triage = readResearchTriage(research)
+  return hasEvidence && triage.reviewed && triage.hasUsableClaims
 }
 
 /**
- * Reset a sidecar to unverified. Called every time research is generated or
- * regenerated — new claims have never been reviewed, so an old attestation
- * must never carry over onto them.
+ * Reset a sidecar to untriaged. Called every time research is generated or
+ * regenerated — new claims have never been read, so neither an old per-claim
+ * decision nor an old review record may carry over onto them.
+ *
+ * Also strips the retired v1.0.760 `verification` attestation block so a
+ * stale "someone attested to this" never rides along on a fresh generation.
  */
-export function withResearchUnverified<T extends ResearchOutput>(research: T): T {
-  return { ...research, verification: { verified: false } }
+export function withResearchUntriaged<T extends ResearchOutput>(research: T): T {
+  const next = { ...research } as T & { verification?: unknown }
+  next.claims = (research.claims || []).map(claim => ({ ...claim, status: 'unreviewed' as const }))
+  delete next.review
+  delete next.verification
+  return next
 }
 
-/** Stamp an attestation onto a sidecar. `by` records WHO/WHAT attested. */
-export function withResearchVerified<T extends ResearchOutput>(
+/** Stamp the review provenance record. `by` records WHO finished the triage. */
+export function withResearchReviewRecord<T extends ResearchOutput>(
   research: T,
-  by: ResearchVerifiedBy,
+  by: ResearchReviewedBy,
   note?: string,
 ): T {
-  return {
-    ...research,
-    verification: {
-      verified: true,
-      verified_at: new Date().toISOString(),
-      verified_by: by,
-      note: note ?? (by === 'pipeline-auto' ? PIPELINE_AUTO_VERIFY_NOTE : HUMAN_VERIFY_ATTESTATION),
-    },
+  const next = { ...research } as T & { verification?: unknown }
+  delete next.verification
+  next.review = {
+    completed_by: by,
+    completed_at: new Date().toISOString(),
+    note: note ?? (by === 'pipeline-auto' ? PIPELINE_AUTO_REVIEW_NOTE : HUMAN_REVIEW_NOTE),
   }
+  return next
+}
+
+/**
+ * Machine-complete the triage for an unattended one-click Pipeline run.
+ *
+ * An unattended batch must never stall on "somebody still has to click
+ * through the claims", so every claim still pending is accepted. Decisions a
+ * human already made are left exactly as they are, and the record says
+ * `pipeline-auto` so nothing ever pretends a person read these claims.
+ */
+export function autoCompleteResearchReview<T extends ResearchOutput>(research: T): T {
+  const promoted = {
+    ...research,
+    claims: (research.claims || []).map(claim => (
+      claim.status === 'verified' || claim.status === 'ignored'
+        ? claim
+        : { ...claim, status: 'verified' as const }
+    )),
+  }
+  return withResearchReviewRecord(promoted, 'pipeline-auto')
 }
 
 /**
  * Actionable "what is missing and how do I fix it" sentence, or null when
  * research is fine. Used by the Pipeline preflight and downstream gates so
  * every surface reports the SAME reason in the SAME words.
+ *
+ * Wording rule: research runs on a language model with no live web access, so
+ * nothing here may claim the user checked anything against cited sources.
  */
 export function describeResearchGap(input: {
   episodeId: string
   researchRequired: boolean
   hasEvidence: boolean
-  verified: boolean
+  reviewed: boolean
+  hasUsableClaims: boolean
 }): string | null {
   if (!input.researchRequired) return null
   if (!input.hasEvidence) {
     return `${input.episodeId}: research is required for this project but no research evidence exists. `
-      + 'Open Research, run it for this episode, then press Verify research.'
+      + 'Open Research, run it for this episode, then mark every claim Verified or Ignore.'
   }
-  if (!input.verified) {
-    return `${input.episodeId}: research exists but is not verified. `
-      + 'Open Research (the pending filter lists it), read the claims against their sources, then press Verify research. '
-      + 'Pipeline runs verify automatically.'
+  if (!input.reviewed) {
+    return `${input.episodeId}: research exists but some claims are still waiting for a decision. `
+      + 'Open Research (the pending filter lists it) and mark every claim Verified or Ignore — '
+      + 'Verify all decides the whole list in one click. Pipeline runs complete the review automatically.'
+  }
+  if (!input.hasUsableClaims) {
+    return `${input.episodeId}: every research claim was ignored, so the script would have no evidence to use. `
+      + 'Open Research and keep at least one claim, or re-run research to get better ones.'
   }
   return null
 }

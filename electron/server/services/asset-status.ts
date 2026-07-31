@@ -31,7 +31,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
   hasResearchEvidence,
   isResearchComplete,
-  readResearchVerification,
+  readResearchReview,
+  readResearchTriage,
   resolveResearchRequired,
 } from '../lib/research-verification.js'
 import * as pm from './project-manager.js'
@@ -615,22 +616,28 @@ export interface EpisodeStatus {
   //
   //   gate OFF → true when the sidecar holds usable evidence (legacy
   //              behaviour: optional enrichment, never folded into all_done)
-  //   gate ON  → true only when that evidence has ALSO been verified, and
-  //              folded into all_done by routes/ideas.ts
+  //   gate ON  → true only when every claim has been triaged AND at least one
+  //              was kept, and folded into all_done by routes/ideas.ts
   //
   // This is the field the Research page's "Pending only" filter keys off, so
-  // with the gate on, generated-but-unverified research correctly stays in
-  // the pending list until someone presses Verify.
+  // with the gate on, research whose claims still need a Verified / Ignore
+  // decision correctly stays in the pending list.
   research: boolean
   /** Raw artifact fact: the sidecar holds a real summary or a real claim.
-   *  Independent of the gate — used for "generated, awaiting verification"
+   *  Independent of the gate — used for "generated, claims still to review"
    *  UI and to stop the Pipeline regenerating research it already has. */
   research_generated?: boolean
-  /** Raw artifact fact: someone attested to the CURRENT generated output. */
-  research_verified?: boolean
-  /** 'human' | 'pipeline-auto' — so the UI never implies a person reviewed
-   *  claims that an unattended Pipeline run auto-verified. */
-  research_verified_by?: 'human' | 'pipeline-auto'
+  /** Raw artifact fact: no claim is left pending (and there is at least one).
+   *  v1.0.761 — derived from the per-claim triage, not from a separate
+   *  attestation. */
+  research_reviewed?: boolean
+  /** Raw artifact fact: at least one claim was KEPT, so the script has
+   *  evidence to work from. Reviewed-but-all-ignored is a real editorial
+   *  outcome; it reports reviewed = true, usable = false, complete = false. */
+  research_has_usable_claims?: boolean
+  /** 'human' | 'pipeline-auto' — so the UI never implies a person read
+   *  claims an unattended Pipeline run accepted on its own. */
+  research_reviewed_by?: 'human' | 'pipeline-auto'
   /** The resolved per-project gate, echoed so the frontend and the error
    *  messages agree with the backend without a second round trip. */
   research_required?: boolean
@@ -713,7 +720,8 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
-    research_generated: false, research_verified: false, research_required: false,
+    research_generated: false, research_reviewed: false, research_has_usable_claims: false,
+    research_required: false,
     scene_plan: false, contextual_cues: false, sound_design: false, scene_review: false, motion_review: false,
     character_sheet: false,
     script: false, introduction: false,
@@ -946,25 +954,29 @@ export async function computeEpisodeStatus(
     //
     // v1.0.760 — the boolean is no longer "a sidecar with text exists". It is
     // the shared completion rule from lib/research-verification.ts, resolved
-    // against this project's gate. Raw facts are surfaced alongside it so the
-    // UI can say "generated, awaiting verification" instead of just "pending".
+    // against this project's gate. v1.0.761 — that rule now derives from the
+    // per-claim triage. Raw facts are surfaced alongside it so the UI can say
+    // "claims still to review" or "every claim ignored" instead of "pending".
     try {
       const researchPath = (await resolveResearchPaths(paths.episode_dir, code)).jsonPath
       const research = JSON.parse(await fs.readFile(researchPath, 'utf-8'))
-      const verification = readResearchVerification(research)
+      const triage = readResearchTriage(research)
+      const review = readResearchReview(research)
       status.research_generated = hasResearchEvidence(research)
-      status.research_verified = verification.verified
+      status.research_reviewed = triage.reviewed
+      status.research_has_usable_claims = triage.hasUsableClaims
       // Only SET the actor when there is one. Assigning `undefined` would add
       // an undefined-valued key to the snapshot, which breaks the invariant
       // that every field of an empty status is a real boolean.
-      if (verification.verified_by) status.research_verified_by = verification.verified_by
-      else delete status.research_verified_by
+      if (review) status.research_reviewed_by = review.completed_by
+      else delete status.research_reviewed_by
       status.research = isResearchComplete(research, researchRequired)
     } catch {
       status.research = false
       status.research_generated = false
-      status.research_verified = false
-      delete status.research_verified_by
+      status.research_reviewed = false
+      status.research_has_usable_claims = false
+      delete status.research_reviewed_by
     }
 
     // v1.0.278 — scene_plan + scene_review resolve the REAL episode dir BY CODE
@@ -1252,13 +1264,14 @@ export async function computeEpisodeStatus(
  * `researchRequired` is passed through rather than hardcoded: it describes the
  * PROJECT's gate, not the episode's state, and the UI reads it to decide
  * whether to render research as a required step at all. Marking an episode
- * done by hand is itself the human attestation, so `research_verified` is
- * true with no `research_verified_by` — nothing auto-verified it.
+ * done by hand is itself the human decision, so the review flags read true
+ * with no `research_reviewed_by` — no automatic run completed anything.
  */
 function allDoneStatus(researchRequired: boolean): EpisodeStatus {
   return {
     research: true,
-    research_generated: true, research_verified: true, research_required: researchRequired,
+    research_generated: true, research_reviewed: true, research_has_usable_claims: true,
+    research_required: researchRequired,
     scene_plan: true, contextual_cues: true, sound_design: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,

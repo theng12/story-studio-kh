@@ -1332,9 +1332,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // requires it (project.json `research_required`, resolved explicitly in
         // lib/research-verification.ts). Gate OFF → the term is inert and
         // completion is byte-for-byte what it was before the gate shipped.
-        // Gate ON → `researchDone` is already the "evidence AND verified" rule
-        // from asset-status, so generated-but-unverified research blocks here
-        // exactly as it does in the Research pending filter.
+        // Gate ON → `researchDone` is already the "evidence AND every claim
+        // triaged AND at least one kept" rule from asset-status, so research
+        // whose claims still need a decision blocks here exactly as it does in
+        // the Research pending filter.
         all_done: scriptDone && thumbPromptsDone && thumbsDone
           && audioDone && metadataDone && mergedAudioDone && subtitlesDone
           && (!researchRequired || researchDone)

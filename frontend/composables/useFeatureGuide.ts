@@ -94,8 +94,8 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   research: {
     title: 'Research',
-    summary: 'Optionally gather and review evidence before writing. Only claims you verify flow into the Script Generator.',
-    workflow: ['Confirm the research topic and questions.', 'Choose the GenStudio model and source depth.', 'Review claims and sources, then verify only trustworthy evidence.'],
+    summary: 'Gather model-generated claims and decide which ones may be used. Only claims you keep flow into the Script Generator.',
+    workflow: ['Confirm the research topic and questions.', 'Choose the GenStudio model and source depth.', 'Decide every claim — Verified to keep it, Ignore to drop it. That decision is what marks the research reviewed.'],
     topics: [
       { title: 'Research topic', purpose: 'Sets the factual boundary for this episode rather than rewriting its title.' },
       { title: 'Questions to answer', purpose: 'Focuses evidence gathering on uncertainties, causes, dates, or disputed claims.' },
@@ -103,7 +103,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Claim status', purpose: 'Verified claims may inform the script; ignored or unreviewed claims do not.' },
       { title: 'Sources for metadata', purpose: 'Controls which reviewed citations may appear in the final description.' },
     ],
-    tips: ['Research is optional and never blocks project completion.', 'Verification is a human editorial decision; model output alone is not proof.'],
+    tips: ['Research blocks completion only when the channel requires it (Settings → Channel).', 'Claims come from a language model with no live web access, so most carry no citation; keeping a claim is your editorial decision, not a fact-check.'],
   },
   scripts: {
     title: 'Script Generator',

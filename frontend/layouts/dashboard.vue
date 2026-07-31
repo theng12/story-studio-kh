@@ -72,7 +72,7 @@
           :to="`/projects/${slug}/research`"
           class="nav-item"
           active-class="active"
-          title="Research + fact-checking phase. Produces a citations sidecar the script generator consumes. When the channel requires verified research (Settings → Channel), an episode is complete only after its research is generated AND verified here."
+          title="Research phase. Produces a claims sidecar the script generator consumes — model-generated, so you decide claim by claim what it may use. When the channel requires reviewed research (Settings → Channel), an episode is complete only after every claim has been marked Verified or Ignore here and at least one is kept."
         >
           <span class="nav-icon">&#128270;</span> Research
         </NuxtLink>

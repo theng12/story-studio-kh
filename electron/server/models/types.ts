@@ -3098,8 +3098,13 @@ export interface AudioMergeRequest {
 //
 // The script generator in v1.0.143+ reads `research.json` when present
 // and injects its `claims` (filtered to `status === 'verified'`) into
-// the prompt context so factual claims in the final script are
-// traceable to real sources.
+// the prompt context, so only the claims the user kept reach the script.
+//
+// NOTE on provenance: the shipping adapter is `llm-only`, which is told it
+// has NO live web access and must not invent URLs. Claims are therefore
+// model-generated statements the user triages, NOT statements the app checked
+// against a live source, and most runs return no citations at all. No UI,
+// message, or sidecar text may say otherwise.
 
 export type ResearchSourceProvider = 'perplexity' | 'llm-only'
 
@@ -3110,12 +3115,17 @@ export interface ResearchClaim {
   id: string
   /** The claim itself, written as a short declarative sentence. */
   text: string
-  /** User-controlled state. Defaults to 'unreviewed' on adapter output;
-   *  the script generator only uses claims marked 'verified'. */
+  /** User-controlled triage state. Defaults to 'unreviewed' on adapter
+   *  output; the script generator only uses claims marked 'verified'.
+   *
+   *  v1.0.761 — this IS the research-level state too: research counts as
+   *  reviewed once no claim is 'unreviewed', and as complete once at least
+   *  one is 'verified'. See lib/research-verification.ts. */
   status: 'unreviewed' | 'verified' | 'ignored'
   /** Source citation indices (offsets into ResearchOutput.citations).
-   *  Empty for LLM-only-with-disclaimers adapter output where the LLM
-   *  recommends manual verification rather than naming a URL. */
+   *  Usually EMPTY: the llm-only adapter is instructed not to fabricate URLs,
+   *  so most claims arrive with no citation at all. Surfaces are expected to
+   *  show that absence rather than imply a source exists. */
   citation_indices: number[]
   /** Adapter-supplied confidence ("high" | "medium" | "low" | "unknown")
    *  that the user can use to triage which claims need the closest review. */
@@ -3179,34 +3189,42 @@ export interface ResearchOutput {
   /** Adapter's free-form summary of the topic — surfaces above the
    *  claims list as context. */
   summary?: string
-  /** v1.0.760 — episode-level attestation. Absent = never verified.
-   *  Written/read exclusively through lib/research-verification.ts. */
-  verification?: ResearchVerification
+  /** v1.0.761 — WHO finished the per-claim triage. Provenance only: the
+   *  completion rule is derived from the claim statuses above, never from
+   *  this. Written/read exclusively through lib/research-verification.ts. */
+  review?: ResearchReviewRecord
+  /** @deprecated v1.0.761 — the retired v1.0.760 research-level attestation
+   *  ("someone checked these claims against the cited sources"). It was false
+   *  for an llm-only adapter that returns no citations, and it duplicated the
+   *  per-claim triage. Ignored on read and stripped on write; declared only so
+   *  legacy sidecars still type-check when they are loaded. */
+  verification?: unknown
 }
 
-/** Who attested to a research sidecar.
- *  - 'human'         — a person pressed Verify on the Research page.
- *  - 'pipeline-auto' — an unattended one-click Pipeline run verified it so the
- *                      batch could complete. Recorded distinctly on purpose:
- *                      the app must never pretend a human reviewed the claims. */
-export type ResearchVerifiedBy = 'human' | 'pipeline-auto'
+/** Who finished the per-claim review of a research sidecar.
+ *  - 'human'         — a person triaged the claims on the Research page.
+ *  - 'pipeline-auto' — an unattended one-click Pipeline run accepted the
+ *                      remaining claims so the batch could complete. Recorded
+ *                      distinctly on purpose: the app must never pretend a
+ *                      human read the claims. */
+export type ResearchReviewedBy = 'human' | 'pipeline-auto'
 
 /**
- * v1.0.760 — research verification state, persisted inside the research
- * sidecar (`{code} - 11 Research/research.json`) so it travels with the
- * artifact it describes.
+ * v1.0.761 — review PROVENANCE, persisted inside the research sidecar
+ * (`{code} - 11 Research/research.json`) so it travels with the artifact it
+ * describes.
  *
- * Generating or regenerating research always resets this to
- * `{ verified: false }` — new claims have never been reviewed.
+ * This records who completed the triage; whether the research counts as
+ * complete is derived from the per-claim `status` values (see
+ * lib/research-verification.ts → isResearchComplete). Generating or
+ * regenerating research clears this — new claims have never been read.
  */
-export interface ResearchVerification {
-  /** True only once someone attested to this exact generated output. */
-  verified: boolean
-  /** ISO8601 timestamp of the attestation. */
-  verified_at?: string
-  /** Human vs. automatic. See ResearchVerifiedBy. */
-  verified_by?: ResearchVerifiedBy
-  /** What was attested (or why it was auto-verified). */
+export interface ResearchReviewRecord {
+  /** Human vs. automatic. See ResearchReviewedBy. */
+  completed_by: ResearchReviewedBy
+  /** ISO8601 timestamp of the moment the triage was completed. */
+  completed_at: string
+  /** Plain-language note about how the review was completed. */
   note?: string
 }
 

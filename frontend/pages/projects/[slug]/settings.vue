@@ -329,11 +329,12 @@
         <div class="settings-section-head">
           <div>
             <span class="settings-section-kicker">Evidence policy</span>
-            <h3>Require verified research</h3>
+            <h3>Require reviewed research</h3>
             <p>
               For science, history, and other evidence-led channels. When this is on, an episode is not complete
-              until its research has been generated <strong>and</strong> someone has verified it on the Research
-              page. Generating research is not enough on its own.
+              until its research has been generated <strong>and</strong> every claim has been marked Verified or
+              Ignore on the Research page, with at least one claim kept. Generating research is not enough on
+              its own.
             </p>
           </div>
           <span class="settings-section-count">{{ researchRequired ? 'Required' : 'Optional' }}</span>
@@ -346,12 +347,12 @@
             @change="saveResearchGate"
           />
           <span>
-            <strong>Research must be verified before an episode counts as complete</strong>
+            <strong>Every research claim must be reviewed before an episode counts as complete</strong>
             <span class="research-gate-hint">
-              Unverified research stays in the Research page's pending list and blocks the Production Board.
-              One-click Pipeline runs verify automatically and record that the verification was automatic, so
-              unattended runs are never blocked. Turning this off restores the previous behaviour, where research
-              is optional enrichment that never blocks anything.
+              Research with claims still awaiting a decision stays in the Research page's pending list and blocks
+              the Production Board. One-click Pipeline runs decide the leftovers automatically and record that a
+              machine did it, so unattended runs are never blocked. Turning this off restores the previous
+              behaviour, where research is optional enrichment that never blocks anything.
             </span>
           </span>
         </label>
@@ -2973,7 +2974,7 @@ async function saveResearchGate(): Promise<void> {
     await put(`/projects/${slug.value}`, { research_required: next })
     stampSaved('research_gate')
     success(next
-      ? 'Research is now required — episodes need verified research to count as complete'
+      ? 'Research is now required — every claim must be reviewed for an episode to count as complete'
       : 'Research is optional again — it no longer blocks episode completion')
     await loadProject(slug.value)
   } catch (e: any) {

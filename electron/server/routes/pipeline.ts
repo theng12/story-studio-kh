@@ -24,11 +24,11 @@ import path from 'path'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
+  autoCompleteResearchReview,
   describeResearchGap,
   hasResearchEvidence,
-  isResearchVerified,
+  isResearchReviewed,
   resolveResearchRequired,
-  withResearchVerified,
 } from '../lib/research-verification.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
@@ -294,9 +294,9 @@ async function preflightBatch(
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
   const effectiveFormat = await getEffectiveFormat(slug)
   // v1.0.760 — per-project Research gate. When ON, an episode is not complete
-  // until its research is verified, so a run that never touches Research must
-  // say so up front rather than leaving the operator to discover an episode
-  // stuck at "incomplete" hours later.
+  // until every research claim has been triaged and at least one kept, so a
+  // run that never touches Research must say so up front rather than leaving
+  // the operator to discover an episode stuck at "incomplete" hours later.
   const researchRequired = resolveResearchRequired(await pm.getProject(slug))
   for (const episodeId of episodeIds) {
     if (!ideaByCode.has(episodeId)) {
@@ -309,11 +309,12 @@ async function preflightBatch(
         episodeId,
         researchRequired,
         hasEvidence: status.research_generated === true,
-        verified: status.research_verified === true,
+        reviewed: status.research_reviewed === true,
+        hasUsableClaims: status.research_has_usable_claims === true,
       })
       // A WARNING, not an issue: the run is still allowed to proceed (the user
       // may be repairing one late stage). Adding Research to this run resolves
-      // it automatically, because Pipeline runs verify as they go.
+      // it automatically, because Pipeline runs complete the review as they go.
       if (gap) warnings.push(`${gap} Add the Research stage to this run to resolve it automatically.`)
     }
     const available = new Set<BatchStep>()
@@ -414,29 +415,31 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
 }
 
 /**
- * v1.0.760 — Pipeline auto-verification of EXISTING research.
+ * v1.0.761 — Pipeline auto-completion of the claim review on EXISTING research.
  *
  * Requirement: a one-click run must complete unattended, so it cannot be
- * blocked by "research is generated but nobody verified it". Requirement 2:
- * the record must stay honest, so the attestation is stamped
- * `verified_by: 'pipeline-auto'` and never `'human'`.
+ * blocked by "research is generated but its claims still need a decision".
+ * Requirement 2: the record must stay honest, so the remaining claims are
+ * accepted by the machine and the sidecar records
+ * `review.completed_by: 'pipeline-auto'`, never `'human'`.
  *
- * No-op unless the sidecar exists, holds real evidence, and is currently
- * unverified. Never creates research and never re-verifies (or un-verifies)
- * anything — a human attestation already on the file is left exactly as is.
+ * No-op unless the sidecar exists, holds real evidence, and still has pending
+ * claims. Never creates research, and never touches a triage a person already
+ * finished — including the deliberate "I ignored every claim" outcome, which
+ * stays incomplete on purpose rather than being silently flipped back to kept.
  * Failures are swallowed: the step then simply runs, and the generator
- * auto-verifies the fresh output.
+ * auto-completes the fresh output.
  *
  * Exported for tests.
  */
-export async function autoVerifyResearchForPipeline(slug: string, episodeId: string): Promise<boolean> {
+export async function autoCompleteResearchReviewForPipeline(slug: string, episodeId: string): Promise<boolean> {
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const { jsonPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
     const existing = JSON.parse(await fs.readFile(jsonPath, 'utf-8'))
-    if (!hasResearchEvidence(existing) || isResearchVerified(existing)) return false
+    if (!hasResearchEvidence(existing) || isResearchReviewed(existing)) return false
 
-    await fs.writeFile(jsonPath, JSON.stringify(withResearchVerified(existing, 'pipeline-auto'), null, 2), 'utf-8')
+    await fs.writeFile(jsonPath, JSON.stringify(autoCompleteResearchReview(existing), null, 2), 'utf-8')
     const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)
     return true
@@ -1212,16 +1215,16 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       continue
     }
 
-    // v1.0.760 — Pipeline auto-verification. An unattended run must never stall
-    // on "research exists but nobody verified it", and it must not burn a paid
-    // research call just to re-earn an attestation for evidence already on
-    // disk. So before the idempotency check, promote any generated-but-
-    // unverified sidecar to verified — stamped `pipeline-auto`, never `human`.
-    // A fresh generation inside this batch is auto-verified by the generator
-    // itself (it sees pipeline_batch_id). `force` skips this: the sidecar is
-    // about to be regenerated anyway.
+    // v1.0.761 — Pipeline auto-completion of the claim review. An unattended
+    // run must never stall on "research exists but its claims still need a
+    // decision", and it must not burn a paid research call just to re-earn a
+    // review for evidence already on disk. So before the idempotency check,
+    // accept any claims still pending — recorded as `pipeline-auto`, never
+    // `human`. A fresh generation inside this batch is auto-completed by the
+    // generator itself (it sees pipeline_batch_id). `force` skips this: the
+    // sidecar is about to be regenerated anyway.
     if (!force && steps.includes('research')) {
-      await autoVerifyResearchForPipeline(slug, episodeId)
+      await autoCompleteResearchReviewForPipeline(slug, episodeId)
     }
 
     // Idempotency: drop steps whose outputs are already on disk. Keeps
