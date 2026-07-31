@@ -274,7 +274,14 @@
            can make a deliberate override without making voice selection a
            mandatory decision on every run. -->
       <div class="grid-2 mt-2">
-        <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
+        <div class="form-group">
+          <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
+          <!-- Published rate for the SELECTED product, never a total: script
+               length in tokens is unknown until the model has written it. -->
+          <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
+            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} — the total depends on length, and GenStudio reports the actual charge per job.
+          </p>
+        </div>
         <div class="form-group">
           <label>Formula narrator</label>
           <div class="formula-narrator-summary">
@@ -754,6 +761,7 @@
 
 <script setup lang="ts">
 import { resolveEpisodeScriptSizing } from '~/utils/scriptSizing'
+import { CREDIT_BASIS_LABEL, describeChatRate } from '~/utils/genstudio-credit-cost'
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
 const route = useRoute()
@@ -1587,6 +1595,9 @@ onMounted(async () => {
   // panelsReady declaration above.
   await nextTick()
   panelsReady.value = true
+  // Live language catalogue, so the published rate below the model selector
+  // is the selected product's own and never a remembered constant.
+  void refreshGenStudioChatModels()
   await applyIntroFormatDefaultsIfNoPreset()
   await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()
@@ -1910,58 +1921,39 @@ watch(
 )
 
 /**
- * Rough cost estimate for chunked-mode script generation (v1.0.71+).
+ * Call shape for chunked-mode script generation (v1.0.71+).
  *
- * Used for the pre-submission confirmation dialog. Numbers are
- * deliberately ROUGH — catalog pricing changes, model choice, and per-call
- * input/output token counts vary with format and characters. We
- * present a min-max range based on Sonnet rates ($3/Mtok in,
- * $15/Mtok out) since that's the most common script-gen model;
- * users running Opus / Haiku scale linearly from there.
+ * This reports HOW MANY calls the expansion will make, and nothing about what
+ * they will cost. A script's charge is token-priced and the output length is
+ * not known until the model has written it, so no honest total exists before
+ * the run. The published per-token rate for the SELECTED product is shown
+ * separately by `chatRateNote`, and GenStudio reports the actual charge on the
+ * finished job.
  *
- * Method:
- *   - 1 outline call: ~80 tokens output per chapter (full outline) or
- *     ~40 (compact). Ignored as a small fixed cost (<$0.10).
- *   - N expansion calls: each writes ~3 chapters × words_per_chapter
- *     × 1.3 tokens/word, plus ~3-6k input tokens (system + outline +
- *     transition window).
- *   - Listicle: parallel batches of 8 instead of sequential 3, fewer
- *     calls, but still output-token-dominated.
+ * The previous version of this function multiplied a guessed token count by a
+ * hardcoded Sonnet USD price. That was wrong twice over: GenStudio bills in
+ * credits, not dollars, and the rate belonged to a model the user may not have
+ * selected. Do not reintroduce a locally computed total here.
  */
-function estimateChunkedCost(targetWords: number, chapters: number): {
-  batches: number; expansionCalls: number; costRange: string
+function estimateChunkedCalls(chapters: number): {
+  batches: number; expansionCalls: number
 } {
-  // Per-batch output tokens (rough). Narrative: 3 chapters per batch.
-  // Listicle: 8 chapters per batch. We don't know the format here so
-  // we report a band that covers both.
-  const totalOutputTokens = Math.ceil(targetWords * 1.3)
+  // Narrative expansion writes ~3 chapters per call; listicles batch 8. The
+  // narrative figure is the one reported because it is the larger call count.
   const expansionCallsNarrative = Math.ceil(chapters / 3)
-  const expansionCallsListicle = Math.ceil(chapters / 8)
-  // Average input tokens per call: ~5k (system prompt + outline +
-  // transition window). For listicles, no transition window so closer
-  // to ~3k.
-  const totalInputTokens =
-    expansionCallsNarrative * 5000 + 1500 // outline call adds ~1500 input
-  const totalInputTokensListicle =
-    expansionCallsListicle * 3000 + 1500
-  // Sonnet pricing per Mtok.
-  const PRICE_INPUT_PER_MTOK = 3
-  const PRICE_OUTPUT_PER_MTOK = 15
-  const costNarrative =
-    (totalInputTokens / 1_000_000) * PRICE_INPUT_PER_MTOK +
-    (totalOutputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK
-  const costListicle =
-    (totalInputTokensListicle / 1_000_000) * PRICE_INPUT_PER_MTOK +
-    (totalOutputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK
-  const lo = Math.min(costNarrative, costListicle)
-  const hi = Math.max(costNarrative, costListicle)
-  const fmt = (n: number): string => n < 0.1 ? `<$0.10` : `~$${n.toFixed(2)}`
   return {
-    batches: 1 + expansionCallsNarrative, // approximate count for the message
+    batches: 1 + expansionCallsNarrative,
     expansionCalls: expansionCallsNarrative,
-    costRange: lo.toFixed(2) === hi.toFixed(2) ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`,
   }
 }
+
+const { models: genStudioChatModels, refresh: refreshGenStudioChatModels } = useGenStudioChatModels()
+const selectedChatModel = computed(() => genStudioChatModels.value.find(model => model.id === form.model))
+/**
+ * The published rate for the selected language product, recomputed whenever
+ * that selection changes. Never a total — see `describeChatRate`.
+ */
+const chatRateNote = computed(() => describeChatRate(selectedChatModel.value))
 
 /**
  * Detect a leading count number in a title string (v1.0.70).
@@ -2099,15 +2091,20 @@ async function submitOutline(): Promise<boolean> {
   // user sees the full picture upfront. Skipped below threshold.
   const targetWords = (form.chapters || 0) * (form.words_per_chapter || 0)
   if (targetWords > CHUNK_THRESHOLD_WORDS) {
-    const estimate = estimateChunkedCost(targetWords, form.chapters || 0)
+    const estimate = estimateChunkedCalls(form.chapters || 0)
     const ok = await ask({
       title: 'Long script — chunked outline + expansion',
       message:
         `${form.chapters} chapters × ${form.words_per_chapter.toLocaleString()} words ` +
         `(~${targetWords.toLocaleString()} words total).\n\n` +
-        `Step 1 (this click): build outline — 1 cheap LLM call.\n` +
+        `Step 1 (this click): build outline — 1 LLM call.\n` +
         `Step 2 (after you review): expand into ${estimate.expansionCalls} batch${estimate.expansionCalls === 1 ? '' : 'es'}.\n\n` +
-        `Estimated total cost: ${estimate.costRange} (Sonnet pricing).\n\n` +
+        // The rate GenStudio publishes for the selected product, and an
+        // explicit refusal to invent a total: script length in tokens is not
+        // known until the model has written it.
+        `Rate: ${chatRateNote.value.text}.\n` +
+        `The total depends on how long the prompts and the written text turn out to be, ` +
+        `so no up-front figure is shown. GenStudio reports the actual charge on each finished job — see Usage.\n\n` +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
       confirmLabel: 'Generate outline',
       cancelLabel: 'Cancel',
@@ -2251,6 +2248,9 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 </script>
 
 <style scoped>
+.script-rate { margin: 6px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.script-rate.basis-unpublished { color: var(--warning, #d97706); }
+.script-rate.basis-free { color: var(--success, #16a34a); }
 /* v1.0.269 — bring-your-own import panel */
 .byo-card { border: 1px dashed var(--border); }
 .byo-head {

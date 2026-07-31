@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.770 — 2026-08-01
+
+- **You can now choose the output size of an image** — each model publishes the exact
+  resolution and aspect ratio combinations it actually supports, and each one shows its real
+  pixel size and its own credit price. Only combinations the model genuinely offers appear, so
+  a ratio available at one size but not another simply is not listed at that size. Switching
+  models keeps your current choice when the new model supports it, and tells you what it
+  changed to when it does not.
+- **Credit cost is shown before you commit to spending it** — image, script and batch actions
+  now display the live price published by GenStudio, with promotions and reference-image
+  surcharges included, and say plainly whether the figure is a rate, an estimate or the actual
+  charge. Actions that are free under your plan say so instead of showing a price.
+- **A fake dollar estimate has been removed from script generation** — the long-script
+  confirmation used to quote a cost range in US dollars based on a fixed rate for one specific
+  model, regardless of which model you had selected. Story Studio is billed in credits, so the
+  figure was wrong in both currency and rate. It now shows the real published rate for the
+  model you chose and says the total depends on the length written.
+- **Reference image limits are visible where you attach them** — how many reference images a
+  model accepts, and the minimum it needs, now appear at the point of choosing. A model that
+  cannot take references at all says so, and says it is the model's own limitation rather than
+  a Story Studio restriction.
+- **The seed control no longer appears on models that ignore it** — a seed entered for a model
+  without seed support was silently discarded, so identical settings gave different results
+  with no explanation. The control is now hidden on those models, with a note why.
+
+---
+
 ## v1.0.769 — 2026-07-31
 
 - **Video models that make their own soundtrack now say so** — some models generate an audio

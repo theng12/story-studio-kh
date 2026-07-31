@@ -608,6 +608,12 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   prompt: string
   modelId: string
   aspectRatio: string
+  /**
+   * Resolution LABEL from the model's published `output_options[]` (e.g. "1K"),
+   * never a locally invented ladder. Absent means the model published no
+   * output options, so GenStudio applies its own `default_resolution`.
+   */
+  resolution?: string
   width?: number
   height?: number
   seed?: number
@@ -3853,6 +3859,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
   prompt: string
   modelId: string
   aspectRatio: string
+  resolution?: string
   width?: number
   height?: number
   seed?: number
@@ -3861,6 +3868,15 @@ export function buildGenStudioImageIdempotencyKey(input: {
 }): string {
   const hasDimensions = Number.isInteger(input.width) && input.width! > 0
     && Number.isInteger(input.height) && input.height! > 0
+  // `resolution` is a NEW request field, so it joins the digest the way
+  // `output_budget` joined the chat digest: emitted ONLY when the caller
+  // actually chose one. Two resolutions of the same ratio are different work
+  // at different prices and must not share a replay key, but a caller that
+  // names none produces the exact JSON this digest produced before the field
+  // existed — so a retry crossing this upgrade replays the in-flight job
+  // instead of submitting, and billing, a second one. Same reasoning as
+  // `LEGACY_IMAGE_STEPS_DIGEST_COMPONENT`.
+  const resolution = (input.resolution || '').trim()
   const digest = createHash('sha256').update(JSON.stringify({
     prompt: input.prompt.trim(),
     model_id: input.modelId.trim(),
@@ -3871,6 +3887,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
     seed: input.seed ?? null,
     request_identity: input.requestIdentity || null,
     reference_asset_ids: input.referenceAssetIds || [],
+    ...(resolution ? { resolution } : {}),
   })).digest('hex')
   return `story-image-${digest.slice(0, 44)}`
 }
@@ -4022,10 +4039,16 @@ async function generateImageWithGenStudioAdmitted(
   if (!modelId) throw new Error('Select a GenStudio KH image model.')
   const hasDimensions = Number.isInteger(request.width) && request.width! > 0
     && Number.isInteger(request.height) && request.height! > 0
+  // Sent only when the caller resolved one from the model's published
+  // `output_options[]`. GenStudio applies its own `default_resolution` when the
+  // field is absent, which is exactly the right behaviour for a model that
+  // publishes no output options at all.
+  const resolution = (request.resolution || '').trim()
   const body = {
     prompt,
     model_id: modelId,
     aspect_ratio: request.aspectRatio,
+    ...(resolution ? { resolution } : {}),
     ...(hasDimensions
       ? { width: request.width, height: request.height }
       : {}),
@@ -4036,6 +4059,7 @@ async function generateImageWithGenStudioAdmitted(
     prompt,
     modelId,
     aspectRatio: request.aspectRatio,
+    resolution,
     width: request.width,
     height: request.height,
     seed: request.seed,
@@ -4052,6 +4076,7 @@ async function generateImageWithGenStudioAdmitted(
     messages: [{ role: 'prompt', content: prompt }],
     fields: [
       ['aspect_ratio', request.aspectRatio],
+      ['resolution', resolution || undefined],
       ['width', hasDimensions ? request.width : undefined],
       ['height', hasDimensions ? request.height : undefined],
       ['seed', request.seed],

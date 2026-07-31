@@ -22,7 +22,7 @@ import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, recordTask } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
@@ -37,6 +37,8 @@ interface CompositionGenerateParams {
    *  `imagestudio:<repo>` id. */
   model: string
   aspect_ratio?: string
+  /** Resolution label of the chosen published `output_options[]` row. */
+  resolution?: string
 }
 
 export async function generateCompositionTemplateJob(job: Job): Promise<void> {
@@ -76,6 +78,8 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   job.progress = 10
 
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
+  // Validated before the charged submit; absent options keep today's behaviour.
+  const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
   const outDir = path.join(paths.episode_dir, 'img2img-references')
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, COMPOSITION_FILENAME)
@@ -85,6 +89,7 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     aspectRatio,
     modelId: modelConfig.api_model || model,
     providerParams,
+    ...(outputOption ? { resolution: outputOption.resolution } : {}),
     idempotencyIdentity: `${job.project_slug}:${episode_id}:composition-template`,
     onJobAccepted: async (taskId) => {
       await recordTask(outDir, COMPOSITION_FILENAME, {

@@ -49,7 +49,7 @@
           class="slm-preview-model"
           default-label="Choose a GenStudio image model…"
         />
-        <select v-model="previewAspect" class="input input-sm">
+        <select v-if="aspectOptions.length" v-model="previewAspect" class="input input-sm">
           <option v-for="opt in aspectOptions" :key="opt" :value="opt">{{ opt }}</option>
         </select>
       </div>
@@ -195,10 +195,9 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const selectedImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === previewModel.value),
 )
-const aspectOptions = computed(() => {
-  const supported = selectedImageModel.value?.aspect_ratios?.filter(Boolean) || []
-  return supported.length ? supported : ['16:9']
-})
+// Published ratios only. A model that publishes none gets NO ratio control
+// rather than an invented '16:9' the customer would take for the model's own.
+const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const hasBrokenBundledPreview = computed(() => Object.keys(bundledFailed.value).length > 0)
 const draftStyle = computed(() => BUILT_IN_STYLES.find(style => style.id === draftStyleId.value) || null)
 const filters = computed(() => [
@@ -244,10 +243,11 @@ watch(genStudioImageModels, (models) => {
   previewModel.value = models.find(model => model.available)?.id || ''
 }, { immediate: true, deep: true })
 watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
-  if (!model || aspects.includes(previewAspect.value)) return
+  if (!model || !aspects.length || aspects.includes(previewAspect.value)) return
+  // The model's OWN published default, never a hardcoded '16:9'.
   previewAspect.value = aspects.includes(model.default_aspect_ratio)
     ? model.default_aspect_ratio
-    : aspects[0] || '16:9'
+    : aspects[0]!
 }, { immediate: true })
 
 onMounted(() => {

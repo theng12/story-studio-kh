@@ -139,7 +139,9 @@
               </option>
             </select>
           </div>
-          <div v-if="form.model" class="sr-ratio-pick" title="GenStudio decides the output resolution for this render.">
+          <!-- Only shown when the model publishes NO output options: there is
+               then genuinely no resolution to choose and GenStudio decides. -->
+          <div v-if="form.model && !hasPublishedOutputOptions" class="sr-ratio-pick" title="GenStudio decides the output resolution for this render.">
             <span class="sr-ratio-label">Resolution</span>
             <div class="sr-static-control">
               <strong>{{ selectedGenStudioModel ? 'Managed by GenStudio' : 'Managed by provider' }}</strong>
@@ -156,6 +158,17 @@
             <input id="sr-gen-seed" v-model="form.seed" class="input sr-number-input" type="number" min="0" max="2147483647" placeholder="Random">
           </div>
         </div>
+        <!-- Published `(resolution, aspect_ratio)` rows with their real pixel
+             size and their own price. Renders nothing when none are published. -->
+        <ImageOutputOptionPicker
+          v-if="selectedGenStudioModel"
+          v-model="outputOption"
+          :model="selectedGenStudioModel"
+          @switched="onOutputOptionSwitched"
+        />
+        <p v-if="selectedGenStudioModel" class="sr-cost" :class="`basis-${sceneImageCost.basis}`" :title="sceneImageCost.title">
+          {{ CREDIT_BASIS_LABEL[sceneImageCost.basis] }}: {{ sceneImageCost.text }}
+        </p>
         <label
           class="sr-auto-approve"
           title="Approve each generated image only after Story Studio verifies and registers the saved file. Manual uploads still require review."
@@ -538,6 +551,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Review')
@@ -712,10 +727,28 @@ const aspectRatios = computed(() => {
   const labels = Object.fromEntries(defaultAspectRatios.map(item => [item.value, item.label]))
   return ratios.map(value => ({ value, label: labels[value] || 'Supported by GenStudio' }))
 })
-// Aspect ratio and seed are the whole render request Story Studio owns. The
-// output resolution belongs to GenStudio, and a seed only travels when the
+/**
+ * The published output row this page renders at, kept as the PAIR because the
+ * pair is the row GenStudio published. `null` = the model publishes no
+ * `output_options[]`, so no resolution is sent and GenStudio applies its own.
+ */
+const outputOption = ref<OutputOptionChoice | null>(null)
+const hasPublishedOutputOptions = computed(() => publishedOutputOptions(selectedGenStudioModel.value).length > 0)
+/** A model switch that moved the pick is announced, never applied silently. */
+function onOutputOptionSwitched(notice: string): void { showError(notice) }
+// The row owns the ratio, so the request submits exactly the combination shown.
+watch(outputOption, (choice) => {
+  if (choice?.aspect_ratio) form.value.aspect_ratio = choice.aspect_ratio
+})
+const sceneImageCost = computed(() => describeImageUnitCost(
+  selectedGenStudioModel.value,
+  findOutputOption(selectedGenStudioModel.value, outputOption.value),
+))
+// Resolution and seed are the render request Story Studio owns beyond the
+// ratio. Resolution travels only as a published row, and a seed only when the
 // model publishes support for one.
 const genStudioImageBody = computed(() => selectedGenStudioModel.value ? {
+  ...(outputOption.value?.resolution ? { resolution: outputOption.value.resolution } : {}),
   ...(form.value.seed === '' || selectedGenStudioModel.value.supports_seed === false
     ? {}
     : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
@@ -1592,6 +1625,9 @@ watch(episodeId, () => {
 .sr-actions-grid .btn { min-height: 34px; border-radius: 8px; }
 
 .sr-ratio-pick { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
+.sr-cost { margin: 8px 0 0; font-size: var(--font-xs); color: var(--text); line-height: 1.4; }
+.sr-cost.basis-unpublished { color: var(--warning, #d97706); }
+.sr-cost.basis-free { color: var(--success, #16a34a); }
 .sr-static-control {
   display: flex;
   min-height: 42px;

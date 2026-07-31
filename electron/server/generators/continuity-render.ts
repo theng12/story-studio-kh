@@ -24,7 +24,7 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
   isTerminalGenStudioImageTaskFailure,
@@ -41,6 +41,8 @@ interface ContinuityRenderParams {
   title?: string
   model: string
   aspect_ratio?: string
+  /** Resolution label of the chosen published `output_options[]` row. */
+  resolution?: string
   /** Re-render scenes that already have an image on disk (default: false —
    *  skip them so a cancelled/crashed run resumes). */
   force?: boolean
@@ -189,9 +191,15 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
 
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
+  // Validated once for the whole render, before the first charged submit.
+  const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
-  if (renderWidth && renderHeight) {
+  if (outputOption) {
+    job.output_lines.push(
+      `Output: ${outputOption.resolution} ${outputOption.aspect_ratio} — ${outputOption.width}×${outputOption.height}px per scene.`,
+    )
+  } else if (renderWidth && renderHeight) {
     job.output_lines.push(`Requested render size: ${renderWidth}×${renderHeight}.`)
   }
   const force = params.force === true
@@ -397,8 +405,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                 aspectRatio,
                 modelId: modelConfig.api_model || model,
                 providerParams: sref.params,
-                width: renderWidth,
-                height: renderHeight,
+                ...(outputOption
+                  ? { resolution: outputOption.resolution }
+                  : { width: renderWidth, height: renderHeight }),
                 seed: params.seed,
                 idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`,
                 isCancelled: () => jq.isCancelled(job.job_id),

@@ -151,6 +151,17 @@
             <input v-model.number="genSeed" class="input ip-seed" type="number" min="0" max="2147483647" placeholder="Random" />
           </label>
         </div>
+        <!-- Published `(resolution, aspect_ratio)` rows for this model, each
+             priced by GenStudio. Renders nothing when the model publishes none. -->
+        <ImageOutputOptionPicker
+          v-if="selectedGenStudioModel"
+          v-model="genOutputOption"
+          :model="selectedGenStudioModel"
+          @switched="onOutputOptionSwitched"
+        />
+        <p v-if="selectedGenStudioModel" class="ip-cost" :class="`basis-${genBatchCost.basis}`" :title="genBatchCost.title">
+          {{ CREDIT_BASIS_LABEL[genBatchCost.basis] }}: {{ genBatchCost.text }}
+        </p>
         <div class="ip-actions mt-3">
           <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">
             {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
@@ -167,6 +178,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { CREDIT_BASIS_LABEL, describeImageBatchEstimate } from '../../../utils/genstudio-credit-cost.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Image Slideshow')
@@ -206,6 +219,26 @@ watch([genModel, () => genStudioModels.value.length], () => {
   if (!model) return
   if (!model.aspect_ratios.includes(genAspectRatio.value)) genAspectRatio.value = model.default_aspect_ratio
 })
+
+/**
+ * The published output row this pool run submits. `null` = the selected model
+ * publishes no `output_options[]`, so no resolution is sent and GenStudio
+ * applies its own default — the behaviour this page has always had.
+ */
+const genOutputOption = ref<OutputOptionChoice | null>(null)
+/** A model switch that moved the pick is announced, never applied silently. */
+function onOutputOptionSwitched(notice: string): void { showError(notice) }
+// The chosen row owns the ratio, because the row IS the (resolution, ratio)
+// pair GenStudio published. Keeping the ratio select in step means the run
+// submits exactly the combination on screen.
+watch(genOutputOption, (choice) => {
+  if (choice?.aspect_ratio) genAspectRatio.value = choice.aspect_ratio
+})
+const genBatchCost = computed(() => describeImageBatchEstimate(
+  selectedGenStudioModel.value,
+  findOutputOption(selectedGenStudioModel.value, genOutputOption.value),
+  promptLines.value.length * genVariants.value,
+))
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
 const selectedPool = computed(() => imagePools.value.find((p: any) => p.id === poolId.value) || null)
@@ -291,6 +324,9 @@ async function generateIntoPool(): Promise<void> {
       prompts: promptLines.value,
       model: genModel.value,
       aspect_ratio: selectedGenStudioModel.value ? genAspectRatio.value : '16:9',
+      // Sent only when the customer picked a published row, so a model with no
+      // output options keeps submitting exactly what it did before.
+      resolution: genOutputOption.value?.resolution || undefined,
       seed: selectedGenStudioModel.value && selectedGenStudioModel.value.supports_seed !== false
         && typeof genSeed.value === 'number'
         ? genSeed.value
@@ -337,5 +373,8 @@ onMounted(async () => {
 .ip-model-pick { min-width: 220px; max-width: 340px; flex: 0 1 300px; }
 .ip-genstudio-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .ip-genstudio-controls .select { min-width: 120px; }
+.ip-cost { margin: 8px 0 0; font-size: var(--font-xs); color: var(--text); line-height: 1.4; }
+.ip-cost.basis-unpublished { color: var(--warning, #d97706); }
+.ip-cost.basis-free { color: var(--success, #16a34a); }
 .ip-seed { width: 150px; }
 </style>

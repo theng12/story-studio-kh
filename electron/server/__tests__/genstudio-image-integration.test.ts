@@ -5,7 +5,9 @@ import path from 'node:path'
 import test from 'node:test'
 import {
   buildImageModelConfig,
+  defaultPublishedOutputOption,
   resolveConfiguredAspectRatio,
+  resolveConfiguredOutputOption,
   resolveImageModelConfig,
 } from '../services/image-model-resolver.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
@@ -228,6 +230,96 @@ test('a saved config with no published ratios still resolves the caller value', 
   // Degradation path for projects saved before the published fields existed.
   const legacy = { label: 'Legacy', credits_per_image: 0, endpoint: '', poll: '', type: 'jobs', api_model: 'x' }
   assert.equal(resolveConfiguredAspectRatio(legacy as any, '4:3'), '4:3')
+})
+
+// ── Published output options ──────────────────────────────────────────────
+
+const OUTPUT_OPTIONS = [
+  { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: true, credits_per_image: 4 },
+  { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: false, credits_per_image: 4 },
+  { resolution: '2K', aspect_ratio: '16:9', width: 2560, height: 1440, is_default: false, credits_per_image: 9 },
+]
+
+test('published output options reach the resolved config row for row', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    output_options: OUTPUT_OPTIONS, default_resolution: '1K',
+  }))
+  assert.equal(config.default_resolution, '1K')
+  assert.equal(config.output_options?.length, 3)
+  assert.equal(config.output_options?.[2]?.credits_per_image, 9)
+  // A model publishing none keeps the field absent, which is what makes the
+  // resolution control disappear instead of a ladder being invented for it.
+  const bare = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel())
+  assert.equal(bare.output_options, undefined)
+})
+
+test('an output option resolves by (resolution, aspect_ratio) and refuses unpublished pairs', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    output_options: OUTPUT_OPTIONS, default_resolution: '1K',
+  }))
+  assert.equal(resolveConfiguredOutputOption(config, '16:9', '2K')?.width, 2560)
+  // 2K exists only at 16:9. The pair is the row; rows are never recombined.
+  assert.throws(() => resolveConfiguredOutputOption(config, '1:1', '2K'), /does not publish 2K at 1:1/)
+  // Nothing requested falls to the flagged default within the chosen ratio.
+  assert.equal(resolveConfiguredOutputOption(config, '16:9', undefined)?.resolution, '1K')
+  assert.equal(resolveConfiguredOutputOption(config, '1:1', undefined)?.resolution, '1K')
+})
+
+test('a model with no published output options degrades to aspect ratio alone', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel())
+  assert.equal(resolveConfiguredOutputOption(config, '16:9', undefined), undefined)
+  // A legacy saved config predating the field behaves identically.
+  const legacy = { label: 'Legacy', credits_per_image: 0, endpoint: '', poll: '', type: 'jobs', api_model: 'x' }
+  assert.equal(resolveConfiguredOutputOption(legacy as any, '16:9', undefined), undefined)
+})
+
+test('the default row is flagged, then the published pair — never chosen by position', () => {
+  assert.equal(defaultPublishedOutputOption(OUTPUT_OPTIONS, '1K', '16:9')?.width, 1920)
+  const unflagged = OUTPUT_OPTIONS.map(row => ({ ...row, is_default: false }))
+  assert.equal(defaultPublishedOutputOption(unflagged, '2K', '16:9')?.width, 2560)
+  // Neither flagged nor matching the published pair: no row wins by position.
+  assert.equal(defaultPublishedOutputOption(unflagged, '4K', '16:9'), undefined)
+})
+
+test('a chosen resolution reaches the wire, and no size instruction contradicts it', async () => {
+  await withGenStudio([publishedModel({
+    output_options: OUTPUT_OPTIONS, default_resolution: '1K',
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'output-option-key',
+      aspectRatio: '16:9',
+      resolution: '2K',
+      // A legacy render-size pair must NOT also travel: two size instructions
+      // could bill a combination other than the one the customer was shown.
+      width: 512,
+      height: 288,
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+    })
+    assert.equal(calls.bodies[0]?.resolution, '2K')
+    assert.equal(calls.bodies[0]?.width, undefined)
+    assert.equal(calls.bodies[0]?.height, undefined)
+  })
+})
+
+test('a model publishing no output options still sends no resolution at all', async () => {
+  await withGenStudio([publishedModel()], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'no-output-option-key',
+      aspectRatio: '16:9',
+      width: 512,
+      height: 288,
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+    })
+    assert.equal('resolution' in (calls.bodies[0] || {}), false)
+    // Today's behaviour is untouched for these models.
+    assert.equal(calls.bodies[0]?.width, 512)
+  })
 })
 
 test('an unpublished aspect ratio is never submitted', async () => {

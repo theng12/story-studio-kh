@@ -361,6 +361,41 @@ test('removing the steps field left every image idempotency key byte-identical',
   )
 })
 
+test('adding the resolution field left every pre-existing image idempotency key byte-identical', () => {
+  // Recorded from the build immediately BEFORE `resolution` reached the image
+  // request. `resolution` joins the digest only when a caller actually chose
+  // one — the same rule `output_budget` follows in the chat digest — so a
+  // retry that crosses this upgrade replays the in-flight job on the key it
+  // already used instead of submitting, and billing, a second one.
+  const base = {
+    prompt: 'A calm river at dusk.',
+    modelId: 'genstudio-image-fast-v1',
+    aspectRatio: '16:9',
+    requestIdentity: 'story-job-1:scene-0001',
+  }
+  assert.equal(
+    buildGenStudioImageIdempotencyKey(base),
+    'story-image-6d52f9d2ec67a232ddab66fa26ca5d00197811081474',
+  )
+  assert.equal(
+    buildGenStudioImageIdempotencyKey({ ...base, width: 1920, height: 1080 }),
+    'story-image-4d390d98460185543fb6d80cae8009a044689feeacb2',
+  )
+  assert.equal(
+    buildGenStudioImageIdempotencyKey({ ...base, seed: 42, referenceAssetIds: ['asset-1'] }),
+    'story-image-5bfe0a512abf204188f5f569ce59185f7a59ffb70a35',
+  )
+  // An empty/whitespace resolution is "the customer chose none", not a new
+  // request — it must not fork the key either.
+  assert.equal(buildGenStudioImageIdempotencyKey({ ...base, resolution: '  ' }), buildGenStudioImageIdempotencyKey(base))
+  // Two resolutions of the same ratio are different work at different prices
+  // and must never share a replay key.
+  const oneK = buildGenStudioImageIdempotencyKey({ ...base, resolution: '1K' })
+  const twoK = buildGenStudioImageIdempotencyKey({ ...base, resolution: '2K' })
+  assert.notEqual(oneK, twoK)
+  assert.notEqual(oneK, buildGenStudioImageIdempotencyKey(base))
+})
+
 test('GenStudio image catalog carries every published capability and invents none', async () => {
   const originalFetch = globalThis.fetch
   try {

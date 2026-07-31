@@ -20,6 +20,7 @@ import {
   publishedAvailabilityProblem,
   publishedSupportsReferenceImages,
   resolvePublishedAspectRatio,
+  resolvePublishedOutputOption,
 } from '../../services/image-model-resolver.js'
 
 const genstudioImageProvider: ImageProvider = {
@@ -116,6 +117,12 @@ const genstudioImageProvider: ImageProvider = {
     // `default_aspect_ratio` — never a hardcoded '16:9'.
     const aspectRatio = resolvePublishedAspectRatio(model, request.aspectRatio)
 
+    // The published `(resolution, aspect_ratio)` row this render belongs to.
+    // `undefined` means the model publishes no output options, so nothing
+    // resolution-shaped is sent and GenStudio applies its own default — the
+    // behaviour every model had before output options existed.
+    const outputOption = resolvePublishedOutputOption(model, aspectRatio, request.resolution)
+
     // `supports_seed` is honoured when published. Absent means GenStudio said
     // nothing about seeds, and the request field is part of the published
     // image contract, so the caller's seed still travels.
@@ -129,8 +136,13 @@ const genstudioImageProvider: ImageProvider = {
         prompt: request.prompt,
         modelId,
         aspectRatio,
-        width: request.width,
-        height: request.height,
+        ...(outputOption ? { resolution: outputOption.resolution } : {}),
+        // A published output option IS the output size, so the caller's
+        // legacy render-size pair is not also sent — two different size
+        // instructions on one request could bill a combination other than the
+        // one the customer was shown. Models publishing no options keep the
+        // old pass-through untouched.
+        ...(outputOption ? {} : { width: request.width, height: request.height }),
         seed,
         requestIdentity: request.idempotencyIdentity,
         isCancelled: request.isCancelled,

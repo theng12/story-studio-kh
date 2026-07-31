@@ -32,7 +32,7 @@ import {
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 interface ImagePoolGenerateParams {
@@ -40,6 +40,8 @@ interface ImagePoolGenerateParams {
   prompts: string[]
   model: string
   aspect_ratio?: string
+  /** Resolution label of the chosen published `output_options[]` row. */
+  resolution?: string
   seed?: number
   /** Images to generate per prompt (1–4). Default 1. */
   variants?: number
@@ -77,6 +79,8 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
+  // Validated once for the whole pool, before the first charged submit.
+  const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
 
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
@@ -231,6 +235,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           aspectRatio,
           modelId: modelConfig.api_model || model,
         providerParams,
+        ...(outputOption ? { resolution: outputOption.resolution } : {}),
         seed: params.seed,
         idempotencyIdentity: `${generationIdentity}:${item.filename}:${scope}`,
           isCancelled: () => jq.isCancelled(job.job_id),

@@ -112,6 +112,19 @@
         </div>
       </div>
 
+      <!-- Published `(resolution, aspect_ratio)` rows for the selected model,
+           each priced by GenStudio. Absent for a model publishing none. -->
+      <ImageOutputOptionPicker
+        v-if="activeGenStudioModel"
+        v-model="outputOption"
+        :model="activeGenStudioModel"
+        :reference-guided="thumbnailReferenceActive"
+        @switched="onOutputOptionSwitched"
+      />
+      <p v-if="activeGenStudioModel" class="image-cost" :class="`basis-${imageUnitCost.basis}`" :title="imageUnitCost.title">
+        {{ CREDIT_BASIS_LABEL[imageUnitCost.basis] }}: {{ imageUnitCost.text }}
+      </p>
+
       <div class="grid-3">
         <div class="form-group">
           <label>Aspect Ratio</label>
@@ -129,7 +142,9 @@
           </div>
           <p class="text-muted text-xs mt-1">No step setting is saved or sent by Story Studio.</p>
         </div>
-        <div v-if="activeGenStudioModel" class="form-group">
+        <!-- `supports_seed: false` is published, so the control is not offered
+             rather than accepting a value that would be silently dropped. -->
+        <div v-if="activeGenStudioModel && activeGenStudioModel.supports_seed !== false" class="form-group">
           <label>Seed <span class="text-muted text-xs">optional</span></label>
           <input v-model.number="activeForm.seed" class="input" type="number" min="0" max="2147483647" placeholder="Random" />
           <p class="text-muted text-xs mt-1">Reuse a seed for repeatable composition; leave blank for a fresh variation.</p>
@@ -569,6 +584,9 @@
 </template>
 
 <script setup lang="ts">
+import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
+
 definePageMeta({ layout: 'dashboard' })
 
 const route = useRoute()
@@ -1040,6 +1058,26 @@ const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> =
 watch(() => activeForm.value.generation_mode as string, mode => {
   if (mode !== 'skip' && mode !== 'regenerate') activeForm.value.generation_mode = 'skip'
 }, { immediate: true })
+
+/**
+ * The published output row this form renders at, kept as the PAIR because the
+ * pair is the row GenStudio published. `null` = the selected model publishes
+ * no `output_options[]`, so no resolution is sent and GenStudio applies its
+ * own default — exactly what this page did before.
+ */
+const outputOption = ref<OutputOptionChoice | null>(null)
+/** A model switch that moved the pick is announced, never applied silently. */
+function onOutputOptionSwitched(notice: string): void { showError(notice) }
+// The row owns the ratio, so the submitted combination is the one on screen.
+watch(outputOption, (choice) => {
+  if (choice?.aspect_ratio) activeForm.value.aspect_ratio = choice.aspect_ratio
+})
+/** Live price of the current model + row. Recomputes on every selection change. */
+const imageUnitCost = computed(() => describeImageUnitCost(
+  activeGenStudioModel.value,
+  findOutputOption(activeGenStudioModel.value, outputOption.value),
+  { referenceGuided: thumbnailReferenceActive.value },
+))
 
 const aspectRatios = computed(() => {
   if (activeGenStudioModel.value?.aspect_ratios?.length) {
@@ -1591,15 +1629,25 @@ function generationParams(forceOverride?: boolean) {
   }
   // Forward a tier only when the active model has tiers.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
-  if (typeof activeForm.value.seed === 'number' && Number.isFinite(activeForm.value.seed)) {
+  // A seed only travels when the model publishes support for one; otherwise
+  // it would be dropped at the boundary without the customer being told.
+  if (activeGenStudioModel.value?.supports_seed !== false
+    && typeof activeForm.value.seed === 'number' && Number.isFinite(activeForm.value.seed)) {
     params.seed = Math.max(0, Math.min(2147483647, Math.trunc(activeForm.value.seed)))
   }
 
-  // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
-  // model's own size menu when it has one, falls back to the compatibility
-  // presets, and otherwise keeps the catalog aspect ratio server-side.
-  const sz = sizeBodyFor(activeForm.value)
-  if (sz) { params.width = sz.width; params.height = sz.height }
+  // The published output row, when the customer picked one. It carries the
+  // real output size, so the legacy render-size pair is not also sent — two
+  // size instructions could bill a combination other than the one shown.
+  if (outputOption.value?.resolution) {
+    params.resolution = outputOption.value.resolution
+  } else {
+    // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
+    // model's own size menu when it has one, falls back to the compatibility
+    // presets, and otherwise keeps the catalog aspect ratio server-side.
+    const sz = sizeBodyFor(activeForm.value)
+    if (sz) { params.width = sz.width; params.height = sz.height }
+  }
 
   return params
 }
@@ -1822,6 +1870,9 @@ async function submit() {
 .tier-option input { margin: 0; }
 .tier-option-label { font-weight: 600; color: var(--text-primary); }
 .tier-option-cost { color: var(--text-muted); font-size: var(--font-xs); }
+.image-cost { margin: 8px 0 0; color: var(--text); font-size: var(--font-xs); line-height: 1.4; }
+.image-cost.basis-unpublished { color: var(--warning, #d97706); }
+.image-cost.basis-free { color: var(--success, #16a34a); }
 
 .generator-automatic-quality {
   display: flex;

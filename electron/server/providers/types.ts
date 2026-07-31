@@ -61,6 +61,13 @@ export interface ImageGenerationRequest {
    */
   width?: number
   height?: number
+  /**
+   * Resolution LABEL from the selected model's published `output_options[]`
+   * (e.g. "1K"). Never a locally invented ladder, and never paired against a
+   * separate ratio list — the published row is the valid combination. Absent
+   * means the customer chose none, so the model's published default applies.
+   */
+  resolution?: string
   /** Optional deterministic seed. Omit to let the provider randomize. */
   seed?: number
   idempotencyIdentity?: string

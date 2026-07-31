@@ -26,7 +26,7 @@ import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import { resolveImageRetryScope, terminalImageManifestEntry } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
@@ -36,6 +36,8 @@ interface SceneImagesBatchParams {
   episode_id: string
   model: string
   aspect_ratio?: string
+  /** Resolution label of the chosen published `output_options[]` row. */
+  resolution?: string
   width?: number
   height?: number
   seed?: number
@@ -102,6 +104,13 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   }
 
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
+  // Validated once for the whole batch, before the first charged submit.
+  const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
+  if (outputOption) {
+    job.output_lines.push(
+      `Output: ${outputOption.resolution} ${outputOption.aspect_ratio} — ${outputOption.width}×${outputOption.height}px per scene.`,
+    )
+  }
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
   const total = targets.length
@@ -157,7 +166,9 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   ): ImageGenerationRequest => ({
     prompt: scene.visual_prompt!,
     apiKey, aspectRatio, modelId: modelConfig.api_model || model, providerParams,
-    width: renderWidth, height: renderHeight,
+    ...(outputOption
+      ? { resolution: outputOption.resolution }
+      : { width: renderWidth, height: renderHeight }),
     seed: params.seed,
     idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${attempt.scope}`,
     onJobAccepted: async (taskId, idempotencyKey) => {

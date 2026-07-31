@@ -8,9 +8,14 @@ export interface GenStudioImageOutputOption {
   width: number
   height: number
   is_default: boolean
+  /** Price of THIS combination. Absent = GenStudio published none for the row. */
   credits_per_image?: number
+  /** Undiscounted price of this combination, when a promotion is running. */
   base_credits_per_image?: number
   price_version?: string
+  /** Published surcharge when this combination is rendered from references. */
+  reference_generation_credits?: number
+  reference_generation_price_version?: string
 }
 
 /**
@@ -32,6 +37,8 @@ export interface GenStudioImageModelInfo {
   base_credits_per_image?: number | null
   promotion_name?: string
   promotion_discount_percent?: number
+  /** Published surcharge for a reference-guided render. Absent = none published. */
+  reference_generation_credits?: number
   aspect_ratios: string[]
   default_aspect_ratio: string
   default_resolution?: string

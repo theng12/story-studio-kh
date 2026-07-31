@@ -30,7 +30,7 @@ import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import fs from 'fs/promises'
@@ -496,6 +496,16 @@ export async function generateImages(job: Job): Promise<void> {
   // Defaults from the model's published `default_aspect_ratio` and refuses a
   // ratio it does not publish, before any scene is submitted.
   const aspectRatio = resolveConfiguredAspectRatio(resolvedModelConfig, req.aspect_ratio)
+  // The published `(resolution, aspect_ratio)` row this batch renders at, so
+  // an unpublished combination fails before any scene is submitted rather than
+  // after the first charge. `undefined` = the model publishes no output
+  // options, and the run proceeds on aspect ratio alone exactly as before.
+  const outputOption = resolveConfiguredOutputOption(resolvedModelConfig, aspectRatio, req.resolution)
+  if (outputOption) {
+    job.output_lines.push(
+      `Output: ${outputOption.resolution} ${outputOption.aspect_ratio} — ${outputOption.width}×${outputOption.height}px.`,
+    )
+  }
   // v1.0.308 — explicit render dimensions for LOCAL models (Image Studio). The
   // Scene/Thumbnail Generator's Size control sends a downscaled width/height to
   // cut a local model's GPU/VAE memory + render time at lower resolution. The
@@ -691,7 +701,7 @@ export async function generateImages(job: Job): Promise<void> {
       await recordImageState(bgDir, filename, attempt, 'prepared', '', '', true)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
-        width: renderWidth, height: renderHeight,
+        ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
         seed: req.seed,
         ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
         idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${attempt.scope}`,
@@ -799,7 +809,7 @@ export async function generateImages(job: Job): Promise<void> {
       await recordImageState(thumbDir, filename, attempt, 'prepared', '', '', true)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
-        width: renderWidth, height: renderHeight,
+        ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
         seed: req.seed,
         ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
         idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${attempt.scope}`,

@@ -33,7 +33,7 @@
           class="psl-preview-model"
           default-label="Choose a GenStudio image model…"
         />
-        <select v-model="previewAspect" class="input input-sm">
+        <select v-if="aspectOptions.length" v-model="previewAspect" class="input input-sm">
           <option v-for="opt in aspectOptions" :key="opt" :value="opt">{{ opt }}</option>
         </select>
       </div>
@@ -325,10 +325,9 @@ const builtInLibraryOpen = ref(false)
 const selectedImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === previewModel.value),
 )
-const aspectOptions = computed(() => {
-  const supported = selectedImageModel.value?.aspect_ratios?.filter(Boolean) || []
-  return supported.length ? supported : ['16:9']
-})
+// Published ratios only. A model that publishes none gets NO ratio control
+// rather than an invented '16:9' the customer would take for the model's own.
+const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const anySampleLoading = computed(() => liveSamples.value.some(sample => sample.loading))
 const galleryCount = computed(() => liveSamples.value.filter(sample => sample.url && sample.included).length)
 const lightboxCurrent = computed(() => lightboxImages.value[lightboxIndex.value] || null)
@@ -342,11 +341,12 @@ watch(genStudioImageModels, (models) => {
 }, { immediate: true, deep: true })
 
 watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
-  if (!model) return
+  if (!model || !aspects.length) return
   if (!aspects.includes(previewAspect.value)) {
+    // The model's OWN published default, never a hardcoded '16:9'.
     previewAspect.value = aspects.includes(model.default_aspect_ratio)
       ? model.default_aspect_ratio
-      : aspects[0] || '16:9'
+      : aspects[0]!
   }
 }, { immediate: true })
 

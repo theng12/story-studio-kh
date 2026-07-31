@@ -1,5 +1,5 @@
-import type { ImageModelConfig, ProjectConfig } from '../models/types.js'
-import { listImageModels, type GenStudioImageModel } from '../lib/genstudio-client.js'
+import type { ImageModelConfig, ImageOutputOption, ProjectConfig } from '../models/types.js'
+import { listImageModels, type GenStudioImageModel, type GenStudioImageOutputOption } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 
 /**
@@ -88,6 +88,118 @@ export function resolveConfiguredAspectRatio(
 }
 
 /**
+ * Pick the published output option a submission may actually use.
+ *
+ * Each `output_options[]` row is ONE VALID COMBINATION of resolution and
+ * aspect ratio with its own dimensions and its own price. Rows are never
+ * recombined here: a ratio available at 1K but not 2K is expressed by that
+ * row simply not existing, and pairing a ratio list against a resolution list
+ * would advertise combinations GenStudio has not declared valid.
+ *
+ * Returns `undefined` when the model publishes no output options at all — the
+ * caller then sends aspect ratio only and GenStudio applies its own
+ * `default_resolution`, which is exactly today's behaviour. It also returns
+ * `undefined` when nothing was requested and the model flags no default for
+ * the chosen ratio: no row is picked by position, because "first row wins"
+ * would silently bill a resolution the customer never chose.
+ */
+export function selectPublishedOutputOption<T extends {
+  resolution: string
+  aspect_ratio: string
+  is_default: boolean
+}>(
+  options: T[] | undefined,
+  modelLabel: string,
+  aspectRatio: string,
+  requestedResolution: string | undefined,
+  defaultResolution: string | undefined,
+): T | undefined {
+  const rows = options || []
+  if (!rows.length) return undefined
+  const forRatio = rows.filter(row => row.aspect_ratio === aspectRatio)
+  if (!forRatio.length) {
+    const published = [...new Set(rows.map(row => row.aspect_ratio))].join(', ')
+    throw new Error(
+      `${modelLabel} publishes no output size for ${aspectRatio}. Choose ${published}.`,
+    )
+  }
+  const wanted = (requestedResolution || '').trim()
+  if (wanted) {
+    const exact = forRatio.find(row => row.resolution === wanted)
+    if (!exact) {
+      throw new Error(
+        `${modelLabel} does not publish ${wanted} at ${aspectRatio}. ` +
+        `Choose ${forRatio.map(row => row.resolution).join(', ')}.`,
+      )
+    }
+    return exact
+  }
+  const fallback = (defaultResolution || '').trim()
+  return forRatio.find(row => row.is_default)
+    ?? (fallback ? forRatio.find(row => row.resolution === fallback) : undefined)
+}
+
+/**
+ * The row a picker should preselect for a model, with no ratio chosen yet.
+ *
+ * `is_default` first, then the published `default_resolution` +
+ * `default_aspect_ratio` pair. Nothing is chosen by position.
+ */
+export function defaultPublishedOutputOption<T extends {
+  resolution: string
+  aspect_ratio: string
+  is_default: boolean
+}>(
+  options: T[] | undefined,
+  defaultResolution: string | undefined,
+  defaultAspectRatio: string | undefined,
+): T | undefined {
+  const rows = options || []
+  if (!rows.length) return undefined
+  const flagged = rows.find(row => row.is_default)
+  if (flagged) return flagged
+  const resolution = (defaultResolution || '').trim()
+  const ratio = (defaultAspectRatio || '').trim()
+  if (!resolution || !ratio) return undefined
+  return rows.find(row => row.resolution === resolution && row.aspect_ratio === ratio)
+}
+
+/** Catalogue-side wrapper used at the charged submit boundary. */
+export function resolvePublishedOutputOption(
+  model: GenStudioImageModel,
+  aspectRatio: string,
+  requestedResolution: string | undefined,
+): GenStudioImageOutputOption | undefined {
+  return selectPublishedOutputOption(
+    model.output_options,
+    model.display_name,
+    aspectRatio,
+    requestedResolution,
+    model.default_resolution,
+  )
+}
+
+/**
+ * Generator-side twin working off the resolved config, so an unpublished
+ * combination fails before any job setup rather than at the submit boundary.
+ * A saved config that predates `output_options` returns `undefined` and the
+ * flow degrades to aspect ratio only.
+ */
+export function resolveConfiguredOutputOption(
+  config: ImageModelConfig,
+  aspectRatio: string,
+  requestedResolution: string | undefined,
+): ImageOutputOption | undefined {
+  return selectPublishedOutputOption(
+    config.output_options,
+    config.label,
+    aspectRatio,
+    requestedResolution,
+    config.default_resolution,
+  )
+}
+
+/**
  * Build the Story-Studio-side view of a live GenStudio image model.
  *
  * Everything capability-shaped is copied from the catalogue entry. Nothing is
@@ -116,6 +228,13 @@ export function buildImageModelConfig(
     ...(model.supports_seed === undefined ? {} : { supports_seed: model.supports_seed }),
     aspect_ratios: model.aspect_ratios,
     default_aspect_ratio: model.default_aspect_ratio,
+    ...(model.default_resolution === undefined
+      ? {}
+      : { default_resolution: model.default_resolution }),
+    // Copied verbatim, row for row. Nothing is recombined and no row is
+    // synthesised — a model that publishes none keeps the field absent, which
+    // is what makes the resolution control disappear instead of inventing one.
+    ...(model.output_options?.length ? { output_options: model.output_options } : {}),
     available: model.available,
     qualification_only: model.qualification_only,
     chargeable: model.chargeable,

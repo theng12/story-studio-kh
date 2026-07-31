@@ -35,7 +35,7 @@ import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
@@ -96,6 +96,8 @@ interface SceneImageGenerateParams {
   /** Aspect ratio for the image generation. Defaults to 16:9 for the
    *  timestamp-driven pipeline (videos are always landscape). */
   aspect_ratio?: string
+  /** Resolution label of the chosen published `output_options[]` row. */
+  resolution?: string
   /** v1.0.261 — explicit output pixel size (local Image Studio only). When set,
    *  overrides the aspect preset so a single re-roll matches the batch's render
    *  size. Cloud providers ignore these. */
@@ -157,9 +159,17 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   job.progress = 10
 
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
+  // The published `(resolution, aspect_ratio)` row, validated before the
+  // charged submit. `undefined` = this model publishes no output options and
+  // the render proceeds on aspect ratio alone, exactly as it did before.
+  const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
   const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
   const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
-  if (renderWidth && renderHeight) {
+  if (outputOption) {
+    job.output_lines.push(
+      `Output: ${outputOption.resolution} ${outputOption.aspect_ratio} — ${outputOption.width}×${outputOption.height}px.`,
+    )
+  } else if (renderWidth && renderHeight) {
     job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models).`)
   }
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
@@ -171,8 +181,9 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     aspectRatio,
     modelId: modelConfig.api_model || model,
     providerParams,
-    width: renderWidth,
-    height: renderHeight,
+    ...(outputOption
+      ? { resolution: outputOption.resolution }
+      : { width: renderWidth, height: renderHeight }),
     seed: params.seed,
     idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene_id}:image`,
     isCancelled: () => false,

@@ -1619,6 +1619,31 @@ export interface ImageModelTier {
   provider_params?: Record<string, unknown>
 }
 
+/**
+ * One published `(resolution, aspect_ratio)` combination, copied verbatim from
+ * GenStudio's `ImageOutputOptionResponse`.
+ *
+ * A row IS the combination: its `width`/`height` are the real output size and
+ * its credits are the price of THAT combination. Rows are never split into
+ * separate resolution and ratio lists and recombined — that would advertise
+ * pairings GenStudio has not declared valid.
+ */
+export interface ImageOutputOption {
+  resolution: string
+  aspect_ratio: string
+  width: number
+  height: number
+  is_default: boolean
+  /** Price of this combination. Absent = GenStudio published none for the row. */
+  credits_per_image?: number
+  /** Undiscounted price of this combination, when a promotion is running. */
+  base_credits_per_image?: number
+  price_version?: string
+  /** Surcharge when this combination is rendered from reference images. */
+  reference_generation_credits?: number
+  reference_generation_price_version?: string
+}
+
 export interface ImageModelConfig {
   label: string
   /**
@@ -1719,6 +1744,14 @@ export interface ImageModelConfig {
   aspect_ratios?: string[]
   /** Ratio used when a request names none. Never defaulted to '16:9' locally. */
   default_aspect_ratio?: string
+  /** Resolution label used when a request names none. Never invented locally. */
+  default_resolution?: string
+  /**
+   * Valid `(resolution, aspect_ratio)` combinations, each with its own
+   * dimensions and price. Absent = the model publishes none, so the flow runs
+   * on aspect ratio alone and GenStudio applies its own default resolution.
+   */
+  output_options?: ImageOutputOption[]
   /** Live availability at resolve time. */
   available?: boolean
   /** Account cannot submit to this model without qualifying. */
@@ -2311,6 +2344,12 @@ export interface GenerateImagesRequest {
   model: string
   mode: string // 'scenes' | 'thumbs'
   aspect_ratio: string
+  /**
+   * Resolution LABEL of the published `output_options[]` row the customer
+   * chose, alongside `aspect_ratio`. The pair is one published combination —
+   * it is validated against the model's rows, never recombined locally.
+   */
+  resolution?: string
   /** Selected variable-price/provider tier (for example `1k` or `2k`). */
   tier?: string
   scene_number?: number
