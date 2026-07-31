@@ -16,7 +16,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { killAllTrackedChildren, jobEvents, getJobs } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
-import { PROJECTS_ROOT } from './server/services/project-manager.js'
+import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
@@ -597,6 +597,18 @@ function clearRunningFlag(): void {
 void electronApp.whenReady().then(async () => {
   try {
     buildMenu()
+    // One-time migration from legacy dev project locations. This used to run
+    // as a side effect of importing project-manager.ts, which meant every
+    // test process — and any tool that transitively pulled in a service —
+    // ran a directory-copying migration against the developer's real projects
+    // folder. It now has exactly one call site per real boot: here for
+    // Electron, and the standalone-listen branch of server/app.ts for dev via
+    // tsx. No-op once the `.legacy-migration-done` marker exists.
+    try {
+      migrateLegacyProjects()
+    } catch (e) {
+      logCrash('legacy-projects-migration', e)
+    }
     // Arm the flag and notice if the previous run left one behind. Done
     // before the server / window come up so the renderer's first
     // GET /api/last-session already sees the unclean_shutdown bit.
@@ -635,7 +647,7 @@ void electronApp.whenReady().then(async () => {
       // chunk encoders (os tmpdir): their argv never mentions PROJECTS_ROOT,
       // so crashes used to leave them running forever as zombies.
       const result = await reapFfmpegOrphans([
-        PROJECTS_ROOT,
+        projectsRoot(),
         path.join(electronApp.getPath('userData'), 'preview-cache'),
         path.join(os.tmpdir(), 'story-studio-kh'),
       ])

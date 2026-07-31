@@ -139,7 +139,7 @@ export const BUILTIN_FORMATS_DIR = resolveBuiltinFormatsDir()
 
 /** User-custom formats live next to projects so they travel with the user. */
 function userFormatsDir(): string {
-  return path.join(pm.PROJECTS_ROOT, '.formats')
+  return path.join(pm.projectsRoot(), '.formats')
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────

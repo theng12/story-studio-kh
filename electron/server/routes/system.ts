@@ -348,8 +348,8 @@ router.get('/system/quick-locations', async (_req, res) => {
   // Always include the app's projects root — that's where most picker flows
   // want to start (e.g. choosing a subfolder of an existing project).
   try {
-    candidates.push({ label: 'Projects', path: pm.PROJECTS_ROOT })
-  } catch { /* PROJECTS_ROOT might be lazy-resolved; skip if unavailable */ }
+    candidates.push({ label: 'Projects', path: pm.projectsRoot() })
+  } catch { /* projectsRoot() might be lazy-resolved; skip if unavailable */ }
 
   const present: Array<{ label: string; path: string }> = []
   for (const c of candidates) {
@@ -497,7 +497,7 @@ router.get('/app-settings/projects-root', async (_req, res) => {
     const override = await getAppSetting('projects_root_override')
     const overrideStr = typeof override === 'string' ? override : ''
     const defaultPath = pm.getProjectsRootDefaultPath()
-    const effectivePath = pm.PROJECTS_ROOT
+    const effectivePath = pm.projectsRoot()
     res.json({
       override: overrideStr,
       effective_path: effectivePath,
@@ -567,8 +567,11 @@ router.post('/app-settings/projects-root/migrate', async (req, res) => {
   }
 })
 
-// Last step of the migration flow: relaunch the Electron app so the
-// boot-time PROJECTS_ROOT read picks up the new override path. Quietly
+// Last step of the migration flow: relaunch the Electron app after the
+// projects root moves. The path itself is now resolved per access, so it
+// picks up the new override immediately — but long-lived in-memory state
+// (job queue, loader caches, watchers) still points at the old location,
+// so a restart remains the safe way to finish the move. Quietly
 // 503s in dev (tsx) where there's no Electron app to relaunch — the
 // dev script handles its own restarts.
 router.post('/system/restart-app', async (_req, res) => {

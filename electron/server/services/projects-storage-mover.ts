@@ -27,7 +27,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot } from './project-manager.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 
 export interface MigrationOptions {
@@ -192,7 +192,8 @@ export async function previewMigration(): Promise<{
   /** Number of projects whose assets need co-location during the move. */
   projects_with_external_assets: number
 }> {
-  const metadataT = await tallyDir(PROJECTS_ROOT)
+  const root = projectsRoot()
+  const metadataT = await tallyDir(root)
   // Walk projects + add up external-asset bytes for each one that has
   // its output_root pointing outside the metadata folder.
   let assetFiles = 0
@@ -200,12 +201,12 @@ export async function previewMigration(): Promise<{
   let withExternal = 0
   let entries: any[] = []
   try {
-    entries = await fs.readdir(PROJECTS_ROOT, { withFileTypes: true })
-  } catch { /* PROJECTS_ROOT missing — return metadata zeros */ }
+    entries = await fs.readdir(root, { withFileTypes: true })
+  } catch { /* projects root missing — return metadata zeros */ }
   for (const e of entries) {
     if (!e.isDirectory()) continue
     if (e.name.startsWith('.')) continue
-    const projectDir = path.join(PROJECTS_ROOT, e.name)
+    const projectDir = path.join(root, e.name)
     const ext = await externalOutputRootFor(projectDir)
     if (!ext || !existsSync(ext)) continue
     withExternal++
@@ -214,7 +215,7 @@ export async function previewMigration(): Promise<{
     assetBytes += t.bytes
   }
   return {
-    source_path: PROJECTS_ROOT,
+    source_path: root,
     files: metadataT.files + assetFiles,
     bytes: metadataT.bytes + assetBytes,
     asset_files: assetFiles,
@@ -287,7 +288,7 @@ export async function migrateProjectsTo(
   targetDir: string,
   opts: MigrationOptions = {},
 ): Promise<MigrationResult> {
-  const source = PROJECTS_ROOT
+  const source = projectsRoot()
 
   validateMigrationTarget(targetDir, source)
 

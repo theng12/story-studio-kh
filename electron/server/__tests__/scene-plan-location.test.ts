@@ -29,7 +29,7 @@ before(async () => {
   utils = await import('../services/utils.js')
   migr = await import('../services/scene-plan-migration.js')
   const pm = await import('../services/project-manager.js')
-  projectsRoot = pm.PROJECTS_ROOT
+  projectsRoot = pm.projectsRoot()
 })
 
 after(async () => { await cleanup() })

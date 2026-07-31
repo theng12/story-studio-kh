@@ -32,7 +32,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { getAppSetting, setAppSetting } from './app-settings.js'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot } from './project-manager.js'
 
 const APP_SETTINGS_KEY = 'soft_deleted_slugs'
 
@@ -143,7 +143,7 @@ export async function listSoftDeletedProjects(): Promise<SoftDeletedProjectInfo[
   const out: SoftDeletedProjectInfo[] = []
   for (const entry of list) {
     const slug = entry.slug
-    const candidatePath = path.join(PROJECTS_ROOT, slug)
+    const candidatePath = path.join(projectsRoot(), slug)
     const exists = existsSync(candidatePath)
     let name = slug
     let estimated_bytes = -1
@@ -183,7 +183,7 @@ export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> 
     e.statusCode = 400
     throw e
   }
-  const candidatePath = path.join(PROJECTS_ROOT, slug)
+  const candidatePath = path.join(projectsRoot(), slug)
   if (existsSync(candidatePath)) {
     await fs.rm(candidatePath, { recursive: true, force: true })
   }

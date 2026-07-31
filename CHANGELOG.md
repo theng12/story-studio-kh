@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.771 — 2026-08-01
+
+- **Your projects folder can no longer be reached by anything but the running app** — Story
+  Studio worked out where your projects live once, at startup, and every part of the app then
+  reused that one answer. During development and testing that answer pointed at your real
+  Documents folder, so automated tests were reading your actual project files instead of their
+  own scratch copies. Nothing was damaged and no project was written to, but the path is now
+  worked out fresh each time it is needed, and a test that would touch your real folder fails
+  immediately instead of quietly succeeding.
+- **Changing your projects storage location now takes effect everywhere at once** — because
+  the location was previously fixed at startup, parts of the app could keep using the old one
+  until a restart. The setting is now read at the moment it is used.
+- **The old-folder migration only runs when the app really starts** — it used to be triggered
+  merely by loading the projects code, which meant it could run during development tooling.
+  It now runs at genuine application startup and nowhere else. Its behaviour is unchanged.
+
+---
+
 ## v1.0.770 — 2026-08-01
 
 - **You can now choose the output size of an image** — each model publishes the exact

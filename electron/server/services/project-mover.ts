@@ -37,7 +37,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { getFreeBytes, formatBytes } from '../lib/disk.js'
-import { getProjectDir, PROJECTS_ROOT } from './project-manager.js'
+import { getProjectDir, projectsRoot } from './project-manager.js'
 import { addLinkedProject, getLinkedProjectPaths, removeLinkedProject } from './linked-projects.js'
 
 export interface ProjectMoveStatus {
@@ -123,8 +123,8 @@ export async function detectProjectMoveStatus(slug: string): Promise<ProjectMove
     const e: any = new Error(`Project '${slug}' not found`)
     e.statusCode = 404; throw e
   }
-  const isDefault = path.resolve(dir).startsWith(path.resolve(PROJECTS_ROOT) + path.sep) ||
-    path.resolve(dir) === path.resolve(PROJECTS_ROOT)
+  const isDefault = path.resolve(dir).startsWith(path.resolve(projectsRoot()) + path.sep) ||
+    path.resolve(dir) === path.resolve(projectsRoot())
   const linkedPaths = await getLinkedProjectPaths()
   const isLinked = linkedPaths.includes(path.resolve(dir))
   const scan = await scanTree(dir)

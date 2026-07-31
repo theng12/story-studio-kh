@@ -32,7 +32,7 @@ before(async () => {
   fm = await import('../services/folder-migration.js')
   mig = await import('../services/migration.js')
   const pm = await import('../services/project-manager.js')
-  projectsRoot = pm.PROJECTS_ROOT
+  projectsRoot = pm.projectsRoot()
 })
 
 after(async () => { await cleanup() })

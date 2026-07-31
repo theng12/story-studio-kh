@@ -173,7 +173,7 @@ async function resolveMergedAudioName(slug: string, code: string): Promise<strin
     const metaRaw = await fs.readFile(
       // Linked-aware project.json read so iCloud projects pick up their
       // own subfolder_names override.
-      path.join(pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug), 'project.json'), 'utf-8',
+      path.join(pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug), 'project.json'), 'utf-8',
     )
     const meta = JSON.parse(metaRaw)
     const subfolder = meta.subfolder_names || {}

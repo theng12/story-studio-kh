@@ -298,7 +298,7 @@ async function auditMergedAudio(slug: string, code: string): Promise<StageAudit>
   try {
     const metaRaw = await fs.readFile(
       // Linked-aware project.json read.
-      path.join(pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug), 'project.json'), 'utf-8',
+      path.join(pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug), 'project.json'), 'utf-8',
     )
     const meta = JSON.parse(metaRaw)
     const tmpl = meta.subfolder_names?.merged_audio

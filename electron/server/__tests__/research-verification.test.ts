@@ -75,7 +75,7 @@ function triaged(status: ResearchClaim['status'], overrides: Partial<ResearchOut
  * explicitly off, and ABSENT (a project that predates the gate).
  */
 async function makeProject(researchRequired?: boolean): Promise<string> {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   const outputRoot = path.join(projDir, 'episodes')
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
@@ -345,13 +345,13 @@ describe('research status through computeEpisodeStatus', () => {
     cacheMod = await import('../services/episode-status-cache.js')
     rv = await import('../lib/research-verification.js')
     researchPaths = await import('../lib/research-paths.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'), 'PROJECTS_ROOT must be the temp dir')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'), 'projectsRoot() must be the temp dir')
   })
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     cacheMod.episodeStatusCache.clear()
   })
 
@@ -440,8 +440,8 @@ describe('pending filter + the Pipeline skip contract', () => {
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     cacheMod.episodeStatusCache.clear()
   })
 
@@ -533,8 +533,8 @@ describe('the research generator resets the triage', () => {
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     cacheMod.episodeStatusCache.clear()
   })
 
@@ -722,10 +722,10 @@ describe('new projects opt in, upgraded projects do not', () => {
   after(async () => { await tmp.cleanup() })
 
   test('createProject stamps research_required: true explicitly', async () => {
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     const meta = await pm.createProject({ name: 'Brand New Channel' } as any)
     const onDisk = JSON.parse(
-      await fs.readFile(path.join(pm.PROJECTS_ROOT, meta.slug, 'project.json'), 'utf-8'),
+      await fs.readFile(path.join(pm.projectsRoot(), meta.slug, 'project.json'), 'utf-8'),
     )
     // Stamped, not inferred — this is what makes "absent means legacy" safe.
     assert.equal(onDisk.research_required, true)

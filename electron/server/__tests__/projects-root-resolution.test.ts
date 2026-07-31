@@ -34,11 +34,11 @@ describe('project-manager: storage-location helpers', () => {
 
   after(async () => { await tmp.cleanup() })
 
-  test('PROJECTS_ROOT resolves to the env-var data dir under STORY_STUDIO_DATA_DIR', () => {
+  test('projectsRoot() resolves to the env-var data dir under STORY_STUDIO_DATA_DIR', () => {
     // The test harness sets STORY_STUDIO_DATA_DIR via useTempDataDir
     // BEFORE project-manager.js is imported, so the env-var branch
     // wins. Confirms test isolation works.
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   test('getProjectsRootAppSettingsPath returns {dataDir}/app-settings.json under env-var', () => {
@@ -64,12 +64,12 @@ describe('project-manager: storage-location helpers', () => {
       `expected to end in 'projects', got: ${def}`)
   })
 
-  test('PROJECTS_ROOT and default path may differ when env-var is set', () => {
+  test('projectsRoot() and default path may differ when env-var is set', () => {
     // In test mode, STORY_STUDIO_DATA_DIR overrides the userData
     // default → PROJECTS_ROOT and getProjectsRootDefaultPath should
     // diverge. Confirms the helpers expose enough info for the UI to
     // render "[CUSTOM]" badges accurately.
-    assert.notEqual(pm.PROJECTS_ROOT, pm.getProjectsRootDefaultPath(),
+    assert.notEqual(pm.projectsRoot(), pm.getProjectsRootDefaultPath(),
       'env-var override should differ from userData default during tests')
   })
 })

@@ -52,7 +52,7 @@ function resolveBuiltinDir(): string {
 export const BUILTIN_TOPIC_PACKS_DIR = resolveBuiltinDir()
 
 function userDir(): string {
-  return path.join(pm.PROJECTS_ROOT, '.topic-packs')
+  return path.join(pm.projectsRoot(), '.topic-packs')
 }
 
 const builtinCache = new Map<string, TopicPack>()
@@ -133,7 +133,9 @@ export function topicPackFilePath(id: string): string {
 }
 
 export async function ensureTopicPacksDir(): Promise<void> {
-  await fs.mkdir(userDir(), { recursive: true })
+  // ensureProjectsRoot() so the test-isolation guard fires before a recursive
+  // mkdir can create `.topic-packs` in the real projects folder.
+  await fs.mkdir(path.join(pm.ensureProjectsRoot(), '.topic-packs'), { recursive: true })
 }
 
 export function invalidateTopicPackCache(id?: string): void {

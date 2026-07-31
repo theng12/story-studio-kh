@@ -80,7 +80,7 @@ function resolveBuiltinDir(): string {
 export const BUILTIN_TEMPLATES_DIR = resolveBuiltinDir()
 
 function userTemplatesDir(): string {
-  return path.join(pm.PROJECTS_ROOT, '.thumbnail-templates')
+  return path.join(pm.projectsRoot(), '.thumbnail-templates')
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────
@@ -258,7 +258,9 @@ export function templateFilePath(id: string): string {
 }
 
 export async function ensureTemplatesDir(): Promise<void> {
-  await fs.mkdir(userTemplatesDir(), { recursive: true })
+  // ensureProjectsRoot() so the test-isolation guard fires before a recursive
+  // mkdir can create `.thumbnail-templates` in the real projects folder.
+  await fs.mkdir(path.join(pm.ensureProjectsRoot(), '.thumbnail-templates'), { recursive: true })
 }
 
 export function invalidateTemplateCache(id: string): void {

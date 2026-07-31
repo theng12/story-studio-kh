@@ -29,8 +29,8 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
  * at the target.
  */
 async function seedProjects(): Promise<{ files: number; bytes: number }> {
-  const a = path.join(pm.PROJECTS_ROOT, 'project-a')
-  const b = path.join(pm.PROJECTS_ROOT, 'project-b')
+  const a = path.join(pm.projectsRoot(), 'project-a')
+  const b = path.join(pm.projectsRoot(), 'project-b')
   const aSub = path.join(a, 'episodes', 'Season 001')
   const bSub = path.join(b, 'episodes', 'Season 001', 'TN0001 - Demo')
   await fs.mkdir(aSub, { recursive: true })
@@ -58,14 +58,14 @@ describe('projects-storage-mover', () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
     mover = await import('../services/projects-storage-mover.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
   })
 
   test('happy path: copies files to a fresh target + keeps source intact', async () => {
@@ -74,14 +74,14 @@ describe('projects-storage-mover', () => {
     const r = await mover.migrateProjectsTo(target)
 
     assert.equal(r.target_path, target)
-    assert.equal(r.kept_old_at, pm.PROJECTS_ROOT)
+    assert.equal(r.kept_old_at, pm.projectsRoot())
     assert.equal(r.copied_files, seeded.files, 'file count matches seeded')
     assert.equal(r.copied_bytes, seeded.bytes, 'byte count matches seeded')
 
     // Source still on disk — copy + keep semantics.
-    assert.ok(existsSync(path.join(pm.PROJECTS_ROOT, 'project-a', 'project.json')),
+    assert.ok(existsSync(path.join(pm.projectsRoot(), 'project-a', 'project.json')),
       'source project-a survives the copy')
-    assert.ok(existsSync(path.join(pm.PROJECTS_ROOT, 'project-b', 'config.json')),
+    assert.ok(existsSync(path.join(pm.projectsRoot(), 'project-b', 'config.json')),
       'source project-b survives the copy')
 
     // Target has the same tree.
@@ -92,7 +92,7 @@ describe('projects-storage-mover', () => {
   test('preview returns matching file/byte tally', async () => {
     const seeded = await seedProjects()
     const r = await mover.previewMigration()
-    assert.equal(r.source_path, pm.PROJECTS_ROOT)
+    assert.equal(r.source_path, pm.projectsRoot())
     assert.equal(r.files, seeded.files)
     assert.equal(r.bytes, seeded.bytes)
     // No external output_roots in the basic seed → asset breakdown zero.
@@ -107,7 +107,7 @@ describe('projects-storage-mover', () => {
     // 2026-04-29). The migration should copy the metadata to the new
     // target AND copy the external asset folder into <newProjectDir>/
     // episodes/, then rewrite the new project.json to './episodes'.
-    const projectDir = path.join(pm.PROJECTS_ROOT, 'external-proj')
+    const projectDir = path.join(pm.projectsRoot(), 'external-proj')
     await fs.mkdir(projectDir, { recursive: true })
     const externalDir = path.join(tmp.dir, 'external-storage', 'external-proj-assets')
     await fs.mkdir(externalDir, { recursive: true })
@@ -152,7 +152,7 @@ describe('projects-storage-mover', () => {
     await seedProjects()
     let caught: any = null
     try {
-      await mover.migrateProjectsTo(pm.PROJECTS_ROOT)
+      await mover.migrateProjectsTo(pm.projectsRoot())
     } catch (e) { caught = e }
     assert.ok(caught, 'should throw')
     assert.equal((caught as any).statusCode, 400)
@@ -161,7 +161,7 @@ describe('projects-storage-mover', () => {
 
   test('refuses target inside source (would recurse)', async () => {
     await seedProjects()
-    const inside = path.join(pm.PROJECTS_ROOT, 'project-a', 'inside')
+    const inside = path.join(pm.projectsRoot(), 'project-a', 'inside')
     let caught: any = null
     try {
       await mover.migrateProjectsTo(inside)
@@ -176,7 +176,7 @@ describe('projects-storage-mover', () => {
     // but neither is inside the other. The validator must let this
     // through (path.relative would otherwise mis-flag it).
     await seedProjects()
-    const sibling = pm.PROJECTS_ROOT + '-new'
+    const sibling = pm.projectsRoot() + '-new'
     const r = await mover.migrateProjectsTo(sibling)
     assert.equal(r.target_path, sibling)
     await fs.rm(sibling, { recursive: true, force: true })

@@ -24,7 +24,7 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 const SLUG = 'recycled-heal'
 
 async function makeProject(): Promise<void> {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug: SLUG, name: 'Recycled Heal Test',
@@ -51,7 +51,7 @@ async function writeCorruptedIdeas(acceptedCount: number, nextEpisodeNumber: num
     })
   }
   const recycled = Array.from({ length: acceptedCount }, (_, i) => i + 1)
-  const path_ = path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json')
+  const path_ = path.join(pm.projectsRoot(), SLUG, 'ideas.json')
   await fs.writeFile(path_, JSON.stringify({
     ideas,
     next_episode_number: nextEpisodeNumber,
@@ -64,14 +64,14 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
     tmp = await useTempDataDir()
     im = await import('../services/idea-manager.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProject()
   })
 
@@ -87,7 +87,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
       suggested_chapters: 0, suggested_length: '0 min', mood: '',
     }], 'gpt-4o')
 
-    const raw = await fs.readFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), 'utf-8')
+    const raw = await fs.readFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), 'utf-8')
     const data = JSON.parse(raw)
     assert.deepEqual(data.recycled_numbers, [],
       'every recycled number was in use → all should have been removed')
@@ -126,7 +126,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
       generated_at: '2026-01-01T00:00:00Z', accepted_at: '2026-01-01T00:00:00Z',
       batch_id: 'b', model_used: 'm',
     }))
-    await fs.writeFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), JSON.stringify({
+    await fs.writeFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), JSON.stringify({
       ideas, next_episode_number: 7, recycled_numbers: [],
     }))
 
@@ -135,7 +135,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
       suggested_chapters: 0, suggested_length: '0 min', mood: '',
     }], 'gpt-4o')
 
-    const raw = await fs.readFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), 'utf-8')
+    const raw = await fs.readFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), 'utf-8')
     const data = JSON.parse(raw)
     assert.deepEqual(data.recycled_numbers, [4], 'true gap survives auto-heal')
   })
@@ -150,7 +150,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
       generated_at: '2026-01-01T00:00:00Z', accepted_at: '2026-01-01T00:00:00Z',
       batch_id: 'b', model_used: 'm',
     }))
-    await fs.writeFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), JSON.stringify({
+    await fs.writeFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), JSON.stringify({
       ideas, next_episode_number: 4, recycled_numbers: [],
     }))
 
@@ -165,7 +165,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
     assert.equal(r.applied, 3)
     assert.deepEqual(r.missing, [])
 
-    const data = JSON.parse(await fs.readFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), 'utf-8'))
+    const data = JSON.parse(await fs.readFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), 'utf-8'))
     const codes = data.ideas.map((i: any) => i.episode_code).sort()
     assert.deepEqual(codes, ['TN0006', 'TN0007', 'TN0008'])
     assert.equal(data.next_episode_number, 9)
@@ -175,7 +175,7 @@ describe('auto-heal: recycled_numbers stays consistent with accepted codes', () 
   })
 
   test('applyRenumberPatch reports missing idea IDs without throwing', async () => {
-    await fs.writeFile(path.join(pm.PROJECTS_ROOT, SLUG, 'ideas.json'), JSON.stringify({
+    await fs.writeFile(path.join(pm.projectsRoot(), SLUG, 'ideas.json'), JSON.stringify({
       ideas: [], next_episode_number: 1, recycled_numbers: [],
     }))
     const r = await im.applyRenumberPatch(SLUG, {

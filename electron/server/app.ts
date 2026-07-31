@@ -19,6 +19,7 @@ import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { logLine } from './services/logger.js'
+import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { buildRequireSession } from './lib/auth-session.js'
@@ -211,6 +212,16 @@ const isElectron = !!(process.versions as any).electron
 const shouldListen = !isElectron && !process.env.STORY_STUDIO_DISABLE_LISTEN
 
 if (shouldListen) {
+  // Real standalone boot (dev via tsx). Deliberately inside this branch and
+  // NOT at module scope: `shouldListen` is false for tests (they set
+  // STORY_STUDIO_DISABLE_LISTEN) and for Electron (main.ts calls it itself),
+  // so merely importing app.ts never runs a filesystem migration. See
+  // migrateLegacyProjects() in services/project-manager.ts.
+  try {
+    migrateLegacyProjects()
+  } catch (e) {
+    console.warn('[projects] legacy migration failed:', e)
+  }
   app.listen(PORT, () => {
     console.log(`Story Studio API running on http://localhost:${PORT}`)
     console.log(`API docs: http://localhost:${PORT}/api/health`)

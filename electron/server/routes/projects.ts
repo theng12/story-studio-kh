@@ -144,7 +144,7 @@ router.post('/formats/custom', async (req, res) => {
 
   const saveable = { ...format, builtin: false, schemaVersion: 1 }
 
-  const userDir = path.join(pm.PROJECTS_ROOT, '.formats')
+  const userDir = path.join(pm.ensureProjectsRoot(), '.formats')
   const filePath = path.join(userDir, `${id}.json`)
   try {
     await fs.mkdir(userDir, { recursive: true })
@@ -160,7 +160,7 @@ router.post('/formats/custom', async (req, res) => {
 
 router.delete('/formats/custom/:id', async (req, res) => {
   const id = req.params.id
-  const filePath = path.join(pm.PROJECTS_ROOT, '.formats', `${id}.json`)
+  const filePath = path.join(pm.projectsRoot(), '.formats', `${id}.json`)
   if (!existsSync(filePath)) return res.status(404).json({ detail: `Custom format "${id}" not found` })
   try {
     await fs.rm(filePath, { force: true })

@@ -25,7 +25,7 @@ const SLUG = 'overrides-test'
 const CODE = 'EP0001'
 
 async function makeProjectWithEpisode(): Promise<void> {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   const outputRoot = path.join(projDir, 'episodes')
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
@@ -56,15 +56,15 @@ describe('computeEpisodeStatus override semantics', () => {
     pm = await import('../services/project-manager.js')
     assetStatus = await import('../services/asset-status.js')
     cacheMod = await import('../services/episode-status-cache.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir')
   })
 
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProjectWithEpisode()
     cacheMod.episodeStatusCache.clear()
   })

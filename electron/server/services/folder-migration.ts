@@ -38,7 +38,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot } from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { isDescriptionToMetadataDone, markDescriptionToMetadataDone } from './migration.js'
 
@@ -54,7 +54,7 @@ export async function migrateDescriptionToMetadata(): Promise<void> {
 
   let projects: string[] = []
   try {
-    projects = await fs.readdir(PROJECTS_ROOT)
+    projects = await fs.readdir(projectsRoot())
   } catch {
     return
   }
@@ -62,7 +62,7 @@ export async function migrateDescriptionToMetadata(): Promise<void> {
   let anyFailed = false
 
   for (const slug of projects) {
-    const projectDir = path.join(PROJECTS_ROOT, slug)
+    const projectDir = path.join(projectsRoot(), slug)
     const metaPath = path.join(projectDir, 'project.json')
     if (!existsSync(metaPath)) continue
 

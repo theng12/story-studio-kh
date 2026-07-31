@@ -30,8 +30,8 @@ after(async () => {
 
 beforeEach(async () => {
   globalThis.fetch = originalFetch
-  await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true })
-  await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+  await fs.rm(pm.projectsRoot(), { recursive: true, force: true })
+  await fs.mkdir(pm.projectsRoot(), { recursive: true })
   const { _clearYouTubeChannelAvatarCacheForTests } = await import('../lib/youtube-channel-avatar.js')
   _clearYouTubeChannelAvatarCacheForTests()
 })

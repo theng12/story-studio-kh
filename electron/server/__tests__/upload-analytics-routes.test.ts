@@ -57,7 +57,7 @@ describe('Upload Analytics route', () => {
   beforeEach(async () => {
     fetchQueue.length = 0
     // Clean state between cases — don't leak project entries
-    const root = pm.PROJECTS_ROOT
+    const root = pm.projectsRoot()
     try { await fs.rm(root, { recursive: true, force: true }) } catch {}
     await fs.mkdir(root, { recursive: true })
     const { _clearAnalyticsCache } = await import('../lib/youtube-analytics.js')

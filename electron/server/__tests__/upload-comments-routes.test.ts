@@ -52,8 +52,8 @@ after(async () => {
 
 beforeEach(async () => {
   fetchQueue.length = 0
-  try { await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }) } catch {}
-  await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+  try { await fs.rm(pm.projectsRoot(), { recursive: true, force: true }) } catch {}
+  await fs.mkdir(pm.projectsRoot(), { recursive: true })
 })
 
 async function seedProjectWithAccount(name: string): Promise<string> {

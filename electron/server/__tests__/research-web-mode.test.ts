@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { after, describe, it } from 'node:test'
 import {
   WEB_MODE_UNAVAILABLE_REASON,
   WEB_RESEARCH_CONDITIONS,
@@ -41,6 +41,20 @@ import { resolveStepParams } from '../routes/pipeline.js'
 import { readSelectedResearchSources } from '../lib/research-sources.js'
 import type { GenStudioChatModel } from '../lib/genstudio-client.js'
 import type { ResearchOutput } from '../models/types.js'
+import { useTempDataDir } from './_helpers.js'
+/**
+ * Claim an isolated data dir before anything runs.
+ *
+ * These are pure-logic tests, but the loaders they exercise (niche,
+ * topic-pack, format) look for user overrides under
+ * `${projectsRoot()}/.niches` and friends. With no data dir claimed that
+ * resolves to the machine owner's REAL projects folder, so results would
+ * depend on what they happen to have installed there. Reads only today —
+ * the owner's folder has no override directories — but it is the same
+ * isolation leak the projects-root refactor exists to close.
+ */
+const isolatedDataDir = await useTempDataDir()
+after(() => isolatedDataDir.cleanup())
 
 // ── Catalogue fixtures ──────────────────────────────────────────────────
 // A model that passes ALL SIX conditions. Every exclusion test below starts

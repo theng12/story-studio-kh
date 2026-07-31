@@ -28,9 +28,9 @@ beforeEach(async () => {
   await fs.mkdir(projectsDir, { recursive: true })
 })
 
-describe('PROJECTS_ROOT path resolution', () => {
+describe('projectsRoot() path resolution', () => {
   test('uses STORY_STUDIO_DATA_DIR when set', () => {
-    assert.ok(pm.PROJECTS_ROOT.startsWith(tempDir), `expected projects in temp dir, got: ${pm.PROJECTS_ROOT}`)
+    assert.ok(pm.projectsRoot().startsWith(tempDir), `expected projects in temp dir, got: ${pm.projectsRoot()}`)
   })
 })
 

@@ -1,8 +1,22 @@
-import { describe, test } from 'node:test'
+import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { composeNicheWithTopicPacks, listNiches, loadNiche } from '../services/niche-loader.js'
 import { planIdeaAssignments } from '../services/idea-campaign-planner.js'
 import { listTopicPacks } from '../services/topic-pack-loader.js'
+import { useTempDataDir } from './_helpers.js'
+/**
+ * Claim an isolated data dir before anything runs.
+ *
+ * These are pure-logic tests, but the loaders they exercise (niche,
+ * topic-pack, format) look for user overrides under
+ * `${projectsRoot()}/.niches` and friends. With no data dir claimed that
+ * resolves to the machine owner's REAL projects folder, so results would
+ * depend on what they happen to have installed there. Reads only today —
+ * the owner's folder has no override directories — but it is the same
+ * isolation leak the projects-root refactor exists to close.
+ */
+const isolatedDataDir = await useTempDataDir()
+after(() => isolatedDataDir.cleanup())
 
 describe('Series Formula + Topic Pack campaign planning', () => {
   test('legacy and new niches load as Series Formulas without a project migration', async () => {

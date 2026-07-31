@@ -32,7 +32,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot } from './project-manager.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths, formatEpisodeCode, episodeNumber } from './utils.js'

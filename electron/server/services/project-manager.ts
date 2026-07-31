@@ -16,6 +16,7 @@ import {
 } from '../models/defaults.js'
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type {
   AudioModelConfig, CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
@@ -84,14 +85,19 @@ function resolveAppSettingsPath(): string {
 }
 
 /**
- * Read the user's `projects_root_override` setting at boot.
+ * Read the user's `projects_root_override` setting.
  *
- * Synchronous on purpose: PROJECTS_ROOT is exported as a const and used
- * by every service in the codebase. Resolving asynchronously would
+ * Synchronous on purpose: `projectsRoot()` is called from every service in
+ * the codebase, much of it synchronous. Resolving asynchronously would
  * require touching hundreds of call sites OR a one-shot await wrapper
- * that's hard to fit alongside existing import patterns. Sync read is
- * safe — app-settings.json is tiny (<1 KB) and we read it exactly once
- * per process lifetime.
+ * that's hard to fit alongside existing import patterns.
+ *
+ * Deliberately NOT memoised. It used to run exactly once per process — as
+ * part of the module-load `PROJECTS_ROOT` const — which is precisely the
+ * frozen-path bug this module was refactored to remove. app-settings.json is
+ * tiny (<1 KB) and this is skipped entirely whenever `STORY_STUDIO_DATA_DIR`
+ * is set (tests, and any isolated run), because that branch returns before
+ * we get here. Callers that resolve in a loop hoist the result into a local.
  *
  * Returns:
  *   - the absolute override path when set + non-empty
@@ -149,8 +155,8 @@ function resolveProjectsRoot(): string {
 
 /**
  * Diagnostic helpers for the Storage-tab UI. Exported so the route
- * layer can return both `effective_path` (what THIS process resolved
- * at boot) and `default_path` (what the userData fallback would give)
+ * layer can return both `effective_path` (what `projectsRoot()` resolves
+ * to right now) and `default_path` (what the userData fallback would give)
  * without re-implementing the platform branching.
  */
 export function getProjectsRootDefaultPath(): string {
@@ -182,9 +188,9 @@ export function getProjectsRootAppSettingsPath(): string {
 
 /**
  * One-shot migration: copy projects from legacy dev locations into the
- * canonical PROJECTS_ROOT (userData/projects) on first startup only.
+ * canonical projects root (userData/projects) on first startup only.
  *
- * A `.legacy-migration-done` marker is written to PROJECTS_ROOT after the
+ * A `.legacy-migration-done` marker is written to the projects root after the
  * first run. Subsequent startups short-circuit — so deleting a project
  * from userData will NOT cause it to be re-seeded from a stale legacy
  * folder on the next launch.
@@ -192,22 +198,31 @@ export function getProjectsRootAppSettingsPath(): string {
  * Legacy locations:
  *   - {repo}/projects/            (from the original tsx-watch dev setup)
  *   - {repo}/electron/projects/   (from the compiled-JS dev setup)
+ *
+ * MUST be called explicitly at real application startup, never at module
+ * load. Importing this module used to run it, which meant any test — or any
+ * tool that merely pulled in a service transitively — copied directories
+ * around and wrote a marker file into the developer's real projects folder.
+ * Call sites: `electron/main.ts` (packaged / dev Electron boot) and the
+ * standalone-listen branch of `electron/server/app.ts` (dev via tsx). Both
+ * are genuine server boots; neither runs when a test imports the app.
  */
-function migrateLegacyProjects(): void {
-  const markerPath = path.join(PROJECTS_ROOT, '.legacy-migration-done')
+export function migrateLegacyProjects(): void {
+  const root = ensureProjectsRoot()
+  const markerPath = path.join(root, '.legacy-migration-done')
   if (existsSync(markerPath)) return
 
   const legacyRoots = [
     path.join(ROOT, 'projects'),
     path.join(ROOT, 'electron', 'projects'),
-  ].filter(p => p !== PROJECTS_ROOT && existsSync(p))
+  ].filter(p => p !== root && existsSync(p))
 
   for (const legacy of legacyRoots) {
     let entries: string[] = []
     try { entries = require('fs').readdirSync(legacy) } catch { continue }
     for (const slug of entries) {
       const src = path.join(legacy, slug)
-      const dst = path.join(PROJECTS_ROOT, slug)
+      const dst = path.join(root, slug)
       try {
         const stat = require('fs').statSync(src)
         if (!stat.isDirectory()) continue
@@ -233,14 +248,55 @@ function resolveTemplatesRoot(): string {
   return path.join(ROOT, 'electron', 'templates')
 }
 
-export const PROJECTS_ROOT = resolveProjectsRoot()
+/**
+ * The projects root, resolved on EVERY access.
+ *
+ * Deliberately a function and not an exported `const`. `STORY_STUDIO_DATA_DIR`
+ * is what redirects project storage into an isolated directory, and it is set
+ * by the caller — the Electron main process at boot, `useTempDataDir()` in
+ * tests. The old module-scope `const PROJECTS_ROOT = resolveProjectsRoot()`
+ * froze the path to whatever it happened to be when the FIRST importer
+ * anywhere in the graph pulled this module in, which is before a test's
+ * `before()` hook can claim its temp dir. Measured on the full backend suite,
+ * 73 of the 147 test processes that load this module bound the developer's
+ * REAL projects directory that way — and on this machine that resolves via
+ * `projects_root_override` to the owner's actual working folder, not a
+ * throwaway userData path.
+ *
+ * A lazy getter was not an option: ESM named exports cannot be backed by a
+ * getter, so no shim could have kept the `PROJECTS_ROOT` import shape honest.
+ * The const is therefore DELETED rather than deprecated — that turns every
+ * consumer this refactor might have missed into a TypeScript compile error
+ * instead of a silently stale path.
+ *
+ * Same shape as `services/app-settings.ts`, `services/named-roots.ts` and
+ * `services/preview-cache.ts`. Directory creation is deferred to
+ * `ensureProjectsRoot()` at the actual write sites, so merely resolving the
+ * path — or importing this module — never touches the filesystem.
+ */
+export function projectsRoot(): string {
+  return resolveProjectsRoot()
+}
+
 export const TEMPLATES_ROOT = resolveTemplatesRoot()
 
-// Ensure projects dir exists
-if (!existsSync(PROJECTS_ROOT)) mkdirSync(PROJECTS_ROOT, { recursive: true })
-
-// One-time migration from legacy dev locations (no-op if nothing to migrate)
-migrateLegacyProjects()
+/**
+ * Resolve the projects root AND make sure the directory exists.
+ *
+ * Call this from write paths only. Read paths (`listProjects`, `getProjectDir`)
+ * use `projectsRoot()` and tolerate a missing directory, so a read can never
+ * create one — that is what let a stray import materialise folders in the
+ * developer's real storage location.
+ */
+export function ensureProjectsRoot(): string {
+  const root = projectsRoot()
+  // Asserted unconditionally, not just when the directory has to be created:
+  // the real hazard is a test writing INTO the developer's existing projects
+  // folder, which no `existsSync` check would ever notice.
+  assertWriteIsolatedInTests(root, 'projects-root')
+  if (!existsSync(root)) mkdirSync(root, { recursive: true })
+  return root
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -261,7 +317,7 @@ function slugify(name: string): string {
 function uniqueSlug(base: string): string {
   let existing: Set<string>
   try {
-    const entries = require('fs').readdirSync(PROJECTS_ROOT) as string[]
+    const entries = require('fs').readdirSync(projectsRoot()) as string[]
     existing = new Set(entries.map((e) => e.toLowerCase()))
   } catch {
     existing = new Set<string>()
@@ -352,7 +408,7 @@ async function writeJson(filePath: string, data: any): Promise<void> {
 async function syncManifest(slug: string): Promise<void> {
   try {
     // Linked-aware: a moved project's manifest still needs to refresh.
-    const projectDir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+    const projectDir = getProjectDir(slug) || path.join(projectsRoot(), slug)
     const metaPath = path.join(projectDir, 'project.json')
     if (!existsSync(metaPath)) return
     const meta: ProjectMeta = await readJson(metaPath)
@@ -419,17 +475,20 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   // via /soft-deleted-projects.
   const softDeleted = await getSoftDeletedSlugSet()
 
+  // Resolved once per call, not once per process — and reused across the
+  // loop below so a listing doesn't re-resolve for every entry.
+  const root = projectsRoot()
   let defaultEntries: string[] = []
   try {
-    defaultEntries = await fs.readdir(PROJECTS_ROOT)
-  } catch { /* PROJECTS_ROOT missing — fall through to linked-only */ }
+    defaultEntries = await fs.readdir(root)
+  } catch { /* projects root missing — fall through to linked-only */ }
   for (const name of defaultEntries.sort()) {
     if (name.startsWith('.')) continue
     // Backup folders left behind by Move this project to… (delete_source
     // off) — the user can verify + restore them but they shouldn't show
     // up as live projects in the list.
     if (/\.bak-/.test(name)) continue
-    candidates.push({ dir: path.join(PROJECTS_ROOT, name), folderName: name })
+    candidates.push({ dir: path.join(root, name), folderName: name })
   }
 
   // Linked projects — read project.json's slug to populate the seen set
@@ -581,7 +640,7 @@ export async function getProject(slug: string): Promise<ProjectMeta | null> {
 
 export async function createProject(req: CreateProjectRequest): Promise<ProjectMeta> {
   const slug = uniqueSlug(slugify(req.name))
-  const projectDir = path.join(PROJECTS_ROOT, slug)
+  const projectDir = path.join(ensureProjectsRoot(), slug)
   // If a tombstone exists for this slug, clear it — the user is
   // explicitly creating a project here; honour that over a stale
   // "this slug was hidden earlier" memory. Cheap idempotent call.
@@ -784,7 +843,7 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
     meta = raw as ProjectMeta
   } catch { /* fall through */ }
 
-  const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(PROJECTS_ROOT) + path.sep)
+  const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(projectsRoot()) + path.sep)
 
   if (inDefaultLocation) {
     await softDeleteProject(slug)
@@ -1278,7 +1337,7 @@ export async function updateStandards(slug: string, content: string): Promise<bo
  * sitting in PROJECTS_ROOT.
  */
 export function getProjectDir(slug: string): string | null {
-  const d = path.join(PROJECTS_ROOT, slug)
+  const d = path.join(projectsRoot(), slug)
   if (existsSync(d)) return d
   const linked = getLinkedDirCache().get(slug)
   if (linked && existsSync(linked)) return linked

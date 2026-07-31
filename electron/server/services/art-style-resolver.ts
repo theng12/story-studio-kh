@@ -49,7 +49,7 @@ export interface ResolvedArtStyle {
 
 /** Absolute path to the project's style-previews directory. */
 function stylePreviewsDir(slug: string): string {
-  const projDir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
+  const projDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
   return path.join(projDir, 'style-previews')
 }
 

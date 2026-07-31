@@ -5,7 +5,7 @@
 import path from 'path'
 import { createHash } from 'crypto'
 import { existsSync } from 'fs'
-import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
+import { projectsRoot, getProjectDir } from './project-manager.js'
 
 /**
  * Resolve a project's directory regardless of whether it lives in the
@@ -16,7 +16,7 @@ import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
  * to be created on disk.
  */
 function projectDirFor(slug: string): string {
-  return getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return getProjectDir(slug) || path.join(projectsRoot(), slug)
 }
 
 // ── Episode path resolver ───────────────────────────────────────────────────

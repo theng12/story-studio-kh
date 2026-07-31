@@ -1,4 +1,4 @@
-import { afterEach, describe, test } from 'node:test'
+import { after, afterEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
@@ -8,6 +8,20 @@ import { router as healthRouter } from '../routes/health.js'
 import { router as jobsRouter } from '../routes/jobs.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
 import { fetchFalVideo, fetchKieVideo } from '../services/video-reconciler.js'
+import { useTempDataDir } from './_helpers.js'
+/**
+ * Claim an isolated data dir before anything runs.
+ *
+ * These are pure-logic tests, but the loaders they exercise (niche,
+ * topic-pack, format) look for user overrides under
+ * `${projectsRoot()}/.niches` and friends. With no data dir claimed that
+ * resolves to the machine owner's REAL projects folder, so results would
+ * depend on what they happen to have installed there. Reads only today —
+ * the owner's folder has no override directories — but it is the same
+ * isolation leak the projects-root refactor exists to close.
+ */
+const isolatedDataDir = await useTempDataDir()
+after(() => isolatedDataDir.cleanup())
 
 const originalFetch = globalThis.fetch
 

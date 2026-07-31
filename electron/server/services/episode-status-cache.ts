@@ -65,7 +65,7 @@ function diskCachePath(slug: string): string {
  * harmless, the file just continues to occupy a few hundred KB.
  */
 function legacyDiskCachePath(slug: string): string {
-  const dir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
+  const dir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
   return path.join(dir, '.cache', CACHE_FILENAME)
 }
 

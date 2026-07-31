@@ -41,7 +41,7 @@ import { sanitizeProjectSlug } from './slug.js'
 import type { NeedsConfirmation } from './project-inference.js'
 import type { PortableManifest, ProjectMeta, SubfolderNames } from '../models/types.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot, ensureProjectsRoot } from './project-manager.js'
 
 export type ImportAction = 'imported' | 'relocated' | 'collision'
 
@@ -275,7 +275,7 @@ interface RegisteredProject {
 async function findRegisteredProject(projectId: string): Promise<RegisteredProject | null> {
   if (!projectId) return null
   let slugs: string[] = []
-  try { slugs = await fs.readdir(PROJECTS_ROOT) } catch { return null }
+  try { slugs = await fs.readdir(projectsRoot()) } catch { return null }
   for (const slug of slugs) {
     const meta = await safeReadMeta(slug)
     if (!meta) continue
@@ -293,7 +293,7 @@ async function findProjectBySlug(slug: string): Promise<RegisteredProject | null
 }
 
 async function safeReadMeta(slug: string): Promise<ProjectMeta | null> {
-  const p = path.join(PROJECTS_ROOT, slug, 'project.json')
+  const p = path.join(projectsRoot(), slug, 'project.json')
   if (!existsSync(p)) return null
   try {
     const raw = await fs.readFile(p, 'utf-8')
@@ -304,7 +304,7 @@ async function safeReadMeta(slug: string): Promise<ProjectMeta | null> {
 }
 
 async function updateOutputRoot(slug: string, newRoot: string): Promise<void> {
-  const metaPath = path.join(PROJECTS_ROOT, slug, 'project.json')
+  const metaPath = path.join(projectsRoot(), slug, 'project.json')
   await withLock(metaPath, async () => {
     // A raw JSON.parse here used to throw on corruption and surface as an
     // opaque "SyntaxError" to the import flow. Worse, if we'd mirrored the
@@ -357,7 +357,7 @@ async function writeProjectFromInspection(
   projectId: string,
   outputRoot: string,
 ): Promise<void> {
-  const projectDir = path.join(PROJECTS_ROOT, slug)
+  const projectDir = path.join(ensureProjectsRoot(), slug)
   await fs.mkdir(projectDir, { recursive: true })
 
   const subfolderNames: SubfolderNames = {

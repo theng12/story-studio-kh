@@ -84,8 +84,8 @@ describe('episode-status-cache', () => {
     cacheMod = await import('../services/episode-status-cache.js')
     pm = await import('../services/project-manager.js')
     // Ensure PROJECTS_ROOT (resolved at module load) matches our temp dir.
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at the temp dir — env was set too late')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at the temp dir — env was set too late')
   })
 
   after(async () => {

@@ -34,7 +34,7 @@ function projectCharactersDir(slug: string): string {
   // Honour linked-project locations so iCloud-synced projects find their
   // characters tree. Default-location fallback covers fresh-project
   // creation flows.
-  const dir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
+  const dir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
   return path.join(dir, 'characters')
 }
 
@@ -48,7 +48,7 @@ function characterDir(slug: string, characterId: string): string {
  * route so it doesn't have to redo path arithmetic.
  */
 export function referenceImagePath(slug: string, characterId: string, filename: string): string {
-  const libraryPath = path.join(pm.PROJECTS_ROOT, '.character-library', characterId, filename)
+  const libraryPath = path.join(pm.projectsRoot(), '.character-library', characterId, filename)
   if (existsSync(libraryPath)) return libraryPath
   const projectPath = path.join(characterDir(slug, characterId), filename)
   if (existsSync(projectPath)) return projectPath

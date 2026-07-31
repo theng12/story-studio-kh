@@ -35,7 +35,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { getProjectDir, PROJECTS_ROOT } from './project-manager.js'
+import { getProjectDir, projectsRoot } from './project-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import {
@@ -97,7 +97,7 @@ function isEnvelope(raw: any): raw is EncryptedEnvelope {
 }
 
 function projectSecretsPath(slug: string): string {
-  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  const dir = getProjectDir(slug) || path.join(projectsRoot(), slug)
   return path.join(dir, 'secrets.json')
 }
 
@@ -301,7 +301,7 @@ export async function resetSecretsForCurrentMachine(_slug: string): Promise<void
 // ── Legacy config.json → app secrets one-shot migrator ──────────────────────
 
 export async function migrateSecretsFromConfig(slug: string): Promise<void> {
-  const dir = getProjectDir(slug) ?? path.join(PROJECTS_ROOT, slug)
+  const dir = getProjectDir(slug) ?? path.join(projectsRoot(), slug)
   const configPath = path.join(dir, 'config.json')
   if (!existsSync(configPath)) return
   let raw: any

@@ -27,8 +27,8 @@ describe('art-style-resolver', () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
     resolver = await import('../services/art-style-resolver.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir — env was set too late')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir — env was set too late')
   })
 
   after(async () => {

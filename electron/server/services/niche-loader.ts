@@ -82,7 +82,7 @@ function resolveBuiltinNichesDir(): string {
 export const BUILTIN_NICHES_DIR = resolveBuiltinNichesDir()
 
 function userNichesDir(): string {
-  return path.join(pm.PROJECTS_ROOT, '.niches')
+  return path.join(pm.projectsRoot(), '.niches')
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────
@@ -452,7 +452,10 @@ export function nicheFilePath(id: string): string {
 }
 
 export async function ensureNichesDir(): Promise<void> {
-  await fs.mkdir(userNichesDir(), { recursive: true })
+  // ensureProjectsRoot() (not projectsRoot()) so the shared test-isolation
+  // guard fires before a recursive mkdir can materialise `.niches` inside the
+  // developer's real projects folder.
+  await fs.mkdir(path.join(pm.ensureProjectsRoot(), '.niches'), { recursive: true })
 }
 
 export function invalidateNicheCache(id: string): void {

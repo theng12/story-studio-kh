@@ -35,7 +35,7 @@ import type { Character } from '../models/types.js'
 const SCHEMA_VERSION = 1 as const
 
 function libraryRoot(): string {
-  return path.join(pm.PROJECTS_ROOT, '.character-library')
+  return path.join(pm.projectsRoot(), '.character-library')
 }
 
 function libraryDir(characterId: string): string {
@@ -107,7 +107,9 @@ export async function createLibraryCharacter(
     schemaVersion: SCHEMA_VERSION,
     created_at: new Date().toISOString(),
   }
-  await fs.mkdir(libraryDir(id), { recursive: true })
+  // ensureProjectsRoot() so the test-isolation guard fires before a recursive
+  // mkdir can create `.character-library` in the real projects folder.
+  await fs.mkdir(path.join(pm.ensureProjectsRoot(), '.character-library', id), { recursive: true })
   await withLock(file, async () => writeJsonAtomic(file, record))
   return record
 }
@@ -202,7 +204,7 @@ export async function saveToLibrary(
   // self-contained (project deletion shouldn't break the library).
   if (source.references?.images?.length) {
     const sourceDir = path.join(
-      pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug),
+      pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug),
       'characters', source.id,
     )
     for (const filename of source.references.images) {
@@ -251,7 +253,7 @@ export async function importFromLibrary(
   }
 
   const projectDir = path.join(
-    pm.getProjectDir(targetSlug) || path.join(pm.PROJECTS_ROOT, targetSlug),
+    pm.getProjectDir(targetSlug) || path.join(pm.projectsRoot(), targetSlug),
     'characters', targetId,
   )
   const projectJson = path.join(projectDir, 'character.json')

@@ -13,7 +13,7 @@ import { boundGenStudioRequestPreviews, pendingGenStudioEntryId } from '../lib/g
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
-import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
+import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
@@ -471,7 +471,7 @@ function groupLimit(group: string): number {
 function jobsPath(projectSlug: string): string {
   // Honour linked-project locations so iCloud-synced projects read +
   // write their jobs.json in the right place.
-  const dir = getProjectDir(projectSlug) || path.join(PROJECTS_ROOT, projectSlug)
+  const dir = getProjectDir(projectSlug) || path.join(projectsRoot(), projectSlug)
   return path.join(dir, 'jobs.json')
 }
 

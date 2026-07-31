@@ -26,7 +26,7 @@ const SLUG_A = 'mig-a'
 const SLUG_B = 'mig-b'
 
 async function makeProject(slug: string) {
-  const projDir = path.join(pm.PROJECTS_ROOT, slug)
+  const projDir = path.join(pm.projectsRoot(), slug)
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug, name: `Test ${slug}`,
@@ -43,7 +43,7 @@ describe('character-migration', () => {
     cl = await import('../services/character-library.js')
     cm = await import('../services/character-manager.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'), 'PROJECTS_ROOT must point at temp dir')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'), 'projectsRoot() must point at temp dir')
   })
 
   after(async () => {
@@ -51,8 +51,8 @@ describe('character-migration', () => {
   })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProject(SLUG_A)
     await makeProject(SLUG_B)
   })
@@ -63,7 +63,7 @@ describe('character-migration', () => {
     assert.equal(plan.totals.copy, 1)
     assert.equal(plan.items[0].status, 'copy')
     // Nothing was written to the library.
-    assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, '.character-library', 'aria')), false)
+    assert.equal(existsSync(path.join(pm.projectsRoot(), '.character-library', 'aria')), false)
     assert.equal(await cl.getLibraryCharacter('aria'), null)
   })
 
@@ -89,12 +89,12 @@ describe('character-migration', () => {
     const lib = await cl.getLibraryCharacter('aria')
     assert.equal(lib?.name, 'Aria')
     assert.deepEqual(lib?.projects, [SLUG_A])
-    assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, '.character-library', 'aria', 'face.png')), true)
+    assert.equal(existsSync(path.join(pm.projectsRoot(), '.character-library', 'aria', 'face.png')), true)
 
     // Project original is STILL THERE (copy-only, non-destructive).
     const original = await cm.listOwnCharacters(SLUG_A)
     assert.deepEqual(original.map(c => c.id), ['aria'])
-    assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, SLUG_A, 'characters', 'aria', 'face.png')), true)
+    assert.equal(existsSync(path.join(pm.projectsRoot(), SLUG_A, 'characters', 'aria', 'face.png')), true)
 
     // Unified view shows it once (dedup, project wins).
     const unified = await cm.listCharacters(SLUG_A)

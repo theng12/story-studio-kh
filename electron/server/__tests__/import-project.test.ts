@@ -42,7 +42,7 @@ before(async () => {
   cleanup = t.cleanup
   importSvc = await import('../services/import-project.js')
   const pm = await import('../services/project-manager.js')
-  projectsRoot = pm.PROJECTS_ROOT
+  projectsRoot = pm.projectsRoot()
 })
 
 after(async () => {

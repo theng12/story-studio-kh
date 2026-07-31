@@ -350,7 +350,7 @@ async function preflightBatch(
   const estimateInputs = extractEstimateInputs(presetByStep as Record<BatchStep, StoredPreset>, episodeIds.length)
   const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
   const outputRoot = await pm.getProjectOutputRoot(slug)
-  const freeBytes = await getFreeBytes(outputRoot || pm.PROJECTS_ROOT)
+  const freeBytes = await getFreeBytes(outputRoot || pm.projectsRoot())
   if (freeBytes > 0 && freeBytes < estimatedBytes) {
     issues.push({
       code: 'insufficient_disk',

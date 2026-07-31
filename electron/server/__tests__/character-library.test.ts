@@ -26,7 +26,7 @@ const SLUG_A = 'lib-test-a'
 const SLUG_B = 'lib-test-b'
 
 async function makeProject(slug: string) {
-  const projDir = path.join(pm.PROJECTS_ROOT, slug)
+  const projDir = path.join(pm.projectsRoot(), slug)
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug, name: `Test ${slug}`,
@@ -42,8 +42,8 @@ describe('character-library', () => {
     cl = await import('../services/character-library.js')
     cm = await import('../services/character-manager.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir')
   })
 
   after(async () => {
@@ -51,8 +51,8 @@ describe('character-library', () => {
   })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProject(SLUG_A)
     await makeProject(SLUG_B)
   })
@@ -268,11 +268,11 @@ describe('character-library', () => {
     await cm.addReferenceImage(SLUG_A, 'aria', Buffer.from('fake-png'), 'portrait.png')
     await cl.saveToLibrary(SLUG_A, 'aria')
     // Image should now exist in the library folder.
-    const libImg = path.join(pm.PROJECTS_ROOT, '.character-library', 'aria', 'portrait.png')
+    const libImg = path.join(pm.projectsRoot(), '.character-library', 'aria', 'portrait.png')
     assert.equal(existsSync(libImg), true, 'image copied to library')
 
     await cl.importFromLibrary('aria', SLUG_B)
-    const projImg = path.join(pm.PROJECTS_ROOT, SLUG_B, 'characters', 'aria', 'portrait.png')
+    const projImg = path.join(pm.projectsRoot(), SLUG_B, 'characters', 'aria', 'portrait.png')
     assert.equal(existsSync(projImg), true, 'image copied to project on import')
     // Library imports also list it in references.
     const onB = await cm.getCharacter(SLUG_B, 'aria')

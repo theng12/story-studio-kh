@@ -51,8 +51,8 @@ describe('format-loader', () => {
     tmp = await useTempDataDir()
     loader = await import('../services/format-loader.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir — env was set too late')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir — env was set too late')
   })
 
   after(async () => {
@@ -194,7 +194,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: default when project has no format_id', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'no-format-project')
+    const projDir = path.join(pm.projectsRoot(), 'no-format-project')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('no-format-project'))
     const fmt = await loader.getEffectiveFormat('no-format-project')
@@ -202,7 +202,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: applies project.format_overrides', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'override-project')
+    const projDir = path.join(pm.projectsRoot(), 'override-project')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('override-project', {
       format_id: 'continuity-chain',
@@ -219,7 +219,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: missing format_id falls back to default (no throw)', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'bad-format-project')
+    const projDir = path.join(pm.projectsRoot(), 'bad-format-project')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('bad-format-project', {
       format_id: 'this-format-id-does-not-exist',
@@ -230,7 +230,7 @@ describe('format-loader', () => {
 
   // ── LEGACY remap (v1.0.280) ───────────────────────────────────────────────
   test('getEffectiveFormat: legacy narrative remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-narrative')
+    const projDir = path.join(pm.projectsRoot(), 'legacy-narrative')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-narrative', { format_id: 'narrative' }))
     const fmt = await loader.getEffectiveFormat('legacy-narrative')
@@ -240,7 +240,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: legacy narration-synced remaps to Continuity + sentence', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-synced')
+    const projDir = path.join(pm.projectsRoot(), 'legacy-synced')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-synced', { format_id: 'narration-synced' }))
     const fmt = await loader.getEffectiveFormat('legacy-synced')
@@ -249,7 +249,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: retired B-Roll formats remap to the Continuity Engine', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-broll')
+    const projDir = path.join(pm.projectsRoot(), 'legacy-broll')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-broll', { format_id: 'broll-narration' }))
     const fmt = await loader.getEffectiveFormat('legacy-broll')
@@ -259,7 +259,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: retired Image Pool remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-image-pool')
+    const projDir = path.join(pm.projectsRoot(), 'legacy-image-pool')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-image-pool', { format_id: 'image-pool' }))
     const fmt = await loader.getEffectiveFormat('legacy-image-pool')
@@ -268,7 +268,7 @@ describe('format-loader', () => {
   })
 
   test('getEffectiveFormat: legacy sleep-story remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'legacy-sleepstory')
+    const projDir = path.join(pm.projectsRoot(), 'legacy-sleepstory')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-sleepstory', { format_id: 'sleep-story' }))
     const fmt = await loader.getEffectiveFormat('legacy-sleepstory')
@@ -351,7 +351,7 @@ describe('format-loader', () => {
 
   // ── NEUTRAL FALLBACK: format-only project still produces a usable Format ────
   test('getEffectiveFormat: no-niche project yields a builder-acceptable Format', async () => {
-    const projDir = path.join(pm.PROJECTS_ROOT, 'neutral-fallback')
+    const projDir = path.join(pm.projectsRoot(), 'neutral-fallback')
     await fs.mkdir(projDir, { recursive: true })
     await fs.writeFile(path.join(projDir, 'project.json'), projectJson('neutral-fallback', { format_id: 'continuity-chain' }))
     const fmt = await loader.getEffectiveFormat('neutral-fallback')
@@ -475,7 +475,7 @@ describe('format-loader', () => {
   })
 
   test('legacy custom format files remain readable but cannot become the active engine', async () => {
-    const userFormatsDir = path.join(pm.PROJECTS_ROOT, '.formats')
+    const userFormatsDir = path.join(pm.projectsRoot(), '.formats')
     await fs.mkdir(userFormatsDir, { recursive: true })
     const forged = {
       id: 'legacy-custom-format',

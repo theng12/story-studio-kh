@@ -50,7 +50,7 @@ describe('linked-projects', () => {
     lp = await import('../services/linked-projects.js')
     pm = await import('../services/project-manager.js')
     mover = await import('../services/project-mover.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   after(async () => { await tmp.cleanup() })
@@ -63,7 +63,7 @@ describe('linked-projects', () => {
     for (const name of entries) {
       await fs.rm(path.join(tmp.dir, name), { recursive: true, force: true }).catch(() => {})
     }
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     lp.invalidateLinkedDirCache()
   })
 
@@ -118,10 +118,10 @@ describe('linked-projects', () => {
 
   describe('getProjectDir + listProjects merging', () => {
     test('default-location project resolves via getProjectDir', async () => {
-      await seedProject(pm.PROJECTS_ROOT, 'default-only')
+      await seedProject(pm.projectsRoot(), 'default-only')
       const dir = pm.getProjectDir('default-only')
       assert.ok(dir)
-      assert.equal(dir, path.join(pm.PROJECTS_ROOT, 'default-only'))
+      assert.equal(dir, path.join(pm.projectsRoot(), 'default-only'))
     })
 
     test('linked-only project resolves via getProjectDir after add', async () => {
@@ -134,16 +134,16 @@ describe('linked-projects', () => {
 
     test('default wins over linked on slug conflict', async () => {
       // Same slug at both locations.
-      await seedProject(pm.PROJECTS_ROOT, 'shared-slug')
+      await seedProject(pm.projectsRoot(), 'shared-slug')
       const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'shared-slug')
       await lp.addLinkedProject(linkedDir)
       const dir = pm.getProjectDir('shared-slug')
       // Default-location entries always win over linked.
-      assert.equal(dir, path.join(pm.PROJECTS_ROOT, 'shared-slug'))
+      assert.equal(dir, path.join(pm.projectsRoot(), 'shared-slug'))
     })
 
     test('listProjects merges default + linked into one list', async () => {
-      await seedProject(pm.PROJECTS_ROOT, 'local')
+      await seedProject(pm.projectsRoot(), 'local')
       const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'remote')
       await lp.addLinkedProject(linkedDir)
       const all = await pm.listProjects()
@@ -152,9 +152,9 @@ describe('linked-projects', () => {
     })
 
     test('listProjects skips *.bak-* folders left by Move this project to…', async () => {
-      await seedProject(pm.PROJECTS_ROOT, 'live-project')
+      await seedProject(pm.projectsRoot(), 'live-project')
       // A residual backup folder from a prior move (delete_source: false).
-      await fs.mkdir(path.join(pm.PROJECTS_ROOT, 'live-project.bak-2026-04-29T01-23-45-678Z'), { recursive: true })
+      await fs.mkdir(path.join(pm.projectsRoot(), 'live-project.bak-2026-04-29T01-23-45-678Z'), { recursive: true })
       const all = await pm.listProjects()
       assert.equal(all.length, 1)
       assert.equal(all[0]!.slug, 'live-project')
@@ -195,7 +195,7 @@ describe('linked-projects', () => {
       assert.equal(ideas[0]!.title, 'Test')
     })
 
-    test('idea-manager writes ideas to the linked project folder, not PROJECTS_ROOT', async () => {
+    test('idea-manager writes ideas to the linked project folder, not projectsRoot()', async () => {
       const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'idea-writer')
       await lp.addLinkedProject(linkedDir)
       const im = await import('../services/idea-manager.js')
@@ -208,8 +208,8 @@ describe('linked-projects', () => {
       }], 'test-model')
       assert.equal(existsSync(path.join(linkedDir, 'ideas.json')), true,
         'ideas.json should be at the linked location')
-      assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, 'idea-writer', 'ideas.json')), false,
-        'ideas.json must NOT leak into PROJECTS_ROOT for a linked-only project')
+      assert.equal(existsSync(path.join(pm.projectsRoot(), 'idea-writer', 'ideas.json')), false,
+        'ideas.json must NOT leak into projectsRoot() for a linked-only project')
     })
 
     test('utils.resolveEpisodePaths anchors relative output_root to the linked dir', async () => {
@@ -234,7 +234,7 @@ describe('linked-projects', () => {
       const utils = await import('../services/utils.js')
       const paths = await utils.resolveEpisodePaths('ep-host', 'EP0001', 'Pilot')
       assert.equal(paths.output_root, path.join(linkedDir, 'episodes'),
-        'relative output_root must anchor to the linked dir, not PROJECTS_ROOT')
+        'relative output_root must anchor to the linked dir, not projectsRoot()')
       assert.ok(paths.episode_dir.startsWith(linkedDir),
         'episode_dir must live inside the linked folder')
     })
@@ -289,7 +289,7 @@ describe('linked-projects', () => {
 
   describe('moveProjectToFolder', () => {
     test('happy path: copies project, registers linked entry, renames source', async () => {
-      const projDir = await seedProject(pm.PROJECTS_ROOT, 'mover-test', [
+      const projDir = await seedProject(pm.projectsRoot(), 'mover-test', [
         ['scripts/script.txt', 'narration content'],
         ['episodes/EP001/audio.mp3', 'audio bytes'],
       ])
@@ -317,17 +317,17 @@ describe('linked-projects', () => {
     })
 
     test('delete_source: true removes the source after a successful move', async () => {
-      await seedProject(pm.PROJECTS_ROOT, 'mover-delete', [['only.txt', 'x']])
+      await seedProject(pm.projectsRoot(), 'mover-delete', [['only.txt', 'x']])
       const destParent = path.join(tmp.dir, 'destination')
       const result = await mover.moveProjectToFolder('mover-delete', destParent, { delete_source: true })
 
       assert.equal(result.source_disposition, 'deleted')
-      assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, 'mover-delete')), false)
+      assert.equal(existsSync(path.join(pm.projectsRoot(), 'mover-delete')), false)
       assert.equal(existsSync(path.join(destParent, 'mover-delete')), true)
     })
 
     test('refuses move when destination already has content', async () => {
-      await seedProject(pm.PROJECTS_ROOT, 'mover-blocked', [['x.txt', 'src']])
+      await seedProject(pm.projectsRoot(), 'mover-blocked', [['x.txt', 'src']])
       const destParent = path.join(tmp.dir, 'destination')
       // Pre-populate target so the safety check fires.
       const newDir = path.join(destParent, 'mover-blocked')
@@ -339,11 +339,11 @@ describe('linked-projects', () => {
         (e: any) => e.statusCode === 409 && /Destination already exists/i.test(e.message),
       )
       // Source intact on rejection.
-      assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, 'mover-blocked')), true)
+      assert.equal(existsSync(path.join(pm.projectsRoot(), 'mover-blocked')), true)
     })
 
     test('refuses move when source has .icloud placeholders', async () => {
-      const projDir = await seedProject(pm.PROJECTS_ROOT, 'mover-icloud', [
+      const projDir = await seedProject(pm.projectsRoot(), 'mover-icloud', [
         ['real.txt', 'real'],
         ['.evicted.bin.icloud', 'stub'],
       ])
@@ -357,7 +357,7 @@ describe('linked-projects', () => {
     })
 
     test('refuses destination inside source folder', async () => {
-      const projDir = await seedProject(pm.PROJECTS_ROOT, 'mover-recursive', [['x.txt', 'x']])
+      const projDir = await seedProject(pm.projectsRoot(), 'mover-recursive', [['x.txt', 'x']])
       // Try to move INTO a subfolder of itself.
       const insideDest = path.join(projDir, 'subfolder')
       await assert.rejects(
@@ -368,7 +368,7 @@ describe('linked-projects', () => {
 
     test('moving an already-linked project re-links to new location', async () => {
       // First move a project from default to a linked location.
-      await seedProject(pm.PROJECTS_ROOT, 'twice-moved', [['x.txt', 'first']])
+      await seedProject(pm.projectsRoot(), 'twice-moved', [['x.txt', 'first']])
       const dest1 = path.join(tmp.dir, 'first-destination')
       await mover.moveProjectToFolder('twice-moved', dest1, { delete_source: true })
       // Verify it's linked at dest1.

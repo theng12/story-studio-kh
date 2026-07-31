@@ -7,7 +7,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { projectsRoot } from './project-manager.js'
 import { resolveEpisodePaths, formatEpisodeCode } from './utils.js'
 import * as pm from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -70,7 +70,7 @@ function ideasPath(slug: string): string {
   // folder registered via "Add existing project folder…") resolve to the
   // right ideas.json. Falling back to the default location keeps fresh
   // project creation working before the dir exists on disk.
-  const dir = pm.getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  const dir = pm.getProjectDir(slug) || path.join(projectsRoot(), slug)
   return path.join(dir, 'ideas.json')
 }
 

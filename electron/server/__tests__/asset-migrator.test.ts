@@ -34,7 +34,7 @@ async function seedProject(
   outputRoot: string | undefined,
   externalSeed?: { files: Array<[string, string]> },
 ): Promise<{ projectDir: string; externalDir: string | null }> {
-  const projectDir = path.join(pm.PROJECTS_ROOT, slug)
+  const projectDir = path.join(pm.projectsRoot(), slug)
   await fs.mkdir(projectDir, { recursive: true })
   const meta: any = { slug, name: slug }
   if (outputRoot !== undefined) meta.output_root = outputRoot
@@ -60,7 +60,7 @@ describe('asset-migrator', () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
     migrator = await import('../services/asset-migrator.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   after(async () => { await tmp.cleanup() })
@@ -75,7 +75,7 @@ describe('asset-migrator', () => {
     for (const name of entries) {
       await fs.rm(path.join(tmp.dir, name), { recursive: true, force: true }).catch(() => {})
     }
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
   })
 
   describe('detectAssetMigrationStatus', () => {
@@ -95,7 +95,7 @@ describe('asset-migrator', () => {
     })
 
     test('absolute path INSIDE project dir → needed:false (kind=absolute_inside_project_dir)', async () => {
-      const projectDir = path.join(pm.PROJECTS_ROOT, 'proj')
+      const projectDir = path.join(pm.projectsRoot(), 'proj')
       await fs.mkdir(projectDir, { recursive: true })
       // Absolute path that resolves inside the project dir — atypical but
       // possible if someone hand-edited project.json. Still no migration

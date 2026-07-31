@@ -264,7 +264,7 @@ export async function generateImages(job: Job): Promise<void> {
     ? ((req as any).thumbnail_reference_asset || (config as any).thumbnail_reference_asset || null)
     : null
   const savedThumbnailReferencePath = savedThumbnailReference?.id && typeof savedThumbnailReference?.filename === 'string'
-    ? path.join(pm.getProjectDir(project_slug) || path.join(pm.PROJECTS_ROOT, project_slug), 'thumbnail-reference-assets', savedThumbnailReference.filename)
+    ? path.join(pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug), 'thumbnail-reference-assets', savedThumbnailReference.filename)
     : ''
   const hasSavedThumbnailReference = !!savedThumbnailReferencePath && existsSync(savedThumbnailReferencePath)
   if (mode === 'thumbs' && savedThumbnailReference?.id && !hasSavedThumbnailReference) {
@@ -357,7 +357,7 @@ export async function generateImages(job: Job): Promise<void> {
       // not unconditionally under PROJECTS_ROOT — otherwise iCloud-synced
       // projects would silently render scenes without their reference
       // images attached.
-      const projDir = pm.getProjectDir(project_slug) || path.join(pm.PROJECTS_ROOT, project_slug)
+      const projDir = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
       const charDir = path.join(projDir, 'characters', c.id)
       for (const filename of (c.references!.images || [])) {
         out.push(path.join(charDir, filename))

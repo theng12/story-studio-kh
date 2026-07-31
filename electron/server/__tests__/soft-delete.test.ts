@@ -50,19 +50,19 @@ describe('soft-delete', () => {
     for (const name of entries) {
       await fs.rm(path.join(tmp.dir, name), { recursive: true, force: true }).catch(() => {})
     }
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     lp.invalidateLinkedDirCache()
   })
 
   test('deleteProject on default-location → soft_deleted, folder untouched', async () => {
-    await seedProject(pm.PROJECTS_ROOT, 'soft-victim')
+    await seedProject(pm.projectsRoot(), 'soft-victim')
     const result = await pm.deleteProject('soft-victim')
     assert.equal(result.ok, true)
     assert.equal(result.disposition, 'soft_deleted')
-    assert.equal(result.orphan_path, path.join(pm.PROJECTS_ROOT, 'soft-victim'))
+    assert.equal(result.orphan_path, path.join(pm.projectsRoot(), 'soft-victim'))
     // Folder still on disk.
-    assert.ok(existsSync(path.join(pm.PROJECTS_ROOT, 'soft-victim')))
-    assert.ok(existsSync(path.join(pm.PROJECTS_ROOT, 'soft-victim', 'project.json')))
+    assert.ok(existsSync(path.join(pm.projectsRoot(), 'soft-victim')))
+    assert.ok(existsSync(path.join(pm.projectsRoot(), 'soft-victim', 'project.json')))
     // Hidden from listProjects.
     const list = await pm.listProjects()
     assert.equal(list.length, 0)
@@ -94,8 +94,8 @@ describe('soft-delete', () => {
   })
 
   test('listSoftDeletedProjects surfaces hidden default-location projects', async () => {
-    await seedProject(pm.PROJECTS_ROOT, 'tomb-A')
-    await seedProject(pm.PROJECTS_ROOT, 'tomb-B')
+    await seedProject(pm.projectsRoot(), 'tomb-A')
+    await seedProject(pm.projectsRoot(), 'tomb-B')
     await pm.deleteProject('tomb-A')
     await pm.deleteProject('tomb-B')
 
@@ -112,7 +112,7 @@ describe('soft-delete', () => {
   })
 
   test('forgetSoftDeletedProject restores visibility in listProjects', async () => {
-    await seedProject(pm.PROJECTS_ROOT, 'oops')
+    await seedProject(pm.projectsRoot(), 'oops')
     await pm.deleteProject('oops')
     let list = await pm.listProjects()
     assert.equal(list.length, 0)
@@ -129,7 +129,7 @@ describe('soft-delete', () => {
   })
 
   test('hardDeleteSoftDeletedProject rm-rfs folder + clears tombstone', async () => {
-    const dir = await seedProject(pm.PROJECTS_ROOT, 'goodbye')
+    const dir = await seedProject(pm.projectsRoot(), 'goodbye')
     await pm.deleteProject('goodbye')
     assert.ok(existsSync(dir), 'soft-delete preserves folder')
 
@@ -148,7 +148,7 @@ describe('soft-delete', () => {
 
   test('addLinkedProject auto-clears a soft-delete tombstone for its slug', async () => {
     // Soft-delete a default-location project.
-    await seedProject(pm.PROJECTS_ROOT, 'reborn')
+    await seedProject(pm.projectsRoot(), 'reborn')
     await pm.deleteProject('reborn')
     let tombstones = await sd.listSoftDeletedProjects()
     assert.equal(tombstones.length, 1)

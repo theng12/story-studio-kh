@@ -15,7 +15,7 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 const SLUG = 'char-test-project'
 
 async function makeProject() {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug: SLUG, name: 'Char Test',
@@ -30,8 +30,8 @@ describe('character-manager', () => {
     tmp = await useTempDataDir()
     cm = await import('../services/character-manager.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir — env was set too late')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir — env was set too late')
   })
 
   after(async () => {
@@ -41,9 +41,9 @@ describe('character-manager', () => {
   beforeEach(async () => {
     // Wipe characters dir + the app-level library between tests so each
     // starts fresh (the unified-merge tests create library entries).
-    const dir = path.join(pm.PROJECTS_ROOT, SLUG, 'characters')
+    const dir = path.join(pm.projectsRoot(), SLUG, 'characters')
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(path.join(pm.PROJECTS_ROOT, '.character-library'), { recursive: true, force: true }).catch(() => {})
+    await fs.rm(path.join(pm.projectsRoot(), '.character-library'), { recursive: true, force: true }).catch(() => {})
     await makeProject()
   })
 
@@ -153,7 +153,7 @@ describe('character-manager', () => {
     const c = await cm.getCharacter(SLUG, 'aria')
     assert.deepEqual(c!.references?.images, ['portrait.png'])
     // File on disk
-    const onDisk = await fs.readFile(path.join(pm.PROJECTS_ROOT, SLUG, 'characters', 'aria', 'portrait.png'))
+    const onDisk = await fs.readFile(path.join(pm.projectsRoot(), SLUG, 'characters', 'aria', 'portrait.png'))
     assert.equal(onDisk.toString(), 'fake png bytes')
   })
 

@@ -29,7 +29,7 @@ import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import {
   getUserDataDir,
-  PROJECTS_ROOT,
+  projectsRoot,
 } from '../services/project-manager.js'
 import { listLinkedProjects } from '../services/linked-projects.js'
 import {
@@ -148,13 +148,14 @@ async function writeProjectFileEncrypted(filePath: string, value: Record<string,
 async function listProjectDirs(): Promise<string[]> {
   const dirs: string[] = []
   // Default location.
-  if (existsSync(PROJECTS_ROOT)) {
+  const root = projectsRoot()
+  if (existsSync(root)) {
     try {
-      const entries = await fs.readdir(PROJECTS_ROOT, { withFileTypes: true })
+      const entries = await fs.readdir(root, { withFileTypes: true })
       for (const e of entries) {
         if (!e.isDirectory()) continue
         if (e.name.startsWith('.')) continue
-        dirs.push(path.join(PROJECTS_ROOT, e.name))
+        dirs.push(path.join(root, e.name))
       }
     } catch { /* permission / race */ }
   }

@@ -31,7 +31,7 @@ const SLUG = 'renumber-test'
 const TITLE = 'Renumber Demo'
 
 async function makeProject(): Promise<void> {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   const outputRoot = path.join(projDir, 'episodes')
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
@@ -93,14 +93,14 @@ describe('episode-renumber: renameAcceptedEpisode', () => {
     pm = await import('../services/project-manager.js')
     im = await import('../services/idea-manager.js')
     er = await import('../services/episode-renumber.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProject()
   })
 

@@ -25,7 +25,7 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 const SLUG = 'mark-done-test'
 
 async function makeProjectWithIdeas(): Promise<void> {
-  const projDir = path.join(pm.PROJECTS_ROOT, SLUG)
+  const projDir = path.join(pm.projectsRoot(), SLUG)
   await fs.mkdir(projDir, { recursive: true })
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug: SLUG, name: 'Mark-Done Test',
@@ -62,16 +62,16 @@ describe('idea-manager mark-done + overrides', () => {
     tmp = await useTempDataDir()
     im = await import('../services/idea-manager.js')
     pm = await import('../services/project-manager.js')
-    assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'),
-      'PROJECTS_ROOT must point at temp dir')
+    assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
+      'projectsRoot() must point at temp dir')
   })
 
   after(async () => { await tmp.cleanup() })
 
   beforeEach(async () => {
     // Wipe + recreate each test so mutations don't bleed across.
-    await fs.rm(pm.PROJECTS_ROOT, { recursive: true, force: true }).catch(() => {})
-    await fs.mkdir(pm.PROJECTS_ROOT, { recursive: true })
+    await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
+    await fs.mkdir(pm.projectsRoot(), { recursive: true })
     await makeProjectWithIdeas()
   })
 
