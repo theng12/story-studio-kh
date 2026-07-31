@@ -172,7 +172,11 @@ export async function normalizeNarrationDocx(
     if (opts._callAiOverride) {
       restructured = await opts._callAiOverride(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys)
     } else {
-      restructured = await callAiWithRetry(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys, false, { slug })
+      // Maximum: this returns the ENTIRE narration restructured. Anything
+      // short of the product ceiling silently loses the tail of the script.
+      restructured = await callAiWithRetry(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys, false, {
+        slug, outputBudget: 'maximum',
+      })
     }
   } catch (e: any) {
     throw new Error(`LLM normalisation failed: ${e?.message || 'unknown error'}`)

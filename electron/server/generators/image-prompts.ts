@@ -465,6 +465,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         jobId: job.job_id,
         signal: controller.signal,
         outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
+        // Standard: a structured pack of N thumbnail prompts.
+        outputBudget: 'standard',
         disableReasoning: true,
         temperature: 0.35,
       })

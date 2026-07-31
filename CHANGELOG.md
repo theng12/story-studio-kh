@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.765 — 2026-07-31
+
+- **Long writing is no longer cut off at a fixed ceiling** — Research, chapters, outlines,
+  narration, scene plans and idea batches now ask for an output length scaled to the
+  selected model's own published limit instead of a fixed 2,048 tokens. That fixed cap was
+  quietly truncating long-form work and, in at least one real run, wasted the whole job.
+  Short steps like titles and tags are unchanged.
+- **A cut-off answer is never saved as finished work** — if a model stops because it ran out
+  of room, Story Studio now fails the step and tells you to pick a model with a bigger
+  output limit or shorten the request. Previously a truncated answer could be written to
+  disk as a completed chapter.
+- **Accurate web research cost wording** — the figure GenStudio reports for web search is
+  the search add-on, not the whole bill, and it is now labelled that way instead of being
+  shown as the total charged.
+- **A request GenStudio could not confirm is never resent automatically** — if GenStudio
+  stops because it could not tell whether a request was accepted, Story Studio now reports
+  that and asks you to check before retrying, rather than resubmitting and risking a second
+  charge.
+
+---
+
 ## v1.0.764 — 2026-07-31
 
 - **Research can now search the web** — choose between **Model knowledge only**, which

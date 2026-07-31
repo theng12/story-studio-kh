@@ -775,12 +775,25 @@ interface ResearchReviewRecord {
   completed_at?: string
   note?: string
 }
+/** GenStudio's CONFIRMED envelope field names (cloud-api chat/schemas.py).
+ *  The two `@deprecated` names are what v1.0.764 guessed; sidecars written by
+ *  that release still carry them, so they are still read and never written. */
 interface ResearchWebRunReport {
-  searches_performed?: number
-  credits_charged?: number
+  web_searches_executed?: number
+  /** The web-search ADD-ON cost, not the run's total charge. */
+  web_search_credit_cost?: number
+  /** GenStudio's own record of when the run finished. Beats generated_at. */
+  research_ran_at?: string
+  /** In the contract, unpopulated by every provider today. Parsed, not shown:
+   *  citations still back the RUN, never an individual claim. */
+  citation_claims?: Array<{ claim_id: string; citation_ids: string[] }>
   credits_per_search?: number
   allowed_domains?: string[]
   blocked_domains?: string[]
+  /** @deprecated read-only back-compat */
+  searches_performed?: number
+  /** @deprecated read-only back-compat */
+  credits_charged?: number
 }
 interface ResearchOutput {
   schema_version: 1
@@ -896,25 +909,34 @@ const resultProvenanceNotice = computed(() => {
   return (result.value?.citations?.length || 0) > 0 ? WEB_SEARCH_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
 })
 /** Run-level recency. There is no per-source retrieval timestamp on purpose —
- *  GenStudio does not fetch the pages, so one would be falsely precise. */
+ *  GenStudio does not fetch the pages, so one would be falsely precise.
+ *  GenStudio's `research_ran_at` is preferred when the envelope supplied it;
+ *  `generated_at` (when this app wrote the sidecar) is the fallback. */
 const resultRanOnLabel = computed(() => {
-  const at = result.value?.generated_at
+  const at = result.value?.web_run?.research_ran_at || result.value?.generated_at
   if (!at) return ''
   const d = new Date(at)
   return Number.isNaN(d.getTime()) ? at : d.toLocaleString()
 })
-/** The ACTUAL charge and search count, exactly as GenStudio reported them.
- *  Nothing is computed locally, and an unreported value says so. */
+/** What the run actually did and what the SEARCHES cost, exactly as GenStudio
+ *  reported them under its confirmed field names. Nothing is computed locally,
+ *  and an unreported value says so.
+ *
+ *  "Web search cost" — not "charged": the envelope field is
+ *  `web_search_credit_cost`, the search ADD-ON only, so labelling it as the
+ *  total bill would misreport what the user paid. */
 const webRunReportLabel = computed(() => {
   const run = result.value?.web_run
-  const searches = run?.searches_performed
-  const credits = run?.credits_charged
-  if (searches === undefined && credits === undefined) {
-    return 'GenStudio did not report how many searches this run made or what it charged.'
+  const searches = run?.web_searches_executed ?? run?.searches_performed
+  const searchCost = run?.web_search_credit_cost ?? run?.credits_charged
+  if (searches === undefined && searchCost === undefined) {
+    return 'GenStudio did not report how many searches this run made or what the search cost.'
   }
   const parts: string[] = []
-  parts.push(searches === undefined ? 'Searches: not reported.' : `Searches: ${searches}.`)
-  parts.push(credits === undefined ? 'Charged: not reported.' : `Charged: ${credits} credits.`)
+  parts.push(searches === undefined ? 'Searches executed: not reported.' : `Searches executed: ${searches}.`)
+  parts.push(searchCost === undefined
+    ? 'Web search cost: not reported.'
+    : `Web search cost: ${searchCost} credits.`)
   return parts.join(' ')
 })
 /** Publisher / date, only when the provider actually supplied them. */

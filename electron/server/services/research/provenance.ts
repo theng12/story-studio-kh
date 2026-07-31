@@ -19,7 +19,7 @@
  * must never appear in model mode.
  */
 
-import type { ResearchMode } from '../../models/types.js'
+import type { ResearchMode, ResearchWebRunReport } from '../../models/types.js'
 
 /** Page / banner notice for the model-knowledge route. */
 export const MODEL_KNOWLEDGE_NOTICE =
@@ -52,4 +52,64 @@ export function researchModeNotice(mode: ResearchMode, citationCount = 0): strin
 /** Customer-facing mode label. Deliberately avoids "LLM". */
 export function researchModeLabel(mode: ResearchMode): string {
   return mode === 'web-search' ? 'Search the web' : 'Model knowledge only'
+}
+
+/** The literal every surface uses for a field GenStudio did not report. */
+export const NOT_REPORTED = 'not reported'
+
+/**
+ * Read a persisted web-run report under the CONFIRMED field names, accepting
+ * the two names v1.0.764 guessed so older sidecars still display.
+ *
+ * A field that is genuinely absent stays `null` and is rendered as
+ * "not reported". Nothing here computes a charge.
+ */
+export function readResearchWebRun(run: ResearchWebRunReport | undefined | null): {
+  searchesExecuted: number | null
+  searchCreditCost: number | null
+  researchRanAt: string | null
+} {
+  const int = (...values: unknown[]): number | null => {
+    for (const value of values) {
+      if (Number.isInteger(value) && (value as number) >= 0) return value as number
+    }
+    return null
+  }
+  return {
+    searchesExecuted: int(run?.web_searches_executed, run?.searches_performed),
+    searchCreditCost: int(run?.web_search_credit_cost, run?.credits_charged),
+    researchRanAt: typeof run?.research_ran_at === 'string' && run.research_ran_at.trim()
+      ? run.research_ran_at
+      : null,
+  }
+}
+
+/**
+ * The one sentence every surface prints about what a web run did and cost.
+ *
+ * "Web search cost" — NOT "charged". The envelope field is
+ * `web_search_credit_cost`, the web-search ADD-ON only, so calling it the
+ * total charge would misreport the bill.
+ */
+export function webRunUsageSentence(run: ResearchWebRunReport | undefined | null): string {
+  const { searchesExecuted, searchCreditCost } = readResearchWebRun(run)
+  if (searchesExecuted === null && searchCreditCost === null) {
+    return 'GenStudio did not report how many searches this run made or what the search cost.'
+  }
+  return `Searches executed: ${searchesExecuted ?? NOT_REPORTED}. `
+    + `Web search cost: ${searchCreditCost === null ? NOT_REPORTED : `${searchCreditCost} credits`}.`
+}
+
+/**
+ * When the research actually ran.
+ *
+ * GenStudio's `research_ran_at` is the run's own record and wins whenever the
+ * envelope supplied it. `generated_at` — the moment this app wrote the file —
+ * is the fallback, not the preference.
+ */
+export function researchRanAt(
+  run: ResearchWebRunReport | undefined | null,
+  generatedAt: string | undefined | null,
+): string {
+  return readResearchWebRun(run).researchRanAt || (generatedAt || '')
 }

@@ -110,7 +110,10 @@ router.post('/projects/:slug/formats/from-sample', async (req, res) => {
   })
 
   try {
-    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, { slug })
+    // Long: a whole format definition derived from full sample scripts.
+    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {
+      slug, outputBudget: 'long',
+    })
     const parsed = parseExtractedFormatJson(raw)
     res.json({ format: parsed })
   } catch (e: any) {

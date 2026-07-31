@@ -646,6 +646,9 @@ describe('the research generator resets the triage', () => {
         source_provider: 'genstudio-web',
         research_mode: 'web-search',
         citations,
+        // Deliberately the RETIRED v1.0.764 field name: a sidecar written by
+        // that release must still display, and still say "not reported" for
+        // the field GenStudio genuinely did not send.
         web_run: { searches_performed: 3, credits_per_search: 5 },
       }),
       // Claims are never mapped to sources in web mode — the sources back the
@@ -689,11 +692,13 @@ describe('the research generator resets the triage', () => {
     assert.doesNotMatch(md, /no live web access/)
     assert.doesNotMatch(md, /Reliable on well-established facts/)
     assert.doesNotMatch(md, /no source cited/i)
-    // Actual usage is reported exactly as GenStudio reported it — the
-    // unreported charge says so instead of being computed locally.
-    assert.match(md, /Searches performed: 3\. Credits charged: not reported\./)
+    // Actual usage is reported exactly as GenStudio reported it, under its
+    // confirmed field names — the unreported search cost says so instead of
+    // being computed locally. "Web search cost", not "charged": the envelope
+    // field is the search ADD-ON, never the run's total bill.
+    assert.match(md, /Searches executed: 3\. Web search cost: not reported\./)
     assert.ok(job.output_lines.some(l => /Mode: Search the web/.test(l)))
-    assert.ok(job.output_lines.some(l => /Credits charged: not reported/.test(l)))
+    assert.ok(job.output_lines.some(l => /Web search cost: not reported/.test(l)))
   })
 
   test('a web run that cited nothing says so rather than implying sources exist', async () => {

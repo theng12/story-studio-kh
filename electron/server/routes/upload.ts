@@ -153,7 +153,10 @@ Write a description that:
 
 Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps, no excessive emoji (one max, only if it fits the channel voice).`
 
-    const text = await callAiWithRetry(model, system, userMsg, apiKeys, false, { slug })
+    // Standard: a multi-paragraph playlist description.
+    const text = await callAiWithRetry(model, system, userMsg, apiKeys, false, {
+      slug, outputBudget: 'standard',
+    })
     res.json({ description: text.trim(), model, length: text.trim().length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))

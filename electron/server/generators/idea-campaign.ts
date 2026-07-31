@@ -294,7 +294,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         slug: job.project_slug,
         jobId: job.job_id,
         signal: controller.signal,
-        maxTokens: ideaOutputTokenBudget(assignments.length),
+        outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
       })
     } finally {
       clearInterval(watcher)

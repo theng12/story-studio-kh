@@ -34,6 +34,7 @@ const genstudioProvider: TextProvider = {
       userMessage: request.userMessage,
       temperature: request.temperature,
       maxOutputTokens: request.maxTokens,
+      outputBudget: request.outputBudget,
       requestIdentity: request.requestIdentity,
       outputContract: request.outputContract,
       jsonObject: !request.outputContract && request.jsonMode === true,

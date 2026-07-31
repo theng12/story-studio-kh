@@ -101,6 +101,8 @@ RETURN ONLY THIS JSON (no markdown):
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,
     }, false, {
+      // Standard: a structured pack of scene video prompts.
+      outputBudget: 'standard',
       slug,
       outputContract: videoPromptsOutputContract(nClips),
     })

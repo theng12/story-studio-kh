@@ -165,6 +165,7 @@ export interface VideoProvider {
 // ── Text Provider ────────────────────────────────────────────────────────
 
 import type { TextOutputContract } from '../lib/json-output-contract.js'
+import type { OutputBudget } from '../services/output-token-budget.js'
 
 export interface TextGenerationRequest {
   model: string
@@ -173,6 +174,9 @@ export interface TextGenerationRequest {
   apiKey: string
   stream?: boolean
   maxTokens?: number
+  /** The SHAPE of this workflow's output, sized from the selected product's
+   *  published output limit. See services/output-token-budget.ts. */
+  outputBudget?: OutputBudget
   /** Prefer provider-native JSON mode for strict machine-readable workflows. */
   jsonMode?: boolean
   /**

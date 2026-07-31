@@ -31,8 +31,10 @@ describe('idea output token budget', () => {
       'utf8',
     )
 
-    assert.match(ideasRoute, /maxTokens: ideaOutputTokenBudget\(overshoot\.count\)/)
-    assert.match(ideasRoute, /maxTokens: ideaOutputTokenBudget\(retryReq\.count\)/)
-    assert.match(campaign, /maxTokens: ideaOutputTokenBudget\(assignments\.length\)/)
+    // The count-scaled number is now a FLOOR inside a product-derived budget,
+    // so it can never exceed the selected product's published output limit.
+    assert.match(ideasRoute, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(overshoot\.count\) \}/)
+    assert.match(ideasRoute, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(retryReq\.count\) \}/)
+    assert.match(campaign, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
   })
 })

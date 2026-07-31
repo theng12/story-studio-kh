@@ -964,7 +964,10 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   )
 
   try {
-    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
+    // Standard: a full YouTube description. Titles/tags below stay short-form.
+    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, {
+      slug, outputBudget: 'standard',
+    })
     await trackGeneration(slug, 'description')
     // Scan the freshly-generated description for any tracked items
     // and append to the recency log. Fail-soft analytics-style write.
@@ -1165,7 +1168,9 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       'metadata',
       buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
     )
-    const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, { slug })
+    const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
+      slug, outputBudget: 'standard',
+    })
     const description = descRaw.trim()
     await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 

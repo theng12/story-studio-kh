@@ -3147,16 +3147,47 @@ export interface ResearchWebSearchSettings {
  * is surfaced as "not reported", never as zero and never as an estimate.
  */
 export interface ResearchWebRunReport {
-  /** How many searches the provider actually performed, when reported. */
-  searches_performed?: number
-  /** Credits actually charged for the run, when reported. */
-  credits_charged?: number
+  /** Envelope `web_searches_executed` — searches the provider actually ran. */
+  web_searches_executed?: number
+  /**
+   * Envelope `web_search_credit_cost`.
+   *
+   * This is the WEB-SEARCH ADD-ON cost, NOT the run's total charge. The
+   * earlier `credits_charged` name (a guess) implied otherwise, which is why
+   * it was retired. Surfaces must label it as the search cost.
+   */
+  web_search_credit_cost?: number
+  /**
+   * Envelope `research_ran_at` — when GenStudio finished the research run.
+   *
+   * Preferred over the sidecar's locally stamped `generated_at` for the
+   * displayed "Research ran on", because it is GenStudio's own record of the
+   * run rather than the moment this app wrote a file.
+   */
+  research_ran_at?: string
+  /**
+   * Envelope `citation_claims` — explicit claim-to-source linkage.
+   *
+   * In GenStudio's published contract but not populated by any provider yet,
+   * so it is parsed and persisted without driving any per-claim display. The
+   * Research page keeps citing the RUN. When a provider starts filling this,
+   * the data is already here.
+   */
+  citation_claims?: Array<{ claim_id: string; citation_ids: string[] }>
   /** The per-search rate the catalogue published at run time. Recorded for
    *  the record; it is a RATE, never multiplied into a total by this app. */
   credits_per_search?: number
   /** The domain filters that were actually sent with the request. */
   allowed_domains?: string[]
   blocked_domains?: string[]
+  // ── Retired guesses, read-only ────────────────────────────────────────
+  // v1.0.764 shipped these two invented names before GenStudio published the
+  // contract. Sidecars written by that release still carry them, so they are
+  // still READ (see readResearchWebRun) and never written again.
+  /** @deprecated Read-only back-compat for v1.0.764 sidecars. */
+  searches_performed?: number
+  /** @deprecated Read-only back-compat for v1.0.764 sidecars. */
+  credits_charged?: number
 }
 
 /** One factual claim the research adapter returned, with status flags
@@ -3249,9 +3280,14 @@ export interface ResearchOutput {
    *  Absent for model-knowledge runs, and for web runs where GenStudio
    *  reported nothing. */
   web_run?: ResearchWebRunReport
-  /** When the research run completed. ISO8601. This is ALSO the answer to
-   *  "how recent are these web sources?" — there is no per-source retrieval
-   *  timestamp, on purpose (see ResearchCitation.published_at). */
+  /** When Story Studio wrote this sidecar. ISO8601.
+   *
+   *  This is the FALLBACK answer to "how recent are these web sources?", not
+   *  the preferred one: when the envelope supplied `web_run.research_ran_at`,
+   *  that is GenStudio's own record of the run and wins. Either way the answer
+   *  is run-level — there is no per-source retrieval timestamp, on purpose
+   *  (see ResearchCitation.published_at). Read both through
+   *  services/research/provenance.ts :: researchRanAt(). */
   generated_at: string
   /** The episode topic the research was framed around. */
   topic: string

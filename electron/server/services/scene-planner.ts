@@ -1993,7 +1993,12 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
     const MAX_ATTEMPTS = 1
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && winScenes.length === 0; attempt++) {
       try {
-        const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })
+        // Maximum: one window of the full-episode scene plan as JSON. Was a
+        // hardcoded 16,000 for the same reason, with the same two failure
+        // modes on products above and below that number.
+        const raw = await callAi(opts.model, system, user, apiKeys, false, {
+          outputBudget: 'maximum',
+        })
         const parsed = parsePlannerJson(raw)
         // Clamp this window's scenes to [lowerBound, win.end] so they stay
         // in-segment and don't overlap the neighbouring windows.

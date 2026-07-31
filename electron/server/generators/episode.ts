@@ -661,7 +661,8 @@ async function generateEpisode(job: Job): Promise<void> {
       job.output_lines.push('Generating image prompts...')
       imageText = await callAiWithRetry(req.model, sysPrompt,
         imagePromptsPrompt(format, episode_id, title, storySummary, styleTag, characters), apiKeys, false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        // Long: one prompt per scene for the whole episode in a single pass.
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
       const promptCount = (imageText.match(/^##\s/gm) || []).length
       job.output_lines.push(`Image prompts: ${promptCount} prompts`)
     }
@@ -672,7 +673,8 @@ async function generateEpisode(job: Job): Promise<void> {
       job.output_lines.push('Generating YouTube description...')
       ytText = await callAiWithRetry(req.model, sysPrompt,
         youtubePrompt(format, episode_id, title, storySummary), apiKeys, false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        // Standard: a multi-paragraph description, not a title or a tag list.
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard' })
       job.output_lines.push('YouTube description: done')
     }
 
@@ -957,7 +959,8 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
   }, 500)
   try {
     const chapterText = await callAiWithRetry(req.model, sysPrompt, chapterPrompt, apiKeys, true,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      // Long: a full chapter of narration.
+      { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
 
     // Parse out the title from the heading the model produced. Fall back
     // to a synthesised title if the model omitted it.
@@ -1106,7 +1109,8 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
   }, 500)
   try {
     const introText = await callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      // Long: a full introduction section of narration.
+      { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
     const cleanedIntro = introText.trim()
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
     const wordCount = cleanedIntro.split(/\s+/).length

@@ -190,7 +190,10 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && !parsed; attempt++) {
       try {
         const raw = await callAi(model, system, buildUser(batch), apiKeys, false, {
-          slug: job.project_slug, jobId: job.job_id, maxTokens: 16000,
+          // Maximum: a full batch of director JSON. Was a hardcoded 16,000,
+          // which both ignored a larger product and hard-failed the
+          // pre-network limit check on a product publishing less.
+          slug: job.project_slug, jobId: job.job_id, outputBudget: 'maximum',
         })
         parsed = parseDirectorJson(raw)
       } catch (e: any) {

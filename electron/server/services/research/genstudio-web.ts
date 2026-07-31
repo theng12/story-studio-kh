@@ -82,21 +82,35 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       system,
       userMessage: user,
       outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
+      // Same long-form shape as model-knowledge research, and the same
+      // truncation risk — web mode also has to fit its sources in.
+      outputBudget: 'long',
       webSearch,
     }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio web research failed: ${message}`)
     })
 
-    // Report what GenStudio actually reported, and nothing more. A null
-    // searches/credits field stays absent so the UI can say "not reported"
-    // instead of showing a number this app made up.
+    // Report what GenStudio actually reported, and nothing more. A null field
+    // stays ABSENT so the UI can say "not reported" instead of showing a
+    // number this app made up. Field names are GenStudio's confirmed contract
+    // (schemas.py :: OpenAIChatCompletionResponse), not the names v1.0.764
+    // guessed.
     const webRun: ResearchWebRunReport = {
-      ...(result.webSearch.searchesPerformed !== null
-        ? { searches_performed: result.webSearch.searchesPerformed }
+      ...(result.webSearch.searchesExecuted !== null
+        ? { web_searches_executed: result.webSearch.searchesExecuted }
         : {}),
-      ...(result.webSearch.creditsCharged !== null
-        ? { credits_charged: result.webSearch.creditsCharged }
+      ...(result.webSearch.searchCreditCost !== null
+        ? { web_search_credit_cost: result.webSearch.searchCreditCost }
+        : {}),
+      ...(result.webSearch.researchRanAt !== null
+        ? { research_ran_at: result.webSearch.researchRanAt }
+        : {}),
+      // Present in the contract, empty from every provider today. Persisted
+      // when it arrives so the run-level display can become per-claim later
+      // without a migration; nothing reads it for display yet.
+      ...(result.webSearch.citationClaims.length
+        ? { citation_claims: result.webSearch.citationClaims }
         : {}),
       ...(product.web_search_credits_per_search !== null
         ? { credits_per_search: product.web_search_credits_per_search }

@@ -17,6 +17,8 @@ import {
 import {
   researchModeLabel,
   researchModeNotice,
+  researchRanAt,
+  webRunUsageSentence,
   MODEL_KNOWLEDGE_CLAIM_NOTE,
 } from '../services/research/provenance.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
@@ -141,12 +143,9 @@ export async function runResearchJob(job: Job): Promise<void> {
         : 'This run searched the web but returned no sources. Treat these claims as model knowledge until '
           + 'you find sources yourself, or run it again.',
     )
-    const searches = persisted.web_run?.searches_performed
-    const credits = persisted.web_run?.credits_charged
-    job.output_lines.push(
-      // Never compute a charge locally: report exactly what GenStudio reported.
-      `Searches performed: ${searches ?? 'not reported'}. Credits charged: ${credits ?? 'not reported'}.`,
-    )
+    // Never compute a charge locally: report exactly what GenStudio reported,
+    // under its confirmed field names, and say "not reported" otherwise.
+    job.output_lines.push(webRunUsageSentence(persisted.web_run))
   } else {
     const uncited = persisted.claims.filter(c => !c.citation_indices?.length).length
     if (uncited) {
@@ -196,7 +195,9 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   // "Research ran on <date>" is the run-level recency signal for web sources.
   // There is deliberately no per-source retrieval timestamp — GenStudio does
   // not fetch the pages, so one would be falsely precise.
-  lines.push(`*${researchModeLabel(mode)} · research ran on ${r.generated_at}`
+  // GenStudio's own `research_ran_at` wins when the envelope supplied it;
+  // `generated_at` (when this app wrote the file) is only the fallback.
+  lines.push(`*${researchModeLabel(mode)} · research ran on ${researchRanAt(r.web_run, r.generated_at)}`
     + `${r.source_model ? ` · ${r.source_model}` : ''}*`)
   lines.push('')
   // Provenance, per mode. Model-knowledge output was never checked for the
@@ -205,10 +206,7 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   lines.push(`*${researchModeNotice(mode, r.citations.length)}*`)
   lines.push('')
   if (mode === 'web-search' && r.web_run) {
-    const searches = r.web_run.searches_performed
-    const credits = r.web_run.credits_charged
-    lines.push(`*Searches performed: ${searches ?? 'not reported'}. `
-      + `Credits charged: ${credits ?? 'not reported'}.*`)
+    lines.push(`*${webRunUsageSentence(r.web_run)}*`)
     lines.push('')
   }
   // Review state is part of the human-readable record too — a reader opening

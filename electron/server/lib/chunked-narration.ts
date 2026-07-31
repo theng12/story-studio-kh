@@ -802,7 +802,13 @@ async function expandNarrativeSequential(
     )
 
     job.output_lines.push(`[chunked] Batch ${bi + 1}/${batches.length} — chapters ${firstN}-${lastN}…`)
-    const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
+    // Maximum: a batch is several full chapters of narration in one response.
+    // This is the workflow that must never be cut off — a truncated batch is
+    // a half-written chapter, and the repair pass below costs another request.
+    const ctx = {
+      slug: job.project_slug, jobId: job.job_id, signal: params.signal,
+      outputBudget: 'maximum' as const,
+    }
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
@@ -1000,7 +1006,11 @@ async function expandListicleParallel(
 
       try {
         const prompt = listicleBatchPrompt(params, batch)
-        const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
+        // Same as the narrative batch: several complete items per response.
+        const ctx = {
+          slug: job.project_slug, jobId: job.job_id, signal: params.signal,
+          outputBudget: 'maximum' as const,
+        }
         const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
         const wrote = await parseAndWriteBatch(params, batch, text)
         // Sidecar updates need serialisation — atomic write is fine but we
@@ -1387,6 +1397,9 @@ async function callForJsonArray(
     const raw = await callAiWithRetry(model, system, user, apiKeys, false, {
       ...ctx,
       outputContract,
+      // Long: one structured entry per chapter for the whole episode. Shorter
+      // than the narration itself, but far past the short-form default.
+      outputBudget: 'long',
       disableReasoning: true,
       temperature: 0.25,
     })

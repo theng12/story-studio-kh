@@ -37,7 +37,12 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       model = (await resolveDefaultChatModel(apiKey)).modelId
     }
     const { system, user } = buildResearchPrompt(opts, 'llm-only')
-    const raw = await callAiWithRetry(model, system, user, {}, false).catch((err: unknown) => {
+    // Long-form: a research pass returns a summary, a claims list, a citation
+    // list and an episode outline in one JSON object. The 2,048-token
+    // short-form default truncated it, which GenStudio then refused to settle.
+    const raw = await callAiWithRetry(model, system, user, {}, false, {
+      outputBudget: 'long',
+    }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio research failed: ${message}`)
     })

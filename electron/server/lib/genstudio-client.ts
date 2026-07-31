@@ -21,6 +21,11 @@ import {
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 import {
+  describeOutputBudget,
+  resolveOutputTokenBudget,
+  type OutputBudget,
+} from '../services/output-token-budget.js'
+import {
   JSON_OBJECT_OUTPUT_CONTRACT,
   PROSE_OUTPUT_CONTRACT,
   PROSE_WRAPPER_SCHEMA,
@@ -730,7 +735,20 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   userMessage: string
   temperature?: number
   topP?: number
+  /**
+   * An exact number of output tokens. Callers that can compute their own hard
+   * ceiling still may; anything above the product's published limit is refused
+   * before the request is submitted. Prefer `outputBudget` — it derives the
+   * number from whatever the selected product publishes, so it cannot go stale
+   * and cannot overshoot.
+   */
   maxOutputTokens?: number
+  /**
+   * The SHAPE of this workflow's output. Resolved against the selected
+   * product's published `max_output_tokens` at submission time. Absent means
+   * short-form, which is the historical 2,048-token default.
+   */
+  outputBudget?: OutputBudget
   requestIdentity?: string
   idempotencyKey?: string
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
@@ -773,36 +791,93 @@ export interface GenStudioCitation {
   id: string
   url: string
   title: string | null
+  /** Contract fields no provider populates today. Left optional and ABSENT
+   *  rather than invented — a blank publisher is the honest answer. */
   publisher: string | null
   published_at: string | null
   quote: string | null
   start_index: number | null
   end_index: number | null
+  // DELIBERATELY NOT READ: the contract carries a per-source `retrieved_at`,
+  // but provider-hosted search does not mean GenStudio fetched the page, so a
+  // per-source retrieval time would be falsely precise. Run-level provenance
+  // comes from the envelope's `research_ran_at` instead.
 }
 
 /**
- * GenStudio completed the HTTP/provider exchange but explicitly reported that
- * its output is incomplete. The durable job remains failed and uncharged; the
- * optional partial text is exposed only so a caller with a completion audit
- * can preserve finished units before issuing one scoped repair request.
+ * Anything that can declare an incomplete language output — a durable
+ * `/chat/responses` job or one `/chat/completions` choice.
+ */
+export interface GenStudioIncompleteOutput {
+  id: string
+  model_id: string
+  output_text?: string | null
+  finish_reason?: string | null
+  state?: unknown
+  failure_code?: string | null
+}
+
+/**
+ * The finish reasons that mean "the model chose to stop here". Everything
+ * else — `length`, `max_tokens`, `content_filter`, a provider's own dialect —
+ * means the answer was cut short by something other than the model finishing
+ * its thought, and is never presented as a complete result.
+ *
+ * Absence counts as a normal stop: GenStudio's OpenAI-compatible response
+ * model types `finish_reason` as the literal `"stop"`, so an envelope that
+ * omits it is one that could only ever have said `stop`.
+ */
+const COMPLETE_FINISH_REASONS = new Set(['stop', 'end_turn', 'stop_sequence', 'complete', 'completed'])
+
+export function isCompleteFinishReason(value: unknown): boolean {
+  if (value == null) return true
+  if (typeof value !== 'string') return false
+  const reason = value.trim().toLowerCase()
+  return reason === '' || COMPLETE_FINISH_REASONS.has(reason)
+}
+
+/** A finish reason that specifically means "ran out of output tokens". */
+function isTruncationFinishReason(reason: string | null): boolean {
+  return !!reason && /^(length|max_tokens|max_output_tokens|token_limit)$/i.test(reason.trim())
+}
+
+/**
+ * GenStudio completed the HTTP/provider exchange but the output it carries is
+ * incomplete. Story Studio NEVER hands the partial text back to a caller as a
+ * finished result — the partial is exposed on this error only so a caller with
+ * its own completion audit (chunked narration) can preserve the units that did
+ * finish before issuing one bounded, deliberate repair request.
  */
 export class GenStudioChatIncompleteError extends Error {
   readonly jobId: string
   readonly modelId: string
   readonly partialText: string
   readonly finishReason: string | null
+  /** True when the stop was the output-token ceiling, not the model. */
+  readonly truncated: boolean
 
-  constructor(job: GenStudioChatJob) {
+  constructor(job: GenStudioIncompleteOutput) {
     const finishReason = typeof job.finish_reason === 'string' ? job.finish_reason : null
+    const truncated = isTruncationFinishReason(finishReason)
     super(
-      `GenStudio KH reported incomplete chat output${finishReason ? ` (${finishReason})` : ''}. ` +
-      'The reservation was released; no direct provider or Studio Hub fallback was attempted.',
+      truncated
+        // The user has two real levers here, so name both. "Try again" is not
+        // one of them: the same request against the same ceiling truncates
+        // again at the same place.
+        ? 'The answer was cut off before it finished: this request hit its output-token ceiling '
+          + `(GenStudio reported finish_reason "${finishReason}"). Story Studio did not return the `
+          + 'partial answer as a finished result. Choose a language product with a larger published '
+          + 'output limit, or make the request smaller (fewer chapters, scenes, or items per run), '
+          + 'then run it again.'
+        : `GenStudio KH reported incomplete chat output${finishReason ? ` (${finishReason})` : ''}. `
+          + 'The partial output was not returned as a finished result.',
     )
     this.name = 'GenStudioChatIncompleteError'
     this.jobId = job.id
     this.modelId = job.model_id
     this.partialText = typeof job.output_text === 'string' ? job.output_text : ''
     this.finishReason = finishReason
+    this.truncated = truncated
   }
 }
 
@@ -1029,14 +1104,87 @@ function shouldReconnectAcceptedTask(
   // would just re-read the same terminal job forever. One typed check covers
   // image, video, TTS and transcription.
   if (isGenStudioSettledOutcomeError(error)) return false
+  // GenStudio stopped because it could not tell whether the provider already
+  // took the request. Reconnecting is exactly the duplicate-charge risk it
+  // refused to take on our behalf.
+  if (isGenStudioSubmissionUncertain(error)) return false
   if (error instanceof GenStudioApiError) return retryableStatus(error.status)
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
   return /timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|invalid JSON/i.test(message)
 }
 
+/**
+ * GenStudio's published language-route failure codes that Story Studio must
+ * explain rather than pass through as "the provider failed".
+ *
+ * WHERE THESE COME FROM: cloud-api `app/modules/chat/product_service.py` sets
+ * them as the job's terminal `failure_code`. On the `/v1/chat/completions`
+ * path they surface today only as a 502 whose body is `{"detail": "language
+ * generation failed"}` — so the code is readable through a durable job record
+ * (`/v1/account/jobs`, `/v1/chat/responses/{id}`) or through an error body
+ * that carries a `code`. Both are handled; neither is assumed.
+ */
+export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
+  PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
+  SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+} as const
+
+/**
+ * A user-facing explanation for a known language failure code, or null.
+ *
+ * The `SUBMISSION_UNCERTAIN` wording is deliberate: GenStudio could not tell
+ * whether the upstream provider had already accepted the request, so it
+ * stopped instead of risking a second paid submission. Story Studio must make
+ * the same choice — hence "no automatic retry", stated plainly so the message
+ * and the behaviour cannot drift apart.
+ */
+export function describeGenStudioLanguageFailure(code: string | null | undefined): string | null {
+  if (typeof code !== 'string' || !code.trim()) return null
+  const normalized = code.trim().toUpperCase()
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN) {
+    return 'GenStudio KH could not confirm whether the language provider had already accepted this '
+      + 'request, so it stopped rather than risk sending it — and being charged for it — twice. '
+      + 'Story Studio did NOT retry it automatically for the same reason. Check the run in your '
+      + 'GenStudio account before resubmitting; if nothing was charged, run this step again.'
+  }
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED) {
+    return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
+      + 'tried. No direct provider or Studio Hub fallback was attempted, and the reservation was '
+      + 'released. Retry this step, or pick a different language product in Settings.'
+  }
+  return null
+}
+
+/**
+ * True when this error carries GenStudio's "we do not know if the provider
+ * already took it" code. Such a request must never be resubmitted by machine.
+ */
+export function isGenStudioSubmissionUncertain(error: unknown): boolean {
+  if (!(error instanceof GenStudioApiError)) return false
+  return error.languageFailureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
+}
+
+/** Recover a published failure code from an error body's `code`, or from a
+ *  detail string that quotes it. Returns null when neither says so — an
+ *  unlabelled 502 is NOT assumed to be either code. */
+function readLanguageFailureCode(detail: string, code?: string): string | null {
+  const fromCode = typeof code === 'string' ? code.trim().toUpperCase() : ''
+  const known = Object.values(GENSTUDIO_LANGUAGE_FAILURE_CODES) as string[]
+  if (known.includes(fromCode)) return fromCode
+  const quoted = /\bLANGUAGE_PROVIDER_(?:SUBMISSION_UNCERTAIN|FAILED)\b/i.exec(detail || '')
+  return quoted ? quoted[0].toUpperCase() : null
+}
+
 export class GenStudioApiError extends Error {
+  /** A published `LANGUAGE_PROVIDER_*` code, when the response identified one. */
+  readonly languageFailureCode: string | null
+
   constructor(public readonly status: number, public readonly detail: string, public readonly code?: string) {
-    const message = status === 401
+    const languageFailureCode = readLanguageFailureCode(detail, code)
+    const languageFailureMessage = describeGenStudioLanguageFailure(languageFailureCode)
+    const message = languageFailureMessage
+      ? languageFailureMessage
+      : status === 401
       ? `GenStudio KH did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
       : status === 402
         ? `GenStudio KH has insufficient credits for this request: ${detail}. Add credits, then Retry.`
@@ -1055,6 +1203,7 @@ export class GenStudioApiError extends Error {
                   : `GenStudio KH request failed: ${detail}`
     super(message)
     this.name = 'GenStudioApiError'
+    this.languageFailureCode = languageFailureCode
   }
 }
 
@@ -1123,7 +1272,15 @@ async function requestJsonWithRetry(
       }
       if (!response.ok) {
         const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
-        const error = new GenStudioApiError(response.status, detail)
+        const bodyCode = typeof body?.code === 'string' ? body.code : undefined
+        const error = new GenStudioApiError(response.status, detail, bodyCode)
+        // A submission GenStudio could not confirm must not be resubmitted by
+        // machine, whatever its HTTP status says about retryability. This is
+        // checked BEFORE the status test so a 502/503 cannot slip past it.
+        if (isGenStudioSubmissionUncertain(error)) {
+          await request.onQueueState?.('failed')
+          throw error
+        }
         if (isGenStudioReleaseGenerationUnavailable(response.status, detail)) {
           const retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
           genStudioAdmission.noteGlobalFailure(error, retryAfterMs ?? undefined)
@@ -1160,6 +1317,7 @@ async function requestJsonWithRetry(
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
+      if (isGenStudioSubmissionUncertain(error)) throw error
       if (
         error instanceof GenStudioApiError
         && (
@@ -1900,6 +2058,12 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     temperature: request.temperature ?? 0.7,
     top_p: request.topP ?? 1,
     max_output_tokens: request.maxOutputTokens ?? 2_048,
+    // Two tiers resolve to two different ceilings on the same product, so they
+    // must not share a replay key. Emitted only when a tier was declared, so
+    // every pre-existing caller's digest stays byte-for-byte what it was.
+    ...(describeOutputBudget(request.outputBudget)
+      ? { output_budget: describeOutputBudget(request.outputBudget) }
+      : {}),
     request_identity: request.requestIdentity?.trim() || null,
     input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
     output_contract: outputContract,
@@ -1919,16 +2083,27 @@ interface GenStudioChatCompletion {
     completion_tokens?: number
     total_tokens?: number
   }
+  // ── GenStudio's evidence envelope ─────────────────────────────────────
+  // Field names confirmed against the published contract
+  // (cloud-api app/modules/chat/schemas.py :: OpenAIChatCompletionResponse
+  // and app/modules/chat/router.py :: create_chat_completion). These are NOT
+  // guesses and must not drift back to invented names.
   /** Provider citations for a web-search request. Envelope-level on purpose:
    *  sources are provider evidence, not something the model wrote. */
   citations?: unknown
-  /** What the run actually did / cost, when GenStudio reports it. Read through
-   *  readWebSearchUsage() — absence is reported as "not reported", never
-   *  substituted with a locally computed number. */
-  web_search_count?: unknown
-  web_searches_performed?: unknown
-  credit_cost?: unknown
-  credits_charged?: unknown
+  /** Whether GenStudio actually ran the request as a web-research request. */
+  web_search_requested?: unknown
+  /** Searches the provider actually executed. `null` = not reported. */
+  web_searches_executed?: unknown
+  /** Credits for the web-search ADD-ON only — not the request's total charge.
+   *  Reported as-is; this app never multiplies a published rate into a total. */
+  web_search_credit_cost?: unknown
+  /** When the research run completed, per GenStudio. Preferred over Story
+   *  Studio's locally stamped `generated_at` for "Research ran on". */
+  research_ran_at?: unknown
+  /** Claim-to-source linkage. In the contract, but providers do not populate
+   *  it yet, so it is parsed and carried without any per-claim display. */
+  citation_claims?: unknown
 }
 
 /** Parse the envelope citation list. Unknown/garbage entries are dropped
@@ -1963,24 +2138,80 @@ export function parseGenStudioCitations(value: unknown): GenStudioCitation[] {
   return out
 }
 
-/** What a web-search run actually did / cost, as reported. Every field is
- *  null when GenStudio did not report it — this app never fills the gap with
- *  a locally computed estimate. */
+/**
+ * What a web-search run actually did / cost, as GenStudio reported it.
+ *
+ * Every field is null when GenStudio did not report it — this app never fills
+ * the gap with a locally computed estimate, and the surfaces say "not
+ * reported" rather than showing a number nobody was charged.
+ */
 export interface GenStudioWebSearchUsage {
-  searchesPerformed: number | null
-  creditsCharged: number | null
+  /** Envelope `web_searches_executed`. */
+  searchesExecuted: number | null
+  /** Envelope `web_search_credit_cost` — the web-search ADD-ON cost only. */
+  searchCreditCost: number | null
+  /** Envelope `research_ran_at`, ISO8601. Run-level provenance; there is no
+   *  per-source retrieval time to display. */
+  researchRanAt: string | null
+  /** Envelope `citation_claims`. Empty today — providers do not populate it —
+   *  but parsed so it lights up the moment one does. */
+  citationClaims: GenStudioCitationClaim[]
+}
+
+/** Explicit claim-to-source linkage, when a provider returns it. */
+export interface GenStudioCitationClaim {
+  claim_id: string
+  citation_ids: string[]
+}
+
+/** Parse `citation_claims`. A claim with no source ids is not linkage. */
+export function parseGenStudioCitationClaims(value: unknown): GenStudioCitationClaim[] {
+  if (!Array.isArray(value)) return []
+  const out: GenStudioCitationClaim[] = []
+  for (const raw of value as Array<Record<string, unknown> | null>) {
+    if (!raw || typeof raw !== 'object') continue
+    const claimId = typeof raw.claim_id === 'string' ? raw.claim_id.trim() : ''
+    if (!claimId) continue
+    const ids = Array.isArray(raw.citation_ids)
+      ? raw.citation_ids.filter((id): id is string => typeof id === 'string' && !!id.trim())
+        .map(id => id.trim())
+      : []
+    if (!ids.length) continue
+    out.push({ claim_id: claimId, citation_ids: ids })
+  }
+  return out
+}
+
+/** An ISO timestamp GenStudio actually sent, or null. Never locally stamped. */
+function readReportedTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = new Date(value.trim())
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
 function readWebSearchUsage(completion: GenStudioChatCompletion): GenStudioWebSearchUsage {
-  const count = [completion.web_search_count, completion.web_searches_performed]
-    .find(value => Number.isInteger(value) && (value as number) >= 0)
-  const credits = [completion.credits_charged, completion.credit_cost]
-    .find(value => Number.isFinite(value) && (value as number) >= 0)
+  const executed = completion.web_searches_executed
+  const cost = completion.web_search_credit_cost
   return {
-    searchesPerformed: count === undefined ? null : count as number,
-    creditsCharged: credits === undefined ? null : credits as number,
+    searchesExecuted: Number.isInteger(executed) && (executed as number) >= 0
+      ? executed as number
+      : null,
+    searchCreditCost: Number.isInteger(cost) && (cost as number) >= 0
+      ? cost as number
+      : null,
+    researchRanAt: readReportedTimestamp(completion.research_ran_at),
+    citationClaims: parseGenStudioCitationClaims(completion.citation_claims),
   }
 }
+
+/** The "nothing reported" usage record, for a request that never asked.
+ *  Frozen: it is handed to every non-web result, so it must not be mutable. */
+export const EMPTY_WEB_SEARCH_USAGE: GenStudioWebSearchUsage = Object.freeze({
+  searchesExecuted: null,
+  searchCreditCost: null,
+  researchRanAt: null,
+  citationClaims: Object.freeze([] as GenStudioCitationClaim[]) as GenStudioCitationClaim[],
+})
 
 const SCHEMA_INSTRUCTION_MAX_DEPTH = 5
 const SCHEMA_INSTRUCTION_MAX_ENUM = 12
@@ -2131,7 +2362,22 @@ function parseProductCompletion(
   completion: GenStudioChatCompletion,
   outputContract: TextOutputContract,
 ): { text: string; jobId: string; modelId: string } {
-  const raw = completion.choices?.[0]?.message?.content
+  const choice = completion.choices?.[0]
+  const raw = choice?.message?.content
+  // Truncation is never success. GenStudio's own settlement path already
+  // refuses to charge a completion whose finish_reason is not a stop
+  // (LANGUAGE_PROVIDER_INCOMPLETE), so a truncated envelope should not reach
+  // us — but "should not" is not a guarantee, and the failure mode if it does
+  // is the worst kind: a half-written chapter saved to disk as if it were
+  // finished. Check it here, at the one place every language call passes.
+  if (!isCompleteFinishReason(choice?.finish_reason)) {
+    throw new GenStudioChatIncompleteError({
+      id: completion.id,
+      model_id: completion.model,
+      output_text: typeof raw === 'string' ? raw : null,
+      finish_reason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+    })
+  }
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error('GenStudio KH language product succeeded without usable output.')
   }
@@ -2181,7 +2427,13 @@ async function callChatWithGenStudioAdmitted(
       `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
     )
   }
-  const maxOutputTokens = request.maxOutputTokens ?? Math.min(2_048, product.max_output_tokens)
+  // An explicit number still wins (and is still checked below). Otherwise the
+  // workflow's declared tier is sized from THIS product's published ceiling —
+  // never from a constant that goes stale when GenStudio publishes a product
+  // with a different limit. An absent budget resolves to the historical
+  // short-form default, so callers that never opted in are unchanged.
+  const maxOutputTokens = request.maxOutputTokens
+    ?? resolveOutputTokenBudget(request.outputBudget, product.max_output_tokens)
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {
     throw new Error(
       `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${product.max_output_tokens.toLocaleString()}-token limit. No request or credit charge was made.`,
@@ -2256,13 +2508,26 @@ async function callChatWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioChatCompletion
-  const parsed = parseProductCompletion(completion, outputContract)
+  // The exchange is over the moment the response lands: whatever the envelope
+  // turns out to say, this account's in-flight slot is free. Release it before
+  // inspecting the payload, or a run of rejected envelopes (truncated output,
+  // an unusable body, a contract violation) silently starves the admission
+  // pool until it times out.
+  let parsed: ReturnType<typeof parseProductCompletion>
+  try {
+    parsed = parseProductCompletion(completion, outputContract)
+  } catch (error) {
+    await request.onState?.('failed', completion.id)
+    await request.onQueueState?.('failed', completion.id)
+    await genStudioAdmission.notifyTerminal(apiKey)
+    throw error
+  }
   const result: GenStudioChatResult = {
     ...parsed,
     citations: request.webSearch ? parseGenStudioCitations(completion.citations) : [],
     webSearch: request.webSearch
       ? readWebSearchUsage(completion)
-      : { searchesPerformed: null, creditsCharged: null },
+      : EMPTY_WEB_SEARCH_USAGE,
   }
   const evidence: GenStudioJob = {
     id: result.jobId,

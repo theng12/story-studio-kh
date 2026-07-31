@@ -253,7 +253,11 @@ export async function markupSectionText(
   slug: string,
   dialect: TagDialect = 'fish',
 ): Promise<string> {
-  const out = await callAiWithRetry(model, systemFor(dialect), sectionText, apiKeys, false, { slug })
+  // Maximum: the model returns the whole section back with markup tags added,
+  // so the response is always at least as long as the input section.
+  const out = await callAiWithRetry(model, systemFor(dialect), sectionText, apiKeys, false, {
+    slug, outputBudget: 'maximum',
+  })
   const trimmed = (out || '').trim()
   const integrity = inspectExpressionMarkup(sectionText, trimmed, dialect)
   if (!integrity.valid) {

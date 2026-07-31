@@ -9,6 +9,13 @@ const TOKEN_ROUNDING_STEP = 1_024
  * GenStudio's 2,048-token default is intentionally conservative for ordinary
  * chat, but it can truncate an otherwise valid multi-idea JSON array. Keep
  * idea generation bounded while allowing enough room for complete objects.
+ *
+ * This is a WORKLOAD FLOOR, not a ceiling. It is passed as
+ * `outputBudget: { tier: 'long', minimumTokens: … }` so the request is sized
+ * from the selected product's published `max_output_tokens` and is clamped to
+ * it. The 16,384 cap here therefore no longer decides the request on its own:
+ * a product publishing more can be used in full, and a product publishing less
+ * clamps down instead of tripping the pre-network limit guard.
  */
 export function ideaOutputTokenBudget(expectedIdeas: number): number {
   const count = Number.isFinite(expectedIdeas)

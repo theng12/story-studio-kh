@@ -11,6 +11,7 @@ import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import type { TextOutputContract } from './json-output-contract.js'
+import type { OutputBudget } from '../services/output-token-budget.js'
 import {
   resolveGenStudioModelId,
   unavailableLegacyModelMessage,
@@ -26,10 +27,19 @@ export interface CallAiContext {
   /** Abort signal — passed to the provider SDK so a user-cancelled job tears
    *  down the streaming completion instead of running to max_tokens. */
   signal?: AbortSignal
-  /** Override the provider's default output-token cap. Used by callers that
-   *  emit large structured output (e.g. the scene planner's full-episode
-   *  JSON) which would otherwise truncate at the conservative default. */
+  /** An exact output-token cap. Prefer `outputBudget` unless the caller can
+   *  genuinely compute a hard number — an explicit value above the selected
+   *  product's published limit is refused before the request is submitted. */
   maxTokens?: number
+  /**
+   * The SHAPE of this workflow's output — short / standard / long / maximum —
+   * sized at submission time from the SELECTED product's published
+   * `max_output_tokens`. This is how a long-form workflow avoids being cut off
+   * at the conservative 2,048-token short-form default without hardcoding a
+   * number that goes stale. See services/output-token-budget.ts, which also
+   * documents what a bigger budget does to credit reservations.
+   */
+  outputBudget?: OutputBudget
   /** Ask supporting providers to guarantee a valid JSON object response. */
   jsonMode?: boolean
   /** Exact prose, JSON Object, or strict JSON-schema workflow contract. */
@@ -93,6 +103,7 @@ export async function callAi(
     stream,
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
+    outputBudget: ctx.outputBudget,
     jsonMode: ctx.jsonMode,
     outputContract: ctx.outputContract,
     disableReasoning: ctx.disableReasoning,

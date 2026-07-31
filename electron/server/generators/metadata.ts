@@ -277,7 +277,9 @@ export async function generateMetadata(job: Job): Promise<void> {
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format),
       )
       const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        // Standard: a full YouTube description (up to ~5,000 characters).
+        // Titles and tags below stay short-form on purpose.
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard' })
       description = descRaw.trim()
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the

@@ -599,7 +599,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} title{rules=${tRules},len=${tLen}} logline{rules=${lRules}} themes{rules=${thRules}} variety=${variety} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
     const firstRaw = await callAiWithRetry(body.model, '', firstPrompt, apiKeys, false, {
       slug,
-      maxTokens: ideaOutputTokenBudget(overshoot.count),
+      outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(overshoot.count) },
     })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
     const avoidRepeatedIdeas = body.avoid_repeated_ideas !== false
@@ -632,7 +632,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
       try {
         const retryRaw = await callAiWithRetry(body.model, '', retryPrompt, apiKeys, false, {
           slug,
-          maxTokens: ideaOutputTokenBudget(retryReq.count),
+          outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(retryReq.count) },
         })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
         const retryPass = filterGenerated<StoryIdea>(
