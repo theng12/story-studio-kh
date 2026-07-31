@@ -21,6 +21,7 @@
 import { readFileSync, existsSync } from 'fs'
 import path from 'path'
 import { writeAtomic } from '../lib/sync-safe.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 
 function resolveNamedRootsPath(): string {
   if (process.env.STORY_STUDIO_DATA_DIR) {
@@ -40,7 +41,23 @@ function resolveNamedRootsPath(): string {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'Story Studio KH', 'named-roots.json')
 }
 
-const STORE_PATH = resolveNamedRootsPath()
+/**
+ * The store path, resolved on EVERY access.
+ *
+ * Deliberately not captured in a module-scope `const`. `STORY_STUDIO_DATA_DIR`
+ * is what redirects this store to an isolated directory, and it is set by the
+ * caller — the Electron main process at boot, `useTempDataDir()` in tests. A
+ * module-load-time capture froze the path to whatever it happened to be when
+ * the FIRST importer anywhere in the graph pulled this module in, which is
+ * before a test's `before()` hook can claim its temp dir. Measured on the full
+ * backend suite, 18 test files bound the developer's real
+ * `<userData>/named-roots.json` this way and one of them read it. Resolving per
+ * call costs two string joins and removes the entire class of import-order bug.
+ * Same shape as `services/app-settings.ts` and `services/app-secrets-store.ts`.
+ */
+export function namedRootsPath(): string {
+  return resolveNamedRootsPath()
+}
 
 const RESERVED = new Set(['PROJECT'])
 const NAME_RE = /^[A-Z][A-Z0-9_]*$/
@@ -53,9 +70,10 @@ export function isValidRootName(name: string): boolean {
 }
 
 function read(): Record<string, string> {
-  if (!existsSync(STORE_PATH)) return {}
+  const target = namedRootsPath()
+  if (!existsSync(target)) return {}
   try {
-    const raw = readFileSync(STORE_PATH, 'utf-8')
+    const raw = readFileSync(target, 'utf-8')
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return {}
     const out: Record<string, string> = {}
@@ -69,7 +87,11 @@ function read(): Record<string, string> {
 }
 
 async function write(map: Record<string, string>): Promise<void> {
-  await writeAtomic(STORE_PATH, JSON.stringify(map, null, 2))
+  const target = namedRootsPath()
+  // Under the node test runner, writing outside the claimed data dir is a hard
+  // error rather than a silent write to the developer's real named-roots.json.
+  assertWriteIsolatedInTests(target, 'named-roots')
+  await writeAtomic(target, JSON.stringify(map, null, 2))
 }
 
 export function listNamedRoots(): Record<string, string> {

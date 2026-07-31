@@ -17,6 +17,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -41,9 +42,27 @@ function resolveDataDir(): string {
   return ROOT
 }
 
-const DATA_DIR = resolveDataDir()
-const LAST_SESSION_PATH = path.join(DATA_DIR, 'last-session.json')
-const RUNNING_FLAG_PATH = path.join(DATA_DIR, 'running.flag')
+/**
+ * Both paths are resolved on EVERY access.
+ *
+ * Deliberately not captured in module-scope `const`s. `STORY_STUDIO_DATA_DIR`
+ * is what redirects this store to an isolated directory, and it is set by the
+ * caller — the Electron main process at boot, `useTempDataDir()` in tests. A
+ * module-load-time capture froze the paths to whatever they happened to be when
+ * the FIRST importer anywhere in the graph pulled this module in, which is
+ * before a test's `before()` hook can claim its temp dir; the store then read
+ * and wrote the developer's real repo-root `last-session.json` for the rest of
+ * the process. Resolving per call costs a string join and removes the entire
+ * class of import-order bug. Same shape as `services/app-settings.ts` and
+ * `services/app-secrets-store.ts`.
+ */
+function lastSessionPath(): string {
+  return path.join(resolveDataDir(), 'last-session.json')
+}
+
+function runningFlagPath(): string {
+  return path.join(resolveDataDir(), 'running.flag')
+}
 
 // Only routes whose page-mount is safe to re-trigger automatically. OAuth
 // callback handlers, one-shot wizard steps, or any flow that "consumes" a URL
@@ -66,22 +85,26 @@ export type LastSession = {
 }
 
 export function getLastSessionPath(): string {
-  return LAST_SESSION_PATH
+  return lastSessionPath()
 }
 
 export function getRunningFlagPath(): string {
-  return RUNNING_FLAG_PATH
+  return runningFlagPath()
 }
 
 export async function readLastSession(): Promise<LastSession> {
-  return readJsonOr<LastSession>(LAST_SESSION_PATH, {})
+  return readJsonOr<LastSession>(lastSessionPath(), {})
 }
 
 export async function patchLastSession(patch: Partial<LastSession>): Promise<LastSession> {
-  return withLock(LAST_SESSION_PATH, async () => {
-    const current = await readJsonOr<LastSession>(LAST_SESSION_PATH, {})
+  const target = lastSessionPath()
+  // Under the node test runner, writing outside the claimed data dir is a hard
+  // error rather than a silent write to the developer's real last-session.json.
+  assertWriteIsolatedInTests(target, 'last-session')
+  return withLock(target, async () => {
+    const current = await readJsonOr<LastSession>(target, {})
     const next = { ...current, ...patch }
-    await writeJsonAtomic(LAST_SESSION_PATH, next)
+    await writeJsonAtomic(target, next)
     return next
   })
 }
@@ -90,13 +113,15 @@ export async function clearRouteState(): Promise<LastSession> {
   // Used when the user intentionally returns to the project list — wipe the
   // routing fields, but leave any unread unclean_shutdown signal alone so the
   // next page mount can still surface its banner.
-  return withLock(LAST_SESSION_PATH, async () => {
-    const current = await readJsonOr<LastSession>(LAST_SESSION_PATH, {})
+  const target = lastSessionPath()
+  assertWriteIsolatedInTests(target, 'last-session')
+  return withLock(target, async () => {
+    const current = await readJsonOr<LastSession>(target, {})
     const next: LastSession = {
       unclean_shutdown: current.unclean_shutdown,
       unclean_shutdown_dismissed: current.unclean_shutdown_dismissed,
     }
-    await writeJsonAtomic(LAST_SESSION_PATH, next)
+    await writeJsonAtomic(target, next)
     return next
   })
 }

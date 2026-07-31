@@ -13,6 +13,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { normalizeServiceBaseUrl } from '../lib/security.js'
 import {
   normalizeVoicePresets,
@@ -95,37 +96,12 @@ async function readSettings(): Promise<AppSettings> {
   return readJsonOr<AppSettings>(target, {})
 }
 
-/**
- * Test-isolation guard.
- *
- * Under the node test runner (`NODE_TEST_CONTEXT` is set by node:test in every
- * child test process) a suite must never write app settings outside a data dir
- * it claimed for itself. Writing the developer's real app-settings.json is how
- * one test file corrupts live config and leaks state into every later file —
- * the failure then shows up as an unrelated, intermittent test failure far from
- * the cause. Fail loudly, at the write, pointing at the real fix.
- *
- * No effect outside tests: the app itself legitimately writes the real file.
- */
-function assertWriteIsolatedInTests(target: string): void {
-  if (!process.env.NODE_TEST_CONTEXT) return
-  const dataDir = process.env.STORY_STUDIO_DATA_DIR
-  // Compare the resolved TARGET against the currently-claimed dir rather than
-  // merely checking that the env var is set. That also catches a path captured
-  // earlier and gone stale — the original bug — instead of only the simpler
-  // "never claimed a temp dir at all" case.
-  if (dataDir && target === path.join(dataDir, 'app-settings.json')) return
-  throw new Error(
-    `app-settings isolation violation: a test tried to write ${target}, which is not inside the `
-    + `claimed data dir (STORY_STUDIO_DATA_DIR=${dataDir ?? '<unset>'}). `
-    + 'Call useTempDataDir() before anything that writes app settings. If a static import of this '
-    + 'module runs first, import the module under test dynamically instead.',
-  )
-}
-
 async function writeSettings(settings: AppSettings): Promise<void> {
   const target = appSettingsPath()
-  assertWriteIsolatedInTests(target)
+  // Under the node test runner, writing outside the claimed data dir is a hard
+  // error rather than a silent write to the developer's real app-settings.json.
+  // See lib/test-isolation.ts for why this compares the resolved target.
+  assertWriteIsolatedInTests(target, 'app-settings')
   await writeJsonAtomic(target, settings, { mode: APP_SETTINGS_MODE })
 }
 

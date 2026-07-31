@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.763 — 2026-07-31
+
+- **Saved locations are resolved when they're used, not once at startup** — named media
+  roots and last-session state now look up their file each time, closing the last two
+  places where an early-loading component could bind the wrong location and later write
+  there. A shared safeguard now covers settings, media roots, and session state together,
+  so this class of mistake is caught rather than discovered later.
+
+---
+
 ## v1.0.762 — 2026-07-31
 
 - **Settings can no longer be overwritten by the wrong copy of the app** — the app now
