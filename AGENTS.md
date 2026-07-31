@@ -64,9 +64,17 @@ Every generation flow must prove its output is complete before a job, pipeline s
 - New generators and material changes to existing generators require regression tests for complete, partial, empty, stale, malformed, provider-failure, and retry/self-healing outcomes.
 - When auditing or changing generation code, search for swallowed per-item errors, warning-only failures, unconditional `progress = 100`, and queue executors that return after partial work.
 
-## Optional Research and Retired Co-writer
+## Gated Research and Retired Co-writer
 
-- Research is an opt-in enrichment step. It may appear in supported format flows and expose its own pending filter, but it must never count as a missing Production Board asset, block episode completion, or run by default in the one-click Pipeline.
+This section replaces the former "Research is an opt-in enrichment step" rule. Evidence-led channels (science, history) need claims someone actually checked, so research is now gated per project and carries a verification state. Do not revert to the old unconditional rule.
+
+- Research is gated by the per-project setting `research_required` in `project.json`. Resolve it ONLY through `resolveResearchRequired()` in `electron/server/lib/research-verification.ts`. The default resolution is explicit, not incidental: `true` is on, `false` is off, and an ABSENT field means the project predates the gate and resolves OFF. `createProject` stamps `research_required: true` on every new project, which is what makes "absent means legacy" safe — existing finished episodes never retroactively become incomplete.
+- Generating research does NOT complete it. A generated sidecar enters an explicit unverified state persisted as `verification` inside `{code} - 11 Research/research.json`. Generating or regenerating always resets it to `{ verified: false }`, because new claims have never been reviewed.
+- When `research_required` is ON, research counts as complete only when the sidecar holds real evidence AND that evidence is verified. It then counts as a Production Board asset and blocks episode completion. When the gate is OFF, behaviour is exactly as it was before: optional enrichment that never blocks anything and is never folded into `all_done`.
+- `isResearchComplete()` in `lib/research-verification.ts` is the single authoritative rule, per the Verified Completion Contract. The generator, Job Queue, Pipeline, Production Board, Research pending filter, and downstream gates must all use it. Never re-derive completion from directory existence, sidecar presence, or a claim count.
+- Unverified research must remain visible in the Research pending filter with a Verify action, and verification must be reversible so a regenerated or disputed sidecar can be un-verified.
+- Research remains opt-in as a one-click Pipeline STAGE (it is not selected by default). When it does run in a Pipeline batch, verification is applied automatically so an unattended run is never blocked — recorded as `verified_by: 'pipeline-auto'`, never as `'human'`. Auto-verification must stay distinguishable from a human attestation in the sidecar, the Research page, and the episode selector. Pipeline preflight also auto-verifies existing unverified evidence rather than paying to regenerate it.
+- Error and warning messages about research must name what is missing and how to fix it (`describeResearchGap()`), per the Verified Completion Contract.
 - The Co-writer feature is retired. Do not restore its page, navigation entry, API routes, local-storage stores, or completion dependencies. Idea development belongs in Ideas, Research, and Script Generator workflows.
 
 ## Retired Brand System

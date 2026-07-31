@@ -9,6 +9,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
+import { boundGenStudioRequestPreviews, pendingGenStudioEntryId } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
@@ -75,10 +76,24 @@ export async function recordGenStudioJob(
   const job = jobs.get(jobId)
   if (!job) return
   const entries = [...(job.genstudio_jobs || [])]
-  const index = entries.findIndex(entry => entry.id === snapshot.id)
-  if (index >= 0) entries[index] = { ...entries[index], ...snapshot }
-  else entries.push(snapshot)
-  job.genstudio_jobs = entries
+  let index = entries.findIndex(entry => entry.id === snapshot.id)
+  if (index < 0 && snapshot.request?.idempotency_key) {
+    // The redacted request preview is written BEFORE submission (a request
+    // that never gets an id is exactly the one a user needs to read), so it
+    // lands under a deterministic `pending:<idempotency-key>` id. Once
+    // GenStudio hands back the real id, adopt that entry instead of leaving a
+    // duplicate orphan next to it.
+    const pendingId = pendingGenStudioEntryId(snapshot.request.idempotency_key)
+    index = entries.findIndex(entry => entry.id === pendingId)
+  }
+  if (index >= 0) {
+    const previous = entries[index]!
+    // A later state poll carries no request preview; it must not erase the
+    // one captured at submission time.
+    const request = snapshot.request ?? previous.request
+    entries[index] = { ...previous, ...snapshot, ...(request ? { request } : {}) }
+  } else entries.push(snapshot)
+  job.genstudio_jobs = boundGenStudioRequestPreviews(entries)
   await persistJob(job)
   emitUpdate(job)
 }

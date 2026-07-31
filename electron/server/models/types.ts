@@ -2,6 +2,8 @@
  * All TypeScript interfaces — ported from Python Pydantic models.
  */
 
+import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
+
 // ── Project ─────────────────────────────────────────────────────────────────
 
 export interface SubfolderNames {
@@ -114,6 +116,20 @@ export interface ProjectMeta {
    * fresh episode Continuity settings begin; per-episode Character Sheet
    * settings can still refine it. */
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
+
+  /**
+   * v1.0.760 — per-project Research gate.
+   *
+   * `true`  — research must exist AND be verified before the episode counts
+   *           as complete (Production Board, pending filters, Pipeline).
+   * `false` — research is optional enrichment, exactly as it behaved before.
+   * absent  — legacy project created before the gate shipped → resolved OFF.
+   *
+   * ALWAYS resolve this through `resolveResearchRequired()` in
+   * lib/research-verification.ts. New projects are stamped `true` at creation,
+   * which is what makes "absent means legacy" a safe migration rule.
+   */
+  research_required?: boolean
 
   /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
@@ -1520,6 +1536,8 @@ export interface UpdateProjectRequest {
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
   format_overrides?: DeepPartial<Format>
   content_mode?: 'format' | 'freeform'
+  /** v1.0.760 — per-project Research gate (Settings → Channel). */
+  research_required?: boolean
 }
 
 /**
@@ -2116,6 +2134,13 @@ export interface Job {
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
       | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
     updated_at: string
+    /**
+     * Redacted preview of the request Story Studio submitted for this call.
+     * Built by lib/genstudio-request-preview.ts, which guarantees no
+     * credential can reach it and bounds prompt text. Optional and additive:
+     * only the newest few entries retain it, and historical jobs omit it.
+     */
+    request?: GenStudioRequestPreview
   }>
   /**
    * Directory containing the job's primary output. Set by each generator
@@ -3154,6 +3179,35 @@ export interface ResearchOutput {
   /** Adapter's free-form summary of the topic — surfaces above the
    *  claims list as context. */
   summary?: string
+  /** v1.0.760 — episode-level attestation. Absent = never verified.
+   *  Written/read exclusively through lib/research-verification.ts. */
+  verification?: ResearchVerification
+}
+
+/** Who attested to a research sidecar.
+ *  - 'human'         — a person pressed Verify on the Research page.
+ *  - 'pipeline-auto' — an unattended one-click Pipeline run verified it so the
+ *                      batch could complete. Recorded distinctly on purpose:
+ *                      the app must never pretend a human reviewed the claims. */
+export type ResearchVerifiedBy = 'human' | 'pipeline-auto'
+
+/**
+ * v1.0.760 — research verification state, persisted inside the research
+ * sidecar (`{code} - 11 Research/research.json`) so it travels with the
+ * artifact it describes.
+ *
+ * Generating or regenerating research always resets this to
+ * `{ verified: false }` — new claims have never been reviewed.
+ */
+export interface ResearchVerification {
+  /** True only once someone attested to this exact generated output. */
+  verified: boolean
+  /** ISO8601 timestamp of the attestation. */
+  verified_at?: string
+  /** Human vs. automatic. See ResearchVerifiedBy. */
+  verified_by?: ResearchVerifiedBy
+  /** What was attested (or why it was auto-verified). */
+  note?: string
 }
 
 /** Options passed to ResearchAdapter.run(). */

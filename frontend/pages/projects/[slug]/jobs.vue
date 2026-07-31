@@ -518,17 +518,20 @@
 
         <!-- Expandable output for non-running jobs -->
         <div
-          v-if="job.status !== 'running' && job.output_lines?.length"
+          v-if="job.status !== 'running' && hasExpandableDetail(job)"
           class="job-expand"
           @click="toggleExpand(job.job_id)"
         >
           {{ expanded === job.job_id ? 'Hide output' : 'Show output' }}
-          ({{ job.output_lines.length }} lines)
+          ({{ expandSummary(job) }})
         </div>
 
-        <div v-if="expanded === job.job_id && job.status !== 'running' && job.output_lines?.length" class="job-output">
-          <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
-        </div>
+        <template v-if="expanded === job.job_id && job.status !== 'running' && hasExpandableDetail(job)">
+          <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+          <div v-if="job.output_lines?.length" class="job-output">
+            <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+          </div>
+        </template>
 
         <!-- Error details -->
         <div v-if="job.status === 'error'" class="job-error-section">
@@ -662,17 +665,20 @@
           </div>
 
           <div
-            v-if="job.output_lines?.length"
+            v-if="hasExpandableDetail(job)"
             class="job-expand"
             @click="toggleExpand(job.job_id)"
           >
             {{ expanded === job.job_id ? 'Hide output' : 'Show output' }}
-            ({{ job.output_lines.length }} lines)
+            ({{ expandSummary(job) }})
           </div>
 
-          <div v-if="expanded === job.job_id && job.output_lines?.length" class="job-output">
-            <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
-          </div>
+          <template v-if="expanded === job.job_id && hasExpandableDetail(job)">
+            <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+            <div v-if="job.output_lines?.length" class="job-output">
+              <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+            </div>
+          </template>
 
           <div v-if="job.status === 'error'" class="job-error-section">
             <div v-if="job.error" class="error-summary">
@@ -775,6 +781,29 @@ watch(isUniversal, enabled => {
 function hasAccountsUsed(job: RJob): boolean {
   const used = job.accounts_used
   return !!used && Object.keys(used).length > 0
+}
+
+/**
+ * The output expander is also where the redacted GenStudio request preview
+ * lives, so a job that recorded a request but produced no log lines (a
+ * submission rejected before it ever ran) must still be expandable — that is
+ * precisely the case a user opens this page to diagnose.
+ */
+function genStudioRequestCount(job: RJob): number {
+  return job.genstudio_jobs?.filter(remote => !!remote.request).length || 0
+}
+
+function hasExpandableDetail(job: RJob): boolean {
+  return !!job.output_lines?.length || genStudioRequestCount(job) > 0
+}
+
+function expandSummary(job: RJob): string {
+  const parts: string[] = []
+  const lines = job.output_lines?.length || 0
+  if (lines) parts.push(`${lines} line${lines === 1 ? '' : 's'}`)
+  const requests = genStudioRequestCount(job)
+  if (requests) parts.push(`${requests} request${requests === 1 ? '' : 's'}`)
+  return parts.join(' + ')
 }
 
 const GENSTUDIO_BATCH_THRESHOLD = 12

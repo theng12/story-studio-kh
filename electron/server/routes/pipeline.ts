@@ -22,6 +22,14 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { resolveResearchPaths } from '../lib/research-paths.js'
+import {
+  describeResearchGap,
+  hasResearchEvidence,
+  isResearchVerified,
+  resolveResearchRequired,
+  withResearchVerified,
+} from '../lib/research-verification.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
@@ -285,12 +293,29 @@ async function preflightBatch(
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
   const effectiveFormat = await getEffectiveFormat(slug)
+  // v1.0.760 — per-project Research gate. When ON, an episode is not complete
+  // until its research is verified, so a run that never touches Research must
+  // say so up front rather than leaving the operator to discover an episode
+  // stuck at "incomplete" hours later.
+  const researchRequired = resolveResearchRequired(await pm.getProject(slug))
   for (const episodeId of episodeIds) {
     if (!ideaByCode.has(episodeId)) {
       issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
       continue
     }
     const status = await computeEpisodeStatus(slug, episodeId)
+    if (researchRequired && !steps.includes('research') && !status.research) {
+      const gap = describeResearchGap({
+        episodeId,
+        researchRequired,
+        hasEvidence: status.research_generated === true,
+        verified: status.research_verified === true,
+      })
+      // A WARNING, not an issue: the run is still allowed to proceed (the user
+      // may be repairing one late stage). Adding Research to this run resolves
+      // it automatically, because Pipeline runs verify as they go.
+      if (gap) warnings.push(`${gap} Add the Research stage to this run to resolve it automatically.`)
+    }
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
@@ -364,6 +389,10 @@ const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
  */
 export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format?: Format | null): boolean {
   switch (step) {
+    // `status.research` is the gated completion rule, not "a file exists".
+    // With the project's Research gate ON, unverified research is NOT done —
+    // but run-batch auto-verifies existing evidence before consulting this, so
+    // the only way to land here unverified is with no evidence to verify.
     case 'research':          return status.research
     case 'broll':             return status.video_assembly
     case 'script-only':       return status.script
@@ -381,6 +410,38 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet
     case 'video_assembly':    return status.video_assembly
+  }
+}
+
+/**
+ * v1.0.760 — Pipeline auto-verification of EXISTING research.
+ *
+ * Requirement: a one-click run must complete unattended, so it cannot be
+ * blocked by "research is generated but nobody verified it". Requirement 2:
+ * the record must stay honest, so the attestation is stamped
+ * `verified_by: 'pipeline-auto'` and never `'human'`.
+ *
+ * No-op unless the sidecar exists, holds real evidence, and is currently
+ * unverified. Never creates research and never re-verifies (or un-verifies)
+ * anything — a human attestation already on the file is left exactly as is.
+ * Failures are swallowed: the step then simply runs, and the generator
+ * auto-verifies the fresh output.
+ *
+ * Exported for tests.
+ */
+export async function autoVerifyResearchForPipeline(slug: string, episodeId: string): Promise<boolean> {
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const { jsonPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
+    const existing = JSON.parse(await fs.readFile(jsonPath, 'utf-8'))
+    if (!hasResearchEvidence(existing) || isResearchVerified(existing)) return false
+
+    await fs.writeFile(jsonPath, JSON.stringify(withResearchVerified(existing, 'pipeline-auto'), null, 2), 'utf-8')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, episodeId)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -1149,6 +1210,18 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     if (!idea) {
       skipped.push({ episode_id: episodeId, reason: 'Not found among accepted ideas' })
       continue
+    }
+
+    // v1.0.760 — Pipeline auto-verification. An unattended run must never stall
+    // on "research exists but nobody verified it", and it must not burn a paid
+    // research call just to re-earn an attestation for evidence already on
+    // disk. So before the idempotency check, promote any generated-but-
+    // unverified sidecar to verified — stamped `pipeline-auto`, never `human`.
+    // A fresh generation inside this batch is auto-verified by the generator
+    // itself (it sees pipeline_batch_id). `force` skips this: the sidecar is
+    // about to be regenerated anyway.
+    if (!force && steps.includes('research')) {
+      await autoVerifyResearchForPipeline(slug, episodeId)
     }
 
     // Idempotency: drop steps whose outputs are already on disk. Keeps

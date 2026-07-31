@@ -526,8 +526,10 @@
                   title="Imported from an existing folder or YouTube channel"
                 >imported</span>
               </td>
-              <td class="td-title">
-                {{ idea.title }}
+              <!-- `title` carries the full string for hover, because even two
+                   clamped lines can cut a long documentary headline. -->
+              <td class="td-title" :title="idea.title">
+                <span class="idea-title-text">{{ idea.title }}</span>
                 <span
                   v-if="idea.marked_done"
                   class="manual-done-tag"
@@ -1141,7 +1143,9 @@
                 <code>{{ r.old_code }}</code>
                 <span class="text-muted">→</span>
                 <code>{{ r.new_code }}</code>
-                <span class="compact-rename-title text-muted">{{ r.title }}</span>
+                <!-- Single-line by design (this is a dense preview row), so the
+                     full title has to be reachable on hover. -->
+                <span class="compact-rename-title text-muted" :title="r.title">{{ r.title }}</span>
               </div>
               <div v-if="compactState.preview.rename_plan.length > 12" class="text-muted" style="font-size: 12px; padding: 4px 0;">
                 + {{ compactState.preview.rename_plan.length - 12 }} more
@@ -3258,7 +3262,17 @@ async function confirmCompact() {
 .th-check { width: 40px; }
 .td-check { width: 40px; }
 .td-code { white-space: nowrap; width: 70px; }
-.td-title { font-weight: 500; color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Generated titles are long documentary headlines. A single nowrap line
+   ellipsised at 250px made most of them unreadable ("Why Earth's Magnetic
+   Field Quietly Shapes the Atmosphe…"), so the title now wraps to two lines in
+   a wider column and the cell carries a native `title` tooltip with the full
+   string. The column still collapses gracefully — the table container already
+   scrolls horizontally. */
+.td-title { font-weight: 500; color: var(--text-primary); min-width: 220px; max-width: 520px; }
+.idea-title-text {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
+}
 .td-date { white-space: nowrap; }
 .td-actions { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
 

@@ -77,6 +77,11 @@ export const UpdateProjectSchema = z.object({
   // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
   // use neutral prompts. Empty/absent = 'format' (current behavior).
   content_mode: z.enum(['format', 'freeform']).optional(),
+  // v1.0.760 — per-project Research gate. When true, an episode is not
+  // complete until its research sidecar exists AND has been verified.
+  // Absent on the wire = leave the stored value alone (updateProject drops
+  // undefined keys); absent in project.json = legacy project, resolved OFF.
+  research_required: z.boolean().optional(),
   // Level B (opt-in) external media root — a portable ${NAME} token or absolute
   // path. Empty string clears it (back to everything under output_root).
   media_root: z.string().max(512).optional(),
@@ -550,6 +555,30 @@ export interface JobEnqueuedResponse {
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
       | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
     updated_at: string
+    /**
+     * Redacted preview of the request Story Studio submitted for this call —
+     * the Jobs page renders it inside the per-job output expander so a user
+     * can read the endpoint, the resolved product, the response_format, the
+     * token limits and the actual prompt text behind a failure.
+     *
+     * Structurally mirrors `GenStudioRequestPreview` in
+     * `electron/server/lib/genstudio-request-preview.ts`, which is the ONLY
+     * builder for it and which guarantees (a) no credential of any kind can
+     * appear here and (b) prompts are truncated with an explicit marker.
+     * Declared inline rather than imported so the renderer's type graph never
+     * reaches into a Node-only server module.
+     */
+    request?: {
+      method: string
+      path: string
+      model_id?: string
+      response_format?: string
+      token_limits?: Record<string, number>
+      idempotency_key?: string
+      messages?: Array<{ role: string; text: string; length: number; truncated: boolean }>
+      fields?: Array<{ label: string; value: string }>
+      captured_at: string
+    }
   }>
   /**
    * Directory containing the job's primary output (audio dir, image dir,

@@ -28,6 +28,12 @@ import type { EpisodePaths } from './utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
+import {
+  hasResearchEvidence,
+  isResearchComplete,
+  readResearchVerification,
+  resolveResearchRequired,
+} from '../lib/research-verification.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import {
@@ -604,12 +610,30 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
 //     asset-reconciler checks (partial generations report as NOT done)
 
 export interface EpisodeStatus {
-  // Research sidecar (`research.json`) present at the episode_dir root.
-  // Only the research-driven formats (timestamp-driven, continuity-chain)
-  // produce it; it's the field the Research page filters its "pending"
-  // episode list by, so a finished research run drops out of pending.
-  // NOT folded into all_done — research is optional for most formats.
+  // Research COMPLETION, resolved against the project's `research_required`
+  // gate (see lib/research-verification.ts — one rule, every reader).
+  //
+  //   gate OFF → true when the sidecar holds usable evidence (legacy
+  //              behaviour: optional enrichment, never folded into all_done)
+  //   gate ON  → true only when that evidence has ALSO been verified, and
+  //              folded into all_done by routes/ideas.ts
+  //
+  // This is the field the Research page's "Pending only" filter keys off, so
+  // with the gate on, generated-but-unverified research correctly stays in
+  // the pending list until someone presses Verify.
   research: boolean
+  /** Raw artifact fact: the sidecar holds a real summary or a real claim.
+   *  Independent of the gate — used for "generated, awaiting verification"
+   *  UI and to stop the Pipeline regenerating research it already has. */
+  research_generated?: boolean
+  /** Raw artifact fact: someone attested to the CURRENT generated output. */
+  research_verified?: boolean
+  /** 'human' | 'pipeline-auto' — so the UI never implies a person reviewed
+   *  claims that an unattended Pipeline run auto-verified. */
+  research_verified_by?: 'human' | 'pipeline-auto'
+  /** The resolved per-project gate, echoed so the frontend and the error
+   *  messages agree with the backend without a second round trip. */
+  research_required?: boolean
   // Timestamp/continuity Scene Plan is complete when scene_plan.json has at
   // least one timeline row and every row has a non-empty visual prompt. A
   // timeline-only or partially prompted plan remains pending and resumable.
@@ -689,6 +713,7 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
+    research_generated: false, research_verified: false, research_required: false,
     scene_plan: false, contextual_cues: false, sound_design: false, scene_review: false, motion_review: false,
     character_sheet: false,
     script: false, introduction: false,
@@ -827,11 +852,20 @@ export async function computeEpisodeStatus(
   code: string,
   ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
 ): Promise<EpisodeStatus> {
-  const { getProjectOutputRoot } = await import('./project-manager.js')
+  const { getProjectOutputRoot, getProject } = await import('./project-manager.js')
   const outputRoot = await getProjectOutputRoot(slug)
   if (!outputRoot) return emptyStatus()
 
+  // v1.0.760 — resolve the per-project Research gate once. A corrupt/absent
+  // project.json falls back to OFF, i.e. the pre-gate behaviour, so a bad read
+  // can never mark finished episodes incomplete.
+  let researchRequired = false
+  try {
+    researchRequired = resolveResearchRequired(await getProject(slug))
+  } catch { researchRequired = false }
+
   const status = emptyStatus()
+  status.research_required = researchRequired
   let authoritativePaths: EpisodePaths | undefined
 
   // Hoist ideas.json load to ONCE per call. Previously this function
@@ -906,15 +940,32 @@ export async function computeEpisodeStatus(
     }
 
     // Research sidecar now lives in the "{code} - 11 Research" folder
-    // (resolveResearchPaths auto-migrates any legacy loose copy). episode_dir
-    // is a watched folder for the cache, so a freshly written research file
-    // advances its mtime and invalidates the entry.
+    // (resolveResearchPaths auto-migrates any legacy loose copy). The cache
+    // watches research.json itself — verification flips REWRITE the file in
+    // place, which moves the file's mtime but not episode_dir's.
+    //
+    // v1.0.760 — the boolean is no longer "a sidecar with text exists". It is
+    // the shared completion rule from lib/research-verification.ts, resolved
+    // against this project's gate. Raw facts are surfaced alongside it so the
+    // UI can say "generated, awaiting verification" instead of just "pending".
     try {
       const researchPath = (await resolveResearchPaths(paths.episode_dir, code)).jsonPath
       const research = JSON.parse(await fs.readFile(researchPath, 'utf-8'))
-      status.research = (typeof research?.summary === 'string' && !!research.summary.trim())
-        || (Array.isArray(research?.claims) && research.claims.some((claim: any) => typeof claim?.text === 'string' && claim.text.trim()))
-    } catch { status.research = false }
+      const verification = readResearchVerification(research)
+      status.research_generated = hasResearchEvidence(research)
+      status.research_verified = verification.verified
+      // Only SET the actor when there is one. Assigning `undefined` would add
+      // an undefined-valued key to the snapshot, which breaks the invariant
+      // that every field of an empty status is a real boolean.
+      if (verification.verified_by) status.research_verified_by = verification.verified_by
+      else delete status.research_verified_by
+      status.research = isResearchComplete(research, researchRequired)
+    } catch {
+      status.research = false
+      status.research_generated = false
+      status.research_verified = false
+      delete status.research_verified_by
+    }
 
     // v1.0.278 — scene_plan + scene_review resolve the REAL episode dir BY CODE
     // (how the generators write these), not the title-template path
@@ -1174,7 +1225,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     if (idea?.marked_done === true) {
-      return allDoneStatus()
+      return allDoneStatus(researchRequired)
     }
     if (idea?.status_overrides) {
       // Overrides only carry the boolean asset-presence flags — the
@@ -1195,10 +1246,19 @@ export async function computeEpisodeStatus(
   return status
 }
 
-/** Phase 1 helper — returns an EpisodeStatus with every field set to true. */
-function allDoneStatus(): EpisodeStatus {
+/**
+ * Phase 1 helper — returns an EpisodeStatus with every field set to true.
+ *
+ * `researchRequired` is passed through rather than hardcoded: it describes the
+ * PROJECT's gate, not the episode's state, and the UI reads it to decide
+ * whether to render research as a required step at all. Marking an episode
+ * done by hand is itself the human attestation, so `research_verified` is
+ * true with no `research_verified_by` — nothing auto-verified it.
+ */
+function allDoneStatus(researchRequired: boolean): EpisodeStatus {
   return {
     research: true,
+    research_generated: true, research_verified: true, research_required: researchRequired,
     scene_plan: true, contextual_cues: true, sound_design: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,

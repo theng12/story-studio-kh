@@ -46,9 +46,15 @@
         <span class="research-flow-line" aria-hidden="true"></span>
         <span class="research-flow-step" :class="{ active: researching || researchJobActive, complete: !!result }"><b>2</b> Gather</span>
         <span class="research-flow-line" aria-hidden="true"></span>
-        <span class="research-flow-step" :class="{ active: !!result, complete: !!result && unreviewedCount === 0 }"><b>3</b> Verify</span>
+        <span class="research-flow-step" :class="{ active: !!result && !isVerified, complete: isVerified }"><b>3</b> Verify</span>
         <p class="workspace-command-copy">
-          Research is optional. When used, only claims you verify are passed to Script Generator.
+          <template v-if="researchRequired">
+            This project requires research: generating it is not enough — an episode counts as complete only
+            once you press <b>Verify research</b>. Pipeline runs verify automatically and say so.
+          </template>
+          <template v-else>
+            Research is optional for this project. When used, only claims you verify are passed to Script Generator.
+          </template>
         </p>
       </div>
     </div>
@@ -159,6 +165,24 @@
     >
       <template #actions>
         <div v-if="result" class="research-result-actions">
+          <button
+            v-if="!isVerified"
+            class="btn btn-sm btn-primary"
+            :disabled="verifying || saving"
+            title="Attest that you have read this research and checked its claims against the cited sources."
+            @click="setVerified(true)"
+          >
+            {{ verifying ? 'Verifying…' : 'Verify research' }}
+          </button>
+          <button
+            v-else
+            class="btn btn-sm btn-secondary"
+            :disabled="verifying || saving"
+            title="Withdraw the attestation — the episode stops counting this research as complete."
+            @click="setVerified(false)"
+          >
+            {{ verifying ? 'Updating…' : 'Un-verify' }}
+          </button>
           <button class="btn btn-sm btn-primary" :disabled="saving || !dirty" @click="saveResearch">
             {{ saving ? 'Saving…' : (dirty ? 'Save review' : 'Saved') }}
           </button>
@@ -182,6 +206,45 @@
       </div>
 
       <template v-else-if="result">
+        <!-- v1.0.760 — episode-level verification. Deliberately the first
+             thing in the review body: it states plainly what is being
+             attested and why the episode is or isn't complete. -->
+        <div class="research-verify-banner" :data-state="isVerified ? (verifiedByPipeline ? 'auto' : 'verified') : 'unverified'">
+          <div class="research-verify-copy">
+            <strong v-if="!isVerified">Not verified yet</strong>
+            <strong v-else-if="verifiedByPipeline">Auto-verified by a Pipeline run</strong>
+            <strong v-else>Verified</strong>
+            <p v-if="!isVerified">
+              Nobody has checked these claims against their sources. Pressing <b>Verify research</b> attests that
+              you have read this research and checked its claims against the cited sources.
+              <template v-if="researchRequired">
+                This project requires research, so <b>{{ episodeId }}</b> is not complete until you do.
+              </template>
+              <template v-else>
+                This project treats research as optional, so nothing is blocked either way.
+              </template>
+            </p>
+            <p v-else-if="verifiedByPipeline">
+              An unattended one-click Pipeline run marked this verified so the batch could finish.
+              <b>No human reviewed these claims.</b> Read them, then re-verify to record a human attestation.
+              <span v-if="verifiedAtLabel"> Auto-verified {{ verifiedAtLabel }}.</span>
+            </p>
+            <p v-else>
+              Someone attested that these claims were checked against the cited sources.
+              <span v-if="verifiedAtLabel">Verified {{ verifiedAtLabel }}.</span>
+              Re-running research clears this.
+            </p>
+          </div>
+          <button
+            v-if="!isVerified || verifiedByPipeline"
+            class="btn btn-sm btn-primary"
+            :disabled="verifying || saving"
+            @click="setVerified(true)"
+          >
+            {{ verifying ? 'Verifying…' : (verifiedByPipeline ? 'Confirm as human-verified' : 'Verify research') }}
+          </button>
+        </div>
+
         <div class="research-review-dashboard">
           <div class="research-review-score" :data-ready="unreviewedCount === 0 ? 'true' : 'false'">
             <strong>{{ reviewProgress }}%</strong>
@@ -306,7 +369,16 @@
         <span class="research-empty-mark">R</span>
         <div>
           <strong>{{ episodeId ? 'This episode has no research yet' : 'Choose an episode to begin' }}</strong>
-          <p>{{ episodeId ? 'Confirm the topic and GenStudio model above, then run research when this story benefits from fact-checking.' : 'Research stays optional and never blocks the production pipeline.' }}</p>
+          <p v-if="episodeId && researchRequired">
+            This project requires research. Confirm the topic and GenStudio model above, run research, then
+            verify it — {{ episodeId }} will not count as complete until both have happened.
+          </p>
+          <p v-else-if="episodeId">
+            Confirm the topic and GenStudio model above, then run research when this story benefits from fact-checking.
+          </p>
+          <p v-else>
+            Pick an episode to see whether it needs research and whether that research has been verified.
+          </p>
         </div>
       </div>
     </WorkspaceSection>
@@ -331,7 +403,7 @@ const episodeId = ref('')
 // look up the picked episode's title for the topic default. Same shape
 // the EpisodeSelector already uses internally — no duplicate fetch
 // because useEpisodes singletons by slug.
-const { episodes } = useEpisodes(slug)
+const { episodes, revalidateAfterMutation: refreshEpisodes } = useEpisodes(slug)
 const selectedEpisode = computed(() =>
   episodes.value.find(e => e.episode_code === episodeId.value) || null,
 )
@@ -437,6 +509,12 @@ interface ResearchClaim {
 }
 interface ResearchCitation { title: string; url: string; snippet?: string; include_in_description?: boolean }
 interface ResearchStructureSection { heading: string; brief: string; claim_ids: string[] }
+interface ResearchVerification {
+  verified: boolean
+  verified_at?: string
+  verified_by?: 'human' | 'pipeline-auto'
+  note?: string
+}
 interface ResearchOutput {
   schema_version: 1
   source_provider: string
@@ -448,6 +526,8 @@ interface ResearchOutput {
   citations: ResearchCitation[]
   structure?: ResearchStructureSection[]
   summary?: string
+  /** v1.0.760 — episode-level attestation. Absent = never verified. */
+  verification?: ResearchVerification
 }
 
 const result = ref<ResearchOutput | null>(null)
@@ -481,17 +561,73 @@ const reviewProgress = computed(() => {
   if (!total) return 0
   return Math.round(((total - unreviewedCount.value) / total) * 100)
 })
+// ── v1.0.760 — episode-level verification ───────────────────────────────
+// Distinct from per-claim review status. A claim's status says which claims
+// the script generator may use; THIS says whether anyone has attested to the
+// research as a whole. With the project's Research gate on, an episode is not
+// complete until this is true — which is why unverified research keeps showing
+// up in the "Pending only" episode filter.
+const verifying = ref(false)
+const verification = computed<ResearchVerification>(() => result.value?.verification || { verified: false })
+const isVerified = computed(() => verification.value.verified === true)
+const verifiedByPipeline = computed(() => isVerified.value && verification.value.verified_by === 'pipeline-auto')
+// Echoed by the backend on every episode status row — the SAME resolution the
+// completion rule used, so this page and the Production Board never disagree.
+const researchRequired = computed(() => (selectedEpisode.value?.status as any)?.research_required === true)
+const verifiedAtLabel = computed(() => {
+  const at = verification.value.verified_at
+  if (!at) return ''
+  const d = new Date(at)
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleString()
+})
+
+async function setVerified(next: boolean): Promise<void> {
+  if (!episodeId.value || !result.value) return
+  if (next && dirty.value) {
+    showError('Save your claim review first — verification attests to the saved research.')
+    return
+  }
+  if (next) {
+    const ok = await ask({
+      title: 'Verify this research?',
+      message: 'You are attesting that you have read this research and checked its claims against the cited '
+        + 'sources. This is what lets the episode count as complete. Regenerating research clears it again.',
+      confirmLabel: 'I have checked it — verify',
+    })
+    if (!ok) return
+  }
+  verifying.value = true
+  try {
+    const r = await post<{ verification: ResearchVerification }>(
+      `/projects/${slug.value}/research/${episodeId.value}/verify`,
+      { verified: next },
+    )
+    if (result.value) {
+      result.value.verification = r.verification
+      serverResult.value = JSON.stringify(result.value)
+    }
+    await refreshEpisodes()
+    success(next ? 'Research verified' : 'Verification withdrawn — this episode is no longer complete')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to update research verification')
+  } finally {
+    verifying.value = false
+  }
+}
+
 const researchReadinessLabel = computed(() => {
   if (researching.value || researchJobActive.value) return 'Running'
-  if (!result.value) return 'Optional'
-  if (unreviewedCount.value) return `${unreviewedCount.value} to review`
+  if (!result.value) return researchRequired.value ? 'Required' : 'Optional'
   if (dirty.value) return 'Unsaved'
-  return 'Ready'
+  if (!isVerified.value) return 'Needs verification'
+  if (unreviewedCount.value) return `${unreviewedCount.value} to review`
+  return verifiedByPipeline.value ? 'Auto-verified' : 'Verified'
 })
 const researchReadinessTone = computed(() => {
   if (researching.value || researchJobActive.value) return 'info'
-  if (!result.value) return 'info'
-  if (unreviewedCount.value || dirty.value) return 'warning'
+  if (!result.value) return researchRequired.value ? 'warning' : 'info'
+  if (dirty.value || !isVerified.value) return 'warning'
+  if (unreviewedCount.value || verifiedByPipeline.value) return 'warning'
   return 'success'
 })
 // v1.0.197 — which sources flow into the YouTube description. Absent flag =
@@ -687,6 +823,46 @@ watch(
   --research-success: #55c786;
   --research-warning: #e0a548;
   --research-danger: #d66b63;
+}
+
+/* v1.0.760 — episode-level verification banner. */
+.research-verify-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-2, var(--surface)) 80%, transparent);
+}
+.research-verify-banner[data-state='unverified'] {
+  border-color: color-mix(in srgb, var(--research-warning) 60%, var(--border));
+  background: color-mix(in srgb, var(--research-warning) 12%, transparent);
+}
+.research-verify-banner[data-state='auto'] {
+  border-color: color-mix(in srgb, var(--research-warning) 42%, var(--border));
+}
+.research-verify-banner[data-state='verified'] {
+  border-color: color-mix(in srgb, var(--research-success) 50%, var(--border));
+  background: color-mix(in srgb, var(--research-success) 10%, transparent);
+}
+.research-verify-copy {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.research-verify-copy strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.research-verify-copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted, inherit);
 }
 
 .research-flow-rail {

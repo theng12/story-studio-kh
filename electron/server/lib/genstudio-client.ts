@@ -28,6 +28,12 @@ import {
   type JsonSchema,
   type TextOutputContract,
 } from './json-output-contract.js'
+import {
+  buildGenStudioRequestPreview,
+  pendingGenStudioEntryId,
+  type GenStudioRequestPreview,
+  type GenStudioRequestPreviewInput,
+} from './genstudio-request-preview.js'
 
 const POLL_INTERVAL_MS = 1_000
 const NETWORK_RETRY_ATTEMPTS = 4
@@ -818,12 +824,55 @@ async function cancelGenStudioJob(
   ).catch(() => undefined)
 }
 
-async function recordGenStudioEvidence(operation: GenStudioOperation, job: GenStudioJob): Promise<void> {
+/**
+ * Capture the redacted preview of a request BEFORE it is submitted.
+ *
+ * Recording it up front is the whole point: a submission that is rejected
+ * never receives a GenStudio job id, and that rejected request is exactly the
+ * one the user opens the Jobs page to read. The preview therefore lands under
+ * a `pending:<idempotency-key>` evidence id which the post-submit evidence
+ * write adopts once the real id exists.
+ *
+ * `buildGenStudioRequestPreview` is the only builder, and it has no parameter
+ * that can carry a header map or an api key — the Authorization header is
+ * never in scope here.
+ */
+async function recordGenStudioRequestPreview(
+  operation: GenStudioOperation,
+  input: GenStudioRequestPreviewInput,
+): Promise<GenStudioRequestPreview> {
+  const preview = buildGenStudioRequestPreview(input)
+  try {
+    const queue = await import('../services/job-queue.js')
+    const storyJobId = queue.currentJobId()
+    if (storyJobId && preview.idempotency_key) {
+      await queue.recordGenStudioJob(storyJobId, {
+        id: pendingGenStudioEntryId(preview.idempotency_key),
+        operation,
+        state: 'submitting',
+        model_id: preview.model_id,
+        queue_state: 'submitting',
+        updated_at: preview.captured_at,
+        request: preview,
+      })
+    }
+  } catch {
+    // Diagnostics must never be able to fail a paid generation.
+  }
+  return preview
+}
+
+async function recordGenStudioEvidence(
+  operation: GenStudioOperation,
+  job: GenStudioJob,
+  request?: GenStudioRequestPreview,
+): Promise<void> {
   const queue = await import('../services/job-queue.js')
   const storyJobId = queue.currentJobId()
   if (!storyJobId || !job?.id) return
   await queue.recordGenStudioJob(storyJobId, {
     id: job.id,
+    ...(request ? { request } : {}),
     operation,
     state: job.state,
     model_id: job.model_id || job.model_revision_id,
@@ -1671,6 +1720,20 @@ async function generateVideoWithGenStudioAdmitted(
   ) as GenStudioVideoSourceAsset
   if (!sourceAsset.id) throw new Error('GenStudio video source upload returned no asset id.')
 
+  const requestPreview = await recordGenStudioRequestPreview('video.generation', {
+    method: 'POST',
+    path: '/v1/videos/generations',
+    modelId,
+    idempotencyKey,
+    messages: [{ role: 'prompt', content: prompt }],
+    fields: [
+      ['mode', 'image-to-video'],
+      ['duration_seconds', request.durationSeconds],
+      ['resolution', request.resolution],
+      ['aspect_ratio', request.aspectRatio],
+      ['reference_asset_id', sourceAsset.id],
+    ],
+  })
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/videos/generations`,
@@ -1694,7 +1757,7 @@ async function generateVideoWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioVideoJob
-  await recordGenStudioEvidence('video.generation', submitted)
+  await recordGenStudioEvidence('video.generation', submitted, requestPreview)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   try {
@@ -1988,6 +2051,22 @@ async function callChatWithGenStudioAdmitted(
       : []),
     { role: 'user', content: request.userMessage },
   ]
+  const requestPreview = await recordGenStudioRequestPreview('chat.response', {
+    method: 'POST',
+    path: '/v1/chat/completions',
+    modelId,
+    responseFormat,
+    tokenLimits: { max_completion_tokens: maxOutputTokens },
+    idempotencyKey,
+    messages,
+    fields: [
+      ['stream', false],
+      ['temperature', request.temperature ?? 0.7],
+      ['top_p', request.topP ?? 1],
+      ['output_contract', outputContract.mode],
+      ['structured_output_mode', product.structured_output_mode],
+    ],
+  })
   const completion = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/chat/completions`,
@@ -2017,7 +2096,7 @@ async function callChatWithGenStudioAdmitted(
     state: 'succeeded',
     model_id: result.modelId,
   }
-  await recordGenStudioEvidence('chat.response', evidence)
+  await recordGenStudioEvidence('chat.response', evidence, requestPreview)
   await request.onJobAccepted?.(result.jobId, idempotencyKey)
   await request.onState?.('succeeded', result.jobId)
   await request.onQueueState?.('succeeded', result.jobId)
@@ -2353,6 +2432,21 @@ async function generateImageWithGenStudioAdmitted(
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const requestPreview = await recordGenStudioRequestPreview('image.generation', {
+    method: 'POST',
+    path: '/v1/images/generations',
+    modelId,
+    idempotencyKey,
+    messages: [{ role: 'prompt', content: prompt }],
+    fields: [
+      ['aspect_ratio', request.aspectRatio],
+      ['steps', request.steps],
+      ['width', hasDimensions ? request.width : undefined],
+      ['height', hasDimensions ? request.height : undefined],
+      ['seed', request.seed],
+      ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
+    ],
+  })
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/images/generations`,
@@ -2368,7 +2462,7 @@ async function generateImageWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioImageJob
-  await recordGenStudioEvidence('image.generation', submitted)
+  await recordGenStudioEvidence('image.generation', submitted, requestPreview)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   try {
@@ -2603,6 +2697,19 @@ async function transcribeWithGenStudioAdmitted(
 
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const requestPreview = await recordGenStudioRequestPreview('audio.transcription', {
+    method: 'POST',
+    path: '/v1/audio/transcriptions/quotes',
+    modelId,
+    idempotencyKey,
+    fields: [
+      ['model', modelId],
+      ['language', request.language || 'auto'],
+      ['word_timestamps', request.wordTimestamps === true],
+      ['file', path.basename(request.audioPath)],
+      ['file_bytes', file.length],
+    ],
+  })
   // A quote carries `expires_at`. When a saved idempotency key outlives its
   // quote, the quote/confirm exchange fails permanently — surface that as a
   // typed outcome so the caller retires the key instead of matching wording.
@@ -2645,7 +2752,7 @@ async function transcribeWithGenStudioAdmitted(
     }
     throw error
   }) as GenStudioTranscriptionJob
-  await recordGenStudioEvidence('audio.transcription', submitted)
+  await recordGenStudioEvidence('audio.transcription', submitted, requestPreview)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey, fileSha256)
   try {
@@ -2824,6 +2931,19 @@ async function generateTtsToFileAdmitted(
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const submission = buildGenStudioSubmission(request)
   const idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
+  // Narration text is deliberately summarised as a character count rather than
+  // stored: the audio pipeline submits up to 15,000 characters per request and
+  // the operator's question here is "which voice/speed/length went out?".
+  const requestPreview = await recordGenStudioRequestPreview('voice.tts', {
+    method: 'POST',
+    path: '/v1/audio/jobs',
+    idempotencyKey,
+    fields: [
+      ['voice_id', submission.body.voice_id],
+      ['speed', submission.body.speed],
+      ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],
+    ],
+  })
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/audio/jobs`,
@@ -2839,7 +2959,7 @@ async function generateTtsToFileAdmitted(
     request,
     deadline,
   ) as GenStudioJob
-  await recordGenStudioEvidence('voice.tts', submitted)
+  await recordGenStudioEvidence('voice.tts', submitted, requestPreview)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   try {

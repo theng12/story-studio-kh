@@ -34,10 +34,12 @@ import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
+import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-paths.js'
 
-// v10 — Scene Review now requires explicit approval for every planned scene;
-// discard cached true values that were based on image presence alone.
-export const SCHEMA_VERSION = 10 as const
+// v11 — `research` is now the gated completion rule (evidence + verification
+// when the project requires research) rather than "a sidecar exists". Discard
+// cached v10 entries, whose `research: true` proves only that a file was there.
+export const SCHEMA_VERSION = 11 as const
 const MAX_ENTRIES = 1000
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000
@@ -141,6 +143,11 @@ async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited
     // watch the file directly (watching scene_prompts_dir alone would miss them).
     path.join(paths.scene_prompts_dir, 'scene_plan.json'),  // scene_plan + scene_review (new location)
     path.join(paths.episode_dir, 'scene_images'),     // scene_review (per-scene images)
+    // v1.0.760 — research.json is rewritten IN PLACE when the user verifies or
+    // un-verifies. That moves the FILE's mtime, not the research folder's or
+    // episode_dir's, so the file itself must be watched or a verify would not
+    // refresh the Production Board / pending filter until something else changed.
+    path.join(paths.episode_dir, researchFolderName(code), RESEARCH_JSON_FILENAME),
     paths.script_dir,         // script + introduction
     paths.scene_prompts_dir,  // scene_prompts (and bg_dir image counts via docx mtime)
     paths.thumb_prompts_dir,  // thumb_prompts

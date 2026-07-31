@@ -23,6 +23,19 @@ const activeSecrets = new Set<string>()
 const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?secret|client[_-]?secret|password|passphrase|bot[_-]?token|hub[_-]?token|genstudio[_-]?api[_-]?key)$/i
 
 /**
+ * Does this name identify a credential-bearing field?
+ *
+ * `redactSensitiveValue` applies this to object *keys*. Callers that carry
+ * name/value pairs in some other shape — a `{ label, value }` list, for
+ * instance — must apply it themselves, because the deep scrubber only ever
+ * sees `label` and `value` as the keys in that case.
+ */
+export function isSensitiveFieldName(name: string): boolean {
+  const normalized = String(name ?? '').replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  return SENSITIVE_FIELD.test(normalized) || /_api_key$/i.test(normalized)
+}
+
+/**
  * Register a runtime secret once it crosses the trusted main-process boundary.
  *
  * Crash handlers and generic loggers do not receive the provider key as an
@@ -115,8 +128,7 @@ export function redactSensitiveValue<T>(value: T, seen = new WeakSet<object>()):
 
   const out: Record<string, unknown> = {}
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    if (SENSITIVE_FIELD.test(normalized) || /_api_key$/i.test(normalized)) {
+    if (isSensitiveFieldName(key)) {
       out[key] = item ? REDACTED : item
     } else {
       out[key] = redactSensitiveValue(item, seen)

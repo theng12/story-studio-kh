@@ -60,7 +60,20 @@ export interface EpisodeRow {
   // lets generic per-step code (EpisodeSelector's chips, filterField
   // lookups) index by string without a cast.
   status: {
+    /** Gated research COMPLETION: evidence, plus verification when the
+     *  project's `research_required` gate is on. Not "a sidecar exists". */
     research?: boolean
+    /** Raw facts behind `research`, so the UI can distinguish "not run yet"
+     *  from "run, waiting on someone to verify it". */
+    research_generated?: boolean
+    research_verified?: boolean
+    // NOTE: `research_verified_by` ('human' | 'pipeline-auto') is also on the
+    // wire but is deliberately NOT declared here — this object is intersected
+    // with Record<string, boolean | undefined> for generic per-step indexing,
+    // which would collapse a string-valued member to `never`. Read it with a
+    // cast at the one place that renders it.
+    /** The project's resolved Research gate, echoed per row. */
+    research_required?: boolean
     scene_plan?: boolean
     scene_review?: boolean
     motion_review?: boolean

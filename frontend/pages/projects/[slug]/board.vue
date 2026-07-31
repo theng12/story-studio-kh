@@ -334,11 +334,11 @@ function onImported() {
 // Character Sheet — no per-episode signal) are intentionally omitted so every
 // cell is a real, meaningful status.
 //
-// Research is intentionally NOT mapped here: it's an optional step that's never
-// required to ship an episode (and already excluded from `all_done`), so it
-// doesn't earn a Production Board column. Omitting it from STEP_FIELD drops it
-// from `columns` below for every format/flow while leaving the Research step in
-// the top flow stepper and the sidebar untouched.
+// Research is CONDITIONAL (v1.0.760). When the project's `research_required`
+// gate is off it earns no column — it's optional enrichment and would read as
+// forever-pending noise. When the gate is on, research is a real shipping
+// requirement (verified, not merely generated) and gets a column like any other
+// step. See `researchColumnActive` below and lib/research-verification.ts.
 const STEP_FIELD: Record<string, string> = {
   script: 'script',
   metadata: 'metadata',
@@ -367,10 +367,19 @@ async function loadVisualSource() {
 }
 watch(slug, loadVisualSource, { immediate: true })
 
+// The backend echoes the resolved per-project Research gate onto every episode
+// status row, so the board reads the SAME resolution the completion rule used
+// rather than re-deriving it from project.json.
+const researchColumnActive = computed(() =>
+  episodes.value.some(ep => ep.status?.research_required === true))
+
 const columns = computed<BoardCol[]>(() =>
   flowForVisualSource(visualSource.value)
-    .filter(s => STEP_FIELD[s.key])
-    .map(s => ({ ...s, field: STEP_FIELD[s.key] })))
+    .filter(s => s.key === 'research' ? researchColumnActive.value : !!STEP_FIELD[s.key])
+    .map(s => s.key === 'research'
+      // Required by the project gate, so it is NOT an optional column here.
+      ? ({ ...s, optional: false, field: 'research' })
+      : ({ ...s, field: STEP_FIELD[s.key] })))
 const requiredColumnFields = computed(() =>
   columns.value.filter(col => !col.optional).map(col => col.field))
 const columnDoneCounts = computed(() => {

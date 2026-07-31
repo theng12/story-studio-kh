@@ -15,6 +15,12 @@ import { resolveResearchPaths, RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } fr
 import type { Job } from '../models/types.js'
 import type { ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import {
+  hasResearchEvidence,
+  readResearchVerification,
+  withResearchUnverified,
+  withResearchVerified,
+} from '../lib/research-verification.js'
 
 // Re-exported for back-compat with importers that referenced these here.
 export { RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
@@ -75,14 +81,42 @@ export async function runResearchJob(job: Job): Promise<void> {
   const { dir, jsonPath, mdPath } = await resolveResearchPaths(paths.episode_dir, episode_id)
   await fs.mkdir(dir, { recursive: true })
 
-  await fs.writeFile(jsonPath, JSON.stringify(result, null, 2), 'utf-8')
+  // v1.0.760 — a fresh generation is ALWAYS unverified: these claims have
+  // never been read by anyone. The one exception is an unattended one-click
+  // Pipeline run, which auto-verifies so the batch is never left blocked —
+  // and records `verified_by: 'pipeline-auto'` so the record never pretends a
+  // human reviewed it. `pipeline_batch_id` is stamped on every job the batch
+  // runner enqueues (and re-stamped by the job-queue chain hook), so it is the
+  // authoritative "this ran unattended" signal.
+  const ranUnderPipeline = typeof (job.params as any)?.pipeline_batch_id === 'string'
+    && !!(job.params as any).pipeline_batch_id
+  const persisted = ranUnderPipeline
+    ? withResearchVerified(result, 'pipeline-auto')
+    : withResearchUnverified(result)
+  job.output_lines.push(
+    ranUnderPipeline
+      ? 'Verification: AUTO-VERIFIED (unattended Pipeline run). No human reviewed these claims — open Research to review them.'
+      : 'Verification: NOT VERIFIED. Open Research, check the claims against their sources, then press Verify research.',
+  )
+
+  await fs.writeFile(jsonPath, JSON.stringify(persisted, null, 2), 'utf-8')
   job.output_lines.push(`Wrote ${RESEARCH_JSON_FILENAME}`)
 
-  await fs.writeFile(mdPath, renderResearchMarkdown(result), 'utf-8')
+  await fs.writeFile(mdPath, renderResearchMarkdown(persisted), 'utf-8')
   job.output_lines.push(`Wrote ${RESEARCH_MD_FILENAME}`)
 
   job.output_dir = dir
-  const hasUsableResearch = !!result.summary?.trim() || result.claims.some(claim => !!claim.text?.trim())
+
+  // The freshly written sidecar's status is now visible to the Production
+  // Board / pending filters straight away rather than on the next mtime sweep.
+  try {
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(job.project_slug, episode_id)
+  } catch { /* cache refresh is best-effort — mtime watching is the safety net */ }
+
+  // Same artifact rule the Production Board uses (lib/research-verification.ts),
+  // so "the job succeeded" and "the board says researched" can never disagree.
+  const hasUsableResearch = hasResearchEvidence(persisted)
   requireJobCompletion(job, {
     label: 'Research generation',
     expected: 1,
@@ -101,6 +135,17 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   lines.push(`# Research — ${r.topic}`)
   lines.push('')
   lines.push(`*Generated ${r.generated_at} via ${r.source_provider}${r.source_model ? ` (${r.source_model})` : ''}*`)
+  lines.push('')
+  // Verification is part of the human-readable record too — a reader opening
+  // research.md in Finder must be able to see whether anyone checked this.
+  const verification = readResearchVerification(r)
+  if (!verification.verified) {
+    lines.push('> **NOT VERIFIED.** Nobody has checked these claims against their sources yet.')
+  } else if (verification.verified_by === 'pipeline-auto') {
+    lines.push(`> **Auto-verified** by an unattended Pipeline run${verification.verified_at ? ` on ${verification.verified_at}` : ''}. No human reviewed these claims.`)
+  } else {
+    lines.push(`> **Verified**${verification.verified_at ? ` on ${verification.verified_at}` : ''}. ${verification.note || ''}`.trim())
+  }
   lines.push('')
 
   if (r.summary) {

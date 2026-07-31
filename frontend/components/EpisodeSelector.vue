@@ -468,7 +468,19 @@ function statusSuffix(ep: any): string {
     return ''
   }
   if (props.filterField === 'research') {
-    return s.research ? ' ✓ researched' : ''
+    // v1.0.760 — "generated" and "done" are different states now. Research that
+    // ran but has not been verified stays in the pending list, so the label has
+    // to say WHY it is still there or the user reads it as "never ran".
+    if (s.research) {
+      // Gate off = research is optional enrichment; "researched" is the whole
+      // story and there is nothing to attest to.
+      if (s.research_required !== true) return ' ✓ researched'
+      return (ep.status as any)?.research_verified_by === 'pipeline-auto'
+        ? ' ✓ auto-verified'
+        : ' ✓ verified'
+    }
+    if (s.research_generated) return ' ⚠ needs verification'
+    return ''
   }
   // v1.0.338 — generic per-page suffix. In "Show all" mode the dropdown
   // used to mark only fully-finished episodes (all_done ✓), so you couldn't

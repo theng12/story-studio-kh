@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.760 — 2026-07-31
+
+- **Research can now be required, and generating it is no longer the same as
+  finishing it** — turn on Evidence policy for a channel and research becomes a real
+  production asset: generated research lands in a clear `needs verification` state,
+  waits in the Research pending list, and only counts as done once you verify it.
+  Regenerating always resets it, because new claims have never been reviewed. Existing
+  channels are unaffected until you switch the setting on, so nothing you have already
+  finished becomes incomplete.
+- **Unattended Pipeline runs verify research themselves, and say so** — a one-click
+  batch is never blocked waiting for a human, but the record shows plainly whether an
+  episode was verified by you or auto-verified by the Pipeline, so you can always tell
+  which claims actually had eyes on them.
+- **See exactly what Story Studio sent to GenStudio** — every job's output panel now
+  has a request view showing the endpoint, the model actually used, the response
+  format, token limits, and the full instructions that were sent. Requests GenStudio
+  rejects are captured too, which are the ones worth reading. Your API key is never
+  recorded or shown.
+- **Idea titles are readable again** — long documentary titles wrap to two lines in
+  the Ideas table instead of being cut off, with the full title on hover.
+
+---
+
 ## v1.0.759 — 2026-07-31
 
 - **AI steps stop discarding answers they already paid for** — a text step

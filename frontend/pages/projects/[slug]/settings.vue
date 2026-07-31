@@ -324,6 +324,40 @@
         <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
       </div>
 
+      <!-- v1.0.760 — per-project Research gate. -->
+      <section class="channel-research-gate mt-3">
+        <div class="settings-section-head">
+          <div>
+            <span class="settings-section-kicker">Evidence policy</span>
+            <h3>Require verified research</h3>
+            <p>
+              For science, history, and other evidence-led channels. When this is on, an episode is not complete
+              until its research has been generated <strong>and</strong> someone has verified it on the Research
+              page. Generating research is not enough on its own.
+            </p>
+          </div>
+          <span class="settings-section-count">{{ researchRequired ? 'Required' : 'Optional' }}</span>
+        </div>
+        <label class="research-gate-toggle">
+          <input
+            v-model="researchRequired"
+            type="checkbox"
+            :disabled="savingResearchGate"
+            @change="saveResearchGate"
+          />
+          <span>
+            <strong>Research must be verified before an episode counts as complete</strong>
+            <span class="research-gate-hint">
+              Unverified research stays in the Research page's pending list and blocks the Production Board.
+              One-click Pipeline runs verify automatically and record that the verification was automatic, so
+              unattended runs are never blocked. Turning this off restores the previous behaviour, where research
+              is optional enrichment that never blocks anything.
+            </span>
+          </span>
+        </label>
+        <SaveIndicator v-bind="savedHintProps('research_gate')" />
+      </section>
+
       <section class="channel-visual-defaults mt-3">
         <div class="settings-section-head">
           <div>
@@ -2919,8 +2953,40 @@ const formatDirty = computed(() => {
   return false
 })
 
+// ── Research gate (v1.0.760) ───────────────────────────────────────────────
+// Explicit tri-state read, mirroring resolveResearchRequired() on the backend:
+// `true` is on, `false` is off, and ABSENT means this project was created
+// before the gate existed → off, so nothing that already shipped is
+// retroactively marked incomplete. New projects are stamped `true` at creation.
+const researchRequired = ref(false)
+const savingResearchGate = ref(false)
+
+function syncResearchGateFromProject() {
+  const m = project.value as any
+  researchRequired.value = m?.research_required === true
+}
+
+async function saveResearchGate(): Promise<void> {
+  savingResearchGate.value = true
+  const next = researchRequired.value
+  try {
+    await put(`/projects/${slug.value}`, { research_required: next })
+    stampSaved('research_gate')
+    success(next
+      ? 'Research is now required — episodes need verified research to count as complete'
+      : 'Research is optional again — it no longer blocks episode completion')
+    await loadProject(slug.value)
+  } catch (e: any) {
+    researchRequired.value = !next  // roll back the optimistic toggle
+    showError(e?.data?.detail || 'Failed to save the research policy')
+  } finally {
+    savingResearchGate.value = false
+  }
+}
+
 function syncFormatFromProject() {
   const m = project.value as any
+  syncResearchGateFromProject()
   if (!m) return
   formatId.value = 'continuity-chain'
   continuityMode.value = m.continuity_mode === 'character-continuity' || m.continuity_mode === 'explainer-stills'
@@ -5793,6 +5859,17 @@ async function deleteProject() {
   border-radius: var(--radius-md);
   background: linear-gradient(135deg, var(--bg-secondary), var(--surface-raised));
 }
+.channel-research-gate {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--bg-secondary), var(--surface-raised));
+}
+.research-gate-toggle { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: pointer; }
+.research-gate-toggle input { margin-top: 3px; flex: none; }
+.research-gate-toggle > span { display: block; min-width: 0; }
+.research-gate-toggle strong { display: block; font-size: 13px; color: var(--text-primary); }
+.research-gate-hint { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
 .channel-guide-density-row { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
 .channel-guide-density-slider { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
 .channel-guide-density-value { min-width: 46px; color: var(--text-primary); font-size: 13px; font-weight: 700; text-align: right; }
