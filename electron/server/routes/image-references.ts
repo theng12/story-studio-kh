@@ -31,7 +31,17 @@ import type { JobType } from '../models/types.js'
 
 export const router = Router()
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
+/**
+ * LOCAL storage bound only — 10 MB, img2img refs can be larger than character
+ * portraits. It is NOT a statement about what any image model accepts.
+ *
+ * The pixel ceiling is a published, per-model figure
+ * (`reference_image_max_dimension`) and is enforced where the selected model
+ * is known: providers/image/genstudio.ts, before the reference is uploaded.
+ * This route has no model in scope, so it must not pretend to be that check —
+ * and a byte cap is not one anyway: a 9 MB 8000x8000 PNG passes here.
+ */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MASTER_FILENAME = 'master.png'
 const THUMBNAIL_FILENAME = 'thumbnail.png'
 const STYLE_FILENAME = 'style.png'  // v1.0.229 — continuity style reference

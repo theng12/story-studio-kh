@@ -1222,6 +1222,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       research_path: useResearch ? researchPath : undefined,
       narration_docx_path: resolveReadPath(paths.narration_docx),
       model,
+      // Live context/output figures for the 'auto' window-size heuristic
+      // (see TARGET_SCENES_PER_WINDOW in scene-planner.ts). Absent when this
+      // run is model-free (`promptModel` null); the planner then falls back
+      // to the smaller, safer window rather than guess.
+      context_window_tokens: promptModel?.context_window_tokens,
+      max_output_tokens: promptModel?.max_output_tokens,
       detail_level: params.detail_level,
       style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
@@ -1305,15 +1311,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     research_path: useResearch ? researchPath : undefined,
     narration_docx_path: resolveReadPath(paths.narration_docx),
     model,
+    // Live context/output figures for the 'auto' window-size heuristic (see
+    // TARGET_SCENES_PER_WINDOW in scene-planner.ts). Ignored by
+    // planScenesTwoPass; absent when this run is model-free.
+    context_window_tokens: promptModel?.context_window_tokens,
+    max_output_tokens: promptModel?.max_output_tokens,
     target_scene_count: params.target_scene_count,
     detail_level: params.detail_level,
     style_prompt: effectiveStyle,
     custom_instructions: params.custom_instructions,
     pacing,
     character_density: characterDensity,
-    // v1.0.285 — per-window scene count tuning (auto = local→small,
-    // cloud→full). See ScenePlanRunOptions.window_size for the rationale.
-    // Ignored by planScenesTwoPass.
+    // v1.0.285 — per-window scene count tuning ('auto' now sizes off the
+    // selected product's published context window; see
+    // TARGET_SCENES_PER_WINDOW in scene-planner.ts). Ignored by
+    // planScenesTwoPass.
     window_size: params.window_size,
     // v1.0.508 — story-so-far continuity toggle (default true = sequential).
     cross_window_context: params.cross_window_context,

@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.769 — 2026-07-31
+
+- **Video models that make their own soundtrack now say so** — some models generate an audio
+  track and charge you for it, but your episode uses your own narration mix, so that track
+  never makes it into the assembled video. The Motion Review model picker now tells you which
+  models do this and that you are paying for it, so you can pick a picture-only model instead.
+  The generated audio is still there in the downloaded clip file.
+- **Oversized reference images are caught before you pay** — a reference image larger than the
+  model accepts used to upload and then fail at the far end. Story Studio now checks it first,
+  says which file and how large it is, and the picker shows each model's size limit up front.
+- **Story Studio stops sending settings a model did not ask for** — creativity settings are
+  now only included when the selected model publishes that it accepts them, which removes a
+  class of confusing rejection where the request and the model both looked fine.
+- **Scene Plan sizes its own work from the model** — how many scenes are planned per pass is
+  now decided by the selected model's context window rather than a guess based on its name.
+
+---
+
 ## v1.0.768 — 2026-07-31
 
 - **Subtitle costs are no longer shown as free** — Story Studio was reading a price field

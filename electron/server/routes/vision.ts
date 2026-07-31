@@ -109,7 +109,9 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       modelId: model.id,
       system: 'You are a thumbnail composition analyst. Analyse visual composition, hierarchy, framing, text placement, palette, lighting, and style cues. Do not identify or imitate brands, logos, or copyrighted characters. Return only one JSON object.',
       userMessage: 'Analyse this thumbnail as a reusable composition reference. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe the composition without naming the original work, brand, or creator.',
-      temperature: 0.2, topP: 1, maxOutputTokens: 1200, jsonObject: true,
+      // No `topP`: Story Studio never had a top_p value anyone chose. The
+      // client no longer sends the field at all — see `GenStudioChatRequest`.
+      temperature: 0.2, maxOutputTokens: 1200, jsonObject: true,
       inputImage: { assetId: remote.id, detail: safeDetail(model) },
       requestIdentity: `thumbnail-reference:${slug}:${sha256}:${model.id}`,
     })

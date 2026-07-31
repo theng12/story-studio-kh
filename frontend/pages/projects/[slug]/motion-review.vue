@@ -81,6 +81,12 @@
               search-placeholder="Search video model or provider…"
               aria-label="Image-to-video model options"
             />
+            <!-- Charged capability the assembled episode will not contain.
+                 Shown at the point of choosing, next to the model that bills
+                 for it, so a customer can pick a picture-only model instead. -->
+            <span v-if="selectedVideoModelAudioNotice" class="model-audio-notice">
+              {{ selectedVideoModelAudioNotice }}
+            </span>
           </label>
           <button class="btn btn-sm btn-secondary" :disabled="savingAll || stats.with_clip === 0" @click="approveAllClips">
             Approve all fresh clips
@@ -254,6 +260,24 @@ function cheapestVariant(model: { variants?: Array<{ duration_seconds: number, r
   ))[0]!
 }
 
+/**
+ * What the customer is told when the selected model bills for a soundtrack
+ * Story Studio's assembly will not use.
+ *
+ * This is DISCLOSURE, not a toggle. Video assembly builds one episode-wide
+ * audio timeline (narration + optional music + optional ambience) and every
+ * clip enters it as picture only; clips are looped, trimmed, cross-faded,
+ * chunked and stream-copy concatenated, so there is no per-clip audio lane a
+ * generated track could honestly be placed in. Offering a "keep the generated
+ * audio" switch would be a switch that does nothing on the assembly path,
+ * which is worse than saying so plainly.
+ */
+const GENERATED_AUDIO_DISCLOSURE =
+  'This model also generates its own audio track, and you are charged for it. '
+  + 'Story Studio composes your narration mix over the picture, so the generated audio is not in the '
+  + 'assembled episode — it is kept only in the downloaded clip file. Choose a picture-only model if '
+  + 'you do not want to pay for a soundtrack the episode will not use.'
+
 const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
     // Story Studio submits image-to-video only. The catalogue carries every
@@ -264,6 +288,10 @@ const i2vModels = computed(() => {
       // An enforced limit has to be visible at the point of choosing. This is
       // the length and resolution the clip WILL be, not an example.
       const noVariant = 'No published length or resolution'
+      // Only a published `true` is disclosed. `false` and `null` (GenStudio
+      // said nothing) both say nothing here — a silent model needs no warning,
+      // and an unpublished field is not evidence of one either way.
+      const generatesAudio = model.generates_audio === true
       return {
         id: `genstudio-video:${model.id}`,
         label: model.display_name,
@@ -272,21 +300,35 @@ const i2vModels = computed(() => {
         meta: variant
           ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
           : noVariant,
-        description: variant
+        description: (variant
           ? `Image-to-video generation through GenStudio KH. Clips are generated at ${variant.duration_seconds}s `
             + `and ${variant.resolution}, the cheapest option GenStudio publishes for this model.`
           : 'Image-to-video generation through GenStudio KH. GenStudio publishes no priced length or '
-            + 'resolution for this model, so Story Studio cannot generate a clip with it.',
+            + 'resolution for this model, so Story Studio cannot generate a clip with it.')
+          + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),
         disabled: !model.available || !variant,
         disabledReason: !model.available
           ? 'This video model is not available in GenStudio KH.'
           : !variant
             ? 'GenStudio publishes no priced length or resolution for this model.'
             : undefined,
-        badges: [{ label: 'GenStudio KH', tone: 'info' as const }],
+        badges: [
+          { label: 'GenStudio KH', tone: 'info' as const },
+          ...(generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : []),
+        ],
       }
     })
   return discovered
+})
+
+/** The selected model's audio disclosure, or empty when there is nothing to
+ *  disclose. Re-derived from the live catalogue on every model change. */
+const selectedVideoModelAudioNotice = computed(() => {
+  const raw = videoModel.value.startsWith('genstudio-video:')
+    ? videoModel.value.slice('genstudio-video:'.length)
+    : videoModel.value
+  const model = genStudioVideoModels.value.find(item => item.id === raw)
+  return model?.generates_audio === true ? GENERATED_AUDIO_DISCLOSURE : ''
 })
 watch(i2vModels, (models) => {
   if (!models.length) return
@@ -523,6 +565,12 @@ watch(episodeId, () => {
 .motion-tools { justify-content: flex-end; flex-wrap: wrap; }
 .model-field { min-width: 280px; }
 .model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+/* Prose, not a field label — override the uppercase caption styling above. */
+.model-field > span.model-audio-notice {
+  margin: 6px 0 0; max-width: 46ch;
+  color: var(--warning, #d97706); font-size: var(--font-xs); font-weight: 500;
+  letter-spacing: normal; text-transform: none; line-height: 1.45;
+}
 .motion-ready { border-color: color-mix(in srgb, var(--motion-green) 65%, var(--border)); }
 
 .motion-grid { display: grid; gap: 14px; padding: 0; list-style: none; }

@@ -33,6 +33,11 @@ export interface GenStudioVideoModelInfo {
     minimum_credits: number
     price_version: string
   }>
+  /** Does the clip come back with its own audio track? `null` means GenStudio
+   *  published nothing, which is NOT "no audio" and is never shown as one.
+   *  Story Studio's assembly composes narration over the clip and drops any
+   *  embedded track, so a `true` is disclosed at the point of choosing. */
+  generates_audio?: boolean | null
   legacy_ids?: string[]
 }
 

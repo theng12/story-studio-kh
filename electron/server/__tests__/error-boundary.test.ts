@@ -1,8 +1,9 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
 import { errorBoundary } from '../lib/error-boundary.js'
+import { useTempDataDir } from './_helpers.js'
 
 // The terminal error handler (app.ts mounts this last). These pin its
 // contract against a REAL throwing route so a regression can't quietly
@@ -17,6 +18,13 @@ function appWith(route: express.RequestHandler): express.Express {
 }
 
 describe('errorBoundary', () => {
+  // errorBoundary logs every caught error via services/logger.ts. No
+  // isolation is needed for these tests' own assertions, but the incidental
+  // log write still needs a claimed temp dir — see lib/test-isolation.ts.
+  let tmp: { dir: string; cleanup: () => Promise<void> }
+  before(async () => { tmp = await useTempDataDir() })
+  after(async () => { await tmp.cleanup() })
+
   test('async route rejection → 500 with generic detail (no internals leaked)', async () => {
     // Express 5 auto-forwards rejected promises from async handlers.
     const app = appWith(async () => { throw new Error('secret db connection string leaked here') })

@@ -13,6 +13,10 @@
       catalog-notice-href="/usage"
       @update:model-value="select"
     />
+    <!-- An enforced limit has to be visible at the point of choosing. Shown
+         only in reference mode, only when the selected model publishes a
+         ceiling, and re-derived live whenever the selection changes. -->
+    <p v-if="referenceDimensionNotice" class="notice notice-limit">{{ referenceDimensionNotice }}</p>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
   </div>
 </template>
@@ -61,6 +65,24 @@ const options = computed(() => {
   return rows
 })
 
+/**
+ * The reference-image pixel ceiling the backend will enforce for the CURRENT
+ * selection, as a sentence.
+ *
+ * Empty when the picker is not in reference mode, when no model is selected,
+ * or when GenStudio publishes no `reference_image_max_dimension` for it —
+ * an unpublished limit is shown as nothing, never as an invented number.
+ * A computed, so switching model re-derives it immediately.
+ */
+const referenceDimensionNotice = computed(() => {
+  if (props.imageMode !== 'img2img') return ''
+  const selected = models.value.find(model => model.id === props.modelValue)
+  const limit = selected?.reference_image_max_dimension
+  if (!selected || typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return ''
+  return `${selected.display_name} accepts reference images up to ${limit.toLocaleString()}px on the longest side. `
+    + 'Larger references are refused before upload, so resize them first.'
+})
+
 function select(modelId: string): void {
   const selected = models.value.find(model => model.id === modelId)
   if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1 || !selected.chargeable))) return
@@ -85,5 +107,6 @@ onMounted(() => {
 
 <style scoped>
 .notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.notice-limit { color: var(--text-muted); }
 .notice-error { color: var(--danger, #dc2626); }
 </style>

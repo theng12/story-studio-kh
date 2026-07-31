@@ -10,9 +10,11 @@
  * nothing invents a value GenStudio did not publish.
  */
 
+import path from 'path'
 import { registry } from '../registry.js'
 import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } from '../types.js'
 import { GenStudioApiError, generateImageWithGenStudio, listImageModels, uploadImageSourceWithGenStudio } from '../../lib/genstudio-client.js'
+import { assertDecodableImage } from '../../lib/image-validation.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
 import {
   publishedAvailabilityProblem,
@@ -85,6 +87,29 @@ const genstudioImageProvider: ImageProvider = {
         `${model.display_name} renders only from reference images. Attach at least ${minReferences}. ` +
         'No request or credit charge was made.',
       )
+    }
+
+    // Pixel ceiling on every reference, checked BEFORE the upload and before
+    // the charged POST. The 10 MB byte cap in routes/image-references.ts is a
+    // local storage bound and says nothing about pixels: a 9 MB 8000x8000 PNG
+    // passes it and is then rejected at the GenStudio boundary after the whole
+    // file has been uploaded. A model that publishes no dimension gets NO
+    // local check — Story Studio does not invent a ceiling GenStudio never
+    // stated. The message names the model, the limit, and the actual size so
+    // the customer can resize instead of guessing.
+    const maxReferenceDimension = model.reference_image_max_dimension
+    if (referencePaths.length && Number.isInteger(maxReferenceDimension) && maxReferenceDimension! > 0) {
+      for (const referencePath of referencePaths) {
+        const info = await assertDecodableImage(referencePath, 'Reference image')
+        const longestEdge = Math.max(info.width, info.height)
+        if (longestEdge > maxReferenceDimension!) {
+          throw new Error(
+            `${model.display_name} accepts reference images up to ${maxReferenceDimension!.toLocaleString()}px on the longest side; ` +
+            `"${path.basename(referencePath)}" is ${info.width.toLocaleString()}x${info.height.toLocaleString()}px. ` +
+            'Resize it and retry. No request or credit charge was made.',
+          )
+        }
+      }
     }
 
     // Ratio comes from the published list, defaulting to the model's own

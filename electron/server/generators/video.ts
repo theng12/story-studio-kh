@@ -1980,6 +1980,46 @@ export async function generateVideo(job: Job): Promise<void> {
   }
 }
 
+/**
+ * ── Why every prepared clip carries `-an` ────────────────────────────────
+ *
+ * Story Studio assembles ONE episode-wide audio timeline. `premixAudio`
+ * builds it from narration (+ optional music, + optional ambience), pads it
+ * to the full episode duration, and the final encode maps that single mixed
+ * stream. There is no per-clip audio lane anywhere in this file, and there
+ * cannot be one cheaply: prepared clips are stream-looped to fill a window,
+ * hard-trimmed by `-t`, cross-faded across chunk boundaries, re-encoded into
+ * chunks, and finally stream-copy concatenated (`-c:v copy -an`). A clip's
+ * own track would have to be re-timed through every one of those steps.
+ *
+ * So `-an` is deliberate at every site, but for two different reasons — worth
+ * keeping straight, because only the first group involves a source that HAS
+ * audio a customer might have paid for:
+ *
+ *   A. Sources that carry real audio, dropped as a COMPOSITION decision:
+ *      `prepareCompilationBackground` (looping background plate),
+ *      `prepareSceneClips` when the scene source is a video — an AI-generated
+ *      clip, a materialized B-Roll clip (see its own note at the call site),
+ *      `prepareIntroClip`, `prepareOutroClip`, `prepareTimelineClip`.
+ *      Narration is the soundtrack; a model's or a stock clip's own audio
+ *      competing with it would be the regression, not the fix. The AI-video
+ *      generator still writes the downloaded clip to disk untouched, so the
+ *      generated track survives in the clip file the customer can play.
+ *      A model that BILLS for that track is disclosed at the point of
+ *      choosing — see `generates_audio` in lib/genstudio-client.ts and the
+ *      notice on the Motion Review model picker.
+ *
+ *   B. Sources that have no audio at all, where `-an` only stops FFmpeg
+ *      inventing an empty stream: `prepareTextCardClip`, `prepareTitleClip`,
+ *      `prepareStaticTimelineClip` (stills and drawtext cards), and every
+ *      re-encode/concat of an already-silent intermediate — the chunk passes
+ *      and `commonPostArgs` in `buildConcatList`, `trimPreparedSceneClip`,
+ *      `concatToIntermediate`.
+ *
+ * Do not "fix" group B by removing `-an`; there is nothing to keep. Changing
+ * group A means building a real per-clip audio lane first.
+ */
+
 // ── Compilation-mode helpers (Path C — v1.0.63+) ─────────────────────────
 
 /**

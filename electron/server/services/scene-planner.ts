@@ -28,6 +28,7 @@ import {
   CREATIVE_STRATEGY_INSTRUCTIONS,
 } from './scene-creative-direction.js'
 import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
+import { availableInputTokens } from './scene-prompt-batching.js'
 import type {
   ResearchOutput,
   SceneCreativeDirection,
@@ -1875,6 +1876,48 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
   }
 }
 
+/**
+ * Below this available-input budget (context minus the product's own max
+ * output — see `availableInputTokens` in scene-prompt-batching.ts), 'auto'
+ * window sizing uses the smaller 10-scene window; at or above it, the
+ * historical 30-scene window. An ESTIMATE that decides how work is split
+ * across LLM calls — same role as `TOKENS_PER_FULL_DETAIL_SCENE` in
+ * scene-prompt-batching.ts — never a hard cap on what a product may be asked
+ * for.
+ */
+const AUTO_SMALL_WINDOW_INPUT_CEILING = 64_000
+
+/**
+ * How many scenes the chunked single-pass planner targets per time-window
+ * (v1.0.226; per-model tuning v1.0.285).
+ *
+ * Every window's prompt re-sends the full narration + research plus, in
+ * `cross_window_context` mode, a "story so far" recap that grows with each
+ * planned window; a model with a small published context window needs a
+ * smaller window to keep that combined input inside its budget.
+ *
+ * `'auto'` used to switch on a `chatstudio:` model-id prefix — a retired
+ * local-model namespace, and a capability guess from a name either way
+ * (AGENTS.md's first rule: nothing about a model may be inferred from its
+ * name). It now sizes off the selected product's PUBLISHED context window
+ * instead. Undefined/unpublished context (e.g. `deterministic-timeline`, or a
+ * caller that didn't resolve the live catalog) reads as 0 available input via
+ * `availableInputTokens`, so `'auto'` falls back to the smaller, safer window
+ * rather than assume a large context nobody published. Manual `'full'` /
+ * `'small'` still override `'auto'` outright. See
+ * `ScenePlanRunOptions.window_size` for the user-facing description.
+ */
+export function resolveTargetScenesPerWindow(
+  sizeMode: ScenePlanRunOptions['window_size'],
+  contextWindowTokens: unknown,
+  maxOutputTokens: unknown,
+): number {
+  if (sizeMode === 'small') return 10
+  if (sizeMode === 'full') return 30
+  const availableInput = availableInputTokens(contextWindowTokens, maxOutputTokens)
+  return availableInput < AUTO_SMALL_WINDOW_INPUT_CEILING ? 10 : 30
+}
+
 /** Run the LLM planner. Returns a ScenePlan object ready to persist. */
 export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> {
   if (!existsSync(opts.stitched_srt_path)) {
@@ -1921,27 +1964,14 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
 
   // ── Chunked planning (v1.0.226; per-model tuning v1.0.285) ──────────────
   // Split the timeline into contiguous windows and plan each one in its own
-  // LLM call. Input context (narration/research) is cheap and re-sent per
-  // window; only the OUTPUT was ever the constraint, and each window's output
-  // is bounded — so episode length no longer causes truncation. Windows never
-  // split a cue.
-  //
-  // v1.0.285 — window size is now tunable. The 'auto' default keeps the
-  // historical 30 scenes/window for cloud models (Claude/GPT/OpenRouter) and
-  // drops to 10 scenes/window for local LM Studio models (smaller JSON output
-  // → fewer truncation/parse failures → fewer empty visual_prompt fallbacks).
-  // Manual 'full' / 'small' override the auto choice for the rare case where
-  // the user wants the other behaviour (e.g. cloud with smaller windows to
-  // bound a single call's cost, or local with full windows on a beefy
-  // long-context model). See ScenePlanRunOptions.window_size for the
-  // user-facing description.
+  // LLM call. Windows never split a cue. See resolveTargetScenesPerWindow for
+  // how the 'auto' scene-count-per-window is sized.
   const avgSceneSec = (minSec + maxSec) / 2
-  const isLocalModel = typeof opts.model === 'string' && opts.model.startsWith('chatstudio:')
-  const sizeMode = opts.window_size || 'auto'
-  const TARGET_SCENES_PER_WINDOW =
-    sizeMode === 'small' ? 10
-      : sizeMode === 'full' ? 30
-        : (isLocalModel ? 10 : 30) // 'auto'
+  const TARGET_SCENES_PER_WINDOW = resolveTargetScenesPerWindow(
+    opts.window_size,
+    opts.context_window_tokens,
+    opts.max_output_tokens,
+  )
   // Window-seconds bounds shrink in lockstep with the target count so a
   // 10-scene window doesn't accidentally span 5 minutes of audio. The
   // 60–300s clamp came from the historical 30-scene size; for 10-scene

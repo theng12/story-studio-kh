@@ -91,16 +91,34 @@ export async function checkpointExpressionSection(
 
 /**
  * Which inline-tag dialect a TTS model speaks, or null if it can't do tags.
- * Fish S2-Pro and ElevenLabs v3 (via fal / GenAIPro) each take square-bracket
- * tags but with different vocabularies — keep them separate so we never send
- * one provider's tags to the other (which would get read aloud).
+ *
+ * Always null today — dead on purpose, not a bug to fix here. This used to
+ * switch on literal engine ids: `eleven-v3` / `genaipro-v3` (ElevenLabs v3 via
+ * fal / GenAIPro) and `fishaudio-s2-pro` (Fish Audio S2-Pro). Both retired
+ * when v1.0.669 collapsed every generation path onto the GenStudio-only
+ * gateway. `model` here is now one of GenStudio's TTS TIER ids
+ * (`genstudio-tts-regular` / `-premium` / `-clone` — see
+ * `resolveStoryTtsModelId` in services/project-manager.ts, which refuses any
+ * other model id before a job is even created) and none of the three retired
+ * literals can ever reach this function as `model` again.
+ *
+ * GenStudio owns which physical engine executes a tier and does not publish
+ * that choice, or whether the chosen engine accepts inline performance tags,
+ * anywhere in its catalog (`GenStudioVoice` carries no such field). Per
+ * AGENTS.md's first rule, capability is never inferred from a model or
+ * provider name and never invented when unpublished — so this returns null
+ * unconditionally rather than guess a dialect from a tier id. Every caller
+ * (the render-time tag swap-in and auto-pacing in generators/audio.ts, the
+ * manual/"Tag all" markup endpoints in routes/audio.ts) already treats null
+ * as "no dialect, feature inert for this model", so the expression-markup
+ * feature is currently unreachable end-to-end for real TTS generation — it
+ * stays that way until GenStudio's voice-contract refactor (TTS work is
+ * frozen pending that) publishes a real per-tier/per-voice tag-dialect
+ * signal for this to read.
  */
 export type TagDialect = 'fish' | 'elevenlabs'
-const ELEVENLABS_TAG_MODELS = new Set(['eleven-v3', 'genaipro-v3'])
 export function dialectForModel(model: string | undefined | null): TagDialect | null {
-  if (!model) return null
-  if (model === 'fishaudio-s2-pro') return 'fish'
-  if (ELEVENLABS_TAG_MODELS.has(model)) return 'elevenlabs'
+  void model
   return null
 }
 

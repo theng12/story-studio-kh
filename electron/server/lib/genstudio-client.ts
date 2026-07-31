@@ -800,6 +800,17 @@ export interface GenStudioVideoModel {
   modes: string[]
   aspect_ratios: string[]
   variants: GenStudioVideoVariant[]
+  /**
+   * Does the product return a clip that carries its OWN audio track?
+   *
+   * TRI-STATE ON PURPOSE. `true` / `false` are GenStudio's answer; `null` means
+   * the catalogue said nothing, which is not the same as "no audio" and must
+   * never be rendered as one. Story Studio's video assembly composes narration
+   * over the clip and drops any embedded track, so a `true` here is money the
+   * customer spends on something the finished episode will not contain — which
+   * is exactly why it has to reach the picker instead of dying at the parse.
+   */
+  generates_audio: boolean | null
 }
 
 /** Story Studio's one video mode. Enforced where a request is BUILT, never by
@@ -989,8 +1000,14 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   modelId: string
   system: string
   userMessage: string
+  /**
+   * Requested sampling temperature.
+   *
+   * SENT ONLY when the selected product publishes the `temperature` control
+   * (see `productPublishesControl`). It is still part of the idempotency
+   * digest on every request — see `LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT`.
+   */
   temperature?: number
-  topP?: number
   /**
    * An exact number of output tokens. Callers that can compute their own hard
    * ceiling still may; anything above the product's published limit is refused
@@ -2450,6 +2467,10 @@ export async function listVideoModelsSnapshot(
           price_version: item.price_version,
         }))
       : [],
+    // Tri-state. An absent or non-boolean field is `null` ("GenStudio did not
+    // say"), never coerced to `false` — claiming a model is silent when the
+    // catalogue never said so is inventing a capability answer.
+    generates_audio: typeof value?.generates_audio === 'boolean' ? value.generates_audio : null,
   })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
   })
 }
@@ -2736,6 +2757,31 @@ export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
   return { overview, jobs, credit_activity: creditActivity }
 }
 
+/**
+ * The temperature that has always stood in for an unset caller value.
+ *
+ * It remains a DIGEST component on every request, including one whose product
+ * does not publish the `temperature` control and therefore never puts the
+ * field on the wire. The digest describes the WORK REQUESTED, not the exact
+ * bytes posted, and changing it would change every chat idempotency key — a
+ * retry crossing that upgrade would resubmit and charge a second time. Same
+ * reasoning as `LEGACY_IMAGE_STEPS_DIGEST_COMPONENT`.
+ */
+const LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT = 0.7
+
+/**
+ * `top_p` FROZEN into the digest at its historical value; it is no longer a
+ * parameter and is no longer sent.
+ *
+ * Every chat request this app has ever made carried `top_p: 1`: no caller ever
+ * set `topP`, and the single caller that passed one passed exactly `1`, which
+ * is also what the `?? 1` fallback produced. Keeping the component frozen makes
+ * every key computed after the field's removal byte-identical to the one
+ * computed before it, so a retry that crosses this upgrade still replays the
+ * in-flight job instead of submitting — and billing — a second one.
+ */
+const LEGACY_CHAT_TOP_P_DIGEST_COMPONENT = 1
+
 export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
@@ -2743,8 +2789,8 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     model_id: request.modelId.trim(),
     system: request.system,
     user_message: request.userMessage,
-    temperature: request.temperature ?? 0.7,
-    top_p: request.topP ?? 1,
+    temperature: request.temperature ?? LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT,
+    top_p: LEGACY_CHAT_TOP_P_DIGEST_COMPONENT,
     max_output_tokens: request.maxOutputTokens ?? 2_048,
     // Two tiers resolve to two different ceilings on the same product, so they
     // must not share a replay key. Emitted only when a tier was declared, so
@@ -3140,11 +3186,34 @@ interface PreparedChatSubmission {
   maxOutputTokens: number
   outputContract: TextOutputContract
   responseFormat: Record<string, unknown>
-  /** system (+ wrapper instruction) then user. `messages` on the completions
-   *  route, `input` on the responses route — same objects either way. */
+  /** system (+ wrapper instruction) then user — but ONLY when the product
+   *  publishes the `system_instruction` control. When it does not, the same
+   *  text is folded into the single user turn instead, so the instruction is
+   *  still delivered without sending a field the product never advertised.
+   *  `messages` on the completions route, `input` on the responses route. */
   messages: Array<{ role: string; content: string }>
+  /** Sampling fields the product actually published, already resolved. A field
+   *  absent here is NOT sent — never sent as a Story Studio default. */
+  samplingFields: Record<string, number>
   idempotencyKey: string
   transport: GenStudioChatTransport
+}
+
+/**
+ * Does the selected product publish this control?
+ *
+ * `controls[]` is GenStudio's statement of the legal field set for a product
+ * (`system_instruction | temperature | top_p | max_output_tokens`). An absent
+ * entry means the product does not advertise the field, and Story Studio must
+ * not send it — sending an unpublished sampling parameter is exactly the
+ * "value nobody chose" the first rule in AGENTS.md forbids. An EMPTY list
+ * therefore means "publish nothing, send nothing", not "send everything".
+ */
+export function productPublishesControl(
+  product: Pick<GenStudioChatModel, 'controls'>,
+  control: 'system_instruction' | 'temperature' | 'top_p' | 'max_output_tokens',
+): boolean {
+  return Array.isArray(product.controls) && product.controls.includes(control)
 }
 
 /**
@@ -3195,6 +3264,11 @@ async function prepareChatSubmission(
     product.structured_output_mode,
     outputContract,
   )
+  const systemText = [request.system.trim(), wrapperInstruction].filter(Boolean).join('\n\n')
+  // A system TURN is the `system_instruction` control. When the product does
+  // not publish it, the instruction is folded into the user turn instead: the
+  // text still reaches the model, and no unpublished field goes on the wire.
+  const sendsSystemTurn = !!systemText && productPublishesControl(product, 'system_instruction')
   return {
     modelId,
     product,
@@ -3202,14 +3276,20 @@ async function prepareChatSubmission(
     outputContract,
     responseFormat,
     messages: [
-      ...(request.system.trim() || wrapperInstruction
-        ? [{
-            role: 'system',
-            content: [request.system.trim(), wrapperInstruction].filter(Boolean).join('\n\n'),
-          }]
-        : []),
-      { role: 'user', content: request.userMessage },
+      ...(sendsSystemTurn ? [{ role: 'system', content: systemText }] : []),
+      {
+        role: 'user',
+        content: !systemText || sendsSystemTurn
+          ? request.userMessage
+          : `${systemText}\n\n${request.userMessage}`,
+      },
     ],
+    // `temperature` travels only when published. `top_p` never travels at all
+    // — Story Studio has never had a top_p value anyone chose, so there is
+    // nothing honest to send. See `LEGACY_CHAT_TOP_P_DIGEST_COMPONENT`.
+    samplingFields: productPublishesControl(product, 'temperature')
+      ? { temperature: request.temperature ?? LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT }
+      : {},
     // Derived from the request CONTENT, never from a clock or a counter. That
     // is what makes it survive a lost response: the retry inside
     // `requestJsonWithRetry` re-sends the identical `Idempotency-Key`, and a
@@ -3226,8 +3306,10 @@ function chatPreviewFields(
   prepared: PreparedChatSubmission,
 ): Array<[string, unknown]> {
   return [
-    ['temperature', request.temperature ?? 0.7],
-    ['top_p', request.topP ?? 1],
+    // Diagnostics must describe what was SENT. A product that does not publish
+    // `temperature` shows the field as absent, not as a number nobody sent.
+    ...Object.entries(prepared.samplingFields) as Array<[string, unknown]>,
+    ['system_instruction', prepared.messages.some(message => message.role === 'system')],
     ['output_contract', prepared.outputContract.mode],
     ['structured_output_mode', prepared.product.structured_output_mode],
     ...(request.webSearch
@@ -3428,8 +3510,8 @@ async function callChatViaResponses(
         model_id: prepared.modelId,
         input: prepared.messages,
         response_format: prepared.responseFormat,
-        temperature: request.temperature ?? 0.7,
-        top_p: request.topP ?? 1,
+        // Only the sampling fields this product publishes. Never `top_p`.
+        ...prepared.samplingFields,
         max_output_tokens: prepared.maxOutputTokens,
         // Present only for a deliberate web-search request. `web_search` is
         // available on this route too, so web research is durable as well.
@@ -3496,8 +3578,8 @@ async function callChatViaCompletions(
         messages: prepared.messages,
         response_format: prepared.responseFormat,
         stream: false,
-        temperature: request.temperature ?? 0.7,
-        top_p: request.topP ?? 1,
+        // Only the sampling fields this product publishes. Never `top_p`.
+        ...prepared.samplingFields,
         max_completion_tokens: prepared.maxOutputTokens,
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),

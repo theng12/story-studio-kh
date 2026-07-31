@@ -13,28 +13,37 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { createRequire } from 'module'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 
 const require = createRequire(import.meta.url)
 
 const MAX_ENTRIES = 200
 
-let cachedRoot: string | null = null
-
+/**
+ * The cache-root directory, resolved on EVERY access.
+ *
+ * Deliberately not captured in a module-scope variable, even a lazily-set
+ * one. `STORY_STUDIO_DATA_DIR` is what redirects this cache into an isolated
+ * directory, and it is set by the caller — the Electron main process at boot,
+ * `useTempDataDir()` in tests. Memoising on first CALL still froze the path:
+ * whichever test happened to call `cachePath`/`getOrRender` first — in any
+ * file sharing this test worker process — bound the root for every later
+ * test, including ones that had already claimed their own temp dir. Same
+ * shape as `services/app-settings.ts`. Directory creation is deferred to the
+ * actual write sites below (`getOrRender`), not done here, so a plain read
+ * (`cachePath` used to check a cache hit) never side-effects the filesystem.
+ */
 function resolveCacheRoot(): string {
-  if (cachedRoot) return cachedRoot
   if (process.env.STORY_STUDIO_DATA_DIR) {
-    cachedRoot = path.join(process.env.STORY_STUDIO_DATA_DIR, 'preview-cache')
-  } else {
-    try {
-      const { app } = require('electron')
-      if (app && typeof app.getPath === 'function') {
-        cachedRoot = path.join(app.getPath('userData'), 'preview-cache')
-      }
-    } catch { /* not in Electron */ }
-    if (!cachedRoot) cachedRoot = path.join(process.cwd(), '.preview-cache')
+    return path.join(process.env.STORY_STUDIO_DATA_DIR, 'preview-cache')
   }
-  try { fs.mkdirSync(cachedRoot, { recursive: true }) } catch {}
-  return cachedRoot
+  try {
+    const { app } = require('electron')
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), 'preview-cache')
+    }
+  } catch { /* not in Electron */ }
+  return path.join(process.cwd(), '.preview-cache')
 }
 
 function hashKey(key: string): string {
@@ -98,6 +107,11 @@ export async function getOrRender(
     const p = (async () => {
       await acquireRenderSlot()
       try {
+        // Under the node test runner, a render whose target falls outside the
+        // claimed temp data dir is a hard error, not a silent write to the
+        // developer's real cache directory. See lib/test-isolation.ts.
+        assertWriteIsolatedInTests(target, 'preview-cache')
+        fs.mkdirSync(path.dirname(target), { recursive: true })
         await render(target)
       } finally {
         releaseRenderSlot()
@@ -122,6 +136,7 @@ export async function getOrRender(
 
 async function evictIfOverflowing(): Promise<void> {
   const root = resolveCacheRoot()
+  assertWriteIsolatedInTests(root, 'preview-cache')
   let entries: { file: string; mtime: number }[]
   try {
     const files = await fs.promises.readdir(root)
@@ -140,5 +155,7 @@ async function evictIfOverflowing(): Promise<void> {
 
 /** Manual invalidation (future-proof — unused today). */
 export function invalidate(key: string, ext: string): void {
-  try { fs.unlinkSync(cachePath(key, ext)) } catch {}
+  const target = cachePath(key, ext)
+  assertWriteIsolatedInTests(target, 'preview-cache')
+  try { fs.unlinkSync(target) } catch {}
 }

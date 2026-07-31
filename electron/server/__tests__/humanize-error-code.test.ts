@@ -9,11 +9,19 @@
  * the existing detail/hint messages and not exposed to the frontend.
  */
 
-import { test, describe } from 'node:test'
+import { after, before, test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { useTempDataDir } from './_helpers.js'
 
 describe('humanizeBackendError — domain code passthrough', () => {
+  // humanizeBackendError logs every call via services/logger.ts. No isolation
+  // is needed for these tests' own assertions, but the incidental log write
+  // still needs a claimed temp dir — see lib/test-isolation.ts.
+  let tmp: { dir: string; cleanup: () => Promise<void> }
+  before(async () => { tmp = await useTempDataDir() })
+  after(async () => { await tmp.cleanup() })
+
   test('forwards `code` when error has expose: true + string code', () => {
     class MyError extends Error {
       readonly code = 'NARRATION_MISSING' as const

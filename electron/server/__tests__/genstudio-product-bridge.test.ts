@@ -85,9 +85,20 @@ function completion(content: string) {
 
 /** `input` on the durable route, `messages` on the rollback route — same
  *  objects, so one reader serves both. */
+/**
+ * The instruction text the model actually receives, wherever it travels.
+ *
+ * A system TURN is the `system_instruction` control. Products that do not
+ * publish it never get one — the same text is folded into the single user turn
+ * instead (see `prepareChatSubmission`). These tests are about WHAT the model
+ * is told, not which field carried it, so read the system turns when there are
+ * any and the folded user turn otherwise.
+ */
 function systemPrompt(body: Record<string, any>): string {
   const messages = (body.input ?? body.messages) as Array<{ role: string; content: string }>
-  return messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n')
+  const system = messages.filter(message => message.role === 'system')
+  if (system.length) return system.map(message => message.content).join('\n\n')
+  return messages.filter(message => message.role === 'user').map(message => message.content).join('\n\n')
 }
 
 function accountOverview() {

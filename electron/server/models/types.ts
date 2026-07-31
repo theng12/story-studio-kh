@@ -3927,4 +3927,26 @@ export interface ScenePlanRunOptions {
    */
   neighbor_context_back?: number
   neighbor_context_forward?: number
+  /**
+   * The selected model's published context window (GenStudio's
+   * `context_window_tokens`), used ONLY by the single-pass chunked planner
+   * to size its per-window scene count in `window_size: 'auto'` mode — see
+   * `TARGET_SCENES_PER_WINDOW` in scene-planner.ts. Every window's prompt
+   * re-sends the full narration + research plus, in `cross_window_context`
+   * mode, a "story so far" recap that grows with each planned window; a
+   * model with a small published context window needs a smaller window to
+   * keep that combined input inside its budget. Undefined/0 = GenStudio
+   * published nothing usable for this model — `auto` falls back to the
+   * smaller, safer window rather than assume a large context it was never
+   * told about. Never converted into a character/word limit. Ignored by
+   * `planScenesTwoPass` (no window sizing there).
+   */
+  context_window_tokens?: number
+  /**
+   * The selected model's published max output allowance (GenStudio's
+   * `max_output_tokens`), paired with `context_window_tokens` to compute the
+   * available input budget via `availableInputTokens` (scene-prompt-batching.ts)
+   * for the same `window_size: 'auto'` sizing. Ignored by `planScenesTwoPass`.
+   */
+  max_output_tokens?: number
 }
