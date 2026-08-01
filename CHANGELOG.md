@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.781 — 2026-08-01
+
+- **You can now see just your cloned voices** — the voice picker has an All / Saved / Cloned
+  filter where the "Saved only" tick box used to be. Cloned voices were always in the list, but
+  mixed in with everything the provider offers; now you can narrow to the ones you made.
+  Cloning still happens in GenStudio KH — Story Studio only shows you what you have cloned
+  there, listed under its provider like any other voice, and says so if you have not cloned
+  anything yet.
+
+---
+
 ## v1.0.780 — 2026-08-01
 
 - **Developer-only: the local development server no longer collides with GenStudio KH** — when

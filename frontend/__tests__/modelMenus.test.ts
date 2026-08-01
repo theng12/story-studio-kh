@@ -152,7 +152,10 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /:description="scopeDescription"/)
     assert.match(voicePicker, /scopeFamily === 'cloud' \? 'accent' : 'success'/)
     assert.match(voicePicker, /<VoiceLibraryBrowser @added="onLibraryVoiceAdded" \/>/)
-    assert.match(voicePicker, /Saved only/)
+    // The saved filter survived the dialog conversion; it is now one option in
+    // the All / Saved / Cloned group rather than a standalone checkbox.
+    assert.match(voicePicker, /id: 'saved' as const, label: 'Saved'/)
+    assert.match(voicePicker, /aria-label="Filter voices"/)
     assert.match(voicePicker, /voiceCountLabel/)
     // The dialog outranks the toast stack, so a save failure is also stated
     // inside it rather than only in a toast the dialog would cover.

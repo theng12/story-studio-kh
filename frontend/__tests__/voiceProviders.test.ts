@@ -197,3 +197,34 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(providerGroups, /sole catalog, job, and credit boundary/i)
   assert.doesNotMatch(providerGroups, /openai|anthropic|kie|fal|elevenlabs|studio hub/i)
 })
+
+test('the cloned view asks GenStudio for the collection instead of guessing which voices are clones', () => {
+  const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
+  const composable = readFileSync(new URL('../composables/useGenStudioVoices.ts', import.meta.url), 'utf8')
+
+  // The collection is GenStudio's vocabulary, forwarded verbatim to the server.
+  assert.match(composable, /query\.set\('collection', collection\.trim\(\)\)/)
+  assert.match(picker, /voiceFilter\.value === 'cloned' \? 'cloned' : ''/)
+
+  // Crossing the cloned boundary refetches; all <-> saved must not.
+  assert.match(picker, /watch\(voiceFilter/)
+  assert.match(picker, /\(next === 'cloned'\) === \(previous === 'cloned'\)/)
+
+  // `saved` reads a field GenStudio publishes per voice — no round trip needed.
+  assert.match(picker, /voiceFilter\.value === 'saved'[\s\S]{0,120}voice\.is_saved === true/)
+
+  // Clone-ness is never reconstructed locally. Assert on READS of the field
+  // rather than the bare token, so the comment explaining this rule does not
+  // trip the guard that enforces it.
+  assert.doesNotMatch(picker, /\.custom_voice_id/)
+  assert.doesNotMatch(picker, /custom_voice_id\s*[!=]==?/)
+  assert.doesNotMatch(picker, /\.public_voice_id[\s\S]{0,40}clone/i)
+
+  // An empty clone list is normal, and must say where cloning actually happens
+  // rather than reading as a failure to load.
+  assert.match(picker, /Voices are cloned in GenStudio KH/)
+
+  // explore/my are published but undocumented to us — surfacing a label we
+  // invented for someone else's vocabulary is what this asserts against.
+  assert.doesNotMatch(picker, /id: 'explore'|id: 'my'/)
+})

@@ -38,10 +38,18 @@
 
       <div class="vp-toolbar">
         <input ref="searchEl" v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" @keydown="onListKeydown" />
-        <label v-if="isGenStudioScope" class="vp-saved-toggle" title="Show only the voices saved in your GenStudio account">
-          <input type="checkbox" v-model="savedOnly" />
-          <span>Saved only</span>
-        </label>
+        <div v-if="isGenStudioScope" class="vp-filter" role="group" aria-label="Filter voices">
+          <button
+            v-for="option in VOICE_FILTERS"
+            :key="option.id"
+            type="button"
+            class="vp-filter-btn"
+            :class="{ active: voiceFilter === option.id }"
+            :aria-pressed="voiceFilter === option.id"
+            :title="option.hint"
+            @click="voiceFilter = option.id"
+          >{{ option.label }}</button>
+        </div>
         <button
           type="button"
           class="btn btn-sm btn-secondary"
@@ -89,8 +97,8 @@
             />
           </section>
 
-          <section v-if="!savedOnly && otherVoiceRows.length" class="vp-section">
-            <h4>{{ scopeToModel ? `${ttsModelName || 'Model'} voices` : 'All voices on your account' }}</h4>
+          <section v-if="voiceFilter !== 'saved' && otherVoiceRows.length" class="vp-section">
+            <h4>{{ otherVoicesHeading }}</h4>
             <VoicePickerRow
               v-for="voice in otherVoiceRows"
               :key="voice.id"
@@ -102,8 +110,8 @@
           </section>
 
           <div v-if="voicesReady && !voicesLoading && !voicesError && !visibleVoices.length" class="vp-empty">
-            <strong>{{ savedOnly ? 'No saved voices for this model.' : 'GenStudio KH returned no voices for this model.' }}</strong>
-            <span>{{ savedOnly ? 'Clear “Saved only”, or save a voice with the ★ control.' : 'Browse the provider libraries to add one, or refresh the catalog.' }}</span>
+            <strong>{{ emptyStateTitle }}</strong>
+            <span>{{ emptyStateHint }}</span>
           </div>
         </template>
 
@@ -238,7 +246,30 @@ const expanded = ref(false)
 const searchEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
 const search = ref('')
-const savedOnly = ref(false)
+/**
+ * Two different mechanisms, deliberately:
+ *
+ * `saved` filters on `is_saved`, a field GenStudio publishes per voice — the
+ * rows already in hand carry the answer, so no refetch is needed.
+ *
+ * `cloned` is one of GenStudio's own collections (`all` | `explore` | `my` |
+ * `cloned`) and is re-requested from the server, because which voices are
+ * clones is GenStudio's to decide. Story Studio must not work it out from
+ * `custom_voice_id` or a name — the same rule that governs every other
+ * published fact.
+ *
+ * `explore` and `my` are deliberately NOT surfaced: GenStudio has not told us
+ * what they mean, and inventing a label for someone else's vocabulary is how
+ * you end up with a control that lies. They can be added the moment their
+ * semantics are published.
+ */
+const VOICE_FILTERS = [
+  { id: 'all' as const, label: 'All', hint: 'Every voice GenStudio serves for this model' },
+  { id: 'saved' as const, label: 'Saved', hint: 'Voices you saved to your GenStudio account with ★' },
+  { id: 'cloned' as const, label: 'Cloned', hint: 'Voices you cloned in GenStudio' },
+]
+type VoiceFilter = (typeof VOICE_FILTERS)[number]['id']
+const voiceFilter = ref<VoiceFilter>('all')
 const libraryOpen = ref(false)
 const savingVoiceId = ref('')
 const saveError = ref('')
@@ -260,9 +291,31 @@ const matchingVoices = computed(() => {
     voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
   ].filter(Boolean).join(' ').toLowerCase().includes(q))
 })
-const visibleVoices = computed(() => savedOnly.value
+// `cloned` needs no local filter — the server already returned only clones.
+const visibleVoices = computed(() => voiceFilter.value === 'saved'
   ? matchingVoices.value.filter(voice => voice.is_saved === true)
   : matchingVoices.value)
+
+const otherVoicesHeading = computed(() => {
+  if (voiceFilter.value === 'cloned') return 'Your cloned voices'
+  if (props.scopeToModel) return `${props.ttsModelName || 'Model'} voices`
+  return 'All voices on your account'
+})
+
+const emptyStateTitle = computed(() => {
+  if (voiceFilter.value === 'saved') return 'No saved voices for this model.'
+  if (voiceFilter.value === 'cloned') return 'No cloned voices for this model.'
+  return 'GenStudio KH returned no voices for this model.'
+})
+
+const emptyStateHint = computed(() => {
+  if (voiceFilter.value === 'saved') return 'Switch to All, or save a voice with the ★ control.'
+  // An empty clone list is the normal answer for someone who has not cloned
+  // anything — say where cloning happens rather than letting it read as a
+  // failure to load. Story Studio deliberately does not clone voices.
+  if (voiceFilter.value === 'cloned') return 'Voices are cloned in GenStudio KH; once you clone one there it appears here under its provider.'
+  return 'Browse the provider libraries to add one, or refresh the catalog.'
+})
 const savedVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved === true))
 const otherVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved !== true))
 
@@ -385,10 +438,28 @@ async function loadGenStudioVoices() {
     return
   }
   voicesAttempted.value = true
-  await loadVoices(props.scopeToModel ? props.ttsModelId : ALL_VOICES)
+  // Only `cloned` narrows the request; `all` and `saved` both work from the
+  // full list, so switching between those two costs no round trip.
+  await loadVoices(
+    props.scopeToModel ? props.ttsModelId : ALL_VOICES,
+    '',
+    voiceFilter.value === 'cloned' ? 'cloned' : '',
+  )
   emit('catalog-updated', voices.value)
   reconcileSelection()
 }
+
+/**
+ * Crossing into or out of `cloned` changes what the server should return, so it
+ * refetches. `all` <-> `saved` does not: both read the same rows. The selected
+ * voice is left alone — reconcileSelection only clears a voice the model no
+ * longer serves, and a filter is a view, not a change of what is available.
+ */
+watch(voiceFilter, (next, previous) => {
+  if ((next === 'cloned') === (previous === 'cloned')) return
+  if (!isGenStudioScope.value) return
+  void loadGenStudioVoices()
+})
 
 function refreshVoices() {
   if (scopeFamily.value === 'local') void loadLocalVoices()
@@ -555,7 +626,10 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 .vp-add-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(180px,1.3fr) auto; gap: 6px; }
 .vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .vp-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 12px 12px 9px; }
-.vp-saved-toggle { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.vp-filter { display: flex; gap: 4px; flex-shrink: 0; }
+.vp-filter-btn { padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.vp-filter-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+.vp-filter-btn.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
 .vp-search { flex: 1; }
 /* The only scroller in the dialog — the header and toolbar stay put while a
    long voice catalogue moves under them. min-height:0 lets it shrink inside

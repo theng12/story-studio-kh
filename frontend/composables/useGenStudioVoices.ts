@@ -233,13 +233,20 @@ export function useGenStudioVoices() {
    * `modelId` deliberately sends no filter and returns every voice on the
    * account, each naming the model that serves it.
    */
-  async function loadVoices(modelId: string, search = ''): Promise<void> {
+  /**
+   * `collection` is GenStudio's own vocabulary (`all` | `explore` | `my` |
+   * `cloned`), forwarded verbatim. Which voices count as cloned is GenStudio's
+   * to decide — Story Studio must never work it out from `custom_voice_id` or a
+   * name, the same way it never infers any other published fact.
+   */
+  async function loadVoices(modelId: string, search = '', collection = ''): Promise<void> {
     voicesLoading.value = true
     voicesError.value = ''
     try {
       const query = new URLSearchParams()
       if (modelId.trim()) query.set('model_id', modelId.trim())
       if (search.trim()) query.set('search', search.trim())
+      if (collection.trim()) query.set('collection', collection.trim())
       const suffix = query.size ? `?${query.toString()}` : ''
       const data = await get<{ voices?: GenStudioVoice[] }>(
         `/app-settings/genstudio/voices${suffix}`,
