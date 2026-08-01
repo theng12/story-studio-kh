@@ -52,8 +52,11 @@ test('the TTS request boundary and price come from the live model catalogue', ()
   assert.match(generator, /listGenStudioTtsModels\(apiKey\)/)
   assert.match(generator, /ttsModel\.maximum_input_characters/)
   assert.doesNotMatch(generator, /storyTtsTierForModelId|resolveStoryTtsModelId/)
-  // The split boundary is passed in, never taken from a constant.
-  assert.match(generator, /splitGenStudioApiRequests\(section\.text, genStudioMaxCharacters\)/)
+  // The split boundary is passed in, never taken from a constant. The split
+  // itself now lives in the shared planner, which the quote route reuses so a
+  // quote prices the requests this generator actually submits.
+  assert.match(generator, /planGenStudioTtsRequests\(sections, genStudioMaxCharacters\)/)
+  assert.doesNotMatch(generator, /splitGenStudioApiRequests/)
 })
 
 test('legacy audio_models payloads are accepted but stripped before persistence', () => {

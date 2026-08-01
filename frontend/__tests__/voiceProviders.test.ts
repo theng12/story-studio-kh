@@ -113,14 +113,29 @@ test('Audio Generator shows the boundary it enforces, read from the selected mod
   assert.doesNotMatch(audioPage, /settings#audio-models/)
 })
 
-test('cost is the model rate before there is text, and a GenStudio quote after', () => {
+test('cost is the model rate before there is text, and a sum of GenStudio quotes after', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)
-  assert.match(audioPage, /describeQuotedCost\(quote\.value\.credits/)
-  assert.match(audioPage, /requestTtsQuote\(\{/)
-  // A quote belongs to one exact request; any change to it voids the quote.
-  assert.match(audioPage, /quote\.value = null/)
+  // A narration is submitted as N jobs, so it is quoted as N quotes and the
+  // total is labelled as their sum — not as an estimate, and not as one quote.
+  assert.match(audioPage, /describeQuotedTotal\(quotedParts\.value/)
+  assert.doesNotMatch(audioPage, /describeImageBatchEstimate|basis: 'estimate'/)
+  // The quote is asked for per episode, so the backend can split it exactly
+  // where generation splits it. The page never joins the script itself.
+  assert.match(audioPage, /quoteNarration\(slug\.value, form\.episode_id/)
+  assert.doesNotMatch(audioPage, /\.join\('\\n\\n'\)/)
+  // Every part is shown, because each one is a separately billed job.
+  assert.match(audioPage, /v-for="\(part, index\) in quotedParts"/)
+  assert.match(audioPage, /part\.part_count > 1/)
+  assert.match(audioPage, /part\.billable_characters/)
+  // A quote belongs to one exact request set; any change voids the WHOLE quote.
+  assert.match(audioPage, /narrationQuote\.value = null/)
   assert.match(audioPage, /chargeable/)
+  // The quote-endpoint mismatch is surfaced, not papered over, and the model's
+  // published rate still stands. No endpoint limit is written into the page.
+  assert.match(audioPage, /generation_unit_rejected/)
+  assert.match(audioPage, /not sub-split to force a quote/)
+  assert.doesNotMatch(audioPage, /40[_,]?000/)
 })
 
 test('speed is offered only when the selected model publishes supports_speed', () => {

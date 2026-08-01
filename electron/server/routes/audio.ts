@@ -174,6 +174,104 @@ async function resolveNarrationOr404(slug: string, code: string, res: any): Prom
   }
 }
 
+/**
+ * GenStudio's own credit figures for the narration a Generate press would send.
+ *
+ * The narration is not one request. This resolves the SAME jobs the generator
+ * will submit — same normalization, same section selection, same split at the
+ * selected model's published `maximum_input_characters`, via the one shared
+ * planner — then asks GenStudio to price each of them. The response carries
+ * every part's own returned figure plus their sum. Story Studio adds; it never
+ * computes a price.
+ *
+ * Quoting is not generation: no TTS job is submitted here and nothing is
+ * charged for asking.
+ */
+router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
+  const { slug, code } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const modelId = String(req.body?.model || '').trim()
+    const voiceId = String(req.body?.voice || '').trim()
+    if (!modelId) return res.status(400).json({ detail: 'Choose a voice model before asking for a quote.' })
+    if (!voiceId) return res.status(400).json({ detail: 'Choose a voice before asking for a quote.' })
+
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) {
+      return res.status(400).json({
+        code: 'GENSTUDIO_KEY_REQUIRED',
+        detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+      })
+    }
+
+    // The boundary and the price in force are read live, from the model the
+    // customer selected. Nothing here is remembered between requests.
+    const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === modelId)
+    if (!ttsModel) {
+      return res.status(409).json({ detail: `The selected voice model "${modelId}" is not currently in your GenStudio KH catalogue.` })
+    }
+    const voices = await listGenStudioVoices(apiKey, { modelId })
+    const voice = voices.find(candidate => candidate.id === voiceId)
+    if (!voice) {
+      return res.status(400).json({
+        detail: `The selected voice is not available on ${ttsModel.display_name} in your GenStudio KH catalog.`,
+      })
+    }
+
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const {
+      flattenTtsRequestPlan, normalizeSectionsForTts, planGenStudioTtsRequests, selectNarrationSections,
+    } = await import('../services/tts-request-plan.js')
+    const allSections = await parseNarrationDocx(narrationPath)
+    normalizeSectionsForTts(allSections)
+    const sections = selectNarrationSections(allSections, String(req.body?.sections || 'all'))
+    if (!sections.length) {
+      return res.status(400).json({ detail: 'There is no narration on disk yet for the selected sections.' })
+    }
+    // NOT filtered or trimmed: these are the request bodies as submitted. A
+    // quote over a tidied-up copy would be a quote for work nobody does.
+    const requests = flattenTtsRequestPlan(
+      planGenStudioTtsRequests(sections, ttsModel.maximum_input_characters),
+    )
+    if (!requests.some(request => request.text.trim())) {
+      return res.status(400).json({ detail: 'There is no narration on disk yet to quote.' })
+    }
+
+    const speed = Number(req.body?.speed)
+    const { requestGenStudioTtsQuote } = await import('../lib/genstudio-client.js')
+    const { quoteNarrationRequests } = await import('../services/tts-narration-quote.js')
+    const quote = await quoteNarrationRequests({
+      requests,
+      quoteEnabled: voice.quote_enabled !== false,
+      quoteRequest: text => requestGenStudioTtsQuote(apiKey, {
+        modelId,
+        voiceId,
+        text,
+        // Generation always sends a speed (`req.speed ?? 1`). Quote the same
+        // one — speed changes the billed duration on some models.
+        speed: Number.isFinite(speed) ? speed : 1,
+      }),
+    })
+
+    res.json({
+      ...quote,
+      // Published context, so the reader can still see the rate in force even
+      // when no quote could be obtained. These are GenStudio's figures.
+      model_id: ttsModel.id,
+      model_name: ttsModel.display_name,
+      provider_name: ttsModel.provider_name,
+      credits_per_1000_characters: ttsModel.credits_per_1000_characters,
+      minimum_credits: ttsModel.minimum_credits,
+      maximum_input_characters: ttsModel.maximum_input_characters,
+      section_count: sections.length,
+    })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not get GenStudio KH quotes for this narration'))
+  }
+})
+
 // Load each section's original text + any saved tagged version.
 router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
   const { slug, code } = req.params

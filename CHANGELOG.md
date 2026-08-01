@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.775 — 2026-08-01
+
+- **Long narration can be quoted again, part by part** — asking for a quote on a long episode
+  used to fail outright. Narration longer than a model accepts has always been generated as
+  several separate parts, each charged on its own. Story Studio now asks GenStudio to quote
+  every one of those parts and shows them individually along with the total, so you can see
+  both what each part costs and how many parts your narration will become.
+- **The total is GenStudio's figures added up, not our estimate** — it is labelled as the sum
+  of however many quotes it came from, and each part is listed with its own credits and
+  billable characters. Story Studio does not multiply out a rate or work anything out for
+  itself. This also makes the figure more accurate than a single quote for the whole script
+  would be, because each part carries the model's minimum charge in its own right.
+- **A model whose requests are too large to quote now says so** — if GenStudio will not quote
+  a request that it would happily generate, Story Studio tells you that plainly and still
+  shows the model's published rate. It deliberately does not chop the narration into smaller
+  pieces just to obtain a quote, because that would price work you are never charged for.
+
+---
+
 ## v1.0.774 — 2026-08-01
 
 - **The voice library can be scrolled again** — browsing a provider library showed only the

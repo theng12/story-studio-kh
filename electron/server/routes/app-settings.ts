@@ -35,7 +35,6 @@ import {
   setGenStudioVoiceSaved,
   listGenStudioVoiceLibrary,
   addGenStudioVoiceLibraryVoice,
-  requestGenStudioTtsQuote,
   downloadVoicePreview as downloadGenStudioVoicePreview,
   GENSTUDIO_VOICE_LIBRARIES,
   getGenStudioAccountOverview,
@@ -572,26 +571,11 @@ router.get('/app-settings/genstudio/voice-libraries/:library/:publicVoiceId/prev
   }
 })
 
-/** GenStudio's own credit figure for one exact script. A quote, not an estimate. */
-router.post('/app-settings/genstudio/tts-quote', async (req, res) => {
-  try {
-    const apiKey = await requireGenStudioKey(res)
-    if (!apiKey) return
-    const voiceId = String(req.body?.voice_id || '').trim()
-    const text = typeof req.body?.text === 'string' ? req.body.text : ''
-    if (!voiceId) return res.status(400).json({ detail: 'Select a voice before asking for a quote.' })
-    if (!text.trim()) return res.status(400).json({ detail: 'There is no text to quote.' })
-    const speed = Number(req.body?.speed)
-    res.json(await requestGenStudioTtsQuote(apiKey, {
-      modelId: queryText(req.body?.model_id) || null,
-      voiceId,
-      text,
-      speed: Number.isFinite(speed) ? speed : undefined,
-    }))
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not get a GenStudio KH quote for this text'))
-  }
-})
+// A whole-script quote endpoint used to live here. It was removed in favour of
+// `POST /projects/:slug/episodes/:code/tts-quote`, which quotes the requests
+// generation will actually submit — one per chunk, each separately billed —
+// instead of pricing a single request that is never sent for any narration
+// longer than the selected model's published boundary.
 
 router.get('/app-settings/genstudio/models', async (_req, res) => {
   try {

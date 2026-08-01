@@ -14,10 +14,14 @@ import {
   generateTtsToFile as generateTtsGenStudio,
   GenStudioArtifactUnavailableError,
   recoverTtsToFile as recoverTtsGenStudio,
-  splitGenStudioApiRequests,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
+import {
+  normalizeSectionsForTts,
+  planGenStudioTtsRequests,
+  selectNarrationSections,
+} from '../services/tts-request-plan.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -329,14 +333,11 @@ export async function generateAudio(job: Job): Promise<void> {
   // the audio sound fake. Rewrite to simple spoken punctuation on every
   // section BEFORE lexicon + chunking, so delivery is natural no matter what
   // the script carried. The audio reconciler applies the SAME pass so its
-  // predicted chunk boundaries/filenames stay aligned.
+  // predicted chunk boundaries/filenames stay aligned, and the quote route
+  // reuses the very same helper so the pieces it prices are the pieces this
+  // generator submits (services/tts-request-plan.ts).
   {
-    const { normalizeForTts } = await import('../lib/tts-text.js')
-    let totalFixed = 0
-    for (const s of allSections) {
-      const r = normalizeForTts(s.text)
-      if (r.changes) { s.text = r.text; totalFixed += r.changes }
-    }
+    const totalFixed = normalizeSectionsForTts(allSections)
     if (totalFixed) {
       job.output_lines.push(
         `Normalized ${totalFixed} TTS-unfriendly mark(s) (em dashes, smart quotes, …) for natural delivery.`,
@@ -359,34 +360,10 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
-  // Filter sections
-  let sections = allSections
+  // Filter sections. Shared with the quote route so a quote covers exactly the
+  // sections a Generate press would submit — see services/tts-request-plan.ts.
   const sectionsParam = req.sections || 'all'
-
-  if (sectionsParam.toLowerCase() === 'intro') {
-    sections = sections.filter(s => s.label.toLowerCase() === 'introduction')
-  } else if (sectionsParam !== 'all' && sectionsParam.includes(',')) {
-    const requested = sectionsParam.split(',').map(x => x.trim()).filter(Boolean)
-    const filtered = []
-    for (const r of requested) {
-      if (['intro', 'introduction'].includes(r.toLowerCase())) {
-        filtered.push(...allSections.filter(s => s.label.toLowerCase() === 'introduction'))
-      } else {
-        const norm = r.replace(/^0+/, '') || '0'
-        for (const s of allSections) {
-          const slugNum = s.slug.replace(/\D/g, '').replace(/^0+/, '') || '0'
-          if (slugNum === norm || s.slug === r || s.label === r) filtered.push(s)
-        }
-      }
-    }
-    sections = filtered
-  } else if (sectionsParam !== 'all') {
-    const norm = sectionsParam.replace(/^0+/, '') || '0'
-    sections = allSections.filter(s => {
-      const slugNum = s.slug.replace(/\D/g, '').replace(/^0+/, '') || '0'
-      return slugNum === norm || s.slug === sectionsParam || s.label === sectionsParam
-    })
-  }
+  const sections = selectNarrationSections(allSections, sectionsParam)
 
   if (!sections.length) {
     throw new Error(`No matching sections for '${sectionsParam}'`)
@@ -458,7 +435,12 @@ export async function generateAudio(job: Job): Promise<void> {
     )
   }
 
-  for (const section of sections) {
+  // The submitted units, decided once, by the shared planner. The quote route
+  // calls this same function with the same live `maximum_input_characters`, so
+  // what GenStudio was asked to price is what is about to be submitted.
+  const genStudioRequestPlan = planGenStudioTtsRequests(sections, genStudioMaxCharacters)
+
+  for (const [sectionIndex, section] of sections.entries()) {
     if (isCancelled()) break
     const filename = `${code}_${section.slug}.mp3`
     const savePath = path.join(audioDir, filename)
@@ -511,7 +493,7 @@ export async function generateAudio(job: Job): Promise<void> {
     }
 
     const chunks = providerId === 'genstudio'
-      ? splitGenStudioApiRequests(section.text, genStudioMaxCharacters)
+      ? genStudioRequestPlan[sectionIndex]!.parts
       : chunkText(section.text, ttsChunkCap)
     job.output_lines.push(
       `${section.label} (${section.text.length.toLocaleString()} chars${chunks.length > 1 ? `, ${chunks.length} parts` : ''})`,

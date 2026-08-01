@@ -11,10 +11,12 @@ import {
   reconcileOutputOption,
 } from '../utils/genstudio-output-options.js'
 import {
+  CREDIT_BASIS_LABEL,
   describeChatRate,
   describeImageBatchEstimate,
   describeImageUnitCost,
   describeQuotedCost,
+  describeQuotedTotal,
   describeActualCost,
 } from '../utils/genstudio-credit-cost.js'
 
@@ -172,6 +174,30 @@ test('quotes and actuals are labelled as such, and a missing actual is not recon
   assert.match(describeActualCost(7).text, /Charged 7 credits/)
   assert.equal(describeActualCost(null).basis, 'unpublished')
   assert.match(describeActualCost(null).text, /not reported/i)
+})
+
+test('a narration submitted as several jobs is a SUM OF QUOTES, never an estimate', () => {
+  // Three requests that will actually be sent, each priced by GenStudio.
+  const parts = [{ credits: 40 }, { credits: 40 }, { credits: 12.5 }]
+  const display = describeQuotedTotal(parts, 'this narration')
+
+  assert.equal(display.basis, 'quoted-total')
+  assert.equal(CREDIT_BASIS_LABEL['quoted-total'], 'Quoted total')
+  // The figure is the plain sum of GenStudio's answers — nothing derived.
+  assert.match(display.text, /Quoted 92\.5 credits/)
+  // The reader is told it is several jobs, and how many.
+  assert.match(display.text, /sum of 3 GenStudio quotes/)
+  assert.match(display.title, /3 separate GenStudio jobs/)
+  assert.match(display.title, /per-job/)
+  assert.match(display.title, /not an estimate/)
+  // The vocabulary must not blur into the estimate wording used for batches.
+  assert.doesNotMatch(display.text, /Estimate/i)
+  assert.notEqual(display.basis, 'estimate')
+
+  // One job is one quote — no "sum of 1" theatre.
+  assert.equal(describeQuotedTotal([{ credits: 12 }]).basis, 'quote')
+  // Nothing to add up is not a total of zero.
+  assert.equal(describeQuotedTotal([]).basis, 'unpublished')
 })
 
 // ── Source guards ─────────────────────────────────────────────────────────

@@ -18,6 +18,14 @@ export type CreditBasis =
   | 'estimate'
   /** Returned by a GenStudio quote endpoint for this exact request. */
   | 'quote'
+  /**
+   * The sum of several GenStudio quotes — one per request that will actually
+   * be submitted. Distinct from `estimate` because nothing was derived here:
+   * every addend is GenStudio's own exact figure for a real job, and the only
+   * local operation is the addition. Distinct from `quote` because it covers
+   * more than one job, each with its own published minimum.
+   */
+  | 'quoted-total'
   /** The `credit_cost` GenStudio reported for a finished job. */
   | 'actual'
   /** The plan covers this action, so no credits will be spent. */
@@ -37,6 +45,7 @@ export const CREDIT_BASIS_LABEL: Record<CreditBasis, string> = {
   rate: 'Rate',
   estimate: 'Estimate',
   quote: 'Quote',
+  'quoted-total': 'Quoted total',
   actual: 'Actual',
   free: 'Included',
   unpublished: 'Not reported',
@@ -264,6 +273,42 @@ export function describeQuotedCost(credits: number | null | undefined, what = 't
     text: `Quoted ${formatCredits(quoted)}`,
     basis: 'quote',
     title: `GenStudio quoted ${formatCredits(quoted)} for ${what}. This is GenStudio's own figure, not a Story Studio estimate.`,
+  }
+}
+
+/**
+ * Several GenStudio quotes, added up — the honest way to price work that is
+ * submitted as several jobs.
+ *
+ * A long narration is not one TTS request: Story Studio splits it at the
+ * selected model's published `maximum_input_characters` and submits one job per
+ * piece, each billed separately and each carrying that model's published
+ * per-job minimum. So GenStudio is asked to quote every piece and those exact
+ * figures are added together.
+ *
+ * This is deliberately NOT `estimate`. An estimate is Story Studio multiplying
+ * a published rate by a count it happens to know — arithmetic GenStudio never
+ * agreed to. Here every addend is a figure GenStudio returned for a request
+ * that will actually be sent; the addition is the only local step, and the
+ * caller is told so in as many words.
+ */
+export function describeQuotedTotal(
+  parts: Array<{ credits: number }>,
+  what = 'this narration',
+): CreditDisplay {
+  if (!parts.length) return unpublishedCost()
+  const credits = parts.reduce((sum, part) => sum + (publishedNumber(part.credits) ?? 0), 0)
+  const count = parts.length
+  if (count === 1) return describeQuotedCost(credits, what)
+  return {
+    text: `Quoted ${formatCredits(credits)} · sum of ${count} GenStudio quotes`,
+    basis: 'quoted-total',
+    title: `${what.charAt(0).toUpperCase()}${what.slice(1)} will be submitted as ${count} separate GenStudio jobs, `
+      + `and GenStudio quoted every one of them — ${count} exact figures for ${count} requests that will actually be sent. `
+      + 'Story Studio added those figures together and did nothing else: no rate was multiplied out and no number was '
+      + 'derived here, so this is a total of quotes, not an estimate. Each job carries GenStudio\'s published per-job '
+      + 'minimum in its own right, which is why the parts are quoted separately instead of the whole script being '
+      + 'priced at once. GenStudio reports the actual charge on each finished job.',
   }
 }
 

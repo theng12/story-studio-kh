@@ -204,16 +204,17 @@
       </div>
 
       <!-- Cost: the model's published rate until there is real text, then
-           GenStudio's own quote for that exact narration. Never an estimate. -->
+           GenStudio's own quotes — ONE PER TTS JOB this narration will actually
+           be submitted as — listed and added up. Never an estimate. -->
       <div v-if="selectedTtsModel" class="form-group mb-2">
         <label>Cost <span class="field-hint">— GenStudio's figures</span></label>
         <div class="chunk-display" :title="quotedCost ? quotedCost.title : modelRate.title">
           <span class="chunk-value">
             <template v-if="quotedCost">
-              {{ quotedCost.text }}
+              {{ CREDIT_BASIS_LABEL[quotedCost.basis] }}: {{ quotedCost.text }}
               <span class="text-muted text-xs">
-                · {{ quote!.billable_characters.toLocaleString() }} billable characters
-                <template v-if="!quote!.chargeable"> · GenStudio marks this request non-chargeable</template>
+                · {{ (narrationQuote?.total_billable_characters || 0).toLocaleString() }} billable characters
+                <template v-if="!narrationQuote?.chargeable"> · GenStudio marks these requests non-chargeable</template>
               </span>
             </template>
             <template v-else>
@@ -225,15 +226,41 @@
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!quoteEligible || !form.episode_id || quoting"
-            :title="quoteEligible ? 'Ask GenStudio for the exact credits for this narration' : 'GenStudio does not offer a quote for this voice'"
+            :title="quoteEligible ? 'Ask GenStudio to price every TTS job this narration will be submitted as' : 'GenStudio does not offer a quote for this voice'"
             @click="refreshQuote"
           >{{ quoting ? 'Asking…' : 'Get quote' }}</button>
         </div>
+
+        <!-- The parts, shown because they are real: each row is a separate
+             GenStudio job, separately submitted, separately billed, and
+             separately subject to the model's published per-job minimum. -->
+        <ul v-if="quotedParts.length" class="quote-parts">
+          <li v-for="(part, index) in quotedParts" :key="index" class="quote-part text-xs">
+            <span class="quote-part-name">
+              {{ part.section_label }}<template v-if="part.part_count > 1"> · part {{ part.part }} of {{ part.part_count }}</template>
+            </span>
+            <span class="text-muted">
+              {{ part.characters.toLocaleString() }} chars submitted ·
+              {{ formatCredits(part.credits) }} ({{ part.billable_characters.toLocaleString() }} billable)
+            </span>
+          </li>
+        </ul>
+
         <p v-if="quoteError" class="text-muted text-xs hint-line">{{ quoteError }}</p>
-        <p v-else-if="quote?.notice" class="text-muted text-xs hint-line">{{ quote.notice }}</p>
+        <p v-else-if="quoteUnavailableNote" class="text-muted text-xs hint-line">{{ quoteUnavailableNote }}</p>
+        <p v-else-if="narrationQuote && narrationQuote.part_count > 1" class="text-muted text-xs hint-line">
+          This narration is generated in <strong>{{ narrationQuote.part_count.toLocaleString() }} parts</strong> across
+          {{ narrationQuote.section_count.toLocaleString() }} section(s), because
+          <strong>{{ selectedTtsModel.display_name }}</strong> accepts
+          {{ narrationQuote.maximum_input_characters.toLocaleString() }} characters per request. Each part is its own
+          GenStudio job, carrying that model's published minimum of
+          {{ formatCredits(narrationQuote.minimum_credits) }} in its own right — so GenStudio was asked to price every
+          one of them, and the total above is the sum of those {{ narrationQuote.part_count }} quotes. Nothing was
+          calculated here. GenStudio reports the actual charge on each finished job.
+        </p>
         <p v-else class="text-muted text-xs hint-line">
-          A quote is GenStudio's own figure for this exact script, not a Story Studio estimate.
-          GenStudio reports the actual charge on the finished job.
+          A quote is GenStudio's own figure for the requests about to be sent, not a Story Studio estimate.
+          GenStudio reports the actual charge on each finished job.
         </p>
       </div>
 
@@ -383,9 +410,9 @@
 </template>
 
 <script setup lang="ts">
-import type { GenStudioTtsModel, GenStudioVoice, GenStudioTtsQuote } from '~/composables/useGenStudioVoices'
+import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
-import { describeVoiceRate, describeQuotedCost, formatCredits } from '~/utils/genstudio-credit-cost'
+import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
@@ -404,7 +431,7 @@ const {
   modelsLoading: ttsModelsLoading,
   modelsError: ttsModelsError,
   loadModels: loadTtsModels,
-  quote: requestTtsQuote,
+  quoteNarration,
 } = useGenStudioVoices()
 
 /**
@@ -584,40 +611,69 @@ function onEffectiveSelectionChange(slugs: string[]) {
 }
 
 // ── Quote ──────────────────────────────────────────────────────────────
-// GenStudio's own figure for the exact narration about to be sent. Shown as a
-// quote, never as an estimate. The model's published rate stands in until
-// there is real text to quote.
-const quote = ref<GenStudioTtsQuote | null>(null)
+// A long narration is NOT one TTS request. Story Studio splits each section at
+// the selected model's published `maximum_input_characters` and submits one job
+// per piece — `_part1.mp3`, `_part2.mp3`, … — every one of them separately
+// billed and separately subject to the model's per-job `minimum_credits`.
+//
+// So the page does not quote a joined script; it asks the backend, which
+// re-derives the exact requests the generator will submit through the one
+// shared planner and gets GenStudio to price each of them. What is shown is
+// every part's own returned figure plus their sum, labelled as a sum of quotes.
+// The model's published rate stands in until there is a quote.
+const narrationQuote = ref<GenStudioNarrationQuote | null>(null)
 const quoting = ref(false)
 const quoteError = ref('')
-const quotedCost = computed(() => quote.value ? describeQuotedCost(quote.value.credits, 'this narration') : null)
+const quotedParts = computed(() => narrationQuote.value?.quotable ? narrationQuote.value.parts : [])
+const quotedCost = computed(() =>
+  quotedParts.value.length ? describeQuotedTotal(quotedParts.value, 'this narration') : null)
 const quoteEligible = computed(() =>
   !!selectedTtsModel.value && !!form.voice && selectedVoice.value?.quote_enabled !== false)
 
+/**
+ * Why there is no quote, in GenStudio's own terms.
+ *
+ * `generation_unit_rejected` is the one that matters: GenStudio's quote
+ * endpoint refused a request body its own TTS model publishes as acceptable.
+ * Story Studio does NOT sub-split to make the quote succeed — that would price
+ * units nobody is ever billed for — so it says the quote is unavailable for
+ * this model and leaves the published rate standing.
+ */
+const quoteUnavailableNote = computed(() => {
+  const result = narrationQuote.value
+  if (!result || result.quotable) return ''
+  const said = result.unavailable_detail ? ` GenStudio said: “${result.unavailable_detail}”.` : ''
+  if (result.unavailable_reason === 'quote_disabled') {
+    return `GenStudio publishes this voice as not quotable, so there is no quote to show. `
+      + `The published rate above is ${modelRate.value.text}; GenStudio reports the actual charge on each finished job.`
+  }
+  if (result.unavailable_reason === 'generation_unit_rejected') {
+    return 'No quote is available for this model. GenStudio\'s quote endpoint refused a '
+      + `${(result.unquotable_characters || 0).toLocaleString()}-character request that ${result.model_name} itself `
+      + `publishes as valid — it accepts ${result.maximum_input_characters.toLocaleString()} characters per request — `
+      + 'so the requests Story Studio will actually submit cannot be priced. They are not sub-split to force a quote, '
+      + `because that would price work nobody is billed for. The published rate above stands: ${modelRate.value.text}, `
+      + `with a minimum of ${formatCredits(result.minimum_credits)} per job.${said}`
+  }
+  return `GenStudio could not quote this narration.${said}`
+})
+
 async function refreshQuote() {
-  quote.value = null
+  narrationQuote.value = null
   quoteError.value = ''
   if (!quoteEligible.value || !form.episode_id) return
   quoting.value = true
   try {
-    // Quote exactly what Generate would send: the sections currently selected,
-    // in their on-disk narration text.
-    const narration = await get<{ sections?: Array<{ slug?: string; original?: string }> }>(
-      `/projects/${slug.value}/episodes/${form.episode_id}/expression`,
-    )
-    const wanted = new Set(effectiveSections.value)
-    const all = Array.isArray(narration.sections) ? narration.sections : []
-    const chosen = wanted.size ? all.filter(section => wanted.has(section?.slug || '')) : all
-    const text = chosen.map(section => section?.original || '').join('\n\n').trim()
-    if (!text) {
-      quoteError.value = 'There is no narration on disk yet to quote.'
-      return
-    }
-    quote.value = await requestTtsQuote({
-      model_id: form.model,
-      voice_id: form.voice!,
-      text,
-      speed: supportsSpeed.value ? form.speed : undefined,
+    // Quote exactly what Generate would send: this episode, this model, this
+    // voice, this speed, these sections. The split happens where generation's
+    // split happens, so the parts priced are the parts billed.
+    narrationQuote.value = await quoteNarration(slug.value, form.episode_id, {
+      model: form.model,
+      voice: form.voice!,
+      sections: effectiveSections.value.length ? effectiveSections.value.join(',') : 'all',
+      // Exactly what submit() sends: a model publishing no speed control is
+      // generated at 1, so it must be quoted at 1 too.
+      speed: supportsSpeed.value ? form.speed : 1,
     })
   } catch (e: any) {
     quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
@@ -625,9 +681,10 @@ async function refreshQuote() {
     quoting.value = false
   }
 }
-// A quote belongs to one exact (model, voice, speed, text). Any change voids it.
+// A quote belongs to one exact (model, voice, speed, episode, selection). Any
+// change voids the WHOLE quote — every part — never just the part that moved.
 watch([() => form.model, () => form.voice, () => form.speed, () => form.episode_id, effectiveSections], () => {
-  quote.value = null
+  narrationQuote.value = null
   quoteError.value = ''
 })
 
@@ -1002,6 +1059,27 @@ async function queueAudio(sectionOverride?: string) {
 }
 .chunk-value { display: inline-flex; align-items: baseline; gap: 4px; }
 .chunk-link { font-size: 12px; margin-left: auto; white-space: nowrap; }
+
+/* One row per TTS job GenStudio quoted. The list is the point: it shows the
+   narration is submitted — and billed — in parts, not as one request. */
+.quote-parts {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.quote-part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 5px 12px;
+}
+.quote-part + .quote-part { border-top: 1px solid var(--border); }
+.quote-part-name { font-weight: 500; }
 
 /* v1.0.78 — inline "Rescan from disk" hint under the TopActionBar.
    Compact, low-contrast so it doesn't compete with the disabled button

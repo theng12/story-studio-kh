@@ -102,6 +102,54 @@ export interface GenStudioTtsQuote {
   notice: string
 }
 
+/** One TTS job Story Studio will submit, with GenStudio's figure for it. */
+export interface GenStudioQuotedPart {
+  section_slug: string
+  section_label: string
+  /** 1-based position of this job within its section. */
+  part: number
+  /** How many jobs that section is submitted as. */
+  part_count: number
+  characters: number
+  credits: number
+  billable_characters: number
+  chargeable: boolean
+  estimated_duration_ms: number
+  price_version: string
+  notice: string
+}
+
+/**
+ * Every job an episode's narration will be submitted as, each priced by
+ * GenStudio. `total_credits` is the sum of those returned figures and nothing
+ * else — see `describeQuotedTotal` for how it must be labelled.
+ *
+ * When `quotable` is false the parts are unpriced and `unavailable_reason`
+ * says why. `generation_unit_rejected` is the contract mismatch: GenStudio's
+ * quote endpoint refused a request body its own TTS model publishes as
+ * acceptable, so this narration cannot be quoted at all — the published rate
+ * is all there honestly is.
+ */
+export interface GenStudioNarrationQuote {
+  quotable: boolean
+  parts: GenStudioQuotedPart[]
+  part_count: number
+  total_credits: number | null
+  total_billable_characters: number | null
+  chargeable: boolean
+  unavailable_reason: 'quote_disabled' | 'generation_unit_rejected' | 'quote_failed' | null
+  unavailable_detail: string
+  unavailable_status: number | null
+  unquotable_characters: number | null
+  model_id: string
+  model_name: string
+  provider_name: string
+  credits_per_1000_characters: number
+  minimum_credits: number
+  maximum_input_characters: number
+  section_count: number
+}
+
 /**
  * A voice GenStudio will actually run right now. `catalog_status` and
  * `generation_enabled` are published gates; a voice failing either is still
@@ -237,14 +285,26 @@ export function useGenStudioVoices() {
     return data.audio_url || ''
   }
 
-  /** GenStudio's exact figure for this exact text. Never an estimate. */
-  async function quote(request: {
-    model_id?: string | null
-    voice_id: string
-    text: string
-    speed?: number
-  }): Promise<GenStudioTtsQuote> {
-    return await post<GenStudioTtsQuote>('/app-settings/genstudio/tts-quote', request)
+  /**
+   * GenStudio's exact figures for an episode's narration — one per TTS job it
+   * will actually be submitted as.
+   *
+   * Deliberately episode-scoped rather than "quote this blob of text": the
+   * backend re-derives the submitted requests with the same planner the
+   * generator uses (normalization, section selection, the split at the selected
+   * model's published `maximum_input_characters`), so the parts priced here are
+   * the parts billed. Quoting a whole joined script would price a request that
+   * is never sent.
+   */
+  async function quoteNarration(
+    projectSlug: string,
+    episodeCode: string,
+    request: { model: string; voice: string; speed?: number; sections?: string },
+  ): Promise<GenStudioNarrationQuote> {
+    return await post<GenStudioNarrationQuote>(
+      `/projects/${projectSlug}/episodes/${encodeURIComponent(episodeCode)}/tts-quote`,
+      request,
+    )
   }
 
   return {
@@ -265,6 +325,6 @@ export function useGenStudioVoices() {
     browseLibrary,
     addLibraryVoice,
     libraryPreviewUrl,
-    quote,
+    quoteNarration,
   }
 }
