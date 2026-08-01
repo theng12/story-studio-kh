@@ -8,7 +8,8 @@ function source(path: string): string {
 }
 
 const modelMenu = source('../components/ModelMenu.vue')
-const anchoredPanel = source('../composables/useAnchoredPanel.ts')
+const pickerDialog = source('../components/PickerDialog.vue')
+const modal = source('../components/Modal.vue')
 const imagePicker = source('../components/ImageModelPicker.vue')
 const imageGenerator = source('../pages/projects/[slug]/images.vue')
 const voicePicker = source('../components/VoicePicker.vue')
@@ -30,16 +31,22 @@ const modelSurfaces = {
 }
 
 describe('shared model menus', () => {
-  test('the floating menu is searchable, grouped, accessible, and readable', () => {
-    assert.match(modelMenu, /<Teleport to="body">/)
+  test('the model dialog is searchable, grouped, accessible, and readable', () => {
+    assert.match(modelMenu, /<PickerDialog/)
     assert.match(modelMenu, /type="search"/)
     assert.match(modelMenu, /role="listbox"/)
     assert.match(modelMenu, /role="option"/)
+    // Groups are announced as groups instead of being bare headings in a listbox.
+    assert.match(modelMenu, /role="group"\s+:aria-label="group\.label"/)
     assert.match(modelMenu, /-webkit-line-clamp:\s*2/)
     assert.match(modelMenu, /overflow-wrap:\s*anywhere/)
     assert.match(modelMenu, /badge\.title \|\| badge\.label/)
     assert.match(modelMenu, /catalogNoticeHref/)
     assert.match(modelMenu, /selectableOptionCount/)
+    // Every published fact the anchored panel carried still renders.
+    assert.match(modelMenu, /option\.meta \|\| option\.description/)
+    assert.match(modelMenu, /option\.disabledReason/)
+    assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
   })
 
   test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
@@ -89,23 +96,67 @@ describe('shared model menus', () => {
     assert.doesNotMatch(imageGenerator, /params\.image_steps/)
   })
 
-  test('floating menus avoid clipped cards and stay inside the viewport', () => {
-    assert.match(modelMenu, /<Teleport to="body">/)
-    assert.match(modelMenu, /:style="panelStyle"/)
-    assert.match(modelMenu, /position:\s*fixed/)
-    assert.match(anchoredPanel, /getBoundingClientRect\(\)/)
-    assert.match(anchoredPanel, /viewportWidth - width - gutter/)
-    assert.match(anchoredPanel, /openAbove = below < 280 && above > below/)
+  test('pickers open as centred dialogs sized by the viewport, not by the trigger', () => {
+    // A trigger low in the window used to leave the list a few hundred pixels
+    // tall. Nothing may measure the trigger any more.
+    assert.doesNotMatch(modelMenu, /panelStyle|getBoundingClientRect/)
+    assert.doesNotMatch(voicePicker, /panelStyle|getBoundingClientRect/)
+    assert.match(modelMenu, /<PickerDialog/)
+    assert.match(voicePicker, /<PickerDialog/)
+    // Sized by the viewport, capped, and scrolling internally.
+    assert.match(pickerDialog, /max-height:\s*min\(760px,\s*calc\(100dvh - 40px\)\)/)
+    assert.match(pickerDialog, /max-height:\s*calc\(100dvh - 20px\)/)
+    assert.match(modelMenu, /\.model-menu-list\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/)
+    assert.match(voicePicker, /\.vp-list\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/)
+    // Above every other dialog and above the toast stack (2500).
+    assert.match(pickerDialog, /zIndex: 2600/)
     assert.match(imagePicker, /<ModelMenu/)
     assert.match(imagePicker, /badgeFor\(model\.unlimited_relaxed === true\)/)
     assert.match(modelSelector, /badgeFor\(model\.unlimited_relaxed === true\)/)
     assert.doesNotMatch(imagePicker, /<Teleport to="body">/)
-    assert.match(voicePicker, /<Teleport to="body">/)
+  })
+
+  test('the picker dialog carries real dialog semantics and keyboard handling', () => {
+    // Teleport, backdrop dismissal, Escape, focus trap and focus restore all
+    // come from the shared Modal primitive rather than a second copy.
+    assert.match(pickerDialog, /<Modal/)
+    assert.match(pickerDialog, /dialog-class="picker-dialog"/)
+    assert.match(pickerDialog, /:labelledby="titleId"/)
+    assert.match(modal, /role="dialog"/)
+    assert.match(modal, /aria-modal="true"/)
+    assert.match(modal, /useFocusTrap\(dialogRef, visibleRef/)
+    assert.match(modal, /<Teleport to="body">/)
+    // Each picker owns its search field and its list, so both share one
+    // keyboard handler: arrows walk the rows, Enter activates a real button.
+    for (const picker of [modelMenu, voicePicker]) {
+      assert.match(picker, /searchEl\.value\?\.focus\(\{ preventScroll: true \}\)/)
+      assert.match(picker, /@keydown="onListKeydown"/)
+      assert.match(picker, /event\.key === 'ArrowDown'/)
+      assert.match(picker, /event\.key === 'ArrowUp'/)
+      // Home/End must not steal the caret while a query is being typed.
+      assert.match(picker, /event\.key === 'Home' && !typing/)
+      // No component-local Escape or outside-click listener survives.
+      assert.doesNotMatch(picker, /addEventListener\('keydown'|closeOnOutside|onClickOutside/)
+    }
   })
 
   test('Voice Studio preserves Hub-owned clone identity in the picker', () => {
     assert.match(voicePicker, /voice_kind === 'studiohub-shared'/)
     assert.match(voicePicker, /`hubvoice:\$\{voice\.id\}`/)
+  })
+
+  test('the voice dialog keeps the scope statement, library browser and saved toggle', () => {
+    // The scope banner became the dialog header; it still names the list and
+    // says where it was read from, and still reads cloud vs local at a glance.
+    assert.match(voicePicker, /:title="scopeTitle"/)
+    assert.match(voicePicker, /:description="scopeDescription"/)
+    assert.match(voicePicker, /scopeFamily === 'cloud' \? 'accent' : 'success'/)
+    assert.match(voicePicker, /<VoiceLibraryBrowser @added="onLibraryVoiceAdded" \/>/)
+    assert.match(voicePicker, /Saved only/)
+    assert.match(voicePicker, /voiceCountLabel/)
+    // The dialog outranks the toast stack, so a save failure is also stated
+    // inside it rather than only in a toast the dialog would cover.
+    assert.match(voicePicker, /v-if="saveError"/)
   })
 
   test('LLM, image, TTS, video, and transcription surfaces use shared menus', () => {

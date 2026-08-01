@@ -1,33 +1,43 @@
 <template>
-  <div ref="rootEl" class="voice-picker" @click.stop>
-    <button type="button" class="vp-trigger" :class="{ open: expanded }" @click="toggle">
+  <div class="voice-picker" @click.stop>
+    <button
+      type="button"
+      class="vp-trigger"
+      :class="{ open: expanded }"
+      aria-haspopup="dialog"
+      :aria-expanded="expanded"
+      @click="toggle"
+    >
       <span class="vp-current">{{ currentVoiceName || defaultLabel }}</span>
       <span v-if="currentVoiceProviderLabel" class="vp-provider-badge">{{ currentVoiceProviderLabel }}</span>
       <span v-if="currentVoiceSaved" class="vp-star-badge" aria-label="Saved voice">★</span>
       <span class="vp-chev" aria-hidden="true">▾</span>
     </button>
 
-    <Teleport to="body">
-    <div v-if="expanded" ref="panelEl" class="vp-panel" :style="panelStyle" tabindex="-1" @click.stop>
-      <div class="vp-scope" :class="scopeFamily">
-        <div>
-          <strong>{{ scopeTitle }}</strong>
-          <span>{{ scopeDescription }}</span>
-        </div>
+    <PickerDialog
+      :visible="expanded"
+      :title="scopeTitle"
+      :description="scopeDescription"
+      :tone="scopeFamily === 'cloud' ? 'accent' : 'success'"
+      :count="voiceCountLabel"
+      close-label="Close voice picker"
+      size="xl"
+      @close="close"
+    >
+      <template v-if="isGenStudioScope" #actions>
         <button
-          v-if="isGenStudioScope"
           type="button"
           class="btn btn-sm btn-secondary"
           @click="libraryOpen = !libraryOpen"
         >{{ libraryOpen ? 'Close libraries' : 'Browse libraries' }}</button>
-      </div>
+      </template>
 
       <div v-if="isGenStudioScope && libraryOpen" class="vp-add-panel">
         <VoiceLibraryBrowser @added="onLibraryVoiceAdded" />
       </div>
 
       <div class="vp-toolbar">
-        <input v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" autofocus />
+        <input ref="searchEl" v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" @keydown="onListKeydown" />
         <label v-if="isGenStudioScope" class="vp-saved-toggle" title="Show only the voices saved in your GenStudio account">
           <input type="checkbox" v-model="savedOnly" />
           <span>Saved only</span>
@@ -40,7 +50,11 @@
         >{{ voiceListLoading ? 'Loading…' : 'Refresh' }}</button>
       </div>
 
-      <div class="vp-list">
+      <!-- Stated here as well as in a toast: the dialog sits above the toast
+           stack, so a save failure has to be readable without closing it. -->
+      <div v-if="saveError" class="vp-warning" role="alert">{{ saveError }}</div>
+
+      <div ref="listEl" class="vp-list" @keydown="onListKeydown">
         <button
           v-if="!requireSelection"
           type="button"
@@ -121,8 +135,7 @@
           </div>
         </section>
       </div>
-    </div>
-    </Teleport>
+    </PickerDialog>
   </div>
 </template>
 
@@ -222,17 +235,13 @@ const isGenStudioScope = computed(() => scope.value === 'genstudio')
 const isMacosScope = computed(() => scope.value === 'macos-builtin')
 
 const expanded = ref(false)
-const rootEl = ref<HTMLElement | null>(null)
-const panelEl = ref<HTMLElement | null>(null)
-const { panelStyle } = useAnchoredPanel(expanded, rootEl, panelEl, {
-  minWidth: 480,
-  maxWidth: 680,
-  maxHeight: 620,
-})
+const searchEl = ref<HTMLInputElement | null>(null)
+const listEl = ref<HTMLElement | null>(null)
 const search = ref('')
 const savedOnly = ref(false)
 const libraryOpen = ref(false)
 const savingVoiceId = ref('')
+const saveError = ref('')
 const localVoices = ref<VoiceStudioVoice[]>([])
 const localLoading = ref(false)
 const localError = ref('')
@@ -334,6 +343,10 @@ const filteredLocalVoices = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? localVoices.value.filter(voice => `${voice.name} ${voice.language || ''}`.toLowerCase().includes(q)) : localVoices.value
 })
+const voiceCountLabel = computed(() => {
+  const count = isGenStudioScope.value ? visibleVoices.value.length : filteredLocalVoices.value.length
+  return count === 1 ? '1 voice' : `${count} voices`
+})
 
 async function loadLocalVoices() {
   if (scopeFamily.value !== 'local') {
@@ -385,11 +398,14 @@ function refreshVoices() {
 async function toggleSaved(voice: GenStudioVoice) {
   if (savingVoiceId.value) return
   savingVoiceId.value = voice.id
+  saveError.value = ''
   try {
     await setSaved(voice.id, voice.is_saved !== true)
     emit('catalog-updated', voices.value)
   } catch (error: any) {
-    showError(error?.data?.detail || error?.message || 'GenStudio could not update the saved state of this voice')
+    const detail = error?.data?.detail || error?.message || 'GenStudio could not update the saved state of this voice'
+    saveError.value = detail
+    showError(detail)
   } finally {
     savingVoiceId.value = ''
   }
@@ -409,7 +425,7 @@ function isSelectedLocal(voice: VoiceStudioVoice) {
 }
 function select(voiceId: string | null) {
   emit('update:modelValue', voiceId)
-  expanded.value = false
+  close()
 }
 function selectLocal(voice: VoiceStudioVoice) {
   select(encodedLocalVoice(voice))
@@ -437,11 +453,59 @@ function reconcileSelection() {
   }
 }
 
-function toggle() {
-  expanded.value = !expanded.value
-  if (!expanded.value) return
+async function toggle() {
+  if (expanded.value) {
+    close()
+    return
+  }
+  saveError.value = ''
+  expanded.value = true
   if (scopeFamily.value === 'local' && !localVoices.value.length) void loadLocalVoices()
   if (isGenStudioScope.value) void loadGenStudioVoices()
+  // Two ticks: the shared focus trap claims the dialog's first control on the
+  // first tick, so the search field takes focus on the one after.
+  await nextTick()
+  await nextTick()
+  searchEl.value?.focus({ preventScroll: true })
+  listEl.value?.querySelector('.vp-row.selected, .vp-default-row.selected')?.scrollIntoView({ block: 'center' })
+}
+/** Modal restores focus to the trigger, so closing never strands the keyboard. */
+function close() {
+  expanded.value = false
+}
+
+/**
+ * Arrow keys walk the selectable rows and Enter picks one — Enter needs no
+ * handler because each row's name is a real <button>. Arrow Up off the top
+ * hands the keyboard back to the search field.
+ */
+function selectableButtons(): HTMLButtonElement[] {
+  const nodes = listEl.value?.querySelectorAll<HTMLButtonElement>(
+    '.vp-default-row, .vp-select:not(:disabled)')
+  return nodes ? Array.from(nodes) : []
+}
+function moveActive(delta: number) {
+  const buttons = selectableButtons()
+  if (!buttons.length) return
+  const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  if (current < 0) {
+    buttons[delta > 0 ? 0 : buttons.length - 1]?.focus()
+    return
+  }
+  const next = current + delta
+  if (next < 0) {
+    searchEl.value?.focus({ preventScroll: true })
+    return
+  }
+  buttons[Math.min(next, buttons.length - 1)]?.focus()
+}
+function onListKeydown(event: KeyboardEvent) {
+  // Home/End belong to the caret while the user is typing a query.
+  const typing = event.target === searchEl.value
+  if (event.key === 'ArrowDown') { event.preventDefault(); moveActive(1) }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); moveActive(-1) }
+  else if (event.key === 'Home' && !typing) { event.preventDefault(); selectableButtons()[0]?.focus() }
+  else if (event.key === 'End' && !typing) { event.preventDefault(); selectableButtons().at(-1)?.focus() }
 }
 function openVoiceStudioWeb() {
   if (!voiceStudioBaseUrl.value) {
@@ -451,30 +515,19 @@ function openVoiceStudioWeb() {
   window.open(voiceStudioBaseUrl.value, '_blank', 'noopener,noreferrer')
 }
 function goToLocalModelsSettings() {
-  expanded.value = false
+  close()
   void router.push(`/projects/${props.projectSlug}/settings#local-tts`)
 }
 function goToGenStudioSettings() {
-  expanded.value = false
+  close()
   void router.push(`/projects/${props.projectSlug}/settings#genstudio-settings`)
 }
-function onKey(event: KeyboardEvent) {
-  if (event.key === 'Escape') expanded.value = false
-}
-function onClickOutside(event: MouseEvent) {
-  const target = event.target as Node
-  if (expanded.value && !rootEl.value?.contains(target) && !panelEl.value?.contains(target)) expanded.value = false
-}
 
+// Escape, backdrop dismissal and focus restoration all come from Modal via
+// PickerDialog, so this component owns no global key or click listeners.
 onMounted(() => {
   void loadLocalVoices()
   void loadGenStudioVoices()
-  window.addEventListener('keydown', onKey)
-  document.addEventListener('click', onClickOutside)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey)
-  document.removeEventListener('click', onClickOutside)
 })
 // The first rule: a model change invalidates the voice list, so re-read it.
 watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], () => {
@@ -494,24 +547,20 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 .vp-star-badge { color: var(--accent); }
 .vp-chev { color: var(--text-muted); transition: transform .15s; }
 .vp-trigger.open .vp-chev { transform: rotate(180deg); }
-.vp-panel { position: fixed; z-index: 1400; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: var(--radius-md); box-shadow: 0 24px 70px rgba(0,0,0,.46); }
-.vp-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
-.vp-scope div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.vp-scope strong { font-size: 12px; }
-.vp-scope span { font-size: var(--font-xs); color: var(--text-muted); }
-.vp-scope.cloud { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-.vp-scope.local { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
-/* min-height:0 so this flex child can shrink inside the fixed-height panel;
-   without it the library browser overflows behind .vp-panel's overflow:hidden
-   and the tail of the list becomes unreachable. */
-.vp-add-panel { margin: 0 10px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); display: flex; flex-direction: column; min-height: 0; }
+/* min-height:0 so this flex child can shrink inside the dialog's fixed
+   max-height; without it the library browser overflows behind the dialog's
+   overflow:hidden and the tail of the list becomes unreachable. */
+.vp-add-panel { margin: 10px 12px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); display: flex; flex-direction: column; min-height: 0; }
 .vp-add-panel p { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .vp-add-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(180px,1.3fr) auto; gap: 6px; }
 .vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.vp-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
+.vp-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 12px 12px 9px; }
 .vp-saved-toggle { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .vp-search { flex: 1; }
-.vp-list { flex: 1; overflow-y: auto; padding: 0 8px 10px; }
+/* The only scroller in the dialog — the header and toolbar stay put while a
+   long voice catalogue moves under them. min-height:0 lets it shrink inside
+   the flex column instead of pushing the dialog past its max-height. */
+.vp-list { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 12px; scrollbar-width: thin; }
 .vp-section { margin-top: 8px; }
 .vp-section h4 { margin: 0; padding: 5px 7px; color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; }
 .vp-section-heading { display: flex; align-items: center; justify-content: space-between; }
@@ -519,6 +568,7 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 .vp-default-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .vp-default-row span { color: var(--text-muted); font-size: var(--font-xs); }
 .vp-default-row:hover, .vp-default-row.selected { border-color: var(--accent); background: var(--accent-dim); }
+.vp-default-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .vp-row { display: flex; align-items: center; gap: 5px; padding: 5px; border: 1px solid transparent; border-radius: var(--radius-sm); }
 .vp-row:hover, .vp-row.selected { background: var(--bg-tertiary); border-color: var(--border); }
 .vp-row.selected { border-color: var(--accent); background: var(--accent-dim); }
@@ -528,7 +578,7 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 .vp-select strong { font-size: 13px; }
 .vp-select span { color: var(--text-muted); font-size: var(--font-xs); }
 .vp-preview { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--accent); cursor: pointer; }
-.vp-warning { margin: 4px 6px 8px; padding: 8px; border: 1px solid rgba(245,158,11,.4); border-radius: var(--radius-sm); color: rgb(245,158,11); font-size: var(--font-xs); }
+.vp-warning { flex: 0 0 auto; margin: 0 12px 8px; padding: 8px; border: 1px solid rgba(245,158,11,.4); border-radius: var(--radius-sm); color: rgb(245,158,11); font-size: var(--font-xs); }
 .vp-warning a { color: inherit; text-decoration: underline; }
 .vp-empty { display: flex; flex-direction: column; gap: 4px; padding: 24px 12px; color: var(--text-muted); font-size: 12px; text-align: center; }
 @media (max-width: 720px) { .vp-add-row { grid-template-columns: 1fr; } .vp-provider-badge { display: none; } }

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.778 — 2026-08-01
+
+- **Choosing a model now opens a proper window instead of a cramped dropdown** — the picker
+  used to appear directly under whatever you clicked, so if that field sat low on the page it
+  was squeezed into a few lines and you could only see two or three models at a time. It now
+  opens centred and sized to your window, showing many models at once with the list scrolling
+  inside it. This applies to every model picker in the app — scripts, ideas, research,
+  metadata, scene plan, images, thumbnails, video, narration and subtitles alike.
+- **The voice picker opens the same way** — voice lists are longer than model lists, so it
+  suffered the same squeeze more sharply, and the provider library browser inside it now has
+  proper room.
+- **Both are fully keyboard operable** — arrow keys move through the list, Home and End jump to
+  either end, typing in the search box still works normally, Escape closes, and focus returns
+  to where you were when it closes.
+- **A failed voice save is readable without closing the picker** — the message now appears
+  inside the picker as well as in the usual notification, which would otherwise sit behind it.
+
+---
+
 ## v1.0.777 — 2026-08-01
 
 - **Voice models now offer their own expression controls** — each model publishes the controls

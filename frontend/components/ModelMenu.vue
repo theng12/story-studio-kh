@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootEl" class="model-menu" :class="`model-menu-${mediaType}`">
+  <div class="model-menu" :class="`model-menu-${mediaType}`">
     <button
       type="button"
       class="model-menu-trigger"
@@ -25,81 +25,77 @@
       <span class="model-menu-chevron" aria-hidden="true">▾</span>
     </button>
 
-    <Teleport to="body">
+    <PickerDialog
+      :visible="expanded"
+      :kind="kindLabel"
+      :title="title"
+      :count="`${selectableOptionCount} available`"
+      :close-label="`Close ${ariaLabel.toLowerCase()}`"
+      size="lg"
+      @close="close"
+    >
+      <div class="model-menu-search-wrap">
+        <input
+          ref="searchEl"
+          v-model="query"
+          type="search"
+          class="input model-menu-search"
+          :placeholder="searchPlaceholder"
+          :aria-label="searchPlaceholder"
+          @keydown="onListKeydown"
+        />
+      </div>
+
+      <div v-if="catalogNotice" class="model-menu-catalog-notice">
+        <span>{{ catalogNotice }}</span>
+        <NuxtLink v-if="catalogNoticeHref" :to="catalogNoticeHref">Plan status →</NuxtLink>
+      </div>
+
       <div
-        v-if="expanded"
-        ref="panelEl"
-        class="model-menu-panel"
-        :class="`model-menu-panel-${mediaType}`"
-        :style="panelStyle"
+        ref="listEl"
+        class="model-menu-list"
+        :class="`model-menu-list-${mediaType}`"
         role="listbox"
-        tabindex="-1"
         :aria-label="ariaLabel"
-        @click.stop
+        @keydown="onListKeydown"
       >
-        <div class="model-menu-panel-head">
-          <div>
-            <span>{{ kindLabel }}</span>
-            <strong>{{ title }}</strong>
-          </div>
-          <span class="model-menu-count">{{ selectableOptionCount }} available</span>
-        </div>
+        <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group" role="group" :aria-label="group.label">
+          <h4>{{ group.label }}</h4>
+          <button
+            v-for="option in group.items"
+            :key="option.id"
+            type="button"
+            class="model-menu-option"
+            :class="{ selected: option.id === modelValue, disabled: option.disabled }"
+            role="option"
+            :aria-selected="option.id === modelValue"
+            :aria-disabled="option.disabled || undefined"
+            :title="option.disabledReason || option.description || option.label"
+            @click="select(option)"
+          >
+            <span class="model-menu-option-copy">
+              <strong>{{ option.label }}</strong>
+              <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
+              <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
+            </span>
+            <span class="model-menu-option-side">
+              <span
+                v-for="badge in option.badges || []"
+                :key="`${option.id}-${badge.label}`"
+                class="model-menu-badge"
+                :data-tone="badge.tone || 'neutral'"
+                :title="badge.title || badge.label"
+              >{{ badge.label }}</span>
+              <span v-if="option.id === modelValue" class="model-menu-check" aria-label="Selected">✓</span>
+            </span>
+          </button>
+        </section>
 
-        <div class="model-menu-search-wrap">
-          <input
-            ref="searchEl"
-            v-model="query"
-            type="search"
-            class="input model-menu-search"
-            :placeholder="searchPlaceholder"
-            :aria-label="searchPlaceholder"
-          />
-        </div>
-
-        <div v-if="catalogNotice" class="model-menu-catalog-notice">
-          <span>{{ catalogNotice }}</span>
-          <NuxtLink v-if="catalogNoticeHref" :to="catalogNoticeHref">Plan status →</NuxtLink>
-        </div>
-
-        <div class="model-menu-list">
-          <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group">
-            <h4>{{ group.label }}</h4>
-            <button
-              v-for="option in group.items"
-              :key="option.id"
-              type="button"
-              class="model-menu-option"
-              :class="{ selected: option.id === modelValue, disabled: option.disabled }"
-              role="option"
-              :aria-selected="option.id === modelValue"
-              :aria-disabled="option.disabled || undefined"
-              :title="option.disabledReason || option.description || option.label"
-              @click="select(option)"
-            >
-              <span class="model-menu-option-copy">
-                <strong>{{ option.label }}</strong>
-                <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
-                <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
-              </span>
-              <span class="model-menu-option-side">
-                <span
-                  v-for="badge in option.badges || []"
-                  :key="`${option.id}-${badge.label}`"
-                  class="model-menu-badge"
-                  :data-tone="badge.tone || 'neutral'"
-                  :title="badge.title || badge.label"
-                >{{ badge.label }}</span>
-                <span v-if="option.id === modelValue" class="model-menu-check" aria-label="Selected">✓</span>
-              </span>
-            </button>
-          </section>
-
-          <div v-if="!groupedOptions.length" class="model-menu-empty">
-            No models match “{{ query.trim() }}”.
-          </div>
+        <div v-if="!groupedOptions.length" class="model-menu-empty">
+          No models match “{{ query.trim() }}”.
         </div>
       </div>
-    </Teleport>
+    </PickerDialog>
   </div>
 </template>
 
@@ -151,14 +147,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const expanded = ref(false)
 const query = ref('')
-const rootEl = ref<HTMLElement | null>(null)
-const panelEl = ref<HTMLElement | null>(null)
 const searchEl = ref<HTMLInputElement | null>(null)
-const { panelStyle } = useAnchoredPanel(expanded, rootEl, panelEl, {
-  minWidth: 420,
-  maxWidth: 680,
-  maxHeight: 620,
-})
+const listEl = ref<HTMLElement | null>(null)
 
 const kindLabel = computed(() => ({
   llm: 'AI',
@@ -200,33 +190,63 @@ const groupedOptions = computed(() => {
 
 async function toggle() {
   if (props.disabled || (props.loading && !props.options.length)) return
-  expanded.value = !expanded.value
   if (expanded.value) {
-    query.value = ''
-    await nextTick()
-    searchEl.value?.focus({ preventScroll: true })
+    close()
+    return
   }
+  query.value = ''
+  expanded.value = true
+  // Two ticks: the shared focus trap moves focus to the dialog's first control
+  // on the first tick, so the search field claims it on the one after.
+  await nextTick()
+  await nextTick()
+  searchEl.value?.focus({ preventScroll: true })
+  listEl.value?.querySelector('.model-menu-option.selected')?.scrollIntoView({ block: 'center' })
+}
+/** Modal restores focus to the trigger, so closing never strands the keyboard. */
+function close() {
+  expanded.value = false
 }
 function select(option: ModelMenuOption) {
   if (option.disabled) return
   emit('update:modelValue', option.id)
-  expanded.value = false
+  close()
 }
-function closeOnOutside(event: MouseEvent) {
-  const target = event.target as Node
-  if (expanded.value && !rootEl.value?.contains(target) && !panelEl.value?.contains(target)) expanded.value = false
+
+/**
+ * Arrow keys walk the selectable rows and Enter picks one — Enter needs no
+ * handler because every row is a real <button>, so the browser activates the
+ * focused one. Focus moves for real rather than through aria-activedescendant
+ * so screen readers announce each row, and Arrow Up off the top hands the
+ * keyboard back to the search field.
+ */
+function selectableButtons(): HTMLButtonElement[] {
+  const nodes = listEl.value?.querySelectorAll<HTMLButtonElement>('.model-menu-option:not(.disabled)')
+  return nodes ? Array.from(nodes) : []
 }
-function closeOnEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') expanded.value = false
+function moveActive(delta: number) {
+  const buttons = selectableButtons()
+  if (!buttons.length) return
+  const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  if (current < 0) {
+    buttons[delta > 0 ? 0 : buttons.length - 1]?.focus()
+    return
+  }
+  const next = current + delta
+  if (next < 0) {
+    searchEl.value?.focus({ preventScroll: true })
+    return
+  }
+  buttons[Math.min(next, buttons.length - 1)]?.focus()
 }
-onMounted(() => {
-  document.addEventListener('click', closeOnOutside)
-  window.addEventListener('keydown', closeOnEscape)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('click', closeOnOutside)
-  window.removeEventListener('keydown', closeOnEscape)
-})
+function onListKeydown(event: KeyboardEvent) {
+  // Home/End belong to the caret while the user is typing a query.
+  const typing = event.target === searchEl.value
+  if (event.key === 'ArrowDown') { event.preventDefault(); moveActive(1) }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); moveActive(-1) }
+  else if (event.key === 'Home' && !typing) { event.preventDefault(); selectableButtons()[0]?.focus() }
+  else if (event.key === 'End' && !typing) { event.preventDefault(); selectableButtons().at(-1)?.focus() }
+}
 </script>
 
 <style scoped>
@@ -277,31 +297,15 @@ onBeforeUnmount(() => {
 .model-menu-trigger.open .model-menu-chevron { transform: rotate(180deg); }
 .model-menu-trigger-badge { flex: 0 0 auto; }
 
-.model-menu-panel {
-  position: fixed;
-  z-index: 1400;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  border-radius: 14px;
-  background: var(--bg-primary);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .46);
-  color: var(--text-primary);
-}
-.model-menu-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); background: var(--surface-raised); }
-.model-menu-panel-head > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
-.model-menu-panel-head > div > span { padding: 3px 6px; border-radius: 6px; background: var(--surface-accent); color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .08em; }
-.model-menu-panel-head strong { font-size: 13px; }
-.model-menu-count { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-xs); }
-.model-menu-search-wrap { padding: 10px 12px 8px; }
+.model-menu-search-wrap { flex: 0 0 auto; padding: 12px 14px 9px; }
 .model-menu-search { width: 100%; min-height: 38px; }
 .model-menu-catalog-notice {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 12px 8px;
+  margin: 0 14px 9px;
   padding: 9px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   border-radius: 8px;
@@ -311,11 +315,15 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 .model-menu-catalog-notice a { flex: 0 0 auto; color: var(--accent); font-weight: 700; white-space: nowrap; }
-.model-menu-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 10px; }
+/* The only scroller in the dialog — the header and search stay put while a
+   long catalogue moves under them. min-height:0 lets it shrink inside the
+   flex column instead of pushing the dialog past its max-height. */
+.model-menu-list { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 12px; scrollbar-width: thin; }
 .model-menu-group { margin-top: 5px; }
 .model-menu-group h4 { margin: 0; padding: 7px 8px 5px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .model-menu-option { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .model-menu-option:hover:not(.disabled) { border-color: var(--border); background: var(--bg-tertiary); }
+.model-menu-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .model-menu-option.selected { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--accent-dim); }
 .model-menu-option.disabled { cursor: not-allowed; opacity: .48; }
 .model-menu-option-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
@@ -333,6 +341,7 @@ onBeforeUnmount(() => {
 @media (max-width: 680px) {
   .model-menu-trigger-badge { display: none; }
   .model-menu-option-side .model-menu-badge:nth-child(n+2) { display: none; }
-  .model-menu-panel-head { padding-inline: 12px; }
+  .model-menu-search-wrap { padding-inline: 12px; }
+  .model-menu-catalog-notice { margin-inline: 12px; }
 }
 </style>
