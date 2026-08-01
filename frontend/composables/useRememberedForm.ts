@@ -30,6 +30,18 @@ export interface RememberOpts {
   include?: string[]
   /** Extra keys to never persist (used when `include` is not set). */
   exclude?: string[]
+  /**
+   * Keys whose value is an OPEN map — its keys are not declared by the page.
+   *
+   * The default one-level merge below only copies sub-keys that already exist
+   * on the target, which is right for a nested sub-form with a declared shape
+   * (a new default field survives an old saved blob). It is wrong for a map
+   * keyed by catalogue-owned names, such as the Audio page's published TTS
+   * controls: the page declares none of those names, so nothing would ever be
+   * restored. Keys listed here are restored wholesale instead. Whatever comes
+   * back must still be reconciled against the live catalogue by the page.
+   */
+  openMapKeys?: string[]
   /** Bump to invalidate previously-saved shapes for this page. */
   version?: number
   /** Debounce for the auto-save (ms). */
@@ -59,8 +71,11 @@ export function useRememberedForm(
   // images' thumbnail/scene) merge key-by-key so a NEW default field that
   // wasn't in the saved blob survives, instead of being wiped by a wholesale
   // object replace. One level deep is enough for our forms.
+  const openMapKeys = new Set(opts.openMapKeys ?? [])
   const merge = (target: Record<string, any>, k: string, v: any): void => {
-    if (isPlain(target[k]) && isPlain(v)) {
+    if (openMapKeys.has(k) && isPlain(v)) {
+      target[k] = { ...v }
+    } else if (isPlain(target[k]) && isPlain(v)) {
       for (const [ck, cv] of Object.entries(v)) {
         if (ck in target[k]) target[k][ck] = cv
       }

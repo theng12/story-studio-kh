@@ -16,6 +16,8 @@
  *   provider on a generation request.
  */
 
+import type { GenStudioTtsControl, TtsControlValues } from '~/utils/tts-controls'
+
 /**
  * `TTSModelResponse`. Every field is published by GenStudio except the last
  * one, which the Story Studio backend adds and which is labelled as ours
@@ -34,6 +36,15 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  /**
+   * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its
+   * own label, type, published bounds, default and description. Rendered as
+   * published (`components/TtsControlPanel.vue`); nothing here or downstream
+   * names a control, so a model publishing one nobody has seen still works and
+   * a model publishing an empty list shows no control section at all. Optional
+   * only so an older cached response cannot break the page.
+   */
+  controls?: GenStudioTtsControl[]
   /**
    * NOT published by GenStudio: the budget the Story Studio backend plans this
    * model's TTS requests at — `maximum_input_characters` less its own safety
@@ -165,6 +176,8 @@ export interface GenStudioNarrationQuote {
    */
   planned_request_characters?: number
   request_safety_margin?: number
+  /** The control values that were actually priced, as the backend resolved them. */
+  controls?: TtsControlValues
   section_count: number
 }
 
@@ -317,7 +330,18 @@ export function useGenStudioVoices() {
   async function quoteNarration(
     projectSlug: string,
     episodeCode: string,
-    request: { model: string; voice: string; speed?: number; sections?: string },
+    request: {
+      model: string
+      voice: string
+      speed?: number
+      sections?: string
+      /**
+       * The same control values Generate will send. GenStudio prices controls,
+       * so quoting without them would quote different work. Already resolved
+       * against the selected model's published list by the caller.
+       */
+      controls?: TtsControlValues
+    },
   ): Promise<GenStudioNarrationQuote> {
     return await post<GenStudioNarrationQuote>(
       `/projects/${projectSlug}/episodes/${encodeURIComponent(episodeCode)}/tts-quote`,

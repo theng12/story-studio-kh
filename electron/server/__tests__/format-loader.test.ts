@@ -145,14 +145,17 @@ describe('format-loader', () => {
     }
   })
 
-  test('audioDefaults: shape is valid on every format that ships them', async () => {
+  test('audioDefaults: pace only — a format may not seed a model control', async () => {
     for (const id of ALL_BUILTIN_FORMATS) {
       const fmt = await loader.loadFormat(id)
       const ad = fmt!.script.audioDefaults
       if (!ad) continue
       assert.ok(typeof ad.speed === 'number' && ad.speed > 0 && ad.speed <= 2, `${id}: audioDefaults.speed in (0, 2]`)
-      assert.ok(typeof ad.stability === 'number' && ad.stability >= 0 && ad.stability <= 1, `${id}: audioDefaults.stability in [0, 1]`)
-      assert.ok(typeof ad.similarity === 'number' && ad.similarity >= 0 && ad.similarity <= 1, `${id}: audioDefaults.similarity in [0, 1]`)
+      // Which controls a TTS model takes, and what they accept, is published
+      // per model and read live. A format shipping a default for one would be
+      // Story Studio asserting a capability GenStudio never published for the
+      // model the customer actually selected.
+      assert.deepEqual(Object.keys(ad), ['speed'], `${id}: audioDefaults carries pace and nothing else`)
     }
   })
 

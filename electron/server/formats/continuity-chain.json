@@ -61,9 +61,7 @@
       "defaultTimelineClipDurationSeconds": 4
     },
     "audioDefaults": {
-      "speed": 1,
-      "stability": 0.85,
-      "similarity": 0.9
+      "speed": 1
     },
     "audioMergeDefaults": {
       "normalizeVolume": true,

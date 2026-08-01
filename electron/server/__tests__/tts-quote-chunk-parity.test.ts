@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { GenStudioApiError } from '../lib/genstudio-client.js'
 import { splitGenStudioApiRequests } from '../lib/genstudio-client.js'
-import { forgetQuoteRefusals, quoteNarrationRequests } from '../services/tts-narration-quote.js'
+import { quoteNarrationRequests } from '../services/tts-narration-quote.js'
 import {
   TTS_REQUEST_SAFETY_MARGIN,
   flattenTtsRequestPlan,
@@ -139,6 +139,7 @@ test('GenStudio is asked to price each submitted request, and the total is the s
       // single whole-text calculation would count this once instead of N times.
       return {
         voice_id: 'voice', voice_tier: '', billable_characters: text.length, speed: 1,
+        controls: {},
         estimated_duration_ms: 0, maximum_input_characters: PUBLISHED_MAX_CHARACTERS,
         credits: Math.max(5, text.length / 100), credits_per_1000_characters: 10,
         price_version: 'v1', output_format: 'mp3', chargeable: true,
@@ -243,7 +244,6 @@ test('the budget is the live published boundary less the margin, per model', () 
   for (const published of [900, 2_500, 12_000, 65_536, 100_001]) {
     const budget = resolveTtsRequestBudget(ttsModelRow(published))
     assert.equal(budget.published, published, 'the published figure is reported unmodified')
-    assert.equal(budget.ceiling, published, 'no quote-specific limit is published today')
     assert.equal(
       budget.effective,
       Math.floor(published * (1 - TTS_REQUEST_SAFETY_MARGIN)),
@@ -282,24 +282,22 @@ test('the margin multiplies a live base — it can never behave as a fixed cap',
   assert.ok(tiny.effective >= 1 && tiny.effective <= tiny.published)
 })
 
-test('a published quote limit, if GenStudio ever ships one, takes over when it is smaller', () => {
-  // The field does not exist on TTSModelResponse today — this proves the code
-  // is already shaped for it, not that Story Studio invented it.
-  const quoteLimited = resolveTtsRequestBudget({
-    maximum_input_characters: 100_000,
-    maximum_quote_characters: 30_000,
-  })
-  assert.equal(quoteLimited.published, 100_000)
-  assert.equal(quoteLimited.ceiling, 30_000)
-  assert.equal(quoteLimited.quote_limited, true)
-  assert.equal(quoteLimited.effective, Math.floor(30_000 * (1 - TTS_REQUEST_SAFETY_MARGIN)))
-  // A larger quote limit is not a licence to exceed the input boundary.
-  const inputLimited = resolveTtsRequestBudget({
-    maximum_input_characters: 12_000,
-    maximum_quote_characters: 80_000,
-  })
-  assert.equal(inputLimited.ceiling, 12_000)
-  assert.equal(inputLimited.quote_limited, false)
+test('the model publishes the ONLY request ceiling — the quote cap is gone', () => {
+  // `TTSQuoteRequest.text` used to carry a fixed `maxLength` that no catalogue
+  // field mirrored, so the budget resolved the smaller of two ceilings.
+  // GenStudio removed it; the model's own figure is now the only one, and the
+  // machinery that reconciled the two went with it rather than lingering as
+  // dead shape. Nothing on the planning path may reintroduce a second ceiling.
+  const planner = readFileSync(new URL('../services/tts-request-plan.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(planner, /maximum_quote_characters|quote_limited|quoteLimited/)
+  const budget = resolveTtsRequestBudget({ maximum_input_characters: 100_000 })
+  assert.equal(budget.published, 100_000)
+  assert.equal(budget.effective, Math.floor(100_000 * (1 - TTS_REQUEST_SAFETY_MARGIN)))
+  // An extra field GenStudio does not publish cannot narrow the budget.
+  assert.deepEqual(
+    resolveTtsRequestBudget({ maximum_input_characters: 100_000, maximum_quote_characters: 30_000 } as any),
+    budget,
+  )
 })
 
 test('parity holds under the reduced budget: quoted units are still submitted units', () => {
@@ -321,8 +319,12 @@ test('parity holds under the reduced budget: quoted units are still submitted un
   }
 })
 
-test('a size the quote endpoint already refused is not put to it twice', async () => {
-  forgetQuoteRefusals()
+test('the discovered-refusal cache is gone — every ask reaches GenStudio', async () => {
+  // The cache remembered, per model and per process, the smallest body the
+  // quote endpoint had already refused, so a repeat ask could skip the round
+  // trip. Its only reason to exist was the quote endpoint's own undiscoverable
+  // cap; that cap is gone, so the memory of it is too. What remains is the
+  // refusal HANDLING, which is defence and must still work every time.
   const budget = resolveTtsRequestBudget(ttsModelRow(PUBLISHED_MAX_CHARACTERS))
   const requests = flattenTtsRequestPlan(planGenStudioTtsRequests(narrationFixture(), budget.effective))
   let asked = 0
@@ -331,39 +333,22 @@ test('a size the quote endpoint already refused is not put to it twice', async (
     throw new GenStudioApiError(413, 'text: ensure this value has at most N characters')
   }
 
-  const first = await quoteNarrationRequests({ requests, modelId: 'model-a', quoteEnabled: true, quoteRequest: refuse })
+  const first = await quoteNarrationRequests({ requests, quoteEnabled: true, quoteRequest: refuse })
   assert.equal(first.unavailable_reason, 'generation_unit_rejected')
+  assert.equal(first.unavailable_status, 413)
+  assert.equal(first.unquotable_characters, requests[0]!.characters)
   assert.equal(asked, 1)
 
-  // Same model, same size: the answer is already known, so nothing is asked.
-  const again = await quoteNarrationRequests({ requests, modelId: 'model-a', quoteEnabled: true, quoteRequest: refuse })
+  // Asked again, it asks again: no remembered size short-circuits it.
+  const again = await quoteNarrationRequests({ requests, quoteEnabled: true, quoteRequest: refuse })
   assert.equal(again.unavailable_reason, 'generation_unit_rejected')
-  assert.equal(again.unavailable_status, 413)
-  assert.equal(again.unquotable_characters, requests[0]!.characters)
-  assert.equal(asked, 1, 'a refusal already proven for this model was asked for again')
+  assert.equal(asked, 2, 'the removed cache must not have grown back')
 
-  // A different model inherits nothing — the refusal is not a catalogue value.
-  const other = await quoteNarrationRequests({ requests, modelId: 'model-b', quoteEnabled: true, quoteRequest: refuse })
-  assert.equal(other.unavailable_reason, 'generation_unit_rejected')
-  assert.equal(asked, 2)
-
-  // Neither does an unrelated caller that names no model.
-  await quoteNarrationRequests({ requests, quoteEnabled: true, quoteRequest: refuse })
-  assert.equal(asked, 3)
-  forgetQuoteRefusals()
-})
-
-test('the remembered refusal never becomes a limit: it is memory only', () => {
   const service = readFileSync(new URL('../services/tts-narration-quote.ts', import.meta.url), 'utf8')
-  // Not persisted, and never consulted when deciding how to split.
+  assert.doesNotMatch(service, /refusedQuoteSizes|knownQuoteRefusal|rememberQuoteRefusal|forgetQuoteRefusals/)
+  // Nothing was persisted then, and nothing is now.
   assert.doesNotMatch(service, /writeFile|readFile|localStorage|app-settings/)
   assert.doesNotMatch(service, /planGenStudioTtsRequests|resolveTtsRequestBudget/)
-  const planner = readFileSync(new URL('../services/tts-request-plan.ts', import.meta.url), 'utf8')
-  assert.doesNotMatch(
-    planner,
-    /refusedQuoteSizes|knownQuoteRefusal|rememberQuoteRefusal/,
-    'planning must not know about discovered refusals',
-  )
 })
 
 test('the margin is annotated as Story Studio policy, not a catalogue value', () => {
@@ -371,7 +356,7 @@ test('the margin is annotated as Story Studio policy, not a catalogue value', ()
   assert.match(planner, /model-drift-allow: a Story Studio safety margin/)
   // It is declared as a fraction, so the base it multiplies stays live.
   assert.match(planner, /TTS_REQUEST_SAFETY_MARGIN = 0\.1\b/)
-  assert.match(planner, /ceiling \* \(1 - TTS_REQUEST_SAFETY_MARGIN\)/)
+  assert.match(planner, /published \* \(1 - TTS_REQUEST_SAFETY_MARGIN\)/)
   // The reason is written down where the next reader will find it.
   assert.match(planner, /billable_characters/)
   assert.match(planner, /character_rule_version/)

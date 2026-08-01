@@ -476,8 +476,15 @@ export const GenerateAudioSchema = z.object({
   voice: z.string().optional(),
   sections: z.string().optional(),
   speed: z.number().optional(),
-  stability: z.number().optional(),
-  similarity: z.number().optional(),
+  /**
+   * Values for the SELECTED model's published `controls[]`, keyed by the name
+   * GenStudio published. Deliberately an open record: which controls exist,
+   * what they are called, and what they accept are catalogue facts, so nothing
+   * here may name or bound one. The generator resolves this map against the
+   * live model row before anything is sent — an unpublished name is dropped
+   * and an out-of-range value is clamped there, not here.
+   */
+  controls: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
   /**
@@ -486,8 +493,6 @@ export const GenerateAudioSchema = z.object({
    * Ignored by every other provider/model.
    */
   use_expression: z.boolean().optional(),
-  /** Fish Audio only: 0–1 expressiveness (temperature). Higher = less monotone. */
-  fish_temperature: z.number().min(0).max(1).optional(),
   /** Fish Audio S2-Pro only: insert [short pause]/[long pause] tags at sentence
    *  + paragraph boundaries so plain narration stops rushing through periods. */
   fish_autopace: z.boolean().optional(),

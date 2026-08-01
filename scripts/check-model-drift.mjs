@@ -112,6 +112,19 @@ const PUBLISHED_VALUE_NAMES = [
 const COST_VOCABULARY = /\b(cost|costs|price|pricing|priced|credit|credits|usd|dollar|dollars|estimate|estimated|spend|spent|bill|billed|billing|charge|charged)\b/i
 
 /**
+ * Members that legitimately hang off something named `controls` — array and
+ * object built-ins, plus Vue's `.value`. Anything else after `controls.` is a
+ * control NAME, which belongs to the catalogue and not to this codebase.
+ */
+const CONTROLS_COLLECTION_MEMBERS = new Set([
+  'length', 'value', 'at', 'find', 'findIndex', 'findLast', 'filter', 'map', 'flatMap',
+  'some', 'every', 'forEach', 'reduce', 'reduceRight', 'slice', 'splice', 'concat',
+  'includes', 'indexOf', 'lastIndexOf', 'sort', 'reverse', 'join', 'push', 'pop',
+  'shift', 'unshift', 'entries', 'keys', 'values', 'flat', 'fill', 'toString',
+  'hasOwnProperty', 'constructor',
+])
+
+/**
  * Every rule names the file, the literal, why it is forbidden, and the
  * published field to read instead. A guard whose message does not teach gets
  * annotated away by the next person in a hurry.
@@ -211,6 +224,31 @@ const rules = [
     remedy: 'Generate aspect ratios, resolutions, durations, modes, voice tiers and output '
       + 'formats from the selected product\'s published option lists. A local list offers the '
       + 'customer choices the model does not have, and hides the ones it does.',
+  },
+  {
+    id: 'named-control',
+    // Reaching into a published `controls` map by a name written here. Which
+    // controls a product takes — and what each accepts — is published per
+    // product and read live; code that names one asserts a capability for
+    // every product, including the ones that never had it.
+    //
+    // Deliberately narrow. It does NOT flag `productPublishesControl(product,
+    // 'temperature')`, which is the opposite mistake's cure: a conditional
+    // gate that sends a field only when the SELECTED product publishes it.
+    // What it flags is the unconditional reach — `controls.stability`,
+    // `controls['similarity']` — which no gate protects.
+    // The lookbehind excludes `-`, and no whitespace is allowed before the
+    // dot, so CSS selectors (`.scene-motion-controls.is-disabled`,
+    // `.reconcile-controls .control-label`) are not property accesses and do
+    // not trip it. Missing an oddly-wrapped access is the right trade: a guard
+    // that cries wolf gets annotated away by the next person in a hurry.
+    pattern: /(?<![\w$-])controls(?:\.([A-Za-z_$][\w$]*)|\[\s*(['"])([^'"\n]+)\2\s*\])/g,
+    ignore: (match) => !!match[1] && CONTROLS_COLLECTION_MEMBERS.has(match[1]),
+    describe: (match) => `a published control is named in code: controls${match[1] ? `.${match[1]}` : `['${match[3]}']`}`,
+    remedy: 'Render and send controls from the selected product\'s published controls[] — name, '
+      + 'label, type, minimum, maximum, step, max_length and default all come from the catalogue '
+      + '(lib/tts-controls.ts). Index the map by a published name, never by one written here; a '
+      + 'product that renames or drops the control leaves the code asserting it still exists.',
   },
   {
     id: 'currency-symbol',

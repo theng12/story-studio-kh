@@ -9,6 +9,7 @@ import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { chunkText } from '../lib/text-chunker.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
+import { resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
@@ -172,22 +173,22 @@ export async function generateAudio(job: Job): Promise<void> {
     )
   }
 
-  // Format fallback for TTS settings (speed/stability/similarity). Each
-  // channel format ships sensible audioDefaults — listicle wants snappier
-  // pacing, sleep-story wants slow + breathy, etc. The frontend already
-  // seeds these into the form, so most calls already carry them. This
-  // layer covers callers that bypass the page (legacy presets dropped
-  // a field, programmatic enqueues, retried jobs whose params predate
-  // the format-aware roll-out) so the format-tuned defaults still land
-  // instead of falling through to the TTS client's generic hardcoded
-  // values. Precedence: req body → format → client default.
+  // Format fallback for narration pace. Each channel format ships sensible
+  // audioDefaults — listicle wants snappier pacing, sleep-story wants slow +
+  // breathy. The frontend already seeds these into the form, so most calls
+  // already carry them. This layer covers callers that bypass the page (legacy
+  // presets that dropped a field, programmatic enqueues, retried jobs whose
+  // params predate the format-aware roll-out). Precedence: req body → format.
+  //
+  // Only `speed` lives here. A format cannot ship per-model control defaults:
+  // which controls exist, and what they accept, is published per model and
+  // read live (lib/tts-controls.ts). A format naming one would be Story Studio
+  // asserting a capability GenStudio did not publish.
   try {
     const fmt = await getEffectiveFormat(project_slug)
     const fmtAudio = fmt?.script.audioDefaults
     if (fmtAudio) {
       if (typeof fmtAudio.speed === 'number' && req.speed === undefined) req.speed = fmtAudio.speed
-      if (typeof fmtAudio.stability === 'number' && req.stability === undefined) req.stability = fmtAudio.stability
-      if (typeof fmtAudio.similarity === 'number' && req.similarity === undefined) req.similarity = fmtAudio.similarity
     }
   } catch { /* format layer must never break audio generation */ }
 
@@ -250,6 +251,19 @@ export async function generateAudio(job: Job): Promise<void> {
   // on the same live catalogue row — so the parts priced are the parts sent.
   const genStudioMaxCharacters = ttsModel.maximum_input_characters
   const requestBudget = resolveTtsRequestBudget(ttsModel)
+  // The control values this run submits, resolved against THIS model's
+  // published `controls[]`. A name the model does not publish is dropped and a
+  // value outside its published range is clamped, so a preset or a saved
+  // project cannot smuggle another model's setting into the request. Empty
+  // when the model publishes no controls — then nothing is sent, and the
+  // idempotency key is exactly what it was before controls existed.
+  const requestControls = resolveTtsControlValues(ttsModel.controls, req.controls)
+  if (Object.keys(requestControls).length) {
+    job.output_lines.push(
+      `Model controls: ${Object.entries(requestControls).map(([name, value]) => `${name}=${value}`).join(', ')}`
+      + ' (published by this model; resolved against its own ranges)',
+    )
+  }
   job.output_lines.push(
     `Voice model: ${ttsModel.display_name}`
     + `${ttsModel.provider_name ? ` (served by ${ttsModel.provider_name})` : ''}`
@@ -601,6 +615,11 @@ export async function generateAudio(job: Job): Promise<void> {
         voiceId: effectiveVoice || '',
         speed: req.speed ?? 1,
         maxInputCharacters: genStudioMaxCharacters,
+        // Spread conditionally for the same reason the idempotency digest does
+        // it: a model publishing no controls hashes exactly as before, so an
+        // existing manifest entry stays reusable across this upgrade instead of
+        // being resubmitted (and recharged) for a request that has not changed.
+        ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
       }))
       const legacyTextHash = hashInput(task.chunkText)
       const reusableEntry = manifestEntry?.provider === 'genstudio'
@@ -614,6 +633,7 @@ export async function generateAudio(job: Job): Promise<void> {
         text: task.chunkText,
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
+        controls: requestControls,
         // The PUBLISHED boundary, deliberately — this is the contract check
         // against what GenStudio will accept, not Story Studio's planning
         // head-room. A body planned inside the smaller budget passes it.
@@ -660,6 +680,7 @@ export async function generateAudio(job: Job): Promise<void> {
         text: task.chunkText,
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
+        controls: requestControls,
         requestIdentity,
         idempotencyKey,
         signal: controller.signal,

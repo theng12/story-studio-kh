@@ -42,7 +42,9 @@ export type TtsQuoteUnavailableReason =
   | 'quote_disabled'
   /**
    * GenStudio's quote endpoint refused a request body that generation will
-   * submit unchanged. The two published limits disagree; see below.
+   * submit unchanged — a body the selected model publishes as acceptable.
+   * Should not happen now that the model owns the only ceiling; kept as
+   * defence, because the alternative is a silently wrong total.
    */
   | 'generation_unit_rejected'
   /** The quote call failed for some other reason (auth, network, outage). */
@@ -73,48 +75,30 @@ export interface TtsNarrationQuote {
  * endpoint" rather than "something went wrong on the way".
  *
  * These are HTTP semantics, not a GenStudio limit: 413 and 422 are the two
- * ways a server says the body itself was refused. Story Studio does not know
- * — and deliberately does not encode — what the quote endpoint's own maximum
- * text length is. It finds out by being told no, and says so.
+ * ways a server says the body itself was refused. Story Studio encodes no
+ * request-size ceiling of its own — the selected model publishes the only one.
+ * If a body inside it is still refused, that is reported, never worked around.
  */
 function isRequestBodyRefusal(error: unknown): error is GenStudioApiError {
   return error instanceof GenStudioApiError && (error.status === 413 || error.status === 422)
 }
 
 /**
- * Sizes this process has already watched the quote endpoint refuse, per model.
+ * The discovered-refusal cache that used to sit here is GONE (v1.0.777).
  *
- * This is a MEMORY OF A REFUSAL, not a limit and not a catalogue value. It is
- * never persisted, never shown as a model's figure, never used to decide how
- * generation splits, and it dies with the process. It is keyed by model id, so
- * changing the model cannot inherit another model's refusal.
+ * It remembered, per model and per process, the smallest body the quote
+ * endpoint had already refused, so a second ask at the same size or larger
+ * could skip the round trip. Its whole reason for existing was
+ * `TTSQuoteRequest.text`'s fixed `maxLength` — a second, smaller ceiling that
+ * no catalogue field mirrored, so the only way to learn it was to be told no.
+ * GenStudio has removed that cap; the model's published
+ * `maximum_input_characters` is now the only boundary, and Story Studio already
+ * plans below it. There is no undiscoverable size left to remember.
  *
- * All it buys: when the same model is asked again about a body at least as
- * large as one it already said no to, the answer is known, so the round trip
- * (and the wait) is skipped and the same `generation_unit_rejected` outcome is
- * reported. Quoting is free, so this saves latency rather than money.
+ * The refusal HANDLING below stays, as defence: if the quote endpoint ever
+ * refuses a body generation would submit unchanged, that is reported as a
+ * contract mismatch rather than papered over by sub-splitting.
  */
-const refusedQuoteSizes = new Map<string, { characters: number; detail: string; status: number }>()
-
-/** Remember the smallest body this model's quote endpoint has refused. */
-function rememberQuoteRefusal(modelId: string, characters: number, detail: string, status: number): void {
-  if (!modelId) return
-  const known = refusedQuoteSizes.get(modelId)
-  if (known && known.characters <= characters) return
-  refusedQuoteSizes.set(modelId, { characters, detail, status })
-}
-
-/** A refusal already proven for this model at this size or smaller, if any. */
-function knownQuoteRefusal(modelId: string, characters: number) {
-  if (!modelId) return null
-  const known = refusedQuoteSizes.get(modelId)
-  return known && characters >= known.characters ? known : null
-}
-
-/** Test seam: nothing in the app clears this, because the process exit does. */
-export function forgetQuoteRefusals(): void {
-  refusedQuoteSizes.clear()
-}
 
 export interface QuoteNarrationOptions {
   /** The exact jobs about to be submitted, in submission order. */
@@ -123,11 +107,6 @@ export interface QuoteNarrationOptions {
   quoteEnabled: boolean
   /** Asks GenStudio to price one submitted job. Must not alter the text. */
   quoteRequest: (text: string) => Promise<GenStudioTtsQuote>
-  /**
-   * The selected model, so a refusal it already gave this process is not asked
-   * for again. Optional: without it every request is put to GenStudio afresh.
-   */
-  modelId?: string
 }
 
 /**
@@ -140,7 +119,7 @@ export interface QuoteNarrationOptions {
 export async function quoteNarrationRequests(
   options: QuoteNarrationOptions,
 ): Promise<TtsNarrationQuote> {
-  const { requests, quoteEnabled, quoteRequest, modelId = '' } = options
+  const { requests, quoteEnabled, quoteRequest } = options
   const empty: TtsNarrationQuote = {
     quotable: false,
     parts: [],
@@ -167,18 +146,6 @@ export async function quoteNarrationRequests(
 
   const parts: QuotedTtsPart[] = []
   for (const request of requests) {
-    // Already proven too large for this model in this process. The answer
-    // cannot have changed for a bigger body, so report it without asking.
-    const known = knownQuoteRefusal(modelId, request.characters)
-    if (known) {
-      return {
-        ...empty,
-        unavailable_reason: 'generation_unit_rejected',
-        unavailable_detail: known.detail,
-        unavailable_status: known.status,
-        unquotable_characters: request.characters,
-      }
-    }
     let quote: GenStudioTtsQuote
     try {
       quote = await quoteRequest(request.text)
@@ -187,7 +154,6 @@ export async function quoteNarrationRequests(
       // NOT split it smaller to make the quote succeed — that would price
       // units nobody is ever billed for. Report the contract mismatch.
       if (isRequestBodyRefusal(error)) {
-        rememberQuoteRefusal(modelId, request.characters, error.detail || error.message, error.status)
         return {
           ...empty,
           unavailable_reason: 'generation_unit_rejected',

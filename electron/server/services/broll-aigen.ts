@@ -74,7 +74,10 @@ export async function aiGenFallbackForBeat(
   pool: bp.BrollPool,
   brollStyle: string,
   model: string,
-  controls: { aspectRatio?: string; seed?: number } = {},
+  // Not a published control map: a Story Studio options bag with two declared
+  // fields, both resolved against the selected model below. Named `options` so
+  // it cannot be mistaken for a product's published `controls[]`.
+  options: { aspectRatio?: string; seed?: number } = {},
 ): Promise<string | null> {
   const gen = await resolveImageGen(slug, model).catch(() => null)
   if (!gen) return null
@@ -84,10 +87,10 @@ export async function aiGenFallbackForBeat(
     const result = await gen.imageProvider.generateImage({
       prompt,
       apiKey: gen.apiKey,
-      aspectRatio: resolveConfiguredAspectRatio(gen.modelConfig, controls.aspectRatio),
+      aspectRatio: resolveConfiguredAspectRatio(gen.modelConfig, options.aspectRatio),
       modelId: gen.model,
       providerParams: gen.providerParams,
-      seed: controls.seed,
+      seed: options.seed,
       idempotencyIdentity: `broll:${slug}:${beat.start_sec}:${beat.end_sec}:${prompt}`,
       isCancelled: () => false,
     })

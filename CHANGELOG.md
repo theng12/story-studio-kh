@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.777 — 2026-08-01
+
+- **Voice models now offer their own expression controls** — each model publishes the controls
+  it genuinely accepts, and Story Studio shows exactly those with the model's own ranges,
+  defaults and descriptions. ElevenLabs models offer stability and similarity, Fish Audio
+  offers volume and temperature, the OpenAI and Google models take written delivery
+  instructions, and a model with no controls shows none. Nothing is assumed about any model:
+  if GenStudio adds a new control tomorrow it will appear here without an update.
+- **The old Stability and Similarity sliders are gone** — they were left over from an earlier
+  integration and had not reached the generator for some time, so moving them changed nothing
+  about your audio. The controls you see now are the ones the selected model actually applies.
+- **Switching voice model resets its controls** — values that the new model does not offer are
+  discarded rather than quietly carried over, and the rest return to that model's published
+  defaults. Your chosen settings are remembered per project between sessions.
+- **Changing a control now counts as a different request** — generating the same script again
+  with a different setting produces new audio instead of returning the earlier version, and
+  repeating an identical request still costs nothing extra.
+- **Long narration is no longer limited when asking for a quote** — GenStudio removed the fixed
+  40,000-character ceiling on quotes, so the limit is the selected model's own. The workaround
+  Story Studio carried for that ceiling has been removed with it.
+
+---
+
 ## v1.0.776 — 2026-08-01
 
 - **Narration is now planned with a little head-room below the model's limit** — Story Studio

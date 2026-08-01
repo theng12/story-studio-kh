@@ -21,6 +21,14 @@ import {
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 import {
+  hasTtsControlValues,
+  orderedTtsControlValues,
+  parseTtsControlValues,
+  parseTtsControls,
+  type GenStudioTtsControl,
+  type TtsControlValues,
+} from './tts-controls.js'
+import {
   describeOutputBudget,
   resolveOutputTokenBudget,
   type OutputBudget,
@@ -454,6 +462,16 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * never re-derives a boundary for it, so it is optional at the type level.
    */
   maxInputCharacters?: number
+  /**
+   * Control values for THIS request, already resolved against the selected
+   * model's published `controls[]` by `resolveTtsControlValues`.
+   *
+   * Never a raw form or a remembered map: only names the selected model
+   * publishes may appear here, and every value is inside the range that model
+   * published for it. Absent (or empty) means the model publishes no controls,
+   * in which case nothing is sent and the idempotency digest is unchanged.
+   */
+  controls?: TtsControlValues
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
   /** Reuse a key already checkpointed beside the Story asset. */
@@ -672,6 +690,8 @@ export interface GenStudioSubmission {
     voice_id: string
     text: string
     speed: number
+    /** Present ONLY when the selected model published controls to send. */
+    controls?: TtsControlValues
   }
   idempotencyKey: string
 }
@@ -727,12 +747,21 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  /**
+   * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with
+   * its own label, type, bounds, default and description. Story Studio renders
+   * the list and never names a member of it (lib/tts-controls.ts). An empty
+   * list means this model takes no controls, and none are shown or sent.
+   */
+  controls: GenStudioTtsControl[]
 }
 
 /** `TTSQuoteResponse` — GenStudio's own figure for one exact script. */
 export interface GenStudioTtsQuote {
   model_id?: string | null
   model_name?: string | null
+  /** The control values GenStudio priced, echoed back from the request. */
+  controls: TtsControlValues
   voice_id: string
   voice_tier: string
   billable_characters: number
@@ -1583,7 +1612,24 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   if (!Number.isFinite(request.speed) || request.speed < 0.5 || request.speed > 2) {
     throw new Error('GenStudio KH speed must be between 0.5 and 2.0.')
   }
-  const body = { voice_id: voiceId, text: request.text, speed: request.speed }
+  // GenStudio hashes `controls` into ITS idempotency identity
+  // (`_tts_idempotency_identity`), so two runs at different control settings
+  // are different work over there. Story Studio's key must move with them or
+  // the two runs collide on OUR key and the first result replays for the
+  // second. Emitted only when the selected model actually published controls —
+  // the same conditional-spread precedent as `output_budget` (chat) and
+  // `resolution` (image), so a model publishing none produces the exact JSON
+  // this digest produced before the field existed and a retry that crosses
+  // this upgrade replays the in-flight job instead of paying for a second one.
+  const controls = hasTtsControlValues(request.controls)
+    ? orderedTtsControlValues(request.controls!)
+    : null
+  const body = {
+    voice_id: voiceId,
+    text: request.text,
+    speed: request.speed,
+    ...(controls ? { controls } : {}),
+  }
   const digest = createHash('sha256').update(JSON.stringify({
     ...body,
     request_identity: request.requestIdentity?.trim() || null,
@@ -2452,6 +2498,9 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        // Carried through exactly as published. An absent or empty list means
+        // this model takes no controls — never a reason to supply some.
+        controls: parseTtsControls(value?.controls),
       }]
     })
   })
@@ -2566,7 +2615,18 @@ export async function addGenStudioVoiceLibraryVoice(
  */
 export async function requestGenStudioTtsQuote(
   apiKey: string,
-  request: { modelId?: string | null; voiceId: string; text: string; speed?: number },
+  request: {
+    modelId?: string | null
+    voiceId: string
+    text: string
+    speed?: number
+    /**
+     * Already resolved against the SELECTED model's published `controls[]`
+     * (lib/tts-controls.ts). Sent verbatim so the quote prices the same
+     * settings generation will submit — GenStudio's own quote takes them.
+     */
+    controls?: TtsControlValues
+  },
 ): Promise<GenStudioTtsQuote> {
   const voiceId = request.voiceId.trim()
   if (!voiceId) throw new Error('Select a GenStudio KH voice before asking for a quote.')
@@ -2575,6 +2635,9 @@ export async function requestGenStudioTtsQuote(
   const body: Record<string, unknown> = { voice_id: voiceId, text: request.text }
   if (request.modelId?.trim()) body.model_id = request.modelId.trim()
   if (Number.isFinite(request.speed)) body.speed = request.speed
+  // Omitted entirely when the model publishes no controls, so a request for
+  // such a model is byte-identical to the one sent before controls existed.
+  if (hasTtsControlValues(request.controls)) body.controls = orderedTtsControlValues(request.controls!)
   const response = await fetch(`${apiBase(baseUrl)}/v1/tts/quotes`, {
     method: 'POST',
     headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
@@ -2585,6 +2648,7 @@ export async function requestGenStudioTtsQuote(
   return {
     model_id: nullableText(payload?.model_id),
     model_name: nullableText(payload?.model_name),
+    controls: parseTtsControlValues(payload?.controls),
     voice_id: typeof payload?.voice_id === 'string' ? payload.voice_id : voiceId,
     voice_tier: typeof payload?.voice_tier === 'string' ? payload.voice_tier : '',
     billable_characters: optionalCount(payload?.billable_characters) ?? 0,
@@ -4925,6 +4989,11 @@ async function generateTtsToFileAdmitted(
       ['voice_id', submission.body.voice_id],
       ['speed', submission.body.speed],
       ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],
+      // Recorded only when the model published controls, so the operator can
+      // see which settings a job went out under. The names are GenStudio's.
+      ...(submission.body.controls
+        ? Object.entries(submission.body.controls).map(([name, value]) => [`control ${name}`, value] as [string, unknown])
+        : []),
     ],
   })
   const submitted = await submitJsonWithAdmission(

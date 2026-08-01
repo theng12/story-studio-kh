@@ -170,21 +170,17 @@
             sends none. Choose a model that supports speed to change the pace.
           </p>
         </div>
-        <div class="form-group">
-          <label>Stability ({{ form.stability.toFixed(2) }}) <span class="field-hint">Higher = less variation</span></label>
-          <SliderWithNumber v-model="form.stability" :min="0" :max="1" :step="0.01" :decimals="2" />
-          <p class="text-muted text-xs hint-line">
-            Sleep-story default <strong>0.50–0.65</strong>. Higher = more consistent tone; lower = more expressive but risk of drift on long reads.
-          </p>
-        </div>
-        <div class="form-group">
-          <label>Similarity ({{ form.similarity.toFixed(2) }}) <span class="field-hint">Voice cloning closeness</span></label>
-          <SliderWithNumber v-model="form.similarity" :min="0" :max="1" :step="0.01" :decimals="2" />
-          <p class="text-muted text-xs hint-line">
-            Default <strong>0.75</strong>. Higher sticks closer to the reference voice; too high (&gt;0.9) amplifies background artifacts in the original sample.
-          </p>
-        </div>
       </div>
+
+      <!-- Everything else this model takes, rendered from its published
+           `controls[]`. There is no list of controls in this page: a model
+           publishing one Story Studio has never seen renders here with no code
+           change, and a model publishing none shows nothing. -->
+      <TtsControlPanel
+        v-model="form.controls"
+        :controls="publishedControls"
+        :model-name="selectedTtsModel?.display_name || ''"
+      />
 
       <!-- The enforced request boundary, shown because it is enforced
            (AGENTS.md). The figure planning enforces is the PLANNED one, so that
@@ -272,27 +268,19 @@
         </p>
       </div>
 
-      <!-- Delivery controls — expressiveness (Fish only) + auto-pacing
-           (tag-capable models: Fish S2-Pro + ElevenLabs v3). Fixes the
-           "monotone + rushes through periods" feel. -->
-      <div v-if="isFish || isTagCapable" class="form-group mb-2">
-        <label>Delivery <span class="field-hint">— voice pacing &amp; expressiveness</span></label>
-        <div v-if="isFish" class="form-group">
-          <label>Expressiveness ({{ form.fish_temperature.toFixed(2) }}) <span class="field-hint">Higher = less monotone</span></label>
-          <SliderWithNumber v-model="form.fish_temperature" :min="0" :max="1" :step="0.05" :decimals="2" />
-          <p class="text-muted text-xs hint-line">
-            Fish's own default is <strong>0.70</strong>; we start at <strong>0.80</strong> for livelier delivery.
-            Raise toward <strong>0.90</strong> for more varied intonation; lower toward 0.70 for a steadier read. (Very high can wobble.)
-          </p>
-        </div>
-        <label v-if="isTagCapable" class="checkbox-label" title="Inserts pause tags at sentence + paragraph breaks so the voice does not rush through full stops.">
+      <!-- Auto-pacing for models that take inline pause tags. This is a Story
+           Studio TEXT transform (it rewrites the narration before submission),
+           not a provider control — provider controls are rendered above, from
+           whatever the model publishes. -->
+      <div v-if="isTagCapable" class="form-group mb-2">
+        <label>Delivery <span class="field-hint">— voice pacing</span></label>
+        <label class="checkbox-label" title="Inserts pause tags at sentence + paragraph breaks so the voice does not rush through full stops.">
           <input type="checkbox" v-model="form.fish_autopace" />
           <span>Auto-pause at sentence breaks <span class="field-hint">— adds breathing room</span></span>
         </label>
-        <p v-if="isTagCapable" class="text-muted text-xs hint-line">
+        <p class="text-muted text-xs hint-line">
           Inserts pauses at paragraph + sentence breaks so the read isn't rushed. Works on plain narration and
           layers on top of Expression markup (pauses won't double up).
-          <template v-if="!isFishS2Pro"> On ElevenLabs v3 this adds paragraph pauses (it paces sentences naturally).</template>
         </p>
       </div>
 
@@ -421,6 +409,11 @@
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
+import {
+  defaultTtsControlValues,
+  resolveTtsControlValues,
+  type GenStudioTtsControl,
+} from '~/utils/tts-controls'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
@@ -505,8 +498,13 @@ const form = reactive({
   // selected, preserving the original one-click flow.
   sections: '',
   speed: 0.93,
-  stability: 1.0,
-  similarity: 1.0,
+  /**
+   * Values for the selected model's published `controls[]`, keyed by the name
+   * GenStudio published. An OPEN map on purpose — the catalogue owns the names,
+   * so this page declares none. Reconciled against the selected model on every
+   * catalogue read and wiped to the new model's defaults on a model change.
+   */
+  controls: {} as Record<string, number | boolean | string>,
   // Unified Generation Mode (M6). Submit translates this into the backend's
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
   // default behaviour (force=false, no_overwrite=false).
@@ -516,10 +514,9 @@ const form = reactive({
   // Kept empty until the GenStudio-only expression surface selects a live
   // chat model. Never retain a retired direct-provider id in audio presets.
   expression_model: '',
-  // Fish Audio delivery controls. 0.8 starts a touch above Fish's own 0.7
-  // default for livelier (less monotone) delivery; autopace inserts pause tags
-  // so the voice doesn't rush through periods.
-  fish_temperature: 0.8,
+  // A Story Studio TEXT transform, not a provider control: it inserts pause
+  // tags into the narration before submission. Provider controls come from the
+  // model's published `controls[]` and live in `controls` above.
   fish_autopace: false,
 })
 
@@ -528,7 +525,13 @@ const form = reactive({
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
+  include: ['model', 'voice', 'speed', 'controls', 'generation_mode', 'fish_autopace', 'expression_model'],
+  // The control names are the catalogue's, not ours, so the saved map is
+  // restored whole rather than merged key-by-key against a declared shape —
+  // there is no declared shape. What comes back is reconciled against the
+  // selected model's published list before it is rendered or sent, so a name
+  // that model no longer publishes is dropped there.
+  openMapKeys: ['controls'],
 })
 /**
  * A remembered selection is a SELECTION, never a remembered capability. Once
@@ -575,13 +578,16 @@ const voiceRateDiffers = computed(() => {
     && voiceRate !== selectedTtsModel.value.credits_per_1000_characters
 })
 
-// Fish S2-Pro is the only model with inline expression tags — gate the
-// expression panel + the use_expression flag to it. (S1 would read an unknown
-// tag aloud, so it's deliberately excluded.)
-const isFish = computed(() => false)
-const isFishS2Pro = computed(() => false)
-// Models that take inline emotion/pause tags: Fish S2-Pro + ElevenLabs v3
-// (via fal / GenAIPro). Expressiveness (temperature) stays Fish-only.
+/**
+ * Whether the selected model takes Story Studio's inline pause/emotion tags.
+ *
+ * Off for every model, and it stays off until GenStudio publishes the fact:
+ * a model that would read an unknown tag aloud is not something to infer from
+ * a name. The two surfaces it gates (auto-pacing and the Expression panel) are
+ * TEXT transforms Story Studio applies before submission, not provider
+ * controls — provider controls are published per model and rendered from
+ * `controls[]`.
+ */
 const isTagCapable = computed(() => false)
 watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
@@ -626,6 +632,48 @@ const chunkSizeTooltip = computed(() => resolvedChunkCap.value
 
 /** GenStudio publishes whether a model takes a speed control. Gate on it. */
 const supportsSpeed = computed(() => selectedTtsModel.value?.supports_speed === true)
+
+// ── Published model controls ───────────────────────────────────────────
+// Everything the selected model takes beyond text/voice/speed is published in
+// its own `controls[]`: names, labels, types, ranges, steps, defaults and
+// descriptions. This page renders that list and sends back exactly the names
+// on it. It knows none of them — a model publishing a control never seen here
+// works with no change, and one publishing an empty list shows no panel.
+
+/** The SELECTED model's published controls. Re-read on every model change. */
+const publishedControls = computed<GenStudioTtsControl[]>(() => selectedTtsModel.value?.controls ?? [])
+
+/**
+ * THE values every request sends — quote and generate alike.
+ *
+ * Always derived from the published list, never the raw form: a name this
+ * model does not publish cannot ride along, and a value outside its published
+ * range is clamped before it leaves. Empty for a model that publishes no
+ * controls, in which case the request omits the field entirely.
+ */
+const resolvedControls = computed(() => resolveTtsControlValues(publishedControls.value, form.controls))
+
+/**
+ * A model change invalidates every control value, because the controls
+ * themselves changed. Reset to the NEW model's own published defaults — a
+ * value tuned for the old model silently riding along would be exactly the
+ * cross-model bleed the first rule exists to prevent.
+ *
+ * The FIRST resolution is different: it is not a change of model, it is the
+ * catalogue arriving for the model that was already selected (a reload, a
+ * remembered form, an applied preset). There the saved values are kept and
+ * merely reconciled — anything the model no longer publishes is dropped and
+ * anything out of range is clamped — so a reload does not wipe the settings.
+ */
+const reconciledModelId = ref<string | null>(null)
+watch([() => selectedTtsModel.value?.id, publishedControls], ([modelId]) => {
+  if (!modelId) return
+  const previous = reconciledModelId.value
+  reconciledModelId.value = modelId
+  form.controls = previous && previous !== modelId
+    ? defaultTtsControlValues(publishedControls.value)
+    : resolveTtsControlValues(publishedControls.value, form.controls)
+}, { immediate: true })
 
 // Effective section list = what the AudioChapterSelector says to actually
 // queue (selection minus already-generated when duplicate override is off).
@@ -700,6 +748,9 @@ async function refreshQuote() {
       // Exactly what submit() sends: a model publishing no speed control is
       // generated at 1, so it must be quoted at 1 too.
       speed: supportsSpeed.value ? form.speed : 1,
+      // GenStudio prices controls, so the quote has to carry the same ones
+      // generation will. Resolved against the published list, like the job.
+      controls: resolvedControls.value,
     })
   } catch (e: any) {
     quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
@@ -707,9 +758,17 @@ async function refreshQuote() {
     quoting.value = false
   }
 }
-// A quote belongs to one exact (model, voice, speed, episode, selection). Any
-// change voids the WHOLE quote — every part — never just the part that moved.
-watch([() => form.model, () => form.voice, () => form.speed, () => form.episode_id, effectiveSections], () => {
+// A quote belongs to one exact (model, voice, speed, controls, episode,
+// selection). Any change voids the WHOLE quote — every part — never just the
+// part that moved. Controls are in the list because GenStudio prices them.
+watch([
+  () => form.model,
+  () => form.voice,
+  () => form.speed,
+  resolvedControls,
+  () => form.episode_id,
+  effectiveSections,
+], () => {
   narrationQuote.value = null
   quoteError.value = ''
 })
@@ -816,16 +875,17 @@ const audioPresets = usePresets<any>({
 })
 
 /**
- * Format-aware seeding of TTS knobs BEFORE preset loaders run. Defaults
- * shipped with the page (0.93× / 1.0 / 1.0) are sleep-story-flavoured —
- * fine for the original use case, wrong for listicle / explainer channels
- * where a 1.0× pace and looser stability/similarity reads more naturally.
- * Format JSON declares `script.audioDefaults`; absent → fall through to the
- * existing hardcoded values, so formats that haven't opted in see no change.
+ * Format-aware seeding of narration PACE before preset loaders run. The page
+ * default (0.93×) is sleep-story-flavoured — fine for the original use case,
+ * wrong for listicle / explainer channels where 1.0× reads more naturally.
+ * Format JSON declares `script.audioDefaults`; absent → the page default holds.
  *
- * Saved presets still override these — preset.load() runs after, so users
- * with their own presets keep their own values. The seeding only matters
- * for fresh projects with no preset applied yet.
+ * Pace only. A format cannot seed a model's published controls: which controls
+ * exist, and what they accept, is a per-model catalogue fact read live, so
+ * their defaults come from the model itself and from nowhere else.
+ *
+ * Saved presets still override this — preset.load() runs after, so users with
+ * their own presets keep their own values.
  */
 async function applyAudioFormatDefaultsIfNoPreset() {
   try {
@@ -833,15 +893,9 @@ async function applyAudioFormatDefaultsIfNoPreset() {
     const a = f?.script?.audioDefaults
     if (!a) return
     if (typeof a.speed === 'number' && a.speed > 0) form.speed = a.speed
-    if (typeof a.stability === 'number' && a.stability >= 0 && a.stability <= 1) {
-      form.stability = a.stability
-    }
-    if (typeof a.similarity === 'number' && a.similarity >= 0 && a.similarity <= 1) {
-      form.similarity = a.similarity
-    }
   } catch {
-    // Format endpoint unavailable / project missing — keep the legacy
-    // hardcoded sleep-story values. Non-fatal.
+    // Format endpoint unavailable / project missing — keep the page default.
+    // Non-fatal.
   }
 }
 
@@ -873,12 +927,11 @@ async function previewVoiceId(voiceId?: string) {
   stopPreview()
   previewing.value = true
   try {
+    // Previews play GenStudio's own stored sample; no TTS job is submitted and
+    // no control is applied to it, so none are sent.
     const resp = await post<any>(`/projects/${slug.value}/preview-voice`, {
       voice_id: id,
       model: form.model,
-      speed: form.speed,
-      stability: form.stability,
-      similarity: form.similarity,
     })
     if (resp?.audio_url) {
       const audio = new Audio(resp.audio_url)
@@ -1032,8 +1085,10 @@ async function queueAudio(sectionOverride?: string) {
   // still reads these two flags.
   const force = form.generation_mode !== 'skip'
   const no_overwrite = form.generation_mode === 'new_version'
-  const { generation_mode: _gm, ...rest } = form
-  const payload: any = { ...rest, sections, force, no_overwrite }
+  const { generation_mode: _gm, controls: _controls, ...rest } = form
+  // Controls are sent RESOLVED, never as the raw form: only names the selected
+  // model publishes, every value inside the range it published for them.
+  const payload: any = { ...rest, sections, force, no_overwrite, controls: resolvedControls.value }
   // A model that publishes no speed control gets none. Sending a pace it never
   // advertised would be Story Studio asserting a capability GenStudio did not.
   if (!supportsSpeed.value) payload.speed = 1

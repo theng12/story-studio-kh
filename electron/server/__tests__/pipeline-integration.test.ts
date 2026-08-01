@@ -57,7 +57,7 @@ const LISTICLE_FORMAT: Format = {
     defaultNarratorStyleId: '',
     chaptersIndependent: true,
     videoDefaults: { secondsPerScene: 6, transitionType: 'fade', transitionDurationSec: 0.5 },
-    audioDefaults: { speed: 1.0, stability: 0.6, similarity: 0.8 },
+    audioDefaults: { speed: 1.0 },
     audioMergeDefaults: { normalizeVolume: true, gapDurationSec: 2 },
   },
   imagePrompts: { purposeNote: '', visualStyleHint: '', defaultScenesTotalRange: [10, 10], defaultThumbnails: 3, defaultStyleTag: '', characterReferenceMode: 'inline', recommendedAspect: '16:9' },

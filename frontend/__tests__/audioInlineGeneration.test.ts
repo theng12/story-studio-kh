@@ -22,7 +22,11 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /async function submitSection\(sectionSlug: string\)/)
     assert.match(audioPage, /await queueAudio\(sectionSlug\)/)
     assert.match(audioPage, /const sections = sectionOverride \|\| \(effectiveSections\.value\.length/)
-    assert.match(audioPage, /const payload: any = \{ \.\.\.rest, sections, force, no_overwrite \}/)
+    // `controls` is the ONE field the raw form does not supply: it is sent
+    // resolved against the selected model's published list, so a value for a
+    // control this model does not publish cannot ride along on a section run.
+    assert.match(audioPage, /const \{ generation_mode: _gm, controls: _controls, \.\.\.rest \} = form/)
+    assert.match(audioPage, /const payload: any = \{ \.\.\.rest, sections, force, no_overwrite, controls: resolvedControls\.value \}/)
   })
 
   test('shares normal validation and prevents duplicate episode audio jobs', () => {

@@ -107,8 +107,12 @@ export interface AudioGenerationRequest {
   modelId: string
   voiceId?: string
   speed?: number
-  stability?: number
-  similarity?: number
+  /**
+   * Values for the selected model's published `controls[]`, keyed by the name
+   * GenStudio published. Never enumerated here: the catalogue owns the names,
+   * the types and the ranges (lib/tts-controls.ts).
+   */
+  controls?: Record<string, number | boolean | string>
   /** Probe for user cancel — honoured in poll loops. */
   isCancelled?: () => boolean
 }

@@ -21,7 +21,12 @@ test('a remembered model that GenStudio no longer publishes is dropped, not subm
   assert.match(source, /no longer in your GenStudio KH catalogue/)
 })
 
-test('GenStudio TTS submission is keyed by voice_id only', () => {
+test('GenStudio TTS submission carries the voice, the text, the speed and published controls only', () => {
   const source = readFileSync(new URL('../../electron/server/lib/genstudio-client.ts', import.meta.url), 'utf8')
-  assert.match(source, /const body = \{ voice_id: voiceId, text: request\.text, speed: request\.speed \}/)
+  // No voice TIER, no provider, no model id chosen here: the voice identifies
+  // the work. `controls` joined it when GenStudio began publishing per-model
+  // controls, and is spread CONDITIONALLY so a model publishing none produces
+  // the exact bytes — and therefore the exact idempotency key — it did before.
+  assert.match(source, /voice_id: voiceId,\n\s*text: request\.text,\n\s*speed: request\.speed,\n\s*\.\.\.\(controls \? \{ controls \} : \{\}\),/)
+  assert.doesNotMatch(source, /const body = \{[^}]*tier/)
 })

@@ -245,12 +245,15 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
 
     const speed = Number(req.body?.speed)
     const { requestGenStudioTtsQuote } = await import('../lib/genstudio-client.js')
+    const { resolveTtsControlValues } = await import('../lib/tts-controls.js')
     const { quoteNarrationRequests } = await import('../services/tts-narration-quote.js')
+    // Resolved against the SELECTED model's published `controls[]`, so a name
+    // this model does not publish cannot reach the quote and a value outside
+    // its published range cannot either. GenStudio prices controls, so quoting
+    // without the ones generation will send would quote different work.
+    const controls = resolveTtsControlValues(ttsModel.controls, req.body?.controls)
     const quote = await quoteNarrationRequests({
       requests,
-      // So a body size this model has ALREADY refused in this process is not
-      // paid for in latency a second time. Memory only; see the service.
-      modelId,
       quoteEnabled: voice.quote_enabled !== false,
       quoteRequest: text => requestGenStudioTtsQuote(apiKey, {
         modelId,
@@ -259,6 +262,7 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
         // Generation always sends a speed (`req.speed ?? 1`). Quote the same
         // one — speed changes the billed duration on some models.
         speed: Number.isFinite(speed) ? speed : 1,
+        controls,
       }),
     })
 
@@ -272,6 +276,9 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
       credits_per_1000_characters: ttsModel.credits_per_1000_characters,
       minimum_credits: ttsModel.minimum_credits,
       maximum_input_characters: ttsModel.maximum_input_characters,
+      // What was actually priced, after resolution against this model's
+      // published list — so the page can show it is what generation will send.
+      controls,
       // Story Studio's own figures, not GenStudio's, and labelled as such by
       // the page: the boundary planning actually enforced, and the fraction of
       // the published one held back to get there.

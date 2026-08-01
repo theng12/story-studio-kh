@@ -411,14 +411,15 @@ export interface ScriptFormat {
    * to the page's hardcoded sleep-story-shaped defaults.
    *
    * Saved presets still override these — preset.load() runs after seeding.
+   *
+   * Pace only. A format may NOT ship defaults for a model's published
+   * `controls[]`: which controls exist and what they accept is a per-model
+   * catalogue fact read live, and a format naming one would be Story Studio
+   * asserting a capability GenStudio never published for the selected model.
    */
   audioDefaults?: {
     /** Default playback speed multiplier (typical range 0.85–1.2). */
     speed?: number
-    /** ElevenLabs / fal stability slider (0–1). */
-    stability?: number
-    /** ElevenLabs / fal similarity-boost slider (0–1). */
-    similarity?: number
   }
 
   /**
@@ -2397,14 +2398,16 @@ export interface GenerateAudioRequest {
   voice?: string
   sections: string
   speed: number
-  stability: number
-  similarity: number
+  /**
+   * Values for the selected model's published `controls[]`, keyed by the name
+   * GenStudio published. Never enumerated here — the catalogue owns the names,
+   * the types and the ranges (lib/tts-controls.ts).
+   */
+  controls?: Record<string, number | boolean | string>
   force: boolean
   no_overwrite: boolean
   /** Fish Audio S2-Pro only — render the saved expressive (tagged) narration. */
   use_expression?: boolean
-  /** Fish Audio only — 0–1 expressiveness (temperature). Higher = less monotone. */
-  fish_temperature?: number
   /** Fish Audio S2-Pro only — auto-insert pause tags at sentence/paragraph breaks. */
   fish_autopace?: boolean
 }
