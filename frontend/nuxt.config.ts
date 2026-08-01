@@ -1,6 +1,11 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
+import {
+  resolveDevApiProxy,
+  formatDevApiProxyLog,
+  formatDevApiProxyWarning,
+} from '../electron/server/lib/dev-backend'
 
 // ESM equivalent of __dirname. Nuxt config runs before the repo root
 // module-resolution chain kicks in, so we compute the shared path manually.
@@ -20,7 +25,21 @@ try {
   console.warn('[nuxt.config] could not read parent package.json version:', e)
 }
 const buildDate = new Date().toISOString().slice(0, 10)
-const apiProxyTarget = process.env.STORY_STUDIO_API_PROXY || 'http://localhost:8000/api'
+
+// Where Nitro's `/api` devProxy forwards to. Resolved, never guessed:
+// STORY_STUDIO_API_PROXY → server mode's configured port (read from the same
+// app-settings.json the backend binds from) → the dev backend default. The
+// resolver lives next to the backend that owns those ports so the two can't
+// drift; see electron/server/lib/dev-backend.ts for the full story. It reads
+// files but never throws, so a broken settings file can't take down the dev
+// server — it downgrades to the default and says so on stderr.
+const apiProxy = resolveDevApiProxy()
+const apiProxyWarning = formatDevApiProxyWarning(apiProxy)
+// eslint-disable-next-line no-console
+if (apiProxyWarning) console.error(apiProxyWarning)
+// eslint-disable-next-line no-console
+console.log(formatDevApiProxyLog(apiProxy))
+const apiProxyTarget = apiProxy.target
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',

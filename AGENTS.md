@@ -76,6 +76,47 @@ What that means concretely:
 - The first rule still governs: a displayed provider is read live from the catalogue on every
   selection change, never cached past it.
 
+## Bugs The Gates Cannot See
+
+**Every automated gate can be green while the app is visibly broken.** On 2026-08-01 three
+real defects shipped or survived with backend, frontend, release, lint, typography, security
+and model-drift all passing. Each was found in seconds by a person looking at the screen.
+
+Know these three shapes, because they recur:
+
+**1. Layout that overflows its container.** `VoiceLibraryBrowser`'s rows had no scroll
+container, so a long list was clipped by the panel and the tail was unreachable (fixed
+v1.0.774). Later the same class of bug at a different level: `ModelMenu` anchored its panel to
+the trigger, so a field low in the window left no room and the list collapsed to two or three
+visible rows (fixed v1.0.778 by making every picker a centred dialog). **No test can see
+geometry.** Assertions about content passing say nothing about whether that content is
+reachable.
+
+**2. CSS that silently does nothing.** `Modal`'s scoped styles compiled to
+`.modal-dialog[data-v-…]` (0,2,0), so any consumer writing a single class (0,1,0) lost without
+warning. Of four competing consumers only one won cleanly: one lost outright, one won purely on
+byte order in the bundle, and one used `:deep()` on a **teleported** dialog — which never
+inherits the consumer's scope id, so that rule could never match at all (fixed v1.0.779).
+**A CSS declaration that loses is indistinguishable from one that was never written.** When
+styling seems not to apply, check specificity in the *built* CSS before assuming the value is
+wrong — reasoning about scoped-style specificity from source is what produced this.
+
+**3. Dev-environment wiring that points somewhere plausible but wrong.** `nuxt.config.ts`
+proxied `/api` to port 8000 — which is **GenStudio's** gateway, not Story Studio's backend. The
+app loaded and reported "the backend is probably busy with a big job", when in truth the AI
+gateway was correctly answering 404 for a route it has never had. **A misleading error message
+cost more time than a crash would have.** When something cannot load, confirm *which* server
+answered before believing what it says.
+
+What follows from this:
+
+- Screenshots are the fastest defect-finding tool available for this app. Prefer them over
+  another test run when the complaint is visual or "it won't load".
+- `npm run dev` exists precisely so this loop is fast — frontend saves hot-reload; `electron/`
+  changes recompile but need the app relaunched.
+- When you add a gate, be explicit about what it *cannot* catch. `check:model-drift` catches
+  hardcoded catalogue values and nothing about rendering.
+
 ## Mandatory Release Integrity
 
 - Every shipped Story Studio change—including fixes, reliability work, UI/API

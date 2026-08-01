@@ -22,6 +22,7 @@ import { logLine } from './services/logger.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
+import { DEV_BACKEND_PORT } from './lib/dev-backend.js'
 import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
@@ -207,7 +208,10 @@ app.use(errorBoundary)
 // ── Standalone listen (dev via tsx) ────────────────────────────────────────
 // Packaged Electron (main.ts) owns the port and calls `app.listen` itself.
 // STORY_STUDIO_DISABLE_LISTEN=1 is set by supertest so tests mount `app` without binding.
-const PORT = parseInt(process.env.PORT || '8000')
+// Same default as Electron's dev branch (main.ts) and the Nuxt devProxy —
+// all three read DEV_BACKEND_PORT so they cannot drift apart. `PORT` still
+// overrides for anyone running two backends side by side.
+const PORT = parseInt(process.env.PORT || String(DEV_BACKEND_PORT))
 const isElectron = !!(process.versions as any).electron
 const shouldListen = !isElectron && !process.env.STORY_STUDIO_DISABLE_LISTEN
 

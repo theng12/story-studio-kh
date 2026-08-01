@@ -20,7 +20,7 @@ A personal-use desktop content-production pipeline for a single operator (`theng
 │  - Owns the BrowserWindow + the HTTP server port                    │
 │  - Single-instance lock, navigation lockdown, crash recovery         │
 │  - In production: serves the SPA static files + Express API         │
-│  - In dev: loads localhost:3000 (Nuxt dev), backend on :8000        │
+│  - In dev: loads localhost:3000 (Nuxt dev), backend on :8791        │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
          ┌───────────────┴───────────────┐

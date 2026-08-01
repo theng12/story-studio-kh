@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.780 — 2026-08-01
+
+- **Developer-only: the local development server no longer collides with GenStudio KH** — when
+  running Story Studio from source, its backend used the same port GenStudio runs on, and the
+  page asking for your projects was being answered by the AI gateway instead. The app reported
+  that the backend was busy when in truth nothing was listening for it. Story Studio's
+  development backend has moved to its own port, and the address it is asked for now follows
+  your own Server Mode setting when you have one, rather than assuming a fixed number. It also
+  prints where it is pointing on startup, so a wrong address says so immediately instead of
+  surfacing later as a confusing error. Nothing about the installed app changes.
+
+---
+
 ## v1.0.779 — 2026-08-01
 
 - **Settings and the confirmation dialog now look the way they were meant to** — both had a

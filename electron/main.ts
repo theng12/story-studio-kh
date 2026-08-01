@@ -19,6 +19,7 @@ import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
+import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
@@ -85,7 +86,10 @@ function startServer(): Promise<number> {
       port = cfg.port
       bind = cfg.bind
     } else {
-      port = isDev ? 8000 : 0
+      // Dev binds a known port so Nuxt's `/api` devProxy can find it —
+      // both sides read DEV_BACKEND_PORT, see lib/dev-backend.ts. Packaged
+      // stays on 0 (random free port).
+      port = isDev ? DEV_BACKEND_PORT : 0
       bind = '127.0.0.1'
     }
     server = http.createServer(expressApp)
@@ -715,7 +719,7 @@ electronApp.on('window-all-closed', () => {
 
 electronApp.on('activate', () => {
   if (!mainWindow) {
-    const port = server ? (server.address() as any)?.port || 8000 : 8000
+    const port = server ? (server.address() as any)?.port || DEV_BACKEND_PORT : DEV_BACKEND_PORT
     void createWindow(port).catch(e => logCrash('activate-window', e))
   }
 })

@@ -66,8 +66,13 @@ const DEFAULT_LOGIN_MAX_ATTEMPTS_PER_MINUTE = 30
  * app-settings.ts uses async fs/promises and we can't await here. The path
  * resolution logic is identical (mirrored from app-settings.ts +
  * project-manager.ts) so the same file is read either way.
+ *
+ * Exported since v1.0.780 so the Nuxt dev proxy (lib/dev-backend.ts, imported
+ * by frontend/nuxt.config.ts) can name the file it failed to read WITHOUT
+ * growing a fourth copy of this resolution. Nothing outside diagnostics should
+ * read the file directly — go through the accessors below.
  */
-function resolveAppSettingsPath(): string {
+export function resolveAppSettingsPath(): string {
   if (process.env.STORY_STUDIO_DATA_DIR) {
     return path.join(process.env.STORY_STUDIO_DATA_DIR, 'app-settings.json')
   }
@@ -97,21 +102,90 @@ function resolveAppSettingsPath(): string {
 }
 
 /**
- * Read the raw `server_mode` block from app-settings.json.
- * Returns null on any error; the toggle reader composes that with the env var.
+ * The port server mode will bind, from a raw settings value.
+ *
+ * Shared by `getServerModeConfig()` (which binds it) and
+ * `probeServerModePort()` (which tells the dev proxy where to send `/api`), so
+ * the two can never disagree about where the backend is. Anything that is not
+ * a usable TCP port — absent, non-numeric, fractional, out of range — becomes
+ * the default rather than being handed to `listen()` to crash on.
  */
-function readServerModeBlock(): Partial<ServerModeConfig> | null {
+function normalizeServerModePort(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value < 65536
+    ? value
+    : DEFAULT_PORT
+}
+
+/**
+ * Read the raw `server_mode` block, distinguishing "legitimately absent" from
+ * "the file is there but we could not read it".
+ *
+ * `readServerModeBlock()` below collapses both into null — which is the right
+ * call for the boot path (an unreadable settings file must never stop the app
+ * from starting as a plain desktop app). Callers that want to *report* the
+ * difference use this instead: the dev proxy has to say out loud when it fell
+ * back to a default because the settings were unreadable, since a silent wrong
+ * default is what made the port mismatch invisible in the first place.
+ */
+interface ServerModeBlockRead {
+  /** The block, or null when absent / unusable / unreadable. */
+  block: Partial<ServerModeConfig> | null
+  /** The file we looked at, whether or not it existed. */
+  path: string
+  /** Non-null only when the file was there but could not be read or parsed. */
+  error: string | null
+}
+
+function readServerModeBlockResult(): ServerModeBlockRead {
   const settingsPath = resolveAppSettingsPath()
-  if (!existsSync(settingsPath)) return null
+  // No settings file at all is the fresh-checkout case, not a failure.
+  if (!existsSync(settingsPath)) return { block: null, path: settingsPath, error: null }
   try {
     const raw = readFileSync(settingsPath, 'utf-8')
     const data = JSON.parse(raw)
     const sm = data?.server_mode
-    if (!sm || typeof sm !== 'object') return null
-    return sm as Partial<ServerModeConfig>
-  } catch {
-    return null
+    // Absent / non-object (including an array or null) `server_mode` is a
+    // well-formed file that simply does not configure server mode.
+    if (!sm || typeof sm !== 'object' || Array.isArray(sm)) {
+      return { block: null, path: settingsPath, error: null }
+    }
+    return { block: sm as Partial<ServerModeConfig>, path: settingsPath, error: null }
+  } catch (e) {
+    return { block: null, path: settingsPath, error: (e as Error)?.message || String(e) }
   }
+}
+
+/**
+ * Read the raw `server_mode` block from app-settings.json.
+ * Returns null on any error; the toggle reader composes that with the env var.
+ */
+function readServerModeBlock(): Partial<ServerModeConfig> | null {
+  return readServerModeBlockResult().block
+}
+
+/**
+ * Where server mode says the backend will be listening, for callers that need
+ * to *reach* it rather than run it — today, the Nuxt dev proxy.
+ *
+ * Deliberately reports `unreadable` separately from `disabled`: both fall back
+ * to the dev default, but only one of them deserves a warning.
+ */
+export type ServerModePortProbe =
+  | { status: 'enabled'; port: number; path: string }
+  | { status: 'disabled'; path: string }
+  | { status: 'unreadable'; error: string; path: string }
+
+export function probeServerModePort(): ServerModePortProbe {
+  const read = readServerModeBlockResult()
+  if (read.error) return { status: 'unreadable', error: read.error, path: read.path }
+  const block = read.block
+  // Same precedence as isServerMode(): an explicit `enabled: false` beats the
+  // env var, which beats `enabled: true`.
+  const enabled = block?.enabled === false
+    ? false
+    : process.env.STORY_STUDIO_SERVER_MODE === '1' || block?.enabled === true
+  if (!enabled) return { status: 'disabled', path: read.path }
+  return { status: 'enabled', port: normalizeServerModePort(block?.port), path: read.path }
 }
 
 /**
@@ -146,7 +220,7 @@ export function getServerModeConfig(): ServerModeConfig | null {
   const block = readServerModeBlock() || {}
   return {
     enabled: true,
-    port: typeof block.port === 'number' && block.port > 0 ? block.port : DEFAULT_PORT,
+    port: normalizeServerModePort(block.port),
     bind: typeof block.bind === 'string' && block.bind ? block.bind : DEFAULT_BIND,
     auth: block.auth && typeof block.auth === 'object'
       ? {
