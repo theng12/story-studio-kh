@@ -29,11 +29,12 @@
       into your own library so it appears with the voices for a compatible model.
     </p>
 
-    <div v-if="error" class="vlb-warning">{{ error }}</div>
-    <div v-else-if="loading && !rows.length" class="vlb-empty">Loading {{ activeLibraryLabel }} voices…</div>
-    <div v-else-if="!rows.length" class="vlb-empty">No voices matched this search.</div>
+    <div class="vlb-list">
+      <div v-if="error" class="vlb-warning">{{ error }}</div>
+      <div v-else-if="loading && !rows.length" class="vlb-empty">Loading {{ activeLibraryLabel }} voices…</div>
+      <div v-else-if="!rows.length" class="vlb-empty">No voices matched this search.</div>
 
-    <div v-for="voice in rows" :key="voice.public_voice_id" class="vlb-row">
+      <div v-for="voice in rows" :key="voice.public_voice_id" class="vlb-row">
       <div class="vlb-row-main">
         <strong>{{ voice.name }}</strong>
         <span class="vlb-meta">
@@ -59,8 +60,9 @@
         :disabled="adding === voice.public_voice_id || voice.is_saved === true"
         @click="add(voice)"
       >
-        {{ voice.is_saved === true ? 'In library' : adding === voice.public_voice_id ? 'Adding…' : 'Add' }}
-      </button>
+          {{ voice.is_saved === true ? 'In library' : adding === voice.public_voice_id ? 'Adding…' : 'Add' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="rows.length" class="vlb-pager">
@@ -191,7 +193,19 @@ onBeforeUnmount(() => { audio?.pause(); audio = null })
 </script>
 
 <style scoped>
-.vlb { display: flex; flex-direction: column; gap: 8px; }
+.vlb { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+/* The rows are the only part that scrolls: provider tabs, search and the pager
+   stay reachable no matter how long the library is. `contain` stops the scroll
+   chaining out to the page behind the picker once the list hits its end. */
+.vlb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .vlb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .vlb-tabs { display: flex; gap: 4px; }
 .vlb-tab { padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; }

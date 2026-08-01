@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.774 — 2026-08-01
+
+- **The voice library can be scrolled again** — browsing a provider library showed only the
+  first few voices and the rest could not be reached. The list now scrolls on its own, with
+  the provider tabs, the search box and the page buttons staying put above and below it.
+
+---
+
 ## v1.0.773 — 2026-08-01
 
 - **You now pick a voice model, and voices appear beneath it** — voice tiers are gone. Choose

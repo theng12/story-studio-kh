@@ -501,7 +501,10 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 .vp-scope span { font-size: var(--font-xs); color: var(--text-muted); }
 .vp-scope.cloud { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .vp-scope.local { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
-.vp-add-panel { margin: 0 10px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+/* min-height:0 so this flex child can shrink inside the fixed-height panel;
+   without it the library browser overflows behind .vp-panel's overflow:hidden
+   and the tail of the list becomes unreachable. */
+.vp-add-panel { margin: 0 10px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); display: flex; flex-direction: column; min-height: 0; }
 .vp-add-panel p { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .vp-add-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(180px,1.3fr) auto; gap: 6px; }
 .vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
