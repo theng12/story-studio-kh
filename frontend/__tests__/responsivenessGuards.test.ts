@@ -50,9 +50,9 @@ describe('app responsiveness guards', () => {
 
   test('project-selection settings reflow inside the modal instead of using viewport breakpoints', () => {
     assert.match(modal, /size\?: 'sm' \| 'md' \| 'lg' \| 'xl' \| 'xxl'/)
-    assert.match(modal, /\.size-xxl\s*{\s*max-width:\s*1120px/)
+    assert.match(modal, /:where\(\.modal-dialog\.size-xxl\)\s*{\s*max-width:\s*1120px/)
     assert.match(appSettingsModal, /size="xxl"/)
-    assert.match(appSettingsModal, /dialog-class="app-settings-dialog"/)
+    assert.match(appSettingsModal, /dialog-class="app-settings-dialog[^"]*"/)
     assert.match(appSettingsModal, /\.modal-body\s*{[\s\S]*overflow-y:\s*auto/)
     assert.match(thisMacSettings, /container-name:\s*this-mac-settings/)
     assert.match(thisMacSettings, /@container this-mac-settings \(max-width:\s*760px\)/)

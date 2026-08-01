@@ -144,10 +144,10 @@ const titleId = `picker-dialog-title-${(sequence += 1)}`
 
 <style>
 /*
- * Unscoped because it lands on Modal's own dialog element. Modal's base rule is
- * scoped, so it reads as `.modal-dialog[data-v-…]` (0,2,0) — the overlay is
- * named here purely to outrank that; a bare `.picker-dialog` would silently
- * lose its padding and height reset.
+ * Unscoped because it lands on Modal's own dialog element, which is teleported
+ * to <body> and so never carries this component's scope id. A plain class is
+ * all it takes: Modal's cosmetic defaults are `:where(...)`-wrapped (0,0,0),
+ * so these (0,1,0) declarations win outright.
  *
  * The dialog is sized by the viewport, not by its contents: it grows to a
  * generous cap (Modal's `size-lg` / `size-xl` max-width, and the height cap
@@ -155,7 +155,7 @@ const titleId = `picker-dialog-title-${(sequence += 1)}`
  * `max-height` rather than `height` so a two-item list is not a mostly-empty
  * box, and `overflow: hidden` so the body's own scroller is the only one.
  */
-.modal-overlay > .modal-dialog.picker-dialog {
+.picker-dialog {
   display: flex;
   width: calc(100% - 40px);
   max-height: min(760px, calc(100dvh - 40px));
@@ -165,7 +165,7 @@ const titleId = `picker-dialog-title-${(sequence += 1)}`
 }
 
 @media (max-width: 680px) {
-  .modal-overlay > .modal-dialog.picker-dialog {
+  .picker-dialog {
     width: calc(100% - 20px);
     max-height: calc(100dvh - 20px);
   }

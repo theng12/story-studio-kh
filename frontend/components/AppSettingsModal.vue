@@ -8,7 +8,7 @@
   <Modal
     :visible="modal.isOpen.value"
     size="xxl"
-    dialog-class="app-settings-dialog"
+    dialog-class="app-settings-dialog modal-flush"
     labelledby="app-settings-title"
     @close="modal.close()"
   >
@@ -97,13 +97,20 @@ watch(modal.isOpen, (now) => { if (now) openCount.value++ })
 }
 </style>
 
+<!--
+  Unscoped because it lands on Modal's own dialog element, which is teleported
+  to <body> and so never carries this component's scope id. A plain class is
+  enough: Modal's cosmetic defaults are `:where(...)`-wrapped (0,0,0), so
+  these (0,1,0) declarations win outright. The padding reset comes from
+  Modal's `modal-flush` hook on the tag above — the header / body / footer
+  bands paint their own padding edge-to-edge.
+-->
 <style>
 .app-settings-dialog {
   display: flex;
   flex-direction: column;
   width: min(1120px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  padding: 0;
   overflow: hidden;
 }
 </style>

@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.779 — 2026-08-01
+
+- **Settings and the confirmation dialog now look the way they were meant to** — both had a
+  24px frame around their contents that was never intended. The styling that was supposed to
+  remove it had been written correctly but was silently doing nothing, so it never took effect.
+  Settings → This Mac also gains a little width and height and no longer scrolls in two places
+  at once, and the Confirm action dialog's title bar and separators now run edge to edge.
+- **Dialog styling can no longer fail silently** — a panel that asked for its own spacing or
+  size could be quietly overruled by the shared dialog's defaults, with no warning and no
+  visible sign anything was wrong. The defaults now step aside for anything a panel sets
+  explicitly, while the parts that keep a dialog usable — its backdrop, positioning and the
+  guard against overflowing narrow windows — stay fixed and cannot be overridden by accident.
+
+---
+
 ## v1.0.778 — 2026-08-01
 
 - **Choosing a model now opens a proper window instead of a cramped dropdown** — the picker

@@ -310,9 +310,12 @@ function renderMd(md: string): string {
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-:global(.modal-dialog.whats-new-dialog) { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); }
+/* `:global` because the dialog is teleported to <body> and never carries this
+   component's scope id. A plain class is enough — Modal's cosmetic defaults
+   are `:where(...)`-wrapped (0,0,0), so this (0,1,0) rule wins outright. */
+:global(.whats-new-dialog) { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); }
 @media (max-width: 680px) {
-  :global(.modal-dialog.whats-new-dialog) { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  :global(.whats-new-dialog) { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .wnm-entries { max-height: calc(100dvh - 210px); padding-right: 4px; }
   .wnm-entry-head { gap: 7px; flex-wrap: wrap; }
 }

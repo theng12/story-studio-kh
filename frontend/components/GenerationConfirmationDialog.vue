@@ -4,7 +4,7 @@
     size="sm"
     :z-index="2000"
     labelledby="generation-dialog-title"
-    dialog-class="generation-dialog"
+    dialog-class="generation-dialog modal-flush"
     @close="cancel"
   >
     <div class="modal-header">
@@ -50,8 +50,10 @@ function onConfirm() {
 </script>
 
 <style scoped>
-:deep(.generation-dialog) { padding: 0; }
-
+/* The dialog's own padding reset comes from Modal's `modal-flush` hook on the
+   tag above. It cannot be done from in here: the dialog is teleported to
+   <body>, so `:deep(.generation-dialog)` emits `[data-v-…] .generation-dialog`
+   and matches nothing. The bands below paint their own padding instead. */
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 16px 20px;
