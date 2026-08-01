@@ -16,7 +16,11 @@
  *   provider on a generation request.
  */
 
-/** `TTSModelResponse`. Every field is published; none is derived. */
+/**
+ * `TTSModelResponse`. Every field is published by GenStudio except the last
+ * one, which the Story Studio backend adds and which is labelled as ours
+ * wherever it is shown.
+ */
 export interface GenStudioTtsModel {
   id: string
   display_name: string
@@ -30,6 +34,14 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  /**
+   * NOT published by GenStudio: the budget the Story Studio backend plans this
+   * model's TTS requests at — `maximum_input_characters` less its own safety
+   * margin. Computed server-side from the row above on every catalogue read, so
+   * the margin exists in exactly one place. Optional only so an older cached
+   * response cannot break the page.
+   */
+  planned_request_characters?: number
 }
 
 /** `StandardVoiceResponse`. */
@@ -147,6 +159,12 @@ export interface GenStudioNarrationQuote {
   credits_per_1000_characters: number
   minimum_credits: number
   maximum_input_characters: number
+  /**
+   * Story Studio's own, not GenStudio's: the boundary these parts were actually
+   * planned at, and the fraction of the published one held back to get there.
+   */
+  planned_request_characters?: number
+  request_safety_margin?: number
   section_count: number
 }
 

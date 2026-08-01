@@ -20,6 +20,7 @@ import {
 import {
   normalizeSectionsForTts,
   planGenStudioTtsRequests,
+  resolveTtsRequestBudget,
   selectNarrationSections,
 } from '../services/tts-request-plan.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -243,11 +244,19 @@ export async function generateAudio(job: Job): Promise<void> {
   if (!ttsModel.generation_enabled) {
     throw new Error(`GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.`)
   }
+  // The published boundary, and the budget Story Studio actually plans at:
+  // that boundary less the shared safety margin. `resolveTtsRequestBudget` is
+  // the ONE place that decides it, and the quote route calls the same function
+  // on the same live catalogue row — so the parts priced are the parts sent.
   const genStudioMaxCharacters = ttsModel.maximum_input_characters
+  const requestBudget = resolveTtsRequestBudget(ttsModel)
   job.output_lines.push(
     `Voice model: ${ttsModel.display_name}`
     + `${ttsModel.provider_name ? ` (served by ${ttsModel.provider_name})` : ''}`
-    + ` · ${genStudioMaxCharacters.toLocaleString()} characters per request`,
+    + ` · ${genStudioMaxCharacters.toLocaleString()} characters per request published`
+    + ` · splitting at ${requestBudget.effective.toLocaleString()}`
+    + ` (${Math.round(requestBudget.safety_margin * 100)}% head-room, so a part cannot be refused`
+    + ' for a character count GenStudio counts differently)',
   )
 
   const narrationPath = await findNarrationFile(project_slug, episode_id)
@@ -436,9 +445,10 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   // The submitted units, decided once, by the shared planner. The quote route
-  // calls this same function with the same live `maximum_input_characters`, so
-  // what GenStudio was asked to price is what is about to be submitted.
-  const genStudioRequestPlan = planGenStudioTtsRequests(sections, genStudioMaxCharacters)
+  // calls this same function with the same budget — derived from the same live
+  // catalogue row by `resolveTtsRequestBudget` — so what GenStudio was asked to
+  // price is what is about to be submitted.
+  const genStudioRequestPlan = planGenStudioTtsRequests(sections, requestBudget.effective)
 
   for (const [sectionIndex, section] of sections.entries()) {
     if (isCancelled()) break
@@ -604,6 +614,9 @@ export async function generateAudio(job: Job): Promise<void> {
         text: task.chunkText,
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
+        // The PUBLISHED boundary, deliberately — this is the contract check
+        // against what GenStudio will accept, not Story Studio's planning
+        // head-room. A body planned inside the smaller budget passes it.
         maxInputCharacters: genStudioMaxCharacters,
         // A manual Story Studio retry owns a new queue job. Give only a
         // terminal external failure a fresh GenStudio identity; unfinished

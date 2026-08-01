@@ -187,19 +187,25 @@
       </div>
 
       <!-- The enforced request boundary, shown because it is enforced
-           (AGENTS.md). It is the selected model's published
-           `maximum_input_characters`, never a Story Studio constant. -->
-      <div v-if="resolvedChunkCap" class="form-group mb-2">
+           (AGENTS.md). The figure planning enforces is the PLANNED one, so that
+           is what is shown big; the model's published `maximum_input_characters`
+           is shown beside it so the gap reads as a deliberate margin rather
+           than a bug. Neither is a Story Studio constant. -->
+      <div v-if="plannedRequestCap" class="form-group mb-2">
         <label>Request boundary <span class="field-hint">— characters per TTS call</span></label>
         <div class="chunk-display" :title="chunkSizeTooltip">
           <span class="chunk-value">
-            {{ resolvedChunkCap.toLocaleString() }} chars
-            <span class="text-muted text-xs"> · ≈ {{ formatChunkSeconds(resolvedChunkCap) }} of audio</span>
+            {{ plannedRequestCap.toLocaleString() }} chars
+            <span class="text-muted text-xs"> · ≈ {{ formatChunkSeconds(plannedRequestCap) }} of audio</span>
           </span>
         </div>
         <p class="text-muted text-xs hint-line">
-          GenStudio publishes this limit for <strong>{{ selectedTtsModel?.display_name }}</strong>. Longer sections are split at
-          sentence boundaries within it. It is not a project setting.
+          <strong>{{ selectedTtsModel?.display_name }}</strong> publishes
+          <strong>{{ (resolvedChunkCap || 0).toLocaleString() }}</strong> characters per request; Story Studio plans at
+          <strong>{{ plannedRequestCap.toLocaleString() }}</strong><template v-if="requestMarginPercent">
+            ({{ requestMarginPercent }}% head-room)</template>, because GenStudio counts billable characters its own way and a
+          part refused at the very edge would land after earlier parts were already charged. Longer sections are split at
+          sentence boundaries within the planned figure. It is not a project setting.
         </p>
       </div>
 
@@ -252,7 +258,9 @@
           This narration is generated in <strong>{{ narrationQuote.part_count.toLocaleString() }} parts</strong> across
           {{ narrationQuote.section_count.toLocaleString() }} section(s), because
           <strong>{{ selectedTtsModel.display_name }}</strong> accepts
-          {{ narrationQuote.maximum_input_characters.toLocaleString() }} characters per request. Each part is its own
+          {{ narrationQuote.maximum_input_characters.toLocaleString() }} characters per request and these parts were
+          planned at {{ (narrationQuote.planned_request_characters || narrationQuote.maximum_input_characters).toLocaleString() }}.
+          Each part is its own
           GenStudio job, carrying that model's published minimum of
           {{ formatCredits(narrationQuote.minimum_credits) }} in its own right — so GenStudio was asked to price every
           one of them, and the total above is the sum of those {{ narrationQuote.part_count }} quotes. Nothing was
@@ -584,6 +592,22 @@ watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_
  * model selected there is no boundary to state.
  */
 const resolvedChunkCap = computed<number | null>(() => selectedTtsModel.value?.maximum_input_characters ?? null)
+/**
+ * The boundary actually enforced: the backend's planning budget for this model,
+ * computed there (published limit less its safety margin) and sent down with
+ * the catalogue row so the margin lives in exactly one place. It follows the
+ * model like everything else — a different model returns a different figure.
+ * Falls back to the published limit only when a response predates the field.
+ */
+const plannedRequestCap = computed<number | null>(() =>
+  selectedTtsModel.value?.planned_request_characters ?? resolvedChunkCap.value)
+/** The gap between the two, stated as the percentage it is. Derived, not held. */
+const requestMarginPercent = computed<number>(() => {
+  const published = resolvedChunkCap.value
+  const planned = plannedRequestCap.value
+  if (!published || !planned || planned >= published) return 0
+  return Math.round(((published - planned) / published) * 100)
+})
 function formatChunkSeconds(chars: number): string {
   // ~15 chars/sec narration pace (English audiobook average).
   const sec = Math.round(chars / 15)
@@ -594,8 +618,10 @@ function formatChunkSeconds(chars: number): string {
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
   ? `GenStudio publishes ${resolvedChunkCap.value.toLocaleString()} characters per request for `
-    + `${selectedTtsModel.value?.display_name || 'this model'}. Story Studio splits longer sections at sentence `
-    + 'boundaries within that limit.'
+    + `${selectedTtsModel.value?.display_name || 'this model'}. Story Studio plans at `
+    + `${(plannedRequestCap.value || 0).toLocaleString()} — the published figure less head-room, because GenStudio `
+    + 'counts billable characters under its own rules — and splits longer sections at sentence boundaries within it. '
+    + 'Both figures move with the selected model.'
   : 'Choose a voice model to see the request boundary GenStudio publishes for it.')
 
 /** GenStudio publishes whether a model takes a speed control. Gate on it. */

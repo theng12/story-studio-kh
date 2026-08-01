@@ -113,6 +113,20 @@ test('Audio Generator shows the boundary it enforces, read from the selected mod
   assert.doesNotMatch(audioPage, /settings#audio-models/)
 })
 
+test('the boundary shown is the one planning enforces, with the published one beside it', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  // The enforced figure is the backend's planning budget, so that is what the
+  // reading is; the published figure is stated next to it so the gap is
+  // explicable rather than looking like a bug (AGENTS.md: show what you enforce).
+  assert.match(audioPage, /planned_request_characters \?\? resolvedChunkCap\.value/)
+  assert.match(audioPage, /\{\{ plannedRequestCap\.toLocaleString\(\) \}\} chars/)
+  assert.match(audioPage, /publishes[\s\S]{0,120}Story Studio plans at/)
+  assert.match(audioPage, /head-room/)
+  // The margin itself is never written here — the page only renders the two
+  // figures the backend sent and the percentage between them.
+  assert.doesNotMatch(audioPage, /0\.9\s*\*|\*\s*0\.9|SAFETY_MARGIN\s*=/)
+})
+
 test('cost is the model rate before there is text, and a sum of GenStudio quotes after', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)

@@ -15,11 +15,13 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { GenStudioApiError } from '../lib/genstudio-client.js'
 import { splitGenStudioApiRequests } from '../lib/genstudio-client.js'
-import { quoteNarrationRequests } from '../services/tts-narration-quote.js'
+import { forgetQuoteRefusals, quoteNarrationRequests } from '../services/tts-narration-quote.js'
 import {
+  TTS_REQUEST_SAFETY_MARGIN,
   flattenTtsRequestPlan,
   normalizeSectionsForTts,
   planGenStudioTtsRequests,
+  resolveTtsRequestBudget,
   selectNarrationSections,
 } from '../services/tts-request-plan.js'
 
@@ -204,11 +206,14 @@ test('one shared planner decides the requests — the generator and the quote ro
   const route = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
   const planner = readFileSync(new URL('../services/tts-request-plan.ts', import.meta.url), 'utf8')
 
-  // Both go through the planner…
-  assert.match(generator, /planGenStudioTtsRequests\(sections, genStudioMaxCharacters\)/)
+  // Both go through the planner, with a budget both resolve the same way from
+  // the same live catalogue row — the margin cannot apply to one side only.
+  assert.match(generator, /resolveTtsRequestBudget\(ttsModel\)/)
+  assert.match(route, /resolveTtsRequestBudget\(ttsModel\)/)
+  assert.match(generator, /planGenStudioTtsRequests\(sections, requestBudget\.effective\)/)
   assert.match(generator, /selectNarrationSections\(allSections, sectionsParam\)/)
   assert.match(generator, /normalizeSectionsForTts\(allSections\)/)
-  assert.match(route, /planGenStudioTtsRequests\(sections, ttsModel\.maximum_input_characters\)/)
+  assert.match(route, /planGenStudioTtsRequests\(sections, requestBudget\.effective\)/)
   assert.match(route, /selectNarrationSections\(allSections/)
   assert.match(route, /normalizeSectionsForTts\(allSections\)/)
 
@@ -221,6 +226,164 @@ test('one shared planner decides the requests — the generator and the quote ro
   // The quote route quotes the plan as-is: no trimming, no filtering, no
   // sub-splitting of a body the generator would submit whole.
   assert.doesNotMatch(route, /\.filter\(request => request\.text/)
+})
+
+// ── The effective request budget ────────────────────────────────────────────
+// Both sides now split at `resolveTtsRequestBudget(model).effective` — the
+// model's published boundary less Story Studio's safety margin. These pin the
+// two properties that keeps it honest: the base stays live and per-model, and
+// the reduced budget is used by BOTH planners or by neither.
+
+/** A catalogue row, exactly as `/v1/tts/models` publishes one. */
+function ttsModelRow(maximumInputCharacters: number) {
+  return { maximum_input_characters: maximumInputCharacters }
+}
+
+test('the budget is the live published boundary less the margin, per model', () => {
+  for (const published of [900, 2_500, 12_000, 65_536, 100_001]) {
+    const budget = resolveTtsRequestBudget(ttsModelRow(published))
+    assert.equal(budget.published, published, 'the published figure is reported unmodified')
+    assert.equal(budget.ceiling, published, 'no quote-specific limit is published today')
+    assert.equal(
+      budget.effective,
+      Math.floor(published * (1 - TTS_REQUEST_SAFETY_MARGIN)),
+      'the margin must be applied to the published base, floored',
+    )
+    assert.ok(budget.effective < published, 'the budget must leave head-room')
+    assert.equal(budget.safety_margin, TTS_REQUEST_SAFETY_MARGIN)
+  }
+})
+
+test('the budget recomputes when the model changes — nothing is carried over', () => {
+  const small = resolveTtsRequestBudget(ttsModelRow(900))
+  const large = resolveTtsRequestBudget(ttsModelRow(120_000))
+  assert.notEqual(small.effective, large.effective)
+  // Switching back yields the first figure again: no cache, no drift.
+  assert.deepEqual(resolveTtsRequestBudget(ttsModelRow(900)), small)
+  // And a model publishing nothing yields no boundary rather than a guess.
+  assert.equal(resolveTtsRequestBudget(ttsModelRow(0)).effective, 0)
+  assert.throws(
+    () => planGenStudioTtsRequests(narrationFixture(), resolveTtsRequestBudget(ttsModelRow(0)).effective),
+    /maximum_input_characters/,
+  )
+})
+
+test('the margin multiplies a live base — it can never behave as a fixed cap', () => {
+  // Doubling what the model publishes doubles what Story Studio plans at. A
+  // constant ceiling smuggled in behind the margin would break this.
+  const base = resolveTtsRequestBudget(ttsModelRow(10_000)).effective
+  assert.equal(resolveTtsRequestBudget(ttsModelRow(20_000)).effective, base * 2)
+  // Every distinct published boundary yields a distinct budget, including ones
+  // far above the quote endpoint's own fixed body limit.
+  const budgets = [10_000, 40_000, 90_000, 250_000].map(max => resolveTtsRequestBudget(ttsModelRow(max)).effective)
+  assert.equal(new Set(budgets).size, budgets.length)
+  // A tiny published boundary is reduced but never to zero, and never raised.
+  const tiny = resolveTtsRequestBudget(ttsModelRow(1))
+  assert.ok(tiny.effective >= 1 && tiny.effective <= tiny.published)
+})
+
+test('a published quote limit, if GenStudio ever ships one, takes over when it is smaller', () => {
+  // The field does not exist on TTSModelResponse today — this proves the code
+  // is already shaped for it, not that Story Studio invented it.
+  const quoteLimited = resolveTtsRequestBudget({
+    maximum_input_characters: 100_000,
+    maximum_quote_characters: 30_000,
+  })
+  assert.equal(quoteLimited.published, 100_000)
+  assert.equal(quoteLimited.ceiling, 30_000)
+  assert.equal(quoteLimited.quote_limited, true)
+  assert.equal(quoteLimited.effective, Math.floor(30_000 * (1 - TTS_REQUEST_SAFETY_MARGIN)))
+  // A larger quote limit is not a licence to exceed the input boundary.
+  const inputLimited = resolveTtsRequestBudget({
+    maximum_input_characters: 12_000,
+    maximum_quote_characters: 80_000,
+  })
+  assert.equal(inputLimited.ceiling, 12_000)
+  assert.equal(inputLimited.quote_limited, false)
+})
+
+test('parity holds under the reduced budget: quoted units are still submitted units', () => {
+  for (const published of [900, 2_048, 12_000]) {
+    const budget = resolveTtsRequestBudget(ttsModelRow(published))
+    for (const sectionsParam of ['all', 'intro', 'ch01,ch02', '1']) {
+      assert.deepEqual(
+        quotedTexts(sectionsParam, budget.effective),
+        generatorSubmissionTexts(sectionsParam, budget.effective),
+        `the margin moved the quote boundary away from the generation boundary (${published}, ${sectionsParam})`,
+      )
+    }
+    // Every part sits inside the budget, and therefore inside what the model
+    // publishes — which is the point of the head-room.
+    for (const text of quotedTexts('all', budget.effective)) {
+      assert.ok(text.length <= budget.effective)
+      assert.ok(text.length <= budget.published)
+    }
+  }
+})
+
+test('a size the quote endpoint already refused is not put to it twice', async () => {
+  forgetQuoteRefusals()
+  const budget = resolveTtsRequestBudget(ttsModelRow(PUBLISHED_MAX_CHARACTERS))
+  const requests = flattenTtsRequestPlan(planGenStudioTtsRequests(narrationFixture(), budget.effective))
+  let asked = 0
+  const refuse = async () => {
+    asked += 1
+    throw new GenStudioApiError(413, 'text: ensure this value has at most N characters')
+  }
+
+  const first = await quoteNarrationRequests({ requests, modelId: 'model-a', quoteEnabled: true, quoteRequest: refuse })
+  assert.equal(first.unavailable_reason, 'generation_unit_rejected')
+  assert.equal(asked, 1)
+
+  // Same model, same size: the answer is already known, so nothing is asked.
+  const again = await quoteNarrationRequests({ requests, modelId: 'model-a', quoteEnabled: true, quoteRequest: refuse })
+  assert.equal(again.unavailable_reason, 'generation_unit_rejected')
+  assert.equal(again.unavailable_status, 413)
+  assert.equal(again.unquotable_characters, requests[0]!.characters)
+  assert.equal(asked, 1, 'a refusal already proven for this model was asked for again')
+
+  // A different model inherits nothing — the refusal is not a catalogue value.
+  const other = await quoteNarrationRequests({ requests, modelId: 'model-b', quoteEnabled: true, quoteRequest: refuse })
+  assert.equal(other.unavailable_reason, 'generation_unit_rejected')
+  assert.equal(asked, 2)
+
+  // Neither does an unrelated caller that names no model.
+  await quoteNarrationRequests({ requests, quoteEnabled: true, quoteRequest: refuse })
+  assert.equal(asked, 3)
+  forgetQuoteRefusals()
+})
+
+test('the remembered refusal never becomes a limit: it is memory only', () => {
+  const service = readFileSync(new URL('../services/tts-narration-quote.ts', import.meta.url), 'utf8')
+  // Not persisted, and never consulted when deciding how to split.
+  assert.doesNotMatch(service, /writeFile|readFile|localStorage|app-settings/)
+  assert.doesNotMatch(service, /planGenStudioTtsRequests|resolveTtsRequestBudget/)
+  const planner = readFileSync(new URL('../services/tts-request-plan.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(
+    planner,
+    /refusedQuoteSizes|knownQuoteRefusal|rememberQuoteRefusal/,
+    'planning must not know about discovered refusals',
+  )
+})
+
+test('the margin is annotated as Story Studio policy, not a catalogue value', () => {
+  const planner = readFileSync(new URL('../services/tts-request-plan.ts', import.meta.url), 'utf8')
+  assert.match(planner, /model-drift-allow: a Story Studio safety margin/)
+  // It is declared as a fraction, so the base it multiplies stays live.
+  assert.match(planner, /TTS_REQUEST_SAFETY_MARGIN = 0\.1\b/)
+  assert.match(planner, /ceiling \* \(1 - TTS_REQUEST_SAFETY_MARGIN\)/)
+  // The reason is written down where the next reader will find it.
+  assert.match(planner, /billable_characters/)
+  assert.match(planner, /character_rule_version/)
+})
+
+test('the enforced budget is reported to the page, beside the published figure', () => {
+  const route = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
+  const settings = readFileSync(new URL('../routes/app-settings.ts', import.meta.url), 'utf8')
+  assert.match(route, /planned_request_characters: requestBudget\.effective/)
+  assert.match(route, /maximum_input_characters: ttsModel\.maximum_input_characters/)
+  // The catalogue route computes it per row, so the page never re-derives it.
+  assert.match(settings, /planned_request_characters: resolveTtsRequestBudget\(model\)\.effective/)
 })
 
 test('no endpoint limit is hardcoded anywhere on the quote path', () => {

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.776 — 2026-08-01
+
+- **Narration is now planned with a little head-room below the model's limit** — Story Studio
+  used to split narration exactly at the maximum a model accepts. GenStudio counts billable
+  characters by its own rules, which need not match a plain character count, so a request
+  sitting precisely on the limit could be refused after earlier parts had already been
+  charged. Narration is now planned at 10% below the published limit instead. For chapters of
+  the usual length this changes nothing at all — the same number of parts, the same cost — it
+  only affects sections that sat right at the very edge.
+- **The audio page shows both figures** — what the model publishes, and what Story Studio
+  actually plans at, with the reason for the difference. The number that is enforced is the
+  one shown, rather than leaving the gap looking like a fault.
+- **A request size GenStudio has already refused is not sent again** — if a quote is turned
+  down for being too large, Story Studio remembers that for the rest of the session and
+  answers immediately instead of repeating a request it knows will fail. It is forgotten when
+  the app closes, and it never changes how narration is split.
+
+---
+
 ## v1.0.775 — 2026-08-01
 
 - **Long narration can be quoted again, part by part** — asking for a quote on a long episode

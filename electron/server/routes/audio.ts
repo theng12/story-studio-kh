@@ -222,7 +222,8 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     if (!narrationPath) return
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
     const {
-      flattenTtsRequestPlan, normalizeSectionsForTts, planGenStudioTtsRequests, selectNarrationSections,
+      flattenTtsRequestPlan, normalizeSectionsForTts, planGenStudioTtsRequests,
+      resolveTtsRequestBudget, selectNarrationSections,
     } = await import('../services/tts-request-plan.js')
     const allSections = await parseNarrationDocx(narrationPath)
     normalizeSectionsForTts(allSections)
@@ -231,9 +232,12 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
       return res.status(400).json({ detail: 'There is no narration on disk yet for the selected sections.' })
     }
     // NOT filtered or trimmed: these are the request bodies as submitted. A
-    // quote over a tidied-up copy would be a quote for work nobody does.
+    // quote over a tidied-up copy would be a quote for work nobody does. The
+    // budget comes from the same function the generator calls, on the same live
+    // catalogue row, so both split identically.
+    const requestBudget = resolveTtsRequestBudget(ttsModel)
     const requests = flattenTtsRequestPlan(
-      planGenStudioTtsRequests(sections, ttsModel.maximum_input_characters),
+      planGenStudioTtsRequests(sections, requestBudget.effective),
     )
     if (!requests.some(request => request.text.trim())) {
       return res.status(400).json({ detail: 'There is no narration on disk yet to quote.' })
@@ -244,6 +248,9 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     const { quoteNarrationRequests } = await import('../services/tts-narration-quote.js')
     const quote = await quoteNarrationRequests({
       requests,
+      // So a body size this model has ALREADY refused in this process is not
+      // paid for in latency a second time. Memory only; see the service.
+      modelId,
       quoteEnabled: voice.quote_enabled !== false,
       quoteRequest: text => requestGenStudioTtsQuote(apiKey, {
         modelId,
@@ -265,6 +272,11 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
       credits_per_1000_characters: ttsModel.credits_per_1000_characters,
       minimum_credits: ttsModel.minimum_credits,
       maximum_input_characters: ttsModel.maximum_input_characters,
+      // Story Studio's own figures, not GenStudio's, and labelled as such by
+      // the page: the boundary planning actually enforced, and the fraction of
+      // the published one held back to get there.
+      planned_request_characters: requestBudget.effective,
+      request_safety_margin: requestBudget.safety_margin,
       section_count: sections.length,
     })
   } catch (e: any) {

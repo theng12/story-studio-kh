@@ -493,7 +493,19 @@ router.get('/app-settings/genstudio/tts-models', async (_req, res) => {
   try {
     const apiKey = await requireGenStudioKey(res)
     if (!apiKey) return
-    res.json({ models: await listGenStudioTtsModels(apiKey) })
+    const { resolveTtsRequestBudget } = await import('../services/tts-request-plan.js')
+    const models = await listGenStudioTtsModels(apiKey)
+    res.json({
+      // Every field on a row is GenStudio's except `planned_request_characters`,
+      // which is Story Studio's own planning budget for that row — the enforced
+      // boundary, so the page can state it without re-deriving the policy that
+      // produced it. Recomputed on every catalogue read from the row beside it,
+      // so it follows the model like everything else.
+      models: models.map(model => ({
+        ...model,
+        planned_request_characters: resolveTtsRequestBudget(model).effective,
+      })),
+    })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH voice models'))
   }

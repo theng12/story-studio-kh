@@ -52,10 +52,12 @@ test('the TTS request boundary and price come from the live model catalogue', ()
   assert.match(generator, /listGenStudioTtsModels\(apiKey\)/)
   assert.match(generator, /ttsModel\.maximum_input_characters/)
   assert.doesNotMatch(generator, /storyTtsTierForModelId|resolveStoryTtsModelId/)
-  // The split boundary is passed in, never taken from a constant. The split
-  // itself now lives in the shared planner, which the quote route reuses so a
-  // quote prices the requests this generator actually submits.
-  assert.match(generator, /planGenStudioTtsRequests\(sections, genStudioMaxCharacters\)/)
+  // The split boundary is derived from the live row, never taken from a
+  // constant. The split itself lives in the shared planner, which the quote
+  // route reuses so a quote prices the requests this generator actually
+  // submits — from the same budget, resolved the same way.
+  assert.match(generator, /resolveTtsRequestBudget\(ttsModel\)/)
+  assert.match(generator, /planGenStudioTtsRequests\(sections, requestBudget\.effective\)/)
   assert.doesNotMatch(generator, /splitGenStudioApiRequests/)
 })
 
