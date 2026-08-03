@@ -5,11 +5,12 @@ export interface GenStudioTranscriptionModel {
   id: string
   display_name: string
   /**
-   * GenStudio's raw response currently includes the real upstream vendor
-   * (e.g. "openai", "deepgram") here — unlike the image/video/chat catalog
-   * routes, this one is not yet stripped server-side. Deliberately never
-   * read below: every UI-facing `provider`/`group` label is the hardcoded
-   * "GenStudio KH" string so a vendor identity never reaches the screen.
+   * The vendor GenStudio publishes for this model (e.g. "openai", "deepgram").
+   * Shown, per AGENTS.md → "Provider Transparency" (2026-08-01): a published
+   * provider is customer-facing. The picker used to overwrite it with the
+   * hardcoded gateway name, which told the customer nothing they could not read
+   * from the panel above the field. Empty means GenStudio published none — the
+   * row then names no provider rather than falling back to the gateway.
    */
   provider: string
   /** Raw `TranscriptionModelResponse.language`. EMPTY when GenStudio published
@@ -91,8 +92,11 @@ export function useGenStudioTranscriptionModels() {
     return {
       id: model.id,
       label: model.display_name,
-      group: 'GenStudio KH',
-      provider: 'GenStudio KH',
+      // Grouped and summarised by the PUBLISHED provider. A model GenStudio
+      // publishes no provider for falls into a neutral bucket and shows no
+      // provider — it is never attributed to a vendor by its id or its name.
+      group: model.provider || 'Transcription models',
+      provider: model.provider || '',
       // Honest about a gap: an unpublished language is missing data, not
       // "multilingual" and not a blank that reads as a value.
       // Same for the rate: no published rate reads as "not published", never

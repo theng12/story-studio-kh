@@ -1187,8 +1187,9 @@ const visionModel = ref<string>('')
 const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
   id: model.id,
   label: model.id,
+  // Gateway named once, by the group heading. The chat catalogue publishes no
+  // provider for these products, so no `provider` is set.
   group: 'GenStudio KH',
-  provider: 'GenStudio KH',
   disabled: !model.available,
   disabledReason: model.available ? undefined : 'This GenStudio model is currently unavailable.',
   badges: [{ label: 'Vision', tone: 'info' as const }],
@@ -1201,7 +1202,6 @@ const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.val
   id: model.id,
   label: model.display_name,
   group: 'GenStudio KH · Vision only',
-  provider: 'GenStudio KH',
   meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
   badges: [{ label: 'Vision', tone: 'info' as const }, { label: 'JSON', tone: 'neutral' as const }],
 })))

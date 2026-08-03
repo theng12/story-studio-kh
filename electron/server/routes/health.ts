@@ -107,7 +107,11 @@ router.get('/models', async (_req, res) => {
   try {
     const models = (await listGenStudioChatModels(apiKey)).map(model => ({
       id: model.id,
-      label: `${model.display_name} [GenStudio KH]`,
+      // The catalogue's own name, unadorned. Story Studio used to append
+      // "[GenStudio KH]" here, which every LLM picker then repeated in a group
+      // header and a per-row badge — three statements of a gateway that serves
+      // every model in the app, crowding out the one thing the row is for.
+      label: model.display_name,
       provider: 'genstudio',
       available: model.available,
       disabled_reason: model.available

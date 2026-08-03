@@ -7,7 +7,10 @@
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Audio generator context">
-          <span class="workspace-metric" data-tone="info"><strong>{{ selectedProviderName || 'GenStudio KH' }}</strong> provider</span>
+          <!-- The provider metric appears only when the selected model
+               publishes one. It named the gateway otherwise, which is not a
+               provider and is already stated wherever the account is. -->
+          <span v-if="selectedProviderName" class="workspace-metric" data-tone="info"><strong>{{ selectedProviderName }}</strong> provider</span>
           <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'">
             <strong>{{ form.episode_id || 'No episode' }}</strong> target
           </span>
@@ -82,7 +85,12 @@
             Loading voice models from GenStudio KH…
           </p>
           <p v-else-if="selectedTtsModel" class="text-muted text-xs hint-line">
-            Served by <strong>{{ selectedTtsModel.provider_name || 'GenStudio KH' }}</strong>.
+            <!-- Only a PUBLISHED provider is named. With none published this
+                 says nothing rather than falling back to the gateway, which
+                 the panel and the group heading already state. -->
+            <template v-if="selectedTtsModel.provider_name">
+              Served by <strong>{{ selectedTtsModel.provider_name }}</strong>.
+            </template>
             <span :title="modelRate.title">{{ modelRate.text }}</span>,
             minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
@@ -117,7 +125,7 @@
         </div>
         <span class="text-muted text-xs">
           <template v-if="selectedTtsModel">
-            Voices GenStudio KH serves on <strong>{{ selectedTtsModel.display_name }}</strong>. Save one with ★ to keep it in
+            Voices served on <strong>{{ selectedTtsModel.display_name }}</strong>. Save one with ★ to keep it in
             your GenStudio account, or browse the provider libraries from inside the picker.
           </template>
           <template v-else>
@@ -446,7 +454,11 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
   return {
     id: model.id,
     label: model.display_name,
-    group: model.provider_name || 'GenStudio KH',
+    // Grouped by the PUBLISHED provider (`TTSModelResponse.provider_name`), so
+    // the heading says ElevenLabs / Fish Audio rather than restating the one
+    // gateway every model here already shares. A model with no published
+    // provider gets a neutral bucket, never the gateway as a stand-in.
+    group: model.provider_name || 'Voice models',
     provider: model.provider_name || '',
     meta: [
       `${formatCredits(model.credits_per_1000_characters)} / 1,000 characters`,
@@ -457,7 +469,9 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     disabled: !model.generation_enabled,
     disabledReason: model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.',
     badges: [
-      ...(model.provider_name ? [{ label: model.provider_name, tone: 'info' as const }] : []),
+      // No provider badge: the rows are already grouped under the provider's
+      // own heading, so a badge repeating it on every row inside that group
+      // only takes width from the model name.
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
       ...(unlimited ? [unlimited] : []),

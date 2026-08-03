@@ -22,12 +22,22 @@ const PREFIX_BY_KIND: Record<GenStudioModelKind, string> = {
   tts: 'genstudio-tts:',
 }
 
-export function brandedGenStudioModelName(displayName: string): string {
-  const name = displayName.trim()
-  if (!name) return ''
-  return /\[\s*GenStudio(?:\s+KH)?\s*\]$/i.test(name)
-    ? name.replace(/\[\s*GenStudio(?:\s+KH)?\s*\]$/i, '[GenStudio KH]')
-    : `${name} [GenStudio KH]`
+/**
+ * Recognises the gateway suffix Story Studio used to append to every model
+ * name (`Claude Fable 5 [GenStudio KH]`, and the older `[GenStudio]`).
+ *
+ * The suffix is no longer ADDED anywhere: every product in this app comes
+ * through the one gateway, so repeating its name on each row said nothing and
+ * pushed the actual model name out of the row. The MATCH survives because
+ * branded names outlived the code that wrote them — `useGenStudioModelDisplay`
+ * persists its label map to localStorage, so a name saved by an older release
+ * is still read back on the next launch and has to be healed rather than shown.
+ */
+const GATEWAY_SUFFIX = /\s*\[\s*GenStudio(?:\s+KH)?\s*\]\s*$/i
+
+/** The catalogue's own name for a model, with any legacy gateway suffix removed. */
+export function plainGenStudioModelName(displayName: string): string {
+  return displayName.trim().replace(GATEWAY_SUFFIX, '').trim()
 }
 
 export function buildGenStudioModelLabelEntries(
@@ -37,7 +47,7 @@ export function buildGenStudioModelLabelEntries(
   for (const kind of Object.keys(PREFIX_BY_KIND) as GenStudioModelKind[]) {
     const prefix = PREFIX_BY_KIND[kind]
     for (const model of catalogs[kind] || []) {
-      const label = brandedGenStudioModelName(model.display_name)
+      const label = plainGenStudioModelName(model.display_name)
       if (!model.id?.trim() || !label) continue
       const ids = [model.id, ...(model.legacy_ids || [])]
       for (const rawId of ids) {

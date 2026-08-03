@@ -56,17 +56,49 @@ describe('shared model menus', () => {
     assert.doesNotMatch(imagePicker, /Unavailable saved selection|migration required|Historical/)
   })
 
-  test('customer model menus expose one GenStudio KH boundary without execution topology', () => {
-    for (const source of [
-      imagePicker,
-      modelSelector,
-      transcriptionCatalog,
-      modelSurfaces.audio,
-      modelSurfaces.motion,
-    ]) {
-      assert.match(source, /GenStudio KH/)
+  test('customer model menus state the gateway once per surface, never per row', () => {
+    // The point this has always protected — one clear boundary, and a provider
+    // identity that is never invented — is unchanged. What changed is WHERE.
+    // A single LLM row used to say "GenStudio KH" three times: the group
+    // heading, a "[GenStudio KH]" suffix on the model name, and a per-row
+    // badge. The gateway serves every model in the app, so those repeats
+    // carried no information and took the width the model name needed.
+    //
+    // The surviving statement is the GROUP HEADING: it renders once per dialog
+    // however long the catalogue is, and it is the slot ModelMenu already had.
+    // A badge would have been per row by construction.
+    for (const source of [imagePicker, modelSelector, modelSurfaces.motion]) {
+      assert.match(source, /group: 'GenStudio KH'/)
+      assert.doesNotMatch(source, /label: 'GenStudio KH'/)
+      assert.doesNotMatch(source, /provider: 'GenStudio KH'/)
+    }
+    // Nothing may append the gateway to a model's own name.
+    for (const source of [imagePicker, modelSelector, transcriptionCatalog, modelSurfaces.audio, modelSurfaces.motion]) {
+      assert.doesNotMatch(source, /\[GenStudio( KH)?\]/)
       assert.doesNotMatch(source, /provider:\s*model\.execution_label|provider:\s*'GenStudio'/)
     }
+    // Where the catalogue DOES publish who serves a product, that is what the
+    // row shows — the real vendor, not the gateway standing in for it.
+    // (AGENTS.md → "Provider Transparency".)
+    assert.match(modelSurfaces.audio, /group: model\.provider_name \|\| 'Voice models'/)
+    assert.match(modelSurfaces.audio, /provider: model\.provider_name \|\| ''/)
+    assert.match(transcriptionCatalog, /group: model\.provider \|\| 'Transcription models'/)
+    assert.match(transcriptionCatalog, /provider: model\.provider \|\| ''/)
+    // An unpublished provider is unknown. It is never backfilled with the
+    // gateway's name, and never guessed from an id.
+    assert.doesNotMatch(modelSurfaces.audio, /provider_name \|\| 'GenStudio/)
+    assert.doesNotMatch(transcriptionCatalog, /provider \|\| 'GenStudio/)
+    // The chat, image and video catalogues publish NO provider at all, so
+    // those rows set none rather than inventing one. Asserted as "no quoted
+    // provider is handed to a menu row", which is the thing that would be a
+    // fabrication; `LlmModelRow.provider: 'genstudio'` is the transport key on
+    // the /models payload, not a vendor, and never reaches a row.
+    for (const source of [modelSelector, imagePicker, modelSurfaces.motion]) {
+      assert.doesNotMatch(source, /provider: '(?!genstudio')/)
+    }
+    // The trigger line summarises a PUBLISHED provider, never the group — the
+    // group is the heading, and echoing it there restated the same fact twice.
+    assert.match(modelMenu, /\[option\.provider, option\.meta\]/)
     assert.doesNotMatch(imagePicker, /model\.execution_label|model\.description/)
     assert.doesNotMatch(imageCatalog, /execution_label/)
     // AGENTS.md → "Provider Transparency" (2026-08-01) reversed the old masking:

@@ -190,7 +190,12 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(imageModels, /\/app-settings\/genstudio\/image-models/)
   assert.match(modelSelector, /get<LlmModelRow\[]>\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
   assert.match(motionReview, /genstudio-video:\$\{model\.id\}/)
-  assert.match(motionReview, /Image-to-video generation through GenStudio KH/)
+  // The row describes what the CLIP will be. It no longer opens by naming the
+  // gateway: every video model here comes through it, the group heading says
+  // so once, and the words were taking the room the published length,
+  // resolution and price need.
+  assert.match(motionReview, /the cheapest option GenStudio publishes for this model/)
+  assert.doesNotMatch(motionReview, /Image-to-video generation through GenStudio KH/)
   assert.doesNotMatch(motionReview, /local fleet|cloud fleet|execution_label/i)
   assert.doesNotMatch(motionReview, /Unavailable saved selection|migration required|Historical/)
   assert.match(providerGroups, /category: 'mix'/)

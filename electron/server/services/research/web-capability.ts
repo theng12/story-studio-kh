@@ -22,11 +22,14 @@
  * is not a promise, and hardcoding one would silently break the moment
  * GenStudio renames or re-routes a product.
  *
- * ── The expected launch state ───────────────────────────────────────────────
- * Every product currently publishes `research_qualified: false`, so web mode
- * ships VISIBLY UNAVAILABLE with a plain explanation. That is a first-class
- * state, not an error: the moment GenStudio flips the flag, web mode switches
- * itself on with no Story Studio code change and no release.
+ * ── Availability is the catalogue's answer, never a snapshot ────────────────
+ * Web search is LIVE on GenStudio and qualified products are in use. It was not
+ * always: this shipped with every product publishing `research_qualified:
+ * false`, and it turned itself on with no Story Studio code change and no
+ * release when GenStudio flipped the flag — which is the whole design. Both
+ * states are first-class. "Nothing qualifies" is still rendered as a plain
+ * explanation rather than an error, because a catalogue can go back to it.
+ * Nothing in Story Studio may assume either answer ahead of the read.
  *
  * ── What this module does NOT do ────────────────────────────────────────────
  * It never computes a customer charge. `web_search_credits_per_search` and
@@ -109,6 +112,10 @@ export interface WebResearchModelOption {
   max_web_searches: number | null
   /** Show the domain allow/block inputs only when this is true. */
   supports_domain_filters: boolean
+  /** Published `returns_citations`. Carried so the picker can state what the
+   *  model gives back, rather than the reader having to infer it from the fact
+   *  that the model appears in this list at all. */
+  returns_citations: boolean
 }
 
 export function toWebResearchModelOption(model: GenStudioChatModel): WebResearchModelOption {
@@ -119,6 +126,7 @@ export function toWebResearchModelOption(model: GenStudioChatModel): WebResearch
     credits_per_request: model.web_research_credits_per_request,
     max_web_searches: model.max_web_searches,
     supports_domain_filters: model.supports_domain_filters === true,
+    returns_citations: model.returns_citations === true,
   }
 }
 

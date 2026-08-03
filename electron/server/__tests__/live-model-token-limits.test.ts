@@ -227,6 +227,11 @@ test('the web-research disclosure surfaces the per-request rate alongside the pe
   const option = toWebResearchModelOption(webModel())
   assert.equal(option.credits_per_search, 5)
   assert.equal(option.credits_per_request, 20)
+  // The picker shows the model's published research facts, so `returns_citations`
+  // travels with the rates rather than being inferred from the model's presence
+  // in a list that happens to filter on it.
+  assert.equal(option.returns_citations, true)
+  assert.equal(toWebResearchModelOption(webModel({ returns_citations: false })).returns_citations, false)
 
   const availability = describeWebResearchAvailability([webModel()])
   assert.equal(availability.available, true)

@@ -61,17 +61,14 @@ const options = computed(() => {
     return {
       id: model.id,
       label: model.display_name,
+      // Named once, by the group heading. `ImageModelResponse` publishes no
+      // provider field, so no `provider` is set and none is invented.
       group: 'GenStudio KH',
-      provider: 'GenStudio KH',
-      description: 'Image generation through GenStudio KH.',
       disabled: !model.available,
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'
         : '',
-      badges: [
-        { label: 'GenStudio KH', tone: 'info' as const },
-        ...(unlimited ? [unlimited] : []),
-      ],
+      badges: unlimited ? [unlimited] : [],
     }
   })
   return rows

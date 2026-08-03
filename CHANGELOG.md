@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.782 — 2026-08-03
+
+- **Model names are no longer cluttered with "GenStudio KH"** — every model ran through
+  GenStudio, so stamping it on the end of every name, again as a badge on every row, and again
+  as the section heading told you nothing three times over and squeezed out the part that
+  actually differs. The gateway is now named once per list, and the row shows the model.
+- **Voice and subtitle models now name the company behind them** — where GenStudio publishes
+  who serves a model, you see that instead of the gateway: ElevenLabs, Fish Audio and so on.
+  Language, image and video models do not publish this yet, so those rows simply show the model
+  name rather than a guess.
+- **Choosing a research model for web search opens the same window as everywhere else** — it
+  was the last picker still using the small system dropdown. It now lists only models that can
+  actually search the web, with the credits per request, credits per search, search limit, and
+  whether each cites sources and supports domain filters.
+- **The Ideas Generator no longer hides your presets** — the preset controls and the model
+  picker now sit in plain view above the refinements drawer, matching every other generator.
+  The optional per-batch overrides — audience, genre, theme, mood, keywords, title shape —
+  stay tucked away, since they are usually empty and would otherwise bury the creative brief.
+- **An image caps column that could never show anything has been removed**, and a stale note
+  claiming web research was unavailable has been corrected now that it works.
+
+---
+
 ## v1.0.781 — 2026-08-01
 
 - **You can now see just your cloned voices** — the voice picker has an All / Saved / Cloned

@@ -295,27 +295,25 @@ const i2vModels = computed(() => {
       return {
         id: `genstudio-video:${model.id}`,
         label: model.display_name,
+        // Named once, by the group heading. `VideoModelResponse` publishes no
+        // provider, so no `provider` is set and none is guessed from the id.
         group: 'GenStudio KH',
-        provider: 'GenStudio KH',
         meta: variant
           ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
           : noVariant,
         description: (variant
-          ? `Image-to-video generation through GenStudio KH. Clips are generated at ${variant.duration_seconds}s `
-            + `and ${variant.resolution}, the cheapest option GenStudio publishes for this model.`
-          : 'Image-to-video generation through GenStudio KH. GenStudio publishes no priced length or '
-            + 'resolution for this model, so Story Studio cannot generate a clip with it.')
+          ? `Clips are generated at ${variant.duration_seconds}s and ${variant.resolution}, `
+            + 'the cheapest option GenStudio publishes for this model.'
+          : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
+            + 'cannot generate a clip with it.')
           + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),
         disabled: !model.available || !variant,
         disabledReason: !model.available
-          ? 'This video model is not available in GenStudio KH.'
+          ? 'This video model is not currently available.'
           : !variant
             ? 'GenStudio publishes no priced length or resolution for this model.'
             : undefined,
-        badges: [
-          { label: 'GenStudio KH', tone: 'info' as const },
-          ...(generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : []),
-        ],
+        badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
       }
     })
   return discovered

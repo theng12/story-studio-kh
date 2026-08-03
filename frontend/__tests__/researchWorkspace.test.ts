@@ -138,6 +138,38 @@ describe('Research workspace flow', () => {
     assert.match(research, /form\.value\.research_mode === 'web-search' && webModeAvailable\.value/)
   })
 
+  test('the web-research model picker is the same centred dialog as every other picker', () => {
+    // v1.0.778 moved every picker to a centred dialog and missed this one — it
+    // stayed a native <select>, so the mode actually in daily use had the
+    // cramped dropdown. Both branches of the field are now dialogs.
+    assert.match(research, /<ModelMenu\s+v-if="webMode"/)
+    assert.match(research, /v-model="form\.web_model"/)
+    assert.match(research, /:options="webModelMenuOptions"/)
+    assert.doesNotMatch(research, /<select[\s\S]{0,120}research-web-model/)
+    assert.doesNotMatch(research, /id="research-web-model"/)
+    // The list is still exactly what the backend qualified — filtered on
+    // published capability, never on a model name.
+    assert.match(research, /webModels\.value\.map/)
+    // Each row states the model's PUBLISHED research facts, and nothing else.
+    assert.match(research, /credits_per_request/)
+    assert.match(research, /credits_per_search/)
+    assert.match(research, /max_web_searches/)
+    assert.match(research, /returns_citations \? \[\{ label: 'Cites sources'/)
+    assert.match(research, /supports_domain_filters \? \[\{ label: 'Domain filters'/)
+    // No provider on the row: the chat catalogue publishes none, and one is
+    // never reconstructed from an id or a name.
+    assert.doesNotMatch(research, /provider: '/)
+  })
+
+  test('web availability is read live and never asserted as a fixed state', () => {
+    // This page once carried "TODAY every model reports research_qualified:
+    // false". Web search went live on GenStudio and that comment became a lie
+    // about the running product. Availability is whatever the read says.
+    assert.doesNotMatch(research, /TODAY every model reports/)
+    assert.doesNotMatch(research, /research_qualified:\s*false/)
+    assert.match(research, /webModeAvailable\.value = r\.available === true/)
+  })
+
   test('hides the depth control unless the selected model publishes a cap', () => {
     assert.match(research, /v-if="depthCapLimit"/)
     assert.match(research, /max_web_searches/)

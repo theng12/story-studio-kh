@@ -186,18 +186,22 @@
 
         <div class="research-run-controls">
           <div class="research-model-field">
-            <label v-if="webMode" for="research-web-model">Research model</label>
-            <label v-else>Research model</label>
-            <!-- Web mode may only offer models that GenStudio has qualified,
-                 so it uses its own list rather than the full catalog picker. -->
-            <select
+            <label>Research model</label>
+            <!-- Web mode may only offer models GenStudio has qualified, so it
+                 keeps its own list — but it is the SAME centred dialog every
+                 other picker uses. It was the last native <select> left, and
+                 it was the one mode actually in daily use. -->
+            <ModelMenu
               v-if="webMode"
-              id="research-web-model"
               v-model="form.web_model"
-              class="input"
-            >
-              <option v-for="m in webModels" :key="m.id" :value="m.id">{{ m.display_name }}</option>
-            </select>
+              :options="webModelMenuOptions"
+              :loading="webModeLoading"
+              media-type="llm"
+              title="Choose a web-research model"
+              placeholder="Pick a web-research model…"
+              search-placeholder="Search web-research models…"
+              aria-label="Web-research model options"
+            />
             <ModelSelector v-else v-model="form.source_model" :project-slug="slug" />
             <span class="research-field-note">
               <template v-if="webMode">Only models qualified to search the web and return structured citations appear here.</template>
@@ -205,11 +209,12 @@
             </span>
           </div>
           <!-- Depth control. Hidden unless the SELECTED web model publishes an
-               enforceable search cap. GenStudio cannot enforce a provider-side
-               search count today (max_web_searches is null), and in
-               model-knowledge mode the number was only ever a prompt hint —
-               offering a control that changes nothing would be a lie. This
-               path stays so the control reappears by itself if that changes. -->
+               enforceable search cap (`max_web_searches`). A null cap means
+               GenStudio cannot enforce a provider-side search count for that
+               model, and in model-knowledge mode the number was only ever a
+               prompt hint — offering a control that changes nothing would be a
+               lie. Read per selection, so the control appears and disappears
+               with the model rather than with a release. -->
           <div v-if="depthCapLimit" class="research-depth-field">
             <label for="research-max-sources">Search depth</label>
             <div class="research-depth-control">
@@ -657,14 +662,15 @@ watch(() => form.value.source_model, (m) => {
 })
 
 // ── Web-search availability ─────────────────────────────────────────────
-// The backend filters the published catalog by CAPABILITY ONLY (five
+// The backend filters the published catalog by CAPABILITY ONLY (six
 // conditions — see services/research/web-capability.ts). This page never
 // decides eligibility itself and never matches on a model name.
 //
-// TODAY every model reports research_qualified:false, so `available` is false
-// and `reason` explains why. That is the expected launch state: the option
-// stays visible and self-explaining, and turns itself on with no code change
-// here the moment GenStudio qualifies a model.
+// Web search is live on GenStudio and qualified models are published, so
+// `available` is normally true. It was false at launch, when nothing was
+// research-qualified, and this page turned itself on with no code change here.
+// Both answers stay first-class: the option is visible and self-explaining
+// either way, and neither is assumed before the read.
 interface WebResearchModel {
   id: string
   display_name: string
@@ -674,6 +680,9 @@ interface WebResearchModel {
   credits_per_request: number | null
   max_web_searches: number | null
   supports_domain_filters: boolean
+  /** Published `returns_citations`. Optional so an older backend response
+   *  still types; absent means unpublished, which states nothing. */
+  returns_citations?: boolean
 }
 const webModels = ref<WebResearchModel[]>([])
 const webModeAvailable = ref(false)
@@ -713,10 +722,42 @@ watch(webModeAvailable, (available) => {
 const selectedWebModel = computed<WebResearchModel | null>(() =>
   webModels.value.find(m => m.id === form.value.web_model) || webModels.value[0] || null,
 )
+
+/**
+ * The web-research rows for the shared model dialog.
+ *
+ * Every line is a PUBLISHED research fact and nothing else. No provider is
+ * shown: `ChatModelResponse` publishes none, and one is never reconstructed
+ * from an id or a name. A fact GenStudio has not published is simply absent
+ * from the row — an unpublished cap or rate is never filled in with a
+ * plausible number, and never rendered as free or as unlimited.
+ */
+const webModelMenuOptions = computed(() => webModels.value.map((model) => {
+  const facts: string[] = []
+  if (typeof model.credits_per_request === 'number') {
+    facts.push(`${model.credits_per_request} credit${model.credits_per_request === 1 ? '' : 's'} per request`)
+  }
+  if (typeof model.credits_per_search === 'number') {
+    facts.push(`${model.credits_per_search} credit${model.credits_per_search === 1 ? '' : 's'} per search`)
+  }
+  if (typeof model.max_web_searches === 'number' && model.max_web_searches > 0) {
+    facts.push(`up to ${model.max_web_searches} searches per run`)
+  }
+  return {
+    id: model.id,
+    label: model.display_name,
+    group: 'GenStudio KH',
+    meta: facts.join(' · '),
+    badges: [
+      ...(model.returns_citations ? [{ label: 'Cites sources', tone: 'info' as const }] : []),
+      ...(model.supports_domain_filters ? [{ label: 'Domain filters', tone: 'neutral' as const }] : []),
+    ],
+  }
+}))
 /** The depth control exists ONLY when the selected web model publishes an
- *  enforceable cap. Null (today's real value) hides it: GenStudio cannot
- *  enforce a provider-side search count, and in model-knowledge mode the
- *  number was only ever a prompt hint. */
+ *  enforceable cap. A null cap hides it: GenStudio cannot enforce a
+ *  provider-side search count for that model, and in model-knowledge mode the
+ *  number was only ever a prompt hint. Re-derived on every selection change. */
 const depthCapLimit = computed<number | null>(() => {
   if (!webMode.value) return null
   const cap = selectedWebModel.value?.max_web_searches

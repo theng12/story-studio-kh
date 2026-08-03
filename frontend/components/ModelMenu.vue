@@ -161,10 +161,21 @@ const selectedOption = computed(() => props.options.find(option => option.id ===
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))
+/**
+ * The line under the selected model on the closed trigger.
+ *
+ * `provider` ONLY — never `group`. `group` is this dialog's section heading and
+ * is where the gateway is named, once; echoing it here restated the same fact
+ * on a second surface while adding nothing. `provider` is different: it is the
+ * vendor GenStudio publishes for a product (TTS `provider_name`, voice
+ * `provider`/`engine_name`, transcription `provider`), which is genuinely
+ * informative. Where the catalogue publishes no provider — chat, image and
+ * video all publish none — this is empty, and nothing is invented to fill it.
+ */
 const selectedSummary = computed(() => {
   const option = selectedOption.value
   if (!option) return ''
-  return [option.provider || option.group, option.meta].filter(Boolean).join(' · ')
+  return [option.provider, option.meta].filter(Boolean).join(' · ')
 })
 const filteredOptions = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)

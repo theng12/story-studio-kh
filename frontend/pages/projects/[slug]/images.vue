@@ -557,7 +557,6 @@
                 <th>Model</th>
                 <th class="caps-th-right">Prompt cap</th>
                 <th class="caps-th-right">Credits / image</th>
-                <th>Provider</th>
               </tr>
             </thead>
             <tbody>
@@ -572,7 +571,6 @@
                   <template v-if="row.credits != null">{{ row.credits }}</template>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td class="text-muted">{{ row.provider }}</td>
               </tr>
             </tbody>
           </table>
@@ -748,7 +746,13 @@ const allModelCaps = computed(() => {
     return {
       id,
       label: (m?.label as string) || id,
-      provider: (m?.provider as string) || 'GenStudio KH',
+      // No provider column. `ImageModelResponse` publishes none — GenStudio
+      // publishes provider identity for voice, TTS models and transcription
+      // only — so this table had nothing true to put there. It printed the
+      // gateway's name for every row, and the only other candidate,
+      // `ImageModelConfig.provider`, is Story Studio's own transport key
+      // ('kie', 'genstudio-image'), not a vendor. A column that can only hold
+      // an invented or a misleading value is removed rather than blanked.
       cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
       credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
     }

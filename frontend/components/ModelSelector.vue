@@ -78,20 +78,25 @@ const menuOptions = computed(() => {
   const eligibleModels = props.requireVision
     ? allModels.value.filter(model => isUsableLiveGenStudioModel(model, true))
     : allModels.value
+  // The gateway is named ONCE per dialog, by the group heading. It is not
+  // repeated as a per-row badge and no longer appended to the model name:
+  // every model in this app comes through GenStudio, so a row that said it
+  // three times spent its width on the one fact that never varies.
+  //
+  // No `provider` is set, because the chat catalogue publishes none.
+  // `ChatModelResponse` has no provider/vendor/engine field at all, and
+  // AGENTS.md → "Provider Transparency" is explicit that an unpublished
+  // provider is unknown, never reconstructed from an id or a name.
   const rows = eligibleModels.map((model) => {
     const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
       label: model.label,
       group: 'GenStudio KH',
-      provider: 'GenStudio KH',
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
-      badges: [
-        { label: 'GenStudio KH', tone: 'info' as const },
-        ...(unlimited ? [unlimited] : []),
-      ],
+      badges: unlimited ? [unlimited] : [],
     }
   })
   return rows

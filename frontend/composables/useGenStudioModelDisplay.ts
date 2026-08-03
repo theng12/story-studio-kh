@@ -4,6 +4,7 @@ import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import {
   buildGenStudioModelLabelEntries,
   isGenStudioModelId,
+  plainGenStudioModelName,
   type GenStudioDisplayCatalogEntry,
 } from '../utils/genstudio-model-display.js'
 
@@ -48,11 +49,25 @@ const catalogCache = createGenStudioCatalogCache<Record<string, GenStudioDisplay
   },
 })
 
+/**
+ * Remembered labels are healed on the way in. Releases before this one wrote
+ * `Name [GenStudio KH]` into this map, and a retired model's remembered label
+ * is never refreshed by a catalogue read — so without stripping here, the old
+ * gateway suffix would survive forever on exactly the rows (old jobs, old usage)
+ * that this map exists to name.
+ */
 function readRememberedLabels(): Record<string, string> {
   if (!import.meta.client) return {}
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    if (!parsed || typeof parsed !== 'object') return {}
+    const healed: Record<string, string> = {}
+    for (const [id, label] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof label !== 'string') continue
+      const plain = plainGenStudioModelName(label)
+      if (plain) healed[id] = plain
+    }
+    return healed
   } catch {
     return {}
   }

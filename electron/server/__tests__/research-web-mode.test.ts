@@ -96,9 +96,11 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
   }
 }
 
-/** The REAL current catalogue state: every model reports
- *  `research_qualified: false`. Web mode must ship unavailable and explained. */
-function todaysCatalog(): GenStudioChatModel[] {
+/** A catalogue in which NOTHING qualifies — the state this shipped in, before
+ *  GenStudio published research-qualified products. It is no longer "today",
+ *  but it is still a state the catalogue can return, and web mode must stay
+ *  unavailable and explained whenever it does. */
+function unqualifiedCatalog(): GenStudioChatModel[] {
   return [
     qualifiedModel({ id: 'gs-fast', display_name: 'Fast', research_qualified: false }),
     qualifiedModel({
@@ -177,9 +179,9 @@ describe('web research capability filter', () => {
   })
 })
 
-describe('web mode in the current all-unqualified state', () => {
+describe('web mode when nothing in the catalogue qualifies', () => {
   it('is unavailable and explains itself — this is a first-class state, not an error', () => {
-    const availability = describeWebResearchAvailability(todaysCatalog())
+    const availability = describeWebResearchAvailability(unqualifiedCatalog())
     assert.equal(availability.available, false)
     assert.deepEqual(availability.models, [])
     assert.equal(availability.reason, WEB_MODE_UNAVAILABLE_REASON)
@@ -190,7 +192,7 @@ describe('web mode in the current all-unqualified state', () => {
   })
 
   it('turns itself on with no code change the moment GenStudio flips research_qualified', () => {
-    const before = todaysCatalog()
+    const before = unqualifiedCatalog()
     assert.equal(describeWebResearchAvailability(before).available, false)
     // Exactly one flag changes — nothing else about the catalogue or this app.
     const after = before.map(model => (

@@ -253,25 +253,45 @@
           <span class="originality-state">{{ form.avoid_repeated_ideas ? 'On · recommended' : 'Off' }}</span>
         </label>
 
+        <!-- Preset and model live ABOVE the disclosure, not inside it. Both
+             answer "what am I about to run", which every other generator shows
+             without a click — Ideas was the only page that buried them. The
+             per-batch overrides below stay collapsed: they are usually blank,
+             and hoisting them would push the creative brief off the screen. -->
+        <PresetPicker
+          label="Ideas preset"
+          hint="Save or restore this complete creative setup. Presets stay on this Mac."
+          :presets="ideasPresets.presets.value"
+          :active-id="ideasPresets.activeId.value"
+          @update:active-id="ideasPresets.setActive"
+          @apply="onIdeasPresetApplied"
+          @overwrite="onIdeasPresetOverwrite"
+          @save-as="onIdeasPresetSaveAs"
+          @rename="onIdeasPresetRename"
+          @delete="onIdeasPresetDelete"
+        />
+
+        <section class="idea-refinement-card idea-refinement-wide idea-generation-card">
+          <div class="idea-refinement-heading">
+            <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
+          </div>
+          <div class="generation-settings-grid">
+            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
+            <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
+            <div class="form-group">
+              <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
+              <input v-model.number="form.items_per_listicle" class="input" type="number" min="1" max="100" placeholder="Auto" />
+              <span class="text-muted text-xs">Leave blank unless every idea needs the same fixed count.</span>
+            </div>
+          </div>
+        </section>
+
         <AdvancedDisclosure
           v-model:open="ideaRefinementsOpen"
-          label="Refine topic, audience, titles, and generation settings"
+          label="Refine topic, audience, and titles"
           :badge="refinementBadge"
         >
           <div class="idea-refinement-shell">
-            <PresetPicker
-              label="Ideas preset"
-              hint="Save or restore this complete creative setup. Presets stay on this Mac."
-              :presets="ideasPresets.presets.value"
-              :active-id="ideasPresets.activeId.value"
-              @update:active-id="ideasPresets.setActive"
-              @apply="onIdeasPresetApplied"
-              @overwrite="onIdeasPresetOverwrite"
-              @save-as="onIdeasPresetSaveAs"
-              @rename="onIdeasPresetRename"
-              @delete="onIdeasPresetDelete"
-            />
-
             <div class="idea-refinement-grid">
               <section class="idea-refinement-card">
                 <div class="idea-refinement-heading">
@@ -327,21 +347,6 @@
                 <p v-if="titleConfig.prefix || titleConfig.suffix" class="title-wrap-preview">Preview: <code>{{ titlePreviewText }}</code></p>
               </section>
 
-              <section class="idea-refinement-card idea-refinement-wide">
-                <div class="idea-refinement-heading">
-                  <span class="idea-refinement-number">03</span>
-                  <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
-                </div>
-                <div class="generation-settings-grid">
-                  <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
-                  <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
-                  <div class="form-group">
-                    <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
-                    <input v-model.number="form.items_per_listicle" class="input" type="number" min="1" max="100" placeholder="Auto" />
-                    <span class="text-muted text-xs">Leave blank unless every idea needs the same fixed count.</span>
-                  </div>
-                </div>
-              </section>
             </div>
           </div>
         </AdvancedDisclosure>
@@ -1391,7 +1396,10 @@ const refinementCount = computed(() => [
     : '',
   form.title_template,
   titleConfig.prefix || titleConfig.suffix,
-  form.items_per_listicle,
+  // items_per_listicle and the model are deliberately NOT counted: both now sit
+  // above the disclosure, and the badge must describe only what is hidden
+  // behind it. Counting a visible field is how a "3 active" badge stops meaning
+  // anything.
 ].filter(Boolean).length)
 
 const refinementBadge = computed(() => refinementCount.value
@@ -3168,6 +3176,9 @@ async function confirmCompact() {
   background: var(--bg-secondary);
 }
 .idea-refinement-wide { grid-column: 1 / -1; }
+/* Stands alone above the disclosure rather than inside the refinement grid, so
+   it needs its own spacing — grid-column is inert outside a grid. */
+.idea-generation-card { margin: 12px 0; }
 .idea-refinement-heading { gap: 8px; margin-bottom: 10px; }
 .idea-refinement-number {
   display: grid;

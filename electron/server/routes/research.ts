@@ -73,13 +73,14 @@ router.get('/research/sources', async (_req, res) => {
 // ── GET /research/web-models ──────────────────────────────────────────
 // Which published GenStudio products may be used for "Search the web"
 // research, filtered by CAPABILITY ONLY (see services/research/web-capability
-// .ts for the five published conditions). Never filtered by provider or model
+// .ts for the six published conditions). Never filtered by provider or model
 // name.
 //
-// An empty list is a NORMAL, EXPECTED answer today — every product currently
-// reports `research_qualified: false` — so this returns 200 with
-// `available: false` and a plain reason, not an error. When GenStudio
-// qualifies a product, web mode turns itself on here with no code change.
+// An empty list is a NORMAL answer, not an error, so it returns 200 with
+// `available: false` and a plain reason. That was the state at launch, when no
+// product was research-qualified; qualified products are published now and web
+// mode turned itself on here with no code change, exactly as designed. Neither
+// answer is assumed ahead of the read.
 router.get('/research/web-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio').catch(() => '')
