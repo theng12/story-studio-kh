@@ -55,7 +55,15 @@ export interface ImageReconcileOutcome {
   status: 'recovered' | 'skipped_ok' | 'no_manifest' | 'expired' | 'failed' | 'pending' | 'error'
   reason?: string
   task_id?: string
-  provider?: string
+  /**
+   * No `provider`. Outcomes end up in `job.result` (returned verbatim by
+   * GET /projects/:slug/jobs/:jobId) and in the repair job's output lines, and
+   * the value could only ever be the transport that served the task — either
+   * Story Studio's internal 'genstudio-image' key, or, on a `.task-manifest.json`
+   * written before the GenStudio-only migration, the upstream aggregator it
+   * routed through. Neither is the customer's business. The manifest on disk is
+   * left exactly as written; it simply stops being echoed back.
+   */
 }
 
 export interface ImageReconcileResult {
@@ -128,7 +136,6 @@ async function recoverOne(
         status: 'error',
         reason: 'The saved GenStudio API key is unavailable.',
         task_id: entry.task_id,
-        provider: entry.provider,
       }
     }
     try {
@@ -138,7 +145,6 @@ async function recoverOne(
         filename: expected.filename,
         status: 'recovered',
         task_id: entry.task_id,
-        provider: entry.provider,
       }
     } catch (error: any) {
       return {
@@ -146,7 +152,6 @@ async function recoverOne(
         status: 'error',
         reason: error?.message || 'GenStudio image recovery failed.',
         task_id: entry.task_id,
-        provider: entry.provider,
       }
     }
   }
@@ -154,10 +159,9 @@ async function recoverOne(
   return {
     filename: expected.filename,
     status: 'error',
-    reason: `Legacy ${entry.provider} task evidence was preserved, but Story Studio no longer contacts that provider. ` +
+    reason: 'Legacy task evidence was preserved, but Story Studio no longer contacts the route that produced it. ' +
       'Use a deliberate GenStudio Retry for a new image.',
     task_id: entry.task_id,
-    provider: entry.provider,
   }
 }
 
@@ -205,7 +209,7 @@ export async function getImagesReconcileStatus(
       missingItems.push({
         filename: e.filename,
         recoverable: !!entry,
-        ...(entry ? { task_id: entry.task_id, provider: entry.provider } : {}),
+        ...(entry ? { task_id: entry.task_id } : {}),
       })
     }
     return {
@@ -228,7 +232,8 @@ export interface ImageRepairMissingItem {
   filename: string
   recoverable: boolean
   task_id?: string
-  provider?: string
+  /** No `provider` — see ImageReconcileOutcome. This shape is returned by
+   *  GET /projects/:slug/episodes/:code/images-repair-status and rendered. */
 }
 
 export interface ImageRepairPoolStatus {

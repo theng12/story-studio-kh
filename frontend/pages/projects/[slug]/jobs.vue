@@ -427,16 +427,17 @@
              Populated live by the resolver in providers/registry.ts
              whenever ctx.jobId is set. Hidden on jobs that never called a
              provider (local-only jobs) and on older jobs queued before the
-             attribution schema shipped. -->
+             attribution schema shipped. Entries whose provider Story Studio
+             may not name are dropped by visibleAccounts() — see there. -->
         <div v-if="hasAccountsUsed(job)" class="job-accounts">
           <span class="meta-label">Accounts:</span>
           <span
-            v-for="(acc, pid) in job.accounts_used"
-            :key="pid"
+            v-for="entry in visibleAccounts(job)"
+            :key="entry.providerId"
             class="account-chip"
-            :title="`Provider: ${pid} · Account id: ${acc.id}`"
+            :title="`${entry.label} · Account id: ${entry.account.id}`"
           >
-            {{ providerDisplay(pid) }}: <strong>{{ acc.label }}</strong>
+            {{ entry.label }}: <strong>{{ entry.account.label }}</strong>
           </span>
         </div>
 
@@ -716,7 +717,7 @@
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
-import { PROVIDER_DISPLAY } from '~/composables/useModelGroups'
+import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
 type RJob = DeepReadonly<Job>
 
@@ -778,9 +779,28 @@ watch(isUniversal, enabled => {
 // Account attribution helpers. Populated by the resolver whenever it runs
 // under a jobId (see electron/server/providers/registry.ts). Present only
 // on jobs that actually called a provider through the resolver.
-function hasAccountsUsed(job: RJob): boolean {
+/**
+ * The account chips, filtered to providers Story Studio may name.
+ *
+ * This page renders records written long ago. A job queued before the
+ * GenStudio-only migration (v1.0.669) still carries whatever transport served
+ * it — an upstream aggregator or a direct-vendor key — as the key of its
+ * `accounts_used` map, and that data stays on disk untouched. What changes is
+ * the DISPLAY: an entry whose provider has no public label is dropped rather
+ * than printed raw, so a private routing identity cannot surface from history.
+ * The row hides entirely when nothing is left to show.
+ */
+function visibleAccounts(job: RJob): Array<{ providerId: string; label: string; account: { id: string; label: string } }> {
   const used = job.accounts_used
-  return !!used && Object.keys(used).length > 0
+  if (!used) return []
+  return Object.entries(used).flatMap(([providerId, account]) => {
+    const label = publicProviderLabel(providerId)
+    return label ? [{ providerId, label, account }] : []
+  })
+}
+
+function hasAccountsUsed(job: RJob): boolean {
+  return visibleAccounts(job).length > 0
 }
 
 /**
@@ -810,10 +830,6 @@ const GENSTUDIO_BATCH_THRESHOLD = 12
 
 function isLargeGenStudioBatch(job: RJob): boolean {
   return (job.genstudio_jobs?.length || 0) >= GENSTUDIO_BATCH_THRESHOLD
-}
-
-function providerDisplay(providerId: string): string {
-  return PROVIDER_DISPLAY[providerId] || providerId
 }
 
 function isTtsJob(job: RJob): boolean {

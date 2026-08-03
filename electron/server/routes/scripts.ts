@@ -1520,7 +1520,11 @@ router.post('/projects/:slug/episodes/:code/normalize-script', async (req, res) 
 
     const config = await pm.getConfig(slug)
     if (!(await hasAnyTextProviderKey(config))) {
-      return res.status(400).json({ detail: 'Project missing API keys — add a text-model key (kie.ai, DeepSeek, OpenRouter, or OpenAI) in Settings.' })
+      // The other five `hasAnyTextProviderKey` guards in this file already say
+      // this. This one still listed the four text vendors Story Studio used to
+      // hold keys for — upstream routing detail the customer never sees now
+      // that `hasAnyTextProviderKey()` checks exactly one scoped GenStudio key.
+      return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
     }
     const apiKeys = {
       anthropic_api_key: (config as any).anthropic_api_key || '',

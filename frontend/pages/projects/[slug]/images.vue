@@ -415,8 +415,13 @@
         </div>
         <div v-for="item in activeRepairItems" :key="item.filename" class="repair-task-row">
           <span>{{ item.filename }}</span>
+          <!-- The task id is the useful half; the provider that produced it is
+               not shown. These rows come from a `.task-manifest.json` written
+               on disk, and an entry predating the GenStudio-only migration
+               still names the transport that served it. The manifest is left
+               exactly as written — this stops it being rendered. -->
           <span v-if="item.task_id" class="repair-task-id">
-            {{ item.provider || 'provider' }} task: {{ item.task_id }}
+            Task: {{ item.task_id }}
           </span>
           <span v-else class="repair-task-none">Provider task ID: not recorded · fresh generation required</span>
         </div>
@@ -1317,7 +1322,9 @@ interface ImageStatusState {
   missingScenesList: string    // "3, 7, 12" for the UI
   missingThumbsList: string
 }
-interface RepairMissingItem { filename: string; recoverable: boolean; task_id?: string; provider?: string }
+// No `provider`: the repair status endpoint no longer returns one, and a
+// legacy manifest's transport name has nothing to say to the customer.
+interface RepairMissingItem { filename: string; recoverable: boolean; task_id?: string }
 interface RepairPoolStatus {
   expected: number; present: number; missing: number
   with_manifest: number; without_manifest: number

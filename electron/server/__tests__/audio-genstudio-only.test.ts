@@ -109,7 +109,11 @@ test('generation, preview, and recovery source contain no direct TTS clients', (
   assert.doesNotMatch(preview, /generateTtsToFile|\/v1\/audio\/jobs/)
   assert.match(preview, /downloadVoicePreview/)
   assert.doesNotMatch(reconciler, /resolveApiKeyForProviderId|listAllLabsTasks|pollExistingFalAudio/)
-  assert.match(reconciler, /Legacy .* evidence is read-only/)
+  // The legacy branch still reports the evidence as read-only, but no longer
+  // interpolates the manifest's provider into it — `result.logs` goes straight
+  // to the customer, and a pre-migration entry names an upstream route.
+  assert.match(reconciler, /Legacy evidence is read-only/)
+  assert.doesNotMatch(reconciler, /Legacy \$\{entry\.provider/)
   assert.match(preview, /getApiKey\('genstudio'\)/)
   assert.match(route, /req\.path\.startsWith\('\/voicestudio\/'\)/)
   assert.match(route, /req\.path\.startsWith\('\/macos\/voices'\)/)

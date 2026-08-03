@@ -22,7 +22,13 @@ export interface VideoReconcileOutcome {
   status: 'recovered' | 'skipped_ok' | 'no_manifest' | 'expired' | 'failed' | 'pending' | 'error'
   reason?: string
   task_id?: string
-  provider?: string
+  /**
+   * No `provider`. Outcomes are persisted into `job.result` and returned
+   * verbatim by GET /projects/:slug/jobs/:jobId, and the only value available
+   * is the transport recorded in `.task-manifest.json` — an internal GenStudio
+   * key, or on a pre-migration entry the upstream it routed through. The
+   * manifest keeps it as audit evidence; the response does not carry it.
+   */
 }
 
 export interface VideoReconcileResult {
@@ -97,7 +103,6 @@ function inspectMissingClip(
   const evidence = {
     filename: expected.filename,
     task_id: entry.task_id,
-    provider: entry.provider,
   }
   if (entry.provider === 'genstudio' || entry.provider === 'genstudio-video') {
     return {

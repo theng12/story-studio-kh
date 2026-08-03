@@ -81,7 +81,7 @@
             v-if="row.audio.missing > 0"
             class="btn btn-sm btn-ghost repair-btn-row"
             :disabled="repairingRow === row.episode_id"
-            title="Repair audio for this episode only. Uses GenAIPro history, no credits consumed."
+            title="Repair audio for this episode only. Reads provider task history, no credits consumed."
             @click="repairSingleAudio(row.episode_id)"
           >↻ Audio</button>
           <button
@@ -202,10 +202,11 @@ async function repairSingleVideo(code: string) {
 async function repairSingleAudio(code: string) {
   repairingRow.value = code
   try {
-    // Audio repair runs synchronously (GenAIPro history lookup).
+    // Audio repair runs synchronously (provider history lookup). The route
+    // takes no provider — recovery is GenStudio-only and the server decides.
     const r = await post<{ recovered: number; still_missing: number }>(
       `/projects/${props.slug}/episodes/${code}/audio-repair`,
-      { provider: 'genaipro' },
+      {},
     )
     success(`Audio repair for ${code}: recovered ${r.recovered}, ${r.still_missing} still missing`)
     // Re-run audit to update the row.
@@ -227,11 +228,11 @@ async function repairAll() {
     }>(`/projects/${props.slug}/assets/repair-all`, {})
 
     // Kick off audio repairs one by one (they run inline server-side;
-    // serializing avoids blasting the GenAIPro history API with parallel
-    // lookups for every episode at once).
+    // serializing avoids blasting the history API with parallel lookups for
+    // every episode at once).
     for (const code of r.audio_repair_candidates) {
       try {
-        await post(`/projects/${props.slug}/episodes/${code}/audio-repair`, { provider: 'genaipro' })
+        await post(`/projects/${props.slug}/episodes/${code}/audio-repair`, {})
       } catch { /* surfaced in audit after rescan; don't stop the loop */ }
     }
 

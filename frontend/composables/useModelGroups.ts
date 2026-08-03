@@ -11,14 +11,31 @@
  *   </select>
  */
 
-/** Friendly display names for each provider id. */
+/**
+ * Display names for the identities Story Studio is allowed to NAME on screen.
+ *
+ * This map is an allowlist, not a lookup table. It holds exactly two kinds of
+ * identity:
+ *
+ *   1. `genstudio` — the gateway every cloud generation travels over. Naming
+ *      it is the whole of Story Studio's routing story.
+ *   2. Story Studio's own LOCAL features — Voice Studio KH, Image Studio KH,
+ *      Chat Studio, macOS `say`. These run on the customer's own machine, so
+ *      naming them describes their hardware, not an upstream.
+ *
+ * Everything else that used to live here — the upstream aggregator and the
+ * direct-vendor keys Story Studio carried before the GenStudio-only migration
+ * (v1.0.669) — is PRIVATE ROUTING IDENTITY. GenStudio owns provider selection
+ * and deliberately does not disclose who it routes to, so those ids must never
+ * reach a screen. They are gone from this map on purpose: an id that is not
+ * here has no display name, and `publicProviderLabel` returns '' for it rather
+ * than falling through to the raw id.
+ *
+ * A provider GenStudio DOES publish (a voice's `provider`/`engine_name`, a TTS
+ * model's `provider_name`) is shown from the catalogue payload itself and never
+ * goes through this map — see AGENTS.md → Provider Transparency.
+ */
 export const PROVIDER_DISPLAY: Record<string, string> = {
-  // TTS
-  elevenlabs: 'ElevenLabs (direct)',
-  fal: 'fal.ai (ElevenLabs)',
-  genaipro: 'GenAIPro (ElevenLabs)',
-  // v1.0.378+ — Fish Audio (direct cloud TTS; cheapest cloud option).
-  fishaudio: 'Fish Audio',
   genstudio: 'GenStudio KH',
   // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper,
   // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
@@ -26,25 +43,31 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   voicestudio: 'Voice Studio KH (local)',
   // v1.0.329+ — macOS built-in `say` voices (local, free; preview-oriented).
   macos: 'macOS say (built-in · free)',
-  // Image — kie.ai for cloud + Image Studio KH (v1.0.151+) for the
-  // local Pinokio modal (FLUX / Qwen / Z-Image on Apple Silicon MLX).
-  kie: 'kie.ai',
+  // v1.0.151+ — local Pinokio image modal (FLUX / Qwen / Z-Image on MLX).
   imagestudio: 'Image Studio KH (local)',
-  // LLM
-  deepseek: 'DeepSeek',
-  openrouter: 'OpenRouter',
-  openai: 'OpenAI',
   // Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM, self-healing).
   chatstudio: 'Chat Studio (local)',
-  // v1.0.497 — Chat Studio also proxies cloud LLM providers (OpenRouter, NVIDIA
-  // NIM, Groq, Gemini, HF Router, OpenAI, Anthropic, …). Separate group so local
-  // vs cloud is obvious; v1.0.498 — the Local/Free/Paid tier TAB distinguishes
-  // free from paid within this group, so the label stays neutral.
+  // v1.0.497 — Chat Studio also proxies cloud LLM providers. Separate group so
+  // local vs cloud is obvious; the label stays neutral and names no vendor.
   'chatstudio-cloud': 'Chat Studio (cloud)',
-  // Neutral bucket for an id `resolveAudioProvider` couldn't attribute to
-  // any known vendor (no explicit `.provider` field, no recognized legacy
-  // prefix). Display-only — never guess a specific vendor here.
+  // Neutral bucket for an id that could not be attributed to any nameable
+  // identity. Display-only — never guess a specific vendor here.
   unknown: 'Other',
+}
+
+/**
+ * The display name for a provider id, or '' when there is nothing Story Studio
+ * may say about it.
+ *
+ * The empty string is the point. A record written before the GenStudio-only
+ * migration can still carry a private routing identity on disk, and the old
+ * `PROVIDER_DISPLAY[id] || id` fallback printed those ids raw the moment they
+ * were missing from the map. Callers must treat '' as "show no provider" —
+ * never as a cue to fall back to the id, and never as a cue to invent one.
+ */
+export function publicProviderLabel(providerId: string | null | undefined): string {
+  if (!providerId) return ''
+  return PROVIDER_DISPLAY[providerId] || ''
 }
 
 /**
@@ -53,17 +76,9 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
  * in the app consistently.
  */
 const DEFAULT_ORDER = [
-  // TTS ordering — user-reported preference: direct first, then gateways,
-  // then local-modal options at the bottom (advanced; require Tailscale +
-  // a running Pinokio modal).
-  'elevenlabs', 'fal', 'genaipro', 'fishaudio', 'genstudio', 'voicestudio',
-  // Image — kie.ai cloud first, then local Pinokio modal at the bottom.
-  'kie', 'imagestudio',
-  // LLM — DeepSeek first (cheapest, the project default), then OpenRouter,
-  // then OpenAI, then the local Chat Studio group at the bottom (advanced;
-  // requires a running local server). (kie.ai's Claude/GPT/Gemini group sorts
-  // under 'kie' above.)
-  'deepseek', 'openrouter', 'openai', 'chatstudio', 'chatstudio-cloud',
+  // The gateway first, then the local-only options at the bottom (advanced;
+  // they need a running local server, or in Voice Studio's case Tailscale).
+  'genstudio', 'voicestudio', 'imagestudio', 'chatstudio', 'chatstudio-cloud', 'macos',
 ]
 
 export interface ModelGroup<T> {
@@ -94,33 +109,25 @@ export function groupModels<T>(
   })
   return providers.map(p => ({
     provider: p,
-    label: PROVIDER_DISPLAY[p] || p,
+    // A group whose provider Story Studio may not name gets a neutral heading.
+    // Echoing the raw id here is how an aggregator's name used to reach the
+    // picker, so the fallback is a generic word rather than the id.
+    label: publicProviderLabel(p) || 'Models',
     items: groups.get(p)!,
   }))
 }
 
 /**
- * Provider inference for audio models. Prefers the explicit `provider`
- * field if present (new default catalog) and falls back to prefix matching
- * for legacy model ids.
+ * The provider bucket for an audio model: the explicit `provider` the
+ * catalogue published, or the neutral `unknown` bucket.
+ *
+ * There is deliberately no second guess. This used to sniff the model id —
+ * `eleven_*` → elevenlabs, `genaipro-*` → genaipro, everything unrecognized
+ * → fal — which is the exact move AGENTS.md forbids: a provider inferred from
+ * a name pattern is a claim Story Studio is not entitled to make, and the ids
+ * it produced were upstream routing identities that then rendered as vendor
+ * names in the picker. An unpublished provider is unknown, never reconstructed.
  */
-export function resolveAudioProvider(id: string, m: { provider?: string }): string {
-  if (m.provider) return m.provider
-  if (id.startsWith('eleven_')) return 'elevenlabs'
-  if (id.startsWith('genaipro-')) return 'genaipro'
-  // v1.0.149+ — Voice Studio KH (Pinokio local modal).
-  // v1.0.150 dropped the standalone chatterbox-* prefix (rolled into
-  // Voice Studio's family list).
-  if (id.startsWith('voicestudio-')) return 'voicestudio'
-  if (id.startsWith('genstudio-')) return 'genstudio'
-  // v1.0.329+ — macOS built-in `say` (local, free).
-  if (id.startsWith('macos-')) return 'macos'
-  // v1.0.378+ — Fish Audio (direct cloud TTS).
-  if (id.startsWith('fishaudio-')) return 'fishaudio'
-  // No explicit provider and no recognized legacy prefix: group it under a
-  // neutral "Other" bucket rather than guessing a specific vendor. This is
-  // display-only optgroup labeling — it never selects execution authority —
-  // but silently mislabeling an unrecognized id as fal.ai was still
-  // actively misleading in the picker UI.
-  return 'unknown'
+export function resolveAudioProvider(_id: string, m: { provider?: string }): string {
+  return m.provider || 'unknown'
 }

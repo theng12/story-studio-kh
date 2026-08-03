@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.783 — 2026-08-03
+
+- **The names of the services behind your generations are no longer shown anywhere** — Story
+  Studio sends every request through GenStudio KH, which decides privately who fulfils it. A
+  number of places still displayed the routing service by name: model group headings, an image
+  model list, a repair dialog, task rows, job history chips, and several error messages. All of
+  them now either name GenStudio, name your own local tools, or say nothing.
+- **A model with no published provider no longer gets given one** — the image model list used
+  to label anything without a provider as a specific routing service, which was simply untrue.
+  Nothing is assumed now: where a provider is not published, none is shown.
+- **Older jobs no longer reveal how they were routed** — history from before everything moved
+  to GenStudio can still carry the old routing details on disk. Those records are untouched,
+  but the app no longer displays that part of them.
+- **Clearer message when your API key is missing** — it used to list several services by name,
+  most of which have not been used for a long time. It now simply says a GenStudio key is
+  needed and where to add it.
+
+---
+
 ## v1.0.782 — 2026-08-03
 
 - **Model names are no longer cluttered with "GenStudio KH"** — every model ran through

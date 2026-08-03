@@ -61,7 +61,10 @@ test('scene motion and planning source contain no executable direct provider or 
   assert.doesNotMatch(plan, /studiohub-client|hubSubmitChatPacks|hubPollChatPacks|getApiKey\(['"](?:openai|anthropic|kie)['"]\)/)
   assert.match(reviewRoute, /requireSceneClipGenStudioModel\(model\)/)
   assert.match(planRoute, /requireScenePlanGenStudioModel\(model\)/)
-  assert.match(clip, /no fal\.ai, Kie\.ai, or Studio Hub fallback was attempted/)
+  // The error still states that nothing else was tried; it no longer names the
+  // retired upstreams, which was private routing detail on the customer's screen.
+  assert.match(clip, /no other route was attempted/)
+  assert.doesNotMatch(clip, /fal\.ai|Kie\.ai/)
   assert.match(plan, /Scene planning did not call a direct provider or Studio Hub/)
 })
 

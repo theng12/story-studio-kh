@@ -78,11 +78,17 @@ function humanizeError(raw: string): string {
     return "Can't reach the server. Check your internet connection and try again."
   }
 
-  // Missing API keys (backend's standard message format)
-  if (/No (OpenAI|Anthropic|kie\.ai|fal\.ai) API key configured/i.test(s)) {
-    const match = s.match(/No (OpenAI|Anthropic|kie\.ai|fal\.ai) API key/i)
-    const provider = match ? match[1] : 'API'
-    return `${provider} API key missing. Add one in Settings → API Keys.`
+  // Missing API key (backend's standard message format).
+  //
+  // This used to capture a vendor name out of the message and repeat it back
+  // to the customer. That branch was dead twice over: the four vendors it
+  // matched were upstream routing identities the customer must never see, and
+  // since the GenStudio-only migration no backend string names any of them —
+  // every generation travels over one gateway and `hasAnyTextProviderKey()`
+  // checks one key. So it now matches the messages the backend actually emits
+  // and states the one true thing: the missing key is the scoped GenStudio key.
+  if (/\bNo\b[^.]{0,40}\bAPI key configured\b/i.test(s)) {
+    return 'GenStudio API key missing. Add the scoped key in Settings → This Mac.'
   }
 
   // Auth errors

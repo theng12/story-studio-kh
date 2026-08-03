@@ -861,7 +861,7 @@
           <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
         </div>
         <p class="text-muted text-sm caps-modal-intro">
-          Approximate per-prompt character limits documented by each provider. Prompts longer than the
+          Approximate per-prompt character limits published for each model. Prompts longer than the
           cap are typically rejected outright or silently truncated — wasting credits either way.
           Keep generated prompts under the cap of whichever model you plan to render with.
         </p>
@@ -872,8 +872,11 @@
                 <th>Model</th>
                 <th class="caps-th-right">Prompt cap</th>
                 <th class="caps-th-right">Credits / image</th>
+                <!-- No Provider column: the image catalogue publishes none,
+                     and the only other candidate was Story Studio's transport
+                     key, which is private routing detail. Removed rather than
+                     blanked — same call as the table on the Generator page. -->
                 <th>Refs?</th>
-                <th>Provider</th>
               </tr>
             </thead>
             <tbody>
@@ -892,7 +895,6 @@
                   <span v-if="row.supportsRefs" title="Supports reference / img2img images">✓</span>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td class="text-muted">{{ row.provider }}</td>
               </tr>
             </tbody>
           </table>
@@ -1046,7 +1048,13 @@ const allModelCaps = computed(() => {
     return {
       id,
       label: (m?.label as string) || id,
-      provider: (m?.provider as string) || 'kie',
+      // No provider. This row is built from `ImageModelConfig`, whose
+      // `provider` field holds Story Studio's own transport key rather than a
+      // vendor GenStudio publishes — the image catalogue publishes no provider
+      // at all. The old fallback defaulted every model without one to the
+      // upstream aggregator's id, which then rendered as its name in the
+      // picker: an invented fallback AND a private routing identity on screen.
+      // Nothing true can go here, so nothing goes here.
       cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
       credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
       supportsRefs: !!m?.supports_reference_images,
@@ -1069,8 +1077,10 @@ const capPreviewMenuOptions = computed(() => [
   ...capPreviewOptions.value.map(model => ({
     id: model.id,
     label: model.label,
-    group: model.provider || 'Image models',
-    provider: model.provider,
+    // One neutral heading, and no `provider` line: the image catalogue
+    // publishes no provider, so ModelMenu has nothing to show under the
+    // selected model and invents nothing to fill it.
+    group: 'Image models',
     meta: model.cap ? `${model.cap.toLocaleString()} character prompt cap` : 'No documented prompt cap',
     badges: model.supportsRefs ? [{ label: 'References', tone: 'info' as const }] : [],
   })),

@@ -258,7 +258,12 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       fail(
         filename,
         entry.task_id,
-        `Legacy ${entry.provider || 'provider'} evidence is read-only. Retry generation through GenStudio; the legacy provider was not contacted.`,
+        // The manifest entry names the transport that served this chunk, and
+        // on anything written before the GenStudio-only migration that is an
+        // upstream routing identity. `result.logs` is returned straight to the
+        // customer by POST /audio-repair, so the name is dropped — what matters
+        // is that the evidence is read-only and nothing was contacted.
+        'Legacy evidence is read-only. Retry generation through GenStudio; the legacy route was not contacted.',
       )
       continue
     }

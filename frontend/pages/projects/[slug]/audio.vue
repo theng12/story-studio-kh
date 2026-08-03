@@ -1038,7 +1038,7 @@ async function runRepair() {
   try {
     const r = await post<RepairResult>(
       `/projects/${slug.value}/episodes/${form.episode_id}/audio-repair`,
-      { provider: 'genaipro' },
+      {},
     )
     repairResult.value = r
     if (r.recovered > 0) {

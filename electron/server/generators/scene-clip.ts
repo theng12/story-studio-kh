@@ -177,8 +177,11 @@ export async function requireSceneClipGenStudioModel(selectedModel: string): Pro
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
   if (!modelId) {
     throw new Error(
+      // Naming the retired fallbacks told the customer which upstreams Story
+      // Studio used to reach for. What they need to know is that nothing else
+      // was tried and no credits were spent — say that, name nobody.
       `Saved video model "${selectedModel}" is not available through GenStudio. `
-      + 'Choose an available GenStudio image-to-video model; no fal.ai, Kie.ai, or Studio Hub fallback was attempted.',
+      + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
     )
   }
   const resolved = catalog.find(model => model.id === modelId)!

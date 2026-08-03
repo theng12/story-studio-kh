@@ -112,6 +112,30 @@ const PUBLISHED_VALUE_NAMES = [
 const COST_VOCABULARY = /\b(cost|costs|price|pricing|priced|credit|credits|usd|dollar|dollars|estimate|estimated|spend|spent|bill|billed|billing|charge|charged)\b/i
 
 /**
+ * Upstream routing identities: the aggregator and gateway keys Story Studio
+ * carried before every generation moved behind GenStudio (v1.0.669). GenStudio
+ * owns provider selection and deliberately does not disclose who it routes to,
+ * so these names may not appear anywhere in the frontend — not in a label map,
+ * a template, a toast string, or a request payload.
+ *
+ * Deliberately narrow, on both axes:
+ *
+ *   - Only these five names. `openai`, `anthropic` and `deepseek` are left out
+ *     because they are also ordinary technical vocabulary in this app — Chat
+ *     Studio runs a local "OpenAI-compatible" server — and a rule that fires on
+ *     a true sentence gets annotated away. Only the names with no innocent
+ *     reading are enforced.
+ *   - Frontend only. The backend legitimately holds transport keys; what it may
+ *     not do is serialise one into a response, which is a different shape of
+ *     check and lives in electron/server/__tests__/private-routing-identity.test.ts.
+ *
+ * Providers GenStudio PUBLISHES (ElevenLabs, Fish Audio — a voice's `provider`
+ * / `engine_name`, a TTS model's `provider_name`) are shown on purpose and are
+ * not listed here: they arrive as runtime catalogue data, never as source text.
+ */
+const PRIVATE_ROUTING_IDENTITY = /\b(?:kie\.ai|kie|fal\.ai|openrouter|genaipro)\b/gi
+
+/**
  * Members that legitimately hang off something named `controls` — array and
  * object built-ins, plus Vue's `.value`. Anything else after `controls.` is a
  * control NAME, which belongs to the catalogue and not to this codebase.
@@ -249,6 +273,21 @@ const rules = [
       + 'label, type, minimum, maximum, step, max_length and default all come from the catalogue '
       + '(lib/tts-controls.ts). Index the map by a published name, never by one written here; a '
       + 'product that renames or drops the control leaves the code asserting it still exists.',
+  },
+  {
+    id: 'private-routing-identity',
+    // The aggregator that must never reach a screen. Comments are already
+    // blanked before any rule runs and __tests__ is not scanned, so a name
+    // discussed in documentation or pinned in a boundary test is not a hit —
+    // only a name that survives into shipped frontend code.
+    pattern: PRIVATE_ROUTING_IDENTITY,
+    ignore: (_match, context) => !context.file.startsWith('frontend/'),
+    describe: (match) => `the private routing identity "${match[0]}" appears in frontend code`,
+    remedy: 'GenStudio owns provider selection and does not publish who it routes to. Show the '
+      + 'gateway ("GenStudio KH"), a provider GenStudio actually publishes (provider_name / '
+      + 'provider / engine_name, read live from the catalogue), or nothing at all. A model with '
+      + 'no published provider shows NO provider — never a placeholder vendor, and never a name '
+      + 'guessed from a model id.',
   },
   {
     id: 'currency-symbol',
@@ -448,7 +487,7 @@ let allowedCount = 0
 for (const file of files) {
   const raw = await readFile(file, 'utf8')
   if (!raw.includes(ALLOW_ANNOTATION)
-    && !/gpt-|claude-|gemini-|flux|seedream|kling|veo|sora|runway|wan|hailuo|whisper|eleven|qwen|nano-banana|genstudio-|imagen|dall-e|seedance|credit|price|cost|usd|token|character|\d{1,2}:\d{1,2}|\d{3,4}p/i.test(raw)) {
+    && !/gpt-|claude-|gemini-|flux|seedream|kling|veo|sora|runway|wan|hailuo|whisper|eleven|qwen|nano-banana|genstudio-|imagen|dall-e|seedance|credit|price|cost|usd|token|character|kie|fal\.ai|openrouter|genaipro|\d{1,2}:\d{1,2}|\d{3,4}p/i.test(raw)) {
     continue
   }
 
