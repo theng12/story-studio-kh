@@ -1072,7 +1072,6 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   const accountsByProvider = await listAllAccounts(slug).catch(() => ({}))
 
   const safe: any = {
-    has_kie_key: !!config.kie_api_key,
     has_genstudio_key: !!config.genstudio_api_key,
     has_google_key: !!(config as any).google_api_key,
     // v1.0.150 — Chatterbox standalone provider removed. The
@@ -1099,14 +1098,16 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // ignored on read but kept on disk so older app builds still see them.
     voice_presets: await (async () => {
       const { getVoicePresetsGlobal } = await import('./app-settings.js')
-      const { normalizeVoicePresets } = await import('./voice-presets.js')
+      const { normalizeVoicePresets, publicVoicePresets } = await import('./voice-presets.js')
       const global = await getVoicePresetsGlobal()
-      if (global.length > 0) return global
+      // publicVoicePresets narrows `providers` to the gateway on the way out.
+      // Storage keeps its legacy transport keys; the wire never carries them.
+      if (global.length > 0) return publicVoicePresets(global)
       // Pre-migration fallback: per-project value if set, else seeded default.
       if (config.voice_presets && config.voice_presets.length) {
-        return normalizeVoicePresets(config.voice_presets)
+        return publicVoicePresets(normalizeVoicePresets(config.voice_presets))
       }
-      return [...DEFAULT_VOICE_PRESETS]
+      return publicVoicePresets(normalizeVoicePresets([...DEFAULT_VOICE_PRESETS]))
     })(),
     voice_favourites: await (async () => {
       const { getVoiceFavouritesGlobal } = await import('./app-settings.js')

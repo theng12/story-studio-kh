@@ -175,7 +175,7 @@ interface VoiceStudioVoice {
   available_on?: string[]
   available_everywhere?: boolean
   endpoint_count?: number
-  voice_kind?: 'voicestudio-pooled' | 'studiohub-shared'
+  voice_kind?: 'voicestudio-pooled'
 }
 
 const props = withDefaults(defineProps<{
@@ -366,10 +366,6 @@ function rowProps(voice: GenStudioVoice) {
 const currentGenStudioVoice = computed(() => voices.value.find(voice => voice.id === props.modelValue) || null)
 const currentLocalVoice = computed(() => {
   if (!props.modelValue) return null
-  if (props.modelValue.startsWith('hubvoice:')) {
-    const id = props.modelValue.slice('hubvoice:'.length)
-    return localVoices.value.find(voice => voice.id === id && voice.voice_kind === 'studiohub-shared') || null
-  }
   if (props.modelValue.startsWith('vsname:')) {
     const name = props.modelValue.slice('vsname:'.length)
     return localVoices.value.find(voice => voice.name === name) || null
@@ -488,7 +484,6 @@ async function onLibraryVoiceAdded(voiceId: string) {
 }
 
 function encodedLocalVoice(voice: VoiceStudioVoice) {
-  if (voice.voice_kind === 'studiohub-shared') return `hubvoice:${voice.id}`
   return voice.voice_kind === 'voicestudio-pooled' ? `vsname:${voice.name}` : voice.id
 }
 function isSelectedLocal(voice: VoiceStudioVoice) {

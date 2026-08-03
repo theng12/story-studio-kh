@@ -424,7 +424,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           speed: 1,
           requestIdentity: 'qualification:tts:failed',
         }),
-        /VOICE_PROVIDER_RESULT_INVALID.*No direct Studio Hub fallback was attempted/,
+        /VOICE_PROVIDER_RESULT_INVALID.*No fallback route was attempted/,
       )
       const failedTts = service.submissions.find(submission => submission.operation === 'tts')
       assert.ok(failedTts)
@@ -456,8 +456,11 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           `GenStudio-only source imports forbidden fallback module ${moduleName}`,
         )
       }
-      assert.match(sources[0]!, /No direct provider or Studio Hub fallback was attempted/)
-      assert.match(sources[0]!, /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/)
+      assert.match(sources[0]!, /No fallback route was attempted/)
+      // No fallback sentence may name who was NOT called — v1.0.784 replaced
+      // every "No OpenAI, Studio Hub, or direct Voice Studio fallback" with a
+      // neutral "No fallback route was attempted."
+      assert.doesNotMatch(sources[0]!, /No[^'"`\n]*(?:OpenAI|Studio Hub)[^'"`\n]*fallback/)
       assert.ok(service.requests.every(request => request.authorization.startsWith('Bearer gsk_mock_')))
     })
   } finally {

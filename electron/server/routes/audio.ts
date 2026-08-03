@@ -865,7 +865,7 @@ router.get('/voicestudio/voices', async (req, res) => {
     const { getHubBackend, hubSharedVoices, trimHubUrl } = await import('../lib/studiohub-client.js')
     const hub = await getHubBackend()
     if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      if (!hub.hubUrl) throw new Error('Fleet routing is selected, but no controller URL is configured.')
         const r = await swrFetch(vsVoicesCache, `vs-voices:hub:${hub.hubUrl}`, async () => {
           const shared = await hubSharedVoices(hub.hubUrl, hub.hubToken)
           const voices = shared.map(voice => {
@@ -990,7 +990,7 @@ router.get('/voicestudio/models', async (req, res) => {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const hub = await getHubBackend()
     if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      if (!hub.hubUrl) throw new Error('Fleet routing is selected, but no controller URL is configured.')
       const rows = await hubModels(hub.hubUrl, hub.hubToken, 'voice', req.query.refresh === '1')
       const result = listAvailableHubEngines(rows)
       res.json({ ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' })

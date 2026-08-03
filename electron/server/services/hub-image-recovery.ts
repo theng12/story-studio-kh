@@ -96,7 +96,7 @@ export async function prepareHubImageRecovery(
 
   if (input.repairOnly) {
     if (!existing?.batch_id || existing.logical_id !== input.logicalId) {
-      throw new Error('Repair cannot find an accepted Studio Hub image batch. Use Retry; its saved idempotency key will safely replay an uncertain submission.')
+      throw new Error('Repair cannot find an accepted image batch. Use Retry; its saved idempotency key will safely replay an uncertain submission.')
     }
     return existing
   }
@@ -107,7 +107,7 @@ export async function prepareHubImageRecovery(
   if (existing?.logical_id === input.logicalId && (existing.state === 'prepared' || existing.state === 'accepted')) {
     if (existing.batch_id || existing.request_hash === requestHash) return existing
     throw new Error(
-      'The saved Studio Hub submission is ambiguous and its image inputs changed. ' +
+      'The saved submission is ambiguous and its image inputs changed. ' +
       'Story Studio stopped instead of risking duplicate work. Restore the original prompts/settings or dismiss this job and start a deliberate fresh render.',
     )
   }

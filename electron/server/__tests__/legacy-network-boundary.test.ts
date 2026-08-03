@@ -87,7 +87,7 @@ describe('GenStudio-only legacy network boundary', () => {
 
     assert.equal(response.status, 410)
     assert.equal(response.body.code, 'GENSTUDIO_ONLY')
-    assert.match(response.body.detail, /no Hub or provider request was attempted/i)
+    assert.match(response.body.detail, /no request was attempted/i)
     assert.deepEqual(calls, [])
   })
 

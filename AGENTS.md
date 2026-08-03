@@ -146,10 +146,44 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - `image_prompts_*` and `image_generator_*` are legacy compatibility keys only. They should not be the primary keys for new thumbnail/scene UI or Pipeline selectors.
 - The Pipeline batch step named `image_prompts` must use the active format to choose prompt mode. Classic chapter-distributed scene-image formats may run `mode: "all"`; B-Roll, timestamp-driven, continuity-chain, and narrated-scenes formats must run thumbnail prompts only (`mode: "thumbnails"`) because scene prompts come from Scene Plan.
 
-## Video Assembly Preset Boundaries
+## Preset Boundaries — A Preset Carries Reusable Settings, Nothing Else
 
-- `title_image.image_path` is episode-specific. Timeline presets and all-steps bundle fallbacks must never save or restore it.
-- Reusable title-image settings such as enabled state, duration, transition type, and transition duration may remain in presets.
+**A preset restores the thing it is named for and never quietly re-decides anything else.**
+The owner's rule, 2026-08-03: *"i want actions to be intentional, not swept in with bugs like
+this."*
+
+Three instances of the same defect have now shipped, which is why this is a general rule and
+not a note about one page:
+
+- `title_image.image_path` in Video Assembly timeline presets — an episode's own image
+  restored onto a different episode.
+- `pacing` in Character Sheet presets — the customer chose "1–3 seconds", applied a preset to
+  set the **art style**, and silently got that preset's rhythm instead. 50 of 53 episodes in a
+  real project ended up at 4–8s, none of it chosen.
+- `references.sheet` in the same presets — ORed into `use_episode_sheet`, so applying any
+  preset turned "Use episode anchor" **on**, pointing at a sheet that may not exist.
+
+The test to apply when deciding whether a key belongs in a preset:
+
+- **Reusable look or configuration → include.** Style bible, negative prompt, recipe,
+  transition type, duration, enabled state.
+- **Episode-specific state → exclude.** Anything naming or depending on one episode's files,
+  images, or anchors.
+- **A deliberate choice the customer makes elsewhere → exclude.** Scene rhythm is chosen in its
+  own control; an art-style preset must not overwrite it. If two controls are set in different
+  places, one must not silently decide the other.
+
+Two practical requirements, both learned the hard way:
+
+- **Excluding a key is usually only half the fix.** `usePresets`' `excludeKeys` strips on read
+  as well as write, so already-saved presets stop restoring the key — but if the normaliser
+  then falls back to a built-in default, the customer's live value is still discarded, just to
+  a different wrong number. Carry the live value across the apply explicitly.
+- **Never rewrite stored presets or project data to fix this.** Stop honouring the key; leave
+  what is on disk alone. Silently mutating saved files is the same disease.
+
+Reusable title-image settings — enabled state, duration, transition type and duration — may
+remain in Video Assembly presets.
 
 ## Generator Model Defaults
 

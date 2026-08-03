@@ -258,7 +258,7 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
   if (!model) {
     throw new Error(
       `${unavailableLegacyModelMessage('chat', selectedModel)} `
-      + 'Scene planning did not call a direct provider or Studio Hub.',
+      + 'Scene planning did not call any fallback route.',
     )
   }
   return model

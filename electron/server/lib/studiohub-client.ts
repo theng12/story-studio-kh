@@ -1,5 +1,5 @@
 /**
- * Studio Hub KH client — the single control-plane that fronts the Studio fleet
+ * the fleet controller KH client — the single control-plane that fronts the Studio fleet
  * (Image / Voice / Chat / Music / Video servers across many Macs on Tailscale).
  *
  * When `local_backend === 'hub'` (App Settings → Local Models), the local
@@ -31,7 +31,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { getLocalBackend, getHubUrl } from '../services/app-settings.js'
 
 export interface HubBackend {
-  /** Active local backend. 'hub' means route through Studio Hub. */
+  /** Active local backend. 'hub' means route through the fleet controller. */
   mode: 'direct' | 'hub'
   /** Hub base URL (no trailing slash), e.g. http://127.0.0.1:47873. */
   hubUrl: string
@@ -162,11 +162,11 @@ async function hubGetJson<T>(
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (e: any) {
-    throw new Error(`Can't reach Studio Hub inventory: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't reach the fleet controller inventory: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub inventory failed (${resp.status}): ${detail.slice(0, 300)}`)
+    throw new Error(`The fleet controller inventory failed (${resp.status}): ${detail.slice(0, 300)}`)
   }
   return resp.json() as Promise<T>
 }
@@ -208,7 +208,7 @@ export function hubTranscription(
   return hubGetJson(hubUrl, token, `/transcription${force ? '?force=true' : ''}`)
 }
 
-/** Canonical cloning references owned and synchronized by Studio Hub. */
+/** Canonical cloning references owned and synchronized by the fleet controller. */
 export async function hubSharedVoices(
   hubUrl: string,
   token: string | undefined,
@@ -231,7 +231,7 @@ export async function hubBroadcastDownload(
   })
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub model download failed (${resp.status}): ${detail.slice(0, 300)}`)
+    throw new Error(`The fleet controller model download failed (${resp.status}): ${detail.slice(0, 300)}`)
   }
   return resp.json()
 }
@@ -256,11 +256,11 @@ export async function hubTranscribeFile(
       method: 'POST', headers: hubHeaders(token), body: form, signal,
     })
   } catch (e: any) {
-    throw new Error(`Can't reach Studio Hub transcription: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't reach the fleet controller transcription: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub transcription failed (${resp.status}): ${detail.slice(0, 500)}`)
+    throw new Error(`The fleet controller transcription failed (${resp.status}): ${detail.slice(0, 500)}`)
   }
   return resp.json()
 }
@@ -284,7 +284,7 @@ export interface HubSubmitBody {
   /** 'pool' (Hub picks a capable studio) | 'remote' (never Hub Mac) | 'studio:<id>'. */
   routing?: string
   sharedParams?: Record<string, any>
-  /** Stable caller identity. Studio Hub replays the original batch when the
+  /** Stable caller identity. the fleet controller replays the original batch when the
    * same id + request body is submitted after an ambiguous network failure. */
   clientRequestId?: string
   items: HubJobItem[]
@@ -374,10 +374,10 @@ async function hubCancelPath(
     }
     if (attempt < 3) await sleepCancellable(attempt * 250)
   }
-  throw new Error(`Studio Hub did not acknowledge cancellation after 3 attempts (${lastFailure})`)
+  throw new Error(`The fleet controller did not acknowledge cancellation after 3 attempts (${lastFailure})`)
 }
 
-/** Cancel a generation batch and require an acknowledgement from Studio Hub. */
+/** Cancel a generation batch and require an acknowledgement from the fleet controller. */
 export async function hubCancelBatch(
   hubUrl: string,
   token: string | undefined,
@@ -405,15 +405,15 @@ export async function hubSubmitJob(
       signal: AbortSignal.timeout(30_000),
     })
   } catch (e: any) {
-    throw new Error(`Can't reach Studio Hub to submit a job: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't reach the fleet controller to submit a job: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const t = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub submit failed (${resp.status}): ${t.slice(0, 300)}`)
+    throw new Error(`The fleet controller submit failed (${resp.status}): ${t.slice(0, 300)}`)
   }
   const j = await resp.json().catch(() => ({})) as { batch_id?: string; items?: number; replayed?: boolean }
   if (!j?.batch_id) {
-    throw new Error(`Studio Hub submit returned no batch_id: ${JSON.stringify(j).slice(0, 200)}`)
+    throw new Error(`The fleet controller submit returned no batch_id: ${JSON.stringify(j).slice(0, 200)}`)
   }
   return { batch_id: j.batch_id, items: j.items ?? body.items.length, replayed: j.replayed === true }
 }
@@ -432,16 +432,16 @@ export async function hubGetBatchStatus(
       signal: AbortSignal.timeout(30_000),
     })
   } catch (error: any) {
-    throw new Error(`Can't reconnect to Studio Hub batch ${batchId}: ${error?.message || error}`)
+    throw new Error(`Can't reconnect to the fleet controller batch ${batchId}: ${error?.message || error}`)
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Studio Hub batch ${batchId} lookup failed (${response.status}): ${detail.slice(0, 300)}`)
+    throw new Error(`The fleet controller batch ${batchId} lookup failed (${response.status}): ${detail.slice(0, 300)}`)
   }
   try {
     return await response.json() as HubBatchStatus
   } catch (error: any) {
-    throw new Error(`Studio Hub returned an unreadable status for batch ${batchId}: ${error?.message || error}`)
+    throw new Error(`The fleet controller returned an unreadable status for batch ${batchId}: ${error?.message || error}`)
   }
 }
 
@@ -495,7 +495,7 @@ export async function hubPollBatch(
         )
         continue
       }
-      throw new Error(`Studio Hub poll failed (${resp.status}): ${t.slice(0, 300)}`)
+      throw new Error(`The fleet controller poll failed (${resp.status}): ${t.slice(0, 300)}`)
     }
     let s: HubBatchStatus
     try {
@@ -529,7 +529,7 @@ export async function hubPollBatch(
           if (lastError) {
             const detail = lastError instanceof Error ? lastError.message : String(lastError)
             throw new Error(
-              `Studio Hub item ${it.index} finished, but Story Studio could not save it after 5 attempts: ${detail}`,
+              `The fleet controller item ${it.index} finished, but Story Studio could not save it after 5 attempts: ${detail}`,
             )
           }
         }
@@ -547,11 +547,11 @@ export async function hubPollBatch(
     await hubCancelBatch(hubUrl, token, batchId)
   } catch (error: any) {
     throw new Error(
-      `Studio Hub batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
+      `The fleet controller batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
     )
   }
   throw new Error(
-    `Studio Hub batch ${batchId} exceeded its monitoring limit and was cancelled after ` +
+    `The fleet controller batch ${batchId} exceeded its monitoring limit and was cancelled after ` +
     `${Math.round((opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS) / 60_000)} min. Verified completed items remain saved.`,
   )
 }
@@ -610,14 +610,14 @@ export async function hubSubmitChatPacks(
       signal: AbortSignal.timeout(30_000),
     })
   } catch (e: any) {
-    throw new Error(`Can't reach Studio Hub to submit Chat packs: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't reach the fleet controller to submit Chat packs: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub Chat submit failed (${resp.status}): ${detail.slice(0, 500)}`)
+    throw new Error(`The fleet controller Chat submit failed (${resp.status}): ${detail.slice(0, 500)}`)
   }
   const value = await resp.json() as { batch_id?: string; packs?: number; scenes?: number }
-  if (!value.batch_id) throw new Error('Studio Hub Chat submit returned no batch_id')
+  if (!value.batch_id) throw new Error('The fleet controller Chat submit returned no batch_id')
   return { batch_id: value.batch_id, packs: value.packs || body.packs.length, scenes: value.scenes || 0 }
 }
 
@@ -659,7 +659,7 @@ export async function hubPollChatPacks(
         continue
       }
       throw new Error(
-        `Studio Hub accepted Chat batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
+        `The fleet controller accepted Chat batch ${batchId}, but Story Studio could not reconnect after 6 monitoring attempts: ${e?.message || e}. ` +
         'No alternate transport was started because the Hub batch may still be running.',
       )
     }
@@ -673,7 +673,7 @@ export async function hubPollChatPacks(
         )
         continue
       }
-      throw new Error(`Studio Hub Chat poll failed (${resp.status}): ${detail.slice(0, 500)}`)
+      throw new Error(`The fleet controller Chat poll failed (${resp.status}): ${detail.slice(0, 500)}`)
     }
     consecutivePollFailures = 0
     const status = await resp.json() as HubChatBatchStatus
@@ -685,11 +685,11 @@ export async function hubPollChatPacks(
     await hubCancelPath(hubUrl, token, `/chat/jobs/${encodeURIComponent(batchId)}`)
   } catch (error: any) {
     throw new Error(
-      `Studio Hub Chat batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
+      `The fleet controller Chat batch ${batchId} exceeded its monitoring limit and cancellation could not be confirmed: ${error?.message || error}`,
     )
   }
   throw new Error(
-    `Studio Hub Chat batch ${batchId} exceeded its monitoring limit and was cancelled. ` +
+    `The fleet controller Chat batch ${batchId} exceeded its monitoring limit and was cancelled. ` +
     'Prompts already checkpointed by stable scene ID remain saved.',
   )
 }
@@ -724,14 +724,14 @@ export async function hubUploadAsset(
       method: 'POST', headers: hubHeaders(token), body: form, signal: AbortSignal.timeout(60_000),
     })
   } catch (e: any) {
-    throw new Error(`Can't reach Studio Hub to upload a reference asset: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't reach the fleet controller to upload a reference asset: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const t = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub asset upload failed (${resp.status}): ${t.slice(0, 200)}`)
+    throw new Error(`The fleet controller asset upload failed (${resp.status}): ${t.slice(0, 200)}`)
   }
   const j = await resp.json().catch(() => ({})) as { asset_id?: string }
-  if (!j?.asset_id) throw new Error('Studio Hub asset upload returned no asset_id')
+  if (!j?.asset_id) throw new Error('The fleet controller asset upload returned no asset_id')
   return j.asset_id
 }
 
@@ -796,12 +796,12 @@ export async function hubFindRenderAsset(
       { headers: hubHeaders(token), signal: AbortSignal.timeout(30_000) },
     )
   } catch (error: any) {
-    throw new Error(`Can't check retained render assets on Studio Hub: ${error?.message || error}`)
+    throw new Error(`Can't check retained render assets on the fleet controller: ${error?.message || error}`)
   }
   if (resp.status === 404) return null
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub render-asset lookup failed (${resp.status}): ${detail.slice(0, 300)}`)
+    throw new Error(`The fleet controller render-asset lookup failed (${resp.status}): ${detail.slice(0, 300)}`)
   }
   const value = await resp.json() as { asset_id: string; bytes: number; sha256: string; path: string }
   return {
@@ -823,12 +823,12 @@ export async function hubWorkerReachableUrl(
   const resp = await fetch(`${hubApiBase(base)}/access`, {
     headers: hubHeaders(token), signal: AbortSignal.timeout(10_000),
   })
-  if (!resp.ok) throw new Error(`Studio Hub access-address lookup failed (${resp.status})`)
+  if (!resp.ok) throw new Error(`The fleet controller access-address lookup failed (${resp.status})`)
   const value = await resp.json() as { addresses?: Array<{ url?: string; kind?: string }> }
   const addresses = value.addresses || []
   const selected = addresses.find(a => a.kind === 'tailscale' && a.url)
     || addresses.find(a => a.kind === 'lan' && a.url)
-  if (!selected?.url) throw new Error('Studio Hub has no Tailscale or LAN address for render workers')
+  if (!selected?.url) throw new Error('The fleet controller has no Tailscale or LAN address for render workers')
   return trimHubUrl(selected.url)
 }
 
@@ -858,11 +858,11 @@ export async function hubUploadRenderAsset(
       signal: AbortSignal.timeout(30 * 60_000),
     } as any)
   } catch (e: any) {
-    throw new Error(`Can't stream a render asset to Studio Hub: ${e?.message || e}. Connection error.`)
+    throw new Error(`Can't stream a render asset to the fleet controller: ${e?.message || e}. Connection error.`)
   }
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
-    throw new Error(`Studio Hub render-asset upload failed (${resp.status}): ${detail.slice(0, 300)}`)
+    throw new Error(`The fleet controller render-asset upload failed (${resp.status}): ${detail.slice(0, 300)}`)
   }
   const value = await resp.json() as { asset_id: string; bytes: number; sha256: string; path: string }
   return {
@@ -886,7 +886,7 @@ export async function hubEnsureRenderAsset(
   if (retained) return retained
   const uploaded = await hubUploadRenderAsset(hubUrl, workerHubUrl, token, filePath, expectedSha256)
   if (uploaded.sha256 !== expectedSha256) {
-    throw new Error(`Studio Hub returned a checksum that does not match ${path.basename(filePath)}.`)
+    throw new Error(`The fleet controller returned a checksum that does not match ${path.basename(filePath)}.`)
   }
   return uploaded
 }
@@ -961,7 +961,7 @@ export async function hubStudios(hubUrl: string, token: string | undefined): Pro
     headers: { Accept: 'application/json', ...hubHeaders(token) },
     signal: AbortSignal.timeout(15_000),
   })
-  if (!resp.ok) throw new Error(`Studio Hub studios failed (${resp.status})`)
+  if (!resp.ok) throw new Error(`The fleet controller studios failed (${resp.status})`)
   const j = await resp.json().catch(() => ({})) as { studios?: HubStudio[] }
   return Array.isArray(j?.studios) ? j.studios : []
 }
@@ -979,7 +979,7 @@ export async function hubStudioAction(
       method: 'POST', headers: hubHeaders(token), signal: AbortSignal.timeout(20_000),
     })
   } catch (e: any) {
-    return { ok: false, error: `Can't reach Studio Hub: ${e?.message || e}` }
+    return { ok: false, error: `Can't reach the fleet controller: ${e?.message || e}` }
   }
   const j = await resp.json().catch(() => ({})) as { ok?: boolean; error?: string; detail?: string }
   if (!resp.ok) return { ok: false, error: j?.detail || j?.error || `HTTP ${resp.status}` }

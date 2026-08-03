@@ -75,7 +75,7 @@ describe('durable Studio Hub image identity', () => {
         logicalId: 'scene-images:p:EP0001', targetIds: ['scene-1'],
         hubUrl: 'http://hub:47873', requestIdentity: [{ prompt: 'one' }], repairOnly: true,
       }),
-      /cannot find an accepted Studio Hub image batch/i,
+      /cannot find an accepted image batch/i,
     )
 
     const prepared = await recovery.prepareHubImageRecovery(current, {

@@ -172,9 +172,13 @@ describe('shared model menus', () => {
     }
   })
 
-  test('Voice Studio preserves Hub-owned clone identity in the picker', () => {
-    assert.match(voicePicker, /voice_kind === 'studiohub-shared'/)
-    assert.match(voicePicker, /`hubvoice:\$\{voice\.id\}`/)
+  test('the picker carries no retired Studio Hub voice identity', () => {
+    // v1.0.784 — /voicestudio/voices is 410'd by the retirement middleware, so
+    // a studiohub-shared voice can never arrive. Both branches that decoded one
+    // were dead code naming a retired routing surface.
+    assert.doesNotMatch(voicePicker, /studiohub-shared/)
+    assert.doesNotMatch(voicePicker, /hubvoice:/)
+    assert.match(voicePicker, /voice_kind === 'voicestudio-pooled'/)
   })
 
   test('the voice dialog keeps the scope statement, library browser and saved toggle', () => {
@@ -226,11 +230,14 @@ test('the format wizard no longer restores a hardcoded paid model list', () => {
 
 test('Character Sheet exposes strict visual-pacing presets with a custom range', () => {
   const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
+  // The bands moved into useContinuityConfig so the preset-boundary tests can
+  // import and exercise them; the control itself still lives on the page.
+  const continuityConfig = source('../composables/useContinuityConfig.ts')
   assert.match(characterSheet, /Visual pacing/)
-  assert.match(characterSheet, /1–3 seconds — Rapid & lively/)
-  assert.match(characterSheet, /1–4 seconds — Lively storytelling/)
-  assert.match(characterSheet, /2–8 seconds — Cinematic & robust/)
-  assert.match(characterSheet, /5–10 seconds — Slow & deliberate/)
+  assert.match(continuityConfig, /1–3 seconds — Rapid & lively/)
+  assert.match(continuityConfig, /1–4 seconds — Lively storytelling/)
+  assert.match(continuityConfig, /2–8 seconds — Cinematic & robust/)
+  assert.match(continuityConfig, /5–10 seconds — Slow & deliberate/)
   assert.match(characterSheet, /Custom range…/)
   assert.match(characterSheet, /safe word or sentence boundaries/)
 })

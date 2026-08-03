@@ -1758,7 +1758,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
-    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued in Studio Hub${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
+    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
   } catch (e: any) {
     await reportGenerationError(e, `Failed to start ${stage} prompt stage`)

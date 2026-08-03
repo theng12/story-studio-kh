@@ -58,6 +58,6 @@ describe('startup recovery for accepted Studio Hub renders', () => {
     assert.equal(executions, 1)
     assert.equal(resumed.status, 'done')
     assert.equal(persistedStatus, 'done')
-    assert.match(resumed.output_lines.join('\n'), /reconnecting the original Studio Hub render batch/i)
+    assert.match(resumed.output_lines.join('\n'), /reconnecting the original remote render batch/i)
   })
 })

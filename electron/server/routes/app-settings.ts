@@ -50,7 +50,7 @@ router.use((req, res, next) => {
   if (req.path === '/app-settings/local-backend' || req.path.startsWith('/app-settings/hub/')) {
     return res.status(410).json({
       code: 'GENSTUDIO_ONLY',
-      detail: 'Direct local Studio and Studio Hub controls are retired. GenStudio is the sole generation boundary.',
+      detail: 'Direct local generation controls are retired. GenStudio is the sole generation boundary.',
     })
   }
   next()
@@ -152,7 +152,7 @@ router.get('/app-settings/hub/studios', async (_req, res) => {
     const studios = await hubStudios(hubUrl, token)
     res.json({ studios })
   } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not reach Studio Hub to list studios'))
+    res.status(502).json(humanizeBackendError(e, 'Could not reach the fleet controller to list studios'))
   }
 })
 

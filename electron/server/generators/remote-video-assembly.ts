@@ -270,17 +270,17 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
   }
   const backend = await getHubBackend()
   if (backend.mode !== 'hub' || !backend.hubUrl) {
-    throw new Error('Remote Render Studio is enabled, but Studio Hub is not the active backend. Select Studio Hub in Settings; local rendering was not used.')
+    throw new Error('Remote Render Studio is enabled, but fleet routing is not the active backend. Select fleet routing in Settings; local rendering was not used.')
   }
   try {
     const health = await hubHealth(backend.hubUrl)
     if (!health.ok) {
-      throw new Error(`Studio Hub is unavailable: ${health.error || 'health check failed'}`)
+      throw new Error(`The fleet controller is unavailable: ${health.error || 'health check failed'}`)
     }
     if (!hubSupportsRemoteRenderRouting(health.appVersion)) {
       throw new Error(
-        `Studio Hub v1.42.2 or newer is required for a Remote Render Studio preset ` +
-        `(found ${health.appVersion || 'an unknown version'}). Update Studio Hub, then retry; this Mac was not used.`,
+        `Fleet controller v1.42.2 or newer is required for a Remote Render Studio preset ` +
+        `(found ${health.appVersion || 'an unknown version'}). Update the fleet controller, then retry; this Mac was not used.`,
       )
     }
     const studios = await hubStudios(backend.hubUrl, backend.hubToken)
@@ -291,7 +291,7 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
       && studio.machine !== 'local'
     ))
     if (!remoteWorkers.length) {
-      throw new Error('No remote Render Studio worker is online. Start a remote Render Studio in Studio Hub and retry; this Mac was intentionally excluded.')
+      throw new Error('No remote Render Studio worker is online. Start a remote Render Studio on the fleet and retry; this Mac was intentionally excluded.')
     }
     job.output_lines.push(`Render Studio: ${remoteWorkers.length} remote worker(s) online. This Mac is excluded for this final render.`)
   } catch (error: any) {
@@ -971,7 +971,7 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
       await checkpointJobState(job)
     }
     const progressLine = job.output_lines.push(
-      `Studio Hub: remote render batch ${batchId} accepted; waiting for a remote Render Studio worker.`,
+      `Remote render batch ${batchId} accepted; waiting for a remote Render Studio worker.`,
     ) - 1
     const status = await hubPollBatch(backend.hubUrl, backend.hubToken, batchId, {
       timeoutMs: 12 * 60 * 60_000,
@@ -983,15 +983,15 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
           const worker = item.machine || (item.studio?.includes('@') ? item.studio.split('@')[1] : item.studio) || 'remote worker'
           const pct = typeof item.progress === 'number' ? Math.round(Math.max(0, Math.min(1, item.progress)) * 100) : null
           if (pct != null) job.progress = Math.max(1, Math.min(99, pct))
-          job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} via Studio Hub (batch ${batchId}).`
+          job.output_lines[progressLine] = `Render Studio: ${pct != null ? `${pct}% ` : ''}rendering on ${worker} (batch ${batchId}).`
         } else if (item.state === 'queued') {
           if ((value.retrying || 0) > 0) {
             const retryAt = typeof value.next_retry_at === 'number'
               ? ` Retry scheduled for ${new Date(value.next_retry_at * 1000).toLocaleTimeString()}.`
               : ''
-            job.output_lines[progressLine] = `Render Studio connection interrupted; Studio Hub is reconnecting original batch ${batchId}.${retryAt} No duplicate render was submitted.`
+            job.output_lines[progressLine] = `Render Studio connection interrupted; reconnecting original batch ${batchId}.${retryAt} No duplicate render was submitted.`
           } else {
-            job.output_lines[progressLine] = `Studio Hub: batch ${batchId} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
+            job.output_lines[progressLine] = `Batch ${batchId} is queued for a remote Render Studio worker. ${value.governor_note || ''}`.trim()
           }
         }
       },

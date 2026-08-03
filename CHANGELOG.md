@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.784 — 2026-08-03
+
+- **Choosing an art style no longer changes your scene rhythm or your episode anchor** — applying
+  a Character Sheet preset used to quietly bring its own scene timing and switch the episode
+  anchor on, overwriting choices you had made deliberately elsewhere. That is why picking
+  "1–3 seconds" never seemed to take effect: the preset silently replaced it. A preset now
+  changes the look and nothing else, and both settings only ever change when you change them.
+- **Every remaining mention of the services behind your generations is gone** — the routing
+  services and the retired local fleet were still named in error messages, a settings panel,
+  several notifications and a tooltip. One was reachable in normal use: opening the local voice
+  list showed a message naming a retired system. All of them now say either GenStudio, your own
+  tools, or nothing.
+- **A large amount of unreachable code has been deleted** — including account balance and key
+  testing routines for services Story Studio has not used in a long time, which still contained
+  live addresses for them, and the retired fleet settings panel.
+- **The build now refuses to ship any of these names** — a check runs over both the app and its
+  interface before packaging, and fails if a routing service is named in anything a customer
+  could read. It deliberately ignores internal identifiers and comments so it stays useful.
+
+---
+
 ## v1.0.783 — 2026-08-03
 
 - **The names of the services behind your generations are no longer shown anywhere** — Story

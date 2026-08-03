@@ -274,7 +274,7 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
 router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (_req, res) => {
   res.status(410).json({
     code: 'GENSTUDIO_ONLY',
-    detail: 'Direct Studio Hub repair is retired. Retry the original job through GenStudio; no Hub or provider request was attempted.',
+    detail: 'Legacy batch repair is retired. Retry the original job through GenStudio; no request was attempted.',
   })
 })
 

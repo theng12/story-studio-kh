@@ -159,6 +159,14 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { Character } from '../../../composables/useCharacters.js'
+import {
+  PACING_PRESETS,
+  CONTINUITY_PRESET_EXCLUDE_KEYS,
+  applyContinuityPagePreset,
+  continuityDefaults,
+  normalizeContinuityConfig,
+} from '../../../composables/useContinuityConfig.js'
+import type { ContinuityConfig, ContinuityPagePreset } from '../../../composables/useContinuityConfig.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Character Sheet')
@@ -171,70 +179,9 @@ const cm = useCharacters(slug)
 
 const episodeId = ref('')
 
-interface ContinuityConfig {
-  schema_version: 1
-  anchor_character_ids: string[]
-  use_episode_sheet: boolean
-  pacing: {
-    min_sec: number
-    max_sec: number
-    opening_duration_sec?: number
-    settled_min_sec?: number
-    settled_max_sec?: number
-  }
-  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
-  denoise_strength: number
-  style_bible?: string
-  negative_prompt?: string
-  updated_at?: string
-}
-
-const PACING_PRESETS = [
-  { id: 'rapid', min: 1, max: 3, label: '1–3 seconds — Rapid & lively' },
-  { id: 'lively', min: 1, max: 4, label: '1–4 seconds — Lively storytelling' },
-  { id: 'balanced', min: 3, max: 6, label: '3–6 seconds — Balanced narrative' },
-  { id: 'cinematic', min: 2, max: 8, label: '2–8 seconds — Cinematic & robust' },
-  { id: 'slow', min: 5, max: 10, label: '5–10 seconds — Slow & deliberate' },
-  { id: 'contemplative', min: 8, max: 15, label: '8–15 seconds — Contemplative / ambient' },
-] as const
-function defaults(): ContinuityConfig {
-  return {
-    schema_version: 1,
-    anchor_character_ids: [],
-    use_episode_sheet: false,
-    pacing: { min_sec: 1, max_sec: 4 },
-    references: { prev_render: false, sheet: false, characters: false, style: false },
-    denoise_strength: 0.5,
-    style_bible: '',
-    negative_prompt: '',
-  }
-}
-
-function normalizeConfig(value?: Partial<ContinuityConfig> | null): ContinuityConfig {
-  const d = defaults()
-  const anchorIds = Array.isArray(value?.anchor_character_ids) ? [...value.anchor_character_ids] : []
-  // Older pages exposed two controls for the same sheet choice. Reconcile
-  // either legacy "on" value into the single compact control on load.
-  const useEpisodeSheet = value?.use_episode_sheet === true || value?.references?.sheet === true
-  return {
-    ...d,
-    schema_version: 1,
-    anchor_character_ids: anchorIds,
-    use_episode_sheet: useEpisodeSheet,
-    pacing: { ...d.pacing, ...(value?.pacing || {}) },
-    references: {
-      prev_render: value?.references?.prev_render ?? d.references.prev_render,
-      sheet: useEpisodeSheet,
-      characters: anchorIds.length > 0,
-      style: value?.references?.style ?? d.references.style,
-    },
-    denoise_strength: typeof value?.denoise_strength === 'number' ? value.denoise_strength : d.denoise_strength,
-    style_bible: value?.style_bible || '',
-    negative_prompt: value?.negative_prompt || '',
-  }
-}
-
-const config = ref<ContinuityConfig>(defaults())
+// Config shape, defaults, and the preset boundary live in the composable so
+// they are importable by tests — see composables/useContinuityConfig.ts.
+const config = ref<ContinuityConfig>(continuityDefaults())
 type FormulaPacingProfile = {
   opening_duration_sec: number
   opening: { min_sec: number; max_sec: number }
@@ -283,31 +230,32 @@ watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec, config.va
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the fragmented style controls the user had to manage separately. A channel's
-// continuity look (anchors, references, pacing, denoise, Style Bible, and
-// negative prompt) is usually the same across episodes, so saving it ONCE fills
-// the whole page in one click instead of re-picking every attribute. Lives in
+// continuity LOOK (anchors, references, denoise, Style Bible, and negative
+// prompt) is usually the same across episodes, so saving it ONCE fills the
+// whole page in one click instead of re-picking every attribute. Lives in
 // the TopActionBar's preset row (same spot as Scripts/Prompts).
 //
 // autoApplyOnLoad is OFF: the episode's own continuity.json drives the fields
 // on load; the preset is applied only on explicit Apply (then Save anchors &
 // settings to persist it into this episode).
 //
-// Snapshot/apply cover the FULL config minus the transient `updated_at`.
-type ContinuityPagePreset = Omit<ContinuityConfig, 'updated_at'>
+// Snapshot/apply cover the FULL config minus the transient `updated_at` and
+// minus the episode's own pacing and anchor toggle — a preset is a LOOK, and
+// the look/episode-state boundary is documented on
+// CONTINUITY_PRESET_EXCLUDE_KEYS / applyContinuityPagePreset.
 const pagePresets = usePresets<ContinuityPagePreset>({
   slug: slug.value,
   configKey: 'continuity_page',
   presetType: 'continuity-page',
   autoApplyOnLoad: false,
+  excludeKeys: CONTINUITY_PRESET_EXCLUDE_KEYS,
   snapshot: () => {
     // Deep clone so the stored preset doesn't alias the live config refs.
     const { updated_at: _drop, ...rest } = config.value
     return JSON.parse(JSON.stringify(rest)) as ContinuityPagePreset
   },
   apply: (data) => {
-    // Normalize explicitly so retired Visual Recipe/composition fields from
-    // older presets cannot silently return to newly saved continuity configs.
-    config.value = normalizeConfig(data)
+    config.value = applyContinuityPagePreset(config.value, data)
   },
 })
 
@@ -376,7 +324,7 @@ async function loadCharacters(): Promise<void> {
 }
 
 async function loadConfig(): Promise<void> {
-  if (!episodeId.value) { config.value = defaults(); return }
+  if (!episodeId.value) { config.value = continuityDefaults(); return }
   try {
     const [r, format] = await Promise.all([
       get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${episodeId.value}`),
@@ -387,12 +335,12 @@ async function loadConfig(): Promise<void> {
       ? profile
       : null
     if (r.exists) {
-      config.value = normalizeConfig(r.config)
+      config.value = normalizeContinuityConfig(r.config)
     } else {
-      config.value = normalizeConfig(profile ? { pacing: formulaPacingConfig(profile) } : undefined)
+      config.value = normalizeContinuityConfig(profile ? { pacing: formulaPacingConfig(profile) } : undefined)
     }
   } catch (e: any) {
-    if (!e?.__slugRace) config.value = defaults()
+    if (!e?.__slugRace) config.value = continuityDefaults()
   }
 }
 

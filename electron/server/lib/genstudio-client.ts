@@ -243,9 +243,9 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       job,
       job.cancelled === true
         ? `GenStudio KH TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + 'Its reservation was released; Retry submits a new job. No direct Studio Hub fallback was attempted.'
+          + 'Its reservation was released; Retry submits a new job. No fallback route was attempted.'
         : `GenStudio KH generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'No direct Studio Hub fallback was attempted.',
+          + 'No fallback route was attempted.',
     )
     this.name = 'GenStudioTtsTerminalFailureError'
   }
@@ -259,9 +259,9 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       job.cancelled === true
         ? `GenStudio KH transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + 'Its reservation was released; Retry submits a new job. '
-          + 'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.'
+          + 'No fallback route was attempted.'
         : `GenStudio KH transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted.',
+          + 'No fallback route was attempted.',
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
   }
@@ -292,7 +292,7 @@ export class GenStudioChatTerminalFailureError extends GenStudioTerminalFailureE
             + 'Its reservation was released; Retry submits a new job.'
           : `GenStudio KH language generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
             + 'The reservation was released and this job cannot be reopened; Retry submits a new job. '
-            + 'No direct provider or Studio Hub fallback was attempted.'),
+            + 'No fallback route was attempted.'),
     )
     this.name = 'GenStudioChatTerminalFailureError'
   }
@@ -1816,7 +1816,7 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
   }
   if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED) {
     return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
-      + 'tried. No direct provider or Studio Hub fallback was attempted, and the reservation was '
+      + 'tried. No fallback route was attempted, and the reservation was '
       + 'released. Retry this step, or pick a different language product in Settings.'
   }
   return null
@@ -1895,7 +1895,7 @@ export class GenStudioApiError extends Error {
             : status === 429
               ? `GenStudio KH is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
               : status === 502
-                ? `The provider behind this GenStudio KH product failed: ${detail}. No direct provider or Studio Hub fallback was attempted.`
+                ? `The provider behind this GenStudio KH product failed: ${detail}. No fallback route was attempted.`
                 : isGenStudioReleaseGenerationUnavailable(status, detail)
                   ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
                     'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +

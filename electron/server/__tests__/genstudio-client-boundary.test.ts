@@ -311,8 +311,8 @@ test('GenStudio client cannot bypass its API boundary to contact Studio Hub', ()
   assert.equal(source.includes('studiohub-client'), false)
   assert.equal(source.includes('getHubBackend'), false)
   assert.equal(source.includes('hubSubmitJob'), false)
-  assert.match(source, /No direct Studio Hub fallback was attempted/)
-  assert.match(source, /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/)
+  assert.match(source, /No fallback route was attempted/)
+  assert.doesNotMatch(source, /No OpenAI, Studio Hub, or direct Voice Studio fallback/)
 })
 
 test('GenStudio credentials remain in the app secret store and never enter recovery diagnostics', () => {
@@ -1029,7 +1029,7 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
         modelId: 'mlx-community/whisper-large-v3-turbo',
         requestIdentity: 'project:EP0001:transcription:chapter-failure.srt',
       }),
-      /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/,
+      /No fallback route was attempted/,
     )
 
     globalThis.fetch = async (input) => {

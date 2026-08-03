@@ -1618,7 +1618,7 @@ async function cancelJob(job: RJob) {
   try {
     await del(jobQueuePath(job))
     if (job.status === 'running' && HUB_CANCELLABLE_TYPES.has(job.type)) {
-      success('Stop requested. Any active Studio Hub batch will also be cancelled; completed checkpoints remain saved.')
+      success('Stop requested. Any active remote batch will also be cancelled; completed checkpoints remain saved.')
     } else if (wasRunningWithCost) {
       // Multi-line toast — local cancel doesn't signal upstream, so
       // already-submitted provider tasks may complete on their side and
@@ -1730,7 +1730,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
   }
   const jobType = job.type
   if (hasHubImageCheckpoint(job as RJob)) {
-    return 'SAFE HUB RECOVERY — Repair reconnects to the accepted Studio Hub batch and downloads completed images without submitting anything new. Retry reuses the saved idempotency identity, then submits only verified-missing images if the old batch is terminal.'
+    return 'SAFE RECOVERY — Repair reconnects to the accepted batch and downloads completed images without submitting anything new. Retry reuses the saved idempotency identity, then submits only verified-missing images if the old batch is terminal.'
   }
   if (jobType === 'scene_plan_run') {
     return 'SMART RETRY — Keeps every prompt already verified on disk and sends only missing or duplicated stable scene IDs in bounded GenStudio packs.'

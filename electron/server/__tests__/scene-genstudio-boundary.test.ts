@@ -65,7 +65,7 @@ test('scene motion and planning source contain no executable direct provider or 
   // retired upstreams, which was private routing detail on the customer's screen.
   assert.match(clip, /no other route was attempted/)
   assert.doesNotMatch(clip, /fal\.ai|Kie\.ai/)
-  assert.match(plan, /Scene planning did not call a direct provider or Studio Hub/)
+  assert.match(plan, /Scene planning did not call any fallback route/)
 })
 
 test('bulk visual and motion repairs use bounded GenStudio packs instead of per-scene generation', () => {

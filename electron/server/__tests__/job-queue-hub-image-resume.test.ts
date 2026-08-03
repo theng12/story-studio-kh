@@ -59,6 +59,6 @@ describe('startup recovery for accepted Studio Hub images', () => {
     assert.equal(executions, 1)
     assert.equal(resumed.status, 'done')
     assert.equal(persistedStatus, 'done')
-    assert.match(resumed.output_lines.join('\n'), /reconnecting the saved Studio Hub image batch/i)
+    assert.match(resumed.output_lines.join('\n'), /reconnecting the saved image batch/i)
   })
 })

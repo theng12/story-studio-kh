@@ -112,28 +112,55 @@ const PUBLISHED_VALUE_NAMES = [
 const COST_VOCABULARY = /\b(cost|costs|price|pricing|priced|credit|credits|usd|dollar|dollars|estimate|estimated|spend|spent|bill|billed|billing|charge|charged)\b/i
 
 /**
- * Upstream routing identities: the aggregator and gateway keys Story Studio
- * carried before every generation moved behind GenStudio (v1.0.669). GenStudio
+ * Upstream routing identities: the aggregator and direct-provider keys Story
+ * Studio carried before every generation moved behind GenStudio (v1.0.669), plus
+ * Studio Hub — the retired local control plane whose routes now 410. GenStudio
  * owns provider selection and deliberately does not disclose who it routes to,
- * so these names may not appear anywhere in the frontend — not in a label map,
- * a template, a toast string, or a request payload.
+ * so none of these names may appear anywhere in the frontend — not in a label
+ * map, a template, a toast string, or a request payload.
  *
- * Deliberately narrow, on both axes:
- *
- *   - Only these five names. `openai`, `anthropic` and `deepseek` are left out
- *     because they are also ordinary technical vocabulary in this app — Chat
- *     Studio runs a local "OpenAI-compatible" server — and a rule that fires on
- *     a true sentence gets annotated away. Only the names with no innocent
- *     reading are enforced.
- *   - Frontend only. The backend legitimately holds transport keys; what it may
- *     not do is serialise one into a response, which is a different shape of
- *     check and lives in electron/server/__tests__/private-routing-identity.test.ts.
+ * v1.0.783 shipped this with five names and frontend-only scope, deliberately
+ * leaving out openai/anthropic/deepseek so a rule could not fire on a true
+ * sentence. The owner overruled that scope: they were all historical direct
+ * integrations, and every one of them is now enforced.
  *
  * Providers GenStudio PUBLISHES (ElevenLabs, Fish Audio — a voice's `provider`
- * / `engine_name`, a TTS model's `provider_name`) are shown on purpose and are
- * not listed here: they arrive as runtime catalogue data, never as source text.
+ * / `engine_name`, a TTS model's `provider_name`) are still shown on purpose.
+ * That is not in tension with `elevenlabs` being listed here: a published
+ * provider arrives as runtime catalogue data and is rendered from a field, so
+ * it never appears as source text. A vendor name TYPED INTO THIS REPO is always
+ * either a legacy transport key or a guess, and both are forbidden.
  */
-const PRIVATE_ROUTING_IDENTITY = /\b(?:kie\.ai|kie|fal\.ai|openrouter|genaipro)\b/gi
+const PRIVATE_ROUTING_IDENTITY = /\b(?:kie\.ai|kie|fal\.ai|fal|openrouter|genaipro|deepseek|perplexity|anthropic|open ?ai|eleven ?labs|opencode|studio ?hub)\b/gi
+
+/**
+ * Backend scope. v1.0.783 found four customer-facing backend leaks — a 400
+ * listing four vendors, a "no fal.ai, Kie.ai, or Studio Hub fallback" job error
+ * — that a frontend-only rule can never catch, so the backend is scanned too.
+ *
+ * The backend genuinely holds transport identifiers, and it must keep holding
+ * them: `getApiKey('anthropic')`, `provider: 'kie' | 'fal'`, a legacy union in
+ * models/types.ts, a probe URL. What separates those from a leak is not the
+ * name but the SHAPE of the string carrying it. An identifier is one token; a
+ * customer-facing message is prose. So the backend rule fires only inside a
+ * string literal that reads as a sentence — three or more whitespace-separated
+ * words. `'elevenlabs'`, `'kie_api_key'` and `'https://api.deepseek.com/models'`
+ * are not sentences and are left alone; "No OpenAI, Studio Hub, or direct Voice
+ * Studio fallback was attempted." is one, and is exactly what must not ship.
+ */
+const BACKEND_PROSE = /\S+(?:\s+\S+){2,}/
+
+/**
+ * The one backend file whose prose may name a provider: audio-expression.ts
+ * holds the LLM SYSTEM PROMPT that teaches a model ElevenLabs v3 inline tag
+ * syntax. It is sent to a model, never rendered to a customer, and the tag
+ * dialect is a real published capability of a provider GenStudio publishes —
+ * rewording it would break tag generation to satisfy a display rule that does
+ * not apply. Every other backend file is in scope.
+ */
+const BACKEND_IDENTITY_EXEMPT = new Set([
+  'electron/server/services/audio-expression.ts',
+])
 
 /**
  * Members that legitimately hang off something named `controls` — array and
@@ -276,10 +303,10 @@ const rules = [
   },
   {
     id: 'private-routing-identity',
-    // The aggregator that must never reach a screen. Comments are already
-    // blanked before any rule runs and __tests__ is not scanned, so a name
-    // discussed in documentation or pinned in a boundary test is not a hit —
-    // only a name that survives into shipped frontend code.
+    // The names that must never reach a screen. Comments are already blanked
+    // before any rule runs and __tests__ is not scanned, so a name discussed in
+    // documentation or pinned in a boundary test is not a hit — only a name that
+    // survives into shipped frontend code.
     pattern: PRIVATE_ROUTING_IDENTITY,
     ignore: (_match, context) => !context.file.startsWith('frontend/'),
     describe: (match) => `the private routing identity "${match[0]}" appears in frontend code`,
@@ -288,6 +315,23 @@ const rules = [
       + 'provider / engine_name, read live from the catalogue), or nothing at all. A model with '
       + 'no published provider shows NO provider — never a placeholder vendor, and never a name '
       + 'guessed from a model id.',
+  },
+  {
+    id: 'private-routing-identity-backend',
+    // Same names, backend half: a vendor written into a sentence the customer
+    // can read. Route `detail`s, thrown Error messages and job output_lines all
+    // reach a screen verbatim, and a frontend-only rule never sees them.
+    pattern: PRIVATE_ROUTING_IDENTITY,
+    stringLiteralsOnly: true,
+    ignore: (_match, context) => !context.file.startsWith('electron/')
+      || BACKEND_IDENTITY_EXEMPT.has(context.file)
+      || !BACKEND_PROSE.test(context.enclosingString),
+    describe: (match) => `the private routing identity "${match[0]}" appears in a customer-facing backend string`,
+    remedy: 'This string can reach a screen — as a route detail, a thrown Error, or a job output '
+      + 'line. Name the gateway ("GenStudio KH") or nothing; say "no fallback route was attempted" '
+      + 'rather than listing who was not called. Transport identifiers are fine: keep the bare id '
+      + "('kie', 'elevenlabs'), the config key, the union member and the probe URL — only prose "
+      + 'the customer reads is forbidden.',
   },
   {
     id: 'currency-symbol',
@@ -487,7 +531,7 @@ let allowedCount = 0
 for (const file of files) {
   const raw = await readFile(file, 'utf8')
   if (!raw.includes(ALLOW_ANNOTATION)
-    && !/gpt-|claude-|gemini-|flux|seedream|kling|veo|sora|runway|wan|hailuo|whisper|eleven|qwen|nano-banana|genstudio-|imagen|dall-e|seedance|credit|price|cost|usd|token|character|kie|fal\.ai|openrouter|genaipro|\d{1,2}:\d{1,2}|\d{3,4}p/i.test(raw)) {
+    && !/gpt-|claude-|gemini-|flux|seedream|kling|veo|sora|runway|wan|hailuo|whisper|eleven|qwen|nano-banana|genstudio-|imagen|dall-e|seedance|credit|price|cost|usd|token|character|kie|fal\.ai|openrouter|genaipro|deepseek|perplexity|anthropic|open ?ai|opencode|studio ?hub|\d{1,2}:\d{1,2}|\d{3,4}p/i.test(raw)) {
     continue
   }
 

@@ -596,8 +596,8 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
               j.output_lines.push(recoverableGenStudio
                 ? '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.'
                 : recoverableHubRender
-                  ? '↻ Story Studio restarted — reconnecting the original Studio Hub render batch automatically; no duplicate render will be submitted.'
-                  : '↻ Story Studio restarted — reconnecting the saved Studio Hub image batch automatically; no duplicate submission will be made.')
+                  ? '↻ Story Studio restarted — reconnecting the original remote render batch automatically; no duplicate render will be submitted.'
+                  : '↻ Story Studio restarted — reconnecting the saved image batch automatically; no duplicate submission will be made.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -1181,7 +1181,7 @@ export async function joinActiveBulkSceneRender(opts: {
     attached = true
   }
   if (attached) {
-    active.output_lines.push('→ Pipeline joined this existing scene render; no duplicate Studio Hub batch was submitted.')
+    active.output_lines.push('→ Pipeline joined this existing scene render; no duplicate batch was submitted.')
     await persistJob(active)
     emitUpdate(active)
   }

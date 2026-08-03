@@ -67,7 +67,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const repairOnly = params.hub_repair_only === true
   if (repairOnly) {
     throw new Error(
-      'Legacy Studio Hub batch repair is retired. No Hub request was made. ' +
+      'Legacy batch repair is retired. No request was made. ' +
       'Use the image Repair action for a saved GenStudio job, or Retry to submit deliberate new GenStudio work.',
     )
   }

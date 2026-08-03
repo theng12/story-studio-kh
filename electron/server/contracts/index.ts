@@ -345,7 +345,11 @@ export interface SafeProjectConfigResponse {
   voice_presets: Array<{
     name: string
     voice_id: string
-    providers: Array<'elevenlabs' | 'fal' | 'genaipro' | 'kie' | 'fishaudio' | 'genstudio'>
+    /**
+     * Narrowed to the gateway on the way out (publicVoicePresets). Stored
+     * presets still carry pre-v1.0.669 transport keys; the wire does not.
+     */
+    providers: Array<'genstudio'>
   }>
   style_presets?: Array<{
     id: string

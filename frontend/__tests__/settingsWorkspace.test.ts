@@ -19,12 +19,22 @@ describe('Settings workspace navigation', () => {
   })
 
   test('Local Models is split into focused, non-stacking views', () => {
-    for (const view of ['overview', 'hub', 'voice', 'image', 'chat']) {
+    for (const view of ['overview', 'voice', 'image', 'chat']) {
       assert.match(settingsSource, new RegExp(`id: '${view}'`))
       assert.match(settingsSource, new RegExp(`localModelsView === '${view}'`))
     }
 
     assert.match(settingsSource, /aria-label="Local model setup sections"/)
+  })
+
+  test('the retired Studio Hub control plane is gone from Settings', () => {
+    // Its backend is 410'd by middleware (routes/app-settings.ts) — the whole
+    // section talked to nothing, while still naming a routing surface and
+    // offering Save/Test buttons that could only ever report "retired".
+    assert.doesNotMatch(settingsSource, /localModelsView === 'hub'/)
+    assert.doesNotMatch(settingsSource, /app-settings\/local-backend|app-settings\/hub\//)
+    assert.doesNotMatch(settingsSource, /localBackend|hubUrl|hubToken|renderWorkersEnabled|studioAction/)
+    assert.doesNotMatch(settingsSource, /Studio Hub/)
   })
 
   test('model pricing is split by media type', () => {

@@ -38,6 +38,27 @@ export function normalizeVoicePreset(input: unknown): NormalizedVoicePreset | nu
   }
 }
 
+/**
+ * The only provider id Story Studio may put on the wire.
+ *
+ * `providers` is persisted-data normalisation: pre-gateway presets were keyed
+ * by whichever transport carried the voice, and `normalizeVoicePreset` still
+ * expands a legacy row to LEGACY_ELEVENLABS_GATEWAYS so stored data keeps its
+ * meaning. What must NOT happen is that list being serialised to the client —
+ * every name in it is a routing identity from before v1.0.669, and GenStudio
+ * does not disclose who it routes to. `publicVoicePresets` is the response-side
+ * projection: identical rows, with the provider list narrowed to the gateway.
+ * Storage and migrations are untouched.
+ */
+const PUBLIC_VOICE_PROVIDER_IDS: VoiceProviderId[] = ['genstudio']
+
+export function publicVoicePresets(presets: NormalizedVoicePreset[]): NormalizedVoicePreset[] {
+  return presets.map(preset => ({
+    ...preset,
+    providers: preset.providers.filter(provider => PUBLIC_VOICE_PROVIDER_IDS.includes(provider)),
+  }))
+}
+
 export function normalizeVoicePresets(inputs: unknown): NormalizedVoicePreset[] {
   if (!Array.isArray(inputs)) return []
   const byId = new Map<string, NormalizedVoicePreset>()

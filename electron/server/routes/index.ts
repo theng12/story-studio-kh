@@ -75,7 +75,7 @@ export function mountRoutes(app: Express): void {
     app.use(`/api/${prefix}`, (_req, res) => {
       res.status(410).json({
         code: 'GENSTUDIO_ONLY',
-        detail: 'Direct Studio and Studio Hub control routes are retired. Configure the single GenStudio connection in Settings → This Mac.',
+        detail: 'Direct local generation control routes are retired. Configure the single GenStudio connection in Settings → This Mac.',
       })
     })
   }

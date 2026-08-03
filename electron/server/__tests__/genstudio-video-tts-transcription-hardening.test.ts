@@ -231,7 +231,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
           assert.equal(error.modality, 'tts')
           assert.equal(error.failureCode, 'VOICE_PROVIDER_RESULT_INVALID')
           // The historical wording is preserved for operators.
-          assert.match(error.message, /No direct Studio Hub fallback was attempted/)
+          assert.match(error.message, /No fallback route was attempted/)
           return true
         },
       )
@@ -334,7 +334,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
           assert.ok(error instanceof client.GenStudioTranscriptionTerminalFailureError)
           assert.equal(error.modality, 'transcription')
           assert.equal(error.failureCode, 'STT_PROVIDER_ERROR')
-          assert.match(error.message, /No OpenAI, Studio Hub, or direct Voice Studio fallback was attempted/)
+          assert.match(error.message, /No fallback route was attempted/)
           dead = error.jobId
           return true
         },

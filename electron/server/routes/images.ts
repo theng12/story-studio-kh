@@ -390,7 +390,7 @@ router.get('/imagestudio/catalog', async (_req, res) => {
     const { getHubBackend, hubCatalog } = await import('../lib/studiohub-client.js')
     const hub = await getHubBackend()
     if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      if (!hub.hubUrl) throw new Error('Fleet routing is selected, but no controller URL is configured.')
       const models = await hubCatalog(hub.hubUrl, hub.hubToken, 'image')
       res.json({ baseUrl: hub.hubUrl, families: {}, models, source: 'hub' })
       return
@@ -428,7 +428,7 @@ router.get('/imagestudio/models', async (req, res) => {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const hub = await getHubBackend()
     if (hub.mode === 'hub') {
-      if (!hub.hubUrl) throw new Error('Studio Hub routing is selected, but no Hub URL is configured.')
+      if (!hub.hubUrl) throw new Error('Fleet routing is selected, but no controller URL is configured.')
       const rows = await hubCatalog(hub.hubUrl, hub.hubToken, 'image', req.query.refresh === '1')
       const result = listAvailableHubModels(rows)
       const payload = { ...result, configured: true, baseUrl: hub.hubUrl, source: 'hub' }
