@@ -185,6 +185,13 @@ Two practical requirements, both learned the hard way:
 Reusable title-image settings — enabled state, duration, transition type and duration — may
 remain in Video Assembly presets.
 
+**Scene rhythm stays per-episode. Do not add a project-level pacing default.** Proposed and
+rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on each episode by the
+user. not all stories or videos need the same pacing."* Every episode chooses its own band on
+the Character Sheet, and nothing — not a project setting, not a format, not a preset — may
+choose it on the customer's behalf. A tempting-looking gap (53 episodes each needing the
+setting) is the intended cost of that decision, not a problem to engineer away.
+
 ## Generator Model Defaults
 
 - Generator model pickers must restore the user's last explicit choice before they mount. Do not hardcode a paid model such as GPT-4o as the form default.
