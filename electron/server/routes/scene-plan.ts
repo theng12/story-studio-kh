@@ -228,6 +228,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   const creativeDirection = parseCreativeDirection(body.creative_direction)
   const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
+  // A user-invoked REWORD of a prompt that did not render: same beat, different
+  // angle, difficult-subjects guidance applied. Only the explicit action sets
+  // it — no failure is inspected to infer it. See lib/image-content-guidance.ts.
+  const rewordPrompt = body.reword_prompt === true
 
   // Shares the scene_plan_run lane — only one job per episode at a time.
   // The frontend bulk-regen loop polls for completion before queuing the next.
@@ -239,11 +243,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
-    title: `Regen prompt — ${episodeId}`,
+    title: `${rewordPrompt ? 'Reword' : 'Regen'} prompt — ${episodeId}`,
     params: {
       episode_id: episodeId,
       model,
       regenerate_prompt_scene_id: sceneId,
+      reword_prompt: rewordPrompt || undefined,
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,

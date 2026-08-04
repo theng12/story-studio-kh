@@ -1429,9 +1429,31 @@ function formatJobDuration(job: RJob): string {
   return `${mins}m ${remSecs}s`
 }
 
+/**
+ * A job timestamp always says WHICH DAY it belongs to.
+ *
+ * This was `toLocaleTimeString` alone, so yesterday's 09:14 and this morning's
+ * 09:14 rendered identically — the list could not be read across a date
+ * boundary at all. Today and yesterday get a word (shorter than a date and
+ * unambiguous at a glance); anything older gets its real date, with the year
+ * once the job is from a different one.
+ */
+function startOfLocalDay(value: Date): number {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  if (Number.isNaN(d.getTime())) return '-'
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const today = new Date(now.value)
+  const daysAgo = Math.round((startOfLocalDay(today) - startOfLocalDay(d)) / 86_400_000)
+  if (daysAgo === 0) return `Today ${time}`
+  if (daysAgo === 1) return `Yesterday ${time}`
+  const date = d.toLocaleDateString([], d.getFullYear() === today.getFullYear()
+    ? { month: 'short', day: 'numeric' }
+    : { year: 'numeric', month: 'short', day: 'numeric' })
+  return `${date} ${time}`
 }
 
 function firstErrorLine(err: string): string {

@@ -730,7 +730,16 @@ const quoteEligible = computed(() =>
 const quoteUnavailableNote = computed(() => {
   const result = narrationQuote.value
   if (!result || result.quotable) return ''
-  const said = result.unavailable_detail ? ` GenStudio said: “${result.unavailable_detail}”.` : ''
+  // The HTTP status rides along with GenStudio's own words, always. A refusal
+  // reported without its status is what let a transport failure be retold as a
+  // claim about what GenStudio published — the reader could not tell the two
+  // apart. Status plus verbatim detail, or nothing.
+  const status = result.unavailable_status ? `HTTP ${result.unavailable_status}` : ''
+  const said = result.unavailable_detail
+    ? ` GenStudio said${status ? ` (${status})` : ''}: “${result.unavailable_detail}”.`
+    : status
+      ? ` GenStudio answered ${status}.`
+      : ''
   if (result.unavailable_reason === 'quote_disabled') {
     return `GenStudio publishes this voice as not quotable, so there is no quote to show. `
       + `The published rate above is ${modelRate.value.text}; GenStudio reports the actual charge on each finished job.`

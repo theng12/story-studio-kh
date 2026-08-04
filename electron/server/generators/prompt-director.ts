@@ -21,6 +21,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { callAi } from '../lib/ai-client.js'
+import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getCharacter } from '../services/character-manager.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -67,7 +68,7 @@ Hard requirements for every rewritten prompt:
 For each scene, also report the single short emotion word you used for ${guideName}.
 
 Return ONLY a JSON object, no prose or markdown:
-{"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>","emotion":"<emotion>"}]}`
+{"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>","emotion":"<emotion>"}]}${imagePromptGuidanceBlock()}`
 }
 
 function buildSystemScene(recipe: VisualRecipe): string {
@@ -86,7 +87,7 @@ Hard requirements for every rewritten prompt:
 - Do not describe video transitions, multiple panels, or text overlays.
 
 Return ONLY a JSON object, no prose or markdown:
-{"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>"}]}`
+{"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>"}]}${imagePromptGuidanceBlock()}`
 }
 
 function buildUser(batch: Array<{ id: string; subject: string; narration: string; use_emotion?: string }>): string {

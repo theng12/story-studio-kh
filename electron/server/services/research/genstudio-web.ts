@@ -2,9 +2,17 @@
  * GenStudio web-search Research adapter ("Search the web" mode).
  *
  * Same GenStudio boundary as the model-knowledge adapter — same key, same
- * durable `POST /v1/chat/responses` job (`web_search` is available on that
- * route, so research reconnects and recovers like every other modality
- * instead of dying with its connection) — with two differences that matter:
+ * language route. This adapter names NO route of its own: it calls
+ * `callChatWithGenStudio`, which resolves the route once at
+ * `resolveGenStudioChatTransport()` (genstudio-client.ts). Today that is
+ * `POST /v1/chat/completions` — the route web research actually works on and
+ * the one `STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT=completions` selects.
+ * `POST /v1/chat/responses` is the durable-job route the switch reverts to
+ * once GenStudio's own submit-path lookup is fixed; this comment used to claim
+ * that route was already the working one, which misled a whole debugging
+ * session. Read the switch, not this comment, for what is live.
+ *
+ * Two differences from the model-knowledge adapter matter:
  *
  *   1. The request carries a `web_search` block, built from the SELECTED
  *      product's published capability (see web-capability.ts). Story Studio

@@ -27,6 +27,7 @@ import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
 import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
+import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 
 export const router = Router()
 
@@ -53,6 +54,10 @@ const RegenerateSchema = z.object({
    *  Absent = no limit in force. Never a length to fill; the result is never
    *  truncated. See services/prompt-char-cap.ts. */
   prompt_char_cap: z.number().int().min(1).optional(),
+  /** User-invoked "reword this prompt" — see lib/image-content-guidance.ts.
+   *  Asks for a different angle on the same beat with the difficult-subjects
+   *  guidance applied. Set only by the explicit action; never inferred. */
+  reword: z.boolean().optional(),
 })
 
 const UpdatePromptSchema = z.object({
@@ -140,6 +145,7 @@ router.post(
         notes,
         headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
         promptCharCap: parsePromptCharCap(req.body.prompt_char_cap),
+        reword: req.body.reword === true,
       })
 
       const apiKeys = {
@@ -256,6 +262,12 @@ function buildRegenPrompt(opts: {
   headlineMode?: 'episode-title' | 'curiosity-hook'
   /** Published image-model ceiling, or absent for "no limit in force". */
   promptCharCap?: number
+  /**
+   * User-invoked reword: adds the different-angle directive on top of the
+   * standard difficult-subjects guidance. Only ever set from the explicit
+   * "Reword" action — nothing infers it from a failure.
+   */
+  reword?: boolean
 }): string {
   const kindLabel = opts.kind === 'scene' ? 'scene' : 'thumbnail'
   const peerList = opts.peers
@@ -296,6 +308,7 @@ ${opts.kind === 'thumbnail' ? (opts.headlineMode === 'curiosity-hook' ? '8' : '7
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }
+${imagePromptGuidanceBlock({ reword: opts.reword })}
 
 No markdown, no code fences, no commentary.`
 }

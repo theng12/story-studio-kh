@@ -461,7 +461,7 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * refuses without it. The recovery path reclaims an already-accepted job and
    * never re-derives a boundary for it, so it is optional at the type level.
    */
-  maxInputCharacters?: number
+  maxInputCharacters?: number | null
   /**
    * Control values for THIS request, already resolved against the selected
    * model's published `controls[]` by `resolveTtsControlValues`.
@@ -756,7 +756,22 @@ export interface GenStudioTtsModel {
   controls: GenStudioTtsControl[]
 }
 
-/** `TTSQuoteResponse` — GenStudio's own figure for one exact script. */
+/**
+ * `TTSQuoteResponse` — GenStudio's own figure for one exact script.
+ *
+ * Every numeric below is `number | null`, and `null` means exactly one thing:
+ * **GenStudio's 200 response did not carry this field.** It is never a stand-in
+ * for a failed call — a non-200 quote throws `GenStudioApiError` in `readJson`
+ * before this shape is ever built, so a caller holding one of these knows the
+ * quote succeeded.
+ *
+ * These used to be coerced with `?? 0`, which collapsed "absent", "the response
+ * was not a quote at all" and "genuinely zero" into one indistinguishable
+ * number. On `credits` that read as FREE; on `maximum_input_characters` it made
+ * the boundary guards below blame GenStudio for publishing nothing when the
+ * real failure was a transport one. Do not reintroduce a default here — a
+ * missing figure is reported, never replaced.
+ */
 export interface GenStudioTtsQuote {
   model_id?: string | null
   model_name?: string | null
@@ -764,12 +779,12 @@ export interface GenStudioTtsQuote {
   controls: TtsControlValues
   voice_id: string
   voice_tier: string
-  billable_characters: number
-  speed: number
-  estimated_duration_ms: number
-  maximum_input_characters: number
-  credits: number
-  credits_per_1000_characters: number
+  billable_characters: number | null
+  speed: number | null
+  estimated_duration_ms: number | null
+  maximum_input_characters: number | null
+  credits: number | null
+  credits_per_1000_characters: number | null
   price_version: string
   output_format: string
   chargeable: boolean
@@ -1570,17 +1585,46 @@ function authorization(apiKey: string): Record<string, string> {
 }
 
 /**
+ * Why "no boundary" is TWO messages, not one.
+ *
+ * The guards below refuse to guess a request boundary, which is right — a wrong
+ * one bills a failed job. But the message they used to throw asserted, in every
+ * case, that *GenStudio published nothing*. That claim is only true when a
+ * successful catalogue or quote response really did omit the field. When the
+ * zero arrived from somewhere else it named the wrong culprit and cost two
+ * wrong diagnoses.
+ *
+ * A transport failure never reaches here at all: `readJson` throws
+ * `GenStudioApiError` — carrying the real status and GenStudio's own `detail` —
+ * before any quote or catalogue shape is built. So the only two states this can
+ * legitimately see are the two below, and it names them apart.
+ */
+function describeMissingRequestBoundary(maxCharacters: number | null | undefined, consequence: string): string {
+  if (maxCharacters == null) {
+    return `GenStudio KH published no maximum_input_characters for the selected voice model. ${consequence}`
+  }
+  // A number arrived, and it is unusable — zero, negative, or non-finite. That
+  // is a value problem, not a missing publication, and saying so keeps the
+  // "GenStudio published nothing" phrase for the case where it is true.
+  return 'GenStudio KH published maximum_input_characters as '
+    + `${Number.isFinite(maxCharacters) ? maxCharacters : String(maxCharacters)} for the selected voice model, `
+    + `which is not a usable request boundary. ${consequence}`
+}
+
+/**
  * Split only at the boundary the selected model publishes
  * (`maximum_input_characters`). VoiceStudio owns every smaller model-sized
  * chunk, join, and final speed operation behind it. The caller must pass the
  * live figure — there is no default, because a wrong one bills a failed job.
+ * `null`/`undefined` is accepted and refused loudly: the caller must be able to
+ * hand over "absent" without first flattening it to a number.
  */
-export function splitGenStudioApiRequests(text: string, maxCharacters: number): string[] {
-  if (!Number.isFinite(maxCharacters) || maxCharacters <= 0) {
-    throw new Error(
-      'GenStudio KH published no maximum_input_characters for the selected voice model, '
-      + 'so Story Studio cannot decide where to split this script. Refresh the voice catalogue and try again.',
-    )
+export function splitGenStudioApiRequests(text: string, maxCharacters: number | null | undefined): string[] {
+  if (maxCharacters == null || !Number.isFinite(maxCharacters) || maxCharacters <= 0) {
+    throw new Error(describeMissingRequestBoundary(
+      maxCharacters,
+      'Story Studio cannot decide where to split this script. Refresh the voice catalogue and try again.',
+    ))
   }
   const cap = Math.floor(maxCharacters)
   return chunkText(text, cap).flatMap(part => {
@@ -1598,12 +1642,12 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   const voiceId = request.voiceId?.trim() || ''
   if (!voiceId) throw new Error('Select a GenStudio KH voice before generating audio.')
   if (!request.text.trim()) throw new Error('GenStudio KH text cannot be empty.')
-  const maxCharacters = request.maxInputCharacters as number
-  if (!Number.isFinite(maxCharacters) || maxCharacters <= 0) {
-    throw new Error(
-      'GenStudio KH published no maximum_input_characters for the selected voice model. '
-      + 'Story Studio will not guess a request boundary — refresh the voice catalogue and try again.',
-    )
+  const maxCharacters = request.maxInputCharacters
+  if (maxCharacters == null || !Number.isFinite(maxCharacters) || maxCharacters <= 0) {
+    throw new Error(describeMissingRequestBoundary(
+      maxCharacters,
+      'Story Studio will not guess a request boundary — refresh the voice catalogue and try again.',
+    ))
   }
   const characterCount = Array.from(request.text.normalize('NFC')).length
   if (characterCount > maxCharacters) {
@@ -2651,12 +2695,18 @@ export async function requestGenStudioTtsQuote(
     controls: parseTtsControlValues(payload?.controls),
     voice_id: typeof payload?.voice_id === 'string' ? payload.voice_id : voiceId,
     voice_tier: typeof payload?.voice_tier === 'string' ? payload.voice_tier : '',
-    billable_characters: optionalCount(payload?.billable_characters) ?? 0,
-    speed: optionalCount(payload?.speed) ?? 1,
-    estimated_duration_ms: optionalCount(payload?.estimated_duration_ms) ?? 0,
-    maximum_input_characters: optionalCount(payload?.maximum_input_characters) ?? 0,
-    credits: optionalCount(payload?.credits) ?? 0,
-    credits_per_1000_characters: optionalCount(payload?.credits_per_1000_characters) ?? 0,
+    // NOT defaulted. `readJson` above has already thrown for any non-200, so
+    // reaching this line means GenStudio answered 200; a `null` here therefore
+    // means "this 200 quote did not publish the field" and nothing else.
+    // Callers must report that, not paper over it — `?? 0` on `credits` reads
+    // as free, and `?? 0` on `maximum_input_characters` manufactures the
+    // "GenStudio published no maximum_input_characters" claim locally.
+    billable_characters: optionalCount(payload?.billable_characters) ?? null,
+    speed: optionalCount(payload?.speed) ?? null,
+    estimated_duration_ms: optionalCount(payload?.estimated_duration_ms) ?? null,
+    maximum_input_characters: optionalCount(payload?.maximum_input_characters) ?? null,
+    credits: optionalCount(payload?.credits) ?? null,
+    credits_per_1000_characters: optionalCount(payload?.credits_per_1000_characters) ?? null,
     price_version: typeof payload?.price_version === 'string' ? payload.price_version : '',
     output_format: typeof payload?.output_format === 'string' ? payload.output_format : '',
     chargeable: payload?.chargeable === true,

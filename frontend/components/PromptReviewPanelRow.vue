@@ -91,6 +91,18 @@
           <span aria-hidden="true">✨</span>
           Reprompt With Notes
         </button>
+        <!-- Manual only. Story Studio cannot tell a content refusal from any
+             other failure, so nothing triggers this automatically. -->
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="busy || saving || !canSave"
+          title="The image provider refused or failed on this prompt? Rewrite it from a different angle on the same idea, describing difficult historical material in ways that render — aftermath over act, period-illustration framing, no age markers. The history is kept; only the framing changes."
+          @click="emitReword"
+        >
+          <span aria-hidden="true">🛡</span>
+          Reword
+        </button>
       </div>
     </div>
     <div v-if="error" class="prr-error" :title="error">⚠ {{ error }}</div>
@@ -117,7 +129,7 @@ const props = defineProps<{
   modelLabel?: string
 }>()
 const emit = defineEmits<{
-  (e: 'regenerate', payload: { title: string; prompt: string; notes: string }): void
+  (e: 'regenerate', payload: { title: string; prompt: string; notes: string; reword?: boolean }): void
   (e: 'save', payload: { title: string; prompt: string }): void
 }>()
 
@@ -178,6 +190,22 @@ function emitRegenerate(): void {
     title: draftTitle.value.trim(),
     prompt: draftPrompt.value.trim(),
     notes: repromptNotes.value.trim(),
+  })
+}
+
+/**
+ * "This prompt did not render — reword it." Same regenerate call, plus the
+ * different-angle steering and the difficult-subjects guidance on the backend.
+ * Manual by design: a content refusal is not distinguishable from any other
+ * failure today, so this is never triggered automatically.
+ */
+function emitReword(): void {
+  if (!canSave.value) return
+  emit('regenerate', {
+    title: draftTitle.value.trim(),
+    prompt: draftPrompt.value.trim(),
+    notes: repromptNotes.value.trim(),
+    reword: true,
   })
 }
 </script>

@@ -32,7 +32,11 @@ export interface QuotedTtsPart {
   /** What GenStudio counted as billable for this job. */
   billable_characters: number
   chargeable: boolean
-  estimated_duration_ms: number
+  /**
+   * Null when GenStudio's 200 quote carried no duration. Not money, so it does
+   * not make the quote unavailable — but it is still never replaced with 0.
+   */
+  estimated_duration_ms: number | null
   price_version: string
   notice: string
 }
@@ -47,7 +51,13 @@ export type TtsQuoteUnavailableReason =
    * defence, because the alternative is a silently wrong total.
    */
   | 'generation_unit_rejected'
-  /** The quote call failed for some other reason (auth, network, outage). */
+  /**
+   * The quote call failed for some other reason (auth, network, outage), OR it
+   * answered 200 without the figures a total is made of. The second case used
+   * to be invisible: `?? 0` in the client turned an unpublished `credits` into
+   * a confident zero, and a zero total reads as FREE. A quote that cannot be
+   * totalled is reported as unavailable, never rounded down to nothing.
+   */
   | 'quote_failed'
 
 export interface TtsNarrationQuote {
@@ -167,6 +177,21 @@ export async function quoteNarrationRequests(
         unavailable_reason: 'quote_failed',
         unavailable_detail: error?.detail || error?.message || 'GenStudio could not quote this narration.',
         unavailable_status: error instanceof GenStudioApiError ? error.status : null,
+      }
+    }
+    // A 200 quote that omitted the money. `quote.credits` is `null` only in
+    // that exact case — a non-200 threw above — so this says so plainly instead
+    // of adding a substituted 0 into a total the customer would read as free.
+    if (quote.credits == null || quote.billable_characters == null) {
+      const missing = [
+        quote.credits == null ? 'credits' : '',
+        quote.billable_characters == null ? 'billable_characters' : '',
+      ].filter(Boolean).join(' and ')
+      return {
+        ...empty,
+        unavailable_reason: 'quote_failed',
+        unavailable_detail: `GenStudio KH answered the quote for this narration without ${missing}. `
+          + 'Story Studio will not show a total it had to invent a figure for.',
       }
     }
     parts.push({

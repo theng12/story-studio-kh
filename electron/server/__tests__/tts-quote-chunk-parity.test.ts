@@ -381,3 +381,135 @@ test('no endpoint limit is hardcoded anywhere on the quote path', () => {
     assert.doesNotMatch(source, /40[_,]?000/, `${url.pathname} embeds the quote endpoint's own maximum`)
   }
 })
+
+/**
+ * ── S1: a failed quote is a failed quote, never a claim about what GenStudio
+ * published ────────────────────────────────────────────────────────────────
+ *
+ * The quote parser used to coerce five published numerics with `?? 0`. That
+ * collapsed "absent from the payload", "this was not a quote at all" and
+ * "genuinely zero" into one indistinguishable number, and the zero then reached
+ * the boundary guards, which reported *GenStudio published no
+ * maximum_input_characters* — a sentence manufactured entirely inside Story
+ * Studio, about a field GenStudio publishes 40000 for on every TTS model and
+ * cannot return null for. It cost two wrong diagnoses.
+ *
+ * `credits` was the worse half: a silent 0 there reads as FREE.
+ */
+
+/** The exact phrase that may only appear when the field really was unpublished. */
+const PUBLICATION_CLAIM = /published no maximum_input_characters/i
+
+function quoteFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    voice_id: 'voice', voice_tier: '', controls: {},
+    billable_characters: 100, speed: 1, estimated_duration_ms: 1_000,
+    maximum_input_characters: PUBLISHED_MAX_CHARACTERS,
+    credits: 5, credits_per_1000_characters: 10,
+    price_version: 'v1', output_format: 'mp3', chargeable: true,
+    generation_enabled: true, notice: '',
+    ...overrides,
+  } as any
+}
+
+function oneRequest() {
+  return flattenTtsRequestPlan(planGenStudioTtsRequests(
+    [{ slug: 'intro', label: 'Introduction', text: 'A short line of narration.' }],
+    PUBLISHED_MAX_CHARACTERS,
+  ))
+}
+
+test('a 422 from the quote endpoint surfaces the status and GenStudio\'s own detail', async () => {
+  const detail = 'model_id: field required'
+  const result = await quoteNarrationRequests({
+    requests: oneRequest(),
+    quoteEnabled: true,
+    quoteRequest: async () => { throw new GenStudioApiError(422, detail) },
+  })
+
+  // The acceptance criterion, in full.
+  assert.equal(result.unavailable_status, 422)
+  assert.equal(result.unavailable_detail, detail)
+  assert.doesNotMatch(result.unavailable_detail, PUBLICATION_CLAIM)
+  assert.equal(result.quotable, false)
+  assert.equal(result.total_credits, null)
+})
+
+test('the status GenStudio answered with reaches the reader, not just the log', () => {
+  const page = readFileSync(new URL('../../../frontend/pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  // The note the page renders when a quote is unavailable carries the status
+  // beside GenStudio's words. Without it a transport failure and a publication
+  // gap read identically, which is how this whole class of bug hides.
+  assert.match(page, /HTTP \$\{result\.unavailable_status\}/)
+  assert.match(page, /result\.unavailable_detail/)
+})
+
+test('a non-200 quote never becomes a quote object full of zeros', () => {
+  const client = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
+  // `readJson` throws GenStudioApiError for every non-2xx, carrying the real
+  // status and the server's `detail`, so the parse below it only ever runs on a
+  // 200. That is the property the whole S1 fix rests on.
+  assert.match(client, /if \(!response\.ok\) \{[\s\S]{0,400}throw new GenStudioApiError\(response\.status, detail/)
+})
+
+test('an absent published figure stays absent through the quote parse — no `?? 0`', () => {
+  const client = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
+  const quoteParse = client.slice(client.indexOf('export async function requestGenStudioTtsQuote'))
+    .slice(0, client.slice(client.indexOf('export async function requestGenStudioTtsQuote')).indexOf('\n}\n'))
+  for (const field of [
+    'billable_characters', 'estimated_duration_ms', 'maximum_input_characters',
+    'credits', 'credits_per_1000_characters',
+  ]) {
+    assert.match(
+      quoteParse,
+      new RegExp(`${field}: optionalCount\\(payload\\?\\.${field}\\) \\?\\? null`),
+      `${field} must stay null when GenStudio's 200 quote did not publish it`,
+    )
+  }
+  // Comments stripped: the block above explains the `?? 0` it is there to stop.
+  const code = quoteParse.split('\n').filter(line => !line.trim().startsWith('//')).join('\n')
+  assert.doesNotMatch(code, /\?\? 0\b/, 'the quote parse must not default any published figure to 0')
+})
+
+test('a 200 quote that omits `credits` is reported, never totalled as free', async () => {
+  const result = await quoteNarrationRequests({
+    requests: oneRequest(),
+    quoteEnabled: true,
+    quoteRequest: async () => quoteFixture({ credits: null }),
+  })
+
+  assert.equal(result.quotable, false)
+  assert.equal(result.unavailable_reason, 'quote_failed')
+  assert.match(result.unavailable_detail, /credits/)
+  assert.doesNotMatch(result.unavailable_detail, PUBLICATION_CLAIM)
+  // The one outcome that must never happen: a total of 0 presented as a quote.
+  assert.equal(result.total_credits, null)
+  assert.equal(result.parts.length, 0)
+})
+
+test('a 200 quote that omits `billable_characters` is reported the same way', async () => {
+  const result = await quoteNarrationRequests({
+    requests: oneRequest(),
+    quoteEnabled: true,
+    quoteRequest: async () => quoteFixture({ billable_characters: null }),
+  })
+  assert.equal(result.quotable, false)
+  assert.match(result.unavailable_detail, /billable_characters/)
+  assert.equal(result.total_billable_characters, null)
+})
+
+test('the boundary guards distinguish "published nothing" from "published something unusable"', () => {
+  // Absent — the claim is true, and the original wording is kept.
+  assert.throws(() => splitGenStudioApiRequests('narration', null), PUBLICATION_CLAIM)
+  assert.throws(() => splitGenStudioApiRequests('narration', undefined), PUBLICATION_CLAIM)
+  // Published, but not a usable boundary. GenStudio published SOMETHING here,
+  // so saying it published nothing would be the same false claim in reverse.
+  assert.throws(() => splitGenStudioApiRequests('narration', 0), /published maximum_input_characters as 0/)
+  assert.doesNotThrow(() => {
+    try { splitGenStudioApiRequests('narration', 0) } catch (error: any) {
+      assert.doesNotMatch(error.message, PUBLICATION_CLAIM)
+      return
+    }
+    throw new Error('expected a refusal')
+  })
+})

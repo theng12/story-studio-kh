@@ -735,7 +735,17 @@
                     ? 'Scene has no transcript_segment — fill that in first'
                     : 'Regenerate only the visual prompt; the deterministic time range and transcript stay unchanged.'"
                 @click="regenerateScenePrompt(scene)"
-              >{{ regenPromptId === scene.id ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
+              >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
+              <button
+                class="btn-icon"
+                :disabled="!subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
+                :title="!scene.visual_prompt?.trim()
+                  ? 'Nothing to reword yet — write or generate the prompt first.'
+                  : !form.model
+                    ? 'Pick a model above first'
+                    : 'The image provider refused or failed on this prompt? Rewrite it from a different angle on the same beat, describing difficult historical material in ways that render — aftermath over act, period-illustration framing, no age markers. The history is kept; only the framing changes.'"
+                @click="rewordScenePrompt(scene)"
+              >{{ regenPromptId === scene.id && rewordingPrompt ? '⏳ Rewording…' : '🛡 Reword' }}</button>
               <button
                 class="btn-icon"
                 :disabled="i === 0"
@@ -1852,12 +1862,20 @@ async function jumpToScene(id: string): Promise<void> {
 
 // Prompt-only regeneration never changes deterministic timeline boundaries.
 const regenPromptId = ref<string | null>(null)
-async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
+// Distinguishes the two buttons that share `regenPromptId` so only the one that
+// was pressed shows its busy label.
+const rewordingPrompt = ref(false)
+async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boolean } = {}): Promise<void> {
   if (!subtitleTimelineComplete.value) { showError('Complete and stitch every subtitle chapter first.'); return }
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (!scene.transcript_segment?.trim()) { showError('Scene has no transcript_segment to base a prompt on.'); return }
+  if (opts.reword && !scene.visual_prompt?.trim()) {
+    showError('Nothing to reword yet — write or generate this scene\'s prompt first.')
+    return
+  }
   const ep = episodeId.value
   regenPromptId.value = scene.id
+  rewordingPrompt.value = opts.reword === true
   const previousGeneratedAt = plan.value?.generated_at || null
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
@@ -1867,14 +1885,31 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
       prompt_char_cap: effectivePromptCharCap.value || undefined,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      ...(opts.reword ? { reword_prompt: true } : {}),
     })
-    success('Regen queued — watch the Jobs panel; the prompt updates when it lands.')
+    success(opts.reword
+      ? 'Reword queued — the same beat from a different angle; the prompt updates when it lands.'
+      : 'Regen queued — watch the Jobs panel; the prompt updates when it lands.')
     await pollUntilPlanLanded(ep, { previousGeneratedAt })
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to start prompt regen')
+    showError(e?.data?.detail || e?.message || `Failed to start prompt ${opts.reword ? 'reword' : 'regen'}`)
   } finally {
     regenPromptId.value = null
+    rewordingPrompt.value = false
   }
+}
+
+/**
+ * Manual "this prompt did not render — reword it". Rewrites this one prompt
+ * from a different angle on the same narrative beat, with the difficult-
+ * subjects guidance applied (aftermath over act, period-illustration framing,
+ * no age markers), keeping the historical substance intact.
+ *
+ * Deliberately manual: Story Studio cannot today tell a provider content
+ * refusal from any other failure, so nothing triggers this automatically.
+ */
+function rewordScenePrompt(scene: ScenePlanEntry): Promise<void> {
+  return regenerateScenePrompt(scene, { reword: true })
 }
 
 // v1.0.468 — motion-prompt: inline save (on blur) + LLM regen for one scene.

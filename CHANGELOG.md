@@ -4,6 +4,36 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.785 — 2026-08-04
+
+- **A narration quote missing its price no longer reads as free** — when GenStudio answered a
+  quote without including the cost, Story Studio silently treated it as zero and folded that
+  into the episode total. A missing price is now reported as unavailable, naming the field that
+  was absent, rather than quietly understating what you are about to spend. The same fault is
+  fixed in two other places: an unpriced part in a multi-part narration total, and
+  reference-guided image generation, which appeared free when its surcharge was not published.
+- **Errors no longer blame GenStudio for something Story Studio decided** — a failure while
+  reading a quote was reported as "GenStudio published no maximum characters", which sent two
+  investigations in the wrong direction. Story Studio now only says that when it is actually
+  true, and otherwise shows the real status code and GenStudio's own message.
+- **The connection test no longer reports a healthy key as broken** — it asked for the voice
+  catalogue without naming a model, which GenStudio correctly declines, since voices belong to a
+  specific model. It now asks properly, and skips the check when there are no models rather than
+  failing it.
+- **Voice lists ask you to choose a model first** — three places tried to list voices with no
+  model chosen, which cannot be answered. They now say so plainly instead of failing obscurely.
+- **Image prompts are written to handle difficult history well** — war, plague, famine, medicine
+  and period art are this app's real subject matter, and prompts are now written to describe
+  them in ways that render properly: the aftermath rather than the act, suffering through
+  setting and posture, period illustration for the hardest scenes. The history is preserved in
+  full; only the framing changes.
+- **A new Reword button on any prompt** — rewrites that one prompt from a different angle while
+  keeping the era and the detail, available on both Scene Plan and Prompt Review.
+- **Job times now show the date** — "Today", "Yesterday" or the date, so yesterday's run and
+  this morning's are no longer identical.
+
+---
+
 ## v1.0.784 — 2026-08-03
 
 - **Choosing an art style no longer changes your scene rhythm or your episode anchor** — applying

@@ -33,7 +33,8 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     .expect(200)
 
   globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/voices')
+    // Scoped by model: GenStudio requires `model_id` on /v1/voices (ADR-0016).
+    assert.equal(String(input), 'http://127.0.0.1:8000/v1/voices?model_id=tts-qwen3')
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
     return new Response(JSON.stringify([
       {
@@ -47,7 +48,7 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
     ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 
-  const response = await request(app).get('/api/app-settings/genstudio/voices')
+  const response = await request(app).get('/api/app-settings/genstudio/voices?model_id=tts-qwen3')
   assert.equal(response.status, 200)
   // A voice GenStudio has disabled is still listed. The customer needs to see
   // why a saved selection stopped working; `generation_enabled` gates the
@@ -191,6 +192,9 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_all_story_scopes')
     if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
     if (url.endsWith('/v1/account/overview')) return Response.json({ detail: 'missing usage:read' }, { status: 403 })
+    // The account's own published voice models. The voice probe is scoped by
+    // the first id here — never by a name written in this test or the route.
+    if (url.endsWith('/v1/tts/models')) return Response.json([{ id: 'tts-probe' }])
     return Response.json([])
   }
 
@@ -204,8 +208,9 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
   assert.equal(response.body.usage_available, false)
   assert.match(response.body.warning, /usage:read/)
   assert.deepEqual(visited, [
+    // Resolved first, so the voice probe below can be scoped by a real model id.
+    'http://127.0.0.1:8000/v1/tts/models',
     'http://127.0.0.1:8000/v1/models',
-    'http://127.0.0.1:8000/v1/voices',
     'http://127.0.0.1:8000/v1/transcription/models',
     'http://127.0.0.1:8000/v1/image/models',
     'http://127.0.0.1:8000/v1/videos/models',
@@ -214,6 +219,7 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     'http://127.0.0.1:8000/v1/images/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/transcriptions/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/videos/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/voices?model_id=tts-probe',
     'http://127.0.0.1:8000/v1/account/overview',
   ])
 })
@@ -306,4 +312,61 @@ test('GenStudio usage requests supported account pagination and returns authorit
     'http://127.0.0.1:8000/v1/account/jobs?page=1&page_size=20',
     'http://127.0.0.1:8000/v1/account/credit-activity?page=1&page_size=20',
   ].sort())
+})
+
+/**
+ * ── S2 + S3: every voice read is scoped to a model ─────────────────────────
+ *
+ * `GET /v1/voices` on GenStudio REQUIRES `model_id` (ADR-0016: TTS is
+ * model-first, and voices are not portable across engines). An unscoped ask is
+ * a 422 by design. Story Studio used to make one in two places: the API-key
+ * health check, which then reported a perfectly healthy key as broken, and the
+ * voice picker, which surfaced the 422 as a broken catalogue instead of a
+ * missing selection.
+ */
+
+test('the voice picker asks for a model instead of making a call GenStudio must refuse', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_unscoped_voice_ask' })
+    .expect(200)
+
+  globalThis.fetch = async (input) => {
+    throw new Error(`No unscoped voice request may be made: ${String(input)}`)
+  }
+
+  const response = await request(app).get('/api/app-settings/genstudio/voices')
+  assert.equal(response.status, 400)
+  assert.equal(response.body.code, 'GENSTUDIO_TTS_MODEL_REQUIRED')
+  assert.match(response.body.detail, /Choose a voice model first/)
+  // Not paraphrased as a catalogue outage — it is a selection that has not been
+  // made yet, and the message says so.
+  assert.doesNotMatch(response.body.detail, /unavailable|broken|failed/i)
+})
+
+test('the key test scopes its voice probe, and skips it when no voice model is published', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_no_voice_models' })
+    .expect(200)
+
+  const visited: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    visited.push(url)
+    if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/account/overview')) return Response.json({ credit_balance: 10 })
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_no_voice_models' })
+    .expect(200)
+
+  // An account with no published voice model has nothing to scope a voice probe
+  // by. Skipping it is honest; failing it blamed the key for a question that
+  // could not be asked.
+  assert.equal(response.body.valid, true)
+  assert.ok(!visited.some(url => url.includes('/v1/voices')), 'no unscoped voice probe may be made')
 })

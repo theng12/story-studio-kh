@@ -17,6 +17,7 @@ import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
+import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
@@ -270,6 +271,7 @@ FORMAT — return only this JSON object:
 }
 
 ${args.thumbnailDirective}
+${imagePromptGuidanceBlock()}
 
 No markdown and no commentary.`
 }

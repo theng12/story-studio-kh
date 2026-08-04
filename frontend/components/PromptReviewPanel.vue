@@ -233,7 +233,7 @@ async function loadPrompts(): Promise<void> {
 async function regenerateOne(
   kind: 'scene' | 'thumbnail',
   number: number,
-  payload: { title: string; prompt: string; notes: string },
+  payload: { title: string; prompt: string; notes: string; reword?: boolean },
 ): Promise<void> {
   const key = `${kind}-${number}`
   if (busy.value.has(key)) return
@@ -254,6 +254,10 @@ async function regenerateOne(
         // is written under the limit rather than back over it. Null/0 → omitted
         // → no limit is in force and the writer is left unconstrained.
         prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
+        // Set only by the row's explicit "Reword" button — asks for a different
+        // angle on the same idea with the difficult-subjects guidance applied.
+        // Never inferred from a failure.
+        ...(payload.reword ? { reword: true } : {}),
       },
     )
     // Patch the in-memory list so the card reflects the new prompt
@@ -267,9 +271,9 @@ async function regenerateOne(
         ...list.value.slice(idx + 1),
       ]
     }
-    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} regenerated`)
+    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} ${payload.reword ? 'reworded — same idea, different angle' : 'regenerated'}`)
   } catch (e: any) {
-    const msg = e?.data?.detail || e?.message || 'Regeneration failed'
+    const msg = e?.data?.detail || e?.message || `${payload.reword ? 'Reword' : 'Regeneration'} failed`
     errors.value = { ...errors.value, [key]: msg }
     showError(msg)
   } finally {

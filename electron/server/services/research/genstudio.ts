@@ -9,6 +9,7 @@
 import { getApiKey } from '../app-secrets-store.js'
 import { callAiWithRetry } from '../../lib/ai-client.js'
 import { resolveDefaultChatModel } from '../genstudio-default-model.js'
+import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions } from '../../models/types.js'
 import { buildResearchPrompt, assembleOutput } from './prompt.js'
@@ -41,6 +42,12 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     // list and an episode outline in one JSON object. The 2,048-token
     // short-form default truncated it, which GenStudio then refused to settle.
     const raw = await callAiWithRetry(model, system, user, {}, false, {
+      // A research pass IS one JSON object — `assembleOutput` parses it. Asking
+      // for prose and hoping left the model free to wrap that object in
+      // commentary, and a prose-wrapped response is discarded after it has
+      // already been paid for. The web adapter has always declared this
+      // contract; the model-knowledge adapter now declares the same one.
+      outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
       outputBudget: 'long',
     }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)

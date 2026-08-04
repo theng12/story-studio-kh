@@ -137,7 +137,11 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   if (!resolvedVoiceId) return res.status(400).json({ detail: 'Select a GenStudio voice before previewing.' })
 
   try {
-    const voices = await listGenStudioVoices(apiKey)
+    // Scoped by the model this preview belongs to. GenStudio requires
+    // `model_id` on `/v1/voices` (ADR-0016) and answers 422 without it, so an
+    // unscoped read here failed the preview for a perfectly valid voice. The
+    // model was already resolved and validated above — pass it.
+    const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
     const voice = voices.find(entry => entry.id === resolvedVoiceId)
     if (!voice) {
       return res.status(404).json({ detail: 'That voice is no longer available in your GenStudio catalog.' })

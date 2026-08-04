@@ -49,4 +49,17 @@ describe('universal Jobs workspace', () => {
     assert.match(page, /Uploading video to YouTube/)
     assert.match(page, /Applying thumbnail and metadata/)
   })
+
+  test('every job timestamp says which day, not just a time of day', () => {
+    // `toLocaleTimeString` alone rendered yesterday's 09:14 and this morning's
+    // 09:14 identically, so the list could not be read across a date boundary.
+    assert.match(page, /return `Today \$\{time\}`/)
+    assert.match(page, /return `Yesterday \$\{time\}`/)
+    // Older than yesterday gets a real date, with the year once it is a
+    // different one.
+    assert.match(page, /toLocaleDateString\(\[\], d\.getFullYear\(\) === today\.getFullYear\(\)/)
+    assert.match(page, /year: 'numeric', month: 'short', day: 'numeric'/)
+    // The bare time-only formatter is gone from the job rows.
+    assert.doesNotMatch(page, /return d\.toLocaleTimeString/)
+  })
 })

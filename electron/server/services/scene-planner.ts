@@ -28,6 +28,7 @@ import {
   CREATIVE_STRATEGY_INSTRUCTIONS,
 } from './scene-creative-direction.js'
 import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
+import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { availableInputTokens } from './scene-prompt-batching.js'
 import type {
   ResearchOutput,
@@ -349,7 +350,11 @@ ${schemaBlock}`
   )
   userParts.push('\nReturn the JSON now.')
 
-  return { system, user: userParts.join('\n\n') }
+  // Difficult historical subjects (war, plague, famine, medicine, period art)
+  // are this channel's actual material. The shared guidance teaches the planner
+  // to describe them in ways that render, without sanitising the history — see
+  // lib/image-content-guidance.ts.
+  return { system: system + imagePromptGuidanceBlock(), user: userParts.join('\n\n') }
 }
 
 /** Tolerant JSON parser — strips fences, handles prose preamble, and (v1.0.225)
@@ -1527,6 +1532,15 @@ export async function generateVisualPromptOnly(opts: {
    */
   prev_visual_prompts?: string[]
   next_transcript_segments?: string[]
+  /**
+   * User-invoked "reword this prompt" — asks for a genuinely different angle on
+   * the SAME narrative beat, on top of the standard difficult-subjects
+   * guidance. Set only by the manual per-scene action; nothing infers it from a
+   * failure. See lib/image-content-guidance.ts.
+   */
+  reword?: boolean
+  /** The prompt being reworded, so the writer can avoid restating it. */
+  reword_previous_prompt?: string
 }): Promise<string> {
   const detail = DETAIL_SPECS[opts.detail_level ?? 4] || DETAIL_SPECS[4]!
   const sysParts: string[] = [
@@ -1576,7 +1590,9 @@ export async function generateVisualPromptOnly(opts: {
       + 'as a natural beat between what just happened and what\'s coming.',
     )
   }
-  const system = sysParts.join('\n\n')
+  // Difficult historical material is described in ways that render, and — when
+  // the user asked for a reword — from a different angle on the same beat.
+  const system = sysParts.join('\n\n') + imagePromptGuidanceBlock({ reword: opts.reword })
 
   // User-message sections: prev prompts → upcoming transcripts → THIS
   // scene's transcript → instruction. Order matters: putting THIS scene
@@ -1592,6 +1608,12 @@ export async function generateVisualPromptOnly(opts: {
     userParts.push(`Upcoming scene transcript(s) (don't write for them — just so you know what's coming):\n${lines}`)
   }
   userParts.push(`Narration excerpt for THIS scene:\n${opts.transcript_segment.trim()}`)
+  if (opts.reword && opts.reword_previous_prompt?.trim()) {
+    userParts.push(
+      'The prompt being replaced (do NOT reuse its framing — find a different angle on this same beat):\n'
+      + opts.reword_previous_prompt.trim(),
+    )
+  }
   userParts.push('Write the visual scene description (single paragraph, no quotes):')
   const user = userParts.join('\n\n')
 

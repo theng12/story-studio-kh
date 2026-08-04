@@ -200,6 +200,35 @@ test('a narration submitted as several jobs is a SUM OF QUOTES, never an estimat
   assert.equal(describeQuotedTotal([]).basis, 'unpublished')
 })
 
+test('a job GenStudio did not price makes the TOTAL unavailable — it never counts as free', () => {
+  // The S1 defect class in its display form. A part whose `credits` GenStudio
+  // did not publish used to contribute 0 to a figure labelled "sum of N
+  // GenStudio quotes": a total that was quietly too low while still claiming
+  // every job had been priced. One unpriced part means there is no total.
+  for (const missing of [null, undefined]) {
+    const display = describeQuotedTotal([{ credits: 40 }, { credits: missing }], 'this narration')
+    assert.equal(display.basis, 'unpublished')
+    assert.match(display.text, /not reported/i)
+    assert.doesNotMatch(display.text, /\b40\b/)
+    assert.doesNotMatch(display.text, /sum of/i)
+  }
+})
+
+test('an unpublished reference surcharge does not price reference guidance as free', () => {
+  const priced = { chargeable: true, credits_per_image: 4 }
+  // No `reference_generation_credits` anywhere: the surcharge is unknown, so
+  // there is no batch total to state — only the published unit rate.
+  const guided = describeImageBatchEstimate(priced as any, null, 10, { referenceGuided: true })
+  assert.notEqual(guided.basis, 'estimate')
+  assert.doesNotMatch(guided.text, /Estimate/i)
+  // Published surcharge → the estimate is stated, and it includes it.
+  const withSurcharge = describeImageBatchEstimate(
+    { ...priced, reference_generation_credits: 1 } as any, null, 10, { referenceGuided: true },
+  )
+  assert.equal(withSurcharge.basis, 'estimate')
+  assert.match(withSurcharge.text, /Estimate 50 credits/)
+})
+
 // ── Source guards ─────────────────────────────────────────────────────────
 
 test('no image surface invents a resolution ladder or a fallback ratio', () => {

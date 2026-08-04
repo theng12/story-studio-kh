@@ -169,10 +169,18 @@ const chatModelsCache = createGenStudioCatalogCache<CatalogEntry[]>({
     return Array.isArray(response.models) ? response.models : []
   },
 })
+// GenStudio scopes its voice catalogue to a model (ADR-0016) and refuses an
+// unscoped list, so this diagnostic reads the voices of the account's first
+// published voice model rather than asking for a list that cannot be answered.
+// With no published voice model there is nothing to scope by, so the row shows
+// empty instead of an error — a skipped diagnostic, not a manufactured one.
 const voicesCache = createGenStudioCatalogCache<CatalogEntry[]>({
   empty: [],
   fetcher: async () => {
-    const response = await get<{ voices: CatalogEntry[] }>('/app-settings/genstudio/voices', { cache: 'no-store' })
+    const modelId = voiceModels.value.find(model => !!model?.id)?.id
+    if (!modelId) return []
+    const query = `?model_id=${encodeURIComponent(modelId)}`
+    const response = await get<{ voices: CatalogEntry[] }>(`/app-settings/genstudio/voices${query}`, { cache: 'no-store' })
     return Array.isArray(response.voices) ? response.voices : []
   },
 })

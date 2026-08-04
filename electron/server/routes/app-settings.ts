@@ -473,12 +473,32 @@ function queryText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
+/**
+ * The voice catalogue, always scoped to a model.
+ *
+ * `GET /v1/voices` on GenStudio REQUIRES `model_id` (ADR-0016: TTS is
+ * model-first and voices are not portable across engines, so "every voice on
+ * the account" is not a question it can answer). This route used to forward the
+ * filter only when the caller supplied one, and an unscoped ask came back 422 —
+ * which read as a broken voice catalogue rather than a missing selection.
+ *
+ * Story Studio now asks for the selection instead of forwarding a request it
+ * knows will be refused. Same shape as the guard on the quote route below it.
+ */
 router.get('/app-settings/genstudio/voices', async (req, res) => {
   try {
     const apiKey = await requireGenStudioKey(res)
     if (!apiKey) return
+    const modelId = queryText(req.query.model_id)
+    if (!modelId) {
+      return res.status(400).json({
+        code: 'GENSTUDIO_TTS_MODEL_REQUIRED',
+        detail: 'Choose a voice model first. GenStudio KH lists voices per model, '
+          + 'so there is no voice catalogue to show until one is selected.',
+      })
+    }
     const voices = await listGenStudioVoices(apiKey, {
-      modelId: queryText(req.query.model_id),
+      modelId,
       collection: queryText(req.query.collection),
       search: queryText(req.query.search),
     })
@@ -522,9 +542,18 @@ async function respondWithSavedState(req: any, res: any, saved: boolean) {
     if (!apiKey) return
     const voiceId = String(req.params.voiceId || '').trim()
     if (!voiceId) return res.status(400).json({ detail: 'A voice id is required.' })
+    // Throws unless GenStudio accepted the change, so reaching the next line
+    // means the new saved state is GenStudio's, not an assumption.
     await setGenStudioVoiceSaved(apiKey, voiceId, saved)
-    const voice = (await listGenStudioVoices(apiKey)).find(entry => entry.id === voiceId) || null
-    res.json({ voice, is_saved: voice?.is_saved ?? null })
+    // Re-reading the catalogue is how the refreshed ROW is obtained, and that
+    // read must carry a model — an unscoped `/v1/voices` is a 422 by design.
+    // Without one the row is simply not re-read: the accepted state is still
+    // reported, and no failing catalogue call is made to decorate it.
+    const modelId = queryText(req.query?.model_id) || queryText(req.body?.model_id)
+    const voice = modelId
+      ? (await listGenStudioVoices(apiKey, { modelId })).find(entry => entry.id === voiceId) || null
+      : null
+    res.json({ voice, is_saved: voice?.is_saved ?? saved })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not update the saved state of this voice'))
   }
@@ -873,9 +902,8 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
       const baseUrl = await getGenStudioUrl()
       const root = baseUrl.replace(/\/+$/, '')
       const headers = { Authorization: `Bearer ${apiKey}` }
-      const probes = [
+      const probes: { path: string; scope: string; label: string; expected: number }[] = [
         { path: '/v1/models', scope: 'models:read', label: 'model catalog', expected: 200 },
-        { path: '/v1/voices', scope: 'voices:read', label: 'voice catalog', expected: 200 },
         { path: '/v1/transcription/models', scope: 'audio:transcribe', label: 'transcription catalog', expected: 200 },
         { path: '/v1/image/models', scope: 'images:generate', label: 'image catalog', expected: 200 },
         { path: '/v1/videos/models', scope: 'videos:generate', label: 'video catalog', expected: 200 },
@@ -884,7 +912,49 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         { path: '/v1/images/story-studio-key-probe', scope: 'images:generate', label: 'image job access', expected: 404 },
         { path: '/v1/transcriptions/story-studio-key-probe', scope: 'audio:transcribe', label: 'transcription job access', expected: 404 },
         { path: '/v1/videos/story-studio-key-probe', scope: 'videos:generate', label: 'video job access', expected: 404 },
-      ] as const
+      ]
+
+      // `GET /v1/voices` REQUIRES `model_id` (ADR-0016: TTS is model-first, and
+      // a voice list not scoped to a model is not answerable because voices are
+      // not portable across engines). This probe used to ask for it unscoped and
+      // expect 200; GenStudio answers 422 by design, so a perfectly healthy key
+      // was reported as broken. Scope it by a real published model id instead.
+      //
+      // The id is read from the account's own live catalogue — never inferred
+      // from a model name — and when the account publishes no TTS models there
+      // is nothing to scope by, so the voice probe is SKIPPED rather than
+      // failed. A skipped probe is honest; a manufactured one is not.
+      const ttsCatalogResponse = await fetch(`${root}/v1/tts/models`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (ttsCatalogResponse.status === 401 || ttsCatalogResponse.status === 403) {
+        return res.json({
+          valid: false,
+          reachable: true,
+          message: 'The GenStudio API key is invalid or is missing voices:read.',
+        })
+      }
+      if (ttsCatalogResponse.status !== 200) {
+        return res.json({
+          valid: false,
+          reachable: true,
+          message: `GenStudio voice model catalog returned HTTP ${ttsCatalogResponse.status}. Check the API URL and key.`,
+        })
+      }
+      const ttsCatalog = await ttsCatalogResponse.json().catch(() => null)
+      const probeModelId = Array.isArray(ttsCatalog)
+        ? ttsCatalog.map((row: any) => (typeof row?.id === 'string' ? row.id.trim() : '')).find(Boolean) || ''
+        : ''
+      if (probeModelId) {
+        probes.push({
+          path: `/v1/voices?model_id=${encodeURIComponent(probeModelId)}`,
+          scope: 'voices:read',
+          label: 'voice catalog',
+          expected: 200,
+        })
+      }
+
       for (const probe of probes) {
         const response = await fetch(`${root}${probe.path}`, {
           headers,

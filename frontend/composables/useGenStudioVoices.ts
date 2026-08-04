@@ -106,18 +106,25 @@ export interface GenStudioVoiceLibrary {
   label: string
 }
 
-/** `TTSQuoteResponse` — GenStudio's own figure for one exact script. */
+/**
+ * `TTSQuoteResponse` — GenStudio's own figure for one exact script.
+ *
+ * Numerics are `number | null`, mirroring the backend shape exactly: `null`
+ * means GenStudio's 200 quote did not publish that field. It is never a failed
+ * call (those surface as an error) and never a zero. Do not `|| 0` any of these
+ * for display — a substituted 0 on `credits` reads as free.
+ */
 export interface GenStudioTtsQuote {
   model_id?: string | null
   model_name?: string | null
   voice_id: string
   voice_tier: string
-  billable_characters: number
-  speed: number
-  estimated_duration_ms: number
-  maximum_input_characters: number
-  credits: number
-  credits_per_1000_characters: number
+  billable_characters: number | null
+  speed: number | null
+  estimated_duration_ms: number | null
+  maximum_input_characters: number | null
+  credits: number | null
+  credits_per_1000_characters: number | null
   price_version: string
   output_format: string
   chargeable: boolean
@@ -137,7 +144,8 @@ export interface GenStudioQuotedPart {
   credits: number
   billable_characters: number
   chargeable: boolean
-  estimated_duration_ms: number
+  /** Null when GenStudio's 200 quote carried no duration for this job. */
+  estimated_duration_ms: number | null
   price_version: string
   notice: string
 }
@@ -229,9 +237,13 @@ export function useGenStudioVoices() {
 
   /**
    * GenStudio decides compatibility: `model_id` is its own filter, so Story
-   * Studio never compares ids to guess which voices a model serves. An empty
-   * `modelId` deliberately sends no filter and returns every voice on the
-   * account, each naming the model that serves it.
+   * Studio never compares ids to guess which voices a model serves.
+   *
+   * A model id is REQUIRED. GenStudio scopes `/v1/voices` to a model and
+   * refuses an unscoped list (ADR-0016: voices are not portable across
+   * engines), so an empty `modelId` used to produce a 422 that read as a broken
+   * catalogue. It now short-circuits to the same message the backend gives,
+   * without a round trip.
    */
   /**
    * `collection` is GenStudio's own vocabulary (`all` | `explore` | `my` |
@@ -240,11 +252,18 @@ export function useGenStudioVoices() {
    * name, the same way it never infers any other published fact.
    */
   async function loadVoices(modelId: string, search = '', collection = ''): Promise<void> {
+    if (!modelId.trim()) {
+      voices.value = []
+      voicesModelId.value = null
+      voicesError.value = 'Choose a voice model first. GenStudio KH lists voices per model, '
+        + 'so there is no voice catalogue to show until one is selected.'
+      return
+    }
     voicesLoading.value = true
     voicesError.value = ''
     try {
       const query = new URLSearchParams()
-      if (modelId.trim()) query.set('model_id', modelId.trim())
+      query.set('model_id', modelId.trim())
       if (search.trim()) query.set('search', search.trim())
       if (collection.trim()) query.set('collection', collection.trim())
       const suffix = query.size ? `?${query.toString()}` : ''
@@ -268,9 +287,13 @@ export function useGenStudioVoices() {
    * list reflects what GenStudio now says rather than what was clicked.
    */
   async function setSaved(voiceId: string, saved: boolean): Promise<void> {
-    const path = `/app-settings/genstudio/voices/${encodeURIComponent(voiceId)}/save`
+    const base = `/app-settings/genstudio/voices/${encodeURIComponent(voiceId)}/save`
+    // The model this list was scoped by, so the backend can re-read the
+    // refreshed row — GenStudio has no unscoped voice read to fall back on.
+    const modelId = voicesModelId.value || ''
+    const path = modelId ? `${base}?model_id=${encodeURIComponent(modelId)}` : base
     const response = saved
-      ? await post<{ voice?: GenStudioVoice | null }>(path, {})
+      ? await post<{ voice?: GenStudioVoice | null }>(path, modelId ? { model_id: modelId } : {})
       : await del<{ voice?: GenStudioVoice | null }>(path)
     const updated = response?.voice
     voices.value = voices.value.map(voice => (

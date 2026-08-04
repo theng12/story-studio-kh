@@ -171,9 +171,15 @@ export function describeImageBatchEstimate(
 
   const unit = publishedNumber(option?.credits_per_image) ?? publishedNumber(model?.credits_per_image)
   if (unit === null) return unitDisplay
+  // Reference guidance is priced separately, and an unpublished surcharge is
+  // NOT a free one. Adding 0 here quietly told the customer that reference-
+  // guided generation costs the same as plain generation — the same "silent 0
+  // reads as free" mistake as `credits ?? 0` on a quote. With no published
+  // surcharge there is no total to state, so the unit rate stands alone.
   const reference = opts.referenceGuided
-    ? (publishedNumber(option?.reference_generation_credits) ?? publishedNumber(model?.reference_generation_credits) ?? 0)
+    ? (publishedNumber(option?.reference_generation_credits) ?? publishedNumber(model?.reference_generation_credits))
     : 0
+  if (reference === null) return unitDisplay
   const estimate = (unit + reference) * count
   return {
     text: `Estimate ${formatCredits(estimate)} (${unitDisplay.text} × ${count.toLocaleString()})`,
@@ -293,11 +299,17 @@ export function describeQuotedCost(credits: number | null | undefined, what = 't
  * caller is told so in as many words.
  */
 export function describeQuotedTotal(
-  parts: Array<{ credits: number }>,
+  parts: Array<{ credits: number | null | undefined }>,
   what = 'this narration',
 ): CreditDisplay {
   if (!parts.length) return unpublishedCost()
-  const credits = parts.reduce((sum, part) => sum + (publishedNumber(part.credits) ?? 0), 0)
+  // A part GenStudio did not price contributes NOTHING to a figure labelled
+  // "sum of N GenStudio quotes" — and adding 0 for it produced a total that was
+  // quietly too low while still claiming every job had been quoted. One
+  // unpriced part means there is no total, only quotes for some of the work.
+  const published = parts.map(part => publishedNumber(part.credits))
+  if (published.some(credits => credits === null)) return unpublishedCost()
+  const credits = published.reduce((sum: number, part) => sum + (part as number), 0)
   const count = parts.length
   if (count === 1) return describeQuotedCost(credits, what)
   return {

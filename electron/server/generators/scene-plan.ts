@@ -20,6 +20,7 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
+import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
@@ -132,6 +133,18 @@ interface ScenePlanRunParams {
    *  structured JSON output) — works reliably on smaller local models
    *  that fail full-planner JSON. Mutually exclusive with replan_scene_id. */
   regenerate_prompt_scene_id?: string
+  /**
+   * Pairs with `regenerate_prompt_scene_id`: this rewrite is a user-invoked
+   * REWORD of a prompt that did not render. The writer is asked for a
+   * different angle on the same beat, with the difficult-subjects guidance
+   * applied and the old prompt shown as something to move away from.
+   *
+   * Only ever set by the explicit "Reword" action. Story Studio cannot tell a
+   * content refusal from any other failure today, and does not guess — see
+   * lib/image-content-guidance.ts and
+   * docs/genstudio-handoff/content-refusal-code-request.md.
+   */
+  reword_prompt?: boolean
   /** Bulk-repair every missing or duplicated visual_prompt through the same
    * durable GenStudio packs as normal visual generation. Time ranges and
    * transcripts are untouched. */
@@ -803,7 +816,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return [
         {
           role: 'system',
-          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+          // Visual packs get the shared difficult-subjects guidance; motion
+          // packs do not — they describe movement over an already-approved
+          // still and introduce no subject matter of their own.
+          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}${isMotion ? '' : imagePromptGuidanceBlock()}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
         },
         {
           role: 'user',
@@ -1094,10 +1110,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       throw new Error(`Scene #${target.scene_index} has no transcript_segment to base a prompt on. Edit it first or use Re-plan.`)
     }
     job.output_lines.push(
-      `Regenerating visual prompt for scene #${target.scene_index} `
+      `${params.reword_prompt ? 'Rewording' : 'Regenerating'} visual prompt for scene #${target.scene_index} `
       + `(${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ${(target.end_sec - target.start_sec).toFixed(1)}s) — `
       + `time range and transcript unchanged, only the prompt is rewritten.`,
     )
+    if (params.reword_prompt) {
+      job.output_lines.push(
+        'Reword: asking for a different angle on the same beat, with the difficult-subjects guidance applied. '
+        + 'The historical substance stays; only the framing changes.',
+      )
+    }
     // v1.0.343 — keep the rewrite ON-STYLE. The Scene Review reprompt doesn't
     // pass a style_prompt, so the LLM used to invent its own art direction and
     // drift from the channel look. Fall back to the episode's continuity Style
@@ -1124,6 +1146,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       creative_direction: creativeDirectionForRewrite,
       creative_strategy: target.creative_strategy,
       prompt_char_cap: promptCharCap,
+      // A user-invoked reword asks for a different ANGLE on the same beat with
+      // the difficult-subjects guidance applied, rather than another pass at
+      // the same framing. Nothing infers this from a failure — see
+      // lib/image-content-guidance.ts.
+      reword: params.reword_prompt === true,
+      reword_previous_prompt: params.reword_prompt === true
+        ? (target.visual_prompt_raw ?? target.visual_prompt ?? '')
+        : undefined,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
       slug: job.project_slug,
     })

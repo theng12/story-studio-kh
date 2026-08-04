@@ -99,14 +99,39 @@ const NON_MONETARY_UNIT_SUFFIX = /(?:_?ms|_?millis|_?sec|_?seconds|_?interval|_?
 /** Fields GenStudio publishes. A numeric literal here fabricates a catalogue row. */
 const PUBLISHED_LIMIT_FIELDS = [
   'context_window_tokens', 'max_output_tokens', 'max_input_tokens', 'max_prompt_characters',
+  'maximum_input_characters', 'maximum_quote_characters',
   'max_reference_images', 'min_reference_images', 'max_image_dimension',
 ].join('|')
 
-/** The same fields in any casing, for the `?? <literal>` fallback rule. */
+/**
+ * The same fields in any casing, for the `?? <literal>` fallback rule.
+ *
+ * v1.0.785 widened this after it missed the TTS quote parser
+ * (`optionalCount(payload?.maximum_input_characters) ?? 0`) three separate ways:
+ *
+ *  - `max(?:imum)?` — the list only spelled the short form, so every
+ *    `maximum_*` field GenStudio publishes was invisible to it.
+ *  - bare `credits` — only `credits_per_*` was listed, so the single worst
+ *    field in the catalogue (`credits ?? 0` reads as FREE) was not covered.
+ *  - the wrapping call, handled at the pattern below.
+ *
+ * `min(?:imum)?_*` stays in the list on purpose: the rule's own exemption lets a
+ * minimum default to 0, because an unpublished minimum genuinely means "no
+ * constraint" — while a minimum defaulting to any OTHER number is still a claim
+ * and must still fire. Longest alternatives come first so the reported name is
+ * the whole field rather than a prefix of it.
+ */
 const PUBLISHED_VALUE_NAMES = [
-  'context_?window\\w*', 'max_?output_?tokens', 'max_?input_?tokens', 'max_?prompt_?characters',
-  'max_?reference_?images', 'min_?reference_?images', 'max_?image_?dimension',
-  'credits_?per_?\\w+', 'base_?credits_?per_?\\w+', 'aspect_?ratios?', 'resolutions?',
+  'context_?window\\w*',
+  'max(?:imum)?_?output_?tokens', 'max(?:imum)?_?input_?tokens',
+  'max(?:imum)?_?prompt_?characters', 'max(?:imum)?_?input_?characters',
+  'max(?:imum)?_?quote_?characters', 'max(?:imum)?_?reference_?images',
+  'min(?:imum)?_?reference_?images', 'max(?:imum)?_?image_?dimension',
+  'base_?credits_?per_?\\w+', 'credits_?per_?\\w+',
+  'aspect_?ratios?', 'resolutions?',
+  // Bare last, so the alternation prefers the fully-qualified names above and
+  // reports `credits_per_1000_characters` rather than a truncated `credits`.
+  'credits',
 ].join('|')
 
 const COST_VOCABULARY = /\b(cost|costs|price|pricing|priced|credit|credits|usd|dollar|dollars|estimate|estimated|spend|spent|bill|billed|billing|charge|charged)\b/i
@@ -254,8 +279,22 @@ const rules = [
     id: 'published-value-fallback',
     // `?? 2048` on a published field is the invented fallback AGENTS.md names
     // explicitly: a number the customer will mistake for the model's own.
+    //
+    // The field does NOT have to sit against the `??`. This rule originally
+    // required adjacency, so the ordinary way of writing the mistake —
+    // `optionalCount(payload?.maximum_input_characters) ?? 0`, a parse helper
+    // wrapped around the read — walked straight past it, and that exact line
+    // shipped. `[\s)]*` lets the name be closed out of any number of wrapping
+    // calls before the default.
+    //
+    // It stays tight in both directions. Only whitespace and closing PARENS may
+    // intervene, so an argument list (`clamp(model.max_output_tokens, 2) || 0`)
+    // cannot reach across a comma. `]` is deliberately excluded: a published
+    // name inside a subscript is a lookup KEY, not a read of the value —
+    // `RESOLUTION_FACTOR[settings.resolution] || 1` defaults a local multiplier
+    // and says nothing about what any model published.
     pattern: new RegExp(
-      String.raw`\b([\w$.?]*(?:` + PUBLISHED_VALUE_NAMES + String.raw`))\s*(?:\?\?|\|\|)\s*(-?\d[\d_]*(?:\.\d+)?)\b`,
+      String.raw`\b([\w$.?]*(?:` + PUBLISHED_VALUE_NAMES + String.raw`))[\s)]*(?:\?\?|\|\|)\s*(-?\d[\d_]*(?:\.\d+)?)\b`,
       'gi',
     ),
     // A `min_*` field defaulting to 0 states no constraint, which is exactly
