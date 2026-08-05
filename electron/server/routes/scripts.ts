@@ -177,6 +177,18 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
   }
 
+  // v1.0.786 — the queue job carries the model expansion will ACTUALLY use,
+  // which is the caller's current selection. This used to overwrite the body's
+  // model with the outline snapshot's, so a stale recorded id reached the
+  // executor even when a valid model was selected in the form, and the run
+  // dead-ended on "not available — choose a published product". The snapshot
+  // is still the fallback for a caller that names no model at all; the
+  // executor logs the substitution either way. `job.params.model` stays a real
+  // id so the queue's retry-eligibility check keeps working without extra I/O.
+  const selectedModel = typeof req.body?.model === 'string' && req.body.model.trim()
+    ? req.body.model.trim()
+    : undefined
+  const expansionModel = selectedModel || sidecar?.generation_params?.model
   const job = jq.enqueue({
     project_slug: slug,
     type: 'expand_chapters',
@@ -184,9 +196,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     title: title || '',
     params: {
       ...req.body,
-      // The approved outline snapshot is authoritative. Carry its model onto
-      // the queue job so retry eligibility can be proven without scheduler I/O.
-      ...(sidecar?.generation_params?.model ? { model: sidecar.generation_params.model } : {}),
+      ...(expansionModel ? { model: expansionModel } : {}),
     },
   })
   res.status(201).json(job)

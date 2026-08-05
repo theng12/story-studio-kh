@@ -859,7 +859,13 @@ export interface GenStudioChatModel {
    * 0 means "not published" — never a Story Studio guess.
    */
   context_window_tokens: number
-  /** Maximum selectable output allowance published for this product. */
+  /**
+   * Maximum selectable output allowance published for this product.
+   *
+   * 0 means "not published" — same contract as `context_window_tokens`.
+   * Story Studio never substitutes a figure of its own here; a product that
+   * publishes no output ceiling is refused at submission time instead.
+   */
   max_output_tokens: number
   controls: string[]
   activation_blockers: string[]
@@ -2812,9 +2818,14 @@ export async function listChatModelsSnapshot(
       value?.context_window_tokens,
       value?.context_limit_tokens,
     ),
-    max_output_tokens: Number.isInteger(value?.max_output_tokens)
-      ? Math.max(1, value.max_output_tokens)
-      : 2_048,
+    // 0 means "not published" — the same contract `context_window_tokens`
+    // above already uses, and never a Story Studio guess. This used to
+    // default to 2,048, which is the invented-fallback bug in its most
+    // expensive form: every consumer downstream (the pre-network ceiling
+    // check, the credit reservation, the chunking maths) would treat 2,048 as
+    // a figure GenStudio had published for the product, and a chapter sized
+    // against it comes back truncated after the customer has paid for it.
+    max_output_tokens: readPublishedTokenLimit(value?.max_output_tokens, undefined),
     controls: Array.isArray(value?.controls) ? value.controls.filter((item: unknown) => typeof item === 'string') : [],
     activation_blockers: Array.isArray(value?.activation_blockers)
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
@@ -3715,6 +3726,22 @@ async function prepareChatSubmission(
   // `max_output_tokens` (the old 32,768 route cap is gone), so the product's
   // published ceiling remains the real and only limit — the durable migration
   // does not shrink any allowance shipped in v1.0.765/766.
+  //
+  // A product that publishes NO output ceiling cannot be sized at all, so the
+  // request is refused here rather than sized against a number Story Studio
+  // made up. Same reasoning as `splitGenStudioApiRequests`, which refuses to
+  // pick a TTS request boundary GenStudio did not publish: guessing an output
+  // budget too low truncates a chapter mid-sentence, and truncated output has
+  // already cost the customer by the time anyone notices. Pre-network — no
+  // request is made and no credit is charged.
+  if (!Number.isInteger(product.max_output_tokens) || product.max_output_tokens < 1) {
+    throw new Error(
+      `GenStudio KH published no max_output_tokens for ${product.display_name}. `
+      + 'Story Studio cannot size this request without it and will not invent a ceiling. '
+      + 'Refresh the model catalogue or choose another published product. '
+      + 'No request or credit charge was made.',
+    )
+  }
   const maxOutputTokens = request.maxOutputTokens
     ?? resolveOutputTokenBudget(request.outputBudget, product.max_output_tokens)
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {

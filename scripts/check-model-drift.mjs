@@ -306,6 +306,52 @@ const rules = [
       + 'model\'s real figure.',
   },
   {
+    id: 'published-value-guarded-fallback',
+    // The SAME invented fallback, written as a validity guard instead of `??`.
+    //
+    // v1.0.786 — the `??`/`||` rule above missed three live instances of it,
+    // including the one that reached a customer's job log ("using the
+    // 16,000-token fallback"). They evaded it two ways at once:
+    //
+    //   Number.isInteger(productMaxOutputTokens) && productMaxOutputTokens >= 1
+    //     ? productMaxOutputTokens
+    //     : FALLBACK_OUTPUT_TOKEN_CAP
+    //
+    //   - a TERNARY, so there is no `??` or `||` anywhere on the line, and
+    //   - a NAMED CONSTANT as the default, so there is no numeric literal
+    //     either. Hiding 16,000 behind a SCREAMING_CASE name does not make it
+    //     less invented; it only makes it harder to grep for.
+    //
+    // Anchored on `Number.isInteger(` / `Number.isFinite(` around the published
+    // name, because that is what makes the shape unambiguous: code testing
+    // whether a PUBLISHED value arrived, and then supplying one when it did
+    // not. Without the anchor the pattern also swallows every `x ? a : b` that
+    // happens to mention a ratio or a credit, which is most of the app.
+    pattern: new RegExp(
+      String.raw`Number\.is(?:Integer|Finite)\s*\([^;{}'"\n]{0,80}?\b([\w$.?]*(?:`
+      + PUBLISHED_VALUE_NAMES
+      + String.raw`))\b[^;{}'"]{0,200}?\?(?![.:])[^;{}?'"]{0,200}?:\s*(-?\d[\d_]*(?:\.\d+)?|[A-Za-z_$][\w$]*)(?![\w.$])`,
+      'gi',
+    ),
+    // Two exemptions, both meaning "this default states NOTHING":
+    //   - `0`, the codebase's established not-published sentinel — it is what
+    //     `readPublishedTokenLimit` returns and what `positiveInt` reads back
+    //     as absent. A NONZERO default is the claim.
+    //   - any identifier that is not SCREAMING_CASE, i.e. a variable carrying
+    //     another read rather than a constant standing in for one.
+    ignore: (match) => {
+      const fallback = match[2]
+      if (/^-?\d/.test(fallback)) return Number(fallback.replace(/_/g, '')) === 0
+      return !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(fallback)
+    },
+    describe: (match) => `${match[1]} is checked for publication and then given `
+      + `${/^-?\d/.test(match[2]) ? `the invented literal ${match[2]}` : `the invented constant ${match[2]}`}`,
+    remedy: 'A guarded fallback is still a fallback. Return null / 0-as-absent and let the caller '
+      + 'show nothing, or throw — the way splitGenStudioApiRequests refuses to pick a request '
+      + 'boundary GenStudio did not publish. An invented OUTPUT ceiling is the worst of these: '
+      + 'guess low and the chapter truncates mid-sentence after the customer has paid for it.',
+  },
+  {
     id: 'capability-list',
     // An option list written locally instead of generated from the catalogue.
     pattern: /\[[^\][\n]*(['"])(\d{1,2}:\d{1,2}|\d{3,4}p|[24]k)\1[^\][\n]*\]/gi,

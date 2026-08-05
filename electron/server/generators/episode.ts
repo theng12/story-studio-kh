@@ -1177,10 +1177,26 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
  * source: 'sidecar'
  *   Prefers the sidecar's persisted generation_params over the request
  *   body. Used by expand-chapters so expansion always runs against the
- *   model / words / pattern / characters the outline was built with —
- *   even if the user edited the form between outline build and expand.
- *   Falls back to request fields when the sidecar is on v2 (no
+ *   words / pattern / characters the outline was built with — those are
+ *   outline-SHAPED (the outline literally counts chapters and allocates
+ *   words), so changing them mid-flight would desync the outline from the
+ *   prose. Falls back to request fields when the sidecar is on v2 (no
  *   generation_params yet) or when a specific field wasn't persisted.
+ *
+ *   THE MODEL IS THE ONE EXCEPTION (v1.0.786). It used to be taken from the
+ *   snapshot too, for one-voice-across-chapters consistency. But a stored
+ *   model id is a CACHED MODEL REFERENCE, which AGENTS.md's first rule
+ *   forbids precisely because it goes stale: GenStudio renames and
+ *   re-versions products, and when the recorded id stops resolving the run
+ *   dead-ends with "not available — choose a published product" and NO way
+ *   forward, even with a perfectly good model selected in the form. Nine
+ *   paid chapters on disk and no way to write the tenth is not an
+ *   acceptable price for stylistic consistency.
+ *
+ *   So the request body's model wins and the snapshot's is informational.
+ *   The consistency concern is real, so the answer is to make the change
+ *   VISIBLE rather than to prevent it: a differing model is announced in
+ *   the job log here, and in the outline panel before the user clicks.
  */
 async function setupChunkedJobContext(
   job: Job,
@@ -1223,13 +1239,38 @@ async function setupChunkedJobContext(
     }
   }
 
-  const model = snapshot?.model || req.model
+  // MODEL: the currently selected one wins. See the doc comment above for
+  // why this single field does not follow the snapshot. The snapshot is only
+  // consulted when the caller named no model at all (a headless caller that
+  // relies on the outline's record) — never to override a live selection.
+  const requestedModel = typeof req.model === 'string' && req.model.trim()
+    ? req.model.trim()
+    : undefined
+  const snapshotModel = typeof snapshot?.model === 'string' && snapshot.model.trim()
+    ? snapshot.model.trim()
+    : undefined
+  const model = requestedModel || snapshotModel
   // Without a model the downstream callAi → provider dispatch crashes inside
   // `modelId.startsWith(...)` and every batch fails with the cryptic
   // "Cannot read properties of undefined (reading 'startsWith')". Surface a
   // clear, actionable error here instead.
   if (typeof model !== 'string' || !model.trim()) {
     throw new Error('No model selected — pick a model in the script form before expanding.')
+  }
+  // Say it out loud when the run will not use the model the outline was built
+  // with. Silent substitution is what made the old behaviour hard to reason
+  // about in both directions; the log line names both ids so the owner can
+  // see exactly what changed and decide whether to reroll earlier chapters.
+  if (source === 'sidecar' && snapshotModel && requestedModel && snapshotModel !== requestedModel) {
+    job.output_lines.push(
+      `Model changed since the outline was built: outline used "${snapshotModel}", ` +
+      `expansion will use the currently selected "${requestedModel}". ` +
+      `Chapters already on disk are kept as-is — regenerate any you want rewritten in the new voice.`,
+    )
+  } else if (source === 'sidecar' && !requestedModel && snapshotModel) {
+    job.output_lines.push(
+      `No model in the request — falling back to the outline's recorded model "${snapshotModel}".`,
+    )
   }
   const length = snapshot?.length ?? req.length ?? format.script.defaultLengthMinutes
   const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount

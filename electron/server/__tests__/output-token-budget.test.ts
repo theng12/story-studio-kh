@@ -168,10 +168,22 @@ test('a workload floor raises the request but is still clamped to the product', 
   assert.equal(resolveOutputTokenBudget({ tier: 'long', minimumTokens: 100 }, 65_536), 32_768)
 })
 
-test('a malformed catalogue entry degrades to short-form, never to unlimited', () => {
+test('a malformed catalogue entry is refused, never quietly resized to short-form', () => {
+  // v1.0.786 — this used to assert the opposite: that an unpublished ceiling
+  // "degrades to short-form". Degrading is what made it dangerous. A `long` or
+  // `workload` caller silently squeezed into 2,048 tokens gets a chapter that
+  // stops at `finish_reason: "length"` — written to disk and paid for as if
+  // complete. There is no honest stand-in for a ceiling nobody published, so
+  // the caller is told. AGENTS.md: fail loudly or show nothing.
   for (const bad of [undefined, null, 0, -5, 1.5, 'many', Number.NaN]) {
-    assert.equal(resolveOutputTokenBudget('maximum', bad), SHORT_FORM_OUTPUT_TOKENS)
+    assert.throws(
+      () => resolveOutputTokenBudget('maximum', bad),
+      /published no usable max_output_tokens/,
+      `resolved a budget from ${String(bad)} instead of refusing`,
+    )
   }
+  // A published ceiling still resolves normally — the rule is "never invent".
+  assert.equal(resolveOutputTokenBudget('short', 32_768), SHORT_FORM_OUTPUT_TOKENS)
 })
 
 // ── The wire ─────────────────────────────────────────────────────────────

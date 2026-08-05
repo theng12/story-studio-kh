@@ -85,13 +85,14 @@ import type { Job, Format, Character } from '../models/types.js'
  */
 export const CHUNK_THRESHOLD_WORDS = 9000
 
-/**
- * The budget used when no product limit is available (an unreachable
- * catalogue, a caller with no model in hand). The historical streaming
- * Anthropic cap, kept ONLY so an unknown product degrades to exactly today's
- * behaviour rather than to "unlimited".
- */
-const FALLBACK_OUTPUT_TOKEN_CAP = 16_000
+// v1.0.786 — the 16,000-token FALLBACK_OUTPUT_TOKEN_CAP that used to live here
+// is gone. It was an invented ceiling: when the catalogue could not be read it
+// put a number the customer would mistake for the model's own into the job log
+// ("using the 16,000-token fallback"), and a wrong OUTPUT budget is the one
+// wrong number that truncates a chapter mid-sentence and bills for the stump.
+// There is no published value to stand in for, so the code now says nothing —
+// `null` all the way through — and the run either uses the mode's own batch
+// size or fails at the first call with GenStudio's real cause.
 
 /**
  * Headroom buffer: tokenizer-vs-word drift, JSON nesting in the prompt, and
@@ -203,12 +204,24 @@ export function chunkingSafetyMarginTokens(outputTokenCap: number): number {
   return Math.max(SAFETY_MARGIN_FLOOR_TOKENS, Math.ceil(outputTokenCap * SAFETY_MARGIN_FRACTION))
 }
 
-/** The product ceiling to budget against, defended against a missing or
- *  malformed catalogue value. */
-export function chunkingOutputBudget(productMaxOutputTokens?: number | null): number {
+/**
+ * The product ceiling to budget against, or `null` when GenStudio published
+ * none.
+ *
+ * `null`, never a stand-in number. AGENTS.md: no published value → fail
+ * loudly or show nothing. An output ceiling is the worst possible field to
+ * guess at, because guessing LOW truncates a chapter mid-sentence and the
+ * truncation is discovered after the customer has paid for it.
+ *
+ * Note the state this function guards is now vanishingly rare by design: the
+ * catalogue parser publishes `0` for an unpublished `max_output_tokens` and
+ * `prepareChatSubmission` refuses such a product before any request is made,
+ * so a run reaching here with nothing has already lost its product entirely.
+ */
+export function chunkingOutputBudget(productMaxOutputTokens?: number | null): number | null {
   return Number.isInteger(productMaxOutputTokens) && (productMaxOutputTokens as number) >= 1
     ? productMaxOutputTokens as number
-    : FALLBACK_OUTPUT_TOKEN_CAP
+    : null
 }
 
 /**
@@ -223,9 +236,13 @@ export function chunkingOutputBudget(productMaxOutputTokens?: number | null): nu
  * Floored at the legacy value so a product SMALLER than the old streaming cap
  * can lower the threshold but a bug can never raise it above what the product
  * supports.
+ *
+ * `null` when the product published no ceiling: there is no threshold to
+ * state, and stating one anyway is the invented-number bug.
  */
-export function chunkThresholdWords(productMaxOutputTokens?: number | null): number {
+export function chunkThresholdWords(productMaxOutputTokens?: number | null): number | null {
   const cap = chunkingOutputBudget(productMaxOutputTokens)
+  if (cap === null) return null
   const usable = cap - TYPICAL_PROMPT_TOKENS - chunkingSafetyMarginTokens(cap)
   if (usable <= 0) return 1
   return Math.max(1, Math.floor(usable / OUTPUT_TOKENS_PER_WORD))
@@ -246,8 +263,10 @@ export function chunkThresholdWords(productMaxOutputTokens?: number | null): num
  * per-chapter wordcount. Chunked mode is safer.
  *
  * `outputTokenCap` is the product's published `max_output_tokens`, read live
- * from the catalogue. Omitting it degrades to the historical streaming cap —
- * do that only when the product genuinely could not be resolved.
+ * from the catalogue. With nothing published there is no budget to measure
+ * against, so the answer is an unconditional YES: chunked mode is the safe
+ * side of an unknown (it keeps per-chapter resume), and it commits to no
+ * number the customer could mistake for the product's own.
  */
 export function shouldChunkByBudget(opts: {
   systemPromptChars: number
@@ -256,6 +275,7 @@ export function shouldChunkByBudget(opts: {
   outputTokenCap?: number | null
 }): boolean {
   const cap = chunkingOutputBudget(opts.outputTokenCap)
+  if (cap === null) return true
   const inputTokens = Math.ceil((opts.systemPromptChars + opts.userPromptChars) / 4)
   const outputTokens = Math.ceil(opts.targetWords * OUTPUT_TOKENS_PER_WORD)
   return (inputTokens + outputTokens + chunkingSafetyMarginTokens(cap)) > cap
@@ -292,23 +312,31 @@ const TOC_MODE_THRESHOLD = 300
  * The selected product's live output budget, and what it implies for chunking.
  *
  * Read from the GenStudio catalogue at run time — never a constant. Resolution
- * is NON-FATAL by design: a catalogue hiccup must not fail a script run, so it
- * degrades to the historical streaming cap and says so in the log.
+ * is NON-FATAL by design: a catalogue hiccup must not fail a script run here,
+ * because the very next call to the product is where the REAL cause surfaces
+ * ("the selected GenStudio language product … is not available"), and a
+ * duplicate error raised early would only bury it. What resolution must never
+ * do is fill the gap with a number: unresolved means `null`, and every
+ * consumer below is written to say so rather than to guess.
  */
 export interface ChunkingBudget {
-  /** The product's published `max_output_tokens`, or the fallback. */
-  outputTokenCap: number
-  /** Words this product can produce in one call, per the same estimate. */
-  thresholdWords: number
+  /** The product's published `max_output_tokens`. `null` = nothing published
+   *  (or the product could not be read at all). Never a stand-in figure. */
+  outputTokenCap: number | null
+  /** Words this product can produce in one call, per the same estimate.
+   *  `null` whenever `outputTokenCap` is. */
+  thresholdWords: number | null
   /** The product the budget came from, or null when it could not be read. */
   productId: string | null
   productName: string | null
 }
 
-function fallbackChunkingBudget(): ChunkingBudget {
+/** No product in hand — so no cap, no threshold, and no invented substitute
+ *  for either. */
+function unresolvedChunkingBudget(): ChunkingBudget {
   return {
-    outputTokenCap: chunkingOutputBudget(null),
-    thresholdWords: chunkThresholdWords(null),
+    outputTokenCap: null,
+    thresholdWords: null,
     productId: null,
     productName: null,
   }
@@ -318,7 +346,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) return fallbackChunkingBudget()
+    if (!apiKey) return unresolvedChunkingBudget()
     const [{ listChatModels }, { resolveGenStudioModelId }] = await Promise.all([
       import('./genstudio-client.js'),
       import('../services/genstudio-model-migration.js'),
@@ -327,7 +355,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
     const product = modelId
       ? (await listChatModels(apiKey)).find(candidate => candidate.id === modelId)
       : null
-    if (!product) return fallbackChunkingBudget()
+    if (!product) return unresolvedChunkingBudget()
     return {
       outputTokenCap: chunkingOutputBudget(product.max_output_tokens),
       thresholdWords: chunkThresholdWords(product.max_output_tokens),
@@ -335,7 +363,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
       productName: product.display_name || product.id,
     }
   } catch {
-    return fallbackChunkingBudget()
+    return unresolvedChunkingBudget()
   }
 }
 
@@ -349,6 +377,11 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
  * not earn bigger narrative batches by arithmetic alone. What a small product
  * DOES earn is protection — asking a 4,096-token product for three 700-word
  * chapters in one call is how a batch comes back truncated.
+ *
+ * With NO published cap there is no arithmetic to do, so the mode's own batch
+ * size stands. That is not a guess about the product: it is the value the mode
+ * chose for coherence reasons, applied because nothing published a reason to
+ * shrink it.
  */
 export function batchSizeForBudget(
   mode: ChunkedMode,
@@ -356,6 +389,7 @@ export function batchSizeForBudget(
   wordsPerChapter: number,
 ): number {
   const modeSize = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
+  if (budget.outputTokenCap === null) return modeSize
   const perChapterTokens = Math.max(1, Math.ceil(Math.max(1, wordsPerChapter) * OUTPUT_TOKENS_PER_WORD))
   const usable = budget.outputTokenCap
     - TYPICAL_PROMPT_TOKENS
@@ -374,12 +408,21 @@ export function chunkingTriggerLine(
   budget: ChunkingBudget,
 ): string {
   const totalWords = params.totalChapters * params.wordsPerChapter
-  const source = budget.productId
-    ? `${budget.productName} (${budget.outputTokenCap.toLocaleString()} output tokens)`
-    : `no published product limit for "${params.model}" — using the ${budget.outputTokenCap.toLocaleString()}-token fallback`
-  const verdict = totalWords > budget.thresholdWords
-    ? `over the ~${budget.thresholdWords.toLocaleString()}-word single-call budget`
-    : `within the ~${budget.thresholdWords.toLocaleString()}-word single-call budget (chunked anyway for per-chapter resume)`
+  const cap = budget.outputTokenCap
+  const threshold = budget.thresholdWords
+  // Nothing published → the line reports the ABSENCE. It used to name a
+  // 16,000-token "fallback" here, which read exactly like a figure GenStudio
+  // had published for the model. That is the invented number AGENTS.md bans.
+  const source = cap === null
+    ? `no published output limit for "${params.model}" — Story Studio states no budget of its own`
+    : budget.productId
+      ? `${budget.productName} (${cap.toLocaleString()} output tokens)`
+      : `an output limit of ${cap.toLocaleString()} tokens`
+  const verdict = threshold === null
+    ? 'measured against no single-call budget (chunked for per-chapter resume)'
+    : totalWords > threshold
+      ? `over the ~${threshold.toLocaleString()}-word single-call budget`
+      : `within the ~${threshold.toLocaleString()}-word single-call budget (chunked anyway for per-chapter resume)`
   return `[chunked] Trigger: ${params.totalChapters} × ~${params.wordsPerChapter} words ≈ `
     + `${totalWords.toLocaleString()} words, ${verdict}. Budget from ${source}.`
 }
@@ -1026,7 +1069,7 @@ Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}
 async function expandNarrativeSequential(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
-  budget: ChunkingBudget = fallbackChunkingBudget(),
+  budget: ChunkingBudget = unresolvedChunkingBudget(),
   batchSize: number = NARRATIVE_BATCH_SIZE,
 ): Promise<void> {
   // Group pending into contiguous batches so we can pull a clean transition
@@ -1239,7 +1282,7 @@ Output ONLY the ${t.singular} blocks above.`
 async function expandListicleParallel(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
-  budget: ChunkingBudget = fallbackChunkingBudget(),
+  budget: ChunkingBudget = unresolvedChunkingBudget(),
   batchSize: number = LISTICLE_BATCH_SIZE,
 ): Promise<void> {
   const batches: OutlineEntry[][] = []

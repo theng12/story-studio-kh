@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.786 — 2026-08-05
+
+- **Expanding chapters now uses the model you have selected** — expansion reused whichever model
+  built the outline, so once GenStudio renamed that model the episode could not be finished at
+  all. It now runs with your current choice, and tells you plainly when that differs from what
+  the outline was built with, both before you start and in the job log. Chapters already written
+  are never regenerated; only the missing ones run.
+- **A hidden output limit that could truncate and still charge you is gone** — when a model
+  published no limit on how much it can write at once, Story Studio quietly substituted a small
+  number of its own. Anything longer than that came back cut off, and was saved and billed as a
+  finished chapter. Story Studio now refuses the request before anything is sent or charged, and
+  says which model published nothing, rather than guessing a size.
+- **The build now catches this kind of guess in one more disguise** — a substituted value hidden
+  behind a range check rather than a plain fallback. Three real cases were found and removed.
+
+---
+
 ## v1.0.785 — 2026-08-04
 
 - **A narration quote missing its price no longer reads as free** — when GenStudio answered a

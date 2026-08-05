@@ -89,11 +89,27 @@ function roundDown(value: number): number {
   return Math.max(ROUNDING_STEP, Math.floor(value / ROUNDING_STEP) * ROUNDING_STEP)
 }
 
-/** The product ceiling, defended against a malformed catalogue entry. */
+/**
+ * The product ceiling. REFUSES a missing or malformed one.
+ *
+ * It used to substitute `SHORT_FORM_OUTPUT_TOKENS` here. That is a number
+ * Story Studio invented, and it is the most damaging place to invent one: a
+ * ceiling of 2,048 silently squeezes a `long` or `workload` request down to
+ * short-form size, the provider stops at exactly that many completion tokens
+ * with `finish_reason: "length"`, and a truncated chapter is billed and
+ * written. There is no safe stand-in, so the caller is told instead — the one
+ * production caller (`prepareChatSubmission`) checks the product first and
+ * fails pre-network, so this is a backstop, not the customer-facing message.
+ */
 function productCeiling(maxOutputTokens: unknown): number {
-  return Number.isInteger(maxOutputTokens) && (maxOutputTokens as number) >= 1
-    ? maxOutputTokens as number
-    : SHORT_FORM_OUTPUT_TOKENS
+  if (!Number.isInteger(maxOutputTokens) || (maxOutputTokens as number) < 1) {
+    throw new Error(
+      'Cannot resolve an output-token budget: the selected GenStudio product published no '
+      + `usable max_output_tokens (got ${JSON.stringify(maxOutputTokens)}). `
+      + 'Story Studio does not substitute a ceiling of its own.',
+    )
+  }
+  return maxOutputTokens as number
 }
 
 function tierTokens(tier: OutputBudgetTier, ceiling: number): number {

@@ -43,7 +43,7 @@ const LUNA_OUTPUT_TOKENS = 128_000
 /** The retired streaming-Anthropic cap the old constants were derived from. */
 const LEGACY_OUTPUT_TOKENS = 16_000
 
-function budget(outputTokenCap: number, productName: string | null = 'GPT-5.6 Luna'): ChunkingBudget {
+function budget(outputTokenCap: number | null, productName: string | null = 'GPT-5.6 Luna'): ChunkingBudget {
   return {
     outputTokenCap,
     thresholdWords: chunkThresholdWords(outputTokenCap),
@@ -52,11 +52,20 @@ function budget(outputTokenCap: number, productName: string | null = 'GPT-5.6 Lu
   }
 }
 
+/** `chunkThresholdWords` returns null when nothing was published. Every call in
+ *  the tests below passes a real published cap, so unwrap once here rather than
+ *  sprinkling non-null assertions through the assertions. */
+function threshold(outputTokenCap: number): number {
+  const words = chunkThresholdWords(outputTokenCap)
+  assert.ok(words !== null, `expected a threshold for a published cap of ${outputTokenCap}`)
+  return words
+}
+
 // ── The threshold tracks the product ─────────────────────────────────────
 
 test('the chunking threshold is derived from the product, not from a constant', () => {
-  const legacy = chunkThresholdWords(LEGACY_OUTPUT_TOKENS)
-  const luna = chunkThresholdWords(LUNA_OUTPUT_TOKENS)
+  const legacy = threshold(LEGACY_OUTPUT_TOKENS)
+  const luna = threshold(LUNA_OUTPUT_TOKENS)
 
   // Two products with different published ceilings must produce two different
   // thresholds — that is the whole point of deriving rather than hardcoding.
@@ -69,27 +78,51 @@ test('the chunking threshold is derived from the product, not from a constant', 
 
   // A smaller product lowers the threshold instead of pretending it can write
   // as much as the old streaming cap could.
-  assert.ok(chunkThresholdWords(8_192) < legacy)
-  assert.ok(chunkThresholdWords(4_096) < chunkThresholdWords(8_192))
+  assert.ok(threshold(8_192) < legacy)
+  assert.ok(threshold(4_096) < threshold(8_192))
 
   // Monotonic in the product limit, with no ceiling of its own.
   let previous = 0
   for (const cap of [2_048, 4_096, 16_000, 32_768, 128_000, 1_000_000]) {
-    const derived = chunkThresholdWords(cap)
+    const derived = threshold(cap)
     assert.ok(derived > previous, `threshold did not grow at ${cap}`)
     previous = derived
   }
 })
 
-test('an unreadable product limit degrades to exactly the old behaviour', () => {
-  // Never to "unlimited": an unknown product is the one case where the
-  // historical streaming cap is still the honest assumption.
+test('an unpublished product limit yields NO number, not an invented one', () => {
+  // v1.0.786 — this test used to assert the opposite: that a missing limit
+  // "degrades to exactly the old behaviour", i.e. to a 16,000-token constant.
+  // That constant was an invented ceiling. It reached the owner's job log as
+  // "using the 16,000-token fallback", which reads exactly like a figure
+  // GenStudio published for the model, and an output ceiling is the one number
+  // where guessing LOW truncates a chapter mid-sentence and bills for the
+  // stump. AGENTS.md: no published value → fail loudly or show nothing.
   for (const missing of [undefined, null, 0, -1, 1.5, Number.NaN, 'lots' as unknown as number]) {
-    assert.equal(chunkingOutputBudget(missing), LEGACY_OUTPUT_TOKENS)
+    assert.equal(chunkingOutputBudget(missing), null, `invented a budget for ${String(missing)}`)
+    assert.equal(chunkThresholdWords(missing), null, `invented a threshold for ${String(missing)}`)
   }
-  assert.equal(chunkThresholdWords(null), chunkThresholdWords(LEGACY_OUTPUT_TOKENS))
-  // The legacy constant survives only as that fallback's documented origin.
+  // A published cap still produces a real number — the rule is "never invent",
+  // not "never compute".
+  assert.equal(chunkingOutputBudget(LUNA_OUTPUT_TOKENS), LUNA_OUTPUT_TOKENS)
+  // The legacy constant survives only as documentation of where the retired
+  // streaming threshold came from. Nothing computes from it any more.
   assert.equal(CHUNK_THRESHOLD_WORDS, 9_000)
+})
+
+test('with no published cap the run still proceeds — chunked, and saying nothing it cannot know', () => {
+  // NEVER A DEAD END. Losing the product must not stop an expansion; the very
+  // next call surfaces GenStudio's own reason if the product is genuinely
+  // gone. So: chunk (the safe side of an unknown, and the side that keeps
+  // per-chapter resume), and keep the mode's own batch size rather than
+  // deriving one from a number nobody published.
+  assert.equal(
+    shouldChunkByBudget({ systemPromptChars: 500, userPromptChars: 500, targetWords: 200 }),
+    true,
+    'an unknown budget must take the resumable path, not the one-shot path',
+  )
+  assert.equal(batchSizeForBudget('narrative', budget(null, null), 700), 3)
+  assert.equal(batchSizeForBudget('listicle', budget(null, null), 700), 8)
 })
 
 test('headroom stays proportional instead of being another fixed number', () => {
@@ -122,8 +155,8 @@ test('an 18 × ~700-word run fits a 128,000-token product but not a 16,000-token
     false,
     'a 128,000-token product must not be told it needs chunking',
   )
-  assert.ok(targetWords > chunkThresholdWords(LEGACY_OUTPUT_TOKENS))
-  assert.ok(targetWords < chunkThresholdWords(LUNA_OUTPUT_TOKENS))
+  assert.ok(targetWords > threshold(LEGACY_OUTPUT_TOKENS))
+  assert.ok(targetWords < threshold(LUNA_OUTPUT_TOKENS))
 })
 
 test('a genuinely huge run still chunks on the largest product', () => {
@@ -138,7 +171,7 @@ test('a genuinely huge run still chunks on the largest product', () => {
     }),
     true,
   )
-  assert.ok(200_000 > chunkThresholdWords(LUNA_OUTPUT_TOKENS))
+  assert.ok(200_000 > threshold(LUNA_OUTPUT_TOKENS))
 })
 
 // ── Batch behaviour once chunking IS triggered ───────────────────────────
@@ -192,13 +225,19 @@ test('the chunked log states the total, the budget, and whose limit it is', () =
   assert.match(small, /over the ~[\d,]+-word single-call budget/)
   assert.match(small, /Tiny Writer \(16,000 output tokens\)/)
 
-  // An unreadable catalogue says so rather than naming a product it invented.
+  // An unreadable catalogue says so rather than naming a product — or a
+  // number — it invented. The old line ended "using the 16,000-token
+  // fallback", which an owner reads as the model's own published ceiling.
   const unknown = chunkingTriggerLine(
     { totalChapters: 4, wordsPerChapter: 500, model: 'genstudio-chat:mystery' },
-    budget(LEGACY_OUTPUT_TOKENS, null),
+    budget(null, null),
   )
-  assert.match(unknown, /no published product limit for "genstudio-chat:mystery"/)
-  assert.match(unknown, /16,000-token fallback/)
+  assert.match(unknown, /no published output limit for "genstudio-chat:mystery"/)
+  assert.match(unknown, /states no budget of its own/)
+  assert.doesNotMatch(unknown, /16,000/, 'the retired fallback must not reappear in the log')
+  assert.doesNotMatch(unknown, /\bfallback\b/i)
+  // No word threshold is claimed either, since none could be derived.
+  assert.match(unknown, /measured against no single-call budget/)
 })
 
 // ── The batch reservation is sized from the WORK, not from the product ─────

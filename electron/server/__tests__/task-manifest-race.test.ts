@@ -129,9 +129,19 @@ test('recordTask: writes to different dirs do not block each other', async () =>
 test('shouldChunkByBudget: trips chunking when prompt + output crowd the cap', async () => {
   const { shouldChunkByBudget } = await import('../lib/chunked-narration.js')
 
+  // v1.0.786 — the cap is now passed EXPLICITLY. These cases were always
+  // reasoning about a 16,000-token product (see the arithmetic below); they
+  // just used to get that number from an implicit fallback constant inside
+  // the function. The constant was an invented ceiling and is gone, so the
+  // product the case is about is named here instead.
+  const SMALL_PRODUCT_TOKENS = 16_000
+
   // Median sleep-story shape — 8400 words, modest prompt. Should NOT chunk.
   assert.equal(
-    shouldChunkByBudget({ systemPromptChars: 4000, userPromptChars: 4000, targetWords: 8400 }),
+    shouldChunkByBudget({
+      systemPromptChars: 4000, userPromptChars: 4000, targetWords: 8400,
+      outputTokenCap: SMALL_PRODUCT_TOKENS,
+    }),
     false,
     'median sleep-story should stay on the single-call path',
   )
@@ -140,14 +150,30 @@ test('shouldChunkByBudget: trips chunking when prompt + output crowd the cap', a
   // 20K input chars → ~5K input tokens. 8400 words → ~10.9K output tokens.
   // 5K + 10.9K + 1.5K margin = 17.4K > 16K cap → must chunk.
   assert.equal(
-    shouldChunkByBudget({ systemPromptChars: 12000, userPromptChars: 8000, targetWords: 8400 }),
+    shouldChunkByBudget({
+      systemPromptChars: 12000, userPromptChars: 8000, targetWords: 8400,
+      outputTokenCap: SMALL_PRODUCT_TOKENS,
+    }),
     true,
     'heavy-prompt project at 8400 words should trip dynamic chunking',
   )
 
   // Tiny project — definitely safe.
   assert.equal(
-    shouldChunkByBudget({ systemPromptChars: 500, userPromptChars: 1000, targetWords: 2000 }),
+    shouldChunkByBudget({
+      systemPromptChars: 500, userPromptChars: 1000, targetWords: 2000,
+      outputTokenCap: SMALL_PRODUCT_TOKENS,
+    }),
     false,
+  )
+
+  // With NO published cap the same tiny project chunks anyway: there is no
+  // budget to measure against, and chunked mode is the side of that unknown
+  // that keeps per-chapter resume. What it must not do is measure against a
+  // number Story Studio made up.
+  assert.equal(
+    shouldChunkByBudget({ systemPromptChars: 500, userPromptChars: 1000, targetWords: 2000 }),
+    true,
+    'an unpublished cap must not resolve to a fallback number',
   )
 })

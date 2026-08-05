@@ -39,15 +39,20 @@
         the outline show an ✏ outdated pill.
       </p>
       <!-- v3 sidecar exposes the form-field snapshot from outline-build
-           time. Surface it so the user understands which model + word
-           target + pattern + cast the upcoming Expand will run against —
-           changing the form above no longer affects expansion of THIS
-           outline (sidecar is authoritative). Hidden for v1/v2 sidecars
-           where the snapshot is null (legacy outlines fall back to the
-           current form fields). -->
+           time. Surface it so the user understands which word target +
+           pattern + cast the upcoming Expand will run against — those are
+           outline-shaped and the sidecar stays authoritative for them.
+           Hidden for v1/v2 sidecars where the snapshot is null (legacy
+           outlines fall back to the current form fields).
+
+           v1.0.786 — the MODEL is no longer in this row. It is no longer
+           locked: expansion runs on whatever model is selected in the form,
+           because a stored model id goes stale when GenStudio re-versions a
+           product and a locked stale id left the episode with no way to
+           finish. It moved to the "built with / will use" line below, which
+           states the change instead of hiding it. -->
       <p v-if="generationParams" class="op-locked-params" :title="lockedParamsTooltip">
         🔒 Locked at outline build:
-        <span class="op-locked-pill">{{ generationParams.model }}</span>
         <span class="op-locked-pill">~{{ generationParams.words_per_chapter.toLocaleString() }} words/chapter</span>
         <span v-if="generationParams.perspective" class="op-locked-pill">
           POV: {{ perspectiveLabel(generationParams.perspective) }}
@@ -58,6 +63,26 @@
         <span v-if="generationParams.character_ids?.length" class="op-locked-pill">
           cast: {{ generationParams.character_ids.length }}
         </span>
+      </p>
+      <!-- The model line. Always shown when the outline recorded one, so the
+           relationship between the outline's model and the selected one is
+           never something the user has to infer from a job log after the
+           fact. `op-model-changed` fires only when the two actually differ. -->
+      <p v-if="outlineModel" class="op-model-line" :class="{ 'op-model-changed': modelChanged }">
+        <template v-if="modelChanged">
+          ⚠ Model changed since this outline was built.
+          Outline used <span class="op-locked-pill">{{ outlineModel }}</span>,
+          expansion will use the selected <span class="op-locked-pill">{{ currentModel }}</span>.
+          Chapters already on disk are kept — regenerate any you want in the new voice.
+        </template>
+        <template v-else-if="currentModel">
+          Model: <span class="op-locked-pill">{{ currentModel }}</span>
+          — same one this outline was built with.
+        </template>
+        <template v-else>
+          Outline was built with <span class="op-locked-pill">{{ outlineModel }}</span>.
+          Pick a model in the form above; expansion uses the selected one.
+        </template>
       </p>
     </div>
 
@@ -334,8 +359,10 @@ interface OutlineResponse {
   outline_edited_at: string | null
   chapters_done: number[]
   /** v3+: snapshot of the form fields used to build the outline. null on
-   *  v1/v2 sidecars (predates the snapshot). UI shows the locked model +
-   *  word target so the user sees what expand-chapters will run against. */
+   *  v1/v2 sidecars (predates the snapshot). UI shows the locked word target
+   *  so the user sees what expand-chapters will run against, plus the model
+   *  the outline was built with — informational since v1.0.786, because
+   *  expansion now runs on whichever model the form has selected. */
   generation_params: GenerationParams | null
 }
 
@@ -435,11 +462,21 @@ const pendingCount = computed(() =>
 // user understands they can't change model/words for an existing outline
 // without regenerating it. Matches the explain-as-you-go pattern the rest
 // of the app uses.
+/** The model the form currently has selected — the one expansion will use. */
+const currentModel = computed(() => String(props.form?.model || '').trim())
+/** The model this outline was built with. Informational since v1.0.786. */
+const outlineModel = computed(() => String(generationParams.value?.model || '').trim())
+/** True only when expansion will genuinely run on a different model than the
+ *  outline did. Drives the visible warning — a change the user cannot see is
+ *  the thing that made the old locked-model behaviour hard to reason about. */
+const modelChanged = computed(() =>
+  !!outlineModel.value && !!currentModel.value && outlineModel.value !== currentModel.value,
+)
+
 const lockedParamsTooltip = computed(() => {
   if (!generationParams.value) return ''
   const gp = generationParams.value
   const parts = [
-    `Model: ${gp.model}`,
     `Per-chapter target: ${gp.words_per_chapter.toLocaleString()} words`,
   ]
   if (gp.length) parts.push(`Length: ${gp.length} min`)
@@ -449,8 +486,12 @@ const lockedParamsTooltip = computed(() => {
   if (gp.custom_perspective) parts.push(`Custom POV: ${gp.custom_perspective}`)
   if (gp.character_ids?.length) parts.push(`Cast: ${gp.character_ids.length} character(s)`)
   return parts.join(' · ') +
-    '\n\nExpand-chapters reads these from the outline sidecar, not the form above. ' +
-    'To change model/words/cast, regenerate the outline.'
+    '\n\nExpand-chapters reads these from the outline sidecar, not the form above — ' +
+    'they are outline-shaped, so changing them mid-flight would desync the outline ' +
+    'from the prose. To change words/cast, regenerate the outline.' +
+    '\n\nThe MODEL is the exception: expansion always uses the model selected in the ' +
+    'form. A recorded model id goes stale when GenStudio re-versions a product, and ' +
+    'a stale id must never be the reason an episode cannot be finished.'
 })
 
 function perspectiveLabel(value: string): string {
@@ -1132,6 +1173,26 @@ defineExpose({ loaded, reload: loadOutline })
   gap: 6px;
   align-items: center;
   cursor: help;
+}
+/* The model line sits with the locked-params row but is NOT a lock: it states
+   which model expansion will use, and calls out a change loudly enough that
+   the user meets it before clicking Expand rather than in the job log. */
+.op-model-line {
+  margin: 6px 0 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  line-height: 1.6;
+}
+.op-model-line.op-model-changed {
+  color: var(--text-primary);
+  background: var(--accent-dim);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 .op-locked-pill {
   display: inline-block;
