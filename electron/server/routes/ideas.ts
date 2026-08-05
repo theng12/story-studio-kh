@@ -23,6 +23,7 @@ import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
 import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
+import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -357,10 +358,10 @@ ${varietyRule}
 - TITLE-NUMBER CONSISTENCY: if your title contains a leading count number (e.g. "10 mysteries", "7 plane crashes", "12 paradoxes"), the suggested_chapters value MUST equal that number. Mismatch is the most common bug we see — pick a count first, then write the title to match.${pinned !== null ? `\n- Pinned for this batch: every title that uses a leading count number MUST use ${pinned}, and suggested_chapters MUST be ${pinned}.` : ''}
 - ${moodVocab}
 
-Return ONLY a JSON array of objects with the exact keys above. No markdown, no commentary.`
+Return ONLY a JSON object of the form {"ideas": [ ... ]}, where every array item is one idea object with the exact keys above. No markdown, no commentary.`
 }
 
-function parseIdeas(raw: string): any[] {
+export function parseIdeas(raw: string): any[] {
   let text = raw.trim()
   if (text.startsWith('```')) {
     const lines = text.split('\n').filter(l => !l.trim().startsWith('```'))
@@ -600,6 +601,10 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     const firstRaw = await callAiWithRetry(body.model, '', firstPrompt, apiKeys, false, {
       slug,
       outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(overshoot.count) },
+      // `parseIdeas` throws on anything that is not JSON, so JSON is what gets
+      // asked for. The retry below declares the SAME contract on purpose — a
+      // retry that quietly changed shape would be worse than no retry.
+      outputContract: ideaBatchOutputContract(),
     })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
     const avoidRepeatedIdeas = body.avoid_repeated_ideas !== false
@@ -633,6 +638,8 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
         const retryRaw = await callAiWithRetry(body.model, '', retryPrompt, apiKeys, false, {
           slug,
           outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(retryReq.count) },
+          // Same contract as the first pass — see the note there.
+          outputContract: ideaBatchOutputContract(),
         })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
         const retryPass = filterGenerated<StoryIdea>(

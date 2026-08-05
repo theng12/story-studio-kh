@@ -28,6 +28,7 @@ import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
 import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
+import { singleImagePromptOutputContract } from '../lib/story-output-contracts.js'
 
 export const router = Router()
 
@@ -153,7 +154,14 @@ router.post(
         openai_api_key: config.openai_api_key,
         kie_api_key: config.kie_api_key,
       }
-      const raw = await callAiWithRetry(model, '', llmPrompt, apiKeys, false, { slug })
+      const raw = await callAiWithRetry(model, '', llmPrompt, apiKeys, false, {
+        slug,
+        // The prompt asks for `{ "title": ..., "prompt": ... }` and the reader
+        // parses it, so JSON is declared. `parseSinglePromptResponse` keeps its
+        // plain-text fallback, but it is no longer the thing standing between a
+        // prose answer and a scene prompt that is really an essay.
+        outputContract: singleImagePromptOutputContract(),
+      })
       const next = parseSinglePromptResponse(raw, target)
       if (!next.prompt || next.prompt.trim().length < 10) {
         return res.status(502).json({ detail: 'LLM returned an empty or too-short prompt' })
@@ -313,7 +321,7 @@ ${imagePromptGuidanceBlock({ reword: opts.reword })}
 No markdown, no code fences, no commentary.`
 }
 
-function parseSinglePromptResponse(
+export function parseSinglePromptResponse(
   raw: string, fallback: { number: number; title: string; prompt: string },
 ): { title: string; prompt: string } {
   let text = raw.trim()

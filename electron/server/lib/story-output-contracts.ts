@@ -122,6 +122,161 @@ export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = localSchema(
   },
 )
 
+/**
+ * Prompt Director rewrite batch.
+ *
+ * `id` is an enum of the ids actually sent in this batch: the caller matches
+ * results back by id, so an invented id is silently dropped work. Item keys
+ * beyond these are tolerated — the batch is matched by id, not by shape.
+ */
+export function promptDirectorOutputContract(sceneIds: readonly string[]): TextOutputContract {
+  return localSchema('story_prompt_director', {
+    type: 'object',
+    properties: {
+      scenes: {
+        type: 'array',
+        maxItems: sceneIds.length,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', enum: [...sceneIds] },
+            prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+            emotion: { type: 'string', maxLength: 200 },
+          },
+          required: ['id', 'prompt'],
+        },
+      },
+    },
+    required: ['scenes'],
+    additionalProperties: false,
+  })
+}
+
+/**
+ * A generated idea batch.
+ *
+ * The array is WRAPPED in an object on purpose. A bare top-level array cannot
+ * be requested through this mechanism — `json_object` validation requires one
+ * object, and the schema instruction builder describes an object — so the
+ * shape asked for and the shape validated would disagree. The prompts ask for
+ * the same wrapper, and every reader of this response takes the array by
+ * slicing from the first `[` to the last `]`, which the wrapper preserves.
+ *
+ * Item keys are typed but their EDITORIAL rules (length, voice, chapter-count
+ * consistency) stay in the prompt, which is their single source of truth.
+ *
+ * NO item-count bound, deliberately. The requested count is stated in the
+ * prompt, and both readers already handle a long batch (they slice) and a
+ * short one (they re-prompt for the shortfall). Enforcing the count here would
+ * throw away a usable batch the customer has already been charged for.
+ */
+export function ideaBatchOutputContract(): TextOutputContract {
+  return localSchema('story_idea_batch', {
+    type: 'object',
+    properties: {
+      ideas: {
+        type: 'array',
+        minItems: 1,
+        items: ideaItemSchema(),
+      },
+    },
+    required: ['ideas'],
+    additionalProperties: false,
+  })
+}
+
+/** Idea Campaign: one idea per reserved assignment, keyed by `idea_key`. */
+export function ideaCampaignOutputContract(ideaKeys: readonly string[]): TextOutputContract {
+  const item = ideaItemSchema()
+  return localSchema('story_idea_campaign', {
+    type: 'object',
+    properties: {
+      ideas: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          ...item,
+          properties: {
+            idea_key: { type: 'string', enum: [...ideaKeys] },
+            ...(item.properties as Record<string, unknown>),
+          },
+          required: ['idea_key', 'title', 'logline'],
+        },
+      },
+    },
+    required: ['ideas'],
+    additionalProperties: false,
+  })
+}
+
+function ideaItemSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      title: { type: 'string', minLength: 1, maxLength: 300 },
+      logline: { type: 'string', minLength: 1, maxLength: 2_000 },
+      themes: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 200 } },
+      suggested_chapters: { type: 'integer', minimum: 1, maximum: 100 },
+      suggested_length: { type: 'string', maxLength: 100 },
+      mood: { type: 'string', maxLength: 200 },
+    },
+    required: ['title', 'logline'],
+  }
+}
+
+/**
+ * Metadata template placeholder extraction.
+ *
+ * Every requested placeholder is REQUIRED and non-empty. A blank value here
+ * does not fail loudly on its own — it is substituted into a YouTube title or
+ * description and published as a gap — so the missing value is refused at the
+ * contract instead of travelling.
+ */
+export function metadataPlaceholderOutputContract(keys: readonly string[]): TextOutputContract {
+  const properties: Record<string, unknown> = {}
+  for (const key of keys) properties[key] = { type: 'string', minLength: 1, maxLength: 2_000 }
+  return localSchema('story_metadata_placeholders', {
+    type: 'object',
+    properties,
+    required: [...keys],
+    additionalProperties: false,
+  })
+}
+
+/** One regenerated scene/thumbnail image prompt. */
+export function singleImagePromptOutputContract(): TextOutputContract {
+  return localSchema('story_single_image_prompt', {
+    type: 'object',
+    properties: {
+      title: { type: 'string', maxLength: 300 },
+      prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+    },
+    required: ['prompt'],
+    additionalProperties: false,
+  })
+}
+
+/**
+ * Image Pool "suggest prompts from a topic". Wrapped for the same reason as
+ * the idea batch above; the route reads the array by slicing `[` … `]`. The
+ * requested count lives in the prompt and the route slices to it, so no item
+ * count is enforced here.
+ */
+export function imagePoolPromptsOutputContract(): TextOutputContract {
+  return localSchema('story_image_pool_prompts', {
+    type: 'object',
+    properties: {
+      prompts: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1, maxLength: 20_000 },
+      },
+    },
+    required: ['prompts'],
+    additionalProperties: false,
+  })
+}
+
 export function outlineOutputContract(chapterCount: number): TextOutputContract {
   return localSchema('story_outline', {
     type: 'object',

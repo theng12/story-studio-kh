@@ -22,6 +22,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
 import {
   buildCreativeDirectionPrompt,
@@ -2068,6 +2069,12 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
         // modes on products above and below that number.
         const raw = await callAi(opts.model, system, user, apiKeys, false, {
           outputBudget: 'maximum',
+          // This window is parsed with JSON.parse, so it must be REQUESTED as
+          // JSON. No schema: the prompt already states the exact object shape
+          // (`buildScenePlannerPrompt`'s "Output JSON schema" block, whose
+          // `scene_type` field is conditional), and a second copy here would
+          // be free to drift from the one the model is actually shown.
+          outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
         })
         const parsed = parsePlannerJson(raw)
         // Clamp this window's scenes to [lowerBound, win.end] so they stay

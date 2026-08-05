@@ -21,6 +21,7 @@ import { saveSelectionSidecar, getSelectionSidecar } from '../services/broll-sel
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { imagePoolPromptsOutputContract } from '../lib/story-output-contracts.js'
 import type { JobType, BrollUsageEntry } from '../models/types.js'
 
 export const router = Router()
@@ -601,6 +602,31 @@ router.post('/projects/:slug/image-pool/generate', async (req, res) => {
   }
 })
 
+/**
+ * Read the suggested prompts out of one answer.
+ *
+ * Tolerant on purpose, in this order: the JSON array (which the declared
+ * contract now wraps in `{"prompts": [...]}` — slicing from the first `[` to
+ * the last `]` reaches it either way), then a plain line-split for an answer
+ * that arrived as text anyway. Exported so the contract and this reader are
+ * tested against the same payload.
+ */
+export function parseSuggestedPrompts(raw: string, count: number): string[] {
+  let prompts: string[] = []
+  const s = String(raw || '').trim()
+  const a = s.indexOf('['); const b = s.lastIndexOf(']')
+  if (a >= 0 && b > a) {
+    try {
+      const arr = JSON.parse(s.slice(a, b + 1))
+      if (Array.isArray(arr)) prompts = arr.filter((x: any) => typeof x === 'string')
+    } catch { /* fall through to line split */ }
+  }
+  if (!prompts.length) {
+    prompts = s.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-*])\s*/, '').trim()).filter(Boolean)
+  }
+  return prompts.map(p => p.trim()).filter(Boolean).slice(0, count)
+}
+
 // ── POST /image-pool/suggest-prompts ───────────────────────────────────
 // v1.0.410 — LLM helper: turn a short topic into a list of image prompts the
 // user can review/edit before generating. Uses the project's text-model key
@@ -617,29 +643,20 @@ router.post('/projects/:slug/image-pool/suggest-prompts', async (req, res) => {
     if (!model) return res.status(400).json({ detail: 'model is required' })
 
     const { callAi, callAiWithRetry } = await import('../lib/ai-client.js')
-    const system = 'You write concise, vivid text-to-image prompts. Output ONLY a JSON array of strings — no prose, no numbering, no code fence.'
+    const system = 'You write concise, vivid text-to-image prompts. Output ONLY a JSON object of the form {"prompts": ["…", "…"]} — no prose, no numbering, no code fence.'
     const user = `Write ${count} distinct text-to-image prompts for: "${topic}". `
       + `Each prompt is one self-contained sentence describing a single image (subject, setting, mood, lighting). `
-      + `Vary the scenes so a slideshow of them feels diverse. Return a JSON array of ${count} strings.`
-    // Standard: a JSON array of N self-contained image prompts.
+      + `Vary the scenes so a slideshow of them feels diverse. Put all ${count} strings in the "prompts" array.`
+    // Standard: a JSON object carrying N self-contained image prompts.
     const raw = await callAiWithRetry(model, system, user, {}, false, {
       slug, outputBudget: 'standard',
+      // Declared because the route reads the array out of the answer. The
+      // line-splitting fallback below stays, but it is a safety net now rather
+      // than the thing this route quietly relies on.
+      outputContract: imagePoolPromptsOutputContract(),
     })
 
-    // Tolerant parse: JSON array if present, else split lines.
-    let prompts: string[] = []
-    const s = String(raw || '').trim()
-    const a = s.indexOf('['); const b = s.lastIndexOf(']')
-    if (a >= 0 && b > a) {
-      try {
-        const arr = JSON.parse(s.slice(a, b + 1))
-        if (Array.isArray(arr)) prompts = arr.filter((x: any) => typeof x === 'string')
-      } catch { /* fall through to line split */ }
-    }
-    if (!prompts.length) {
-      prompts = s.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-*])\s*/, '').trim()).filter(Boolean)
-    }
-    prompts = prompts.map(p => p.trim()).filter(Boolean).slice(0, count)
+    const prompts = parseSuggestedPrompts(raw, count)
     if (!prompts.length) return res.status(502).json({ detail: 'The model returned no usable prompts — try again or a different model.' })
     res.json({ prompts })
   } catch (e: any) {

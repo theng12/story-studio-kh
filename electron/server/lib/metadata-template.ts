@@ -103,9 +103,17 @@ Output the JSON object only. No other text.`
 }
 
 /**
- * Parse the LLM's JSON response. Tolerant of stray whitespace, trailing
- * commas, and accidental fenced blocks — falls back to extracting the
- * first {...} block when the raw output isn't pure JSON.
+ * Parse the LLM's JSON response. Still tolerant of the harmless presentation
+ * defects — stray whitespace, an accidental fenced block, a preamble before
+ * the object.
+ *
+ * It is NOT tolerant of a missing value, and that is the point. Until v1.0.787
+ * an unreadable answer returned every placeholder as `''`, and `renderTemplate`
+ * substituted those blanks without complaint: the job reported success and the
+ * episode went to YouTube with a title reading "" where the topic belonged.
+ * A blank published field is worse than a failed job, because only the failed
+ * job is visible. So an answer that cannot fill every requested placeholder
+ * throws, and the caller stops before anything is written.
  */
 export function parseExtractionResponse(raw: string, placeholders: string[]): Record<string, string> {
   const trimmed = raw.trim()
@@ -115,22 +123,32 @@ export function parseExtractionResponse(raw: string, placeholders: string[]): Re
   // Find the outermost JSON object.
   const start = body.indexOf('{')
   const end = body.lastIndexOf('}')
-  if (start < 0 || end <= start) {
-    // Last-ditch — fill empties so substitution doesn't leave `{topic}` literal.
-    return Object.fromEntries(placeholders.map(p => [p, '']))
-  }
+  if (start < 0 || end <= start) throw extractionFailure(placeholders, 'no JSON object')
   let json: any
   try {
     json = JSON.parse(body.slice(start, end + 1))
   } catch {
-    return Object.fromEntries(placeholders.map(p => [p, '']))
+    throw extractionFailure(placeholders, 'invalid JSON')
   }
   const out: Record<string, string> = {}
+  const missing: string[] = []
   for (const p of placeholders) {
     const v = json?.[p]
-    out[p] = typeof v === 'string' ? v.trim() : ''
+    const value = typeof v === 'string' ? v.trim() : ''
+    if (!value) missing.push(p)
+    out[p] = value
   }
+  if (missing.length) throw extractionFailure(missing, 'no value')
   return out
+}
+
+function extractionFailure(placeholders: string[], reason: string): Error {
+  const names = placeholders.map(p => `{${p}}`).join(', ')
+  return new Error(
+    `The metadata template placeholder${placeholders.length === 1 ? '' : 's'} ${names} came back with ${reason}, `
+    + 'and a blank placeholder would be published as an empty title or description. '
+    + 'Nothing was saved — run metadata again, or choose a different model.',
+  )
 }
 
 /**

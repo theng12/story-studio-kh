@@ -4,6 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.787 — 2026-08-05
+
+- **Eight features now state the kind of answer they need** — scene planning, format creation
+  from sample scripts, the Prompt Director, idea generation, idea campaigns, metadata
+  placeholders, single prompt regeneration and Image Pool suggestions all require structured
+  data, and all relied on GenStudio choosing to send it. GenStudio is about to stop choosing,
+  so each now asks explicitly. Nothing about their behaviour changes today; they simply keep
+  working afterwards.
+- **Metadata no longer ships empty fields to YouTube** — when a model returned something
+  unreadable, placeholder extraction quietly filled the fields with blanks and carried on. It
+  now stops, names the placeholders that came back empty, and saves nothing, so a blank title
+  or description cannot reach an upload unnoticed.
+- **Two prompt features no longer accept a badly-shaped answer** — single prompt regeneration
+  and Image Pool suggestions used to fall back to salvaging whatever they could from ordinary
+  writing. They now reject it up front, with the salvage kept only as a safety net.
+- **A comment that misled two debugging sessions has been rewritten to name nothing** — it
+  claimed to know which route was live, was wrong, was corrected, and was wrong again. It now
+  points at the setting and the startup line that state the truth, so it cannot go stale a
+  third time.
+
+---
+
 ## v1.0.786 — 2026-08-05
 
 - **Expanding chapters now uses the model you have selected** — expansion reused whichever model

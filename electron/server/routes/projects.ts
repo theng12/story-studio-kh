@@ -16,6 +16,7 @@ import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../se
 import { listFormats, loadFormat, getEffectiveFormat, _clearFormatCaches } from '../services/format-loader.js'
 import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
@@ -113,6 +114,12 @@ router.post('/projects/:slug/formats/from-sample', async (req, res) => {
     // Long: a whole format definition derived from full sample scripts.
     const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {
       slug, outputBudget: 'long',
+      // `parseExtractedFormatJson` is a hard JSON.parse, so JSON must be
+      // requested. No schema: the Format definition is described in prose in
+      // `buildFormatExtractionPrompt` and has no machine-readable schema here,
+      // and a partial one would reject valid formats after the user paid for
+      // the extraction.
+      outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
     })
     const parsed = parseExtractedFormatJson(raw)
     res.json({ format: parsed })

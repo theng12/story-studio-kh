@@ -21,6 +21,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { callAi } from '../lib/ai-client.js'
+import { promptDirectorOutputContract } from '../lib/story-output-contracts.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getCharacter } from '../services/character-manager.js'
@@ -40,7 +41,7 @@ interface PromptDirectorParams {
 const BATCH_SIZE = 10
 
 /** Strip markdown fences + isolate the outermost JSON object, then parse. */
-function parseDirectorJson(raw: string): { scenes: Array<{ id: string; prompt?: string; emotion?: string }> } {
+export function parseDirectorJson(raw: string): { scenes: Array<{ id: string; prompt?: string; emotion?: string }> } {
   let s = raw.trim()
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   const first = s.indexOf('{')
@@ -195,6 +196,10 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
           // which both ignored a larger product and hard-failed the
           // pre-network limit check on a product publishing less.
           slug: job.project_slug, jobId: job.job_id, outputBudget: 'maximum',
+          // Parsed with JSON.parse and matched back by scene id, so JSON is
+          // requested and the ids in this batch are named in the contract: an
+          // invented id is a rewrite that silently lands nowhere.
+          outputContract: promptDirectorOutputContract(batch.map(item => item.id)),
         })
         parsed = parseDirectorJson(raw)
       } catch (e: any) {

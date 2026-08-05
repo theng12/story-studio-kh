@@ -17,6 +17,7 @@ import * as pm from '../services/project-manager.js'
 import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { callChatWithGenStudio, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
+import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 
 export const router = Router()
 
@@ -111,7 +112,10 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       userMessage: 'Analyse this thumbnail as a reusable composition reference. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe the composition without naming the original work, brand, or creator.',
       // No `topP`: Story Studio never had a top_p value anyone chose. The
       // client no longer sends the field at all — see `GenStudioChatRequest`.
-      temperature: 0.2, maxOutputTokens: 1200, jsonObject: true,
+      // `outputContract` is the one mechanism. The deprecated `jsonObject`
+      // flag this call used still maps to the same contract internally, which
+      // is exactly why it was easy to leave behind.
+      temperature: 0.2, maxOutputTokens: 1200, outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
       inputImage: { assetId: remote.id, detail: safeDetail(model) },
       requestIdentity: `thumbnail-reference:${slug}:${sha256}:${model.id}`,
     })

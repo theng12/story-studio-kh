@@ -1,0 +1,359 @@
+/**
+ * Every language request asks for the SHAPE it actually parses.
+ *
+ * THE BUG THIS GUARDS (v1.0.787)
+ * ------------------------------
+ * `genstudio-client.ts` defaults an undeclared request to PROSE. Eight call
+ * sites instructed the model to answer in JSON, parsed the answer with
+ * JSON.parse, and never declared a contract. They worked only because
+ * GenStudio forced every language response to JSON regardless of what was
+ * asked. The moment that forcing was removed they would have received ordinary
+ * writing: five would throw, two would degrade, and metadata template
+ * extraction would have filled every placeholder with an empty string and
+ * published it to YouTube without an error anywhere.
+ *
+ * Nothing asserted the shape being REQUESTED, which is precisely why the gap
+ * survived. So this file asserts it in both directions:
+ *
+ *   1. the eight (nine, counting the migrated vision call) declare a contract;
+ *   2. the contracts accept the payload their own reader expects, and reject
+ *      prose;
+ *   3. the prose call sites still declare NOTHING, so a future sweep cannot
+ *      quietly "fix" a chapter of narration into a JSON object.
+ *
+ * ZERO paid calls: no request is made here. Group 1 reads source text, group 2
+ * runs the local validator over fixtures, group 3 reads source text.
+ */
+
+import { test, describe } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+import { JSON_OBJECT_OUTPUT_CONTRACT, validateStructuredOutput, type TextOutputContract } from '../lib/json-output-contract.js'
+import {
+  ideaBatchOutputContract,
+  ideaCampaignOutputContract,
+  imagePoolPromptsOutputContract,
+  metadataPlaceholderOutputContract,
+  promptDirectorOutputContract,
+  singleImagePromptOutputContract,
+} from '../lib/story-output-contracts.js'
+import { parseExtractionResponse } from '../lib/metadata-template.js'
+import { parsePlannerJson } from '../services/scene-planner.js'
+import { parseDirectorJson } from '../generators/prompt-director.js'
+import { parseArray } from '../generators/idea-campaign.js'
+import { parseIdeas } from '../routes/ideas.js'
+import { parseSinglePromptResponse } from '../routes/image-prompts-edit.js'
+import { parseSuggestedPrompts } from '../routes/broll-project.js'
+
+const SERVER_DIR = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
+
+function source(relative: string): string {
+  return fs.readFileSync(path.join(SERVER_DIR, relative), 'utf8')
+}
+
+/**
+ * The full text of one call, from `anchor` to the parenthesis that closes it.
+ * Paren-balanced so a nested call or an options object cannot end the region
+ * early, which is what keeps the negative assertions below honest.
+ */
+function callRegion(relative: string, anchor: string): string {
+  const text = source(relative)
+  const start = text.indexOf(anchor)
+  assert.ok(start >= 0, `${relative}: call site anchor is gone — "${anchor}"`)
+  assert.equal(
+    text.indexOf(anchor, start + 1), -1,
+    `${relative}: anchor is no longer unique — "${anchor}"`,
+  )
+  const open = text.indexOf('(', start)
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '(') depth += 1
+    else if (text[i] === ')') {
+      depth -= 1
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  throw new Error(`${relative}: unbalanced call at "${anchor}"`)
+}
+
+/** Round-trip exactly as the client does: validate, then hand the reader the
+ *  re-serialised value (`parseLanguageOutput` returns `JSON.stringify(value)`). */
+function throughContract(payload: unknown, contract: TextOutputContract): string {
+  return JSON.stringify(validateStructuredOutput(JSON.stringify(payload), contract))
+}
+
+// ── 1. The declarations ────────────────────────────────────────────────
+
+describe('the JSON call sites declare their contract', () => {
+  const sites: Array<{ what: string; file: string; anchor: string; declares: string }> = [
+    {
+      what: '1 · scene planning window pass',
+      file: 'services/scene-planner.ts',
+      anchor: 'const raw = await callAi(opts.model, system, user, apiKeys, false, {',
+      declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
+    },
+    {
+      what: '2 · format extraction from sample scripts',
+      file: 'routes/projects.ts',
+      anchor: "const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {",
+      declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
+    },
+    {
+      what: '3 · prompt director',
+      file: 'generators/prompt-director.ts',
+      anchor: 'const raw = await callAi(model, system, buildUser(batch), apiKeys, false, {',
+      declares: 'outputContract: promptDirectorOutputContract(batch.map(item => item.id))',
+    },
+    {
+      what: '4a · idea generation, first pass',
+      file: 'routes/ideas.ts',
+      anchor: 'const firstRaw = await callAiWithRetry(',
+      declares: 'outputContract: ideaBatchOutputContract()',
+    },
+    {
+      what: '4b · idea generation, retry pass',
+      file: 'routes/ideas.ts',
+      anchor: 'const retryRaw = await callAiWithRetry(',
+      declares: 'outputContract: ideaBatchOutputContract()',
+    },
+    {
+      what: '5 · idea campaign',
+      file: 'generators/idea-campaign.ts',
+      anchor: 'raw = await callAiWithRetry(request.model,',
+      declares: 'outputContract: ideaCampaignOutputContract(',
+    },
+    {
+      what: '6 · metadata template placeholder extraction',
+      file: 'generators/metadata.ts',
+      anchor: "const raw = await callAiWithRetry(model, '', extractPrompt,",
+      declares: 'outputContract: metadataPlaceholderOutputContract(llmKeys)',
+    },
+    {
+      what: '7 · single image/thumbnail prompt regeneration',
+      file: 'routes/image-prompts-edit.ts',
+      anchor: "const raw = await callAiWithRetry(model, '', llmPrompt,",
+      declares: 'outputContract: singleImagePromptOutputContract()',
+    },
+    {
+      what: '8 · image pool prompt suggestions',
+      file: 'routes/broll-project.ts',
+      anchor: 'const raw = await callAiWithRetry(model, system, user, {}, false, {',
+      declares: 'outputContract: imagePoolPromptsOutputContract()',
+    },
+    {
+      what: '9 · thumbnail reference vision analysis',
+      file: 'routes/vision.ts',
+      anchor: 'const result = await callChatWithGenStudio(apiKey, {',
+      declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
+    },
+  ]
+
+  for (const site of sites) {
+    test(site.what, () => {
+      const region = callRegion(site.file, site.anchor)
+      assert.ok(
+        region.includes(site.declares),
+        `${site.file}: this request is parsed as JSON but no longer declares ${site.declares}`,
+      )
+    })
+  }
+
+  test('the retry pass asks for the same shape as the first pass', () => {
+    const first = callRegion('routes/ideas.ts', 'const firstRaw = await callAiWithRetry(')
+    const retry = callRegion('routes/ideas.ts', 'const retryRaw = await callAiWithRetry(')
+    const contractOf = (region: string) => /outputContract: (.+),/.exec(region)?.[1]
+    assert.ok(contractOf(first))
+    assert.equal(contractOf(retry), contractOf(first))
+  })
+
+  test('the deprecated jsonObject flag is gone from the vision call', () => {
+    const region = callRegion('routes/vision.ts', 'const result = await callChatWithGenStudio(apiKey, {')
+    assert.ok(!/jsonObject\s*:/.test(region), 'one mechanism, not two')
+  })
+})
+
+// ── 2. The contracts match what each reader expects ─────────────────────
+
+describe('each contract accepts its own payload and refuses prose', () => {
+  test('1 · scene planning window', () => {
+    const raw = throughContract({
+      scenes: [{ start_sec: 0, end_sec: 8.5, transcript_segment: 'text', visual_prompt: 'a wide shot', boundary_reason: 'beat' }],
+    }, JSON_OBJECT_OUTPUT_CONTRACT)
+    assert.equal(parsePlannerJson(raw).scenes?.length, 1)
+    assert.throws(() => validateStructuredOutput('Here are the scenes you asked for.', JSON_OBJECT_OUTPUT_CONTRACT))
+  })
+
+  test('2 · format extraction rejects a bare array as well as prose', () => {
+    assert.ok(throughContract({ id: 'my-format', name: 'My Format' }, JSON_OBJECT_OUTPUT_CONTRACT).includes('my-format'))
+    assert.throws(() => validateStructuredOutput('[1, 2]', JSON_OBJECT_OUTPUT_CONTRACT), /one JSON object/)
+    assert.throws(() => validateStructuredOutput('A format for calm history explainers.', JSON_OBJECT_OUTPUT_CONTRACT))
+  })
+
+  test('3 · prompt director names the ids of this batch', () => {
+    const contract = promptDirectorOutputContract(['s1', 's2'])
+    const raw = throughContract({ scenes: [{ id: 's2', prompt: 'rewritten', emotion: 'calm' }] }, contract)
+    assert.equal(parseDirectorJson(raw).scenes[0]?.id, 's2')
+    assert.throws(
+      () => validateStructuredOutput(JSON.stringify({ scenes: [{ id: 's9', prompt: 'x' }] }), contract),
+      /did not match/,
+      'an invented scene id is a rewrite that lands nowhere — it must be refused',
+    )
+    assert.throws(() => validateStructuredOutput('Scene one: a wide shot.', contract))
+  })
+
+  const IDEA = {
+    title: 'The Lighthouse That Moved',
+    logline: 'A coastal town wakes to find its lighthouse a mile inland.',
+    themes: ['coast', 'mystery'],
+    suggested_chapters: 10,
+    suggested_length: '60',
+    mood: 'calm, curious',
+  }
+
+  test('4 · idea generation — the wrapper survives the reader', () => {
+    const contract = ideaBatchOutputContract()
+    const raw = throughContract({ ideas: [IDEA, { ...IDEA, title: 'Second' }] }, contract)
+    const ideas = parseIdeas(raw)
+    assert.equal(ideas.length, 2)
+    assert.equal(ideas[0].title, IDEA.title)
+    // The wrapper is why the contract can exist at all — a bare array cannot be
+    // asked for through a json_object contract, so it must not be accepted here.
+    assert.throws(() => validateStructuredOutput(JSON.stringify([IDEA]), contract), /one JSON object/)
+    assert.throws(() => validateStructuredOutput('Here are ten ideas: 1. The Lighthouse…', contract))
+  })
+
+  test('5 · idea campaign — keys are held to the reserved assignments', () => {
+    const contract = ideaCampaignOutputContract(['k1', 'k2'])
+    const raw = throughContract({ ideas: [{ idea_key: 'k1', ...IDEA }] }, contract)
+    const parsed = parseArray(raw)
+    assert.equal(parsed[0].idea_key, 'k1')
+    assert.throws(
+      () => validateStructuredOutput(JSON.stringify({ ideas: [{ idea_key: 'k9', ...IDEA }] }), contract),
+      /did not match/,
+    )
+    assert.throws(() => validateStructuredOutput('Idea one: The Lighthouse That Moved.', contract))
+  })
+
+  test('6 · metadata placeholders — every requested key is required', () => {
+    const contract = metadataPlaceholderOutputContract(['topic', 'summary'])
+    const raw = throughContract({ topic: 'Deep Sea Cables', summary: 'Two sentences.' }, contract)
+    assert.deepEqual(parseExtractionResponse(raw, ['topic', 'summary']), {
+      topic: 'Deep Sea Cables', summary: 'Two sentences.',
+    })
+    assert.throws(
+      () => validateStructuredOutput(JSON.stringify({ topic: 'Deep Sea Cables' }), contract),
+      /did not match/,
+      'a missing placeholder is published as an empty title — it must not validate',
+    )
+    assert.throws(() => validateStructuredOutput(JSON.stringify({ topic: '', summary: 'x' }), contract), /did not match/)
+    assert.throws(() => validateStructuredOutput('The episode is about deep sea cables.', contract))
+  })
+
+  test('7 · single image prompt', () => {
+    const contract = singleImagePromptOutputContract()
+    const raw = throughContract({ title: 'Harbour at Dawn', prompt: 'A wide shot of a harbour at dawn.' }, contract)
+    const parsed = parseSinglePromptResponse(raw, { number: 3, title: 'old', prompt: 'old' })
+    assert.equal(parsed.title, 'Harbour at Dawn')
+    assert.ok(parsed.prompt.startsWith('A wide shot'))
+    assert.throws(() => validateStructuredOutput(JSON.stringify({ title: 'x' }), contract), /did not match/)
+    assert.throws(() => validateStructuredOutput('A wide shot of a harbour at dawn.', contract))
+  })
+
+  test('8 · image pool prompt suggestions', () => {
+    const contract = imagePoolPromptsOutputContract()
+    const raw = throughContract({ prompts: ['first image', 'second image'] }, contract)
+    assert.deepEqual(parseSuggestedPrompts(raw, 10), ['first image', 'second image'])
+    assert.throws(() => validateStructuredOutput(JSON.stringify(['first image']), contract), /one JSON object/)
+    assert.throws(() => validateStructuredOutput('1. first image\n2. second image', contract))
+  })
+})
+
+// ── 3. Metadata extraction no longer blanks a field in silence ──────────
+
+describe('metadata template extraction fails loudly', () => {
+  const keys = ['topic', 'summary']
+
+  test('an answer with no JSON object throws instead of returning blanks', () => {
+    assert.throws(
+      () => parseExtractionResponse('This episode is about deep sea cables.', keys),
+      /\{topic\}, \{summary\}/,
+    )
+  })
+
+  test('unparseable JSON throws instead of returning blanks', () => {
+    assert.throws(() => parseExtractionResponse('{"topic": "Cables",', keys), /Nothing was saved/)
+  })
+
+  test('a missing or empty value throws, naming only the failed placeholder', () => {
+    assert.throws(() => parseExtractionResponse('{"topic": "Cables"}', keys), /\{summary\}/)
+    assert.throws(() => parseExtractionResponse('{"topic": "Cables", "summary": "   "}', keys), /\{summary\}/)
+  })
+
+  test('a complete answer still parses, fences and preamble included', () => {
+    assert.deepEqual(
+      parseExtractionResponse('```json\n{"topic": "Cables", "summary": "Two sentences."}\n```', keys),
+      { topic: 'Cables', summary: 'Two sentences.' },
+    )
+  })
+})
+
+// ── 4. The prose call sites still declare nothing ───────────────────────
+
+describe('the prose call sites are left alone', () => {
+  test('chapter expansion asks for no contract — narrative, listicle and repair', () => {
+    const text = source('lib/chunked-narration.ts')
+    const contexts = text.split('const ctx = {').slice(1).map(part => part.slice(0, part.indexOf('}')))
+    assert.equal(contexts.length, 3, 'expected the outline, narrative batch and listicle batch contexts')
+    for (const ctx of contexts) {
+      assert.ok(!ctx.includes('outputContract'), 'chapter expansion output is markdown, never JSON')
+    }
+    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await callAiWithRetry(').includes('outputContract'))
+    // The one JSON call expansion depends on keeps its contract, passed as its
+    // own argument rather than on the shared ctx above.
+    assert.ok(text.includes('outlineOutputContract(params.totalChapters)'))
+  })
+
+  test('metadata description, titles and tags ask for no contract', () => {
+    for (const anchor of ['const descRaw = await callAiWithRetry(', 'const titleRaw = await callAiWithRetry(', 'const tagRaw = await callAiWithRetry(']) {
+      assert.ok(!callRegion('generators/metadata.ts', anchor).includes('outputContract'), anchor)
+    }
+  })
+
+  test('single-scene visual and motion prompt regeneration ask for no contract', () => {
+    const text = source('services/scene-planner.ts')
+    const line = 'const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })'
+    assert.equal(text.split(line).length - 1, 2, 'expected the visual and motion single-scene calls')
+  })
+
+  const untouched = [
+    'generators/episode.ts',              // legacy generateEpisode script + prompt paths
+    'routes/scripts.ts',                  // interactive metadata routes
+    'services/docx-normalizer.ts',        // legacy narration normalizer
+    'services/audio-expression.ts',       // performance-tag markup
+    'routes/upload.ts',                   // playlist description + reply drafts
+    'lib/reply-drafter.ts',               // reply draft parsing
+    'services/broll-shot-director.ts',    // built, never invoked — leave it built
+  ]
+  for (const file of untouched) {
+    test(`${file} declares no contract at all`, () => {
+      assert.ok(!source(file).includes('outputContract'))
+    })
+  }
+
+  test('sound design is not a language call site', () => {
+    for (const file of ['services/sound-design.ts', 'services/sound-design-resolver.ts', 'routes/sound-design.ts']) {
+      const text = source(file)
+      assert.ok(!text.includes('callAi'), `${file} must stay deterministic`)
+      assert.ok(!text.includes('callChatWithGenStudio'), `${file} must stay deterministic`)
+    }
+  })
+
+  test('both research adapters keep the contract they already had', () => {
+    for (const file of ['services/research/genstudio.ts', 'services/research/genstudio-web.ts']) {
+      assert.ok(source(file).includes('outputContract: JSON_OBJECT_OUTPUT_CONTRACT'), file)
+    }
+  })
+})

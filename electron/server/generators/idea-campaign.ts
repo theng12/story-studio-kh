@@ -17,6 +17,7 @@ import {
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
+import { ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import { applyFormulaEpisodeProfileTitle } from '../services/formula-production-kit.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
@@ -27,7 +28,7 @@ interface IdeaCampaignParams extends GenerateIdeasRequest {
   title_suffix?: string
 }
 
-function parseArray(raw: string): any[] {
+export function parseArray(raw: string): any[] {
   const text = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   const start = text.indexOf('[')
   const end = text.lastIndexOf(']')
@@ -109,7 +110,7 @@ OUTPUT CONTRACT:
 - suggested_length must be a minutes string within ${format.script.lengthMinutesRange[0]}-${format.script.lengthMinutesRange[1]} minutes.
 - themes must contain 2-4 concrete keywords.
 
-Return ONLY a JSON array with these exact keys:
+Return ONLY a JSON object of the form {"ideas": [ ... ]}, where every array item has these exact keys:
 idea_key, title, logline, themes, suggested_chapters, suggested_length, mood`
 }
 
@@ -295,6 +296,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         jobId: job.job_id,
         signal: controller.signal,
         outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
+        // `parseArray` throws on anything that is not JSON. The reserved
+        // idea_keys are named in the contract because results are matched back
+        // by key — an invented key silently loses the slot it was meant to fill.
+        outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
       })
     } finally {
       clearInterval(watcher)

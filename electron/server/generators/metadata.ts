@@ -25,6 +25,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/folder-migration.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getEffectiveNicheFor } from '../services/niche-loader.js'
@@ -248,7 +249,14 @@ export async function generateMetadata(job: Job): Promise<void> {
       if (llmKeys.length) {
         const extractPrompt = buildExtractionPrompt({ episodeCode: episode_id, title, storyContext, placeholders: llmKeys })
         const raw = await callAiWithRetry(model, '', extractPrompt, aiCreds(config), false,
-          { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+          {
+            slug: project_slug, jobId: job.job_id, signal: controller.signal,
+            // Every requested placeholder is required and non-empty in the
+            // contract: these values are substituted straight into a YouTube
+            // title and description, where a blank is invisible until it is
+            // published. `parseExtractionResponse` refuses a gap as well.
+            outputContract: metadataPlaceholderOutputContract(llmKeys),
+          })
         llmValues = parseExtractionResponse(raw, llmKeys)
       }
       const values = { ...deterministicValues(episode_id), ...llmValues }

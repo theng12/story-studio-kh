@@ -4,13 +4,14 @@
  * Same GenStudio boundary as the model-knowledge adapter — same key, same
  * language route. This adapter names NO route of its own: it calls
  * `callChatWithGenStudio`, which resolves the route once at
- * `resolveGenStudioChatTransport()` (genstudio-client.ts). Today that is
- * `POST /v1/chat/completions` — the route web research actually works on and
- * the one `STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT=completions` selects.
- * `POST /v1/chat/responses` is the durable-job route the switch reverts to
- * once GenStudio's own submit-path lookup is fixed; this comment used to claim
- * that route was already the working one, which misled a whole debugging
- * session. Read the switch, not this comment, for what is live.
+ * `resolveGenStudioChatTransport()` (genstudio-client.ts).
+ *
+ * WHICH ROUTE IS LIVE IS NOT WRITTEN DOWN HERE. Two successive versions of
+ * this comment each named a route, each was wrong, and each cost a debugging
+ * session. The switch is `STORY_STUDIO_GENSTUDIO_CHAT_TRANSPORT`; read
+ * `describeGenStudioChatTransport` for the value when it is unset, or the
+ * `[genstudio] Language transport:` line the app writes at startup, which
+ * states the route and where the choice came from.
  *
  * Two differences from the model-knowledge adapter matter:
  *
