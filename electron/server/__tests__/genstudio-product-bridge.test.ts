@@ -378,11 +378,15 @@ test('the rollback route sends the explicit text format too, never an absent one
 })
 
 test('a prose answer that still arrives wrapped is unwrapped, not rejected', async () => {
-  // The chat idempotency digest hashes the output CONTRACT, not the wire
-  // `response_format`, so this release does not change any key: a retry that
-  // crosses the upgrade replays the in-flight job instead of paying for a
-  // second one — and that job was asked for the old `{ "text": … }` wrapper.
-  // Its answer is prose we have already been charged for. Take it.
+  // A prose answer can still come back wrapped as `{ "text": … }` — from a
+  // job whose ORIGINAL submission asked for the old wrapper (pre-v1.0.788),
+  // or from a model that volunteers one unprompted. Either way it is prose
+  // already paid for (or simply prose), so unwrapProseOutput accepts it
+  // rather than rejecting a shape nothing asked for. (The idempotency digest
+  // itself now DOES include the wire response_format for prose — see
+  // wireFormatDigestComponent in genstudio-client.ts — specifically so a
+  // retry of a job stuck on the OLD wrapper gets a fresh key instead of
+  // colliding forever; that fix is orthogonal to this unwrap tolerance.)
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {

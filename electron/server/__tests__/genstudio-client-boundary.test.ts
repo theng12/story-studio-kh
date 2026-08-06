@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -149,6 +150,89 @@ test('GenStudio chat retries keep one logical request identity', () => {
     requestIdentity: 'boundful:EP0002:metadata',
   }))
   assert.match(first, /^story-chat-[a-f0-9]{47}$/)
+})
+
+/**
+ * Reconstructs the PRE-v1.0.789 idempotency digest byte-for-byte — the
+ * formula as it stood immediately after commit 9842059 ("ask GenStudio for
+ * prose instead of prose packed into JSON") shipped, which hashed
+ * `output_contract` but never the wire `response_format`. Used below to prove
+ * two things about the fix: a stuck v1.0.787-era prose key no longer matches
+ * what today's code computes (so a retry escapes the collision), and a
+ * JSON-mode key is untouched (so nothing currently in flight is perturbed).
+ */
+function legacyChatIdempotencyKey(request: {
+  modelId: string
+  system: string
+  userMessage: string
+  temperature?: number
+  maxOutputTokens?: number
+  requestIdentity?: string
+  outputContract: { mode: string; name?: string; schema?: unknown }
+}): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    model_id: request.modelId.trim(),
+    system: request.system,
+    user_message: request.userMessage,
+    temperature: request.temperature ?? 0.7,
+    top_p: 1,
+    max_output_tokens: request.maxOutputTokens ?? 2_048,
+    request_identity: request.requestIdentity?.trim() || null,
+    input_image: null,
+    output_contract: request.outputContract,
+  })).digest('hex')
+  return `story-chat-${digest.slice(0, 47)}`
+}
+
+test('a prose retry after the response_format fix no longer collides with a v1.0.787-era stuck key', () => {
+  const proseRequest = {
+    modelId: 'genstudio-chat-local-v1',
+    system: 'Write the next chapter.',
+    userMessage: 'Expand EP0067 batch 1 of 4.',
+    temperature: 0.2,
+    maxOutputTokens: 4_096,
+    requestIdentity: 'boundful:EP0067:expand:1',
+    outputContract: { mode: 'prose' as const },
+  }
+
+  // What v1.0.787 (and v1.0.788 immediately after it, before this fix) would
+  // have computed and sent to GenStudio as the Idempotency-Key. If that batch
+  // failed terminally there, GenStudio now holds this exact key against a
+  // request_hash built from `{"type":"json_object"}` + the wrapper.
+  const stuckLegacyKey = legacyChatIdempotencyKey(proseRequest)
+
+  // What today's code computes for the identical logical request. It now
+  // sends `{"type":"text"}` on the wire, and that is reflected in the digest.
+  const currentKey = buildGenStudioChatIdempotencyKey(proseRequest)
+
+  assert.notEqual(
+    currentKey,
+    stuckLegacyKey,
+    'a prose retry must get a fresh key, or GenStudio will refuse it as "idempotency key was already used for a different request"',
+  )
+
+  // Requirement 3: a genuine retry of the SAME request, on the SAME (current)
+  // code, must still land on the SAME key — that is what stops a retry from
+  // paying twice. No nonce, no clock: pure function of the request content.
+  assert.equal(currentKey, buildGenStudioChatIdempotencyKey(proseRequest))
+  assert.equal(currentKey, buildGenStudioChatIdempotencyKey({ ...proseRequest }))
+})
+
+test('a JSON Object chat key is untouched by the response_format fix — nothing in flight is perturbed', () => {
+  const jsonRequest = {
+    modelId: 'genstudio-chat-local-v1',
+    system: 'Return verified JSON.',
+    userMessage: 'Plan the next scene.',
+    temperature: 0.2,
+    maxOutputTokens: 4_096,
+    requestIdentity: 'boundful:EP0067:scene-plan',
+    outputContract: { mode: 'json_object' as const },
+  }
+  assert.equal(
+    buildGenStudioChatIdempotencyKey(jsonRequest),
+    legacyChatIdempotencyKey(jsonRequest),
+    'json_object wire format has not changed, so its digest must stay byte-identical to avoid double-submitting any job still in flight when this fix ships',
+  )
 })
 
 test('GenStudio publishes normalized capability, chat, and video catalogs', async () => {

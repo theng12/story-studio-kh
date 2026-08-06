@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.789 — 2026-08-07
+
+- **Chapter expansion on an episode touched before this release is unblocked** — v1.0.788 changed
+  how a prose request is sent (asking for writing instead of writing wrapped in JSON) but did not
+  change the fingerprint Story Studio uses to avoid submitting the same paid request twice. Any
+  batch that had ever failed before that release computed the same fingerprint as its retry under
+  the new wire format, and GenStudio correctly refused it as a different request reusing an old
+  key — permanently, since the fingerprint could never change on its own. That fingerprint now
+  accounts for the wire format itself, so a retry after this release gets a fresh one instead of
+  colliding forever. A genuine retry — same content, same format — still computes the same
+  fingerprint it always has, so nothing is paid for twice.
+
+---
+
 ## v1.0.788 — 2026-08-06
 
 - **Writing is no longer sent as data** — every feature that asks a model to write ordinary

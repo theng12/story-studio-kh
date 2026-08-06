@@ -163,13 +163,24 @@ test('productPublishesControl treats an empty list as "publishes nothing"', () =
 })
 
 /**
- * FROZEN KEYS — do not "update" these strings.
+ * FROZEN KEYS — do not "update" these strings without the same reasoning a
+ * change here demands: a change is a double-charge risk, not a test that
+ * needs refreshing.
  *
  * Recorded from the v1.0.768 build (HEAD 25f3b59) BEFORE `top_p` left the
  * wire. The digest still carries `temperature` and a frozen `top_p: 1`, so a
- * retry that crosses this upgrade replays the in-flight job instead of
- * submitting — and billing — a second one. A change here is a double-charge
- * risk, not a test that needs refreshing.
+ * retry that crosses THAT upgrade replays the in-flight job instead of
+ * submitting — and billing — a second one.
+ *
+ * The first two values below moved once, deliberately, in the fix for the
+ * v1.0.788 idempotency defect (see `wireFormatDigestComponent` in
+ * genstudio-client.ts): both requests omit `outputContract`/`jsonObject` and
+ * so default to `prose`, and `prose` is now the one mode whose digest
+ * includes the wire `response_format`. That is the fix — a prose retry must
+ * NOT collide with a request shape GenStudio will never see again. The third
+ * value (`jsonObject: true`) is untouched on purpose: JSON Object's wire
+ * format has not changed, so its key must not move, or a JSON-mode job still
+ * in flight at GenStudio when this fix ships would get double-submitted.
  */
 test('chat idempotency keys are byte-identical to the pre-change build', () => {
   assert.equal(
@@ -178,7 +189,7 @@ test('chat idempotency keys are byte-identical to the pre-change build', () => {
       system: 'You are a Story Studio narrator.',
       userMessage: 'Write one line about the sea.',
     } as any),
-    'story-chat-03e29ae4e86e60cf4b460e304646e59fd688e9196df9c97',
+    'story-chat-8c0998756b586fc90331e5cf2d5f113dcfa487af483ef75',
   )
   assert.equal(
     buildGenStudioChatIdempotencyKey({
@@ -187,10 +198,12 @@ test('chat idempotency keys are byte-identical to the pre-change build', () => {
       userMessage: 'Plain user turn only.',
       temperature: 0.35,
     } as any),
-    'story-chat-ba26e637d2764b888ec1870845ab47e7ee69776bc2f625b',
+    'story-chat-cbd90b412483a1420e3d4697a6ff6a5725565cf44c828ba',
   )
   // The exact shape routes/vision.ts used to send, including its old
-  // `topP: 1` — the key must not move now that the field is gone.
+  // `topP: 1` — the key must not move now that the field is gone. JSON
+  // Object mode also has no `response_format` digest component (see above),
+  // so this value is IDENTICAL to the one recorded from the v1.0.768 build.
   assert.equal(
     buildGenStudioChatIdempotencyKey({
       modelId: 'pinned-product',

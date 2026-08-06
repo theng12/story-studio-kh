@@ -3277,6 +3277,42 @@ const LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT = 0.7
  */
 const LEGACY_CHAT_TOP_P_DIGEST_COMPONENT = 1
 
+/**
+ * Wire-format digest component, keyed by output-contract mode.
+ *
+ * BUG THIS CLOSES (v1.0.788, commit 9842059): that release changed what a
+ * `prose` request puts on the wire — `response_format` went from
+ * `{"type":"json_object"}` (with a wrapper instruction telling the model to
+ * escape its whole answer into one JSON string) to `{"type":"text"}`. The
+ * digest below hashed only `output_contract` (`{mode:'prose'}` either way),
+ * never the wire format, so a prose batch that failed TERMINALLY under the
+ * old format computed the SAME key when retried under the new one. GenStudio
+ * correctly refuses that: same key, different request body. The result was a
+ * terminally-failed job holding its key forever against a request shape that
+ * can never match again — every episode ever attempted before the upgrade
+ * stayed permanently blocked.
+ *
+ * FIX SHAPE, not a one-off patch: `response_format` is a real part of what
+ * Story Studio sends (GenStudio's own `product_service.py::_canonical_hash`
+ * folds `response_format` into ITS request hash for exactly this reason), so
+ * it belongs in the digest. `prose` is the only mode wired here because it is
+ * the only mode whose wire mapping has ever changed — `productResponseFormat`
+ * reads `PROSE_RESPONSE_FORMAT`, the SAME constant hashed here, so the two can
+ * never drift apart again the way they did in v1.0.788.
+ *
+ * `json_object` / `json_schema` are DELIBERATELY given no entry (the spread
+ * below contributes nothing for them, so their digest bytes are IDENTICAL to
+ * every key ever computed for those modes). Their wire mapping has never
+ * changed. Adding a component for them now would perturb every JSON-mode key
+ * ever issued — including one still genuinely in-flight at GenStudio at the
+ * moment this fix ships — for zero collision this app has ever hit. Extend
+ * this map the day THEIR mapping changes, not before; same reasoning as
+ * `LEGACY_CHAT_TOP_P_DIGEST_COMPONENT` below.
+ */
+function wireFormatDigestComponent(outputContract: TextOutputContract): Record<string, unknown> {
+  return outputContract.mode === 'prose' ? { response_format: PROSE_RESPONSE_FORMAT } : {}
+}
+
 export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
@@ -3300,6 +3336,8 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     request_identity: request.requestIdentity?.trim() || null,
     input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
     output_contract: outputContract,
+    // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
+    ...wireFormatDigestComponent(outputContract),
   })).digest('hex')
   return `story-chat-${digest.slice(0, 47)}`
 }
@@ -3552,6 +3590,19 @@ const JSON_OBJECT_WRAPPER_INSTRUCTION =
   'Return exactly one JSON object. Return only that object: no markdown fences, no commentary, no trailing text.'
 
 /**
+ * What GenStudio KH is asked to return for a `prose` contract, on the wire.
+ *
+ * SINGLE SOURCE OF TRUTH: `productResponseFormat` sends this value, and
+ * `buildGenStudioChatIdempotencyKey` hashes this same constant — never a
+ * second literal that happens to say the same thing today. The v1.0.788
+ * defect (see the digest comment below) existed because the wire value and
+ * the digest were two independent facts that silently drifted apart. Sharing
+ * one constant makes that drift a compile-time impossibility: change this
+ * value and both call sites move together.
+ */
+const PROSE_RESPONSE_FORMAT: Record<string, unknown> = { type: 'text' }
+
+/**
  * Choose the response format for one published language product.
  *
  * GenStudio language products do not require provider-native strict JSON
@@ -3590,7 +3641,7 @@ function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
 ): { responseFormat: Record<string, unknown>; wrapperInstruction?: string } {
-  if (outputContract.mode === 'prose') return { responseFormat: { type: 'text' } }
+  if (outputContract.mode === 'prose') return { responseFormat: PROSE_RESPONSE_FORMAT }
 
   const name = outputContract.name ?? 'story_studio_json_object'
   const schema = outputContract.schema
