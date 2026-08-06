@@ -812,6 +812,19 @@ export async function expandChapters(
       '(or pass auto_approve: true for headless callers).',
     )
   }
+  // Record the approval the caller just gave, rather than only letting it past
+  // this gate. `auto_approve` used to be consumed here and never written down,
+  // so the sidecar stayed `outline_approved_at: null` while expansion ran to
+  // completion -- and `verifyChapterExpansion` (which reads that same field)
+  // then failed an episode whose ten chapters were all on disk. Two checks
+  // asking the same question and disagreeing about the answer.
+  //
+  // The same stamp already happens in `buildOutlineOnly` for the cached-outline
+  // path; this is the branch that reaches expansion without passing through it.
+  if (!sidecar.outline_approved_at && opts.auto_approve) {
+    sidecar = { ...sidecar, outline_approved_at: new Date().toISOString(), last_updated: new Date().toISOString() }
+    await writeSidecar(params.scriptDir, sidecar)
+  }
 
   // Disk verification: the files are authoritative, not chapters_done.
   // A crash can land a chapter file just before its sidecar update; checking
