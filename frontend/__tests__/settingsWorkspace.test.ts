@@ -18,20 +18,20 @@ describe('Settings workspace navigation', () => {
     }
   })
 
-  test('Local Models is split into focused, non-stacking views', () => {
-    for (const view of ['overview', 'voice', 'image', 'chat']) {
-      assert.match(settingsSource, new RegExp(`id: '${view}'`))
-      assert.match(settingsSource, new RegExp(`localModelsView === '${view}'`))
-    }
-
-    assert.match(settingsSource, /aria-label="Local model setup sections"/)
-  })
-
-  test('the retired Studio Hub control plane is gone from Settings', () => {
-    // Its backend is 410'd by middleware (routes/app-settings.ts) — the whole
-    // section talked to nothing, while still naming a routing surface and
-    // offering Save/Test buttons that could only ever report "retired".
-    assert.doesNotMatch(settingsSource, /localModelsView === 'hub'/)
+  test('the retired direct-local-generation control surface is gone from Settings', () => {
+    // The whole "Local Models" panel (Voice Studio / Image Studio / Chat
+    // Studio direct-connection panes, plus the Direct-vs-Hub toggle) talked
+    // to nothing — every one of those routes is 410'd by middleware
+    // (routes/audio.ts, routes/images.ts, routes/app-settings.ts) — while
+    // still naming a routing surface and offering Save/Test buttons that
+    // could only ever report "retired". It was removed rather than left
+    // dead behind `v-if="false"`.
+    assert.doesNotMatch(settingsSource, /local-models-panel/)
+    assert.doesNotMatch(settingsSource, /localModelsView/)
+    assert.doesNotMatch(settingsSource, /LocalModelView/)
+    assert.doesNotMatch(settingsSource, /<EndpointListEditor/)
+    assert.doesNotMatch(settingsSource, /route-prefix="\/voicestudio"|route-prefix="\/imagestudio"|route-prefix="\/chatstudio"/)
+    assert.doesNotMatch(settingsSource, /aria-label="Local model setup sections"/)
     assert.doesNotMatch(settingsSource, /app-settings\/local-backend|app-settings\/hub\//)
     assert.doesNotMatch(settingsSource, /localBackend|hubUrl|hubToken|renderWorkersEnabled|studioAction/)
     assert.doesNotMatch(settingsSource, /Studio Hub/)

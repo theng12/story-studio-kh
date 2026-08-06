@@ -843,13 +843,13 @@ test('Story transcription has no direct OpenAI, Studio Hub, or Voice Studio rout
   const generator = readFileSync(new URL('../generators/subtitles.ts', import.meta.url), 'utf8')
   const audioRoutes = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
   const pipeline = readFileSync(new URL('../routes/pipeline.ts', import.meta.url), 'utf8')
-  const voiceStudioClient = readFileSync(new URL('../lib/voicestudio-client.ts', import.meta.url), 'utf8')
   assert.match(generator, /transcribeWithGenStudio/)
   assert.doesNotMatch(generator, /transcribeToSrt/)
   assert.doesNotMatch(generator, /transcribeViaConfiguredBackend/)
   assert.doesNotMatch(audioRoutes, /router\.get\('\/voicestudio\/transcribe-availability'/)
   assert.doesNotMatch(audioRoutes, /router\.post\('\/voicestudio\/download-model'/)
-  assert.doesNotMatch(voiceStudioClient, /\/api\/transcribe/)
+  // lib/voicestudio-client.ts is gone entirely — it can no longer offer a
+  // '/api/transcribe' route for anything to reach.
   assert.match(pipeline, /engine: 'genstudio'/)
 })
 

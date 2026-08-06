@@ -3357,28 +3357,7 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
     ...wireFormatDigestComponent(outputContract),
   })).digest('hex')
-  const __key = `story-chat-${digest.slice(0, 47)}`
-  // TEMP-DIAG: remove after the idempotency collision is diagnosed.
-  try {
-    require('fs').appendFileSync('/tmp/idemp-diag.log', JSON.stringify({
-      key: __key, mode: outputContract.mode,
-      wire: wireFormatDigestComponent(outputContract),
-      model: request.modelId.trim(),
-      sys_len: (request.system || '').length,
-      user_len: (request.userMessage || '').length,
-    }) + '\n')
-  } catch {}
-  console.log('[IDEMP-DIAG]', JSON.stringify({
-    key: __key,
-    mode: outputContract.mode,
-    wire: wireFormatDigestComponent(outputContract),
-    model: request.modelId.trim(),
-    sys_len: (request.system || '').length,
-    user_len: (request.userMessage || '').length,
-    temperature: request.temperature ?? LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT,
-    max_out: request.maxOutputTokens ?? 2_048,
-  }))
-  return __key
+  return `story-chat-${digest.slice(0, 47)}`
 }
 
 /**

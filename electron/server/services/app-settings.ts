@@ -447,14 +447,19 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 //
 // Chooses how the LOCAL Studio providers (image / voice / chat) reach the
 // fleet:
-//   'direct' — the current behaviour: Story Studio talks to each Mac's Studio
-//              server directly via the per-provider endpoint pools.
+//   'direct' — Story Studio talks to each Mac's Studio server directly via
+//              the per-provider endpoint pools.
 //   'hub'    — route generation through Studio Hub KH (a single control-plane
 //              that delegates across the fleet). Failure is reported; direct
 //              endpoints are never used unless 'direct' is selected.
-// Per-machine (like server_mode / last_seen_version). Default 'direct' so an
-// install with no Hub configured behaves exactly as before.
-
+// Per-machine (like server_mode / last_seen_version).
+//
+// The SETTER for this value is retired along with the rest of the direct
+// local-generation control surface (routes/app-settings.ts 410s both
+// /app-settings/local-backend and /app-settings/hub/*) — there is no longer
+// any live way to change it. The getter stays: lib/studiohub-client.ts still
+// reads it to decide whether image/video generation routes through Studio
+// Hub, which remains a live, in-use fleet-routing path.
 export const LOCAL_BACKEND_KEY = 'local_backend'
 export const HUB_URL_KEY = 'hub_url'
 export const RENDER_WORKERS_ENABLED_KEY = 'render_workers_enabled'
@@ -468,19 +473,9 @@ export async function getLocalBackend(): Promise<LocalBackend> {
   return v === 'hub' ? 'hub' : 'direct'
 }
 
-export async function setLocalBackend(mode: LocalBackend): Promise<void> {
-  await setAppSetting(LOCAL_BACKEND_KEY, mode === 'hub' ? 'hub' : 'direct')
-}
-
 export async function getHubUrl(): Promise<string> {
   const v = await getAppSetting(HUB_URL_KEY)
   return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_HUB_URL
-}
-
-export async function setHubUrl(url: string): Promise<void> {
-  const cleaned = typeof url === 'string' ? url.trim() : ''
-  // Empty → clear override (falls back to DEFAULT_HUB_URL on read).
-  await setAppSetting(HUB_URL_KEY, cleaned)
 }
 
 /**
@@ -507,102 +502,29 @@ export async function setRenderWorkersEnabled(enabled: boolean): Promise<void> {
   await setAppSetting(RENDER_WORKERS_ENABLED_KEY, enabled === true)
 }
 
-// ── Endpoint labels (v1.0.281) ──────────────────────────────────────────────
-//
-// Optional, user-given names for each local-modal endpoint (LM Studio /
-// Image Studio / Voice Studio servers) so a multi-server pool is easy to
-// identify in the Settings editor. Purely cosmetic metadata — kept SEPARATE
-// from the URL list (which stays a plain comma-joined string in app-secrets,
-// untouched by every pool/dispatcher/provider consumer). Schema:
-//   app-settings.json
-//     "endpoint_labels": { "lmstudio": { "http://host:1234": "M1 mini" }, ... }
-// Keyed by provider id → cleaned URL → name. A URL with no entry just shows
-// its derived default (host:port) in the UI.
-
-export const ENDPOINT_LABELS_KEY = 'endpoint_labels'
-type EndpointLabelStore = Record<string, Record<string, string>>
-
-export async function getEndpointLabels(providerId: string): Promise<Record<string, string>> {
-  const all = (await getAppSetting(ENDPOINT_LABELS_KEY)) as EndpointLabelStore | undefined
-  const forProvider = all && typeof all === 'object' ? all[providerId] : undefined
-  return forProvider && typeof forProvider === 'object' ? { ...forProvider } : {}
-}
-
-/**
- * Persist names for a provider, scoped to the given (already-cleaned) URL set —
- * stale entries for URLs no longer in the pool are dropped, empty names are
- * skipped. Returns the saved map.
- */
-export async function setEndpointLabelsForUrls(
-  providerId: string,
-  urls: string[],
-  incoming: Record<string, unknown> | null | undefined,
-): Promise<Record<string, string>> {
-  const filtered: Record<string, string> = {}
-  for (const u of urls) {
-    const raw = incoming && typeof incoming === 'object' ? incoming[u] : undefined
-    const name = typeof raw === 'string' ? raw.trim() : ''
-    if (name) filtered[u] = name.slice(0, 80)  // cap — it's a label, not prose
-  }
-  await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
-    const all = (settings[ENDPOINT_LABELS_KEY] as EndpointLabelStore) || {}
-    if (Object.keys(filtered).length) all[providerId] = filtered
-    else delete all[providerId]
-    settings[ENDPOINT_LABELS_KEY] = all
-    await writeSettings(settings)
-  })
-  return filtered
-}
-
 // ── Disabled endpoints (v1.0.311) ───────────────────────────────────────────
 //
 // Which local-modal endpoints the user has manually switched OFF in Settings.
 // A disabled endpoint is never probed or dispatched to (see endpoint-pool.ts
 // parseEnabledEndpoints). Stored SEPARATELY from the URL list (which stays a
-// plain comma-joined string) and the labels, so a toggle never rewrites either.
+// plain comma-joined string).
 //   app-settings.json
-//     "endpoint_disabled": { "imagestudio": ["http://host:47868"], ... }
+//     "endpoint_disabled": { "<providerId>": ["http://host:port"], ... }
 // Keyed by provider id → array of cleaned (trailing-slash-stripped) URLs.
+//
+// The per-provider getter/setter pair that used to back the (now-retired)
+// Image Studio / Voice Studio direct-connection settings panes is gone. What
+// remains is the boot-time reader: getAllDisabledEndpoints() still primes the
+// in-memory endpoint-pool registry at startup (boot/migrations.ts) for
+// whatever provider entries are already on disk.
 
 export const ENDPOINT_DISABLED_KEY = 'endpoint_disabled'
 type EndpointDisabledStore = Record<string, string[]>
-
-export async function getDisabledEndpoints(providerId: string): Promise<string[]> {
-  const all = (await getAppSetting(ENDPOINT_DISABLED_KEY)) as EndpointDisabledStore | undefined
-  const forProvider = all && typeof all === 'object' ? all[providerId] : undefined
-  return Array.isArray(forProvider) ? forProvider.filter((u): u is string => typeof u === 'string') : []
-}
 
 /** Every provider's disabled set — used to prime the in-memory registry at boot. */
 export async function getAllDisabledEndpoints(): Promise<EndpointDisabledStore> {
   const all = (await getAppSetting(ENDPOINT_DISABLED_KEY)) as EndpointDisabledStore | undefined
   return all && typeof all === 'object' ? all : {}
-}
-
-/**
- * Persist the OFF set for a provider, scoped to the given (already-cleaned) URL
- * list — a disabled entry for a URL no longer in the pool is dropped. Returns
- * the saved list.
- */
-export async function setDisabledEndpointsForUrls(
-  providerId: string,
-  urls: string[],
-  disabled: unknown,
-): Promise<string[]> {
-  const urlSet = new Set(urls)
-  const kept = Array.isArray(disabled)
-    ? [...new Set(disabled.filter((u): u is string => typeof u === 'string' && urlSet.has(u)))]
-    : []
-  await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
-    const all = (settings[ENDPOINT_DISABLED_KEY] as EndpointDisabledStore) || {}
-    if (kept.length) all[providerId] = kept
-    else delete all[providerId]
-    settings[ENDPOINT_DISABLED_KEY] = all
-    await writeSettings(settings)
-  })
-  return kept
 }
 
 /**

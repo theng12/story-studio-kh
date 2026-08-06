@@ -18,11 +18,8 @@ import {
   rotateServerModeSessionSecret,
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
-  getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
-  getRenderWorkersEnabled, setRenderWorkersEnabled,
 } from '../services/app-settings.js'
-import { hubFleetStatus, hubHealth, hubStudios, hubStudioAction, isLoopbackHub } from '../lib/studiohub-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
   listModelCapabilities as listGenStudioCapabilities,
@@ -46,6 +43,10 @@ import {
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
 
+// Direct local generation control ("Local Models: Direct | Studio Hub", plus
+// fleet studio start/stop/restart from Settings) is retired — GenStudio is
+// the sole generation boundary now. This 410 is the only thing left standing
+// at these paths; the CRUD/ops handlers that used to live here are gone.
 router.use((req, res, next) => {
   if (req.path === '/app-settings/local-backend' || req.path.startsWith('/app-settings/hub/')) {
     return res.status(410).json({
@@ -54,124 +55,6 @@ router.use((req, res, next) => {
     })
   }
   next()
-})
-
-// ── Local generation backend (Settings → Local Models: Direct | Studio Hub) ─
-// Per-machine choice of how the local Studio providers reach the fleet. GET
-// also probes Hub liveness so the UI can show an online/offline dot. The
-// optional X-Hub-Token lives in the app-secrets 'hub' bucket (via
-// /app-settings/api-keys/hub) — not returned here, only whether one is set.
-router.get('/app-settings/local-backend', async (_req, res) => {
-  try {
-    const [mode, hubUrl, token, renderWorkersEnabled] = await Promise.all([
-      getLocalBackend(),
-      getHubUrl(),
-      getApiKey('hub').catch(() => ''),
-      getRenderWorkersEnabled(),
-    ])
-    const [health, fleet] = await Promise.all([
-      hubHealth(hubUrl),
-      hubFleetStatus(hubUrl, token),
-    ])
-    res.json({
-      local_backend: mode,
-      hub_url: hubUrl,
-      default_hub_url: DEFAULT_HUB_URL,
-      hub_token_set: !!(token && token.trim()),
-      render_workers_enabled: renderWorkersEnabled,
-      hub_online: health.ok,
-      hub_app_version: health.appVersion || null,
-      hub_error: health.ok ? null : (health.error || null),
-      hub_access_mode: isLoopbackHub(hubUrl) ? 'local' : 'token',
-      hub_fleet_ready: fleet.ok && fleet.fleetTokenSet,
-      hub_fleet_error: fleet.ok ? null : (fleet.error || null),
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to load local-backend setting'))
-  }
-})
-
-router.put('/app-settings/local-backend', async (req, res) => {
-  try {
-    const body = req.body || {}
-    if (body.local_backend !== undefined) {
-      if (body.local_backend !== 'direct' && body.local_backend !== 'hub') {
-        return res.status(400).json({ detail: "local_backend must be 'direct' or 'hub'" })
-      }
-      await setLocalBackend(body.local_backend)
-    }
-    if (body.hub_url !== undefined) {
-      const url = typeof body.hub_url === 'string' ? body.hub_url.trim() : ''
-      if (url && !/^https?:\/\//i.test(url)) {
-        return res.status(400).json({ detail: 'hub_url must start with http:// or https://' })
-      }
-      await setHubUrl(url)
-    }
-    if (body.render_workers_enabled !== undefined) {
-      if (typeof body.render_workers_enabled !== 'boolean') {
-        return res.status(400).json({ detail: 'render_workers_enabled must be a boolean' })
-      }
-      await setRenderWorkersEnabled(body.render_workers_enabled)
-    }
-    // Optional convenience: set/clear the Hub token in the same call.
-    if (body.hub_token !== undefined) {
-      const tok = typeof body.hub_token === 'string' ? body.hub_token.trim() : ''
-      await setApiKey('hub', tok)
-    }
-    const [mode, hubUrl, token, renderWorkersEnabled] = await Promise.all([
-      getLocalBackend(), getHubUrl(), getApiKey('hub').catch(() => ''), getRenderWorkersEnabled(),
-    ])
-    const [health, fleet] = await Promise.all([
-      hubHealth(hubUrl),
-      hubFleetStatus(hubUrl, token),
-    ])
-    res.json({
-      ok: true,
-      local_backend: mode,
-      hub_url: hubUrl,
-      hub_token_set: !!(token && token.trim()),
-      render_workers_enabled: renderWorkersEnabled,
-      hub_online: health.ok,
-      hub_app_version: health.appVersion || null,
-      hub_error: health.ok ? null : (health.error || null),
-      hub_access_mode: isLoopbackHub(hubUrl) ? 'local' : 'token',
-      hub_fleet_ready: fleet.ok && fleet.fleetTokenSet,
-      hub_fleet_error: fleet.ok ? null : (fleet.error || null),
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save local-backend setting'))
-  }
-})
-
-// ── Studio Hub fleet control (ops) ─────────────────────────────────────────
-// List the fleet's studios and start/stop/restart one from Settings. Restart is
-// stop → brief pause → start (the Hub's lifecycle route only exposes start/stop).
-router.get('/app-settings/hub/studios', async (_req, res) => {
-  try {
-    const [hubUrl, token] = await Promise.all([getHubUrl(), getApiKey('hub').catch(() => '')])
-    const studios = await hubStudios(hubUrl, token)
-    res.json({ studios })
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not reach the fleet controller to list studios'))
-  }
-})
-
-router.post('/app-settings/hub/studios/:id/:action', async (req, res) => {
-  const { id, action } = req.params
-  if (action !== 'start' && action !== 'stop' && action !== 'restart') {
-    return res.status(400).json({ detail: 'action must be start, stop, or restart' })
-  }
-  try {
-    const [hubUrl, token] = await Promise.all([getHubUrl(), getApiKey('hub').catch(() => '')])
-    if (action === 'restart') {
-      await hubStudioAction(hubUrl, token, id, 'stop')
-      await new Promise((r) => setTimeout(r, 2500))
-      return res.json(await hubStudioAction(hubUrl, token, id, 'start'))
-    }
-    res.json(await hubStudioAction(hubUrl, token, id, action))
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Studio action failed'))
-  }
 })
 
 router.get('/app-settings/notifications', async (_req, res) => {

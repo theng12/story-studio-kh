@@ -1319,259 +1319,6 @@
       </div>
     </div>
 
-    <!-- Local Models tab. v1.0.149+ — was "Local TTS" (Chatterbox).
-         Voice Studio KH is the only section today; future TTI / extra
-         TTS modals will append below. v1.0.150 removed the legacy
-         Chatterbox section entirely (chatterbox-mlx is reachable
-         through Voice Studio's family list if needed). -->
-    <div v-if="false" class="card settings-panel local-models-panel mt-2">
-      <header class="local-models-head">
-        <div>
-          <span class="local-models-kicker">Private generation fleet</span>
-          <h3>Local Models</h3>
-          <p>Connect once, then let Story Studio route work to the right local service.</p>
-        </div>
-      </header>
-
-      <nav class="local-model-tabs" aria-label="Local model setup sections">
-        <button
-          v-for="view in localModelViews"
-          :key="view.id"
-          type="button"
-          :class="['local-model-tab', { active: localModelsView === view.id }]"
-          :aria-current="localModelsView === view.id ? 'page' : undefined"
-          @click="localModelsView = view.id"
-        >
-          <span class="local-model-tab-icon" aria-hidden="true">{{ view.icon }}</span>
-          <span class="local-model-tab-copy">
-            <strong>{{ view.label }}</strong>
-            <small>{{ view.short }}</small>
-          </span>
-        </button>
-      </nav>
-
-      <div v-if="activeLocalModelView" class="local-model-pane-intro">
-        <span>{{ activeLocalModelView.eyebrow }}</span>
-        <strong>{{ activeLocalModelView.title }}</strong>
-        <p>{{ activeLocalModelView.description }}</p>
-      </div>
-
-      <!-- v1.0.207 — setup explainer. Local models run on YOUR Mac (free,
-           private, no per-use cost or rate limits). The two wrappers below
-           are the author's own open-source projects; Pinokio installs them
-           with their framework + Python dependencies in one click. -->
-      <div v-if="localModelsView === 'overview'" class="local-help">
-        <h3 style="margin-top:0;">💻 Run your own local AI models (free &amp; private)</h3>
-        <p class="text-muted mt-1" style="font-size: 12.5px; line-height: 1.6;">
-          Story Studio can generate <strong>narration</strong> and
-          <strong>images</strong> on your own Apple-Silicon Mac instead of a
-          paid cloud API — <strong>$0 per use</strong>, no rate limits, and
-          nothing leaves your machine. You run two small local servers
-          ("modals") and paste each one's URL below. Setup is a few clicks:
-        </p>
-        <ol class="local-help-steps">
-          <li>
-            <strong>Install Pinokio</strong> — a free 1-click app installer
-            for AI tools. It bundles the whole runtime (Python, the ML
-            framework, every dependency) so you never touch a terminal.
-            <a href="https://beta.pinokio.co/" target="_blank" rel="noopener" @click.prevent="openExternal('https://beta.pinokio.co/')">beta.pinokio.co ↗</a>
-          </li>
-          <li>
-            <strong>Install the two wrappers</strong> (open-source, built for
-            exactly this — friendly controls, model downloads, one-click
-            start/stop). In Pinokio, use "Download from URL" with these repos:
-            <ul class="local-help-repos">
-              <li>
-                🎙 Voice Studio (TTS — VoxCPM, Kokoro, Qwen3-TTS, Bark…):
-                <a href="https://github.com/theng12/voicestudio-mac" target="_blank" rel="noopener" @click.prevent="openExternal('https://github.com/theng12/voicestudio-mac')">github.com/theng12/voicestudio-mac ↗</a>
-              </li>
-              <li>
-                🖼 Image Studio (FLUX, Qwen-Image, Z-Image, FIBO…):
-                <a href="https://github.com/theng12/imagestudio-mac" target="_blank" rel="noopener" @click.prevent="openExternal('https://github.com/theng12/imagestudio-mac')">github.com/theng12/imagestudio-mac ↗</a>
-              </li>
-            </ul>
-          </li>
-          <li>
-            <strong>Start each modal</strong> in Pinokio and copy its address.
-            The <strong>port is fixed</strong> (Voice Studio <code>47870</code>,
-            Image Studio <code>47868</code>); only the host changes per machine.
-            Reach it however suits you — Bonjour
-            (<code>http://your-mac.local:PORT</code>), a direct LAN IP
-            (<code>http://192.168.x.x:PORT</code>), or a
-            <strong>Tailscale</strong> IP for access from another network.
-          </li>
-          <li>
-            <strong>Paste the URL</strong> into the matching box below, hit
-            <strong>Save URL</strong>, then <strong>Test connection</strong>.
-            That's it — every project on this Mac shares it.
-          </li>
-        </ol>
-      </div>
-
-      <!-- v1.0.391 — one-click pool health: probe every configured local Mac
-           and show how many are online (Voice Studio + Image Studio). -->
-      <div v-if="localModelsView === 'overview'" class="pool-status-card local-model-surface">
-        <div class="pool-status-head">
-          <strong>Local server pool</strong>
-          <button class="btn btn-sm" :disabled="poolChecking" @click="checkLocalServers">
-            {{ poolChecking ? 'Checking…' : '↻ Check now' }}
-          </button>
-        </div>
-        <template v-if="poolStatus">
-          <div v-for="side in poolSides" :key="side.key" class="pool-row">
-            <span class="pool-label">{{ side.label }}</span>
-            <template v-if="side.data.total">
-              <span class="pool-count" :class="side.data.online === 0 ? 'pool-zero' : 'pool-ok'">
-                {{ side.data.online }}/{{ side.data.total }} online
-              </span>
-              <span class="pool-dots">
-                <span
-                  v-for="(e, i) in side.data.endpoints"
-                  :key="i"
-                  class="pool-dot"
-                  :class="e.online ? 'on' : 'off'"
-                  :title="`${e.url} — ${e.online ? 'online' : 'offline'}`"
-                />
-              </span>
-            </template>
-            <span v-else class="text-muted" style="font-size: 12px;">no URL configured</span>
-          </div>
-        </template>
-        <p v-else-if="poolError" class="text-muted" style="font-size: 12px; color: var(--danger, #e5534b);">{{ poolError }}</p>
-        <p v-else class="text-muted" style="font-size: 12px; margin: 4px 0 0;">
-          Probes every configured Voice Studio + Image Studio Mac and shows how many are reachable right now.
-        </p>
-      </div>
-
-      <section v-if="localModelsView === 'voice'" class="studio-config-pane">
-      <div class="studio-pane-head">
-        <span class="studio-pane-icon" aria-hidden="true">◖</span>
-        <div><span>Local narration</span><h3>Voice Studio KH</h3></div>
-      </div>
-      <p class="text-muted mt-1" style="font-size: 12px;">
-        Narration via a Pinokio-launched wrapper fronting many TTS engine
-        families (VoxCPM-MLX, Kokoro-MLX, Qwen3-TTS, Chatterbox-MLX, Bark…)
-        on your Apple-Silicon Mac. Set the modal URL below — there's no
-        default host (it's your machine, reached however you like). The
-        audio model dropdown surfaces whichever engines your modal reports
-        as ready. No per-character cost, no upstream rate limits. The URL is
-        per-machine — every project on this Mac shares it.
-        <br/><strong>Multiple Macs:</strong> enter several URLs separated by commas to render
-        TTS across all of them — chunks distribute least-busy over every online endpoint
-        (the catalog/test use the first).
-      </p>
-
-      <div class="local-tts-row mt-3">
-        <label class="local-tts-label">Modal URL (per machine)</label>
-        <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
-        <EndpointListEditor route-prefix="/voicestudio" placeholder="http://mac1.local:47870" />
-        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
-          One row per Mac — e.g. <code>http://your-mac.local:47870</code> (Bonjour),
-          <code>http://192.168.1.50:47870</code> (LAN), or a Tailscale IP. Port <code>47870</code> is fixed.
-          TTS chunks distribute least-busy across whatever's online; offline rows are skipped. Re-test after relaunching the modal in Pinokio.
-        </p>
-      </div>
-
-      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
-        Once the URL is set, pick any <strong>[Voice Studio · local]</strong>
-        engine from the audio model dropdown on the
-        <NuxtLink :to="`/projects/${slug}/audio`" style="color: var(--accent);">Audio Generator</NuxtLink>
-        — the list reflects whatever your modal currently has loaded. No
-        per-project enable flag — set the URL once on this Mac and every
-        project can use it.
-      </p>
-      </section>
-
-      <!-- ─── Image Studio KH (v1.0.151+) ──────────────────────────────
-           Sibling of Voice Studio: Pinokio FastAPI wrapper hosting
-           FLUX.2 / FLUX.1 / Qwen-Image / FIBO / Z-Image families on
-           Apple Silicon MLX. Distinct port (Pinokio assigns one per
-           modal). v1.0.158+ Bonjour .local hostname.
-           v1.0.159+ runs on the M1 (Voice Studio split off to M4). -->
-      <section v-if="localModelsView === 'image'" class="studio-config-pane">
-      <div class="studio-pane-head">
-        <span class="studio-pane-icon" aria-hidden="true">▧</span>
-        <div><span>Local visuals</span><h3>Image Studio KH</h3></div>
-      </div>
-      <p class="text-muted mt-1" style="font-size: 12px;">
-        Scene + thumbnail images via a Pinokio-launched wrapper hosting
-        FLUX-family + Qwen-Image + Z-Image + FIBO models (text-to-image,
-        image-to-image, and instruction-edit). Set the modal URL below —
-        no default host, it's your machine. The image model dropdown
-        surfaces your modal's live catalog and only enables the models your
-        Mac's memory can actually run. No per-image cost. The URL is
-        per-machine — every project on this Mac shares it.
-        <br/><strong>Multiple Macs:</strong> enter several URLs separated by commas to render
-        across all of them — the parallel renderer (⚡) spreads scenes over every endpoint
-        (the catalog/test use the first).
-      </p>
-
-      <div class="local-tts-row mt-3">
-        <label class="local-tts-label">Modal URL (per machine)</label>
-        <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
-        <EndpointListEditor route-prefix="/imagestudio" placeholder="http://mac1.local:47868" />
-        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
-          One row per Mac — e.g. <code>http://your-mac.local:47868</code> (Bonjour),
-          <code>http://192.168.1.50:47868</code> (LAN), or a Tailscale IP. Port <code>47868</code> is fixed
-          (distinct from Voice Studio's <code>47870</code>). Render distributes least-busy across whatever's
-          online; offline rows are skipped. Re-test after relaunching the modal in Pinokio.
-        </p>
-      </div>
-
-      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
-        Once the URL is set, the <strong>💻 local</strong> section of the
-        image model picker (Scene / Thumbnail Generator) lists your modal's
-        catalog — runnable models first, oversized ones shown but disabled.
-        No per-project enable flag.
-      </p>
-      </section>
-
-      <!-- ─── Chat Studio (local LLM) ───────────────────────────────────
-           Local Apple-Silicon MLX OpenAI-compatible LLM server on the user's
-           own machine — part of the Studio family (Voice/Image/Music Studio)
-           and self-healing across crashes/hangs. The URL slot carries the
-           server base URL; text models surface dynamically from /v1/models. -->
-      <section v-if="localModelsView === 'chat'" class="studio-config-pane">
-      <div class="studio-pane-head">
-        <span class="studio-pane-icon" aria-hidden="true">⌁</span>
-        <div><span>Local language models</span><h3>Chat Studio</h3></div>
-      </div>
-      <p class="text-muted mt-1" style="font-size: 12px;">
-        Script, metadata, scene-plan and idea text generation via
-        <strong>Chat Studio</strong> — the local Apple-Silicon MLX LLM server
-        you run yourself (sibling of Voice/Image Studio, self-healing). Set the
-        server URL below — no default host, it's your machine. The LLM model
-        dropdown surfaces whichever models the server currently has
-        (queried live from <code>/v1/models</code>); Chat Studio auto-loads the
-        chosen model on demand. No per-token cost, no rate limits, fully
-        offline. The URL is per-machine — every project on this Mac shares it.
-      </p>
-
-      <div class="local-tts-row mt-3">
-        <label class="local-tts-label">Server URL (per machine)</label>
-        <EndpointListEditor route-prefix="/chatstudio" placeholder="http://localhost:47871" />
-        <p class="text-muted mt-1" style="font-size: var(--font-xs);">
-          Your Chat Studio base URL — e.g. <code>http://localhost:47871</code>
-          (the default port), <code>http://your-mac.local:47871</code> (Bonjour),
-          or a LAN / Tailscale address. The <code>/v1</code> path is added
-          automatically. Start Chat Studio (or run it as a background service),
-          then Save &amp; Test here. Add several URLs (comma/space separated) to
-          fan scene-planning out across multiple Macs in parallel.
-        </p>
-      </div>
-
-      <p class="text-muted mt-3" style="font-size: var(--font-xs);">
-        Once the URL is set and the server is running, pick any
-        <strong>[Chat Studio · local]</strong> model from the LLM model dropdown
-        wherever text is generated (Script, Scene Plan, Ideas, Metadata). The
-        list reflects whatever the server currently has — download a different
-        model in Chat Studio and it appears here after a refresh. No per-project
-        enable flag.
-      </p>
-      </section>
-
-    </div>
-
     <!-- FFmpeg -->
     <div v-if="activeTab === 'ffmpeg'" id="ffmpeg-section" class="card settings-panel mt-2">
       <h3>FFmpeg</h3>
@@ -3852,19 +3599,6 @@ async function resetProjectsRoot() {
 // files keep their chatterbox_enabled / chatterbox_reference_id fields on
 // disk (we marked the types @deprecated) — nothing reads them anymore.
 
-// ── Voice Studio KH (v1.0.149+) ────────────────────────────────────────
-// Pinokio FastAPI wrapper hosting twelve TTS engine families. Same
-// "URL-as-secret" pattern as Chatterbox (Tailscale handles auth), but
-// app-level only — no per-project enable flag. URL set = enabled.
-//
-// Test response is richer than Chatterbox's: returns the wrapper's app
-// version, MPS/CUDA/CPU device, which engine families are loaded right
-// now, and how many voices are in the user's library. The Settings UI
-// renders all of that into the "✓ Connected" pill.
-// v1.0.257 — the Image/Voice Studio single-URL drafts + save/test/load
-// handlers were removed; <EndpointListEditor> now owns the endpoint list
-// (load, add/remove rows, per-row test, save) end to end.
-
 // v1.0.150 — onChatterboxReferenceFile + the config watcher hydrating
 // chatterbox_enabled / chatterbox_reference_id were deleted together with
 // the rest of the Chatterbox integration. The fields still exist on
@@ -3872,9 +3606,6 @@ async function resetProjectsRoot() {
 // in the frontend reads them.
 
 watch(activeTab, (t) => {
-  // v1.0.257 — Local Models tab: the Image/Voice Studio endpoint lists are now
-  // owned by <EndpointListEditor>, which loads its own rows on mount. (The old
-  // per-draft lazy-load lived here.)
   // Item J — lazy-load the YouTube category list when the user enters
   // the Project tab so the dropdown is populated without a click. Cached
   // 7d on the backend, so the cost is one extra fetch per session at
@@ -4005,10 +3736,10 @@ async function onYoutubeBackfillApply() {
 
 // v1.0.184 (S1) — settings nav grouped into two SCOPE zones, then topic
 // groups within each. The scope split is the headline win: per-machine items
-// (Local Models / FFmpeg / Notifications — all save to /app-settings, /voicestudio,
-// /imagestudio, or the FFmpeg installer) are visually separated from per-project
-// items (everything that saves to /projects/:slug/...), so it's obvious what
-// travels with the project across Macs vs. what stays on this machine.
+// (FFmpeg / Notifications — save to /app-settings or the FFmpeg installer)
+// are visually separated from per-project items (everything that saves to
+// /projects/:slug/...), so it's obvious what travels with the project across
+// Macs vs. what stays on this machine.
 // (API Keys + Appearance + Server Mode still live in the App-Settings modal;
 // S2 folds them into the "This Mac" zone here.)
 //
@@ -4016,7 +3747,7 @@ async function onYoutubeBackfillApply() {
 //   per-project (PUT /projects/:slug/settings/config or project storage):
 //     Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
 //     Confirmations, Project, About
-//   per-machine (PUT /app-settings/*, /voicestudio/*, /imagestudio/*, FFmpeg installer):
+//   per-machine (PUT /app-settings/*, FFmpeg installer):
 //     App & Connections (including the read-only GenStudio account catalog),
 //     FFmpeg, Notifications
 const tabZones = [
@@ -5170,48 +4901,6 @@ watch(activeTab, async (tab) => {
   }
 })
 
-type LocalModelView = 'overview' | 'hub' | 'voice' | 'image' | 'chat'
-const localModelsView = ref<LocalModelView>('overview')
-const localModelViews: Array<{
-  id: LocalModelView
-  label: string
-  icon: string
-  short: string
-  eyebrow: string
-  title: string
-  description: string
-}> = [
-  { id: 'overview', label: 'Overview', icon: '⌘', short: 'Setup & health', eyebrow: 'Start here', title: 'Your private AI workspace', description: 'See how local generation works, install the Studio apps, and check the health of configured workers.' },
-  { id: 'voice', label: 'Voice', icon: '◖', short: 'Narration', eyebrow: 'Voice Studio', title: 'Local narration workers', description: 'Connect one or more Voice Studio Macs for private, provider-free narration generation.' },
-  { id: 'image', label: 'Image', icon: '▧', short: 'Scenes & thumbs', eyebrow: 'Image Studio', title: 'Local image workers', description: 'Connect Image Studio machines and distribute scene or thumbnail rendering across them.' },
-  { id: 'chat', label: 'Chat', icon: '⌁', short: 'Scripts & prompts', eyebrow: 'Chat Studio', title: 'Local language-model workers', description: 'Connect local LLM servers for scripts, ideas, metadata, and high-volume scene prompts.' },
-]
-const activeLocalModelView = computed(() => localModelViews.find(view => view.id === localModelsView.value) || null)
-
-// v1.0.391 — one-click local-server pool health (Local Models tab).
-interface PoolEndpoint { url: string; online: boolean }
-interface PoolSide { online: number; total: number; endpoints: PoolEndpoint[] }
-const poolStatus = ref<{ voicestudio: PoolSide; imagestudio: PoolSide } | null>(null)
-const poolChecking = ref(false)
-const poolError = ref('')
-const poolSides = computed(() => poolStatus.value ? [
-  { key: 'vs', label: '🎙 Voice Studio', data: poolStatus.value.voicestudio },
-  { key: 'is', label: '🖼 Image Studio', data: poolStatus.value.imagestudio },
-] : [])
-async function checkLocalServers() {
-  if (poolChecking.value) return
-  poolChecking.value = true
-  poolError.value = ''
-  try {
-    poolStatus.value = await get<{ voicestudio: PoolSide; imagestudio: PoolSide }>('/local-servers/status')
-  } catch (e: any) {
-    poolStatus.value = null
-    poolError.value = e?.data?.detail || 'Could not reach the app engine to check.'
-  } finally {
-    poolChecking.value = false
-  }
-}
-
 // Sync project form. v1.0.45 — track the server-side season_size
 // separately so the Reseason flow can detect "user wants to change it"
 // and offer the rebalance preview, while the regular save flow filters
@@ -5694,8 +5383,7 @@ async function deleteProject() {
 .settings-page-copy h1 { margin: 3px 0 6px; font-size: clamp(28px, 3vw, 40px); letter-spacing: -0.035em; }
 .settings-page-copy p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 .settings-page-eyebrow,
-.settings-active-kicker,
-.local-models-kicker {
+.settings-active-kicker {
   color: var(--settings-gold);
   font-size: var(--font-xs);
   font-weight: 800;
@@ -6785,152 +6473,6 @@ async function deleteProject() {
   font-size: 13px;
   user-select: text;
 }
-
-/* Local models — setup explainer (v1.0.207) */
-.local-models-panel { padding: 16px; }
-.local-models-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 4px 2px 14px;
-}
-.local-models-head h3 { margin: 3px 0; font-size: 21px; letter-spacing: -.025em; }
-.local-models-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
-.local-models-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  font-size: var(--font-xs);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.local-model-tabs {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 7px;
-  padding: 7px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-primary) 52%, transparent);
-}
-.local-model-tab {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  transition: .16s ease;
-}
-.local-model-tab:hover { border-color: var(--border); color: var(--text-primary); background: var(--bg-tertiary); transform: translateY(-1px); }
-.local-model-tab.active {
-  color: var(--text-primary);
-  border-color: rgba(88,198,146,.4);
-  background: linear-gradient(145deg, rgba(88,198,146,.14), rgba(227,180,90,.06));
-  box-shadow: 0 8px 22px rgba(0,0,0,.12);
-}
-.local-model-tab-icon {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  color: var(--settings-gold);
-  background: rgba(227,180,90,.09);
-  font-size: 14px;
-}
-.local-model-tab-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.local-model-tab-copy strong { font-size: var(--font-xs); }
-.local-model-tab-copy small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
-.local-model-pane-intro {
-  display: grid;
-  grid-template-columns: 120px minmax(180px, .55fr) minmax(280px, 1fr);
-  align-items: baseline;
-  gap: 14px;
-  padding: 16px 4px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.local-model-pane-intro > span { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.local-model-pane-intro > strong { font-size: 14px; }
-.local-model-pane-intro > p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
-.local-help {
-  margin-top: 12px;
-  background: linear-gradient(145deg, rgba(88, 198, 146, 0.08), rgba(227, 180, 90, 0.035));
-  border: 1px solid rgba(88, 198, 146, 0.28);
-  border-radius: 14px;
-  padding: 18px;
-}
-.local-help-steps { margin: 10px 0 2px; padding-left: 20px; font-size: 12.5px; line-height: 1.65; color: var(--text-secondary); }
-.local-help-steps > li { margin-bottom: 8px; }
-.local-help-steps strong { color: var(--text-primary); }
-.local-help-steps a { color: var(--accent); text-decoration: none; }
-.local-help-steps a:hover { text-decoration: underline; }
-.local-help-repos { list-style: none; margin: 6px 0 2px; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
-.local-help-repos > li { font-size: 12px; }
-.local-model-surface,
-.studio-config-pane {
-  margin-top: 12px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
-  box-shadow: inset 0 1px rgba(255,255,255,.025);
-}
-.studio-pane-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
-.studio-pane-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid rgba(227,180,90,.22);
-  border-radius: 12px;
-  color: var(--settings-gold);
-  background: linear-gradient(145deg, rgba(227,180,90,.14), rgba(88,198,146,.08));
-  font-size: 19px;
-}
-.studio-pane-head span:not(.studio-pane-icon) { color: var(--text-muted); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.studio-pane-head h3 { margin: 1px 0 0; font-size: 18px; }
-
-@media (max-width: 900px) {
-  .local-model-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .local-model-pane-intro { grid-template-columns: 1fr; gap: 4px; }
-}
-@media (max-width: 620px) {
-  .local-models-head { align-items: flex-start; flex-direction: column; }
-  .local-model-tabs { grid-template-columns: 1fr 1fr; }
-  .local-model-tab-copy small { display: none; }
-}
-
-/* Local TTS (Chatterbox) tab */
-.local-tts-row { display: flex; flex-direction: column; gap: 4px; }
-.local-tts-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.local-tts-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-.local-tts-url-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.local-tts-url-row .input { flex: 1; min-width: 240px; }
-.local-tts-upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.local-tts-current { display: flex; gap: 6px; align-items: center; }
-.local-tts-pill {
-  display: inline-block;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 500;
-}
-.local-tts-pill.ok  { background: rgba(34,197,94,0.12);   color: rgb(22,163,74);   border: 1px solid rgba(34,197,94,0.35); }
-.local-tts-pill.err { background: rgba(220,38,38,0.10);   color: rgb(190,18,60);   border: 1px solid rgba(220,38,38,0.35); }
 
 /* v1.0.45 — Reseason preview modal. Same shape as Compact's preview
    modal (defined in upload.vue scope) — small, scrollable list of

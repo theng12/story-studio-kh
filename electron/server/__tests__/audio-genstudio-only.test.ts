@@ -115,10 +115,9 @@ test('generation, preview, and recovery source contain no direct TTS clients', (
   assert.match(reconciler, /Legacy evidence is read-only/)
   assert.doesNotMatch(reconciler, /Legacy \$\{entry\.provider/)
   assert.match(preview, /getApiKey\('genstudio'\)/)
-  assert.match(route, /req\.path\.startsWith\('\/voicestudio\/'\)/)
-  assert.match(route, /req\.path\.startsWith\('\/macos\/voices'\)/)
-  assert.ok(
-    route.indexOf("router.use((req, res, next)") < route.indexOf("router.get('/voicestudio/base-url'"),
-    'retired local diagnostics must remain behind the GenStudio-only 410 guard',
-  )
+  // The direct Voice Studio control surface (base-url/test/voices/models,
+  // /macos/voices) was removed entirely — routes/index.ts's GenStudio-only
+  // 410 guard is the sole thing left at these paths (see routes.test.ts).
+  assert.doesNotMatch(route, /router\.get\('\/voicestudio\//)
+  assert.doesNotMatch(route, /router\.get\('\/macos\/voices'/)
 })
