@@ -451,6 +451,20 @@ export function resolveGenStudioRetryScope(
 export interface GenStudioTtsRequest extends GenStudioOperationContext {
   text: string
   voiceId?: string
+  /**
+   * `TTSModelResponse.id` — the speech PRODUCT this request buys. GenStudio
+   * sells speech by model and made `model_id` a required body field when TTS
+   * pricing went model-first; a voice is only a compatible identity behind a
+   * model and can never select a price on its own. Omitting it is a flat
+   * `422 {"loc":["body","model_id"],"msg":"Field required"}` before any
+   * provider is contacted.
+   *
+   * Optional here for the same reason `maxInputCharacters` is: recovery
+   * reattaches to a job whose body — and therefore whose product — was decided
+   * at submission time. Required by `GenStudioTtsSubmitRequest`, which every
+   * submitting entry point takes.
+   */
+  modelId?: string | null
   speed: number
   /**
    * `TTSModelResponse.maximum_input_characters` for the model that will serve
@@ -497,9 +511,16 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
  * compile error rather than ten failed sections and a wrong diagnosis. Every
  * test that submits already supplies the figure; only the one production caller
  * did not, which is why a green suite proved nothing.
+ *
+ * `modelId` joined it for the identical reason, one layer down: with the
+ * boundary carried, all ten EP0067 sections reached GenStudio and were refused
+ * `422 model_id: Field required`, because the submission body has never carried
+ * the selected product at all. The generator knew it (`req.model`), printed it,
+ * quoted with it, and dropped it on the way to the wire.
  */
 export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
   maxInputCharacters: number
+  modelId: string
 }
 
 export interface GenStudioTranscriptionModel {
@@ -708,6 +729,8 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
 
 export interface GenStudioSubmission {
   body: {
+    /** `TTSModelResponse.id` — the product GenStudio prices and bills. */
+    model_id: string
     voice_id: string
     text: string
     speed: number
@@ -1726,6 +1749,16 @@ export function splitGenStudioApiRequests(text: string, maxCharacters: number | 
 export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudioSubmission {
   const voiceId = request.voiceId?.trim() || ''
   if (!voiceId) throw new Error('Select a GenStudio KH voice before generating audio.')
+  const modelId = request.modelId?.trim() || ''
+  if (!modelId) {
+    throw new Error(
+      'Story Studio did not carry the selected voice model into this TTS submission. '
+      + 'GenStudio KH sells speech by model and requires model_id on every request, so it '
+      + 'refuses the body before any provider is contacted. That is a Story Studio defect, '
+      + 'not a GenStudio KH publication gap — the catalogue publishes the model id the '
+      + 'generator already selected and quoted with.',
+    )
+  }
   if (!request.text.trim()) throw new Error('GenStudio KH text cannot be empty.')
   const maxCharacters = request.maxInputCharacters
   if (maxCharacters == null || !Number.isFinite(maxCharacters) || maxCharacters <= 0) {
@@ -1756,6 +1789,11 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     ? orderedTtsControlValues(request.controls!)
     : null
   const body = {
+    // The product first, because that is what GenStudio sells and prices. It
+    // also enters the digest below, which is correct: the same script in the
+    // same voice at a different model is different work at a different rate,
+    // and must never replay the other one's result.
+    model_id: modelId,
     voice_id: voiceId,
     text: request.text,
     speed: request.speed,
@@ -1968,6 +2006,44 @@ export function isGenStudioSubmissionUncertain(error: unknown): boolean {
   }
   if (!(error instanceof GenStudioApiError)) return false
   return error.languageFailureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
+}
+
+/**
+ * Render GenStudio's error `detail` as one sentence, whatever shape it took.
+ *
+ * FastAPI answers a body it will not accept with `detail` as an ARRAY of
+ * field-level errors — `{"loc":["body","model_id"],"msg":"Field required"}` —
+ * not a string. Every reader here tested `typeof detail === 'string'` and fell
+ * through to a bare `HTTP 422`, so the one line that named the offending field
+ * was thrown away at the door. EP0067 cost three wrong diagnoses to a message
+ * GenStudio had already sent in full.
+ *
+ * String details pass through untouched. Anything unreadable still degrades to
+ * `HTTP <status>`, so this can only ever add information.
+ */
+export function describeGenStudioDetail(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null | undefined)?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const fields = detail
+      .map(entry => {
+        const item = entry as { loc?: unknown; msg?: unknown } | null
+        const msg = typeof item?.msg === 'string' ? item.msg.trim() : ''
+        // Drop the leading section ("body", "query", "path"): every caller here
+        // sends a body, and "body -> model_id" reads worse than "model_id".
+        const loc = Array.isArray(item?.loc)
+          ? item.loc
+            .filter((part, index) => !(index === 0 && (part === 'body' || part === 'query' || part === 'path')))
+            .map(part => String(part))
+            .join('.')
+          : ''
+        if (loc && msg) return `${loc}: ${msg}`
+        return msg || loc
+      })
+      .filter(Boolean)
+    if (fields.length) return fields.join('; ')
+  }
+  return `HTTP ${status}`
 }
 
 /** Recover a published failure code from an error body's `code`, or from a
@@ -2212,7 +2288,7 @@ async function requestJsonWithRetry(
         catch { throw new Error(`GenStudio KH returned invalid JSON (HTTP ${response.status})`) }
       }
       if (!response.ok) {
-        const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
+        const detail = describeGenStudioDetail(body, response.status)
         const bodyCode = typeof body?.code === 'string' ? body.code : undefined
         // Body first, header as fallback, for BOTH the reason and the delay.
         const capacityReason = readGenStudioCapacityReason(body, response.headers)
@@ -2320,7 +2396,7 @@ async function submitJsonWithAdmission(
 async function readJson(response: Response): Promise<any> {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${response.status}`
+    const detail = describeGenStudioDetail(body, response.status)
     const code = typeof body?.code === 'string' ? body.code : undefined
     const hintMs = readGenStudioPollHintMs(body)
       ?? parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
@@ -2747,7 +2823,8 @@ export async function addGenStudioVoiceLibraryVoice(
 export async function requestGenStudioTtsQuote(
   apiKey: string,
   request: {
-    modelId?: string | null
+    /** `TTSModelResponse.id`. Required — GenStudio prices speech by model. */
+    modelId: string
     voiceId: string
     text: string
     speed?: number
@@ -2761,10 +2838,20 @@ export async function requestGenStudioTtsQuote(
 ): Promise<GenStudioTtsQuote> {
   const voiceId = request.voiceId.trim()
   if (!voiceId) throw new Error('Select a GenStudio KH voice before asking for a quote.')
+  // GenStudio requires `model_id` on the quote body too, so a conditional
+  // spread here only bought the right to send a body GenStudio must reject —
+  // and its rejection is a field-level 422 nobody reads as "we forgot the
+  // model". Refuse locally, in our own name, instead.
+  const modelId = request.modelId?.trim() || ''
+  if (!modelId) {
+    throw new Error(
+      'Story Studio did not carry the selected voice model into this quote. GenStudio KH '
+      + 'prices speech by model and requires model_id on every quote request.',
+    )
+  }
   if (!request.text.trim()) throw new Error('There is no text to quote.')
   const baseUrl = await getGenStudioUrl()
-  const body: Record<string, unknown> = { voice_id: voiceId, text: request.text }
-  if (request.modelId?.trim()) body.model_id = request.modelId.trim()
+  const body: Record<string, unknown> = { model_id: modelId, voice_id: voiceId, text: request.text }
   if (Number.isFinite(request.speed)) body.speed = request.speed
   // Omitted entirely when the model publishes no controls, so a request for
   // such a model is byte-identical to the one sent before controls existed.
@@ -5200,6 +5287,9 @@ async function generateTtsToFileAdmitted(
     path: '/v1/audio/jobs',
     idempotencyKey,
     fields: [
+      // The product first: GenStudio prices speech by model, so "which model?"
+      // is the first thing an operator reconciling a charge needs to see.
+      ['model_id', submission.body.model_id],
       ['voice_id', submission.body.voice_id],
       ['speed', submission.body.speed],
       ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],

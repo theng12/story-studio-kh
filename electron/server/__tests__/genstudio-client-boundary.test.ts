@@ -14,6 +14,7 @@ import {
   buildGenStudioSubmission,
   callChatWithGenStudio,
   catalogHasVoice,
+  describeGenStudioDetail,
   downloadVoicePreview,
   generateTtsToFile,
   generateImageWithGenStudio,
@@ -80,6 +81,7 @@ test('a request exactly at the published boundary stays one GenStudio request', 
   const submission = buildGenStudioSubmission({
     text,
     voiceId: 'voice_live',
+    modelId: 'model_live',
     speed: 0.9,
     maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
   })
@@ -93,7 +95,7 @@ test('one character over the published boundary splits, and a submission refuses
   assert.equal(requests.join(''), text)
   assert.ok(requests.every(part => part.length <= PUBLISHED_MAX_CHARACTERS))
   assert.throws(
-    () => buildGenStudioSubmission({ text, voiceId: 'voice_live', speed: 1, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }),
+    () => buildGenStudioSubmission({ text, voiceId: 'voice_live', modelId: 'model_live', speed: 1, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }),
     /12,000/,
   )
 })
@@ -107,7 +109,7 @@ test('a different published boundary immediately changes where Story Studio spli
 test('an unpublished boundary refuses loudly instead of assuming one', () => {
   assert.throws(() => splitGenStudioApiRequests('narration', 0), /maximum_input_characters/)
   assert.throws(
-    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', speed: 1 }),
+    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', modelId: 'model_live', speed: 1 }),
     /maximum_input_characters/,
   )
 })
@@ -136,6 +138,17 @@ test('the request the generator SUBMITS carries the boundary, not just the one i
     /maxInputCharacters: genStudioMaxCharacters/,
     'the submitted request must carry the same live boundary the prepared submission used',
   )
+  // ── EP0067, one layer down ────────────────────────────────────────────────
+  // With the boundary carried, all ten sections reached GenStudio and were
+  // refused `422 model_id: Field required`: the body has never carried the
+  // selected product. The generator resolves it (`ttsModel.id`), validates it
+  // against the live catalogue, prints it and quotes with it — and dropped it
+  // on both objects handed to the submit path.
+  assert.match(
+    submitted,
+    /modelId: genStudioModelId/,
+    'the submitted request must carry the model GenStudio is being asked to sell',
+  )
 })
 
 test('the submit entry point requires the boundary at the type level; recovery does not', () => {
@@ -144,7 +157,7 @@ test('the submit entry point requires the boundary at the type level; recovery d
   // sections. `tsc -p electron/tsconfig.json` type-checks these tests too.
   assert.match(
     client,
-    /interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest \{\n {2}maxInputCharacters: number\n\}/,
+    /interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest \{\n {2}maxInputCharacters: number\n {2}modelId: string\n\}/,
   )
   assert.match(
     client,
@@ -159,6 +172,46 @@ test('the submit entry point requires the boundary at the type level; recovery d
   )
 })
 
+/**
+ * GenStudio answered EP0067 with the exact field it was missing. Story Studio
+ * threw that away at the door — every reader tested `typeof detail === 'string'`
+ * and FastAPI sends an ARRAY for a body it will not accept — and reported a
+ * bare `HTTP 422` instead. Three diagnoses went to the wrong repository chasing
+ * a message that had already arrived in full.
+ */
+test('a FastAPI field-level rejection names the field instead of collapsing to HTTP 422', () => {
+  assert.equal(
+    describeGenStudioDetail({
+      detail: [{
+        type: 'missing',
+        loc: ['body', 'model_id'],
+        msg: 'Field required',
+        input: { voice_id: 'voice_clone_71c642135dcf', text: '…', speed: 1 },
+      }],
+    }, 422),
+    'model_id: Field required',
+  )
+  // More than one offending field reads as a list, in order.
+  assert.equal(
+    describeGenStudioDetail({
+      detail: [
+        { loc: ['body', 'model_id'], msg: 'Field required' },
+        { loc: ['body', 'speed'], msg: 'Input should be less than or equal to 2' },
+      ],
+    }, 422),
+    'model_id: Field required; speed: Input should be less than or equal to 2',
+  )
+  // A string detail — GenStudio's own business-rule refusals — passes through.
+  assert.equal(
+    describeGenStudioDetail({ detail: 'insufficient credits' }, 402),
+    'insufficient credits',
+  )
+  // Anything unreadable still degrades to the status, never to silence.
+  assert.equal(describeGenStudioDetail({}, 500), 'HTTP 500')
+  assert.equal(describeGenStudioDetail(null, 503), 'HTTP 503')
+  assert.equal(describeGenStudioDetail({ detail: [] }, 422), 'HTTP 422')
+})
+
 test('a boundary Story Studio never passed is never reported as GenStudio publishing nothing', () => {
   // GenStudio declares maximum_input_characters a required, non-null `int` on
   // both TTSModelResponse and TTSQuoteResponse, so a 200 from either cannot
@@ -166,7 +219,7 @@ test('a boundary Story Studio never passed is never reported as GenStudio publis
   // read that way — the false attribution is what sent three separate
   // diagnoses at the wrong repository.
   assert.throws(
-    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', speed: 1 }),
+    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', modelId: 'model_live', speed: 1 }),
     (error: Error) => {
       assert.doesNotMatch(error.message, /published no maximum_input_characters/i)
       assert.match(error.message, /Story Studio did not carry .*maximum_input_characters/)
@@ -189,10 +242,11 @@ test('text longer than the retired 375-character cap remains one GenStudio reque
 })
 
 test('GenStudio JSON carries speed and retries reuse the same idempotency key', () => {
-  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', speed: 0.9, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }
+  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }
   const first = buildGenStudioSubmission(request)
   const retry = buildGenStudioSubmission(request)
   assert.deepEqual(first.body, {
+    model_id: 'model_live',
     voice_id: 'voice_live',
     text: request.text,
     speed: 0.9,
@@ -435,6 +489,7 @@ test('GenStudio authentication failures are immediate and actionable', async () 
       generateTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-auth-retry.mp3'), {
         text: 'A safe idempotent retry.',
         voiceId: 'voice_live',
+        modelId: 'model_live',
         // The boundary a live /v1/tts/models row would supply.
         maxInputCharacters: 12_000,
         speed: 1,
@@ -1143,6 +1198,7 @@ test('accepted TTS IDs are polled directly without submitting replacement work',
       recoverTtsToFile('scoped-key', path.join(os.tmpdir(), 'unused-existing.mp3'), 'tts_existing', {
         text: 'Existing accepted task.',
         voiceId: 'voice_live',
+        modelId: 'model_live',
         // The boundary a live /v1/tts/models row would supply.
         maxInputCharacters: 12_000,
         speed: 1,

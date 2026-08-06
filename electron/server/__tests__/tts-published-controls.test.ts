@@ -72,6 +72,7 @@ function fabricatedControlsPayload() {
 }
 
 const baseRequest = {
+  modelId: 'model-fabricated',
   voiceId: 'voice-fabricated',
   text: 'A short line to submit.',
   speed: 1,
@@ -244,22 +245,31 @@ test('the fabricated controls are submitted, in a stable order', () => {
 })
 
 /**
- * Recorded from the build BEFORE controls existed, and pinned here.
+ * Pinned digests, recomputed once when `model_id` joined the submission body.
  *
  * GenStudio folds `controls` into its own idempotency identity, so ours has to
  * move with a control value — otherwise two runs at different settings collide
- * on our key and the first result replays for the second. But `controls` joins
- * the digest only when it is non-empty (the `output_budget` / `resolution`
- * precedent), so a model publishing none still produces the key it always did
- * and a retry that crosses this upgrade REPLAYS instead of paying twice.
+ * on our key and the first result replays for the second. `controls` joins the
+ * digest only when it is non-empty (the `output_budget` / `resolution`
+ * precedent), so a model that publishes none still hashes the shape it always
+ * did, and a retry across THAT upgrade replays instead of paying twice.
+ *
+ * `model_id` is the opposite case and joins unconditionally: GenStudio sells
+ * speech BY model, so the same script in the same voice at another model is
+ * different work at a different rate and must never replay the other one's
+ * result. That moved every key exactly once, here. It is safe to move because
+ * work GenStudio already accepted is replayed from the key PERSISTED beside the
+ * asset (`recoveryEntry.idempotency_key`, generators/audio.ts), never from a
+ * recomputed one — only never-submitted work mints a key here.
  */
-const PRE_CONTROLS_KEYS = {
-  withIdentity: 'story-tts-53c32e0a9c11b88691b6fccb294def20fb0b2489730721ef',
-  withoutIdentity: 'story-tts-b4c4866f22d875224639f07cc6c806f5684a47ac3da72304',
+const SUBMISSION_KEYS = {
+  withIdentity: 'story-tts-1dd8bd7b2ebf8ab54db14d5f3a04f6c24e282a9b2c566eac',
+  withoutIdentity: 'story-tts-ce08c1ded4947a4bda94553195a828bc34f4b630b22e7cae',
 }
 
-test('no controls ⇒ byte-identical request and the pre-upgrade idempotency key', () => {
+test('no controls ⇒ a body carrying only the model, voice, text and speed', () => {
   const request = {
+    modelId: 'model-alpha',
     voiceId: 'voice-alpha',
     text: 'Once upon a midnight dreary.',
     speed: 0.93,
@@ -267,24 +277,59 @@ test('no controls ⇒ byte-identical request and the pre-upgrade idempotency key
     requestIdentity: 'demo:EP001:audio:intro_part1.mp3',
   }
   const withIdentity = buildGenStudioSubmission(request)
-  assert.equal(withIdentity.idempotencyKey, PRE_CONTROLS_KEYS.withIdentity)
-  // The POSTed JSON is what it was: no `controls` key at all.
+  assert.equal(withIdentity.idempotencyKey, SUBMISSION_KEYS.withIdentity)
+  // `model_id` leads, because it is the product GenStudio prices. No `controls`
+  // key at all when the model publishes none.
   assert.equal(
     JSON.stringify(withIdentity.body),
-    JSON.stringify({ voice_id: 'voice-alpha', text: 'Once upon a midnight dreary.', speed: 0.93 }),
+    JSON.stringify({
+      model_id: 'model-alpha',
+      voice_id: 'voice-alpha',
+      text: 'Once upon a midnight dreary.',
+      speed: 0.93,
+    }),
   )
   assert.equal(Object.hasOwn(withIdentity.body, 'controls'), false)
 
   const bare = buildGenStudioSubmission({ ...request, speed: 1, requestIdentity: undefined })
-  assert.equal(bare.idempotencyKey, PRE_CONTROLS_KEYS.withoutIdentity)
+  assert.equal(bare.idempotencyKey, SUBMISSION_KEYS.withoutIdentity)
 
   // An empty map is "publishes none", not "publishes an empty object".
   assert.equal(
     buildGenStudioSubmission({ ...request, controls: {} }).idempotencyKey,
-    PRE_CONTROLS_KEYS.withIdentity,
+    SUBMISSION_KEYS.withIdentity,
   )
   assert.equal(hasTtsControlValues({}), false)
   assert.equal(hasTtsControlValues({ zephyr_bias: 1 }), true)
+})
+
+test('the same script at another model is another request, never a replay', () => {
+  const request = {
+    modelId: 'model-alpha',
+    voiceId: 'voice-alpha',
+    text: 'Once upon a midnight dreary.',
+    speed: 0.93,
+    maxInputCharacters: 5_000,
+    requestIdentity: 'demo:EP001:audio:intro_part1.mp3',
+  }
+  assert.notEqual(
+    buildGenStudioSubmission(request).idempotencyKey,
+    buildGenStudioSubmission({ ...request, modelId: 'model-beta' }).idempotencyKey,
+  )
+})
+
+test('a submission without the selected model refuses here, in Story Studio\'s name', () => {
+  assert.throws(
+    () => buildGenStudioSubmission({ ...baseRequest, modelId: '' }),
+    (error: Error) => {
+      // GenStudio publishes the model id the generator already selected, so an
+      // absent one at submission time is ours. Saying otherwise is what sent
+      // three EP0067 diagnoses at the wrong repository.
+      assert.match(error.message, /Story Studio did not carry the selected voice model/)
+      assert.match(error.message, /Story Studio defect, not a GenStudio KH publication gap/)
+      return true
+    },
+  )
 })
 
 test('a control value change moves the idempotency key; the same values reproduce it', () => {
@@ -308,8 +353,8 @@ test('a control value change moves the idempotency key; the same values reproduc
   // A value clamped to the same effective setting is the SAME work, so it must
   // replay rather than mint a second key.
   assert.equal(key({ zephyr_bias: 999 }), key({ zephyr_bias: 7.5 }))
-  // And once controls are in play, the key has left the pre-upgrade one.
-  assert.notEqual(atDefaults, PRE_CONTROLS_KEYS.withIdentity)
+  // And once controls are in play, the key has left the no-controls one.
+  assert.notEqual(atDefaults, SUBMISSION_KEYS.withIdentity)
 })
 
 // ── The rule itself ─────────────────────────────────────────────────────────

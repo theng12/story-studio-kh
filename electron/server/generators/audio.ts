@@ -250,6 +250,9 @@ export async function generateAudio(job: Job): Promise<void> {
   // the ONE place that decides it, and the quote route calls the same function
   // on the same live catalogue row — so the parts priced are the parts sent.
   const genStudioMaxCharacters = ttsModel.maximum_input_characters
+  // The product every request in this run buys. Read once here, beside the
+  // boundary, because both have to survive the handover into `processTask`.
+  const genStudioModelId = ttsModel.id
   const requestBudget = resolveTtsRequestBudget(ttsModel)
   // The control values this run submits, resolved against THIS model's
   // published `controls[]`. A name the model does not publish is dropped and a
@@ -632,6 +635,11 @@ export async function generateAudio(job: Job): Promise<void> {
       const prepared = buildGenStudioSubmission({
         text: task.chunkText,
         voiceId: effectiveVoice,
+        // The PRODUCT being bought. GenStudio sells speech by model and rejects
+        // a body without `model_id`, so the model this generator selected,
+        // validated against the live catalogue and printed above has to reach
+        // the wire — not just the log line.
+        modelId: genStudioModelId,
         speed: req.speed ?? 1,
         controls: requestControls,
         // The PUBLISHED boundary, deliberately — this is the contract check
@@ -679,6 +687,11 @@ export async function generateAudio(job: Job): Promise<void> {
       const request = {
         text: task.chunkText,
         voiceId: effectiveVoice,
+        // Same rebuild, same reason as `maxInputCharacters` below: the submit
+        // path builds the wire body from THIS object, so the selected product
+        // has to travel on it. Carried on the recovery object too — harmless
+        // there, and it keeps one literal serving both paths.
+        modelId: genStudioModelId,
         speed: req.speed ?? 1,
         controls: requestControls,
         // The submit path rebuilds the request body from THIS object, so the
