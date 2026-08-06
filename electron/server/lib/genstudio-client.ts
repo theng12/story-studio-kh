@@ -1415,6 +1415,31 @@ export class GenStudioChatIncompleteError extends Error {
   }
 }
 
+/**
+ * The requested chat product does not resolve against GenStudio's live
+ * catalogue: absent, unpublished, or qualification-only. Thrown strictly
+ * before any network submission (see `prepareChatSubmission`'s doc comment),
+ * so "No request or credit charge was made" is true, not just reassuring.
+ *
+ * Typed (rather than a plain `Error`) so a caller that holds a cached model
+ * reference — an outline sidecar's `generation_params.model`, a saved batch
+ * preset — can distinguish "this exact id is dead" from every other failure
+ * mode and heal to the live default instead of hard-failing the whole run.
+ * `message` is unchanged from the plain-Error form this replaces, so any
+ * caller matching on wording is unaffected.
+ */
+export class GenStudioChatProductUnavailableError extends Error {
+  readonly modelId: string
+
+  constructor(modelId: string) {
+    super(
+      `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
+    )
+    this.name = 'GenStudioChatProductUnavailableError'
+    this.modelId = modelId
+  }
+}
+
 type GenStudioOperation = GenStudioModelCapability['operation']
 
 const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<GenStudioAccountCapacity> => {
@@ -3712,9 +3737,7 @@ async function prepareChatSubmission(
   }
   const product = (await listChatModels(apiKey)).find(model => model.id === modelId)
   if (!product || !product.available || product.qualification_only) {
-    throw new Error(
-      `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
-    )
+    throw new GenStudioChatProductUnavailableError(modelId)
   }
   // An explicit number still wins (and is still checked below). Otherwise the
   // workflow's declared tier is sized from THIS product's published ceiling —

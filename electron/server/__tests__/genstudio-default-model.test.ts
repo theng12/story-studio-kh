@@ -187,6 +187,11 @@ describe('no owned source file expresses a hardcoded external product id as a ge
     'services/audio-expression.ts',
     'services/research/genstudio.ts',
     'services/genstudio-default-model.ts',
+    // Chapter/outline expansion joined the resolveDefaultChatModel family via
+    // lib/chunked-narration.ts's withModelFallback (called from both this file
+    // and generators/episode.ts). See chapter-expansion-model-fallback.test.ts.
+    'lib/chunked-narration.ts',
+    'generators/episode.ts',
   ]
 
   // Literals the audit named as removed hardcoded execution-authority

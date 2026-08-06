@@ -49,7 +49,8 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
-import { GenStudioChatIncompleteError } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError } from './genstudio-client.js'
+import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import type { TextOutputContract } from './json-output-contract.js'
 import { writeJsonAtomic } from './atomic-store.js'
@@ -742,7 +743,18 @@ export async function buildOutlineOnly(
     // Snapshot the form fields a future expand-chapters run will need.
     // null when the caller didn't supply them (legacy / test paths) — the
     // expand-chapters executor falls back to the request body in that case.
-    generation_params: params.generationParams ?? null,
+    //
+    // `model` is read from `params.model` AFTER `buildOutline` above, not
+    // from the snapshot setupChunkedJobContext took before the call — a
+    // saved reference `withModelFallback` had to heal is exactly the kind of
+    // dead id this record must never re-persist. The sidecar is the
+    // operative source a later expand-chapters run reads back (see
+    // setupChunkedJobContext's `source: 'sidecar'`), so it must always name
+    // the product that actually wrote the outline, never one GenStudio had
+    // already retired by the time this run happened.
+    generation_params: params.generationParams
+      ? { ...params.generationParams, model: params.model }
+      : null,
     chapters_done: [],
     params_hash: paramsHash,
     last_updated: nowIso,
@@ -857,6 +869,20 @@ export async function expandChapters(
   const finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
   const written = finalSidecar?.chapters_done.length ?? verifiedDone.size
 
+  // `withModelFallback` may have healed `params.model` mid-run — a saved
+  // reference GenStudio no longer resolves. Persist the model that ACTUALLY
+  // wrote these chapters back into the sidecar so a later expand-chapters
+  // run reads the same live id instead of re-discovering the same dead one.
+  // This is how an outline built before a GenStudio catalogue change
+  // self-repairs on its next successful run, rather than needing every
+  // future expand to re-heal (and re-announce) the same substitution.
+  if (finalSidecar?.generation_params && finalSidecar.generation_params.model !== params.model) {
+    await writeSidecar(params.scriptDir, {
+      ...finalSidecar,
+      generation_params: { ...finalSidecar.generation_params, model: params.model },
+    })
+  }
+
   return {
     chaptersWritten: written,
     totalBatches: Math.ceil(pending.length / batchSize),
@@ -891,6 +917,89 @@ async function runChunked(
 export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
   const size = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
   return Math.ceil(pending / size)
+}
+
+// ── Model fallback ───────────────────────────────────────────────────────
+//
+// `params.model` traces back to either the caller's live selection or a
+// value read off disk — an outline sidecar's `generation_params.model`, or a
+// batch preset's saved model (see setupChunkedJobContext in
+// generators/episode.ts). Either source can go stale: GenStudio retires and
+// re-versions products. setupChunkedJobContext already announces it in the
+// job log when the request and the outline snapshot name two DIFFERENT
+// models — but when a headless caller (Pipeline's "repair chapters", a
+// resumed expansion with nothing new in the request) re-supplies the SAME
+// dead id the outline was built with, there is nothing to contrast it
+// against, so that check stays silent and the dead id would otherwise reach
+// GenStudio unexamined.
+//
+// This is the actual, authoritative check — GenStudio's live catalogue, read
+// at the one place a submission is genuinely about to happen — so it runs
+// lazily, only when there is real work to submit. Validating up front (e.g.
+// inside setupChunkedJobContext) would mean an extra live-catalog round trip
+// on every run even when nothing needs generating, which is both wasteful
+// and — since that setup path is shared with pure resume/no-op runs — would
+// turn a harmless "nothing to do" outcome into a hard failure whenever the
+// catalogue happens to be unreachable.
+
+/**
+ * Run one language-product call, healing a model reference GenStudio no
+ * longer resolves instead of failing the whole batch/outline on its account.
+ *
+ * On `GenStudioChatProductUnavailableError` (the dead-id refusal — thrown
+ * strictly before any submission, so nothing was charged for the refused
+ * attempt), resolves the live default via `resolveDefaultChatModel`, ANNOUNCES
+ * the swap in the job log (never a silent substitution — AGENTS.md), updates
+ * `params.model` so every later call in this same run uses the healed id
+ * directly, and retries ONCE with it.
+ *
+ * When there is genuinely nothing to heal to — no GenStudio API key, or the
+ * live catalogue itself has no usable product — the ORIGINAL refusal is
+ * rethrown unchanged. That is the one case that must still hard-fail: Story
+ * Studio does not invent a product id to keep a run alive.
+ *
+ * Any other error (a real network failure, `GenStudioChatIncompleteError`,
+ * etc.) passes straight through — this wrapper only ever acts on the one
+ * error it names.
+ */
+async function withModelFallback<T>(
+  job: Job,
+  params: ChunkedNarrationParams,
+  attempt: (model: string) => Promise<T>,
+): Promise<T> {
+  try {
+    return await attempt(params.model)
+  } catch (error) {
+    if (!(error instanceof GenStudioChatProductUnavailableError)) throw error
+
+    // Listicle batches run several workers concurrently against the same
+    // `params`. If a sibling worker already healed this exact dead id (it
+    // mutates `params.model` below), just retry with what's there now — no
+    // duplicate catalogue lookup, no duplicate log line. `error.modelId` is
+    // always the bare GenStudio id (prepareChatSubmission strips the
+    // transport prefix before throwing); `params.model` may still carry the
+    // `genstudio-chat:` prefix, so both sides are normalised before comparing.
+    if (stripGenStudioModelPrefix('chat', params.model) !== error.modelId) {
+      return await attempt(params.model)
+    }
+
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { resolveDefaultChatModel } = await import('../services/genstudio-default-model.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) throw error
+
+    const healed = await resolveDefaultChatModel(apiKey, error.modelId).catch(() => null)
+    if (!healed) throw error
+
+    job.output_lines.push(
+      `The saved model "${error.modelId}" is no longer available on GenStudio (retired, unpublished, or ` +
+      `qualification-only), so the refused attempt made no request and was not charged. Falling back to the ` +
+      `currently available "${healed.modelId}" for the rest of this run. Chapters already on disk are kept ` +
+      `as-is — regenerate any you want rewritten in the new voice.`,
+    )
+    params.model = healed.modelId
+    return await attempt(params.model)
+  }
 }
 
 // ── Outline phase ──────────────────────────────────────────────────────────
@@ -956,10 +1065,10 @@ async function buildOutline(
   // above keeps very large outlines inside whatever the selected product
   // publishes rather than a hardcoded cap.
   const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
-  const arr = await callForJsonArray(
-    params.model, params.systemPrompt, prompt, params.apiKeys, ctx,
+  const arr = await withModelFallback(job, params, model => callForJsonArray(
+    model, params.systemPrompt, prompt, params.apiKeys, ctx,
     outlineOutputContract(params.totalChapters),
-  )
+  ))
 
   // Normalise: clamp `n` into 1..totalChapters and drop duplicates.
   // The model occasionally repeats chapter numbers or skips one; we
@@ -1113,7 +1222,8 @@ async function expandNarrativeSequential(
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
-      const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+      const text = await withModelFallback(job, params, model =>
+        callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
       wrote = await parseAndWriteBatch(params, batch, text)
     } catch (error) {
       if (!(error instanceof GenStudioChatIncompleteError)) throw error
@@ -1152,9 +1262,9 @@ async function expandNarrativeSequential(
       await narrativeTransitionWindow(params, repairBatch[0]!.n),
       useTOC,
     )
-    const repairText = await callAiWithRetry(
-      params.model, params.systemPrompt, repairPrompt, params.apiKeys, true, ctx,
-    )
+    const repairText = await withModelFallback(job, params, model => callAiWithRetry(
+      model, params.systemPrompt, repairPrompt, params.apiKeys, true, ctx,
+    ))
     const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
     const allWrote = [...new Set([...wrote, ...repaired])].sort((a, b) => a - b)
     runningSidecar = markDone(runningSidecar, repaired)
@@ -1317,7 +1427,8 @@ async function expandListicleParallel(
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
           outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
         }
-        const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+        const text = await withModelFallback(job, params, model =>
+          callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
         const wrote = await parseAndWriteBatch(params, batch, text)
         // Sidecar updates need serialisation — atomic write is fine but we
         // don't want two workers reading-then-writing concurrently and
