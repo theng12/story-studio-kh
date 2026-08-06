@@ -36,7 +36,6 @@ import {
 import {
   JSON_OBJECT_OUTPUT_CONTRACT,
   PROSE_OUTPUT_CONTRACT,
-  PROSE_WRAPPER_SCHEMA,
   validateStructuredOutput,
   type JsonSchema,
   type TextOutputContract,
@@ -3552,40 +3551,46 @@ export function describeSchemaForInstructions(name: string, schema: JsonSchema):
 const JSON_OBJECT_WRAPPER_INSTRUCTION =
   'Return exactly one JSON object. Return only that object: no markdown fences, no commentary, no trailing text.'
 
-const PROSE_WRAPPER_INSTRUCTION =
-  'Return exactly one JSON object with one key named "text". Put the complete prose answer in that string and add no other keys.'
-
 /**
  * Choose the response format for one published language product.
  *
  * GenStudio language products do not require provider-native strict JSON
  * schema, so this function is TOTAL: it never rejects a product for its
- * advertised structured-output mode. JSON Object output is preferred, and the
- * required structure is carried in the request instructions; the returned
- * object is validated locally against the workflow schema.
+ * advertised structured-output mode. JSON Object output is preferred for
+ * structured contracts, and the required structure is carried in the request
+ * instructions; the returned object is validated locally against the workflow
+ * schema.
+ *
+ * PROSE ASKS FOR PROSE. A narrative chapter is not JSON and is no longer sent
+ * as JSON. Until this release every prose contract requested
+ * `{ type: 'json_object' }` and told the model to emit the whole answer as one
+ * escaped JSON string, so every quote, newline and apostrophe in three chapters
+ * of narration had to be escaped perfectly or GenStudio rejected the result as
+ * LANGUAGE_STRUCTURED_OUTPUT_INVALID — after the account had already been
+ * charged for generating it.
+ *
+ * The wrapper existed because GenStudio once forced structure on every language
+ * request. It no longer does: output structure is a property of the REQUEST,
+ * not of the product. In `ProductChatCompletionService.complete`, a request
+ * whose mode is `none` is the FIRST arm of the chain and returns the caller's
+ * messages untouched — so it never reaches the product-mode gate below it, no
+ * JSON instruction is injected, no native `response_format` is forwarded to the
+ * provider, and the JSON validation that raises
+ * LANGUAGE_STRUCTURED_OUTPUT_INVALID returns early without decoding anything.
+ * That holds for a product advertising `json_object` and for one advertising
+ * `request_json_schema` alike, which is why `productMode` is not consulted here.
+ *
+ * `{ type: 'text' }` is sent EXPLICITLY rather than omitted:
+ * `/v1/chat/completions` keeps `response_format` a required field with no
+ * default, so an omitted format is a 422 there. `/v1/chat/responses` treats an
+ * absent format as text, and accepts the same explicit object — one value is
+ * therefore correct on both routes.
  */
 function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
 ): { responseFormat: Record<string, unknown>; wrapperInstruction?: string } {
-  if (outputContract.mode === 'prose') {
-    if (productMode === 'request_json_schema') {
-      return {
-        responseFormat: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'story_studio_prose',
-            strict: true,
-            schema: PROSE_WRAPPER_SCHEMA,
-          },
-        },
-      }
-    }
-    return {
-      responseFormat: { type: 'json_object' },
-      wrapperInstruction: PROSE_WRAPPER_INSTRUCTION,
-    }
-  }
+  if (outputContract.mode === 'prose') return { responseFormat: { type: 'text' } }
 
   const name = outputContract.name ?? 'story_studio_json_object'
   const schema = outputContract.schema

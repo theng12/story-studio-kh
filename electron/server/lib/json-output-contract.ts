@@ -3,7 +3,9 @@ export type JsonSchema = Record<string, unknown>
 /**
  * How a workflow declares the shape it needs back from a language product.
  *
- * - `prose`: free text, carried through the safe `{ text }` wrapper.
+ * - `prose`: free text. It is REQUESTED as free text — `response_format:
+ *   { type: 'text' }` — so narrative never has to survive being escaped into a
+ *   JSON string on the way back.
  * - `json_object`: one JSON object. It may carry a `name` + `schema`, which are
  *   used to describe the required shape in the request instructions and to
  *   validate the returned object LOCALLY. A GenStudio product is never required
@@ -91,40 +93,6 @@ export function parseJsonOutput(raw: string): unknown {
 }
 
 /**
- * The `{ "text": ... }` transport wrapper for prose.
- *
- * NO `maxLength`, deliberately. It carried `maxLength: 500_000` until this
- * release, and that number was wrong twice over:
- *
- *   1. It is not a local bound. `validateStructuredOutput` routes prose to
- *      `unwrapProseOutput`, which never consults this schema. The only place
- *      the cap ever reached was the REQUEST — this object is sent verbatim as
- *      a `strict: true` provider schema for products publishing
- *      `structured_output_mode: 'request_json_schema'`. So it constrained
- *      generation rather than validating a result.
- *   2. It can now bite. Output allowances published by GenStudio reach 128,000
- *      tokens; at roughly four characters per token that is already past
- *      500,000 characters, so a legitimately long answer would be constrained
- *      or rejected after the customer was charged for it. Worse, a character
- *      cap cannot stand in for a token budget at all: characters per token
- *      differ sharply by language, and Khmer and mixed-script narration sit
- *      nowhere near the English ratio any such number would be tuned to.
- *
- * The real ceiling is the model's published `max_output_tokens`, which is
- * enforced against the live catalogue before the request leaves this process,
- * and by GenStudio server-side after it. An empty answer is still rejected —
- * that check lives in `unwrapProseOutput`, where it belongs.
- */
-export const PROSE_WRAPPER_SCHEMA: JsonSchema = {
-  type: 'object',
-  properties: {
-    text: { type: 'string', minLength: 1 },
-  },
-  required: ['text'],
-  additionalProperties: false,
-}
-
-/**
  * Validate a completed language-product response. Every failure here happens
  * AFTER GenStudio accepted and completed the request, so no message in this
  * function may claim that nothing was requested or charged.
@@ -158,18 +126,31 @@ export function validateStructuredOutput(
 }
 
 /**
- * Prose workflows have no schema of their own. The `{"text": ...}` wrapper exists
- * only because the language-product endpoint requires a `response_format` — it is
- * transport packaging, not a requirement of the workflow. So any non-empty answer
- * is valid prose:
+ * Prose workflows have no schema of their own, and no longer ask for one:
+ * `productResponseFormat` sends `response_format: { type: 'text' }`, so the
+ * normal answer arrives as plain text and this function only has to trim it.
  *
- *   - the wrapper, unwrapped;
- *   - a wrapper carrying extra keys, still unwrapped (the extras are ignored);
- *   - plain prose the product returned without wrapping, taken as-is.
+ * The `{"text": ...}` unwrap STAYS, for two answers that still exist:
  *
- * Only a genuinely empty response fails. Rejecting readable prose because the
- * product declined to wrap it would discard work GenStudio has already completed
- * and charged for, which is strictly worse than accepting the text we asked for.
+ *   1. A durable job submitted before this change and settled after it. The
+ *      chat idempotency digest hashes the output CONTRACT (`{ mode: 'prose' }`),
+ *      not the wire `response_format`, so it is unchanged by this release — a
+ *      retry crossing the upgrade deliberately replays the in-flight job rather
+ *      than paying for a second one, and that job was asked for the wrapper.
+ *      Rejecting its answer would discard work already charged for.
+ *   2. A model that volunteers a wrapper anyway. Nothing asks for it now, but
+ *      a returned `{"text": …}` is still plainly the prose we wanted.
+ *
+ * So any non-empty answer is valid prose:
+ *
+ *   - plain prose, taken as-is (the normal case);
+ *   - a `{"text": …}` wrapper, unwrapped;
+ *   - a wrapper carrying extra keys, still unwrapped (the extras are ignored).
+ *
+ * Only a genuinely empty response fails. That check is the whole local bound on
+ * prose — the real output ceiling is the product's published
+ * `max_output_tokens`, enforced before the request leaves this process and by
+ * GenStudio after it, never a character cap.
  */
 function unwrapProseOutput(raw: string): { text: string } {
   const trimmed = raw.trim()

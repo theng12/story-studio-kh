@@ -443,9 +443,13 @@ export class MockGenStudioService {
   }
 
   /**
-   * A prose workflow asks for a one-key `{ "text": … }` wrapper, so honour the
-   * submitted `response_format` rather than always returning bare prose the
-   * client would then reject as a contract violation.
+   * Honour the submitted `response_format` rather than assuming a shape.
+   *
+   * A prose workflow now asks for `{ type: 'text' }` and gets the scenario text
+   * verbatim — the fall-through below. The one-key `{ "text": … }` envelope is
+   * only produced for a caller that explicitly submits that schema, which the
+   * client no longer does; it stays so a scenario can still exercise the
+   * tolerant unwrap in `validateStructuredOutput`.
    */
   private chatOutputText(job: MockJob): string {
     const responseFormat = job.body.response_format as Record<string, unknown> | undefined

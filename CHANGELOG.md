@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.788 — 2026-08-06
+
+- **Writing is no longer sent as data** — every feature that asks a model to write ordinary
+  prose used to make it hand the answer back packed inside a data structure, with every quote,
+  apostrophe and line break escaped by hand. Three chapters of narration is thousands of chances
+  to get that packing wrong, and one slip failed the whole request after the credits had already
+  been spent — which is why expanding chapters on a new episode had stopped working. Story Studio
+  now simply asks for writing, and gets writing. Chapter expansion, descriptions, titles, tags,
+  image prompts, reply drafts, expression markup and script restructuring all stop paying that
+  tax, so a class of occasional unexplained failures is gone rather than reduced.
+- **Nothing changes for features that need structured data** — scene planning, research, idea
+  generation, metadata placeholders and the rest still ask for it exactly as before, and their
+  answers are still checked against the shape they expect.
+
+---
+
 ## v1.0.787 — 2026-08-05
 
 - **Eight features now state the kind of answer they need** — scene planning, format creation

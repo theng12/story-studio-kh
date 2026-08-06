@@ -286,6 +286,123 @@ test('a JSON Object product accepts a schema-carrying workflow and states the sh
   }
 })
 
+/**
+ * A chapter of narration is not JSON and is no longer sent as JSON.
+ *
+ * THE BUG: a prose contract used to request `{ type: 'json_object' }` and tell
+ * the model to emit the entire answer as one escaped JSON string. Three
+ * chapters of narration is thousands of quotes, apostrophes and newlines that
+ * all had to be escaped perfectly; one slip and GenStudio rejected the whole
+ * result as LANGUAGE_STRUCTURED_OUTPUT_INVALID — after the account had paid to
+ * generate it.
+ *
+ * The fix depends on a fact about GenStudio, so it is worth naming: output
+ * structure is a property of the REQUEST, not of the product. A request for
+ * text is matched BEFORE the product-mode gate, so it is accepted by a product
+ * advertising `json_object` and by one advertising `request_json_schema`
+ * alike — which is why both are exercised here rather than only the mode every
+ * live product currently publishes.
+ */
+test('a prose workflow asks for text, whatever structured-output mode the product advertises', async () => {
+  const CHAPTER = 'He said, "It\'s not the water that frightens me."\n\nShe didn\'t answer; the lamp guttered.'
+  for (const mode of ['json_object', 'request_json_schema'] as const) {
+    const originalFetch = globalThis.fetch
+    const sent: Array<Record<string, any>> = []
+    try {
+      globalThis.fetch = async (input, init) => {
+        const url = String(input)
+        if (url.endsWith('/v1/chat/models')) return Response.json(catalog(mode))
+        if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+        sent.push(JSON.parse(String(init?.body)))
+        // A text request comes back as text, not as a JSON envelope.
+        return Response.json(chatJob(CHAPTER))
+      }
+      const result = await callChatWithGenStudio(`prose-${mode}-key`, {
+        modelId: 'writer-alpha',
+        system: 'Write chapter three.',
+        userMessage: 'Expand the outline for chapter three.',
+        // No `outputContract` at all: the historical default is prose, so every
+        // caller that never declared one takes this path too.
+      })
+
+      assert.equal(sent.length, 1)
+      // Nothing schema-shaped rides along — asserted before the whole-object
+      // comparison narrows the type away.
+      assert.equal(sent[0]!.response_format.json_schema, undefined, `mode ${mode}`)
+      // Explicit, never omitted: `/v1/chat/completions` keeps `response_format`
+      // required with no default, so an absent field is a 422 there.
+      assert.deepEqual(sent[0]!.response_format, { type: 'text' }, `mode ${mode}`)
+
+      // No wrapper instruction. The model is told to write, not to serialise.
+      const system = systemPrompt(sent[0]!)
+      assert.match(system, /Write chapter three\./)
+      assert.doesNotMatch(system, /JSON/i, `mode ${mode}: prose must carry no JSON instruction`)
+      assert.doesNotMatch(system, /"text"/, `mode ${mode}: no one-key wrapper is requested`)
+
+      // The prose survives byte-for-byte — quotes, apostrophes and newlines
+      // included, which is exactly what the escaping tax used to endanger.
+      assert.equal(result.text, CHAPTER)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  }
+})
+
+test('the rollback route sends the explicit text format too, never an absent one', async () => {
+  // `/v1/chat/completions` refuses a body with no `response_format` (422), so
+  // "ask for prose" must mean `{ type: 'text' }` on this route, not omission.
+  const originalFetch = globalThis.fetch
+  const sent: Array<Record<string, any>> = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      sent.push(JSON.parse(String(init?.body)))
+      return Response.json(completion('A quiet harbour at dawn.'))
+    }
+    const result = await callChatWithGenStudio('prose-rollback-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Describe the harbour.',
+      outputContract: { mode: 'prose' },
+      transport: 'completions',
+    })
+    assert.equal(sent.length, 1)
+    assert.ok('response_format' in sent[0]!, 'the required field must still be present')
+    assert.deepEqual(sent[0]!.response_format, { type: 'text' })
+    assert.equal(result.text, 'A quiet harbour at dawn.')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a prose answer that still arrives wrapped is unwrapped, not rejected', async () => {
+  // The chat idempotency digest hashes the output CONTRACT, not the wire
+  // `response_format`, so this release does not change any key: a retry that
+  // crosses the upgrade replays the in-flight job instead of paying for a
+  // second one — and that job was asked for the old `{ "text": … }` wrapper.
+  // Its answer is prose we have already been charged for. Take it.
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(chatJob(JSON.stringify({ text: 'The lamp guttered.' })))
+    }
+    const result = await callChatWithGenStudio('prose-legacy-wrapper-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Describe the lamp.',
+      outputContract: { mode: 'prose' },
+    })
+    assert.equal(result.text, 'The lamp guttered.')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('local validation rejects bad output without ever claiming the request was uncharged', async () => {
   const originalFetch = globalThis.fetch
   try {

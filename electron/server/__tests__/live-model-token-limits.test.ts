@@ -15,9 +15,13 @@
  *     every request with `Math.min(32_768, …)`, so a product publishing
  *     128,000 could not be used past a quarter of its allowance.
  *  3. The prose wrapper schema carried `maxLength: 500_000` — and that schema
- *     is sent to the provider as a strict schema, so it constrained generation.
+ *     was sent to the provider as a strict schema, so it constrained generation.
  *     At ~4 characters per token a 128,000-token allowance already passes
  *     500,000 characters, and characters-per-token differs by language anyway.
+ *     The schema is now GONE rather than merely uncapped: a prose contract
+ *     requests `{ type: 'text' }` and sends no schema and no wrapper at all.
+ *     `genstudio-product-bridge` pins that, which is a strictly stronger guard
+ *     than asserting the absence of one field on a schema still being sent.
  *
  * ZERO paid calls: every catalogue and envelope below is a hand-written
  * fixture. Nothing here touches GenStudio.
@@ -26,7 +30,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { listChatModels, clearGenStudioCatalogCache } from '../lib/genstudio-client.js'
-import { PROSE_WRAPPER_SCHEMA } from '../lib/json-output-contract.js'
 import {
   availableInputTokens,
   parseScenePromptTokenSetting,
@@ -163,15 +166,7 @@ test('an unpublished context window yields no budget claim at all', () => {
   assert.equal(availableInputTokens(null, 32_768), 0)
 })
 
-// ── 4. No static character cap survives on the prose wrapper ───────────────
-
-test('the prose wrapper schema carries no character cap', () => {
-  const text = (PROSE_WRAPPER_SCHEMA.properties as any).text
-  assert.equal(text.maxLength, undefined, 'a 500,000-character cap would reject valid long output')
-  assert.equal(text.minLength, 1, 'an empty answer is still not prose')
-})
-
-// ── 5. Both published web-research rates surface ──────────────────────────
+// ── 4. Both published web-research rates surface ──────────────────────────
 
 function webModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatModel {
   return {
