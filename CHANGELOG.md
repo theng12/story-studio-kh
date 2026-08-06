@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.790 — 2026-08-07
+
+- **Narration generation works again** — every section of an episode failed the moment it was
+  submitted, with a message saying GenStudio KH had not published the length limit for the chosen
+  voice model. GenStudio had published it correctly all along, and Story Studio had read it,
+  printed it in the job log and planned the whole script around it. It simply did not carry that
+  number the last step, into the request it actually sent, and the sending code refused to invent
+  one rather than risk paying for a job that failed at the wrong length. The number now travels
+  with the request, and the refusal stays exactly as strict as it was. Nothing about a voice
+  model's price or its length limit has changed.
+
+- **A message that pointed at the wrong place no longer does** — the failure above blamed
+  GenStudio KH for a gap on Story Studio's own side, which is why it was investigated three
+  separate times without being found. When the limit is missing because Story Studio failed to
+  pass it on, the message now says so, and drops the suggestion to refresh the voice catalogue,
+  which could never have helped. When GenStudio genuinely publishes nothing, the original wording
+  and advice are unchanged.
+
+---
+
 ## v1.0.789 — 2026-08-07
 
 - **Chapter expansion on an episode touched before this release is unblocked** — v1.0.788 changed

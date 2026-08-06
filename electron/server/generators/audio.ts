@@ -681,6 +681,12 @@ export async function generateAudio(job: Job): Promise<void> {
         voiceId: effectiveVoice,
         speed: req.speed ?? 1,
         controls: requestControls,
+        // The submit path rebuilds the request body from THIS object, so the
+        // published boundary has to travel on it too. Without it the rebuild
+        // refused every section — in GenStudio's name, for a figure GenStudio
+        // had published correctly all along. Same live catalogue value as the
+        // `prepared` submission above; there is only one source for it.
+        maxInputCharacters: genStudioMaxCharacters,
         requestIdentity,
         idempotencyKey,
         signal: controller.signal,

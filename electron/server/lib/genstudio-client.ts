@@ -458,7 +458,8 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * from the live catalogue and passes it in, so a catalogue change takes effect
    * on the very next submission. Required to SUBMIT — `buildGenStudioSubmission`
    * refuses without it. The recovery path reclaims an already-accepted job and
-   * never re-derives a boundary for it, so it is optional at the type level.
+   * never re-derives a boundary for it, so it is optional here — and required
+   * by `GenStudioTtsSubmitRequest`, which every submitting entry point takes.
    */
   maxInputCharacters?: number | null
   /**
@@ -478,6 +479,27 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   onProgress?: (received: number, total?: number) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
+}
+
+/**
+ * A TTS request that will SUBMIT new work, as opposed to reclaiming work
+ * GenStudio already accepted.
+ *
+ * `maxInputCharacters` is optional on `GenStudioTtsRequest` because recovery
+ * genuinely has no use for it: it reattaches to a job whose body was decided at
+ * submission time. That optionality is also exactly how EP0067 broke — the
+ * generator built its request object without the field, nothing objected at
+ * build time, and the submit path's own `buildGenStudioSubmission` call refused
+ * at runtime with a sentence blaming GenStudio for a figure GenStudio had
+ * published correctly all along.
+ *
+ * The submitting entry points take THIS type, so the same omission is now a
+ * compile error rather than ten failed sections and a wrong diagnosis. Every
+ * test that submits already supplies the figure; only the one production caller
+ * did not, which is why a green suite proved nothing.
+ */
+export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
+  maxInputCharacters: number
 }
 
 export interface GenStudioTranscriptionModel {
@@ -1643,11 +1665,27 @@ function authorization(apiKey: string): Record<string, string> {
  *
  * A transport failure never reaches here at all: `readJson` throws
  * `GenStudioApiError` — carrying the real status and GenStudio's own `detail` —
- * before any quote or catalogue shape is built. So the only two states this can
- * legitimately see are the two below, and it names them apart.
+ * before any quote or catalogue shape is built.
+ *
+ * There is a THIRD state, and missing it cost the third wrong diagnosis. A
+ * figure can be absent because no GenStudio payload omitted it but Story Studio
+ * never carried it this far — the submitting caller built its request object
+ * without `maxInputCharacters`. GenStudio declares the field a required,
+ * non-null `int` on both `TTSModelResponse` and `TTSQuoteResponse`, so a 200
+ * from either literally cannot omit it; blaming GenStudio for an internal
+ * omission sends the reader to the wrong repository and tells them to refresh a
+ * catalogue that was never at fault. `origin` keeps the two apart.
  */
-function describeMissingRequestBoundary(maxCharacters: number | null | undefined, consequence: string): string {
+function describeMissingRequestBoundary(
+  maxCharacters: number | null | undefined,
+  consequence: string,
+  origin: 'published' | 'submission' = 'published',
+): string {
   if (maxCharacters == null) {
+    if (origin === 'submission') {
+      return 'Story Studio did not carry the selected voice model\'s maximum_input_characters into '
+        + `this TTS submission. ${consequence}`
+    }
     return `GenStudio KH published no maximum_input_characters for the selected voice model. ${consequence}`
   }
   // A number arrived, and it is unusable — zero, negative, or non-finite. That
@@ -1693,7 +1731,9 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   if (maxCharacters == null || !Number.isFinite(maxCharacters) || maxCharacters <= 0) {
     throw new Error(describeMissingRequestBoundary(
       maxCharacters,
-      'Story Studio will not guess a request boundary — refresh the voice catalogue and try again.',
+      'That is a Story Studio defect, not a GenStudio KH publication gap — the catalogue publishes '
+      + 'the field for every TTS model. Story Studio will not guess a request boundary.',
+      'submission',
     ))
   }
   const characterCount = Array.from(request.text.normalize('NFC')).length
@@ -5145,7 +5185,7 @@ export async function recoverTtsToFile(
 async function generateTtsToFileAdmitted(
   apiKey: string,
   outPath: string,
-  request: GenStudioTtsRequest,
+  request: GenStudioTtsSubmitRequest,
 ): Promise<void> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -5202,7 +5242,7 @@ async function generateTtsToFileAdmitted(
 export async function generateTtsToFile(
   apiKey: string,
   outPath: string,
-  request: GenStudioTtsRequest,
+  request: GenStudioTtsSubmitRequest,
 ): Promise<void> {
   return generateTtsToFileAdmitted(apiKey, outPath, request)
 }

@@ -112,6 +112,76 @@ test('an unpublished boundary refuses loudly instead of assuming one', () => {
   )
 })
 
+/**
+ * ── EP0067: the boundary has to survive the handover, not just be resolved ──
+ *
+ * The generator resolved `maximum_input_characters` correctly, printed it,
+ * planned with it and built its first submission with it — then handed the
+ * submit path a DIFFERENT object that did not carry it. `generateTtsToFile`
+ * rebuilds the request body from that object, so all ten sections died on the
+ * rebuild, and died claiming GenStudio had published nothing. GenStudio had
+ * published 25,000 the whole time.
+ *
+ * Every submitting test in this repo supplies the figure by hand — which is
+ * exactly why a green suite proved nothing about the one caller that did not.
+ */
+test('the request the generator SUBMITS carries the boundary, not just the one it prepares', () => {
+  const generator = readFileSync(new URL('../generators/audio.ts', import.meta.url), 'utf8')
+  // The object literal actually handed to generateTtsGenStudio/recoverTtsGenStudio.
+  const start = generator.indexOf('const request = {')
+  assert.ok(start > 0, 'the generator no longer builds a request literal — retarget this test')
+  const submitted = generator.slice(start, generator.indexOf('\n      }\n', start))
+  assert.match(
+    submitted,
+    /maxInputCharacters: genStudioMaxCharacters/,
+    'the submitted request must carry the same live boundary the prepared submission used',
+  )
+})
+
+test('the submit entry point requires the boundary at the type level; recovery does not', () => {
+  const client = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
+  // Required here, so omitting it is a build error rather than ten failed
+  // sections. `tsc -p electron/tsconfig.json` type-checks these tests too.
+  assert.match(
+    client,
+    /interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest \{\n {2}maxInputCharacters: number\n\}/,
+  )
+  assert.match(
+    client,
+    /export async function generateTtsToFile\(\n {2}apiKey: string,\n {2}outPath: string,\n {2}request: GenStudioTtsSubmitRequest,/,
+  )
+  // Recovery reattaches to a job whose body was decided at submission time, so
+  // it stays on the wide type: requiring a boundary there would force callers
+  // to re-derive one for work GenStudio has already accepted and charged for.
+  assert.match(
+    client,
+    /export async function recoverTtsToFile\(\n {2}apiKey: string,\n {2}outPath: string,\n {2}jobId: string,\n {2}request: GenStudioTtsRequest,/,
+  )
+})
+
+test('a boundary Story Studio never passed is never reported as GenStudio publishing nothing', () => {
+  // GenStudio declares maximum_input_characters a required, non-null `int` on
+  // both TTSModelResponse and TTSQuoteResponse, so a 200 from either cannot
+  // omit it. An absent figure at SUBMISSION time is therefore ours, and has to
+  // read that way — the false attribution is what sent three separate
+  // diagnoses at the wrong repository.
+  assert.throws(
+    () => buildGenStudioSubmission({ text: 'narration', voiceId: 'voice_live', speed: 1 }),
+    (error: Error) => {
+      assert.doesNotMatch(error.message, /published no maximum_input_characters/i)
+      assert.match(error.message, /Story Studio did not carry .*maximum_input_characters/)
+      assert.match(error.message, /Story Studio defect, not a GenStudio KH publication gap/)
+      // Refreshing the catalogue cannot repair an omission on our side, so it
+      // must no longer be the advice offered for one.
+      assert.doesNotMatch(error.message, /refresh the voice catalogue/i)
+      return true
+    },
+  )
+  // The genuinely-unpublished case keeps its original wording, and its advice.
+  assert.throws(() => splitGenStudioApiRequests('narration', null), /GenStudio KH published no maximum_input_characters/)
+  assert.throws(() => splitGenStudioApiRequests('narration', null), /refresh the voice catalogue/i)
+})
+
 test('text longer than the retired 375-character cap remains one GenStudio request', () => {
   const requests = splitGenStudioApiRequests('Long-form narration. '.repeat(30), PUBLISHED_MAX_CHARACTERS)
   assert.equal(requests.length, 1)
