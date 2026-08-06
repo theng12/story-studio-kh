@@ -11,9 +11,11 @@
  *     model") overstated the doubt; it read as if the output were worthless,
  *     which is both untrue and unhelpful when deciding what to check.
  *
- *   web-search — the provider searched and recorded what it read. Sources back
- *     the RUN, not any individual claim: claim-to-citation mapping is not
- *     available yet, so nothing may draw a per-claim link.
+ *   web-search — the provider searched and recorded what it read. Whether a
+ *     source backs the RUN or an individual CLAIM depends on what came back,
+ *     and the two are never conflated: a per-claim link is claimed only for
+ *     claims GenStudio actually grounded, and the run-level wording is kept
+ *     for everything else.
  *
  * The model-knowledge wording must never appear in web mode, and web wording
  * must never appear in model mode.
@@ -35,6 +37,18 @@ export const WEB_SEARCH_NOTICE =
   + 'aren’t linked to specific sources yet.'
 
 /**
+ * The mode picker's blurb, shown BEFORE a run exists.
+ *
+ * It describes the mechanism, not an outcome, because the outcome is not
+ * knowable in advance: whether any given claim ends up linked depends on
+ * whether the model can point it at a page it actually opened. Promising
+ * per-claim citations here would be a promise this app cannot keep.
+ */
+export const WEB_SEARCH_MODE_BLURB =
+  'Searches the web and cites what it read. Where the model can point a claim at a page it opened, '
+  + 'that link is checked against what was really retrieved and shown on the claim.'
+
+/**
  * Honest wording for a web run that came back with NO sources. Silence here
  * would be the worst outcome: the page would promise "cited its sources" over
  * an empty list. Say plainly that the run produced no sources, so the claims
@@ -44,9 +58,46 @@ export const WEB_SEARCH_NO_SOURCES_NOTICE =
   'This run searched the web but came back with no sources. Treat these claims as model knowledge until you '
   + 'find sources yourself, or run it again.'
 
+/**
+ * Web-search notice when GenStudio grounded at least one claim to a source.
+ *
+ * It states the attributed count rather than implying every claim is covered,
+ * because it usually is not: a model that cannot support a claim is asked to
+ * leave it unsourced, and that answer has to survive all the way to the page.
+ */
+export function webSearchAttributedNotice(attributed: number, total: number): string {
+  const unattributed = Math.max(0, total - attributed)
+  return `Searched the web and cited its sources below. ${attributed} of ${total} claims `
+    + 'link to the specific sources that back them'
+    + (unattributed > 0
+      ? `; the other ${unattributed} carry no citation and are worth checking yourself.`
+      : '.')
+}
+
+/** Per-claim marker in web mode when a claim was not linked to any source. */
+export const WEB_SEARCH_CLAIM_UNCITED_NOTE = 'No source cited for this claim'
+
 export function researchModeNotice(mode: ResearchMode, citationCount = 0): string {
   if (mode !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
   return citationCount > 0 ? WEB_SEARCH_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
+}
+
+/**
+ * The notice for a web run, given how much of it was actually attributed.
+ *
+ * The run-level wording is NOT a fallback to be grown out of — it stays the
+ * honest answer whenever nothing was grounded, including against a GenStudio
+ * that cannot ground at all. Only a real, counted attribution earns the
+ * stronger sentence.
+ */
+export function webResearchNotice(
+  citationCount: number,
+  attributedClaims: number,
+  totalClaims: number,
+): string {
+  if (citationCount <= 0) return WEB_SEARCH_NO_SOURCES_NOTICE
+  if (attributedClaims <= 0 || totalClaims <= 0) return WEB_SEARCH_NOTICE
+  return webSearchAttributedNotice(attributedClaims, totalClaims)
 }
 
 /** Customer-facing mode label. Deliberately avoids "LLM". */

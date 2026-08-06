@@ -28,6 +28,16 @@ export interface ResearchJsonContract {
   claims?: Array<{
     text: string
     citation_indices?: number[]
+    /**
+     * URLs the model says back this claim, in web mode with attribution on.
+     *
+     * Read by GENSTUDIO, not by this app. GenStudio keeps only the ones that
+     * match what the provider really retrieved and returns the survivors as
+     * `citation_claims`. Story Studio deliberately never consumes this field
+     * directly: doing so would put an unverified model-typed URL in front of
+     * the user with the same authority as a checked one.
+     */
+    sources?: string[]
     confidence?: 'high' | 'medium' | 'low' | 'unknown'
     note?: string
   }>
@@ -92,13 +102,33 @@ const WEB_SEARCH_SYSTEM_NOTE = `
 
 IMPORTANT — you DO have live web search on this call. Use it.
   - Search for current, primary sources before answering. Prefer them over recollection.
-  - Do NOT hand-copy URLs into the \`citations\` array. The search tool records what you actually read; anything you type there is treated as an unverified model claim, not as a source.
-  - Leave \`citations\` empty and leave every \`citation_indices\` empty. Sources are attached automatically from what you searched.
+  - Do NOT hand-copy URLs into the \`citations\` array, and leave every \`citation_indices\` empty. That array is filled in from what the search tool recorded you reading, not from what you type.
   - Set \`confidence\` honestly: "high" only for claims you just confirmed in a source you read on this call.`
+
+/**
+ * Added on top of the web note when GenStudio will ground the answer.
+ *
+ * Note what this does NOT do: it does not soften the rule above. A URL the
+ * model types is still not evidence here. The difference is that GenStudio now
+ * checks each named URL against the provider's own record of what was
+ * retrieved and discards the rest, so a typed URL becomes a *link* between a
+ * claim and a source that was independently proven real. Story Studio still
+ * never reads these strings itself — it reads GenStudio's grounded
+ * `citation_claims` — which is why the app cannot be made to show a
+ * hallucinated source no matter what the model writes here.
+ */
+const CLAIM_ATTRIBUTION_SYSTEM_NOTE = `
+  - Give every claim object one extra field, \`sources\`, so each claim reads: { "text": "...", "sources": ["<url>", ...], "confidence": "...", "note": "..." }
+  - In a claim's \`sources\`, list the URLs of the pages you actually opened that support that specific claim, copied exactly. Do not list a page you did not read, and do not repeat a page that does not support that particular claim.
+  - If none of the pages you read supports a claim, leave its \`sources\` array empty. An unsourced claim is an expected and acceptable answer — a guessed source is not.`
 
 export function buildResearchPrompt(
   opts: ResearchRunOptions,
   mode: 'web' | 'llm-only' = 'web',
+  /** Whether GenStudio will ground per-claim sources for this run. Asking for
+   *  them when nothing will check them would put unverified URLs in front of
+   *  the user, so the request and the prompt are turned on together. */
+  claimAttribution = false,
 ): {
   system: string
   user: string
@@ -106,6 +136,7 @@ export function buildResearchPrompt(
   const system = mode === 'llm-only'
     ? SYSTEM_TEMPLATE + LLM_ONLY_SYSTEM_NOTE
     : SYSTEM_TEMPLATE + WEB_SEARCH_SYSTEM_NOTE
+      + (claimAttribution ? CLAIM_ATTRIBUTION_SYSTEM_NOTE : '')
 
   const sourceCap = opts.max_sources ?? 8
   const userParts: string[] = [
@@ -188,11 +219,38 @@ export function assembleOutput(
   }
   const finalCitations = Array.from(byUrl.values())
 
+  // In web mode, per-claim links come from GenStudio's GROUNDED
+  // `citation_claims` — the model named sources and GenStudio kept only the
+  // ones matching what the provider actually retrieved. `claim-N` is the
+  // 1-based position in this same claims array, so index N-1 addresses it.
+  //
+  // A claim GenStudio did not attribute is simply missing from the map, and
+  // stays missing here: it keeps an empty `citation_indices`, exactly like a
+  // claim the model never sourced. Nothing falls back to the run-level list.
+  const citationIndexById = new Map<string, number>()
+  finalCitations.forEach((citation, index) => {
+    if (citation.source_id) citationIndexById.set(citation.source_id, index)
+  })
+  const groundedByClaimIndex = new Map<number, number[]>()
+  for (const link of meta.web_run?.citation_claims || []) {
+    const position = Number(/^claim-(\d+)$/.exec(link.claim_id)?.[1])
+    if (!Number.isInteger(position) || position < 1) continue
+    const indices: number[] = []
+    for (const citationId of link.citation_ids || []) {
+      const index = citationIndexById.get(citationId)
+      // A citation id with no matching citation is dropped rather than
+      // guessed at. It cannot happen with a well-formed envelope, and if it
+      // ever does, showing nothing beats showing the wrong source.
+      if (index !== undefined && !indices.includes(index)) indices.push(index)
+    }
+    if (indices.length) groundedByClaimIndex.set(position - 1, indices)
+  }
+
   // Rewrite each parsed claim's citation indices to point into the
   // merged list. The LLM produces indices into ITS own citations
   // array; we map those URLs to positions in finalCitations.
   const parsedCitationUrls = (parsed.citations || []).map(c => c.url)
-  const claims: ResearchClaim[] = (parsed.claims || []).map((c) => {
+  const claims: ResearchClaim[] = (parsed.claims || []).map((c, claimIndex) => {
     const remapped: number[] = []
     for (const idx of c.citation_indices || []) {
       const url = parsedCitationUrls[idx]
@@ -200,11 +258,17 @@ export function assembleOutput(
       const newIdx = finalCitations.findIndex(fc => fc.url === url)
       if (newIdx >= 0) remapped.push(newIdx)
     }
+    // Web mode ignores anything the model typed and uses only the grounded
+    // links; model-knowledge mode has no grounding available and keeps its
+    // existing behaviour unchanged.
+    const grounded = mode === 'web-search'
+      ? groundedByClaimIndex.get(claimIndex) || []
+      : remapped
     return {
       id: freshId(),
       text: c.text,
       status: 'unreviewed',
-      citation_indices: remapped,
+      citation_indices: grounded,
       confidence: c.confidence,
       note: c.note,
     }

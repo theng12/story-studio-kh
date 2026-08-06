@@ -86,7 +86,10 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     if (!isWebResearchQualified(product)) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     const webSearch = buildWebSearchBlock(product, opts.web_search, opts.max_sources ?? null)
-    const { system, user } = buildResearchPrompt(opts, 'web')
+    // Ask for per-claim sources only when the request also asks GenStudio to
+    // ground them. Both come off the one block, so they cannot drift into
+    // asking the model for URLs that nothing will check.
+    const { system, user } = buildResearchPrompt(opts, 'web', webSearch.claim_attribution === true)
 
     const result = await callChatWithGenStudio(apiKey, {
       modelId: product.id,

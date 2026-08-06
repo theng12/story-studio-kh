@@ -136,13 +136,30 @@ export async function runResearchJob(job: Job): Promise<void> {
   // Provenance in the job log, per mode. The two modes made different
   // promises, so they must not share a sentence here either.
   if (mode === 'web-search') {
-    job.output_lines.push(
-      persisted.citations.length
-        ? `${persisted.citations.length} source(s) recorded for this run. `
-          + 'Sources back the run as a whole — individual claims are not linked to specific sources yet.'
-        : 'This run searched the web but returned no sources. Treat these claims as model knowledge until '
-          + 'you find sources yourself, or run it again.',
-    )
+    const attributed = persisted.claims.filter(c => c.citation_indices?.length).length
+    const uncitedWeb = persisted.claims.length - attributed
+    if (!persisted.citations.length) {
+      job.output_lines.push(
+        'This run searched the web but returned no sources. Treat these claims as model knowledge until '
+        + 'you find sources yourself, or run it again.',
+      )
+    } else if (attributed > 0) {
+      // Only claims GenStudio actually grounded are counted here. A claim it
+      // could not ground is reported as uncited, never covered by the run's
+      // source list.
+      job.output_lines.push(
+        `${persisted.citations.length} source(s) recorded for this run. `
+        + `${attributed} of ${persisted.claims.length} claim(s) link to the specific sources that back them.`
+        + (uncitedWeb
+          ? ` ${uncitedWeb} of ${persisted.claims.length} claim(s) carry no citation — worth checking yourself.`
+          : ''),
+      )
+    } else {
+      job.output_lines.push(
+        `${persisted.citations.length} source(s) recorded for this run. `
+        + 'Sources back the run as a whole — individual claims are not linked to specific sources yet.',
+      )
+    }
     // Never compute a charge locally: report exactly what GenStudio reported,
     // under its confirmed field names, and say "not reported" otherwise.
     job.output_lines.push(webRunUsageSentence(persisted.web_run))
@@ -294,8 +311,15 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     lines.push('')
   } else {
     if (mode === 'web-search') {
-      lines.push('*These sources back the run as a whole. Individual claims are not linked to specific '
-        + 'sources yet.*')
+      const attributed = r.claims.filter(c => c.citation_indices?.length).length
+      lines.push(attributed > 0
+        // Claims carry a [n] marker above; say what it means and, plainly,
+        // that a claim without one is not covered by this list.
+        ? `*${attributed} of ${r.claims.length} claims link to the specific sources that back them, `
+          + 'shown as [n] against the claim. A claim with no marker carries no citation — these sources '
+          + 'do not back it.*'
+        : '*These sources back the run as a whole. Individual claims are not linked to specific '
+          + 'sources yet.*')
       lines.push('')
     }
     for (let i = 0; i < r.citations.length; i++) {

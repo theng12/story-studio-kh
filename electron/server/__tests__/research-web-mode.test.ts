@@ -31,9 +31,12 @@ import {
 import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
+  WEB_SEARCH_MODE_BLURB,
+  WEB_SEARCH_NO_SOURCES_NOTICE,
   WEB_SEARCH_NOTICE,
   researchModeLabel,
   researchModeNotice,
+  webResearchNotice,
 } from '../services/research/provenance.js'
 import { assembleOutput, buildResearchPrompt } from '../services/research/prompt.js'
 import { parseGenStudioCitations } from '../lib/genstudio-client.js'
@@ -89,6 +92,7 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     citation_format: 'structured',
     supports_domain_filters: false,
     research_qualified: true,
+    supports_claim_attribution: true,
     web_search_credits_per_search: 5,
     web_research_credits_per_request: 20,
     max_web_searches: null,
@@ -476,5 +480,161 @@ describe('web citations reach the YouTube SOURCES block', () => {
     // A missing episode returns an empty list rather than throwing — Research
     // stays optional for the description.
     assert.deepEqual(await readSelectedResearchSources('no-such-project', 'EP9999'), [])
+  })
+})
+
+// ── Per-claim source attribution ────────────────────────────────────────
+//
+// Structured output AND per-claim citations, which used to be mutually
+// exclusive: citations attach to prose, and a JSON answer has none, so xAI
+// returns real URLs with every span at 0..0. Attribution therefore comes from
+// the model naming its own sources and GenStudio checking those names against
+// what the provider really retrieved.
+//
+// The tests that matter most here are the negative ones. Story Studio must be
+// incapable of showing a source the model merely typed.
+describe('research — per-claim source attribution', () => {
+  const citations = [
+    { source_id: 'citation-1', title: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Great_Smog_of_London' },
+    { source_id: 'citation-2', title: 'Britannica', url: 'https://www.britannica.com/event/Great-Smog-of-London' },
+  ]
+
+  function webOutput(claims: unknown[], citationClaims?: Array<{ claim_id: string; citation_ids: string[] }>) {
+    return assembleOutput(
+      JSON.stringify({ summary: 'S', claims }),
+      citations,
+      {
+        topic: 'T',
+        provider: GENSTUDIO_WEB_RESEARCH_PROVIDER,
+        mode: 'web-search',
+        ...(citationClaims ? { web_run: { citation_claims: citationClaims } } : {}),
+      },
+    )
+  }
+
+  it('asks for per-claim sources only when GenStudio will ground them', () => {
+    const withAttribution = buildResearchPrompt({ topic: 'T' } as any, 'web', true)
+    assert.match(withAttribution.system, /`sources`/)
+    assert.match(withAttribution.system, /leave its `sources` array empty/)
+
+    const without = buildResearchPrompt({ topic: 'T' } as any, 'web', false)
+    assert.doesNotMatch(without.system, /`sources`/)
+  })
+
+  it('permits an empty sources array in as many words', () => {
+    // A model told only to cite everything invents a citation for a claim it
+    // cannot support. Permission to return nothing is the whole safeguard.
+    const { system } = buildResearchPrompt({ topic: 'T' } as any, 'web', true)
+    assert.match(system, /unsourced claim is an expected and acceptable answer/)
+  })
+
+  it('sends claim_attribution only to a product that publishes support', () => {
+    assert.equal(buildWebSearchBlock(qualifiedModel(), undefined).claim_attribution, true)
+    // An older GenStudio rejects an unknown field outright, so it is omitted
+    // entirely rather than sent as false.
+    assert.equal(
+      'claim_attribution' in buildWebSearchBlock(
+        qualifiedModel({ supports_claim_attribution: false }),
+        undefined,
+      ),
+      false,
+    )
+  })
+
+  it('links a claim to the sources GenStudio grounded for it', () => {
+    const output = webOutput(
+      [
+        { text: 'Backed by both.', sources: ['https://en.wikipedia.org/wiki/Great_Smog_of_London'] },
+        { text: 'Backed by one.', sources: [] },
+      ],
+      [
+        { claim_id: 'claim-1', citation_ids: ['citation-1', 'citation-2'] },
+        { claim_id: 'claim-2', citation_ids: ['citation-2'] },
+      ],
+    )
+
+    assert.deepEqual(output.claims[0]!.citation_indices, [0, 1])
+    assert.deepEqual(output.claims[1]!.citation_indices, [1])
+  })
+
+  it('leaves a claim GenStudio did not attribute visibly uncited', () => {
+    const output = webOutput(
+      [
+        { text: 'Grounded.', sources: ['https://en.wikipedia.org/wiki/Great_Smog_of_London'] },
+        { text: 'Not grounded.', sources: [] },
+        { text: 'Named a page nobody opened.', sources: ['https://fabricated.example/x'] },
+      ],
+      [{ claim_id: 'claim-1', citation_ids: ['citation-1'] }],
+    )
+
+    assert.deepEqual(output.claims[0]!.citation_indices, [0])
+    // Neither of the other two inherits the run's source list.
+    assert.deepEqual(output.claims[1]!.citation_indices, [])
+    assert.deepEqual(output.claims[2]!.citation_indices, [])
+    const uncited = output.claims.filter(c => !c.citation_indices.length).length
+    assert.equal(uncited, 2)
+  })
+
+  it('never links a claim from the URLs the model typed', () => {
+    // The model attributed every claim to a real, retrieved page. Without a
+    // grounded envelope from GenStudio, none of it counts: Story Studio does
+    // not read `sources` and cannot be made to.
+    const output = webOutput([
+      { text: 'Typed a real URL.', sources: ['https://en.wikipedia.org/wiki/Great_Smog_of_London'] },
+      { text: 'Typed another.', sources: ['https://www.britannica.com/event/Great-Smog-of-London'] },
+    ])
+
+    assert.deepEqual(output.claims[0]!.citation_indices, [])
+    assert.deepEqual(output.claims[1]!.citation_indices, [])
+  })
+
+  it('drops a grounded link whose citation id matches no source', () => {
+    const output = webOutput(
+      [{ text: 'Points nowhere.', sources: [] }],
+      [{ claim_id: 'claim-1', citation_ids: ['citation-99'] }],
+    )
+
+    assert.deepEqual(output.claims[0]!.citation_indices, [])
+  })
+
+  it('ignores a malformed claim id instead of guessing a position', () => {
+    const output = webOutput(
+      [{ text: 'One.', sources: [] }],
+      [
+        { claim_id: 'not-a-claim-id', citation_ids: ['citation-1'] },
+        { claim_id: 'claim-0', citation_ids: ['citation-1'] },
+      ],
+    )
+
+    assert.deepEqual(output.claims[0]!.citation_indices, [])
+  })
+
+  it('keeps the run-level wording until something is actually attributed', () => {
+    // Two different reasons for zero attribution — a GenStudio that cannot
+    // ground, and a model that sourced nothing — and both keep the honest
+    // weaker sentence rather than borrowing the stronger one.
+    assert.equal(webResearchNotice(4, 0, 8), WEB_SEARCH_NOTICE)
+    assert.equal(webResearchNotice(0, 0, 8), WEB_SEARCH_NO_SOURCES_NOTICE)
+  })
+
+  it('states how many claims carry no citation once some are attributed', () => {
+    const notice = webResearchNotice(4, 2, 8)
+    assert.match(notice, /2 of 8 claims link to the specific sources/)
+    assert.match(notice, /the other 6 carry no citation/)
+    // No dangling clause when everything is covered.
+    assert.doesNotMatch(webResearchNotice(4, 8, 8), /carry no citation/)
+  })
+
+  it('promises a mechanism, not an outcome, before a run exists', () => {
+    // The picker cannot know whether any claim will end up linked.
+    assert.doesNotMatch(WEB_SEARCH_MODE_BLURB, /\d+ of \d+/)
+    assert.match(WEB_SEARCH_MODE_BLURB, /checked against what was really retrieved/)
+  })
+
+  it('carries the GenStudio source id so a grounded link can resolve', () => {
+    const [citation] = toResearchCitations(parseGenStudioCitations([
+      { id: 'citation-7', url: 'https://example.org/a', title: 'A' },
+    ]))
+    assert.equal(citation!.source_id, 'citation-7')
   })
 })

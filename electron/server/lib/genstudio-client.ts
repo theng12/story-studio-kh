@@ -898,6 +898,12 @@ export interface GenStudioChatModel {
    *  GenStudio flips this, web research mode stays unavailable — Story Studio
    *  must not second-guess the flag. */
   research_qualified: boolean
+  /** GenStudio will accept `web_search.claim_attribution` for this product and
+   *  return `citation_claims` linking individual claims to the pages it really
+   *  retrieved. Absent on a GenStudio build that predates the field, which is
+   *  exactly how this app tells the difference — so it reads false there and
+   *  research keeps its existing run-level behaviour. */
+  supports_claim_attribution: boolean
   /** Published per-search rate. A RATE, not a total: this app never multiplies
    *  it into a customer charge. Null when the catalogue does not publish one. */
   web_search_credits_per_search: number | null
@@ -1310,6 +1316,17 @@ export interface GenStudioWebSearchBlock {
   blocked_domains: string[]
   /** Present ONLY when the product publishes a non-null `max_web_searches`. */
   max_searches?: number
+  /**
+   * Ask the model to name, per claim, which of the pages it opened support
+   * that claim. GenStudio keeps only the names that match its own record of
+   * what was retrieved and returns them as `citation_claims`, so this can add
+   * attribution but cannot invent one.
+   *
+   * Present ONLY when the product publishes `supports_claim_attribution`.
+   * An older GenStudio rejects the unknown field outright, so it is omitted
+   * rather than sent hopefully.
+   */
+  claim_attribution?: true
 }
 
 /**
@@ -2898,6 +2915,7 @@ export async function listChatModelsSnapshot(
       : null,
     supports_domain_filters: value?.supports_domain_filters === true,
     research_qualified: value?.research_qualified === true,
+    supports_claim_attribution: value?.supports_claim_attribution === true,
     web_search_credits_per_search: Number.isFinite(value?.web_search_credits_per_search)
       ? Math.max(0, value.web_search_credits_per_search)
       : null,
@@ -3339,7 +3357,28 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
     ...wireFormatDigestComponent(outputContract),
   })).digest('hex')
-  return `story-chat-${digest.slice(0, 47)}`
+  const __key = `story-chat-${digest.slice(0, 47)}`
+  // TEMP-DIAG: remove after the idempotency collision is diagnosed.
+  try {
+    require('fs').appendFileSync('/tmp/idemp-diag.log', JSON.stringify({
+      key: __key, mode: outputContract.mode,
+      wire: wireFormatDigestComponent(outputContract),
+      model: request.modelId.trim(),
+      sys_len: (request.system || '').length,
+      user_len: (request.userMessage || '').length,
+    }) + '\n')
+  } catch {}
+  console.log('[IDEMP-DIAG]', JSON.stringify({
+    key: __key,
+    mode: outputContract.mode,
+    wire: wireFormatDigestComponent(outputContract),
+    model: request.modelId.trim(),
+    sys_len: (request.system || '').length,
+    user_len: (request.userMessage || '').length,
+    temperature: request.temperature ?? LEGACY_CHAT_TEMPERATURE_DIGEST_DEFAULT,
+    max_out: request.maxOutputTokens ?? 2_048,
+  }))
+  return __key
 }
 
 /**

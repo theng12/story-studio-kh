@@ -178,7 +178,7 @@
                 <strong>Search the web</strong>
                 <small v-if="webModeLoading">Checking which models can search the web…</small>
                 <small v-else-if="!webModeAvailable">{{ webModeReason }}</small>
-                <small v-else>{{ WEB_SEARCH_NOTICE }}</small>
+                <small v-else>{{ WEB_SEARCH_MODE_BLURB }}</small>
               </span>
             </label>
           </div>
@@ -407,13 +407,18 @@
                   Source {{ idx + 1 }}
                 </a>
               </div>
-              <!-- An absent citation is a fact the reviewer needs — but only in
-                   model-knowledge mode. In web mode the sources are recorded
-                   for the whole run and are never mapped to a claim, so
-                   labelling each claim "no source cited" would misreport a run
-                   that did cite sources. -->
+              <!-- An absent citation is a fact the reviewer needs, but only
+                   where absence actually means something. In model-knowledge
+                   mode it always does. In web mode it means something only
+                   once this run has linked at least one claim to a source:
+                   until then the sources are run-level and marking every
+                   claim "no source cited" would misreport a run that did
+                   cite sources. -->
               <div v-else-if="resultMode !== 'web-search'" class="research-claim-nocite">
                 {{ MODEL_KNOWLEDGE_CLAIM_NOTE }}
+              </div>
+              <div v-else-if="attributedClaimCount > 0" class="research-claim-nocite">
+                {{ WEB_SEARCH_CLAIM_UNCITED_NOTE }}
               </div>
             </div>
             <div class="research-claim-actions">
@@ -462,8 +467,12 @@
               <h3>Sources in the video description</h3>
               <p>
                 {{ includedSourceCount }} of {{ result.citations.length }} selected. Metadata will append their titles and links.
-                <template v-if="resultMode === 'web-search'">
+                <template v-if="resultMode === 'web-search' && attributedClaimCount === 0">
                   These sources back the whole run — they are not linked to individual claims.
+                </template>
+                <template v-else-if="resultMode === 'web-search'">
+                  {{ attributedClaimCount }} of {{ result.claims?.length || 0 }} claims link to the specific
+                  sources that back them.
                 </template>
               </p>
             </div>
@@ -582,12 +591,18 @@ const MODEL_KNOWLEDGE_NOTICE =
   'Based on the model’s own knowledge. Reliable on well-established facts, but it can’t cite live sources — '
   + 'worth checking anything specific or recent before you rely on it.'
 const MODEL_KNOWLEDGE_CLAIM_NOTE = 'From model knowledge — no source cited'
+const WEB_SEARCH_CLAIM_UNCITED_NOTE = 'No source cited for this claim'
 const WEB_SEARCH_NOTICE =
   'Searched the web and cited its sources below. Sources are listed for the whole run — individual claims '
   + 'aren’t linked to specific sources yet.'
 const WEB_SEARCH_NO_SOURCES_NOTICE =
   'This run searched the web but came back with no sources. Treat these claims as model knowledge until you '
   + 'find sources yourself, or run it again.'
+// Shown before a run exists, so it describes the mechanism and not an outcome:
+// whether a claim ends up linked depends on what the model can point at.
+const WEB_SEARCH_MODE_BLURB =
+  'Searches the web and cites what it read. Where the model can point a claim at a page it opened, '
+  + 'that link is checked against what was really retrieved and shown on the claim.'
 
 type ResearchMode = 'model-knowledge' | 'web-search'
 
@@ -811,6 +826,9 @@ interface ResearchClaim {
   note?: string
 }
 interface ResearchCitation {
+  /** GenStudio's id for this source within the run. Per-claim links are
+   *  resolved from it server-side; the page reads the resulting indices. */
+  source_id?: string
   title: string
   url: string
   snippet?: string
@@ -818,7 +836,8 @@ interface ResearchCitation {
   /** Neither is reliable yet — shown only when the provider supplied it. */
   publisher?: string
   published_at?: string
-  /** Stored for future span mapping. NOT used for per-claim links today. */
+  /** Stored only. In a JSON answer these arrive as 0..0 and anchor nowhere,
+   *  which is why per-claim links come from grounded claim attribution. */
   start_index?: number
   end_index?: number
 }
@@ -961,9 +980,25 @@ const resultMode = computed<ResearchMode>(() => {
   if (raw === 'model-knowledge') return 'model-knowledge'
   return result.value?.source_provider === 'genstudio-web' ? 'web-search' : 'model-knowledge'
 })
+/** Claims GenStudio actually linked to a source it verified was retrieved.
+ *  Zero means this run has run-level sources only — either the model sourced
+ *  nothing, or GenStudio could not ground what it named. Both keep the
+ *  weaker, run-level wording rather than borrowing the stronger one. */
+const attributedClaimCount = computed(
+  () => (result.value?.claims || []).filter(c => c.citation_indices?.length).length,
+)
 const resultProvenanceNotice = computed(() => {
   if (resultMode.value !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
-  return (result.value?.citations?.length || 0) > 0 ? WEB_SEARCH_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
+  if (!(result.value?.citations?.length || 0)) return WEB_SEARCH_NO_SOURCES_NOTICE
+  const attributed = attributedClaimCount.value
+  const total = result.value?.claims?.length || 0
+  if (!attributed || !total) return WEB_SEARCH_NOTICE
+  const unattributed = Math.max(0, total - attributed)
+  return `Searched the web and cited its sources below. ${attributed} of ${total} claims `
+    + 'link to the specific sources that back them'
+    + (unattributed > 0
+      ? `; the other ${unattributed} carry no citation and are worth checking yourself.`
+      : '.')
 })
 /** Run-level recency. There is no per-source retrieval timestamp on purpose —
  *  GenStudio does not fetch the pages, so one would be falsely precise.

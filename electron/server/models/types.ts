@@ -3299,6 +3299,12 @@ export interface ResearchClaim {
 }
 
 export interface ResearchCitation {
+  /** GenStudio's own id for this source within the run (`citation-1`, ...).
+   *  This is what `ResearchWebRunReport.citation_claims` points at, so it is
+   *  what makes a per-claim link resolvable. Absent for model-knowledge runs
+   *  and for research stored before per-claim attribution existed, where
+   *  there is nothing to resolve. */
+  source_id?: string
   /** Display title of the source (article headline, paper title, etc.). */
   title: string
   /** URL the user can open. Always present for web-search adapters;

@@ -197,6 +197,7 @@ function webModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatMod
     citation_format: 'structured',
     supports_domain_filters: false,
     research_qualified: true,
+    supports_claim_attribution: true,
     web_search_credits_per_search: 5,
     web_research_credits_per_request: 20,
     max_web_searches: null,

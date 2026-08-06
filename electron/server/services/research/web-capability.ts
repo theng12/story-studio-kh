@@ -180,6 +180,11 @@ export function normalizeDomainList(value: unknown): string[] {
  *     `supports_domain_filters`. Otherwise they are dropped, because a filter
  *     the provider ignores is worse than no filter — the user would believe
  *     their sources were constrained when they were not.
+ *   • `claim_attribution` is sent ONLY when the product publishes
+ *     `supports_claim_attribution`. A GenStudio that predates the field
+ *     rejects the whole request rather than ignoring it, and asking for
+ *     per-claim sources that nothing will ground would be worse than not
+ *     asking at all.
  */
 export function buildWebSearchBlock(
   model: GenStudioChatModel,
@@ -192,6 +197,7 @@ export function buildWebSearchBlock(
     allowed_domains: filtersSupported ? normalizeDomainList(settings?.allowed_domains) : [],
     blocked_domains: filtersSupported ? normalizeDomainList(settings?.blocked_domains) : [],
   }
+  if (model.supports_claim_attribution === true) block.claim_attribution = true
   const cap = model.max_web_searches
   if (typeof cap === 'number' && Number.isInteger(cap) && cap > 0) {
     const requested = Number.isInteger(requestedMaxSearches) ? Number(requestedMaxSearches) : cap
@@ -207,8 +213,10 @@ export function buildWebSearchBlock(
  * dependable today; `quote`/`publisher`/`published_at` are not. Unreliable
  * fields are carried through ONLY when actually present, so a missing value
  * stays missing instead of becoming an empty string that renders as a real
- * but blank attribute. `start_index`/`end_index` are stored for a future
- * span-mapping release and are not used for per-claim linking today.
+ * but blank attribute. `start_index`/`end_index` are still stored only: in a
+ * JSON answer they arrive as 0..0 and anchor nowhere, which is precisely why
+ * per-claim linking comes from GenStudio's grounded `citation_claims` (keyed
+ * by `source_id`) rather than from spans.
  *
  * There is no `retrieved_at`: GenStudio does not fetch the page, so a
  * per-source timestamp would be falsely precise. Run recency is
@@ -216,6 +224,8 @@ export function buildWebSearchBlock(
  */
 export function toResearchCitations(citations: readonly GenStudioCitation[]): ResearchCitation[] {
   return citations.map(citation => ({
+    // Carried so a grounded per-claim link has something to point at.
+    ...(citation.id ? { source_id: citation.id } : {}),
     // A citation with no title still has to be openable and identifiable, so
     // fall back to the URL rather than rendering an empty row.
     title: citation.title || citation.url,
