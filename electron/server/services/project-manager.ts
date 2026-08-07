@@ -1134,6 +1134,42 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     thumbnail_reference_asset: (config as any).thumbnail_reference_asset || undefined,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,
+    // v1.0.795 — the Scene Plan page's PROJECT-LEVEL settings. Each is written
+    // by a PUT to /settings/config (updateConfig persists it via passthrough)
+    // and read back through this safe shape — but none of them was echoed, so
+    // every GET stripped the saved value and the page re-rendered its default.
+    // Same class of bug the active_style_preset_id echo above was added to fix.
+    //
+    // This was worse than a cosmetic reset. The Scene Plan form seeds its
+    // per-run parameters from these fields (`generate_motion_prompts` and
+    // `avoid_legible_text` in scene-plan.vue), and a per-run value OUTRANKS the
+    // project default in the resolvers. So a project that switched Motion
+    // Prompts on, or switched "Avoid readable text" off, silently got the
+    // opposite on every run: the page read the missing field as the default and
+    // then sent that default as an explicit override. Echoing them makes the
+    // saved setting real. A field that was never set stays undefined and
+    // resolves to exactly the same default as before.
+    default_style_bible: typeof (config as any).default_style_bible === 'string'
+      ? (config as any).default_style_bible
+      : undefined,
+    avoid_legible_text_in_scenes: typeof (config as any).avoid_legible_text_in_scenes === 'boolean'
+      ? (config as any).avoid_legible_text_in_scenes
+      : undefined,
+    motion_prompts_enabled: typeof (config as any).motion_prompts_enabled === 'boolean'
+      ? (config as any).motion_prompts_enabled
+      : undefined,
+    skip_intro_scenes: typeof (config as any).skip_intro_scenes === 'boolean'
+      ? (config as any).skip_intro_scenes
+      : undefined,
+    default_motion_level: typeof (config as any).default_motion_level === 'number'
+      ? (config as any).default_motion_level
+      : undefined,
+    visual_opening_mode: typeof (config as any).visual_opening_mode === 'string'
+      ? (config as any).visual_opening_mode
+      : undefined,
+    branded_opening_duration_sec: typeof (config as any).branded_opening_duration_sec === 'number'
+      ? (config as any).branded_opening_duration_sec
+      : undefined,
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)
       ? config.audio_models
       : { ...DEFAULT_AUDIO_MODELS },

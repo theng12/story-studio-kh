@@ -21,6 +21,7 @@ import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText } from '../lib/image-content-guidance.js'
+import { resolveStyleBible } from '../lib/style-bible.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
@@ -67,27 +68,30 @@ import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionPro
 
 /**
  * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
- * continuity Style Bible (continuity.json), applied at render to every scene.
- * When the planner isn't given an explicit per-plan style, fall back to that
- * Style Bible so the plan and the render share ONE look — no second field to
- * drift. Returns the explicit value (trimmed) untouched when present.
+ * continuity Style Bible, applied at render to every scene. When the planner
+ * isn't given an explicit per-plan style, fall back to that Style Bible so the
+ * plan and the render share ONE look — no second field to drift. Returns the
+ * explicit value (trimmed) untouched when present.
+ *
+ * v1.0.795 — the Style Bible itself now has two tiers: this episode's
+ * continuity.json, else the project's standing default (config.json
+ * `default_style_bible`). Both are resolved by the shared `resolveStyleBible`
+ * so this path and the render path (generators/continuity-render.ts) cannot
+ * disagree about which tier is in force. An episode with no Style Bible on a
+ * project with no default resolves to nothing, exactly as before.
  */
 async function resolveEffectiveStyle(
   explicit: string | undefined,
+  slug: string,
   episodeDir: string,
-  onFallback?: () => void,
+  onFallback?: (source: 'episode' | 'project') => void,
 ): Promise<string | undefined> {
   if (explicit && explicit.trim()) return explicit.trim()
-  try {
-    const continuityPath = path.join(episodeDir, 'continuity.json')
-    if (existsSync(continuityPath)) {
-      const cc = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
-      if (typeof cc?.style_bible === 'string' && cc.style_bible.trim()) {
-        onFallback?.()
-        return cc.style_bible.trim()
-      }
-    }
-  } catch { /* no continuity style — plan without one */ }
+  const resolved = await resolveStyleBible({ slug, episodeDir })
+  if (resolved.text) {
+    onFallback?.(resolved.source as 'episode' | 'project')
+    return resolved.text
+  }
   return explicit
 }
 
@@ -785,7 +789,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       )
     }
 
-    const effectiveStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
+    const effectiveStyle = await resolveEffectiveStyle(
+      params.style_prompt, job.project_slug, paths.episode_dir,
+      source => job.output_lines.push(source === 'project'
+        ? 'Style: the project default Style Bible (this episode has none of its own).'
+        : 'Style: this episode\'s Style Bible from the Character Sheet.'),
+    )
+    if (!effectiveStyle) {
+      // Worth saying out loud: with no art direction at all the writer defaults
+      // to describing a photograph, which is what drags modern references into
+      // a historical scene. See lib/style-bible.ts.
+      job.output_lines.push('Style: none set — prompts will carry no art direction. Set a Style Bible or a project default.')
+    }
     const allCues = parseSrt(await fs.readFile(stitchedSrt, 'utf-8'))
     let storyStartSec = 0
     try {
@@ -1172,8 +1187,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // prompt matches the rendered style instead of fighting it. v1.0.364 — this
     // fallback is now the shared `resolveEffectiveStyle` used by every plan path.
     const stylePromptForRewrite = await resolveEffectiveStyle(
-      params.style_prompt, paths.episode_dir,
-      () => job.output_lines.push('Using the episode Style Bible to keep the rewrite on-style.'),
+      params.style_prompt, job.project_slug, paths.episode_dir,
+      source => job.output_lines.push(source === 'project'
+        ? 'Using the project default Style Bible to keep the rewrite on-style.'
+        : 'Using the episode Style Bible to keep the rewrite on-style.'),
     )
     const creativeDirectionForRewrite = assignCreativeStrategies(
       existing.scenes,
@@ -1251,7 +1268,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
     const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
     job.output_lines.push(`Regenerating motion prompt for scene #${target.scene_index} (intensity level ${motionLevel}) — visual prompt + timing unchanged.`)
-    const motionStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
+    const motionStyle = await resolveEffectiveStyle(params.style_prompt, job.project_slug, paths.episode_dir)
     const newMotion = await generateMotionPromptOnly({
       transcript_segment: target.transcript_segment,
       visual_prompt: target.visual_prompt,
@@ -1290,8 +1307,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       `${(target.end_sec - target.start_sec).toFixed(1)}s) — other scenes + their images are untouched.`,
     )
     const replanStyle = await resolveEffectiveStyle(
-      params.style_prompt, paths.episode_dir,
-      () => job.output_lines.push('No style prompt set — using the episode Style Bible for the re-plan.'),
+      params.style_prompt, job.project_slug, paths.episode_dir,
+      source => job.output_lines.push(source === 'project'
+        ? 'No style prompt set — using the project default Style Bible for the re-plan.'
+        : 'No style prompt set — using the episode Style Bible for the re-plan.'),
     )
     const replanned = await planScenes({
       stitched_srt_path: stitchedSrt,
@@ -1345,8 +1364,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
 
   const effectiveStyle = await resolveEffectiveStyle(
-    params.style_prompt, paths.episode_dir,
-    () => job.output_lines.push('No style prompt set — using the episode Style Bible for the plan.'),
+    params.style_prompt, job.project_slug, paths.episode_dir,
+    source => job.output_lines.push(source === 'project'
+      ? 'No style prompt set — using the project default Style Bible for the plan.'
+      : 'No style prompt set — using the episode Style Bible for the plan.'),
   )
 
   // v1.0.423 — sleep-story intro skip. When on (per-episode override, else the

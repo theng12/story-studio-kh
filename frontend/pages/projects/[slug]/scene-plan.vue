@@ -357,7 +357,48 @@
           <div class="character-style-source">
             <span class="character-style-label">Style from Character Sheet</span>
             <p v-if="characterSheetStyleBible">{{ characterSheetStyleBible }}</p>
+            <p v-else-if="savedDefaultStyleBible" class="text-muted">
+              This episode has no Style Bible of its own, so the channel default below is used.
+            </p>
             <p v-else class="text-muted">No Style Bible is set for this episode yet.</p>
+          </div>
+          <!-- v1.0.795 — the channel's standing look, saved on the project. An
+               episode's own Style Bible still wins; this only fills the silence
+               that otherwise meant no art direction reached the prompt writer. -->
+          <div class="form-group">
+            <label>
+              Channel default style
+              <span class="text-muted text-xs">— used by every episode with no Style Bible of its own</span>
+            </label>
+            <!-- No maxlength attribute: this page must never carry a static
+                 character limit (see modelTokenBudget.test.ts — characters per
+                 token differ by language). The Style Bible's 2,000-character
+                 cap is enforced on save and again on read in
+                 lib/style-bible.ts, matching routes/continuity.ts. -->
+            <textarea
+              v-model="defaultStyleBible"
+              class="textarea"
+              rows="4"
+              placeholder="e.g. Painterly historical illustration — an aged oil painting, never a photograph. Visible brushwork, muted earth tones, soft edges, warm directional light."
+            />
+            <div class="default-style-actions">
+              <button
+                class="btn btn-sm"
+                :disabled="savingDefaultStyleBible || defaultStyleBible.trim() === savedDefaultStyleBible"
+                @click="saveDefaultStyleBible"
+              >
+                {{ savingDefaultStyleBible ? 'Saving…' : 'Save channel default' }}
+              </button>
+              <span v-if="characterSheetStyleBible" class="text-muted text-xs">
+                This episode has its own Style Bible, so it uses that instead.
+              </span>
+            </div>
+            <p class="scene-setting-help">
+              Set this once and every future episode inherits it. With no style at all, prompts carry no art
+              direction and the image model falls back to rendering a photograph — which is how modern
+              objects reach a historical scene, since photographic references of a historical place are
+              modern photographs of it. Naming a medium makes the model compose the picture instead.
+            </p>
           </div>
           <div class="form-group">
             <label>Custom instructions <span class="text-muted text-xs">— optional</span></label>
@@ -957,6 +998,43 @@ async function setAvoidLegibleText(v: boolean) {
     avoidLegibleText.value = !v
     form.value.avoid_legible_text = !v
     showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
+
+// v1.0.795 — the channel's standing Style Bible (config.json
+// `default_style_bible`). Persisted per project through the same
+// /settings/config endpoint as the toggles above. This is a FALLBACK for the
+// per-episode Style Bible on the Character Sheet, not a second style field:
+// an episode with its own Style Bible ignores this entirely. Empty means the
+// project has no default, which is how every project behaved before this
+// existed.
+const savedDefaultStyleBible = ref<string>((((projectConfig.value as any)?.default_style_bible) || '').trim())
+const defaultStyleBible = ref<string>(savedDefaultStyleBible.value)
+const savingDefaultStyleBible = ref(false)
+watch(projectConfig, (c) => {
+  const next = (((c as any)?.default_style_bible) || '').trim()
+  // Don't stomp an edit in progress — only follow the config when the box is
+  // still showing the last saved value.
+  if (defaultStyleBible.value.trim() === savedDefaultStyleBible.value) defaultStyleBible.value = next
+  savedDefaultStyleBible.value = next
+})
+async function saveDefaultStyleBible() {
+  const next = defaultStyleBible.value.trim().slice(0, 2000)
+  const previous = savedDefaultStyleBible.value
+  savingDefaultStyleBible.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { default_style_bible: next })
+    if (projectConfig.value) (projectConfig.value as any).default_style_bible = next
+    savedDefaultStyleBible.value = next
+    defaultStyleBible.value = next
+    success(next
+      ? 'Saved. Every episode without its own Style Bible now uses this style.'
+      : 'Channel default style cleared. Episodes without a Style Bible get no art direction.')
+  } catch (e: any) {
+    savedDefaultStyleBible.value = previous
+    showError(e?.data?.detail || e?.message || 'Could not save the channel default style')
+  } finally {
+    savingDefaultStyleBible.value = false
   }
 }
 
@@ -2535,6 +2613,13 @@ onMounted(() => {
   transition: opacity .15s ease;
 }
 .scene-motion-controls.is-disabled { opacity: .52; }
+.default-style-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
 .character-style-source {
   padding: 9px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));

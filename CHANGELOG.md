@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.795 — 2026-08-07
+
+- **A channel can now set its look once, instead of per episode** — a project's art style lived
+  only on the Character Sheet, which is per episode, so every new episode started with no style at
+  all unless someone remembered to re-apply it. That silence was doing real damage: with no art
+  direction, prompts describe a photograph, and an image model asked for a photograph reaches for
+  photographic references — which, for a historical place, are modern photographs of it. That is
+  how a present-day alley with wheelie bins ended up in a 6th-century episode. Scene Plan now has
+  a **Channel default style** box: set it once and every future episode inherits it. An episode
+  that wants its own look still overrides it from the Character Sheet exactly as before, and a
+  project that never sets a default behaves exactly as it always has. The default is used both
+  when prompts are written and when images are rendered, so the two can never describe different
+  pictures.
+
+- **Scene Plan's project settings are finally remembered** — Motion prompts, Avoid readable text,
+  motion level, and the opening-visuals choice all saved correctly but were dropped on the way
+  back out, so the page showed its own default again on every reload. That was not just a display
+  problem: Scene Plan starts each run from what the page is showing, and a value sent with the run
+  outranks the project's saved one — so a project that switched Motion prompts on, or switched
+  Avoid readable text off, quietly got the opposite every single time it generated. These settings
+  now load back exactly as saved. If you set one of these and it seemed not to stick, this is why;
+  check them once after updating.
+
 ## v1.0.794 — 2026-08-07
 
 - **A new "Avoid readable text in images" setting on Scene Plan, on by default** — generated

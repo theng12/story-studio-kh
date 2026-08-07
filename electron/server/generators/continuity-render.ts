@@ -20,6 +20,7 @@ import { getCharacter } from '../services/character-manager.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
+import { resolveStyleBible } from '../lib/style-bible.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
@@ -150,7 +151,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const charText = characterDescs.length
     ? characterDescs.map(c => `${c.name}: ${c.description}`).join('; ')
     : ''
-  const styleBible = cfg.style_bible?.trim() || ''
+  // v1.0.795 — the Style Bible has two tiers: this episode's continuity.json,
+  // else the project's standing default (config.json `default_style_bible`).
+  // Resolved through the SAME helper the planner uses (lib/style-bible.ts) so
+  // the text baked into each visual_prompt at plan time and the text appended
+  // here at render time can never be two different looks. A project with no
+  // default and an episode with no Style Bible resolves to '' exactly as before.
+  const resolvedStyle = await resolveStyleBible({ slug: job.project_slug, episodeDir: paths.episode_dir })
+  const styleBible = resolvedStyle.text
   // v1.0.336 — non-character scenes (event / map / artifact / environment) drop
   // the guide's descriptor text so the prompt describes ONLY the subject. Plans
   // with no scene_type behave as before (the guide everywhere).
@@ -163,8 +171,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     return parts.join('\n\n')
   }
   if (charText || styleBible || cfg.negative_prompt) {
+    const styleLabel = resolvedStyle.source === 'project' ? 'style bible (project default)' : 'style bible'
     job.output_lines.push(
-      `Prompt layer: ${[charText && 'character text', styleBible && 'style bible', cfg.negative_prompt && 'negative prompt'].filter(Boolean).join(' + ')}.`,
+      `Prompt layer: ${[charText && 'character text', styleBible && styleLabel, cfg.negative_prompt && 'negative prompt'].filter(Boolean).join(' + ')}.`,
     )
   }
 
