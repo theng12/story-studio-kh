@@ -22,13 +22,18 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import type { Character } from '../models/types.js'
+import { delayUnlessAborted } from '../services/tts-capacity-retry.js'
+import {
+  IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+  imageRouteRetryDelayMs,
+} from '../services/image-route-retry.js'
+import type { Character, JobItemAttempt } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
@@ -527,8 +532,46 @@ export async function generateImages(job: Job): Promise<void> {
     () => ({ schema_version: 1 as const, tasks: {} }),
   )
 
-  let processed = 0
   let totalToProcess = 0
+
+  // ── Live per-item progress ────────────────────────────────────────────────
+  // `job.progress` drives the bar; `job.item_progress` names which scenes are
+  // in flight and — once retry (below) is in play — says explicitly when one
+  // is sitting out a provider backoff rather than looking hung. Driven by
+  // SETTLED counts (completed + failed), never by array index or cursor
+  // position, so it stays monotonic and correct while up to
+  // `resolveGenStudioLocalFanout`'s full width of workers complete out of
+  // order.
+  let completedCount = 0
+  let failedCount = 0
+  let currentConcurrency = 1
+  const activeItems = new Map<string, JobItemAttempt>()
+  function publishProgress(): void {
+    // Matches `generators/audio.ts`'s convention: an empty batch (e.g. a
+    // single-scene re-render whose target was already filtered away) reports
+    // 100, not an indeterminate bar, since there is genuinely nothing left.
+    job.progress = totalToProcess > 0
+      ? Math.round(((completedCount + failedCount) / totalToProcess) * 100)
+      : 100
+    job.item_progress = {
+      total: totalToProcess,
+      completed: completedCount,
+      failed: failedCount,
+      concurrency: currentConcurrency,
+      // Ordered by label so a re-render doesn't reshuffle rows when a Map
+      // entry is replaced in place.
+      active: [...activeItems.values()].sort((a, b) => a.label.localeCompare(b.label)),
+    }
+  }
+
+  // Gates ONLY the retry backoff sleep below — never threaded into the
+  // provider submit calls themselves, which already cancel through the
+  // existing `isCancelled` poll callback. Matches the audio generator's
+  // "500 ms cancel watcher" pattern.
+  const cancelController = new AbortController()
+  const cancelWatcher = setInterval(() => {
+    if (jq.isCancelled(job.job_id)) cancelController.abort()
+  }, 500)
 
   const providerId = (): string => imageProvider!.meta.providerId || imageProvider!.meta.id
 
@@ -539,6 +582,10 @@ export async function generateImages(job: Job): Promise<void> {
     inputHash: string
     submittedAt: string
     notes: string[]
+    /** The attempt chain's root — `resolveImageRetryScope`'s second argument.
+     *  Carried through so an in-run route-exhaustion retry can promote the
+     *  scope again without re-deriving `force ? …: 'default'` itself. */
+    baseScope: string
   }
 
   /**
@@ -593,7 +640,44 @@ export async function generateImages(job: Job): Promise<void> {
     const submittedAt = carried?.request_scope === scope && carried.submitted_at
       ? carried.submitted_at
       : new Date().toISOString()
-    return { recovery, scope, inputHash, submittedAt, notes }
+    return { recovery, scope, inputHash, submittedAt, notes, baseScope }
+  }
+
+  /**
+   * Promote a request scope after an in-run route-exhaustion retry —
+   * the same deterministic promotion `prepareImageAttempt` performs across
+   * separate job runs (via `resolveImageRetryScope`), reused here rather than
+   * forked, so a manual Retry and an automatic one derive identically.
+   *
+   * Never touches the manifest read at the top of this generator (that
+   * snapshot is stale the instant this run starts writing to it); the
+   * "previous entry" `resolveImageRetryScope` promotes from is built directly
+   * from the attempt that just failed, which is exactly what was persisted by
+   * the `recordImageState(..., 'failed', ...)` call just before this runs.
+   */
+  function deriveRouteRetryAttempt(
+    previous: DurableImageAttempt,
+    failedTaskId: string,
+    prompt: string,
+  ): DurableImageAttempt {
+    const failedEntry: TaskManifestEntry = {
+      provider: providerId(),
+      task_id: failedTaskId,
+      submitted_at: previous.submittedAt,
+      input_hash: previous.inputHash,
+      request_scope: previous.scope,
+      operation: 'image',
+      last_state: 'failed',
+    }
+    const scope = resolveImageRetryScope(failedEntry, previous.baseScope).scope
+    return {
+      recovery: { kind: 'no-saved-job' },
+      scope,
+      inputHash: hashInput(`${scope}\n${prompt}`),
+      submittedAt: new Date().toISOString(),
+      notes: [],
+      baseScope: previous.baseScope,
+    }
   }
 
   async function recordImageState(
@@ -634,16 +718,22 @@ export async function generateImages(job: Job): Promise<void> {
     // zero-byte file from a prior aborted download is NOT a valid skip.
     if (await fileExistsWithContent(v1Path) && !req.scene_number && !force) {
       job.output_lines.push(`Skipping ${stem} (exists)`)
+      completedCount++
+      publishProgress()
       return
     }
     // iCloud-evicted asset: file is recoverable for free by opening it in
     // Finder; re-billing the provider would be a waste. Skip this scene
-    // and surface a clear hint. User downloads, re-runs, no charge.
+    // and surface a clear hint. User downloads, re-runs, no charge. Counted
+    // against `failed`, not `completed` — the final completion check below
+    // will (correctly) name this scene as missing until it is downloaded.
     if (!force && await isCloudEvictedPlaceholder(v1Path)) {
       job.output_lines.push(
         `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
         `Skipped to avoid re-billing for an asset you already paid for.`,
       )
+      failedCount++
+      publishProgress()
       return
     }
     // Auto-recovery: before issuing a fresh (charged) submit, see if the
@@ -654,13 +744,15 @@ export async function generateImages(job: Job): Promise<void> {
     // one scene instead of turning into a duplicate paid submission. Everything
     // is inside the try so no single scene can abort the whole batch.
     const filename = `${stem}_v1.png`
-    let attempt: DurableImageAttempt | null = null
-    let acceptedTaskId = ''
-    let acceptedKey = ''
+    const key = `scene-${scene.number}`
+    const label = `Scene ${scene.number}`
+    activeItems.set(key, { label, key, state: 'running', attempt: 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS })
+    publishProgress()
     try {
       // Multi-source reference resolution. text2img mode → only character
       // refs (Phase 8 default); img2img mode → master + per-scene + chars
-      // + chain depending on the user's reference_sources toggles.
+      // + chain depending on the user's reference_sources toggles. Resolved
+      // ONCE — none of it changes between a route-exhaustion retry's attempts.
       const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
       const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
       // Every reference the user configured for this scene, forwarded only
@@ -680,65 +772,121 @@ export async function generateImages(job: Job): Promise<void> {
           `Scene ${scene.number}: model '${modelName}' publishes no reference support — rendering from the prompt text only.`,
         )
       }
-      attempt = await prepareImageAttempt(bgDir, sceneManifest, filename, finalPrompt)
-      if (attempt.recovery.kind === 'uncertain') throw uncertainRecoveryError(attempt.recovery)
-      for (const note of attempt.notes) job.output_lines.push(`Scene ${scene.number}: ${note}`)
-      if (attempt.recovery.kind === 'recovered') {
-        const recovered = attempt.recovery
-        for (let i = 0; i < recovered.urls.length; i++) {
-          await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+
+      let attempt: DurableImageAttempt | null = null
+      for (let attemptNum = 1; ; attemptNum++) {
+        let acceptedTaskId = ''
+        let acceptedKey = ''
+        try {
+          if (attemptNum === 1) attempt = await prepareImageAttempt(bgDir, sceneManifest, filename, finalPrompt)
+          const current = attempt!
+          if (current.recovery.kind === 'uncertain') throw uncertainRecoveryError(current.recovery)
+          for (const note of current.notes) job.output_lines.push(`Scene ${scene.number}: ${note}`)
+          if (current.recovery.kind === 'recovered') {
+            const recovered = current.recovery
+            for (let i = 0; i < recovered.urls.length; i++) {
+              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            }
+            await recordImageState(bgDir, filename, current, 'succeeded', recovered.taskId, '')
+            completedCount++
+            job.output_lines.push(
+              `Scene ${scene.number}/${totalToProcess}: ${scene.title} — recovered ` +
+              `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
+            )
+            return
+          }
+          // Persist the request identity BEFORE the charged POST so a lost response
+          // replays the same idempotency key instead of creating a second job.
+          await recordImageState(bgDir, filename, current, 'prepared', '', '', true)
+          const result = await imageProvider!.generateImage({
+            prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
+            ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
+            seed: req.seed,
+            ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
+            idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
+            isCancelled: () => jq.isCancelled(job.job_id),
+            onJobAccepted: async (taskId, idempotencyKey) => {
+              acceptedTaskId = taskId
+              acceptedKey = idempotencyKey
+              await recordImageState(bgDir, filename, current, 'accepted', taskId, idempotencyKey, true)
+            },
+          })
+          const urls = result.urls
+          if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
+          // Record the provider task id BEFORE downloading. Reasoning: even if
+          // a download fails halfway, the manifest still points at the
+          // (already-charged) provider job, so the Repair button can recover
+          // the rest without billing the user a second time. Same record per
+          // variant — the reconciler picks the right URL by parsing the _vN
+          // suffix at recovery time.
+          if (result.taskId) {
+            await Promise.all(urls.map((_, i) => recordImageState(
+              bgDir, `${stem}_v${i + 1}.png`, current, 'succeeded', result.taskId!, acceptedKey,
+            )))
+          }
+          for (let i = 0; i < urls.length; i++) {
+            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+          }
+          completedCount++
+          job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
+          return
+        } catch (e: any) {
+          // Remember a settled provider failure so the next Retry mints a fresh
+          // identity instead of replaying this dead job forever.
+          if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+            await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
+          }
+          // The ONE failure worth asking again about: every route GenStudio
+          // ranked for this product declined to take the request, which proves
+          // no provider did any work and the reservation was released — so
+          // another attempt costs time and nothing else. Every other terminal
+          // code may describe work a provider already performed, and fails
+          // fast below rather than being paid for twice. Bounded, and never
+          // scheduled once the job itself is being torn down.
+          if (isGenStudioRouteExhausted(e) && attempt && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS
+            && !jq.isCancelled(job.job_id)) {
+            const waitMs = imageRouteRetryDelayMs(attemptNum - 1)
+            const reason = 'No image route would accept this request'
+            activeItems.set(key, {
+              label,
+              key,
+              state: 'waiting_retry',
+              attempt: attemptNum,
+              max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              retry_at: new Date(Date.now() + waitMs).toISOString(),
+              reason,
+            })
+            publishProgress()
+            job.output_lines.push(
+              `  Scene ${scene.number}: ${reason.toLowerCase()} — nothing was charged.`
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${IMAGE_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+            )
+            // Derived from the job that just failed, so this retry is
+            // repeatable: replaying it returns the job GenStudio already has
+            // for it instead of selling a second one. Reuses the same
+            // deterministic promotion a manual Retry performs across job
+            // runs — see `deriveRouteRetryAttempt`.
+            attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
+            await delayUnlessAborted(waitMs, cancelController.signal)
+            if (jq.isCancelled(job.job_id)) {
+              job.output_lines.push('  Cancelled.')
+              return
+            }
+            activeItems.set(key, {
+              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+            })
+            publishProgress()
+            continue
+          }
+          failedCount++
+          job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: FAILED — ${e.message}`)
+          errors.push(`Scene ${scene.number}: ${e.message}`)
+          return
         }
-        await recordImageState(bgDir, filename, attempt, 'succeeded', recovered.taskId, '')
-        processed++
-        job.output_lines.push(
-          `Scene ${scene.number}/${totalToProcess}: ${scene.title} — recovered ` +
-          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
-        )
-        return
       }
-      // Persist the request identity BEFORE the charged POST so a lost response
-      // replays the same idempotency key instead of creating a second job.
-      await recordImageState(bgDir, filename, attempt, 'prepared', '', '', true)
-      const result = await imageProvider!.generateImage({
-        prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams,
-        ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
-        seed: req.seed,
-        ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
-        idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${attempt.scope}`,
-        isCancelled: () => jq.isCancelled(job.job_id),
-        onJobAccepted: async (taskId, idempotencyKey) => {
-          acceptedTaskId = taskId
-          acceptedKey = idempotencyKey
-          await recordImageState(bgDir, filename, attempt!, 'accepted', taskId, idempotencyKey, true)
-        },
-      })
-      const urls = result.urls
-      if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
-      // Record the provider task id BEFORE downloading. Reasoning: even if
-      // a download fails halfway, the manifest still points at the
-      // (already-charged) provider job, so the Repair button can recover
-      // the rest without billing the user a second time. Same record per
-      // variant — the reconciler picks the right URL by parsing the _vN
-      // suffix at recovery time.
-      if (result.taskId) {
-        await Promise.all(urls.map((_, i) => recordImageState(
-          bgDir, `${stem}_v${i + 1}.png`, attempt!, 'succeeded', result.taskId!, acceptedKey,
-        )))
-      }
-      for (let i = 0; i < urls.length; i++) {
-        await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
-      }
-      processed++
-      job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
-    } catch (e: any) {
-      // Remember a settled provider failure so the next Retry mints a fresh
-      // identity instead of replaying this dead job forever.
-      if (e instanceof GenStudioImageTerminalFailureError && attempt) {
-        await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
-      }
-      processed++
-      job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: FAILED — ${e.message}`)
-      errors.push(`Scene ${scene.number}: ${e.message}`)
+    } finally {
+      activeItems.delete(key)
+      publishProgress()
     }
   }
 
@@ -747,6 +895,8 @@ export async function generateImages(job: Job): Promise<void> {
     const v1Path = path.join(thumbDir, `${stem}_v1.png`)
     if (await fileExistsWithContent(v1Path) && !req.thumb_number && !force) {
       job.output_lines.push(`Skipping ${stem} (exists)`)
+      completedCount++
+      publishProgress()
       return
     }
     // iCloud-evicted (same handling as runScene).
@@ -755,6 +905,8 @@ export async function generateImages(job: Job): Promise<void> {
         `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
         `Skipped to avoid re-billing.`,
       )
+      failedCount++
+      publishProgress()
       return
     }
     // Auto-recovery (same as runScene above) — reclaim a previously-submitted
@@ -762,9 +914,10 @@ export async function generateImages(job: Job): Promise<void> {
     // already settled, and never treat an unconfirmed outcome as "nothing was
     // submitted". Inside the try so one thumbnail cannot abort the batch.
     const filename = `${stem}_v1.png`
-    let attempt: DurableImageAttempt | null = null
-    let acceptedTaskId = ''
-    let acceptedKey = ''
+    const key = `thumb-${thumb.number}`
+    const label = `Thumbnail ${thumb.number}`
+    activeItems.set(key, { label, key, state: 'running', attempt: 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS })
+    publishProgress()
     try {
       // The thumbnail prompt already carries its (format-aware) title-text
       // directive from image-prompts.ts — render it verbatim. Character
@@ -773,7 +926,8 @@ export async function generateImages(job: Job): Promise<void> {
       // — master + chars stack additively. Per-scene refs use the thumb
       // number bucket, chain mode reads thumb N-1's render. Most users
       // will only set master + chars for thumbnails since chain
-      // continuity matters less for a 1-shot title card.
+      // continuity matters less for a 1-shot title card. Resolved ONCE —
+      // none of it changes between a route-exhaustion retry's attempts.
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
       // v1.0.416 — optional render-time guidance from the generator tab,
       // appended before style keywords so it influences the image without
@@ -790,55 +944,99 @@ export async function generateImages(job: Job): Promise<void> {
       const thumbProviderParams = hasThumbnailReference
         ? { ...providerParams, image_strength: strengthValue }
         : providerParams
-      attempt = await prepareImageAttempt(thumbDir, thumbManifest, filename, finalPrompt)
-      if (attempt.recovery.kind === 'uncertain') throw uncertainRecoveryError(attempt.recovery)
-      for (const note of attempt.notes) job.output_lines.push(`Thumbnail ${thumb.number}: ${note}`)
-      if (attempt.recovery.kind === 'recovered') {
-        const recovered = attempt.recovery
-        for (let i = 0; i < recovered.urls.length; i++) {
-          await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+
+      let attempt: DurableImageAttempt | null = null
+      for (let attemptNum = 1; ; attemptNum++) {
+        let acceptedTaskId = ''
+        let acceptedKey = ''
+        try {
+          if (attemptNum === 1) attempt = await prepareImageAttempt(thumbDir, thumbManifest, filename, finalPrompt)
+          const current = attempt!
+          if (current.recovery.kind === 'uncertain') throw uncertainRecoveryError(current.recovery)
+          for (const note of current.notes) job.output_lines.push(`Thumbnail ${thumb.number}: ${note}`)
+          if (current.recovery.kind === 'recovered') {
+            const recovered = current.recovery
+            for (let i = 0; i < recovered.urls.length; i++) {
+              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            }
+            await recordImageState(thumbDir, filename, current, 'succeeded', recovered.taskId, '')
+            completedCount++
+            job.output_lines.push(
+              `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
+              `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
+            )
+            return
+          }
+          await recordImageState(thumbDir, filename, current, 'prepared', '', '', true)
+          const result = await imageProvider!.generateImage({
+            prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
+            ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
+            seed: req.seed,
+            ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
+            idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
+            isCancelled: () => jq.isCancelled(job.job_id),
+            onJobAccepted: async (taskId, idempotencyKey) => {
+              acceptedTaskId = taskId
+              acceptedKey = idempotencyKey
+              await recordImageState(thumbDir, filename, current, 'accepted', taskId, idempotencyKey, true)
+            },
+          })
+          const urls = result.urls
+          if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
+          if (result.taskId) {
+            await Promise.all(urls.map((_, i) => recordImageState(
+              thumbDir, `${stem}_v${i + 1}.png`, current, 'succeeded', result.taskId!, acceptedKey,
+            )))
+          }
+          for (let i = 0; i < urls.length; i++) {
+            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+          }
+          completedCount++
+          job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
+          return
+        } catch (e: any) {
+          if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+            await recordImageState(thumbDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
+          }
+          if (isGenStudioRouteExhausted(e) && attempt && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS
+            && !jq.isCancelled(job.job_id)) {
+            const waitMs = imageRouteRetryDelayMs(attemptNum - 1)
+            const reason = 'No image route would accept this request'
+            activeItems.set(key, {
+              label,
+              key,
+              state: 'waiting_retry',
+              attempt: attemptNum,
+              max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              retry_at: new Date(Date.now() + waitMs).toISOString(),
+              reason,
+            })
+            publishProgress()
+            job.output_lines.push(
+              `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${IMAGE_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+            )
+            attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
+            await delayUnlessAborted(waitMs, cancelController.signal)
+            if (jq.isCancelled(job.job_id)) {
+              job.output_lines.push('  Cancelled.')
+              return
+            }
+            activeItems.set(key, {
+              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+            })
+            publishProgress()
+            continue
+          }
+          failedCount++
+          job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
+          errors.push(`Thumbnail ${thumb.number}: ${e.message}`)
+          return
         }
-        await recordImageState(thumbDir, filename, attempt, 'succeeded', recovered.taskId, '')
-        processed++
-        job.output_lines.push(
-          `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
-          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
-        )
-        return
       }
-      await recordImageState(thumbDir, filename, attempt, 'prepared', '', '', true)
-      const result = await imageProvider!.generateImage({
-        prompt: finalPrompt, apiKey, aspectRatio, modelId: resolvedModelConfig.api_model || modelName, providerParams: thumbProviderParams,
-        ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
-        seed: req.seed,
-        ...(hasSavedThumbnailReference ? { referenceImagePaths: [savedThumbnailReferencePath] } : {}),
-        idempotencyIdentity: `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${attempt.scope}`,
-        isCancelled: () => jq.isCancelled(job.job_id),
-        onJobAccepted: async (taskId, idempotencyKey) => {
-          acceptedTaskId = taskId
-          acceptedKey = idempotencyKey
-          await recordImageState(thumbDir, filename, attempt!, 'accepted', taskId, idempotencyKey, true)
-        },
-      })
-      const urls = result.urls
-      if (!urls.length) throw new Error(`${imageProvider!.meta.name} returned no image URL`)
-      if (result.taskId) {
-        await Promise.all(urls.map((_, i) => recordImageState(
-          thumbDir, `${stem}_v${i + 1}.png`, attempt!, 'succeeded', result.taskId!, acceptedKey,
-        )))
-      }
-      for (let i = 0; i < urls.length; i++) {
-        await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
-      }
-      processed++
-      job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
-    } catch (e: any) {
-      if (e instanceof GenStudioImageTerminalFailureError && attempt) {
-        await recordImageState(thumbDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
-      }
-      processed++
-      job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
-      errors.push(`Thumbnail ${thumb.number}: ${e.message}`)
+    } finally {
+      activeItems.delete(key)
+      publishProgress()
     }
   }
 
@@ -857,7 +1055,12 @@ export async function generateImages(job: Job): Promise<void> {
     // Stage independent Story assets promptly. The shared GenStudio admission
     // pool applies the account's live paid concurrency; GenStudio owns its
     // durable queue, rate limits, relaxed capacity, and provider execution.
+    // UNCHANGED — this is the fan-out width, not the retry/progress work
+    // above; `currentConcurrency` only mirrors it for the item_progress
+    // display, it never feeds back into what `ensureWorkers` does below.
     const maxWorkers = resolveGenStudioLocalFanout(items.length)
+    currentConcurrency = maxWorkers
+    publishProgress()
 
     let resolveAll!: () => void
     const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
@@ -898,59 +1101,71 @@ export async function generateImages(job: Job): Promise<void> {
     await allWorkersDone
   }
 
-  // Scene images
-  if (mode === 'scenes') {
-    let filteredScenes = scenes
-    if (req.scene_number) filteredScenes = filteredScenes.filter(s => s.number === req.scene_number)
-    totalToProcess = filteredScenes.length
-    processed = 0
-    // Chain mode forces serial execution because scene N+1 reads scene
-    // N's rendered output as one of its references. Pool would fire
-    // them in parallel and the chain reference would be missing on
-    // every scene whose prior scene hadn't finished yet. Sort by
-    // chapter number to make the chain dependency well-defined.
-    const useChain = imageMode === 'img2img' && refSources.chain
-    if (useChain) {
-      filteredScenes = [...filteredScenes].sort((a, b) => a.number - b.number)
-      job.output_lines.push(
-        `Generating ${filteredScenes.length} scene image(s) SERIALLY (chain mode — each scene's render seeds the next)…`,
-      )
-      for (const scene of filteredScenes) {
-        if (jq.isCancelled(job.job_id)) break
-        await runScene(scene)
+  try {
+    // Scene images
+    if (mode === 'scenes') {
+      let filteredScenes = scenes
+      if (req.scene_number) filteredScenes = filteredScenes.filter(s => s.number === req.scene_number)
+      totalToProcess = filteredScenes.length
+      publishProgress()
+      // Chain mode forces serial execution because scene N+1 reads scene
+      // N's rendered output as one of its references. Pool would fire
+      // them in parallel and the chain reference would be missing on
+      // every scene whose prior scene hadn't finished yet. Sort by
+      // chapter number to make the chain dependency well-defined.
+      const useChain = imageMode === 'img2img' && refSources.chain
+      if (useChain) {
+        filteredScenes = [...filteredScenes].sort((a, b) => a.number - b.number)
+        job.output_lines.push(
+          `Generating ${filteredScenes.length} scene image(s) SERIALLY (chain mode — each scene's render seeds the next)…`,
+        )
+        currentConcurrency = 1
+        publishProgress()
+        for (const scene of filteredScenes) {
+          if (jq.isCancelled(job.job_id)) break
+          await runScene(scene)
+        }
+      } else {
+        job.output_lines.push(
+          `Staging ${filteredScenes.length} scene image request(s); GenStudio account admission is authoritative...`,
+        )
+        await runPool(filteredScenes, runScene)
       }
-    } else {
-      job.output_lines.push(
-        `Staging ${filteredScenes.length} scene image request(s); GenStudio account admission is authoritative...`,
-      )
-      await runPool(filteredScenes, runScene)
     }
-  }
 
-  // Thumbnail images
-  if (mode === 'thumbs') {
-    let thumbs = thumbnails
-    if (req.thumb_number) thumbs = thumbs.filter(t => t.number === req.thumb_number)
-    totalToProcess = thumbs.length
-    processed = 0
-    job.output_lines.push(
-      `Staging ${thumbs.length} thumbnail request(s); GenStudio account admission is authoritative...`,
-    )
-    await runPool(thumbs, runThumb)
+    // Thumbnail images
+    if (mode === 'thumbs') {
+      let thumbs = thumbnails
+      if (req.thumb_number) thumbs = thumbs.filter(t => t.number === req.thumb_number)
+      totalToProcess = thumbs.length
+      publishProgress()
+      job.output_lines.push(
+        `Staging ${thumbs.length} thumbnail request(s); GenStudio account admission is authoritative...`,
+      )
+      await runPool(thumbs, runThumb)
+    }
+  } finally {
+    clearInterval(cancelWatcher)
   }
 
   // Partial-failure semantics: if ANY item failed, the job must not be
   // stamped "done" — otherwise the UI shows a green success toast while
-  // the output folder is half-empty. We surface it via throw (job → error)
-  // so the queue runner in job-queue.ts flips job.status to 'error' with
-  // the collected reasons. A cancelled job is also a terminal state — let
-  // the queue's cancel check handle that at job-queue.ts:141.
-  if (errors.length) {
-    job.output_lines.push(`Completed with ${errors.length} error(s)`)
-    const preview = errors.slice(0, 3).join('; ')
-    const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
-    throw new Error(`${errors.length} item(s) failed: ${preview}${suffix}`)
-  }
+  // the output folder is half-empty. `requireJobCompletion` below is the
+  // ONE place this is enforced (it throws, same as before — the queue
+  // runner in job-queue.ts still flips job.status to 'error' with the
+  // collected reasons; `partial-failure.test.ts` pins that contract). A
+  // cancelled job is also a terminal state — let the queue's cancel check
+  // handle that at job-queue.ts:141.
+  //
+  // `errors` is no longer read here to short-circuit with a 3-item preview.
+  // That used to bypass the completion audit entirely, so a batch with any
+  // failure reported only the first 3 reasons and never said how many of
+  // 333 actually succeeded. `missing` below is computed from what is
+  // actually on disk — which is a superset of `errors` (it also catches a
+  // scene that never got a chance to run because the job was cancelled) —
+  // and `requireJobCompletion` names every missing item, up to 20, plus the
+  // true completed/expected counts.
+  if (errors.length) job.output_lines.push(`Completed with ${errors.length} error(s)`)
   const expectedItems = mode === 'scenes'
     ? (req.scene_number ? scenes.filter(scene => scene.number === req.scene_number) : scenes)
       .map(scene => ({ label: `Scene ${scene.number}`, path: path.join(bgDir, `${episode_id.toUpperCase()}_Scene${scene.number.toString().padStart(2, '0')}_v1.png`) }))
