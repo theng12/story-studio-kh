@@ -477,7 +477,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const fmt = await getEffectiveFormat(job.project_slug)
     formulaMotionProfile = fmt?.script.motionProfile
     if (fmt?.visualSource === 'continuity-chain') {
-      pacing = { min_sec: 1, max_sec: 4, mode: 'live' }
+      // 1-3s, not the older 1-4s: the owner's channels want an image every
+      // one to three seconds, and a 4s ceiling let quiet passages drift to a
+      // near-static hold. A Character Sheet or Series Formula range still wins
+      // over this -- it is only the fallback for a project that declares none.
+      pacing = { min_sec: 1, max_sec: 3, mode: 'live' }
       const continuityPath = path.join(paths.episode_dir, 'continuity.json')
       if (existsSync(continuityPath)) {
         try {

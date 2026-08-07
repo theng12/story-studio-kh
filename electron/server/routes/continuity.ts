@@ -40,7 +40,10 @@ export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stil
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
-    pacing: { min_sec: 1, max_sec: 4 },
+    // Matches the scene-plan fallback. These two are the same decision in two
+    // places: if they drift, a project that creates a continuity config
+    // silently gets different pacing from one that has not.
+    pacing: { min_sec: 1, max_sec: 3 },
     references: {
       prev_render: characterChain,
       sheet: characterChain,
