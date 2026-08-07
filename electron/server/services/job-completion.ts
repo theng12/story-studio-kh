@@ -65,6 +65,57 @@ export function requireJobCompletion(job: Job, audit: JobCompletionAudit): void 
   }
 }
 
+export interface JobDegradation {
+  /** The recovery path that actually produced the output. */
+  tier: string
+  /** Why the preferred path was abandoned. */
+  reason: string
+  /** Everything the user asked to have burned into the output. */
+  requested: string[]
+  /** Of those, the ones present in the delivered file. */
+  survived: string[]
+  /** Of those, the ones this path discarded. Non-empty ⇒ degraded. */
+  dropped: string[]
+}
+
+/** Marker the Jobs UI keys on to render a degraded run distinctly from a clean one. */
+export const DEGRADED_LINE_PREFIX = '⚠ DEGRADED'
+
+/**
+ * Declare that a job produced usable output via a path that silently discarded
+ * part of what was requested. No-op when nothing was dropped, so callers can
+ * call it unconditionally after any fallback.
+ *
+ * `status` stays `'done'` and `result.complete` stays `true`, deliberately:
+ *
+ *  - A complete-but-degraded video genuinely beats a failed render, so the
+ *    fallback that produces it must keep existing.
+ *  - Setting `result.complete = false` would make `assertJobDidNotDeclareIncomplete`
+ *    throw and convert this into an `error` job — destroying the very output we
+ *    deliberately chose to keep, and deleting the user's only watchable file.
+ *  - A new `JobStatus` value is not viable either: every poll loop and terminal
+ *    watcher in the UI treats exactly `done | error | cancelled` as terminal, so
+ *    an unrecognised status would hang them indefinitely.
+ *
+ * The defect was never that the run ended in `done` — it is that `done` carried
+ * no record of the loss. So the loss becomes structured, machine-readable fact
+ * on `result.degraded`, plus an `output_lines` entry the Jobs UI promotes to the
+ * summary. A caller can no longer report success without also reporting what it
+ * threw away.
+ */
+export function declareJobDegraded(job: Job, degradation: JobDegradation): void {
+  if (!degradation.dropped.length) return
+  job.result = { ...(job.result || {}), degraded: { ...degradation } }
+  const survived = degradation.survived.length ? degradation.survived.join(', ') : 'none'
+  job.output_lines.push(
+    `${DEGRADED_LINE_PREFIX} — the delivered video is MISSING: ${degradation.dropped.join(', ')}.`,
+  )
+  job.output_lines.push(`   Requested: ${degradation.requested.join(', ')}`)
+  job.output_lines.push(`   Survived:  ${survived}`)
+  job.output_lines.push(`   Produced by ${degradation.tier} after: ${degradation.reason}`)
+  job.output_lines.push('   The file is playable but does not match the request — re-run to get the missing features.')
+}
+
 /** Queue-level backstop for executors that set `result.complete = false` but
  * accidentally return instead of throwing. */
 export function assertJobDidNotDeclareIncomplete(job: Job): void {

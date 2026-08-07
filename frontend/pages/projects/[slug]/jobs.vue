@@ -1546,6 +1546,14 @@ function hasMoreErrorLines(err: string): boolean {
 
 function getSummaryLine(job: RJob): string {
   const lines = job.output_lines || []
+  // A run that finished but discarded requested output outranks any success
+  // line. Without this a degraded render collapsed to a plain "Completed in
+  // 12m" card, so a video missing its cues and subtitles looked identical to
+  // a clean one unless the user expanded the full log.
+  const degraded = (job as any).result?.degraded
+  if (degraded?.dropped?.length) {
+    return `⚠ Completed WITHOUT: ${degraded.dropped.join(', ')} — recovered via ${degraded.tier}`
+  }
   // Look for the last meaningful summary line
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]

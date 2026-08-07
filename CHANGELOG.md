@@ -4,6 +4,43 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.798 — 2026-08-07
+
+- **Contextual Cues now actually appear on screen** — they never have. Every cue was written into
+  the render as quoted text, and an apostrophe inside quoted text ends the quote early, so the
+  moment a cue read **"Constantinople's main avenue"** FFmpeg stopped reading it as words and
+  started reading the rest of the render instructions as part of that sentence. The whole
+  composition was rejected — not that one cue, the entire thing. On the Justinian plague episode
+  that was two of the ten approved cues, and it took down a 333-scene assembly. Cue text is written
+  by a model and approved by you, apostrophes and all, so this was waiting on the first cue that
+  mentioned a place belonging to someone.
+
+  A second fault sat behind it. A cue's title and subtitle were joined by a line break, and that
+  break was written in a form FFmpeg reads as the letter "n" — so even a cue with no apostrophe
+  would have come out as "Constantinople, 541 ADnDaily life along the Mese" on a single line.
+  Quoting cannot express a line break at all, so no arrangement of quotes would have fixed it. Cue
+  text is now escaped for both passes FFmpeg makes over it and written unquoted, which handles
+  apostrophes, colons, commas, percent signs and real line breaks. Percent signs are also now
+  pinned as literal text, so a cue reading "40% dead" renders as written instead of being treated
+  as a template. Verified by running every one of those cases through FFmpeg itself, including all
+  ten approved cues from the plague episode as a single graph.
+
+- **A render that drops what you asked for now says so** — when the composition above failed, the
+  recovery path did its job and produced a complete, watchable video. But it produced it by
+  throwing away every text overlay: not just the cues that caused the failure, but the burned-in
+  subtitles too. The job then reported **Done**, with no error and nothing in the summary to
+  suggest anything was missing. A video missing two requested features looked exactly like a clean
+  one unless you opened the full log and read it.
+
+  The recovery path stays — a complete video beats a failed render. What it can no longer do is
+  stay quiet about the cost. A run that finishes without something you asked for now records what
+  was requested, what survived and what was dropped, and the job card reads **"Completed WITHOUT:
+  burned-in subtitles, 10 contextual cue(s)"** instead of "Completed". It still finishes rather
+  than failing, deliberately: turning it into an error would delete the one watchable file the
+  recovery had just saved.
+
+---
+
 ## v1.0.797 — 2026-08-07
 
 - **Scene planning now reads your script, not Whisper's guess at it** — everything downstream of

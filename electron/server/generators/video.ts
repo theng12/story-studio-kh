@@ -46,7 +46,7 @@ import {
   calculateLogoPosition,
   computeVignetteAngle,
 } from '../lib/video-effects.js'
-import { requireJobCompletion } from '../services/job-completion.js'
+import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -4401,7 +4401,36 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     shouldRun?: (prevError: any) => boolean
     /** Human-readable description of what gets dropped at this tier. */
     degraded?: string
+    /** True when this tier bypasses `filter_complex` entirely, so every
+     *  burned-in feature the user asked for is discarded. */
+    dropsBurnedInFeatures?: boolean
   }
+
+  // ── What the user actually asked to be burned in ────────────────────────
+  //
+  // A recovery tier that bypasses the filter graph produces a complete,
+  // playable video with none of these in it. That is still the right
+  // trade — a watchable file beats a failed render — but a job that
+  // reports a bare `done` after discarding them is lying to the owner,
+  // who would publish a video missing features he explicitly requested
+  // with nothing on screen to suggest anything went wrong. So we inventory
+  // the request up front and diff it against what the winning tier kept.
+  const requestedBurnIns: string[] = []
+  if (colorGrading?.enabled) requestedBurnIns.push('color grading')
+  if (vignette?.enabled) requestedBurnIns.push('vignette')
+  if (filmGrain?.enabled) requestedBurnIns.push('film grain')
+  if (letterbox?.enabled) requestedBurnIns.push('letterbox')
+  if (frame?.enabled) requestedBurnIns.push('frame')
+  if (overlayLayers.length) {
+    requestedBurnIns.push(
+      overlayLayers.some(l => l.chroma_key)
+        ? `${overlayLayers.length} overlay layer(s) incl. chroma key`
+        : `${overlayLayers.length} overlay layer(s)`,
+    )
+  }
+  if (hasLogo) requestedBurnIns.push('logo')
+  if (subtitles?.enabled && subtitles.srt_path) requestedBurnIns.push('burned-in subtitles')
+  if (contextualCues?.length) requestedBurnIns.push(`${contextualCues.length} contextual cue(s)`)
 
   // The "minimal" builder rebuilds argv from scratch with only the safe
   // primitives: copy video stream as-is from the intermediate, map audio,
@@ -4456,6 +4485,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       label: 'H.264 · no effects (recovery)',
       note: '(recovery, H.264 minimal)',
       degraded: 'all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)',
+      dropsBurnedInFeatures: true,
       build: () => buildMinimalArgs('h264'),
     },
   ]
@@ -4540,6 +4570,17 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
   if (succeededTier !== tiers[0]) {
     job.output_lines.push(`✓ Final video produced via recovery tier — ${succeededTier.degraded || succeededTier.label}`)
+    // A recovery tier that bypassed the filter graph delivered a playable file
+    // with none of the requested burn-ins in it. Say so in the job's result;
+    // reporting a bare `done` here is what let a render ship missing both the
+    // contextual cues and the subtitles with nothing to flag it.
+    declareJobDegraded(job, {
+      tier: succeededTier.label,
+      reason: lastError?.message || 'the preferred encode failed',
+      requested: requestedBurnIns,
+      survived: succeededTier.dropsBurnedInFeatures ? [] : requestedBurnIns,
+      dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
+    })
   }
 }
 
