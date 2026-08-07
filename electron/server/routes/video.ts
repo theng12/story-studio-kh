@@ -14,7 +14,7 @@ import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animation
 import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
-import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
@@ -1092,7 +1092,6 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
         animation: style.animation || 'none',
       })
       await fs.writeFile(assFile, assDoc, 'utf-8')
-      const escapedAss = assFile.replace(/\\/g, '/').replace(/:/g, '\\:')
       const args: string[] = ['-y']
       if (bg && existsSync(bg)) {
         args.push(...(await stillDecoderArgs(bg)), '-loop', '1', '-t', DURATION.toString(), '-i', bg)
@@ -1101,7 +1100,7 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
           '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
       }
       args.push('-vf',
-        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,ass=filename='${escapedAss}',format=yuv420p`,
+        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,ass=filename=${escapeFilterPath(assFile)},format=yuv420p`,
       )
       args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
       args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')

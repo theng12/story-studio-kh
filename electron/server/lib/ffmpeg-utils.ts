@@ -134,6 +134,25 @@ export function escapeFilterArgValue(value: string): string {
   return level2.replace(/([\\'[\],;])/g, '\\$1')
 }
 
+/**
+ * Escape a filesystem path for use as an FFmpeg filter option value —
+ * `ass=filename=…`, `subtitles=filename=…`.
+ *
+ * Two steps. Windows separators are normalised to forward slashes first:
+ * FFmpeg accepts them on every platform, and it stops `C:\Users\…` becoming a
+ * thicket of escaped backslashes. Then the ordinary two-level filter escape
+ * applies — which is the part a path containing an apostrophe needs. An
+ * episode folder like `EP0068 - Rome's Fall` used to close the quoted run
+ * early and take the whole graph down with it, dropping the burned-in
+ * subtitles into the no-effects recovery tier. Same defect as the contextual
+ * cues, same fix, one implementation.
+ *
+ * The result is emitted unquoted, so call sites must NOT wrap it in quotes.
+ */
+export function escapeFilterPath(p: string): string {
+  return escapeFilterArgValue(p.replace(/\\/g, '/'))
+}
+
 // ── Still-image decoder sniffing (v1.0.515) ─────────────────────────────
 // FFmpeg 8.x's image2 demuxer picks the decoder by FILE EXTENSION. Nearly
 // every scene image in the wild is a JPEG saved as `.png` (image providers

@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.799 — 2026-08-07
+
+- **An apostrophe in an episode title no longer costs you the burned-in subtitles** — the same
+  fault fixed for Contextual Cues in v1.0.798 was sitting one step away, in the path handed to
+  FFmpeg for the subtitle file. Because episodes are named after their subject, a title like
+  **"Rome's Fall"** becomes a folder name with an apostrophe in it, and that apostrophe ended the
+  quoted path early exactly the way it ended a quoted cue. The composition would have been
+  rejected and the render would have fallen back to the recovery encode — which, until v1.0.798,
+  would have handed you a finished video with no subtitles and said nothing about it.
+
+  Nothing about your titles needs to change. Both the subtitle path and the cue text now run
+  through one shared escaper rather than two hand-written ones that had already drifted apart, and
+  the subtitle path is checked against FFmpeg itself using folder names carrying apostrophes,
+  commas, brackets and semicolons.
+
+---
+
 ## v1.0.798 — 2026-08-07
 
 - **Contextual Cues now actually appear on screen** — they never have. Every cue was written into

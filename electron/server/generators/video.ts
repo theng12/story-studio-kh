@@ -22,7 +22,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 // and title-hint semantics moved there verbatim).
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
-import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
@@ -4061,9 +4061,6 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     const { hasPreciseSubtitlePlacement, parseSrt, srtToAss } = await import('../lib/subtitle-builder.js')
     const precisePlacement = hasPreciseSubtitlePlacement(subtitles.style)
     const st = vn()
-    // FFmpeg filter-graph paths escape: backslashes, colons (Windows drive
-    // letters). Forward slashes are fine even on Windows.
-    const escFor = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:')
     let wired = false
     if (anim !== 'none' || precisePlacement) {
       // v1.0.353 — animated captions need a full ASS document (force_style
@@ -4085,7 +4082,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // grade, vignette, grain, logo AND subtitles). The intro is already
           // excluded because the stitched SRT's cue timestamps are offset past
           // the intro/title lead-in, so there are no cues to suppress in 0–startSec.
-          filterParts.push(`${vLabel}ass=filename='${escFor(assPath)}'${st}`)
+          filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}${st}`)
           const mode = anim !== 'none' ? `animated (${anim})` : 'precisely positioned'
           job.output_lines.push(`Burning in ${mode} subtitles: ${path.basename(subtitles.srt_path)}`)
           wired = true
@@ -4106,7 +4103,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       // reference — it only corrects aspect-ratio distortion; the v1.0.413
       // assumption that it pinned a 1080 reference is why rendered fonts
       // came out 3.75× larger than the preview.)
-      filterParts.push(`${vLabel}subtitles=filename='${escFor(subtitles.srt_path)}':original_size=1920x1080:force_style='${ass}'${st}`)
+      filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=1920x1080:force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
     }
     vLabel = st

@@ -28,11 +28,12 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { escapeFilterArgValue } from '../lib/ffmpeg-utils.js'
+import { escapeFilterArgValue, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
 import type { ContextualCue } from '../models/types.js'
 
@@ -206,4 +207,93 @@ describe('contextual cue filters accepted by the real FFmpeg parser', { skip: FF
     assert.equal(filters.length, 15, 'map-pin contributes a pin plus a label')
     await renderGraph(filters)
   })
+})
+
+// ── Subtitle burn-in paths ──────────────────────────────────────────────
+//
+// Same defect as the cues, one call site over: `subtitles=filename=` and
+// `ass=filename=` quoted the path and escaped only backslash and colon. An
+// episode folder carrying an apostrophe — the channel names episodes after
+// their subject, so "Rome's Fall" is ordinary — closed the quoted run early
+// and took the whole graph down, dropping burned-in subtitles into the
+// no-effects recovery tier.
+
+const HOSTILE_DIRS = [
+  "EP0068 - Rome's Fall",
+  'EP0069 - Chapter 1, Revisited',
+  "EP0070 - What's [Left]; After",
+]
+
+describe('escapeFilterPath', () => {
+  test('normalises Windows separators before escaping', () => {
+    const win = 'C:\\Users\\kh\\subs.srt'
+    assert.equal(escapeFilterPath(win), escapeFilterArgValue('C:/Users/kh/subs.srt'))
+    // FFmpeg must receive forward slashes; the drive-letter colon is still
+    // escaped (which is itself a backslash, so only the separators are checked).
+    assert.equal(unescapeBothLevels(escapeFilterPath(win)), 'C:/Users/kh/subs.srt')
+  })
+
+  test('a path survives both unescaping passes', () => {
+    for (const dir of HOSTILE_DIRS) {
+      const p = `/Story Studio Projects/Boundful/${dir}/subs.srt`
+      assert.equal(unescapeBothLevels(`${escapeFilterPath(p)}:original_size=1920x1080`), p, `round trip failed for: ${dir}`)
+    }
+  })
+
+  test('an apostrophe in the path cannot terminate the value early', () => {
+    const emitted = escapeFilterPath("/eps/EP0068 - Rome's Fall/subs.srt")
+    const { rest } = avGetToken(`filename=${emitted}:original_size=1920x1080`, '[],;')
+    assert.equal(rest, '', 'the path leaked a filtergraph terminator')
+  })
+})
+
+describe('subtitle burn-in accepted by the real FFmpeg parser', { skip: FFMPEG ? false : 'no ffmpeg found (run `npm run fetch:ffmpeg`)' }, () => {
+  const SRT = '1\n00:00:00,000 --> 00:00:01,000\nBurned in\n\n'
+
+  for (const dir of HOSTILE_DIRS) {
+    test(`subtitles=filename= under ${JSON.stringify(dir)}`, async () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'ssk-subpath-'))
+      try {
+        const epDir = path.join(root, dir)
+        mkdirSync(epDir, { recursive: true })
+        const srt = path.join(epDir, 'subs.srt')
+        writeFileSync(srt, SRT, 'utf8')
+        // The exact shape video.ts emits, force_style clause included.
+        const style = 'FontName=Helvetica,FontSize=21,Alignment=2'
+        await run(FFMPEG!, [
+          '-hide_banner', '-f', 'lavfi', '-i', 'color=c=black:s=320x180:d=0.1',
+          '-filter_complex',
+          `[0:v]subtitles=filename=${escapeFilterPath(srt)}:original_size=1920x1080:force_style='${style}'[vout]`,
+          '-map', '[vout]', '-frames:v', '1', '-f', 'null', '-',
+        ])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    test(`ass=filename= under ${JSON.stringify(dir)}`, async () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'ssk-asspath-'))
+      try {
+        const epDir = path.join(root, dir)
+        mkdirSync(epDir, { recursive: true })
+        const assPath = path.join(epDir, 'subs.ass')
+        writeFileSync(assPath, [
+          '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 384', 'PlayResY: 288', '',
+          '[V4+ Styles]',
+          'Format: Name, Fontname, Fontsize, PrimaryColour, Alignment, MarginL, MarginR, MarginV, Encoding',
+          'Style: Default,Helvetica,21,&H00FFFFFF&,2,10,10,10,1', '',
+          '[Events]',
+          'Format: Layer, Start, End, Style, Text',
+          'Dialogue: 0,0:00:00.00,0:00:01.00,Default,Burned in',
+        ].join('\n'), 'utf8')
+        await run(FFMPEG!, [
+          '-hide_banner', '-f', 'lavfi', '-i', 'color=c=black:s=320x180:d=0.1',
+          '-filter_complex', `[0:v]ass=filename=${escapeFilterPath(assPath)}[vout]`,
+          '-map', '[vout]', '-frames:v', '1', '-f', 'null', '-',
+        ])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
 })
