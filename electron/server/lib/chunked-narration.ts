@@ -1087,12 +1087,31 @@ async function buildOutline(
   // The model occasionally repeats chapter numbers or skips one; we
   // backfill any gaps with placeholder titles to keep the contract
   // (callers expect `outline.length === totalChapters`).
+  //
+  // THE BACKFILL IS ANNOUNCED, NOT SILENT. `outlineOutputContract` demands
+  // exactly `totalChapters` entries, but JSON Schema cannot say "these `n`
+  // values are distinct and cover 1..N" — so a response of the right LENGTH
+  // with a repeated or out-of-range `n` passes validation and lands here. Every
+  // slot it fails to cover becomes a placeholder with no synopsis, beats or
+  // hook, which expansion then turns into unanchored filler narration that
+  // passes every downstream completion audit (they all measure against this
+  // padded array). That is the one way a partial outline can reach disk, so it
+  // is named in the job log at the moment it happens, while the outline is
+  // still cheap to reject and rebuild.
   const byN = new Map<number, OutlineEntry>()
+  const duplicated: number[] = []
+  const outOfRange: unknown[] = []
   for (const item of arr) {
     if (!item || typeof item !== 'object') continue
     const n = Number(item.n)
-    if (!Number.isFinite(n) || n < 1 || n > params.totalChapters) continue
-    if (byN.has(n)) continue
+    if (!Number.isFinite(n) || n < 1 || n > params.totalChapters) {
+      outOfRange.push(item.n)
+      continue
+    }
+    if (byN.has(n)) {
+      duplicated.push(n)
+      continue
+    }
     byN.set(n, {
       n,
       title: String(item.title || `Chapter ${n}`).trim() || `Chapter ${n}`,
@@ -1103,10 +1122,25 @@ async function buildOutline(
     })
   }
   const out: OutlineEntry[] = []
+  const synthesized: number[] = []
   for (let n = 1; n <= params.totalChapters; n++) {
     const e = byN.get(n)
     if (e) out.push(e)
-    else out.push({ n, title: `Chapter ${n}` })
+    else {
+      synthesized.push(n)
+      out.push({ n, title: `Chapter ${n}` })
+    }
+  }
+  if (synthesized.length) {
+    const t = sectionTerms(params)
+    job.output_lines.push(
+      `[chunked] Outline covered ${byN.size}/${params.totalChapters} ${t.plural.toLowerCase()}. `
+      + `Placeholder ${synthesized.length === 1 ? t.singular.toLowerCase() : t.plural.toLowerCase()} `
+      + `${synthesized.join(', ')} had no plan and will expand as unanchored filler — `
+      + `rebuild the outline before expanding, or edit ${synthesized.length === 1 ? 'it' : 'them'} in the outline review.`
+      + (duplicated.length ? ` The model repeated ${t.singular.toLowerCase()} number(s) ${[...new Set(duplicated)].join(', ')}.` : '')
+      + (outOfRange.length ? ` It also returned ${outOfRange.length} entr${outOfRange.length === 1 ? 'y' : 'ies'} numbered outside 1-${params.totalChapters}.` : ''),
+    )
   }
   return out
 }
@@ -1169,8 +1203,15 @@ function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): str
   // hardcoded; we now route through the format's term ("Topic" for
   // listicle, "Reason" for bound-explainer, etc.) so the LLM produces
   // matching headings naturally.
+  // The key is "title", not "topic_title". `outlineOutputContract` requires
+  // `title` under `additionalProperties: false`, so the old `topic_title`
+  // asked the model for a shape this workflow is guaranteed to reject —
+  // every compact listicle outline (totalChapters > COMPACT_OUTLINE_THRESHOLD)
+  // that obeyed the prompt failed local validation twice over, for a missing
+  // required key and an unexpected one. The format's own term still shapes the
+  // headings through `sectionTerms`; only the JSON key is fixed.
   const fieldHint = compact
-    ? `Each entry: { "n": <int>, "topic_title": "...", "hook_line": "1-line hook" }`
+    ? `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook" }`
     : `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook", "key_facts": ["fact 1", "fact 2", "fact 3"] }`
   return `Plan a listicle / explainer episode. Output ONLY one JSON object with a "chapters" array containing exactly ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
 
@@ -1841,7 +1882,13 @@ async function callForJsonArray(
           ? (parsed as any).chapters
           : null
       if (chapters) return chapters
-      lastErr = 'JSON object has no chapters array'
+      // Name the shape that came back. A contract mismatch already arrives
+      // with a path and a reason from `explainJsonSchemaMismatch` (it is
+      // thrown by `callAiWithRetry`, outside this try); this branch is the one
+      // remaining local rejection on the outline path, so it says as much.
+      lastErr = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? `the JSON object has no "chapters" array (present: ${JSON.stringify(Object.keys(parsed as object))})`
+        : `expected a JSON object with a "chapters" array, got ${parsed === null ? 'null' : typeof parsed}`
     } catch (e: any) {
       lastErr = e?.message || String(e)
     }

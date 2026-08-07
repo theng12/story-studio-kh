@@ -427,12 +427,22 @@ test('local validation rejects bad output without ever claiming the request was 
     assert.match(invalidJson.message, /invalid JSON.*rejected locally/i)
     assert.doesNotMatch(invalidJson.message, UNCHARGED_CLAIM)
 
-    // (f) Valid JSON of the wrong shape.
+    // (f) Valid JSON of the wrong shape — the ENVELOPE, not a single row.
+    //
+    // `{"thumbnails":[{"title":"Only one"}]}` used to be the fixture here, and
+    // used to be rejected: the contract demanded exactly two items, so a batch
+    // one row short voided the whole answer. That is precisely the defect the
+    // scene prompt pack fix (060ac5e) removed, and the thumbnail batch now
+    // carries the same `accept` envelope for the same reason — a row that
+    // arrived is a row the account was charged for, and `targetNumbers` +
+    // `requireJobCompletion` + `fill_gaps` already report and repair the slot
+    // that did not. What is still refused locally is an answer with nothing
+    // usable in it at all, which is what this now asserts.
     globalThis.fetch = async (input) => {
       const url = String(input)
       if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
-      return Response.json(chatJob('{"thumbnails":[{"title":"Only one"}]}'))
+      return Response.json(chatJob('{"variations":[]}'))
     }
     const wrongShape = await callChatWithGenStudio('wrong-shape-key', {
       modelId: 'writer-alpha',
@@ -442,9 +452,26 @@ test('local validation rejects bad output without ever claiming the request was 
     }).then(() => null, (error: Error) => error)
     assert.ok(wrongShape instanceof Error)
     assert.match(wrongShape.message, /did not match the story_thumbnail_prompts response schema/i)
+    // The message names the failing path and the reason, not just "bad shape".
+    assert.match(wrongShape.message, /missing required key "thumbnails" \(present: \["variations"\]\)/)
 
     // (g) Both failures happened after a completed provider request.
     assert.doesNotMatch(wrongShape.message, UNCHARGED_CLAIM)
+
+    // (h) And a batch one row short is now KEPT, not discarded.
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog('json_object'))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(chatJob('{"thumbnails":[{"title":"Only one","prompt":"A lit corridor."}]}'))
+    }
+    const short = await callChatWithGenStudio('short-batch-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'Two thumbnails please.',
+      outputContract: thumbnailPromptsOutputContract(2),
+    })
+    assert.equal(JSON.parse(short.text).thumbnails.length, 1)
   } finally {
     globalThis.fetch = originalFetch
   }

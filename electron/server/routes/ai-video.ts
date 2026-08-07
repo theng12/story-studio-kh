@@ -27,6 +27,60 @@ import { videoPromptsOutputContract } from '../lib/story-output-contracts.js'
 
 export const router = Router()
 
+/**
+ * Keep the clip prompts that are safely usable, and say which scene numbers
+ * came back uncovered.
+ *
+ * THIS IS THE PER-ITEM GUARANTEE for video prompts, and it has to be here
+ * because there is nowhere else it can be. `number` is model-supplied and
+ * load-bearing: `generators/ai-video.ts` pairs a prompt with its start image by
+ * `sceneImages.find(s => s.number === p.number)` and names the output
+ * `<EP>_VideoNN_v1.mp4`. Nothing between this route and that lookup checks the
+ * number — the save route writes whatever heading it is given, and the parser
+ * reads whatever heading it finds. So an out-of-range number pairs a prompt
+ * with the wrong scene, and a duplicate number silently overwrites a clip.
+ *
+ * `videoPromptsOutputContract` used to stand in for this check by demanding
+ * exactly `count` items — which never actually enforced uniqueness or coverage,
+ * and did guarantee that one malformed row discarded every correct prompt in a
+ * batch the account had already been charged for. The contract now accepts the
+ * envelope; this function is what makes that safe.
+ *
+ *   - `number` must be an integer within 1..count, the same allowed set the
+ *     request was built from. Anything else is dropped, never renumbered:
+ *     inventing a slot for a row whose address we do not trust is exactly the
+ *     silent-wrong-result this exists to prevent.
+ *   - The first row to claim a number keeps it. A duplicate is dropped rather
+ *     than allowed to overwrite an earlier clip.
+ *   - A row with no usable prompt text is dropped.
+ *
+ * Returns the surviving rows in scene order plus the numbers left uncovered.
+ * There is no bounded "re-request only the missing numbers" pass for this
+ * stage, so `missing` is reported rather than repaired — the caller re-runs the
+ * batch knowingly instead of discovering the gap at clip-generation time.
+ */
+export function normalizeVideoPromptScenes(
+  raw: unknown,
+  count: number,
+): { scenes: Array<{ number: number; title: string; prompt: string }>; missing: number[] } {
+  const rows = Array.isArray(raw) ? raw : []
+  const byNumber = new Map<number, { number: number; title: string; prompt: string }>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const number = Number((row as any).number)
+    if (!Number.isInteger(number) || number < 1 || number > count) continue
+    if (byNumber.has(number)) continue
+    const prompt = typeof (row as any).prompt === 'string' ? (row as any).prompt.trim() : ''
+    if (!prompt) continue
+    const title = typeof (row as any).title === 'string' ? (row as any).title.trim() : ''
+    byNumber.set(number, { number, title: title || `Scene ${number}`, prompt })
+  }
+  const scenes = [...byNumber.values()].sort((a, b) => a.number - b.number)
+  const missing: number[] = []
+  for (let number = 1; number <= count; number++) if (!byNumber.has(number)) missing.push(number)
+  return { scenes, missing }
+}
+
 // ── Built-in video-prompt catalog (pain-point: quick-start library) ──────
 router.get('/projects/:slug/video-prompts/catalog', async (_req, res) => {
   res.json({ prompts: BUILT_IN_VIDEO_PROMPTS })
@@ -110,8 +164,37 @@ RETURN ONLY THIS JSON (no markdown):
     if (text.startsWith('```')) text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
     const start = text.indexOf('{')
     const end = text.lastIndexOf('}')
-    const parsed = JSON.parse(text.slice(start, end + 1))
-    res.json({ scenes: parsed.scenes || [] })
+    if (start < 0 || end <= start) {
+      throw new Error(
+        'GenStudio completed the request, but the video-prompt response contained no JSON object '
+        + `(${text.length} character(s) returned). The result was rejected locally.`,
+      )
+    }
+    let parsed: any
+    try {
+      parsed = JSON.parse(text.slice(start, end + 1))
+    } catch (error: any) {
+      throw new Error(
+        `GenStudio completed the request, but the video-prompt response was not valid JSON — ${error?.message || error}. The result was rejected locally.`,
+      )
+    }
+    // The contract accepts the envelope; per-scene correctness is enforced here.
+    const { scenes, missing } = normalizeVideoPromptScenes(parsed?.scenes, nClips)
+    if (!scenes.length) {
+      throw new Error(
+        `GenStudio completed the request, but none of the ${Array.isArray(parsed?.scenes) ? parsed.scenes.length : 0} returned `
+        + `entr${Array.isArray(parsed?.scenes) && parsed.scenes.length === 1 ? 'y' : 'ies'} carried a usable prompt with a scene number in 1-${nClips}. `
+        + 'The result was rejected locally.',
+      )
+    }
+    res.json({
+      scenes,
+      requested: nClips,
+      // Stated, not inferred. There is no bounded repair pass for this stage,
+      // so a gap here means re-running the batch — which the caller should be
+      // told about rather than discover when a clip has no prompt.
+      missing,
+    })
   } catch (e: any) {
     respondWithError(res, e, 'Video prompt generation failed')
   }

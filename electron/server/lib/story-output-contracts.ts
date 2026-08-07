@@ -15,53 +15,142 @@ function localSchema(name: string, schema: Record<string, unknown>): JsonObjectC
   return { mode: 'json_object', name, schema }
 }
 
+/**
+ * One batch of thumbnail briefs for a single episode.
+ *
+ * WHAT IS ASKED FOR is unchanged in substance: exactly one entry per requested
+ * thumbnail slot, a headline and a prompt on each. `number` is now DECLARED
+ * rather than forbidden, which fixes a contradiction that could only ever
+ * destroy paid work: `buildThumbnailPrompt` shows the model the literal shape
+ * `{"number": N, "title": …, "prompt": …}` and tells it "return entries for
+ * thumbnail numbers 2, 5, 7 in that order", while this schema listed only
+ * `title` + `prompt` under `additionalProperties: false`. A model that obeyed
+ * the prompt was rejected for an "unexpected key" it had been explicitly asked
+ * to send. Story Studio still IGNORES the returned value (see below); it is
+ * declared so that following the instructions is not a failure.
+ *
+ * WHAT IS ACCEPTED is the envelope, and the slot→prompt guarantee does not live
+ * here — it cannot, because the model never addresses a slot. Numbering is
+ * assigned by Story Studio in `generators/image-prompts.ts`:
+ *
+ *   1. `targetNumbers` is computed locally as the slots 1..count that are NOT
+ *      already verified on disk. It is the only source of thumbnail numbers.
+ *   2. `normalizeGeneratedPromptItems` drops any item without a non-empty
+ *      string `prompt`, and slices to `targetNumbers.length`, so an over-long
+ *      or half-formed batch cannot overflow the requested slots.
+ *   3. The caller then stamps `number: targetNumbers[index]`, so a returned row
+ *      can only ever land on a slot this run asked for — and the episode is
+ *      fixed by the job, never by the response.
+ *
+ * COMPLETENESS is enforced after that, from the merged set: `missing` is
+ * recomputed over 1..count and handed to `requireJobCompletion`, and the
+ * `fill_gaps` path re-requests exactly the missing slots. A short batch is
+ * therefore already a first-class outcome — k prompts saved, count-k reported
+ * and repairable. Demanding exactly `count` items here could only convert that
+ * into zero prompts saved and nothing to repair.
+ */
 export function thumbnailPromptsOutputContract(count: number): TextOutputContract {
-  return localSchema('story_thumbnail_prompts', {
-    type: 'object',
-    properties: {
-      thumbnails: {
-        type: 'array',
-        minItems: count,
-        maxItems: count,
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string', minLength: 1, maxLength: 200 },
-            prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+  return {
+    ...localSchema('story_thumbnail_prompts', {
+      type: 'object',
+      properties: {
+        thumbnails: {
+          type: 'array',
+          minItems: count,
+          maxItems: count,
+          items: {
+            type: 'object',
+            properties: {
+              // Asked for, echoed back, and then deliberately overwritten with
+              // the locally computed slot. Declared with no `maximum`: under
+              // `fill_gaps` the requested slots are sparse (2, 5, 7 of 8) and
+              // legitimately exceed `count`, which is the number of slots still
+              // outstanding, not the highest slot.
+              number: { type: 'integer', minimum: 1 },
+              title: { type: 'string', minLength: 1, maxLength: 200 },
+              prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+            },
+            required: ['title', 'prompt'],
+            additionalProperties: false,
           },
-          required: ['title', 'prompt'],
-          additionalProperties: false,
         },
       },
+      required: ['thumbnails'],
+      additionalProperties: false,
+    }),
+    // A batch with no usable row at all is still refused here, loudly. The
+    // generator would otherwise report `count` silent omissions instead of one
+    // empty answer.
+    accept: {
+      type: 'object',
+      properties: { thumbnails: { type: 'array', minItems: 1 } },
+      required: ['thumbnails'],
     },
-    required: ['thumbnails'],
-    additionalProperties: false,
-  })
+  }
 }
 
+/**
+ * One batch of AI-video clip prompts, addressed by scene `number`.
+ *
+ * UNLIKE THE THUMBNAIL BATCH, the number here is load-bearing and MODEL-SUPPLIED:
+ * `generators/ai-video.ts` pairs each prompt with its start image by
+ * `sceneImages.find(s => s.number === p.number)` and writes the clip to
+ * `<EP>_VideoNN_v1.mp4`. A wrong number pairs a prompt with the wrong image; a
+ * duplicated number silently overwrites a clip. So the envelope was loosened
+ * only AFTER the missing per-item guard was added at the boundary that reads
+ * this response — `normalizeVideoPromptScenes` in `routes/ai-video.ts`:
+ *
+ *   1. a row is kept only if `number` is an integer within 1..count, which is
+ *      the same allowed set the request was built from;
+ *   2. the first row to claim a number keeps it — a duplicate is dropped rather
+ *      than allowed to overwrite a clip;
+ *   3. a row without a non-empty prompt is dropped;
+ *   4. the surviving rows are sorted by number, and the numbers NOT covered are
+ *      returned as `missing` so the shortfall is stated instead of inferred.
+ *
+ * That filter, not the item count, is what keeps a prompt on its own scene.
+ * With it in place a partial batch is meaningful — each clip prompt is
+ * independently usable, and the scenes it does cover generate correctly — so an
+ * exact-count check here could only throw away usable, already-charged prompts.
+ *
+ * NO REPAIR MACHINERY EXISTS FOR THIS STAGE. There is no "request only the
+ * missing clip numbers" pass, as scene prompts have; the route is synchronous
+ * and the caller re-runs the whole batch. `missing` is reported for that reason
+ * — so a re-run is a decision rather than a surprise. Building a bounded repair
+ * here is deliberately left undone rather than guessed at.
+ */
 export function videoPromptsOutputContract(count: number): TextOutputContract {
-  return localSchema('story_video_prompts', {
-    type: 'object',
-    properties: {
-      scenes: {
-        type: 'array',
-        minItems: count,
-        maxItems: count,
-        items: {
-          type: 'object',
-          properties: {
-            number: { type: 'integer', minimum: 1, maximum: count },
-            title: { type: 'string', minLength: 1, maxLength: 200 },
-            prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+  return {
+    ...localSchema('story_video_prompts', {
+      type: 'object',
+      properties: {
+        scenes: {
+          type: 'array',
+          minItems: count,
+          maxItems: count,
+          items: {
+            type: 'object',
+            properties: {
+              number: { type: 'integer', minimum: 1, maximum: count },
+              title: { type: 'string', minLength: 1, maxLength: 200 },
+              prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
+            },
+            required: ['number', 'title', 'prompt'],
+            additionalProperties: false,
           },
-          required: ['number', 'title', 'prompt'],
-          additionalProperties: false,
         },
       },
+      required: ['scenes'],
+      additionalProperties: false,
+    }),
+    // As above: no usable row at all is still an empty answer, and is refused
+    // as one rather than reported as `count` separate omissions.
+    accept: {
+      type: 'object',
+      properties: { scenes: { type: 'array', minItems: 1 } },
+      required: ['scenes'],
     },
-    required: ['scenes'],
-    additionalProperties: false,
-  })
+  }
 }
 
 /**
@@ -349,6 +438,51 @@ export function imagePoolPromptsOutputContract(): TextOutputContract {
   })
 }
 
+/**
+ * The chapter outline for one episode.
+ *
+ * THIS ONE STAYS STRICT, ON PURPOSE. It is the third contract in this file that
+ * demands `minItems === maxItems`, and the only one where relaxing it would
+ * make things worse rather than better. Three reasons, in order of weight:
+ *
+ * 1. A PARTIAL OUTLINE IS NOT PARTIAL WORK — IT IS A WRONG ANSWER. A scene
+ *    prompt pack is 40 independent answers to 40 independent questions, so 39
+ *    of them are worth 39/40. An outline is ONE answer: a single arc, planned
+ *    as a whole, in which chapter 1 hooks, the middle develops and chapter N
+ *    resolves (see `narrativeOutlinePrompt`). Seven of ten chapters is not
+ *    seven-tenths of that arc; it is a different, truncated story whose ending
+ *    is missing. Chapter numbering carries meaning here in a way a thumbnail
+ *    slot does not.
+ *
+ * 2. THERE IS NO REPAIR MACHINERY TO RE-REQUEST THE MISSING CHAPTERS. Scene
+ *    prompts have `auditScenePromptCompletion` and a bounded repair pack scoped
+ *    to the missing ids; thumbnails have `fill_gaps` + `targetNumbers`.
+ *    The outline stage has neither: `callForJsonArray`'s retry loop is disabled
+ *    for hosted products, `withModelFallback` retries only a dead product id,
+ *    and `job-retry-policy` makes `outline_only` MANUAL_ONLY. The only recovery
+ *    is a human rebuilding the whole outline. Accepting a short one would
+ *    therefore not buy a repairable partial — there is nothing to repair with.
+ *
+ * 3. A SHORT OUTLINE DOES NOT STAY SHORT — IT GETS PADDED. `buildOutline`
+ *    backfills every uncovered slot with `{ n, title: "Chapter n" }` so callers
+ *    keep `outline.length === totalChapters`. Those placeholders carry no
+ *    synopsis, beats or hook; they are expanded into unanchored filler
+ *    narration, written to disk, and then pass every completion audit
+ *    (`requireJobCompletion` in `generators/episode.ts` compares against the
+ *    padded length, and `inspectChunkedScriptCompletion` derives its expected
+ *    numbers from the padded sidecar). Loosening `minItems` would convert this
+ *    contract's loud, cheap, pre-expansion rejection into a full-length episode
+ *    with hollow chapters that nothing downstream reports — trading one failed
+ *    outline request for a whole expansion run's worth of wasted credits.
+ *
+ * The one thing that WAS wrong here is that reason 3 could already happen
+ * without this contract noticing: `chapters` of the right LENGTH but with a
+ * repeated or out-of-range `n` (`1,2,…,9,9`) satisfies every bound below, and
+ * `buildOutline` deduplicated it into a silent placeholder. JSON Schema cannot
+ * express "these `n` values are distinct and cover 1..N", so that check lives
+ * where it can — `buildOutline` now names every slot it had to synthesise, in
+ * the job log, instead of padding in silence.
+ */
 export function outlineOutputContract(chapterCount: number): TextOutputContract {
   return localSchema('story_outline', {
     type: 'object',

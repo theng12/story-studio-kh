@@ -124,8 +124,26 @@ async function readStoryContext(
 
 function parseThumbnailPromptsJson(raw: string): any[] {
   const parsed = parseStructuredJson(raw) as Record<string, unknown>
-  if (!parsed || Array.isArray(parsed)) throw new Error('LLM returned no JSON object')
-  return Array.isArray(parsed.thumbnails) ? parsed.thumbnails : []
+  // Name what came back instead of what did not. Every failure here happens
+  // after GenStudio completed and charged for the request, so "no JSON object"
+  // with nothing else attached was the same information-destroying message that
+  // made the scene-pack incident cost hours to diagnose.
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(
+      `GenStudio completed the request, but the thumbnail response parsed to ${parsed === null ? 'null' : typeof parsed}, not a JSON object. The result was rejected locally.`,
+    )
+  }
+  if (Array.isArray(parsed)) {
+    throw new Error(
+      `GenStudio completed the request, but the thumbnail response was a bare array of ${parsed.length}, not an object with a "thumbnails" key. The result was rejected locally.`,
+    )
+  }
+  if (!Array.isArray(parsed.thumbnails)) {
+    throw new Error(
+      `GenStudio completed the request, but the thumbnail response has no "thumbnails" array (present: ${JSON.stringify(Object.keys(parsed))}). The result was rejected locally.`,
+    )
+  }
+  return parsed.thumbnails
 }
 
 export function normalizeGeneratedPromptItems(items: any[], expected: number): any[] {
