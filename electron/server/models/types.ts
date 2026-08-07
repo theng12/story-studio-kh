@@ -3831,15 +3831,39 @@ export interface ContextualCue {
   updated_at: string
 }
 
+/** A cue an automatic pass declined to approve, and the validator detail(s) why. Never a silent drop. */
+export interface ContextualCueAutoApprovalHold {
+  cue_id: string
+  reasons: string[]
+}
+
 export interface ContextualCueTimeline {
   schema_version: 1
   generated_at: string
   source_scene_plan_generated_at: string
   cues: ContextualCue[]
+  /**
+   * Set only by an automatic proposal pass (project config `auto_approve_cues`)
+   * that held one or more cues back from approval. Replaced on every new
+   * proposal; a manual timeline save (PUT /contextual-cues/:episodeId) drops
+   * it, since a human has taken over review at that point.
+   */
+  auto_approval_holds?: ContextualCueAutoApprovalHold[]
 }
 
 export interface ContextualCueProjectConfig {
   enabled: boolean
+  /**
+   * Default OFF — manual review stays the default until a project earns
+   * trust. When true, a proposal pass auto-approves any cue that clears
+   * every structural rule `validateContextualCueTimeline` already enforces
+   * (in-scene timing, 2.25–4.5s duration, title/subtitle length, valid
+   * template/placement, no crowding within 0.5s of another approved cue).
+   * A cue that fails any of those stays `proposed` instead of being silently
+   * dropped; see `auto_approval_holds`. This never weakens a structural
+   * rule — see `autoApproveEligibleCues` and `assertContextualCueReadiness`.
+   */
+  auto_approve_cues: boolean
 }
 
 /**
@@ -3851,7 +3875,11 @@ export interface ContextualCueProposalSettings {
   model: string
   density: ContextualCueDensity
   placement: ContextualCuePlacement
-  /** Explicit opt-in for trusted presets. Defaults to human review. */
+  /**
+   * Explicit opt-in for trusted presets, remembered per browser/preset —
+   * independent from the persisted project default `auto_approve_cues`
+   * above. Defaults to human review.
+   */
   auto_approve: boolean
 }
 

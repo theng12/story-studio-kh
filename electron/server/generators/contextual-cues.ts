@@ -13,6 +13,7 @@ import { getConfig } from '../services/project-manager.js'
 import { isCancelled } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
+  autoApproveEligibleCues,
   normalizeContextualCueConfig,
   readContextualCueTimeline,
   normalizeContextualCueProposalSettings,
@@ -21,7 +22,7 @@ import {
   writeContextualCueTimeline,
 } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import type { ContextualCue, ContextualCueKind, ContextualCueTemplate, Job, ScenePlan } from '../models/types.js'
+import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 
 interface CueCandidate {
@@ -143,28 +144,54 @@ export async function generateContextualCues(job: Job): Promise<void> {
     job.progress = Math.round(((index + 1) / batches.length) * 80)
   }
   const now = new Date().toISOString()
-  const proposed = applySafePacing(
+  let proposed = applySafePacing(
     candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings.placement, now)).filter((cue): cue is ContextualCue => !!cue),
     settings.density,
     plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
   )
-  if (settings.auto_approve) {
+  // v1.0.796 — project-level "Approve cues automatically" (config.auto_approve_cues,
+  // default OFF). This is a SEPARATE, persisted mode from the per-run/preset
+  // `settings.auto_approve` checkbox below it: when the project default is on,
+  // it takes over entirely and runs the safe, per-cue approval pass instead —
+  // a cue only becomes 'approved' if it clears every structural rule
+  // validateContextualCueTimeline enforces for a human reviewer; anything that
+  // doesn't stays 'proposed' and is recorded in auto_approval_holds, never
+  // silently dropped. When the project default is off (the untouched default
+  // for every project), this branch never runs and the block below it —
+  // `settings.auto_approve`'s old all-or-nothing approval — is byte-identical
+  // to before this setting existed.
+  let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
+  if (config.auto_approve_cues) {
+    const result = autoApproveEligibleCues(proposed, protectedCues, plan)
+    proposed = result.cues
+    autoApprovalHolds = result.holds
+  } else if (settings.auto_approve) {
     for (const cue of proposed) cue.status = 'approved'
   }
-  const timeline = {
+  const timeline: ContextualCueTimeline = {
     schema_version: 1 as const,
     generated_at: now,
     source_scene_plan_generated_at: plan.generated_at,
     cues: [...protectedCues, ...proposed],
+    ...(autoApprovalHolds.length ? { auto_approval_holds: autoApprovalHolds } : {}),
   }
-  const issues = validateContextualCueTimeline(timeline, plan)
+  // Cues already recorded in auto_approval_holds were deliberately left
+  // 'proposed' after failing a structural check; their issue is already
+  // captured and shown to the reviewer, so it must not re-trip this
+  // safety net and abort the whole save. Every other issue still aborts,
+  // exactly as before this setting existed.
+  const heldIds = new Set(autoApprovalHolds.map(hold => hold.cue_id))
+  const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
   if (issues.length) throw new Error(`Generated cues did not pass safe pacing validation: ${issues.slice(0, 3).map(issue => issue.detail).join('; ')}`)
   await writeContextualCueTimeline(planPath, timeline)
   job.output_dir = paths.episode_dir
   job.progress = 100
-  job.result = { proposed: settings.auto_approve ? 0 : proposed.length, approved: settings.auto_approve ? proposed.length : 0, preserved: protectedCues.length }
-  job.output_lines.push(settings.auto_approve
-    ? `Saved and auto-approved ${proposed.length} contextual cue(s) using this trusted preset. The validated timeline can continue through Pipeline.`
-    : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
+  const approvedNow = proposed.filter(cue => cue.status === 'approved').length
+  job.result = { proposed: proposed.length - approvedNow, approved: approvedNow, preserved: protectedCues.length, held_back: autoApprovalHolds.length }
+  job.output_lines.push(config.auto_approve_cues
+    ? `Saved ${proposed.length} contextual cue(s): ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
+    : settings.auto_approve
+      ? `Saved and auto-approved ${proposed.length} contextual cue(s) using this trusted preset. The validated timeline can continue through Pipeline.`
+      : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
   requireJobCompletion(job, { label: 'Contextual cue proposal', expected: 1, completed: 1 })
 }

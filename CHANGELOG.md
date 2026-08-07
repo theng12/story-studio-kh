@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.796 — 2026-08-07
+
+- **Contextual Cues can now approve themselves, once you trust them** — reviewing every proposed
+  cue was the whole point when the feature shipped, but a channel running the same trusted preset
+  five times in a row got no benefit from reviewing the sixth. Contextual Cues now has an
+  **Approve cues automatically** project setting, off by default. Turning it on does not relax
+  anything: a cue still has to pass every structural check a human reviewer is held to — inside
+  its scene, 2.25–4.5 seconds readable, no crowding within 0.5s of another approved cue, valid
+  treatment and placement. A cue that clears all of that is approved without waiting on you; a
+  cue that fails one is left in review with the exact reason shown next to it, never silently
+  dropped. Manual mode is untouched — a project that never turns this on behaves exactly as it
+  always has.
+
 ## v1.0.795 — 2026-08-07
 
 - **A channel can now set its look once, instead of per episode** — a project's art style lived

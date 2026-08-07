@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import type {
   ContextualCue,
+  ContextualCueAutoApprovalHold,
   ContextualCuePlacement,
   ContextualCueProposalSettings,
   ContextualCueProjectConfig,
@@ -15,6 +16,7 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
 export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   enabled: false,
+  auto_approve_cues: false,
 }
 
 export const DEFAULT_CONTEXTUAL_CUE_PROPOSAL_SETTINGS: ContextualCueProposalSettings = {
@@ -28,6 +30,8 @@ export function normalizeContextualCueConfig(value: unknown): ContextualCueProje
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return {
     enabled: raw.enabled === true,
+    // Default OFF — see ContextualCueProjectConfig.auto_approve_cues.
+    auto_approve_cues: raw.auto_approve_cues === true,
   }
 }
 
@@ -122,6 +126,55 @@ export function validateContextualCueTimeline(
   return issues
 }
 
+/**
+ * Approve every candidate that clears the exact structural rules a human
+ * reviewer is held to by `validateContextualCueTimeline` — never a looser
+ * check. A candidate is evaluated in start_sec order against cues already
+ * accepted (prior approvals from earlier runs, then ones accepted earlier
+ * in this same pass), which is the same order a human approving cues one at
+ * a time would hit the 0.5s crowding rule in. Anything that fails stays
+ * `proposed` (never silently dropped) and is recorded in `holds` with the
+ * validator's own detail string(s), so the caller can show exactly why the
+ * machine declined it.
+ *
+ * Only called when a project has opted into `config.auto_approve_cues`; see
+ * `assertContextualCueReadiness` for the one other place auto mode changes
+ * behavior (it stops requiring every cue to be resolved before rendering,
+ * since a held-back cue can never become 'approved' on its own).
+ */
+export function autoApproveEligibleCues(
+  candidates: ContextualCue[],
+  priorCues: ContextualCue[],
+  plan: ScenePlan,
+  subtitles?: VideoSubtitleConfig,
+): { cues: ContextualCue[]; approvedCount: number; holds: ContextualCueAutoApprovalHold[] } {
+  const runningApproved = priorCues.filter(cue => cue.status === 'approved').slice()
+  const otherPrior = priorCues.filter(cue => cue.status !== 'approved')
+  const holds: ContextualCueAutoApprovalHold[] = []
+  const decided = new Map<string, ContextualCue>()
+  for (const cue of [...candidates].sort((a, b) => a.start_sec - b.start_sec)) {
+    const trialCue: ContextualCue = { ...cue, status: 'approved' }
+    const trial: ContextualCueTimeline = {
+      schema_version: 1,
+      generated_at: '',
+      source_scene_plan_generated_at: plan.generated_at,
+      cues: [...otherPrior, ...runningApproved, trialCue],
+    }
+    const issues = validateContextualCueTimeline(trial, plan, { subtitles }).filter(issue => issue.cue_id === cue.id)
+    if (issues.length) {
+      holds.push({ cue_id: cue.id, reasons: issues.map(issue => issue.detail) })
+      decided.set(cue.id, cue)
+    } else {
+      runningApproved.push(trialCue)
+      decided.set(cue.id, trialCue)
+    }
+  }
+  // Preserve the caller's original ordering rather than the start_sec sort
+  // used above only to make the crowding check deterministic.
+  const cues = candidates.map(cue => decided.get(cue.id) || cue)
+  return { cues, approvedCount: candidates.length - holds.length, holds }
+}
+
 export function assertContextualCueReadiness(
   config: ContextualCueProjectConfig,
   timeline: ContextualCueTimeline | null,
@@ -129,7 +182,13 @@ export function assertContextualCueReadiness(
   subtitles?: VideoSubtitleConfig,
 ): ContextualCue[] {
   if (!config.enabled) return []
-  const issues = validateContextualCueTimeline(timeline, plan, { subtitles, requireResolved: true })
+  // Manual review requires every cue resolved (approved or disabled) before
+  // Video Assembly. Once a project trusts `auto_approve_cues`, a cue held
+  // back by the automatic pass can never resolve itself — requiring
+  // resolution here would just re-introduce the manual review this setting
+  // exists to remove. Every other structural rule below still applies
+  // unconditionally; only this one check differs between the two modes.
+  const issues = validateContextualCueTimeline(timeline, plan, { subtitles, requireResolved: !config.auto_approve_cues })
   if (issues.length) {
     throw new Error(`Contextual Cues need review: ${issues.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
   }

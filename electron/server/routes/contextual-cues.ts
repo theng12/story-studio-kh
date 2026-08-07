@@ -46,7 +46,11 @@ router.get('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     res.json({
       config,
       timeline,
-      validation: validateContextualCueTimeline(timeline, plan, { requireResolved: config.enabled }),
+      // Once a project trusts auto_approve_cues, a cue the automatic pass held
+      // back can never resolve itself (see assertContextualCueReadiness) —
+      // so it should not read here as "you must resolve this before Video
+      // Assembly" when that gate no longer requires it.
+      validation: validateContextualCueTimeline(timeline, plan, { requireResolved: config.enabled && !config.auto_approve_cues }),
       scenes: plan.scenes.map(scene => ({ id: scene.id, scene_index: scene.scene_index, start_sec: scene.start_sec, end_sec: scene.end_sec, transcript_segment: scene.transcript_segment })),
     })
   } catch (error: any) {
