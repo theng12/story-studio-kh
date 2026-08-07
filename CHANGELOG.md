@@ -4,6 +4,39 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.797 — 2026-08-07
+
+- **Scene planning now reads your script, not Whisper's guess at it** — everything downstream of
+  Scene Plan (the scene visual prompts, and Contextual Cues through them) was built from the
+  transcript Whisper produced by listening back to narration we had generated from a script we
+  already had, word for word. Whisper is good, but it is not perfect on names it has never seen,
+  and every one of its mistakes was being treated as fact. On a real episode about the Justinian
+  plague, the harbour of **Neorion** came back as "Mirion" and went on to produce four image
+  prompts of a Byzantine harbour that does not exist; "Port of Mirion" was then shown on screen
+  under a map pin as though it were a real place. **Sycae** became "Sicke" and **Procopius** became
+  "Bocopius" in the same episode. Whisper also invents words in silence: three cues on that episode
+  carried 22, 5 and 221 words across gaps of 43, 256 and 260 milliseconds — one of them the phrase
+  "So we left intell intell intell…" repeated two hundred times, which the planner read as
+  narration.
+
+  Story Studio now builds a corrected transcript before planning: **Whisper's timings, your
+  script's words.** Each chapter's script is matched against its transcription word by word, and
+  every cue keeps its exact timestamps while its text is replaced by the script text that belongs
+  to it. Cues that match nothing in the script are dropped, which removes the hallucinated ones as
+  a consequence rather than as a separate guess. Names come back correct, and numbers appear the
+  way you wrote them ("seventy thousand", not "70,000"). On the plague episode this rewrote 63
+  cues, dropped all 3 hallucinated ones, and changed no timestamp at all.
+
+- **…and it refuses when it is not sure** — replacing what was heard with what was written is only
+  safe while the audio really does say the script. If audio is regenerated from a different draft,
+  or a script is edited after the voice is made, blindly aligning the two would put confidently
+  *wrong* words on screen — worse than the transcription errors it set out to fix. So each chapter
+  is scored first, and a chapter where the script and the audio do not clearly agree is left
+  exactly as Whisper heard it, with the reason shown in the job log and on the Scene Plan page.
+  Scoring is per chapter, so one bad chapter cannot spoil the rest of an episode. Your original
+  transcript file is never modified — it stays on disk beside the corrected one — and burned-in
+  subtitles are unaffected unless you pin the corrected file yourself.
+
 ## v1.0.796 — 2026-08-07
 
 - **Contextual Cues can now approve themselves, once you trust them** — reviewing every proposed

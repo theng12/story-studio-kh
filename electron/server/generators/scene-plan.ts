@@ -48,6 +48,7 @@ import {
 } from '../services/prompt-char-cap.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
@@ -473,7 +474,24 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
   // Resolve inputs.
-  const stitchedSrt = path.join(paths.subtitles_dir, `${episode_id.toUpperCase()}_stitched.srt`)
+  //
+  // NOT a raw join to `{CODE}_stitched.srt`. The stitched file is Whisper's
+  // re-reading of narration we wrote ourselves, so its proper nouns drift
+  // (`Neorion` → `Mirion` reached four real image prompts on EP0067) and it
+  // hallucinates into silence. `resolveTranscriptSrt` returns the corrected
+  // transcript — ASR timings, script words — whenever the script and the audio
+  // demonstrably agree, and the untouched original whenever they do not.
+  //
+  // This single call is why Contextual Cues and the scene visual prompts need
+  // no change of their own: both read `transcript_segment` out of
+  // scene_plan.json, which is built from these cues.
+  const transcript = await resolveTranscriptSrt({
+    subtitles_dir: paths.subtitles_dir,
+    script_dir: paths.script_dir,
+    episode_code: episode_id,
+  })
+  const stitchedSrt = transcript.path
+  for (const line of describeTranscriptCorrection(transcript)) job.output_lines.push(line)
   const researchPath = (await resolveResearchPaths(paths.episode_dir, episode_id)).jsonPath
   const useResearch = params.use_research !== false  // default true
 

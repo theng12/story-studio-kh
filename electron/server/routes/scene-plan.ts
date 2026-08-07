@@ -18,6 +18,7 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
@@ -393,7 +394,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     const audioDur = (await getAudioDuration(audioPath)) || 0
     if (audioDur <= 0) return res.status(400).json({ detail: `Could not read the audio duration of ${path.basename(audioPath)}.` })
 
-    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedPath = stitchedSrtPath(paths.subtitles_dir, episodeId)
     const stitchedMetaPath = `${stitchedPath}.json`
     if (!existsSync(stitchedPath) || !existsSync(stitchedMetaPath)) {
       return res.status(400).json({
@@ -410,7 +411,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
         detail: `Transcribe the missing subtitle chapters first: ${incomplete.join(', ')}. Stitch again, then repair coverage.`,
       })
     }
-    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    // Integrity is judged on the raw stitch; cues are read from the corrected
+    // transcript so a repaired scene carries the script's words, not Whisper's.
+    const transcriptPath = await resolveTranscriptSrtPath({
+      subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
+    })
+    const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
 
     let minSec = 3
@@ -463,7 +469,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedPath = stitchedSrtPath(paths.subtitles_dir, episodeId)
     const stitchedMetaPath = `${stitchedPath}.json`
     if (!existsSync(planPath)) return res.status(404).json({ detail: 'No scene plan found.' })
     if (!existsSync(stitchedPath) || !existsSync(stitchedMetaPath)) {
@@ -482,7 +488,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
     }
 
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    // Integrity above is judged on the raw stitch; the cues a repaired scene
+    // inherits its narration from come from the corrected transcript.
+    const transcriptPath = await resolveTranscriptSrtPath({
+      subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
+    })
+    const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
 
     let minSec = 3
@@ -545,11 +556,17 @@ router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (re
     const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
     if (!plan.scenes?.length) return res.status(400).json({ detail: 'scene_plan.json has no scenes.' })
 
-    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedPath = stitchedSrtPath(paths.subtitles_dir, episodeId)
     if (!existsSync(stitchedPath)) {
       return res.status(400).json({ detail: 'No stitched subtitles found — stitch subtitles on the Subtitles page first, then reconcile.' })
     }
-    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    // Re-anchoring matches each scene's stored transcript_segment against the
+    // cue word stream. Reading the corrected transcript keeps both sides in the
+    // same vocabulary and removes hallucinated words that could false-match.
+    const transcriptPath = await resolveTranscriptSrtPath({
+      subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
+    })
+    const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched SRT has no cues.' })
 
     // Prefer the real audio duration for the last scene's end; fall back to
@@ -697,8 +714,8 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const stitchedSrtPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
-    const stitchedMetaPath = `${stitchedSrtPath}.json`
+    const stitchedPath = stitchedSrtPath(paths.subtitles_dir, episodeId)
+    const stitchedMetaPath = `${stitchedPath}.json`
     const scenePlanPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     const researchPath = (await resolveResearchPaths(paths.episode_dir, episodeId)).jsonPath
     const audioChaptersPath = path.join(paths.episode_dir, 'audio_chapters.json')
@@ -747,9 +764,9 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     // update" trap). Flag when any per-chapter subtitle SRT is newer than the
     // stitched SRT (2s tolerance so same-batch writes don't false-positive).
     let stitchedStaleVsSubs = false
-    if (existsSync(stitchedSrtPath)) {
+    if (existsSync(stitchedPath)) {
       try {
-        const stitchedMs = (await fs.stat(stitchedSrtPath)).mtimeMs
+        const stitchedMs = (await fs.stat(stitchedPath)).mtimeMs
         const chapRe = new RegExp(`^${episodeId.toUpperCase()}_Chapter_\\d+\\.srt$`, 'i')
         const entries = await fs.readdir(paths.subtitles_dir)
         for (const n of entries) {
@@ -764,22 +781,41 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     // stitched SRT it should be built from (you re-stitched but didn't re-run
     // the plan). This is the other half of "my old plan won't update".
     let planStaleVsStitched = false
-    if (existsSync(scenePlanPath) && existsSync(stitchedSrtPath)) {
+    if (existsSync(scenePlanPath) && existsSync(stitchedPath)) {
       try {
         const planMs = (await fs.stat(scenePlanPath)).mtimeMs
-        const stitchedMs = (await fs.stat(stitchedSrtPath)).mtimeMs
+        const stitchedMs = (await fs.stat(stitchedPath)).mtimeMs
         if (stitchedMs > planMs + 2000) planStaleVsStitched = true
       } catch { /* best-effort */ }
     }
 
+    // What the planner will actually read, and why. Surfaced rather than left
+    // implicit: a correction the operator cannot see is a correction they
+    // cannot audit when a place name looks wrong on screen.
+    const transcript = await resolveTranscriptSrt({
+      subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
+    })
+
     res.json({
-      stitched_srt: existsSync(stitchedSrtPath) ? {
-        path: stitchedSrtPath,
+      stitched_srt: existsSync(stitchedPath) ? {
+        path: stitchedPath,
         meta: stitchedMeta,
         drifts_from_current_merge: stitchedDrift,
         stale_vs_subtitles: stitchedStaleVsSubs,
         incomplete_sections: incompleteSubtitleSections,
       } : null,
+      transcript_source: {
+        path: transcript.path,
+        corrected: transcript.corrected,
+        cues_in: transcript.report?.cues_in ?? null,
+        cues_out: transcript.report?.cues_out ?? null,
+        cues_dropped: transcript.report?.cues_dropped ?? null,
+        cues_rewritten: transcript.report?.cues_rewritten ?? null,
+        chapters_corrected: transcript.report?.chapters_corrected ?? null,
+        chapters_refused: transcript.report?.chapters_refused ?? null,
+        warnings: transcript.report?.warnings ?? [],
+        skipped_reason: transcript.report?.skipped_reason ?? null,
+      },
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,
       coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,

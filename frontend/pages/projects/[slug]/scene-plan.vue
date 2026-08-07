@@ -79,6 +79,28 @@
           <span v-else-if="status.stitched_srt">Stitched SRT is incomplete.</span>
           <span v-else>No stitched SRT yet.</span>
         </div>
+        <!-- v1.0.797 — which words the planner will actually read. Whisper
+             re-spells names it has never seen and invents words in silence, so
+             planning reads a corrected transcript (its timings, your script's
+             words) whenever the two demonstrably agree. Shown rather than left
+             implicit: a silent correction is one nobody can audit. -->
+        <div v-if="status.transcript_source?.corrected" class="text-sm text-muted mt-2">
+          Planning reads your script's words on Whisper's timings —
+          <strong>{{ status.transcript_source.cues_rewritten ?? 0 }}</strong> cue(s) corrected,
+          <strong>{{ status.transcript_source.cues_dropped ?? 0 }}</strong> hallucinated cue(s) dropped,
+          <strong>{{ status.transcript_source.cues_out ?? 0 }}</strong> of
+          <strong>{{ status.transcript_source.cues_in ?? 0 }}</strong> kept. Timings are unchanged
+          and your original transcript is untouched. ✓
+        </div>
+        <div
+          v-if="status.transcript_source?.corrected && (status.transcript_source.chapters_refused || 0) > 0"
+          class="validation-msg text-sm mt-2"
+        >
+          ⚠ <strong>{{ status.transcript_source.chapters_refused }}</strong> chapter(s) kept Whisper's
+          own words because the script and the audio did not agree closely enough to correct safely.
+          That usually means the audio was generated from a different draft than the script now on
+          disk. Re-generate that chapter's audio, or re-transcribe it, to bring the two back in step.
+        </div>
         <div v-if="!status.stitched_srt" class="validation-msg text-sm mt-2">
           ⚠ Stitch the subtitles first —
           <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">open Subtitles → "Stitch into the timeline"</NuxtLink>.
@@ -1062,6 +1084,21 @@ interface ScenePlanStatus {
     stale_vs_subtitles?: boolean
     incomplete_sections?: string[]
   } | null
+  /** v1.0.797 — the transcript the planner will actually read: the corrected
+   *  one (ASR timings, script words) when the script and audio agree, else the
+   *  raw stitch. */
+  transcript_source?: {
+    path: string
+    corrected: boolean
+    cues_in: number | null
+    cues_out: number | null
+    cues_dropped: number | null
+    cues_rewritten: number | null
+    chapters_corrected: number | null
+    chapters_refused: number | null
+    warnings: string[]
+    skipped_reason: string | null
+  }
   scene_plan: ScenePlan | null
   plan_stale_vs_stitched?: boolean
   audio_merged: boolean

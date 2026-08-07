@@ -41,6 +41,7 @@ import { getRenderWorkersEnabled } from '../services/app-settings.js'
 import { checkpointJobState, isCancelled } from '../services/job-queue.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { stitchedSrtPath } from '../services/subtitle-correction.js'
 import { ensureExternalFinalVideoDir, externalRootIsReachable } from '../services/external-video-store.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
@@ -388,7 +389,11 @@ async function runRemoteVideoAssembly(job: Job, params: Params): Promise<boolean
   const fps = Math.round(clamp(params.export_settings?.fps, 1, 60, 30))
   const baseFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`
 
-  const subtitlePath = params.subtitles?.srt_path || path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+  // Burn-in stays on the raw stitch by default. The corrected transcript is a
+  // planning input; changing what a viewer sees burned into a video is a
+  // separate, user-visible decision, and a user who wants it can pin the file
+  // with the existing `.selected_subtitle` sidecar.
+  const subtitlePath = params.subtitles?.srt_path || stitchedSrtPath(paths.subtitles_dir, episodeId)
   if (params.subtitles?.enabled && !existsSync(subtitlePath)) {
     throw new Error('Subtitles are enabled, but the stitched SRT is missing. Repair Subtitles and retry.')
   }

@@ -1,7 +1,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import path from 'path'
 import { findIncompleteSubtitleSections } from './subtitle-stitcher.js'
+import { stitchedSrtPath } from './subtitle-correction.js'
 
 export interface SubtitleTimelineIntegrity {
   complete: boolean
@@ -12,7 +12,10 @@ export async function readSubtitleTimelineIntegrity(
   subtitlesDir: string,
   episodeCode: string,
 ): Promise<SubtitleTimelineIntegrity> {
-  const stitchedPath = path.join(subtitlesDir, `${episodeCode.toUpperCase()}_stitched.srt`)
+  // Deliberately the RAW stitch, not the corrected transcript: this checks
+  // that every audio section produced subtitles at all. Correction happens
+  // downstream of that guarantee and cannot substitute for it.
+  const stitchedPath = stitchedSrtPath(subtitlesDir, episodeCode)
   const metaPath = `${stitchedPath}.json`
   if (!existsSync(stitchedPath)) {
     return { complete: false, missing_sections: ['stitched subtitle timeline'] }
