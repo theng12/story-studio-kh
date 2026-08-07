@@ -94,6 +94,33 @@ const CATALOG_STALE_MS = 30 * 60_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
+/**
+ * How long ONE language submission may hold its socket open.
+ *
+ * NOT a control-plane request, and this distinction cost a whole episode.
+ * `POST /v1/chat/responses` answers 202 and carries `Location` + `Retry-After`,
+ * so it reads like a durable submit-then-poll route. It is not: on the
+ * product-first path GenStudio runs the model INLINE on the request thread
+ * (`ProductChatCompletionService.complete` → `provider.complete(...)`, whose
+ * job record is stamped `DispatchMode.SYNCHRONOUS`) and only then returns. The
+ * POST therefore lasts as long as the generation does.
+ *
+ * Bounded at the 30-second control timeout, every language request that took
+ * longer than 30 seconds was aborted mid-generation — while GenStudio carried
+ * on, finished, and charged for it. Story Studio then retried the POST on the
+ * same Idempotency-Key, which GenStudio correctly answered
+ * `request_in_progress`. That refusal carries no job id, and no route anywhere
+ * in the API looks a job up by idempotency key, so the finished, paid-for
+ * output was unreachable: nine packs, 333 scenes, 131 credits, all of it
+ * generated correctly and none of it retrievable. A 333-scene episode is not an
+ * edge case — every pack of 40 scenes took 33–86 seconds, so EVERY pack lost.
+ *
+ * The ceiling is generous because the cost of it being too small is losing paid
+ * work, while the cost of it being too large is bounded anyway: the operation
+ * signal clamps every attempt to whatever remains of the caller's own deadline
+ * (`GENSTUDIO_LONG_JOB_TIMEOUT_MS`), and cancellation still aborts instantly.
+ */
+export const GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS = 20 * 60_000
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
 export type GenStudioQueueState =
@@ -2271,6 +2298,11 @@ async function requestJsonWithRetry(
   request: GenStudioOperationContext,
   deadline: number,
   apiKey?: string,
+  /** Per-ATTEMPT socket ceiling. Defaults to the control-plane timeout, which is
+   *  right for every short request (job GETs, cancels, catalogue reads) and
+   *  wrong for a POST that executes a model inline — see
+   *  GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS. */
+  operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
 ): Promise<any> {
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
@@ -2279,7 +2311,7 @@ async function requestJsonWithRetry(
     try {
       const response = await fetch(url, {
         ...init,
-        signal: operationSignal(request.signal, deadline, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
+        signal: operationSignal(request.signal, deadline, operationTimeoutMs),
       })
       const raw = await response.text()
       let body: any = {}
@@ -2385,12 +2417,59 @@ async function submitJsonWithAdmission(
   init: RequestInit,
   request: GenStudioOperationContext,
   deadline: number,
+  operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
 ): Promise<any> {
   return withGenStudioAdmission(
     apiKey,
     request,
-    () => requestJsonWithRetry(url, init, request, deadline, apiKey),
+    () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs),
   )
+}
+
+/**
+ * Submit one language request, and REATTACH to it rather than lose it.
+ *
+ * Two things make a language submission different from every other POST here:
+ * it runs the model on the request thread, and its answer is the only copy of
+ * work the account has already paid for. So a lost socket is not a failed
+ * request — it is a finished request nobody can collect.
+ *
+ * `request_in_progress` is GenStudio saying "I have this exact request, it is
+ * still running". Re-POSTing the SAME Idempotency-Key cannot start a second
+ * job: GenStudio resolves the key against the existing job record and either
+ * refuses again (still running) or, once the job reaches SUCCEEDED, RETURNS
+ * THAT JOB'S STORED OUTPUT. Replaying the key is therefore not a resubmission,
+ * it is the only reattachment path the API offers — the 429 carries no job id,
+ * and no endpoint looks a job up by idempotency key.
+ *
+ * Bounded by the caller's deadline, paced by GenStudio's own `Retry-After` when
+ * it sends one, and cancellable throughout.
+ */
+async function submitLanguageJson(
+  apiKey: string,
+  url: string,
+  init: RequestInit,
+  request: GenStudioOperationContext,
+  deadline: number,
+): Promise<any> {
+  const poller = createGenStudioJobPoller()
+  for (;;) {
+    try {
+      return await submitJsonWithAdmission(
+        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS,
+      )
+    } catch (error) {
+      if (!isGenStudioRequestInProgress(error)) throw error
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (Date.now() >= deadline) throw error
+      const retryAfterSeconds = error instanceof GenStudioApiError ? error.retryAfterSeconds : null
+      await poller.wait(
+        deadline,
+        request,
+        retryAfterSeconds == null ? undefined : { retry_after_seconds: retryAfterSeconds },
+      )
+    }
+  }
 }
 
 async function readJson(response: Response): Promise<any> {
@@ -3458,6 +3537,31 @@ function wireFormatDigestComponent(outputContract: TextOutputContract): Record<s
   return outputContract.mode === 'prose' ? { response_format: PROSE_RESPONSE_FORMAT } : {}
 }
 
+/**
+ * The contract as the REQUEST sees it — local-only fields stripped.
+ *
+ * The digest exists to answer "is this the same request?", and GenStudio
+ * answers the same question from the bytes it received. `accept` is never
+ * received by anyone: it says what Story Studio will DO with the answer, not
+ * what it asked for. Hashing it would mint a new key for a byte-identical
+ * request, and a new key is not a harmless difference — it abandons a job
+ * already in flight under the old key and pays for a second one, which is the
+ * exact failure this whole key exists to prevent.
+ *
+ * Stripping it also has a concrete recovery value: the packs orphaned by the
+ * submit-timeout defect were already generated, charged, and retained by
+ * GenStudio. Because their keys are unchanged by this release, re-running that
+ * stage REPLAYS those settled jobs instead of buying them again.
+ *
+ * A contract with no `accept` hashes byte-for-byte as it always has: `accept`
+ * is added last by its builder, so the rest spread preserves key order.
+ */
+function digestOutputContract(outputContract: TextOutputContract): TextOutputContract {
+  if (outputContract.mode !== 'json_object') return outputContract
+  const { accept: _localOnly, ...asked } = outputContract
+  return asked
+}
+
 export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest): string {
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
@@ -3480,7 +3584,7 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
       : {}),
     request_identity: request.requestIdentity?.trim() || null,
     input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
-    output_contract: outputContract,
+    output_contract: digestOutputContract(outputContract),
     // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
     ...wireFormatDigestComponent(outputContract),
   })).digest('hex')
@@ -4208,7 +4312,7 @@ async function callChatViaResponses(
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
   })
-  const submitted = await submitJsonWithAdmission(
+  const submitted = await submitLanguageJson(
     apiKey,
     `${apiBase(baseUrl)}/v1/chat/responses`,
     {
@@ -4278,7 +4382,7 @@ async function callChatViaCompletions(
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
   })
-  const completion = await submitJsonWithAdmission(
+  const completion = await submitLanguageJson(
     apiKey,
     `${apiBase(baseUrl)}/v1/chat/completions`,
     {

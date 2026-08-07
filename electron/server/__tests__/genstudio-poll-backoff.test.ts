@@ -255,8 +255,20 @@ test('all five wait loops share the one poller and the flat interval is gone', (
   const client = source('../lib/genstudio-client.ts')
   const created = client.match(/const poller = createGenStudioJobPoller\(\)/g) || []
   const waited = client.match(/await poller\.wait\(deadline, request, current\)/g) || []
-  assert.equal(created.length, 5, 'every wait loop must build a poller')
-  assert.equal(waited.length, 5, 'every wait loop must poll through the shared schedule')
+  // FIVE job-wait loops, one per modality — plus ONE more: the language
+  // submission reattachment loop in `submitLanguageJson`, which waits out a
+  // `request_in_progress` refusal before replaying the same idempotency key.
+  // It belongs on this schedule for the same reason the others do (a job that
+  // may run for minutes must not be re-asked every second), but it advances by
+  // re-POSTing rather than by reading `current`, so it is counted in `created`
+  // and deliberately not in `waited`.
+  assert.equal(created.length, 6, 'every wait loop must build a poller')
+  assert.equal(waited.length, 5, 'every job-wait loop must poll through the shared schedule')
+  assert.match(
+    client,
+    /await poller\.wait\(\s*deadline,\s*request,/,
+    'the submission reattachment loop must use the shared schedule too',
+  )
   assert.doesNotMatch(client, /setTimeout\(resolve, POLL_INTERVAL_MS\)/, 'a flat 1s poll survives')
   assert.doesNotMatch(client, /^const POLL_INTERVAL_MS/m, 'the flat interval constant survives')
 })

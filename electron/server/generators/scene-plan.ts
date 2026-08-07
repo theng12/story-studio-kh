@@ -24,7 +24,12 @@ import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
-import { listChatModels as listGenStudioChatModels, type GenStudioChatModel } from '../lib/genstudio-client.js'
+import {
+  listChatModels as listGenStudioChatModels,
+  isGenStudioRequestInProgress,
+  isGenStudioSubmissionUncertain,
+  type GenStudioChatModel,
+} from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import {
   parseScenePromptPackSetting,
@@ -933,6 +938,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       let results = new Map<string, string>()
       let checkpointErrors: string[] = []
       let requestError = ''
+      // Whether the ORIGINAL request may still be running, or its billing
+      // outcome is unknown. Only that state makes a repair request unsafe —
+      // see the repair gate below.
+      let requestUnresolved = false
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues)
         const raw = await callAi(
@@ -961,8 +970,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         )
       } catch (error: any) {
         requestError = error?.message || String(error)
+        requestUnresolved = isGenStudioRequestInProgress(error) || isGenStudioSubmissionUncertain(error)
       }
-      return { results, checkpointErrors, diagnostics, requestError }
+      return { results, checkpointErrors, diagnostics, requestError, requestUnresolved }
     }
     job.output_lines.push(`Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
     const incompletePacks: string[] = []
@@ -1004,8 +1014,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // scoped to the IDs that failed the durable audit. Outstanding IDs stay
       // together in one compact repair pack so a partial provider response can
       // never fan back out into one paid request per scene.
+      //
+      // GATED ON `requestUnresolved`, NOT ON "any error". The distinction is
+      // the whole point: a repair is unsafe only while the original submission
+      // might still be running (`request_in_progress`) or its billing outcome
+      // is unknown (`LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN`) — in those two
+      // states a second request races work already paid for. Every other
+      // failure means GenStudio settled the job and Story Studio simply could
+      // not use the answer, which is exactly the case repair exists to fix.
+      // Blocking repair on any error at all is how a whole episode came back
+      // 0/333 with the log explaining only that repair "was not started".
       let automaticRepairAttempts = 0
-      for (let attempt = 1; !initial.requestError && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
+      for (let attempt = 1; !initial.requestUnresolved && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
         automaticRepairAttempts = attempt
         const outstanding = [...receipt.missing_ids]
         const repairGroups = [outstanding]
@@ -1055,9 +1075,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       if (receipt.missing_ids.length) {
         incompletePacks.push(`${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length}; missing ${receipt.missing_ids.join(', ')} (${lastError})`)
         job.output_lines.push(
-          initial.requestError
-            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Automatic repair was not started because the original GenStudio request did not finish safely; Manual Retry requests only the missing scene IDs.`
-            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Manual Retry requests only the missing scene IDs through GenStudio.`,
+          initial.requestUnresolved
+            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Automatic repair was not started because the original GenStudio request is still unresolved (${initial.requestError}); Manual Retry reconnects to it and requests only the missing scene IDs.`
+            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Last reason: ${lastError}. Manual Retry requests only the missing scene IDs through GenStudio.`,
         )
       } else {
         job.output_lines.push(`Checkpointed ${pack.pack_id}: ${receipt.completed_ids.length}/${pack.scene_ids.length} prompts verified on disk.`)

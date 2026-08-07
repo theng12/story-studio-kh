@@ -1,5 +1,9 @@
 import type { TextOutputContract } from './json-output-contract.js'
 
+/** Narrow on purpose, not `TextOutputContract`: two builders below spread this
+ *  result and add `accept`, which only the `json_object` arm carries. */
+type JsonObjectContract = Extract<TextOutputContract, { mode: 'json_object' }>
+
 /**
  * Story workflows ask GenStudio language products for a JSON object and state
  * the required structure in the request instructions. The schema is retained on
@@ -7,7 +11,7 @@ import type { TextOutputContract } from './json-output-contract.js'
  * shape can be described to the product. GenStudio language products are never
  * required to enforce a provider-native strict JSON schema.
  */
-function localSchema(name: string, schema: Record<string, unknown>): TextOutputContract {
+function localSchema(name: string, schema: Record<string, unknown>): JsonObjectContract {
   return { mode: 'json_object', name, schema }
 }
 
@@ -60,67 +64,135 @@ export function videoPromptsOutputContract(count: number): TextOutputContract {
   })
 }
 
+/**
+ * One pack of scene prompts, asked for by exact scene id.
+ *
+ * WHAT IS ASKED FOR (`schema`) IS UNCHANGED, and deliberately strict: exactly
+ * one row per requested id, the id drawn from an enum of precisely the ids sent
+ * in this pack, and no extra keys. All of it is rendered into the request
+ * instructions, so the model is told exactly which ids exist and how many rows
+ * to produce. Weakening that would make a mis-numbered row MORE likely, not
+ * less, so none of it is weakened.
+ *
+ * WHAT IS ACCEPTED (`accept`) IS THE ENVELOPE ONLY, and this is the fix for a
+ * real incident. A 40-scene pack came back with 39 perfect rows and one row
+ * that wrote `"scene"` where the contract says `"scene_id"`. The atomic local
+ * check rejected the whole object, so 39 correct prompts the owner had already
+ * been charged for were discarded, and — because the rejection surfaced as a
+ * thrown request error rather than a partial result — the generator's automatic
+ * repair pass never ran either. All-or-nothing turned one bad row into zero
+ * rows AND no recovery.
+ *
+ * ACCEPTING THE ENVELOPE DOES NOT WEAKEN THE ID→MOMENT GUARANTEE. A prompt
+ * reaches disk only past three independent per-item guards, all in
+ * `generators/scene-plan.ts`, none of which this contract feeds:
+ *
+ *   1. `parseDirectPackResults` keeps a row only if `allowed.has(id)`, where
+ *      `allowed` is exactly the ids requested. A hallucinated, mis-numbered, or
+ *      id-less row is dropped there and can never become a prompt.
+ *   2. `checkpointPackPromptResults` refuses any id outside `expectedIds` and
+ *      records it as an error rather than persisting it.
+ *   3. `persistPrompt` throws for any id outside the run's `targetIds`.
+ *
+ * COMPLETENESS IS ALSO STILL ENFORCED, and enforced better: by
+ * `auditScenePromptCompletion`, which re-reads the saved plan FROM DISK and
+ * reports the ids that are genuinely missing. That audit — not a count at the
+ * transport boundary — is what gates the stage and what drives the bounded
+ * repair request for exactly the missing ids. A count check here can only
+ * convert "39 saved, repair the 40th" into "0 saved, repair nothing".
+ */
 export function scenePromptPackOutputContract(
   sceneIds: readonly string[],
   kind: 'visual' | 'motion',
 ): TextOutputContract {
   const promptKey = kind === 'motion' ? 'motion_prompt' : 'visual_prompt'
-  return localSchema('story_scene_prompt_pack', {
-    type: 'object',
-    properties: {
-      results: {
-        type: 'array',
-        minItems: sceneIds.length,
-        maxItems: sceneIds.length,
-        items: {
-          type: 'object',
-          properties: {
-            scene_id: { type: 'string', enum: [...sceneIds] },
-            [promptKey]: { type: 'string', minLength: 1, maxLength: 20_000 },
+  return {
+    ...localSchema('story_scene_prompt_pack', {
+      type: 'object',
+      properties: {
+        results: {
+          type: 'array',
+          minItems: sceneIds.length,
+          maxItems: sceneIds.length,
+          items: {
+            type: 'object',
+            properties: {
+              scene_id: { type: 'string', enum: [...sceneIds] },
+              [promptKey]: { type: 'string', minLength: 1, maxLength: 20_000 },
+            },
+            required: ['scene_id', promptKey],
+            additionalProperties: false,
           },
-          required: ['scene_id', promptKey],
-          additionalProperties: false,
         },
       },
+      required: ['results'],
+      additionalProperties: false,
+    }),
+    // A response with no usable rows at all is still refused here, loudly — the
+    // reader downstream would otherwise report 40 silent omissions instead of
+    // one empty answer.
+    accept: {
+      type: 'object',
+      properties: { results: { type: 'array', minItems: 1 } },
+      required: ['results'],
     },
-    required: ['results'],
-    additionalProperties: false,
-  })
+  }
 }
 
-export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = localSchema(
-  'story_contextual_cues',
-  {
-    type: 'object',
-    properties: {
-      cues: {
-        type: 'array',
-        maxItems: 100,
-        items: {
-          type: 'object',
-          properties: {
-            scene_id: { type: 'string', minLength: 1, maxLength: 128 },
-            title: { type: 'string', minLength: 1, maxLength: 80 },
-            subtitle: { type: 'string', maxLength: 100 },
-            kind: {
-              type: 'string',
-              enum: ['location_date', 'historical_context', 'person', 'chapter'],
+/**
+ * Contextual cue proposals.
+ *
+ * Same shape of exposure as the scene prompt pack, milder: no exact count and
+ * no id enum, but `additionalProperties: false` on each cue and a 100-item cap
+ * meant one volunteered key — or a 101st proposal — discarded every cue in the
+ * batch. `generators/contextual-cues.ts` already vets each cue on its own:
+ * `parseCandidates` keeps only rows with a string `scene_id` and `title`, and
+ * `safeCandidate` resolves that `scene_id` against the saved plan and returns
+ * null when it names no real scene. So a cue can no more land on the wrong
+ * moment than a prompt can — and, unlike the pack, an EMPTY list is a
+ * legitimate answer here ("prefer no cue when uncertain"), so `accept` sets no
+ * minimum.
+ */
+export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = {
+  ...localSchema(
+    'story_contextual_cues',
+    {
+      type: 'object',
+      properties: {
+        cues: {
+          type: 'array',
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              scene_id: { type: 'string', minLength: 1, maxLength: 128 },
+              title: { type: 'string', minLength: 1, maxLength: 80 },
+              subtitle: { type: 'string', maxLength: 100 },
+              kind: {
+                type: 'string',
+                enum: ['location_date', 'historical_context', 'person', 'chapter'],
+              },
+              template: {
+                type: 'string',
+                enum: ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'],
+              },
+              anchor_offset_sec: { type: 'number', minimum: 0 },
             },
-            template: {
-              type: 'string',
-              enum: ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'],
-            },
-            anchor_offset_sec: { type: 'number', minimum: 0 },
+            required: ['scene_id', 'title'],
+            additionalProperties: false,
           },
-          required: ['scene_id', 'title'],
-          additionalProperties: false,
         },
       },
+      required: ['cues'],
+      additionalProperties: false,
     },
+  ),
+  accept: {
+    type: 'object',
+    properties: { cues: { type: 'array' } },
     required: ['cues'],
-    additionalProperties: false,
   },
-)
+}
 
 /**
  * Prompt Director rewrite batch.
