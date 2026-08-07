@@ -54,6 +54,11 @@ const {
   continuityDefaults,
   normalizeContinuityConfig,
 } = await import('../composables/useContinuityConfig.js')
+// Imported from the same shared module continuityDefaults() itself imports
+// (electron/server/contracts/pacing.ts, via the @shared/pacing alias) so
+// this test asserts against the single source of truth rather than
+// restating the expected value as a second literal that could drift from it.
+const { DEFAULT_SCENE_PACING } = await import('../../electron/server/contracts/pacing.js')
 type AnyConfig = ReturnType<typeof continuityDefaults>
 
 const characterSheet = readFileSync(
@@ -369,9 +374,10 @@ describe('Character Sheet preset / episode anchor boundary', () => {
     assert.doesNotMatch(characterSheet, /function normalizeConfig\(/, 'normalizeConfig now lives in the composable')
   })
 
-  test('a fresh episode still gets the dense 1-4s default', () => {
-    assert.deepEqual(continuityDefaults().pacing, { min_sec: 1, max_sec: 4 })
-    assert.deepEqual(normalizeContinuityConfig(undefined).pacing, { min_sec: 1, max_sec: 4 })
-    assert.deepEqual(normalizeContinuityConfig({}).pacing, { min_sec: 1, max_sec: 4 })
+  test('a fresh episode still gets the dense 1-3s default', () => {
+    assert.deepEqual(DEFAULT_SCENE_PACING, { min_sec: 1, max_sec: 3 })
+    assert.deepEqual(continuityDefaults().pacing, DEFAULT_SCENE_PACING)
+    assert.deepEqual(normalizeContinuityConfig(undefined).pacing, DEFAULT_SCENE_PACING)
+    assert.deepEqual(normalizeContinuityConfig({}).pacing, DEFAULT_SCENE_PACING)
   })
 })

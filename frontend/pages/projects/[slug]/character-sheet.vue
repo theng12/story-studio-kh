@@ -202,7 +202,10 @@ function formulaPacingConfig(profile: FormulaPacingProfile): ContinuityConfig['p
     settled_max_sec: profile.settled.max_sec,
   }
 }
-const pacingPreset = ref<string>('lively')
+// Matches DEFAULT_SCENE_PACING (@shared/pacing) — corrected immediately by
+// the immediate `syncPacingPreset` watch below regardless, but should still
+// name the actual default rather than a stale one.
+const pacingPreset = ref<string>('rapid')
 function syncPacingPreset(): void {
   const profile = formulaPacingProfile.value
   if (profile

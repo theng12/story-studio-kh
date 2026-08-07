@@ -823,6 +823,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
+import { DEFAULT_SCENE_PACING } from '@shared/pacing'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -1152,7 +1153,7 @@ async function loadContinuity(): Promise<void> {
       `/projects/${slug.value}/continuity/${ep}`,
     )
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
-    continuityPacing.value = r.config?.pacing || { min_sec: 1, max_sec: 4 }
+    continuityPacing.value = r.config?.pacing || DEFAULT_SCENE_PACING
     recipeEnabled.value = r.config?.recipe?.enabled === true
     recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
     characterSheetStyleBible.value = (r.config?.style_bible || '').trim()

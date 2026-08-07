@@ -14,6 +14,13 @@
  * Schemas are zod so the backend can validate at the HTTP boundary; the
  * frontend pulls the inferred TypeScript types with `import type`, which is
  * erased at compile time — the renderer bundle never ships the zod runtime.
+ *
+ * A shared constant frontend runtime code needs as a real VALUE (not just a
+ * type) does not belong in this file — a value import can't be erased, so it
+ * would pull this whole zod-schema module into the renderer bundle. Those
+ * live in their own zero-dependency sibling module instead, still reachable
+ * through the same `@shared` alias (e.g. `@shared/pacing` →
+ * `electron/server/contracts/pacing.ts`).
  */
 
 import { z } from 'zod'

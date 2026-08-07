@@ -4,6 +4,47 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.793 — 2026-08-07
+
+- **A running image batch now shows what it is doing** — a 333-scene render used to show an
+  indeterminate bar with no way to tell a long batch from a hung one. The Jobs page now shows a
+  real progress bar for scene and thumbnail generation, plus how many requests are done, how many
+  failed, and which scenes are actually in flight — the same live reporting narration already got.
+  Nothing about how images are dispatched changed: they still fan out to the shared GenStudio
+  account concurrency exactly as before.
+
+- **A scene the provider was too busy to take is now retried for you** — that refusal used to end
+  the scene immediately. Story Studio now waits and asks again, up to three more times, spacing
+  the attempts further apart each time. This applies only to the one outcome that proves no
+  provider ever accepted the request and nothing was charged for it — every other refusal (no
+  credit left, a request the provider took and failed, or one GenStudio could not confirm either
+  way) still stops immediately. A retry reuses the same deterministic retry-scope chain a manual
+  Retry has always used for this exact situation, so a retry that gets replayed after a crash or a
+  restart re-attaches to the job it already has rather than buying a second one.
+
+- **A batch with a few failures now names them, instead of showing three and hiding the rest** — a
+  333-scene run where 3 scenes failed used to throw with only the first three reasons and no
+  count. Story Studio now reports exactly how many of the batch verified and lists every scene
+  still missing, up to 20. The job is still correctly marked failed when anything is missing —
+  that guarantee is unchanged and still stops a partially-empty batch from being reported as a
+  silent success — but the report is now complete instead of truncated, and every image already
+  generated is kept exactly as before.
+
+---
+
+## v1.0.792 — 2026-08-07
+
+- **A fresh Character Sheet's pacing now matches what Scene Plan actually renders at** — the
+  dense 1–3 second default shipped for Scene Plan's Continuity Engine step, but the Character
+  Sheet page's own default, and the pacing it displayed while waiting on a save, were still on
+  the older 1–4 second band. A brand-new episode with no saved pacing of its own could show one
+  rhythm on the Character Sheet and get a different one when Scene Plan actually ran. All four
+  places that independently hardcoded this default now read it from a single shared constant, so
+  they cannot drift apart from each other again. Nothing changes for an episode that already has
+  its own saved Character Sheet or Series Formula pacing — this only affects the unset case.
+
+---
+
 ## v1.0.791 — 2026-08-07
 
 - **Narration is now generated one chapter at a time, instead of all at once** — a ten-chapter

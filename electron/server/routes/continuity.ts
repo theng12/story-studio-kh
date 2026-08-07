@@ -23,6 +23,7 @@ import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
 import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan, ProjectMeta } from '../models/types.js'
 
 export const router = Router()
@@ -40,10 +41,11 @@ export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stil
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
-    // Matches the scene-plan fallback. These two are the same decision in two
-    // places: if they drift, a project that creates a continuity config
-    // silently gets different pacing from one that has not.
-    pacing: { min_sec: 1, max_sec: 3 },
+    // Imported, not hardcoded: this is the same decision as the scene-plan
+    // fallback, and a project that creates a continuity config must not
+    // silently get different pacing from one that has not. See
+    // contracts/pacing.ts for why this used to drift.
+    pacing: { ...DEFAULT_SCENE_PACING },
     references: {
       prev_render: characterChain,
       sheet: characterChain,
@@ -121,8 +123,12 @@ export function buildContinuityConfig(
   const b = body || {}
   const defaults = defaultContinuityConfig(mode)
   // Coerce + clamp the numeric fields so a malformed client can't write junk.
-  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 1))
-  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 4))
+  // Falls back to `defaults.pacing` (DEFAULT_SCENE_PACING), not a re-hardcoded
+  // literal, so an omitted min_sec/max_sec can't drift from the fresh-config
+  // default above -- the exact "two places, one decision" shape that caused
+  // this default to disagree with itself before (see contracts/pacing.ts).
+  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || defaults.pacing.min_sec))
+  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || defaults.pacing.max_sec))
   const openingDuration = Number(b.pacing?.opening_duration_sec)
   const settledMin = Number(b.pacing?.settled_min_sec)
   const settledMax = Number(b.pacing?.settled_max_sec)

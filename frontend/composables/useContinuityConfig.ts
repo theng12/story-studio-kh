@@ -7,10 +7,13 @@
  * node:test, and the preset boundary is too easy to regress to leave it
  * asserted only by source greps.
  *
- * Keep `continuityDefaults()` in sync with `defaultContinuityConfig()` in
- * electron/server/routes/continuity.ts — both must produce the same fresh
- * episode rhythm.
+ * `continuityDefaults()`'s pacing comes from `DEFAULT_SCENE_PACING`
+ * (`@shared/pacing`) — the same constant `defaultContinuityConfig()` in
+ * electron/server/routes/continuity.ts imports — so the two can no longer
+ * drift the way they did before (see contracts/pacing.ts for that history).
  */
+
+import { DEFAULT_SCENE_PACING } from '@shared/pacing'
 
 export interface ContinuityConfig {
   schema_version: 1
@@ -47,7 +50,7 @@ export function continuityDefaults(): ContinuityConfig {
     schema_version: 1,
     anchor_character_ids: [],
     use_episode_sheet: false,
-    pacing: { min_sec: 1, max_sec: 4 },
+    pacing: { ...DEFAULT_SCENE_PACING },
     references: { prev_render: false, sheet: false, characters: false, style: false },
     denoise_strength: 0.5,
     style_bible: '',

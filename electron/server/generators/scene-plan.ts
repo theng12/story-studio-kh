@@ -62,6 +62,7 @@ import {
   normalizeCreativeDirection,
 } from '../services/scene-creative-direction.js'
 import { assignSceneMotionProfile, motionModeLevel } from '../services/scene-motion-profile.js'
+import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
 import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionProfile, ScenePlan } from '../models/types.js'
 
 /**
@@ -482,11 +483,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const fmt = await getEffectiveFormat(job.project_slug)
     formulaMotionProfile = fmt?.script.motionProfile
     if (fmt?.visualSource === 'continuity-chain') {
-      // 1-3s, not the older 1-4s: the owner's channels want an image every
-      // one to three seconds, and a 4s ceiling let quiet passages drift to a
-      // near-static hold. A Character Sheet or Series Formula range still wins
-      // over this -- it is only the fallback for a project that declares none.
-      pacing = { min_sec: 1, max_sec: 3, mode: 'live' }
+      // DEFAULT_SCENE_PACING (1-3s), not the older hardcoded 1-4s: the
+      // owner's channels want an image every one to three seconds, and a 4s
+      // ceiling let quiet passages drift to a near-static hold. A Character
+      // Sheet or Series Formula range still wins over this -- it is only the
+      // fallback for a project that declares none. Imported rather than
+      // hardcoded here so this can't drift from defaultContinuityConfig() in
+      // routes/continuity.ts again -- see contracts/pacing.ts.
+      pacing = { ...DEFAULT_SCENE_PACING, mode: 'live' }
       const continuityPath = path.join(paths.episode_dir, 'continuity.json')
       if (existsSync(continuityPath)) {
         try {

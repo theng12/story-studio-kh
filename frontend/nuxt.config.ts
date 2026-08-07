@@ -68,8 +68,12 @@ export default defineNuxtConfig({
   },
 
   // `@shared` → electron/server/contracts — one source of truth for wire
-  // shapes. Frontend uses `import type` only, so zod never ships to the
-  // renderer bundle.
+  // shapes and cross-boundary constants. `@shared/contracts` carries the zod
+  // wire schemas; frontend uses `import type` only there, so zod never ships
+  // to the renderer bundle. Plain-value constants with no dependencies of
+  // their own (e.g. `@shared/pacing`) live in their own sibling module
+  // instead, so frontend runtime code can import the actual value without
+  // dragging zod along with it — see electron/server/contracts/pacing.ts.
   alias: {
     '@shared': resolve(__dirname, '..', 'electron', 'server', 'contracts'),
   },
