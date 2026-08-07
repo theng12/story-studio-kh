@@ -600,6 +600,31 @@ export interface JobEnqueuedResponse {
   /** Percentage 0-100 — set by generators that report progress (uploads,
    *  long-running encodes). UI renders a progress bar when present. */
   progress?: number
+  /**
+   * Live per-item state for list-shaped jobs (audio sections today). Streams
+   * on the same SSE `update` events as `progress`, so a card can name the item
+   * in flight, show `completed / total`, and say when an item is sitting out a
+   * provider rate-limit wait instead of leaving a spinner to imply a hang.
+   *
+   * Structurally mirrors `JobItemProgress` in `electron/server/models/types.ts`
+   * — declared inline for the same reason `genstudio_jobs[].request` is, so the
+   * renderer's type graph never reaches into a Node-only server module.
+   */
+  item_progress?: {
+    total: number
+    completed: number
+    failed: number
+    concurrency: number
+    active: Array<{
+      label: string
+      key?: string
+      state: 'running' | 'waiting_retry'
+      attempt: number
+      max_attempts: number
+      retry_at?: string
+      reason?: string
+    }>
+  }
   /** Live bytes-transferred metric for jobs that move data (YouTube
    *  uploads, asset downloads). All four fields are optional and additive —
    *  pre-existing rehydrated jobs from before they shipped won't have them,

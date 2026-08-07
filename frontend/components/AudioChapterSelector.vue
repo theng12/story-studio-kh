@@ -12,9 +12,13 @@
     not_generated → no audio chunks on disk
     partial       → some chunks present, section not whole
     generated     → every chunk present
-    generating    → a 'audio' job for this episode is running and the
-                    section is in its `sections` param (or the param is
-                    missing/all, which targets every section)
+    generating    → this section is the one the running job currently has
+                    in flight, reported by the job's own item_progress
+    waiting       → the voice provider declined this section for now and the
+                    job is sitting out a backoff before asking again
+    queued        → the running job targets this section but has not reached
+                    it yet (TTS is fed to a cloud voice provider one request
+                    at a time, so most targeted rows sit here)
 
   Multi-select: checkboxes plus Select All / None / Missing Only
   bulk actions. Each row also exposes an explicit one-section generation
@@ -36,6 +40,30 @@
           ↻
         </button>
       </div>
+    </div>
+
+    <!--
+      What the run is doing, in the place the user is already looking. A
+      ten-section job takes minutes; without this it is indistinguishable
+      from a hung one, and the "one at a time" note is what explains why it
+      is not going faster.
+    -->
+    <div v-if="liveProgress" class="cs-progress">
+      <LoadingSpinner size="sm" />
+      <span class="cs-progress-count">
+        {{ liveProgress.completed }} of {{ liveProgress.total }} request(s) done
+      </span>
+      <span v-if="liveProgress.failed" class="cs-progress-failed">
+        · {{ liveProgress.failed }} failed
+      </span>
+      <span
+        v-if="liveProgress.concurrency === 1"
+        class="cs-progress-note"
+        title="Speech is sent to the voice provider one request at a time. A cloned voice lives in a single provider workspace, so sending a whole episode at once gets most of it refused."
+      >· one at a time</span>
+      <span v-for="a in liveProgress.active" :key="a.key || a.label" class="cs-progress-active">
+        · {{ activeText(a) }}
+      </span>
     </div>
 
     <div v-if="!episodeId" class="cs-empty">Select an episode to see its sections.</div>
@@ -80,7 +108,7 @@
             :aria-label="`${inlineActionLabel(s)} ${prettyLabel(s.label)} only`"
             @click.stop.prevent="emit('generate-section', s.slug)"
           >
-            {{ runtimeStatus(s) === 'generating' ? 'Queued…' : inlineActionLabel(s) }}
+            {{ isLiveStatus(runtimeStatus(s)) ? 'Queued…' : inlineActionLabel(s) }}
           </button>
           <!-- In-app listen: play the generated audio without opening Finder.
                Only shown once at least one chunk exists on disk. -->
@@ -112,6 +140,8 @@
 </template>
 
 <script setup lang="ts">
+import type { Job } from '~/composables/useJobs'
+
 interface SectionRow {
   label: string
   slug: string
@@ -232,19 +262,72 @@ const hasMissing = computed(() =>
 // even though no files exist yet. The 'stale' state is also a runtime
 // overlay: a generated section flips to stale when its source script
 // docx was rewritten after the audio was last generated.
-type RuntimeStatus = 'not_generated' | 'partial' | 'generated' | 'generating' | 'stale'
+type RuntimeStatus =
+  | 'not_generated' | 'partial' | 'generated' | 'stale'
+  | 'generating' | 'waiting' | 'queued'
+
+type LiveAttempt = NonNullable<Job['item_progress']>['active'][number]
+
+/** The audio job running for this episode, if there is one. */
+const liveJob = computed(() => jobs.value.find(j =>
+  j.type === 'audio' &&
+  j.episode_id === props.episodeId &&
+  j.project_slug === props.projectSlug &&
+  (j.status === 'running' || j.status === 'queued'),
+))
+
+/**
+ * The running job's own account of itself. Absent on a job that has not
+ * started staging yet, and on any job from before this shipped — both fall
+ * back to the old whole-job overlay below.
+ */
+const liveProgress = computed(() => liveJob.value?.item_progress || null)
+
+/** Section slug → what that section is doing right now. */
+const liveAttempts = computed(() => {
+  const map = new Map<string, LiveAttempt>()
+  for (const attempt of liveProgress.value?.active || []) {
+    if (attempt.key) map.set(attempt.key, attempt)
+  }
+  return map
+})
+
+/**
+ * Re-read once a second so a backoff shows a shrinking number rather than a
+ * frozen one. A wait that does not visibly tick is a wait users read as a
+ * hang, which is the whole thing this display exists to prevent.
+ */
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | null = null
+onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
+onBeforeUnmount(() => { if (clock) clearInterval(clock) })
+
+function secondsUntil(iso?: string): number {
+  if (!iso) return 0
+  return Math.max(0, Math.round((new Date(iso).getTime() - now.value) / 1000))
+}
+
+function activeText(a: LiveAttempt): string {
+  if (a.state !== 'waiting_retry') return `${prettyLabel(a.label)} — generating`
+  const remaining = secondsUntil(a.retry_at)
+  return `${prettyLabel(a.label)} — provider busy, retrying`
+    + `${remaining ? ` in ${remaining}s` : ' now'}`
+    + ` (attempt ${a.attempt + 1} of ${a.max_attempts})`
+}
 
 function runtimeStatus(s: SectionRow): RuntimeStatus {
-  const live = jobs.value.find(j =>
-    (j.type === 'audio') &&
-    j.episode_id === props.episodeId &&
-    j.project_slug === props.projectSlug &&
-    (j.status === 'running' || j.status === 'queued')
-  )
+  const attempt = liveAttempts.value.get(s.slug)
+  if (attempt) return attempt.state === 'waiting_retry' ? 'waiting' : 'generating'
+  const live = liveJob.value
   if (live) {
     const targeted: string = (live.params?.sections as string) || 'all'
     if (targeted === 'all' || targeted.split(',').map(x => x.trim()).includes(s.slug)) {
-      return 'generating'
+      // Sections are fed to the provider in turn, so a targeted row that is
+      // not in flight is genuinely still waiting its turn. Only a job that
+      // reports nothing (older build, or not yet staged) is painted wholesale
+      // as generating, which is what this display used to do to every row.
+      if (!liveProgress.value) return 'generating'
+      if (s.status !== 'generated') return 'queued'
     }
   }
   // Stale only matters for sections that have actually been generated;
@@ -258,6 +341,8 @@ function statusText(status: string): string {
   return status === 'generated' ? '✓ ready'
     : status === 'partial' ? '◐ partial'
     : status === 'generating' ? '⏳ generating'
+    : status === 'waiting' ? '⏸ provider busy'
+    : status === 'queued' ? '· waiting its turn'
     : status === 'stale' ? '⚠ stale'
     : '○ pending'
 }
@@ -268,9 +353,14 @@ function inlineActionLabel(section: SectionRow): string {
     : 'Generate'
 }
 
+/** Every state that means "a running job already owns this section". */
+function isLiveStatus(status: RuntimeStatus): boolean {
+  return status === 'generating' || status === 'waiting' || status === 'queued'
+}
+
 function inlineActionDisabled(section: SectionRow): boolean {
   const status = runtimeStatus(section)
-  if (status === 'generating' || props.inlineGenerateDisabled) return true
+  if (isLiveStatus(status) || props.inlineGenerateDisabled) return true
   return status === 'generated' && !allowDuplicatesLocal.value
 }
 
@@ -482,6 +572,39 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   color: rgb(59, 130, 246);
   border-color: rgba(96, 165, 250, 0.35);
 }
+/* Waiting on the provider is not an error — it is the run pacing itself. */
+.pill-waiting {
+  background: rgba(234, 179, 8, 0.14);
+  color: rgb(202, 138, 4);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+.pill-queued {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.cs-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.cs-progress-count {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.cs-progress-failed { color: rgb(202, 138, 4); }
+.cs-progress-note { border-bottom: 1px dotted var(--border); cursor: help; }
+.cs-progress-active { font-variant-numeric: tabular-nums; }
 
 .cs-footer {
   display: flex;

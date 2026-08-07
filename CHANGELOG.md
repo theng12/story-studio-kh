@@ -4,6 +4,37 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.791 — 2026-08-07
+
+- **Narration is now generated one chapter at a time, instead of all at once** — a ten-chapter
+  episode used to send all ten requests together, and the voice provider behind the chosen model
+  would take four and refuse six. Every refused chapter was fine on its own afterwards, so the
+  work was never the problem: a cloned voice lives in a single provider workspace, and that one
+  workspace was being asked for a whole episode at once. Speech is now fed to a cloud voice
+  provider one request at a time. Local GenStudio Local voices are unaffected and still run as
+  many at once as before, because they have no provider account to overload. Nothing else
+  changed pace — images, video, subtitles and script work all stage exactly as they did.
+
+- **A chapter the provider was too busy to take is now retried for you** — that refusal used to
+  end the chapter, and finishing an episode meant clicking Retry on each one by hand. Story
+  Studio now waits and asks again, up to three more times, spacing the attempts further apart
+  each time. This applies only to the one outcome that proves no provider ever accepted the
+  request and nothing was charged for it. A refusal that means something else — no credit left,
+  a request the provider took and failed, or one GenStudio could not confirm either way — still
+  stops immediately and still says why, because asking those again can cost money. A retry
+  re-uses a request identity worked out from the failure itself, so a retry that gets replayed
+  after a crash or a restart returns the job it already has rather than buying a second one.
+
+- **A running audio job now shows what it is doing** — a ten-section job takes several minutes,
+  and until now it looked exactly like a hung one: a spinner, and every chapter row pulsing
+  "generating" whether it had started or not. The Audio page now shows how many requests are
+  done, which chapter is actually in flight, which are still waiting their turn, and — when the
+  provider has asked for a pause — a countdown to the next attempt. The Jobs page shows a real
+  progress bar for audio for the first time, plus the same per-chapter line. The Generate button
+  names the chapter it is on instead of just the episode.
+
+---
+
 ## v1.0.790 — 2026-08-07
 
 - **Narration generation works again** — every section of an episode failed the moment it was

@@ -474,6 +474,33 @@
             />
             <span v-if="jobProgress(job) == null && progressCounter(job)" class="progress-counter">{{ progressCounter(job) }}</span>
           </div>
+          <!--
+            What the job is actually working on. A percentage says how far; a
+            long-running step that reports nothing else is indistinguishable
+            from a hang, and that ambiguity has already produced a wrong
+            diagnosis. `waiting_retry` in particular is a job doing exactly
+            what it should — waiting out a provider — and must not read as
+            stuck.
+          -->
+          <div v-if="job.item_progress" class="job-items">
+            <span class="job-items-count">
+              {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
+            </span>
+            <span v-if="job.item_progress.failed" class="job-items-failed">
+              · {{ job.item_progress.failed }} failed
+            </span>
+            <span
+              v-if="job.item_progress.concurrency === 1 && job.item_progress.total > 1"
+              class="job-items-note"
+              title="Sent to the provider one request at a time, on purpose — a whole batch at once gets most of it refused."
+            >· one at a time</span>
+            <span
+              v-for="item in job.item_progress.active"
+              :key="item.key || item.label"
+              class="job-items-active"
+              :class="{ waiting: item.state === 'waiting_retry' }"
+            >· {{ itemAttemptText(item) }}</span>
+          </div>
           <div class="output-scroll" ref="outputScrollRefs">
             <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
           </div>
@@ -1477,6 +1504,22 @@ function youtubeProgressLabel(job: RJob): string {
   if (progress < 95) return 'Applying thumbnail and metadata'
   if (progress < 100) return 'Saving YouTube upload record'
   return 'YouTube upload complete'
+}
+
+type JobItemAttempt = NonNullable<RJob['item_progress']>['active'][number]
+
+/**
+ * One line for one in-flight item. A backoff shows the seconds left so the
+ * pause visibly ticks down instead of looking frozen.
+ */
+function itemAttemptText(item: JobItemAttempt): string {
+  if (item.state !== 'waiting_retry') return `${item.label} — running`
+  const remaining = item.retry_at
+    ? Math.max(0, Math.round((new Date(item.retry_at).getTime() - now.value) / 1000))
+    : 0
+  return `${item.label} — ${item.reason || 'provider declined'};`
+    + ` retrying${remaining ? ` in ${remaining}s` : ' now'}`
+    + ` (attempt ${item.attempt + 1} of ${item.max_attempts})`
 }
 
 /**
@@ -2535,6 +2578,21 @@ async function clearFinished() {
 }
 .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .progress-row > :first-child { flex: 1; min-width: 0; }
+.job-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.job-items-count { color: var(--text-primary); font-weight: 500; }
+.job-items-failed { color: rgb(202, 138, 4); }
+.job-items-note { border-bottom: 1px dotted var(--border); cursor: help; }
+.job-items-active.waiting { color: rgb(202, 138, 4); }
+
 .progress-counter {
   font-size: var(--font-xs); font-family: 'SF Mono', Monaco, monospace;
   color: var(--accent); font-weight: 600; white-space: nowrap;

@@ -28,7 +28,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting || audioJobActiveForEpisode"
       :generate-disabled="!form.episode_id || !scriptReady || !form.voice || !selectedVoiceCompatible"
-      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? 'This voice cannot be generated with right now.' : '')))"
+      :generate-status="audioJobActiveForEpisode ? audioJobStatusText : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? 'This voice cannot be generated with right now.' : '')))"
       @generate="submit"
     >
       <template #actions>
@@ -816,6 +816,33 @@ const audioJobActiveForEpisode = computed(() => {
     j.type === 'audio' &&
     (j.status === 'queued' || j.status === 'running'),
   )
+})
+
+/** The running audio job for this episode, if there is one. */
+const audioJobForEpisode = computed(() => jobs.value.find((j: any) =>
+  j.episode_id === form.episode_id &&
+  j.project_slug === slug.value &&
+  j.type === 'audio' &&
+  (j.status === 'queued' || j.status === 'running'),
+))
+
+/**
+ * The one line the button shows while a run is in flight.
+ *
+ * "Generating audio for TN0024…" is true of a run that is one minute in and
+ * of one that has been wedged for twenty. Naming the section and the count
+ * makes the difference visible without opening the Jobs page.
+ */
+const audioJobStatusText = computed(() => {
+  const progress = audioJobForEpisode.value?.item_progress
+  if (!progress?.total) return `Generating audio for ${form.episode_id}…`
+  const count = `${progress.completed} of ${progress.total}`
+  const waiting = progress.active.find((a: any) => a.state === 'waiting_retry')
+  if (waiting) return `${waiting.label} — provider busy, retrying (${count} done)`
+  const running = progress.active[0]
+  return running
+    ? `${running.label} — generating (${count} done)`
+    : `Generating audio for ${form.episode_id} (${count} done)…`
 })
 
 // Defensive — clear `submitting` on episode swap.

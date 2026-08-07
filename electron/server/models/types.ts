@@ -2131,6 +2131,57 @@ export interface AccountUsage {
   label: string
 }
 
+/**
+ * What one item of a list-shaped job is doing right now.
+ *
+ * `waiting_retry` is its own state on purpose. A provider that declined to
+ * take the work and will be asked again is the single case where nothing is
+ * happening and nothing is wrong, and it is exactly the case a bare spinner
+ * misrepresents as a hang.
+ */
+export interface JobItemAttempt {
+  /** Human label for the item — a section name, a scene number. */
+  label: string
+  /**
+   * Stable identifier the UI can match a row against — an audio section slug.
+   * Optional because not every list-shaped job has one; a view without it
+   * falls back to `label`.
+   */
+  key?: string
+  state: 'running' | 'waiting_retry'
+  /** 1-based, so the first line of a card reads "attempt 1 of 4". */
+  attempt: number
+  max_attempts: number
+  /** ISO instant the wait ends. Set only while `waiting_retry`. */
+  retry_at?: string
+  /** Why it is waiting, phrased for the operator. */
+  reason?: string
+}
+
+/**
+ * Live per-item counts for a job that works through a list.
+ *
+ * Deliberately additive to `progress` rather than a replacement: a percentage
+ * says how far, this says what is actually happening and whether the run is
+ * pacing itself on purpose.
+ */
+export interface JobItemProgress {
+  /** Requests this run staged. */
+  total: number
+  /** Requests that produced their output. */
+  completed: number
+  /** Requests that gave up after their final attempt. */
+  failed: number
+  /**
+   * How many items this run may have in flight at once. `1` is the visible
+   * evidence that the run is feeding a metered provider one at a time, rather
+   * than being mysteriously slow.
+   */
+  concurrency: number
+  /** One entry per in-flight item; never longer than `concurrency`. */
+  active: JobItemAttempt[]
+}
+
 export interface Job {
   job_id: string
   project_slug: string
@@ -2163,6 +2214,19 @@ export interface Job {
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>
   progress?: number
+  /**
+   * Live per-item state for jobs that work through a list.
+   *
+   * `progress` alone answers "how far", which is not the question a long run
+   * actually raises. A ten-section audio job that legitimately takes several
+   * minutes and a wedged one look identical without this: the operator cannot
+   * see which section is in flight, that the run is feeding the provider one
+   * at a time deliberately, or that a section is sitting out a rate-limit wait
+   * rather than hung. That ambiguity has already had a slow provider call
+   * misdiagnosed as a hang. Optional and additive — jobs persisted before it
+   * shipped simply omit it.
+   */
+  item_progress?: JobItemProgress
   /**
    * Live transfer metrics for jobs that move bytes (YouTube uploads, asset
    * downloads). All four fields are optional and additive — missing on jobs

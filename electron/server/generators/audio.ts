@@ -14,10 +14,17 @@ import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
   GenStudioArtifactUnavailableError,
+  isGenStudioRouteExhausted,
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
+import {
+  delayUnlessAborted,
+  nextTtsRouteRetryIdentity,
+  TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+  ttsRouteRetryDelayMs,
+} from '../services/tts-capacity-retry.js'
 import {
   normalizeSectionsForTts,
   planGenStudioTtsRequests,
@@ -35,9 +42,11 @@ import { unavailableLegacyModelMessage } from '../services/genstudio-model-migra
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
-import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
+import { resolveGenStudioTtsFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
+import type {
+  GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
+} from '../models/types.js'
 
 type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
 
@@ -253,6 +262,12 @@ export async function generateAudio(job: Job): Promise<void> {
   // The product every request in this run buys. Read once here, beside the
   // boundary, because both have to survive the handover into `processTask`.
   const genStudioModelId = ttsModel.id
+  // The ROUTE, for the same reason. GenStudio publishes `provider_id` only for
+  // models that can speak a cloned voice, which is exactly the case where one
+  // upstream workspace answers every section of an episode — so an absent
+  // value is an unattributed route, not an unmetered one.
+  const genStudioProviderId = ttsModel.provider_id
+  const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
   const requestBudget = resolveTtsRequestBudget(ttsModel)
   // The control values this run submits, resolved against THIS model's
   // published `controls[]`. A name the model does not publish is dropped and a
@@ -408,6 +423,8 @@ export async function generateAudio(job: Job): Promise<void> {
   // all provider/worker execution limits.
   interface ChunkTask {
     sectionLabel: string
+    /** The section's stable slug, so live progress can be matched to a row. */
+    sectionSlug: string
     chunkText: string
     outputPath: string
     /**
@@ -549,7 +566,12 @@ export async function generateAudio(job: Job): Promise<void> {
         }
       }
 
-      tasks.push({ sectionLabel: section.label, chunkText: chunks[i]!, outputPath: chunkPath })
+      tasks.push({
+        sectionLabel: section.label,
+        sectionSlug: section.slug,
+        chunkText: chunks[i]!,
+        outputPath: chunkPath,
+      })
     }
   }
 
@@ -571,6 +593,7 @@ export async function generateAudio(job: Job): Promise<void> {
         intermediates.push({ order: segIdx * 1000 + chunkIdx, path: intermediatePath })
         tasks.push({
           sectionLabel,
+          sectionSlug,
           chunkText: chunkBody!,
           outputPath: intermediatePath,
           voiceIdOverride: seg.voiceId,
@@ -582,15 +605,48 @@ export async function generateAudio(job: Job): Promise<void> {
     concatPlans.set(finalPath, intermediates)
   }
 
-  const concurrency = resolveGenStudioLocalFanout(tasks.length)
+  // Paced against the VOICE PROVIDER, not against the GenStudio account.
+  // GenStudio admission already applies the account's paid concurrency; what
+  // it cannot apply is the one upstream workspace a cloned voice lives in, and
+  // that is the budget an episode's sections actually compete for. See
+  // `resolveGenStudioTtsFanout` for why an unattributed model serialises.
+  const concurrency = resolveGenStudioTtsFanout(tasks.length, genStudioProviderId)
 
   // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
   // section loop) so the chunkText() calls in the loop can reference it
   // without a forward-reference error. See the block annotated
   // "[per-model chunk-size cap]" above.
   if (tasks.length > 1) {
-    job.output_lines.push(`Staging ${tasks.length} TTS request(s); GenStudio account admission is authoritative.`)
+    job.output_lines.push(
+      `Staging ${tasks.length} TTS request(s), ${concurrency === 1 ? 'one at a time' : `${concurrency} at a time`}`
+      + ` for ${genStudioProviderLabel}`
+      + '; GenStudio account admission is authoritative for the rest.',
+    )
   }
+
+  // ── Live per-item progress ────────────────────────────────────────────────
+  // A run this long has to be able to say what it is doing. `job.progress`
+  // drives the bar; `job.item_progress` names the section in flight and, when
+  // a provider has asked us to wait, says so explicitly — which is the only
+  // thing that distinguishes deliberate pacing from a wedged job.
+  let completedTasks = 0
+  let failedTasks = 0
+  const activeTasks = new Map<string, JobItemAttempt>()
+  function publishProgress(): void {
+    job.progress = tasks.length
+      ? Math.round(((completedTasks + failedTasks) / tasks.length) * 100)
+      : 100
+    job.item_progress = {
+      total: tasks.length,
+      completed: completedTasks,
+      failed: failedTasks,
+      concurrency,
+      // Ordered by label so a re-render doesn't reshuffle rows when a Map
+      // entry is replaced in place.
+      active: [...activeTasks.values()].sort((a, b) => a.label.localeCompare(b.label)),
+    }
+  }
+  publishProgress()
 
   // AbortController fed from a 500 ms cancel watcher — matches the subtitles
   // generator's pattern. ElevenLabs streams MP3 bytes directly from fetch, so
@@ -601,37 +657,32 @@ export async function generateAudio(job: Job): Promise<void> {
     if (isCancelled()) controller.abort()
   }, 500)
 
-  async function processTask(task: ChunkTask): Promise<void> {
-    if (isCancelled()) return
-    // Phase 6: per-task voice override for routed sections. Falls back to
-    // the request's project-default voice when not set.
-    const effectiveVoice = task.voiceIdOverride || req.voice || undefined
-    // Ensure intermediate dir exists (routed-section files live in .routed/).
-    await fs.mkdir(path.dirname(task.outputPath), { recursive: true }).catch(() => {})
-    try {
-      const chunkFilename = path.basename(task.outputPath)
-      const manifestEntry = audioManifest.tasks[chunkFilename]
-      const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
-      const inputHash = hashInput(JSON.stringify({
-        requestIdentity,
-        text: task.chunkText,
-        voiceId: effectiveVoice || '',
-        speed: req.speed ?? 1,
-        maxInputCharacters: genStudioMaxCharacters,
-        // Spread conditionally for the same reason the idempotency digest does
-        // it: a model publishing no controls hashes exactly as before, so an
-        // existing manifest entry stays reusable across this upgrade instead of
-        // being resubmitted (and recharged) for a request that has not changed.
-        ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
-      }))
-      const legacyTextHash = hashInput(task.chunkText)
-      const reusableEntry = manifestEntry?.provider === 'genstudio'
-        && (manifestEntry.input_hash === inputHash
-          || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
-        ? manifestEntry
-        : null
-      const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
-      const recoveryEntry = terminalFailure ? null : reusableEntry
+  /**
+   * One TTS request, from identity through to the saved file.
+   *
+   * `submissionIdentity` is what makes the attempt distinct. Attempt 1 uses
+   * the durable per-chunk identity (or the manual-retry identity, when the
+   * saved job is terminally dead); every later attempt uses the identity
+   * `nextTtsRouteRetryIdentity` derived from the job that just failed, so the
+   * attempt is repeatable rather than merely new.
+   */
+  async function attemptTask(
+    task: ChunkTask,
+    options: {
+      chunkFilename: string
+      effectiveVoice: string | undefined
+      submissionIdentity: string
+      inputHash: string
+      /** Reclaimable accepted work from a previous run. Only ever attempt 1. */
+      recoveryEntry: Manifest['tasks'][string] | null
+      announceRecoveryFromTerminal: boolean
+    },
+  ): Promise<void> {
+    const {
+      chunkFilename, effectiveVoice, submissionIdentity,
+      inputHash, recoveryEntry, announceRecoveryFromTerminal,
+    } = options
+    {
       const prepared = buildGenStudioSubmission({
         text: task.chunkText,
         voiceId: effectiveVoice,
@@ -646,25 +697,24 @@ export async function generateAudio(job: Job): Promise<void> {
         // against what GenStudio will accept, not Story Studio's planning
         // head-room. A body planned inside the smaller budget passes it.
         maxInputCharacters: genStudioMaxCharacters,
-        // A manual Story Studio retry owns a new queue job. Give only a
-        // terminal external failure a fresh GenStudio identity; unfinished
-        // accepted work must retain its original key for safe recovery.
-        requestIdentity: terminalFailure
-          ? `${requestIdentity}:manual-retry:${job.job_id}`
-          : requestIdentity,
+        // Decided by the caller: the durable identity, the manual-retry
+        // identity, or an identity derived from the job this chunk just
+        // failed as. Every one of them is a pure function of what happened,
+        // never of a clock — so replaying an attempt replays its job.
+        requestIdentity: submissionIdentity,
       })
       const idempotencyKey = recoveryEntry?.idempotency_key || prepared.idempotencyKey
       const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
 
-      if (terminalFailure) {
+      if (announceRecoveryFromTerminal) {
         job.output_lines.push(
           `  Previous GenStudio task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
         )
       }
-      // The fresh identity above is minted ONCE, then persisted below before the
-      // POST. Any later attempt reads the saved (non-terminal) entry back and
-      // reuses its idempotency_key, so a lost response replays the paid job
-      // instead of minting a second `manual-retry:` identity.
+      // The identity above is derived ONCE per attempt, then persisted below
+      // before the POST. Any later attempt reads the saved (non-terminal)
+      // entry back and reuses its idempotency_key, so a lost response replays
+      // the paid job instead of minting a second identity for it.
 
       // Persist identity before POST. Legacy manifest entries are deliberately
       // ignored unless they already represent this exact GenStudio request.
@@ -700,7 +750,11 @@ export async function generateAudio(job: Job): Promise<void> {
         // had published correctly all along. Same live catalogue value as the
         // `prepared` submission above; there is only one source for it.
         maxInputCharacters: genStudioMaxCharacters,
-        requestIdentity,
+        // THIS attempt's identity, not the chunk's durable one. The submit
+        // path rebuilds a submission from this object, and a retry attempt
+        // that rebuilt under the base identity would derive the dead job's
+        // key again the moment `idempotencyKey` was ever absent.
+        requestIdentity: submissionIdentity,
         idempotencyKey,
         signal: controller.signal,
         isCancelled,
@@ -748,33 +802,153 @@ export async function generateAudio(job: Job): Promise<void> {
         await generateTtsGenStudio(apiKey, task.outputPath, request)
       }
       job.output_lines.push(`  Saved: ${path.basename(task.outputPath)}`)
-    } catch (e: any) {
-      // A user cancel is NOT a chunk failure. Recording it in errors[] makes
-      // the run end with a misleading "N section(s) failed: … Cancelled by
-      // user". Skip it — the queue stamps the job 'cancelled' on its own (it
-      // checks the cancel set on both the throw and clean-return paths).
-      if (isCancelled() || /cancell?ed|abort/i.test(e?.message || '')) {
-        job.output_lines.push('  Cancelled.')
-        return
+    }
+  }
+
+  async function processTask(task: ChunkTask): Promise<void> {
+    if (isCancelled()) return
+    // Phase 6: per-task voice override for routed sections. Falls back to
+    // the request's project-default voice when not set.
+    const effectiveVoice = task.voiceIdOverride || req.voice || undefined
+    const chunkFilename = path.basename(task.outputPath)
+    // Ensure intermediate dir exists (routed-section files live in .routed/).
+    await fs.mkdir(path.dirname(task.outputPath), { recursive: true }).catch(() => {})
+
+    // Resolved once: none of this depends on which attempt we are on. The
+    // input hash in particular MUST stay on the chunk's durable identity, or a
+    // resumed run would fail to recognise its own manifest entry and resubmit
+    // work it had already paid for.
+    const manifestEntry = audioManifest.tasks[chunkFilename]
+    const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
+    const inputHash = hashInput(JSON.stringify({
+      requestIdentity,
+      text: task.chunkText,
+      voiceId: effectiveVoice || '',
+      speed: req.speed ?? 1,
+      maxInputCharacters: genStudioMaxCharacters,
+      // Spread conditionally for the same reason the idempotency digest does
+      // it: a model publishing no controls hashes exactly as before, so an
+      // existing manifest entry stays reusable across this upgrade instead of
+      // being resubmitted (and recharged) for a request that has not changed.
+      ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
+    }))
+    const legacyTextHash = hashInput(task.chunkText)
+    const reusableEntry = manifestEntry?.provider === 'genstudio'
+      && (manifestEntry.input_hash === inputHash
+        || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
+      ? manifestEntry
+      : null
+    const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
+    // A manual Story Studio retry owns a new queue job. Give only a terminal
+    // external failure a fresh GenStudio identity; unfinished accepted work
+    // must retain its original key for safe recovery.
+    let submissionIdentity = terminalFailure
+      ? `${requestIdentity}:manual-retry:${job.job_id}`
+      : requestIdentity
+    // Only the first attempt may reclaim work a previous run left accepted.
+    let recoveryEntry = terminalFailure ? null : reusableEntry
+
+    activeTasks.set(chunkFilename, {
+      label: task.sectionLabel,
+      key: task.sectionSlug,
+      state: 'running',
+      attempt: 1,
+      max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+    })
+    publishProgress()
+    try {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await attemptTask(task, {
+            chunkFilename,
+            effectiveVoice,
+            submissionIdentity,
+            inputHash,
+            recoveryEntry,
+            announceRecoveryFromTerminal: terminalFailure && attempt === 1,
+          })
+          completedTasks++
+          return
+        } catch (e: any) {
+          // A user cancel is NOT a chunk failure. Recording it in errors[]
+          // makes the run end with a misleading "N section(s) failed: …
+          // Cancelled by user". Skip it — the queue stamps the job 'cancelled'
+          // on its own (it checks the cancel set on both the throw and
+          // clean-return paths).
+          if (isCancelled() || /cancell?ed|abort/i.test(e?.message || '')) {
+            job.output_lines.push('  Cancelled.')
+            return
+          }
+          // A settled GenStudio outcome must be recorded locally, or the next
+          // Retry has no way to know the saved job can never succeed and will
+          // replay its dead idempotency key forever. `onState` covers a failed
+          // job state; this covers the succeeded-but-artifact-gone case, which
+          // has no state change.
+          if (e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts') {
+            await recordTask(audioDir, chunkFilename, {
+              provider: 'genstudio',
+              task_id: e.jobId,
+              submitted_at: new Date().toISOString(),
+              operation: 'tts',
+              last_state: 'artifact_expired',
+            }).catch(() => { /* evidence write must never mask the real failure */ })
+          }
+
+          // The ONE failure worth asking again about. Every route GenStudio
+          // ranked for this product declined to take the request, which proves
+          // no provider did any work and the reservation was released — so
+          // another attempt costs time and nothing else. Any other terminal
+          // code may describe work a provider already performed, and fails
+          // fast here rather than being paid for twice.
+          if (!isGenStudioRouteExhausted(e) || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
+            failedTasks++
+            // Settled-pool semantics: one chunk failure doesn't kill the
+            // batch. The queue stamps status='error' after the loop if
+            // errors.length > 0.
+            job.output_lines.push(`  Failed: ${e.message}`)
+            errors.push(`${task.sectionLabel}: ${e.message}`)
+            return
+          }
+
+          const waitMs = ttsRouteRetryDelayMs(attempt - 1)
+          const reason = `No ${genStudioProviderLabel} route would accept this request`
+          activeTasks.set(chunkFilename, {
+            label: task.sectionLabel,
+            key: task.sectionSlug,
+            state: 'waiting_retry',
+            attempt,
+            max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+            retry_at: new Date(Date.now() + waitMs).toISOString(),
+            reason,
+          })
+          publishProgress()
+          job.output_lines.push(
+            `  ${task.sectionLabel}: ${reason.toLowerCase()} — nothing was charged.`
+            + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1} of ${TTS_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+          )
+          // Derived from the job that just failed, so this retry is repeatable:
+          // replaying it returns the job GenStudio already has for it instead
+          // of selling a second one.
+          submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
+          recoveryEntry = null
+          await delayUnlessAborted(waitMs, controller.signal)
+          if (isCancelled()) {
+            job.output_lines.push('  Cancelled.')
+            return
+          }
+          activeTasks.set(chunkFilename, {
+            label: task.sectionLabel,
+            key: task.sectionSlug,
+            state: 'running',
+            attempt: attempt + 1,
+            max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+          })
+          publishProgress()
+        }
       }
-      // A settled GenStudio outcome must be recorded locally, or the next Retry
-      // has no way to know the saved job can never succeed and will replay its
-      // dead idempotency key forever. `onState` covers a failed job state; this
-      // covers the succeeded-but-artifact-gone case, which has no state change.
-      if (e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts') {
-        const chunkFilename = path.basename(task.outputPath)
-        await recordTask(audioDir, chunkFilename, {
-          provider: 'genstudio',
-          task_id: e.jobId,
-          submitted_at: new Date().toISOString(),
-          operation: 'tts',
-          last_state: 'artifact_expired',
-        }).catch(() => { /* evidence write must never mask the real failure */ })
-      }
-      // Settled-pool semantics: one chunk failure doesn't kill the batch.
-      // The queue stamps status='error' after the loop if errors.length > 0.
-      job.output_lines.push(`  Failed: ${e.message}`)
-      errors.push(`${task.sectionLabel}: ${e.message}`)
+    } finally {
+      activeTasks.delete(chunkFilename)
+      publishProgress()
     }
   }
 

@@ -2036,6 +2036,40 @@ export function isGenStudioSubmissionUncertain(error: unknown): boolean {
 }
 
 /**
+ * The settled-job failure code that means NO upstream route ever accepted this
+ * request.
+ *
+ * GenStudio tries each ranked route for the product in turn. A route that
+ * answers a documented non-success status on SUBMIT proves it took nothing, so
+ * GenStudio moves to the next one; when the list runs out with nothing
+ * accepted, the job settles `failed` with this code and its whole reservation
+ * is released.
+ *
+ * That is what makes it the one failure Story Studio may retry by machine.
+ * Every other terminal code describes work a provider had already taken on —
+ * retrying those spends again for the same asset. Here nothing was taken and
+ * nothing was charged, so the only cost of trying again is time.
+ */
+export const GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE = 'CLOUD_PROVIDER_EXHAUSTED'
+
+/**
+ * True when GenStudio settled this job because every route declined to take it.
+ *
+ * Deliberately an exact allow-list of one code rather than a deny-list. A code
+ * this build has never seen is treated as "a provider may have done work",
+ * which is the safe way to be wrong: a new code that should retry costs one
+ * manual Retry, a new code that should NOT retry would cost money.
+ *
+ * A customer cancellation is excluded even though it settles the same way —
+ * the user asked for it to stop.
+ */
+export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTerminalFailureError {
+  return error instanceof GenStudioTerminalFailureError
+    && !error.cancelled
+    && error.failureCode === GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE
+}
+
+/**
  * Render GenStudio's error `detail` as one sentence, whatever shape it took.
  *
  * FastAPI answers a body it will not accept with `detail` as an ARRAY of
