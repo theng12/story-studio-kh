@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.794 — 2026-08-07
+
+- **A new "Avoid readable text in images" setting on Scene Plan, on by default** — generated
+  scenes sometimes rendered a scroll or a sign with garbled, unreadable lettering. Documents are
+  real subject matter on a history channel, so the fix isn't to stop showing them: with this on,
+  scene prompts now describe lettering as texture and shape instead of asking for specific words,
+  so the image still looks like a real document without the garbled text. It's a toggle, not a
+  forced behavior — a project rendering scenes on a higher-quality model that gets real words
+  right can turn it off next to the other scene settings, and existing scene prompts don't change
+  until the next time a scene prompt is generated. Thumbnails are completely unaffected; their
+  titles must stay legible and always will.
+
 ## v1.0.793 — 2026-08-07
 
 - **A running image batch now shows what it is doing** — a 333-scene render used to show an

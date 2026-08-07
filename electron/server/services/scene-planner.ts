@@ -29,7 +29,7 @@ import {
   CREATIVE_STRATEGY_INSTRUCTIONS,
 } from './scene-creative-direction.js'
 import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
-import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
+import { imagePromptGuidanceBlock, legibleTextGuidanceBlock } from '../lib/image-content-guidance.js'
 import { availableInputTokens } from './scene-prompt-batching.js'
 import type {
   ResearchOutput,
@@ -1542,6 +1542,11 @@ export async function generateVisualPromptOnly(opts: {
   reword?: boolean
   /** The prompt being reworded, so the writer can avoid restating it. */
   reword_previous_prompt?: string
+  /** v1.0.794 — SCENE prompts only: describe lettering as indistinct
+   *  marks/texture instead of specific readable words. Resolved by the
+   *  caller (per-run override, else the project default) via
+   *  resolveAvoidLegibleText in lib/image-content-guidance.ts. */
+  avoid_legible_text?: boolean
 }): Promise<string> {
   const detail = DETAIL_SPECS[opts.detail_level ?? 4] || DETAIL_SPECS[4]!
   const sysParts: string[] = [
@@ -1594,6 +1599,7 @@ export async function generateVisualPromptOnly(opts: {
   // Difficult historical material is described in ways that render, and — when
   // the user asked for a reword — from a different angle on the same beat.
   const system = sysParts.join('\n\n') + imagePromptGuidanceBlock({ reword: opts.reword })
+    + legibleTextGuidanceBlock(opts.avoid_legible_text)
 
   // User-message sections: prev prompts → upcoming transcripts → THIS
   // scene's transcript → instruction. Order matters: putting THIS scene

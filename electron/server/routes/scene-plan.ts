@@ -148,6 +148,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // `max_prompt_characters`. Absent = nothing published = no target.
   const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
   const creativeDirection = parseCreativeDirection(body.creative_direction)
+  // v1.0.794 — SCENE prompts only; the frontend sends the current state of
+  // the Scene Plan page's toggle. Omitted → the generator falls back to the
+  // project default. Never read by the (separate) Thumbnail Prompts path.
+  const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -182,6 +186,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       prompt_max_tokens: promptMaxTokens,
       prompt_char_cap: promptCharCap,
       creative_direction: creativeDirection,
+      avoid_legible_text: avoidLegibleText,
     },
   })
   res.status(201).json(job)
@@ -232,6 +237,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   // angle, difficult-subjects guidance applied. Only the explicit action sets
   // it — no failure is inspected to infer it. See lib/image-content-guidance.ts.
   const rewordPrompt = body.reword_prompt === true
+  const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
 
   // Shares the scene_plan_run lane — only one job per episode at a time.
   // The frontend bulk-regen loop polls for completion before queuing the next.
@@ -254,6 +260,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       custom_instructions: customInstructions || undefined,
       creative_direction: creativeDirection,
       prompt_char_cap: promptCharCap,
+      avoid_legible_text: avoidLegibleText,
     },
   })
   res.status(201).json(job)
@@ -288,6 +295,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
   const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
   const useResearch = body.use_research !== false
+  const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
@@ -310,6 +318,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
       prompt_max_tokens: promptMaxTokens,
       prompt_char_cap: promptCharCap,
       use_research: useResearch,
+      avoid_legible_text: avoidLegibleText,
     },
   })
   res.status(201).json(job)

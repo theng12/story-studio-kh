@@ -334,6 +334,23 @@
 
         <div class="scene-setting-card">
           <div class="scene-setting-head">
+            <strong>Avoid readable text in images</strong>
+            <label class="scene-switch-label">
+              <input v-model="form.avoid_legible_text" type="checkbox" @change="setAvoidLegibleText(form.avoid_legible_text)" />
+              {{ form.avoid_legible_text ? 'On' : 'Off' }}
+            </label>
+          </div>
+          <p class="scene-setting-help">
+            Fast local models render scrolls, signs, and inscriptions as confident-looking gibberish
+            instead of real words. With this on, scene prompts describe that lettering as texture rather
+            than specific words, so documents still look right without the garbled text. If this project
+            renders scenes on a higher-quality model that gets real words correct, turn it off. Thumbnail
+            titles are never affected — they always ask for legible text.
+          </p>
+        </div>
+
+        <div class="scene-setting-card">
+          <div class="scene-setting-head">
             <strong>Style and guidance</strong>
             <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Edit Character Sheet</NuxtLink>
           </div>
@@ -910,6 +927,39 @@ async function setMotionLevel(v: number) {
   }
 }
 
+// v1.0.794 — "Avoid readable text in images", SCENE prompts only (never
+// Thumbnail Prompts — a thumbnail's whole job is a legible in-image title).
+// Optional and persisted per project, same pattern as motion above. Default
+// ON: a project that has never touched this setting reads undefined here,
+// and undefined resolves to on (matches resolveAvoidLegibleText on the
+// backend) because the local fleet's fast model — the primary scene
+// renderer — is the one that garbles lettering. A project whose scenes
+// render on a higher-quality model (GPT Image 2, Nano Banana Pro) that gets
+// real words right can turn this off below.
+const avoidLegibleText = ref<boolean>(((projectConfig.value as any)?.avoid_legible_text_in_scenes) !== false)
+watch(projectConfig, (c) => {
+  avoidLegibleText.value = ((c as any)?.avoid_legible_text_in_scenes) !== false
+  form.value.avoid_legible_text = avoidLegibleText.value
+})
+async function setAvoidLegibleText(v: boolean) {
+  // Kept in sync with form.value.avoid_legible_text (the checkbox's actual
+  // v-model, matching the Motion Prompts card above) so a failed save can
+  // revert what the user is actually looking at, not just this shadow ref.
+  avoidLegibleText.value = v
+  form.value.avoid_legible_text = v
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { avoid_legible_text_in_scenes: v })
+    if (projectConfig.value) (projectConfig.value as any).avoid_legible_text_in_scenes = v
+    success(v
+      ? 'Scene prompts will describe lettering as texture instead of readable words.'
+      : 'Scene prompts may write specific readable words again. Thumbnails were never affected.')
+  } catch (e: any) {
+    avoidLegibleText.value = !v
+    form.value.avoid_legible_text = !v
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
+
 const episodeId = ref('')
 
 // ── Status payload (matches GET /scene-plan/:ep response) ───────────
@@ -1309,6 +1359,8 @@ const form = ref({
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
   generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
   motion_level: 2,
+  // v1.0.794 — SCENE prompts only; see avoidLegibleText above. Default ON.
+  avoid_legible_text: ((projectConfig.value as any)?.avoid_legible_text_in_scenes) !== false,
   // Visual interpretation is separate from the Character Sheet Style Bible.
   // Narrative is the compatibility-safe default for existing story channels.
   creative_profile: 'narrative' as CreativeProfile,
@@ -1768,6 +1820,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       motion_level: form.value.motion_level,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      avoid_legible_text: form.value.avoid_legible_text,
     })
     success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
@@ -1886,6 +1939,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
       prompt_char_cap: effectivePromptCharCap.value || undefined,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      avoid_legible_text: form.value.avoid_legible_text,
       ...(opts.reword ? { reword_prompt: true } : {}),
     })
     success(opts.reword
@@ -1987,6 +2041,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
       use_research: form.value.use_research,
       creative_direction: creativeDirectionPayload.value,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      avoid_legible_text: form.value.avoid_legible_text,
     })
     bulkReplan.value.jobId = job?.job_id || null
     success('Prompt repair queued in durable GenStudio packs. Watch the Jobs panel for detail.')
@@ -2273,6 +2328,7 @@ const planPresets = usePresets<any>({
     custom_instructions: form.value.custom_instructions,
     generate_motion_prompts: form.value.generate_motion_prompts,
     motion_level: form.value.motion_level,
+    avoid_legible_text: form.value.avoid_legible_text,
   }),
   apply: (data) => {
     // Retired presets may contain a per-plan style. Ignore it so Character

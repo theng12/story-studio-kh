@@ -30,6 +30,35 @@
  * over an already-approved still, and never introduce subject matter of their
  * own.
  *
+ * ── Legible text in SCENE images only ───────────────────────────────────────
+ * `AVOID_LEGIBLE_TEXT_GUIDANCE` / `legibleTextGuidanceBlock` is a SEPARATE,
+ * opt-in block (default off — see `resolveAvoidLegibleText`) for one narrow
+ * problem: a fast image model asked to render a scroll, ledger, or sign
+ * usually renders confident-looking gibberish instead of real words. History
+ * and documentary channels depict real documents constantly and legitimately
+ * — Procopius writing his history is exactly right as a subject — so the fix
+ * is never "stop showing documents." It is: when a prompt-writing pass has
+ * this switched on, describe lettering as indistinct marks/texture rather
+ * than as specific readable words, so the renderer stops attempting words it
+ * will get wrong.
+ *
+ * Deliberately a SEPARATE block from `IMAGE_CONTENT_GUIDANCE`, not folded
+ * into it: the content-safety guidance applies to every prompt-writing path
+ * unconditionally, while this one must reach scene prompts only and must
+ * never reach the Thumbnail path — a YouTube thumbnail's whole job is a
+ * legible in-image title (see `buildThumbnailPrompt` in
+ * generators/image-prompts.ts, which requires the opposite: "Render the
+ * exact episode title as legible in-image typography"). Keeping this as an
+ * independent opt-in call means a caller has to ask for it by name; nothing
+ * about calling `imagePromptGuidanceBlock()` for the shared content-safety
+ * guidance can accidentally pull this in too.
+ *
+ * Per-project toggle (config.json `avoid_legible_text_in_scenes`, default ON
+ * — see `resolveAvoidLegibleText`): the local fleet's fast model is the
+ * primary scene renderer and is the one that garbles lettering; a project
+ * whose scenes render on a higher-quality model (GPT Image 2, Nano Banana
+ * Pro) that gets real words right can turn this off in Scene Plan settings.
+ *
  * ── On rewriting after a refusal ────────────────────────────────────────────
  * `IMAGE_PROMPT_REWORD_DIRECTIVE` powers a MANUAL, user-invoked reword only.
  * Story Studio cannot today tell a content refusal from any other failure, and
@@ -94,4 +123,42 @@ export function imagePromptGuidanceBlock(opts: { reword?: boolean } = {}): strin
   return opts.reword
     ? `\n\n${IMAGE_CONTENT_GUIDANCE}\n\n${IMAGE_PROMPT_REWORD_DIRECTIVE}`
     : `\n\n${IMAGE_CONTENT_GUIDANCE}`
+}
+
+/**
+ * How to describe lettering so it renders as a plausible written surface
+ * instead of garbled pseudo-text. SCENE prompt-writers only — see the
+ * "Legible text in SCENE images only" note at the top of this file for why
+ * this is intentionally a separate, opt-in block rather than folded into
+ * `IMAGE_CONTENT_GUIDANCE` (which every path, including thumbnails, gets
+ * unconditionally).
+ */
+export const AVOID_LEGIBLE_TEXT_GUIDANCE = `AVOID LEGIBLE TEXT: When this scene includes a scroll, ledger, page, inscription, sign, banner, or any other lettered surface, describe its writing as indistinct marks, weathered script, or dense linework — texture, not language. Never specify a word, phrase, name, or quoted line that must appear rendered and readable in the image. The document, sign, or inscription stays a fully legitimate subject in full period detail; only the individual letters should read as suggestion rather than as legible text, because an image model asked for specific words usually renders confident-looking gibberish instead.`
+
+/**
+ * The legible-text block to splice into a SCENE prompt-writer's instructions.
+ * `include` defaults to false — callers must opt in by name (see
+ * `resolveAvoidLegibleText` for the per-run / per-project toggle this powers)
+ * so nothing pulls this in by accident the way `imagePromptGuidanceBlock()`
+ * pulls in the content-safety guidance unconditionally.
+ */
+export function legibleTextGuidanceBlock(include = false): string {
+  return include ? `\n\n${AVOID_LEGIBLE_TEXT_GUIDANCE}` : ''
+}
+
+/**
+ * Resolve whether a SCENE prompt-writing call should suppress legible text.
+ * An explicit per-run value (the "Avoid readable text in images" toggle's
+ * current state, submitted with the request) always wins; otherwise falls
+ * back to the project's saved default (config.json
+ * `avoid_legible_text_in_scenes`). Unset (both undefined, e.g. a project that
+ * predates this setting) resolves to ON: the local fleet's fast model is the
+ * primary scene renderer across these channels and is the one that garbles
+ * lettering, so the safer default is to describe it as texture. A project on
+ * a higher-quality model that renders real words correctly can turn this off
+ * once in Scene Plan settings — see frontend/pages/projects/[slug]/scene-plan.vue.
+ */
+export function resolveAvoidLegibleText(explicit?: boolean | null, projectDefault?: boolean | null): boolean {
+  if (explicit != null) return explicit
+  return projectDefault !== false
 }

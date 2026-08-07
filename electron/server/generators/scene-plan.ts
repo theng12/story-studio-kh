@@ -20,7 +20,7 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
-import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
+import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText } from '../lib/image-content-guidance.js'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
@@ -168,6 +168,13 @@ interface ScenePlanRunParams {
    *  CTA / breathing) so scenes are planned only for the story. Per-episode
    *  override; falls back to the project default (config.skip_intro_scenes). */
   skip_intro?: boolean
+  /** v1.0.794 — SCENE prompts only (never thumbnails): describe lettering on
+   *  scrolls, signs, and pages as indistinct marks/texture instead of asking
+   *  for specific readable words, so a fast image model stops rendering
+   *  confident gibberish. Per-run override; falls back to the project default
+   *  (config.avoid_legible_text_in_scenes, default ON). See
+   *  resolveAvoidLegibleText in lib/image-content-guidance.ts. */
+  avoid_legible_text?: boolean
   /** New staged workflow. Timeline is deterministic; prompts are separate. */
   stage?: 'timeline' | 'visual' | 'motion'
   opening_mode?: 'branded-opening' | 'from-start'
@@ -550,6 +557,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_lines.push(`Motion profile: ${formulaMotionProfile.label} — follows scene role first, then balances still / gentle / limited motion deterministically.`)
   }
 
+  // v1.0.794 — SCENE prompts only (thumbnails never read this). Per-run
+  // override; else the project default, which is ON unless explicitly turned
+  // off (see resolveAvoidLegibleText in lib/image-content-guidance.ts).
+  let projectAvoidLegibleTextDefault: boolean | undefined
+  try { projectAvoidLegibleTextDefault = (await getConfig(job.project_slug) as any)?.avoid_legible_text_in_scenes } catch { /* default applies */ }
+  const wantAvoidLegibleText = resolveAvoidLegibleText(params.avoid_legible_text, projectAvoidLegibleTextDefault)
+
   const timelineOnly = params.stage === 'timeline'
   if (timelineOnly) job.output_lines.push('Timeline engine: deterministic (no LLM)')
   else job.output_lines.push(`Prompt model: ${model}`)
@@ -570,6 +584,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       : 'Prompt length ceiling: none — no image-model limit is in force for this run.')
     if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
     if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
+    job.output_lines.push(wantAvoidLegibleText
+      ? 'Text in images: avoiding legible lettering — scrolls/signs/pages render as texture, not readable words.'
+      : 'Text in images: off — this run may write specific readable words into scene prompts.')
   }
   job.progress = 10
 
@@ -832,7 +849,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           // Visual packs get the shared difficult-subjects guidance; motion
           // packs do not — they describe movement over an already-approved
           // still and introduce no subject matter of their own.
-          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}${isMotion ? '' : imagePromptGuidanceBlock()}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}${isMotion ? '' : imagePromptGuidanceBlock()}${isMotion ? '' : legibleTextGuidanceBlock(wantAvoidLegibleText)}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
         },
         {
           role: 'user',
@@ -1174,6 +1191,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       creative_direction: creativeDirectionForRewrite,
       creative_strategy: target.creative_strategy,
       prompt_char_cap: promptCharCap,
+      avoid_legible_text: wantAvoidLegibleText,
       // A user-invoked reword asks for a different ANGLE on the same beat with
       // the difficult-subjects guidance applied, rather than another pass at
       // the same framing. Nothing infers this from a failure — see
