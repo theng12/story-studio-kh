@@ -205,6 +205,7 @@
                   type="button"
                   class="ep-import"
                   :title="`Import a finished file for ${ep.episode_code} (audio, thumbnail, final video…) — it lands with the right name and flips the step done.`"
+                  :aria-label="`Import a finished file for ${ep.episode_code}`"
                   @click="openImport(ep)"
                 >⬆</button>
               </div>
@@ -220,6 +221,7 @@
                 class="cell"
                 :class="cellClass(ep, col)"
                 :title="cellTitle(ep, col)"
+                :aria-label="cellTitle(ep, col)"
               >
                 {{ cellMark(ep, col) }}
               </NuxtLink>
@@ -230,6 +232,7 @@
                 :class="[cellClass(ep, col), { 'cell-loading': cellBusy(ep, col) }]"
                 :disabled="cellBusy(ep, col)"
                 :title="markTitle(ep, col)"
+                :aria-label="markTitle(ep, col)"
                 @click="markCell(ep, col)"
               >
                 {{ cellBusy(ep, col) ? '·' : cellMark(ep, col) }}

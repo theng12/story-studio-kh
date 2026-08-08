@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.810 — 2026-08-09
+
+- **Production Board status cells now say what they mean to assistive technology** — symbolic
+  checkmarks and circles reuse the existing episode, stage, state, and action descriptions as
+  accessible names. The row-level import shortcut also names the episode it will receive, while
+  the compact visual board remains unchanged.
+
 ## v1.0.809 — 2026-08-08
 
 - **What’s New now stays focused on recent customer-visible changes** — the changelog keeps the
@@ -47,9 +54,3 @@ What's new in each release. Newest first.
   each published provider as a compact line below the model name. Voice providers appear now;
   image and LLM creators will appear automatically when GenStudio publishes that field, and Story
   Studio never guesses a company from a product name.
-
-## v1.0.805 — 2026-08-08
-
-- **The keyboard skip link stays out of sight until it is needed** — its shared accessibility
-  styling now applies to both application layouts, fixing the stray “Skip to main content” text
-  above the macOS window controls while preserving keyboard focus behavior.

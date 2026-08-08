@@ -31,4 +31,10 @@ describe('Production Board defaults', () => {
     assert.doesNotMatch(boardScrollCss, /overflow:\s*auto|max-height/)
     assert.match(boardScrollCss, /overflow-y:\s*visible/)
   })
+
+  test('names symbolic board actions for assistive technology', () => {
+    assert.match(board, /:aria-label="cellTitle\(ep, col\)"/)
+    assert.match(board, /:aria-label="markTitle\(ep, col\)"/)
+    assert.match(board, /:aria-label="`Import a finished file for \$\{ep\.episode_code\}`"/)
+  })
 })
