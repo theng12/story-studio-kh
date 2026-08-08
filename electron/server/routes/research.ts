@@ -145,16 +145,13 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
 
   const body = req.body || {}
   // The MODE is what the user picked; the provider id is derived from it. When
-  // a caller sends only a legacy `source_provider` (older clients, replayed
-  // jobs), fall back to what that provider means. Absent everything =
-  // model-knowledge, the unchanged default.
+  // a caller sends only `source_provider`, fall back to what that provider
+  // means. Absent everything = model-knowledge, the unchanged default.
   const researchMode = body.research_mode == null && typeof body.source_provider === 'string'
     ? undefined
     : normalizeResearchMode(body.research_mode)
   let sourceProvider: ResearchSourceProvider
   try {
-    // Old presets and queued requests may still say `perplexity`. Treat that
-    // value as a migration alias, never as permission to call Perplexity.
     sourceProvider = researchMode
       ? providerForResearchMode(researchMode)
       : normalizeResearchSourceProvider(body.source_provider)

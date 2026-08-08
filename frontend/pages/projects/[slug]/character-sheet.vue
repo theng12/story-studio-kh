@@ -42,7 +42,7 @@
             <h3>Visual anchors</h3>
             <p class="text-muted text-sm">Pick the recurring cast and, if useful, add one visual anchor for this episode.</p>
           </div>
-          <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="btn btn-ghost btn-sm">Manage channel characters →</NuxtLink>
+          <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="btn btn-ghost btn-sm">Manage channel characters →</NuxtLink>
         </header>
 
         <div class="cs-anchor-layout">
@@ -54,7 +54,7 @@
             <div v-if="charsLoading" class="text-muted text-sm">Loading characters…</div>
             <div v-else-if="!characters.length" class="cs-empty-inline text-muted text-sm">
               No Channel Characters are assigned yet.
-              <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="cs-link">Create or assign one →</NuxtLink>
+              <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="cs-link">Create or assign one →</NuxtLink>
             </div>
             <div v-else class="cs-character-grid">
               <button

@@ -21,7 +21,7 @@ describe('app responsiveness guards', () => {
   test('the dashboard does not run a high-frequency countdown repaint', () => {
     assert.doesNotMatch(dashboard, /nextRefreshInMs/)
     assert.doesNotMatch(credits, /countdownInterval|setInterval\([\s\S]{0,180}250\)/)
-    assert.match(dashboard, /Balances refresh automatically every \$\{Math\.round\(pollIntervalMs \/ 1000\)\} seconds/)
+    assert.doesNotMatch(dashboard, /setInterval|pollIntervalMs/)
   })
 
   test('the shared dashboard shell constrains wide workspace content to its scroll pane', () => {

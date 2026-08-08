@@ -370,7 +370,12 @@ router.get('/app-settings/genstudio/voices', async (req, res) => {
       collection: queryText(req.query.collection),
       search: queryText(req.query.search),
     })
-    res.json({ voices })
+    // GenStudio's model-scoped endpoint is authoritative. Keep one defensive
+    // boundary check for rows that also publish their serving model: a row
+    // explicitly naming a different model can never be offered for this one.
+    // Rows from older catalogues that omit the field still inherit the scoped
+    // endpoint's answer; nothing is inferred from provider or voice names.
+    res.json({ voices: voices.filter(voice => !voice.tts_model_id || voice.tts_model_id === modelId) })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH voice catalog'))
   }
@@ -432,7 +437,7 @@ router.delete('/app-settings/genstudio/voices/:voiceId/save', (req, res) => resp
 
 /** The libraries GenStudio publishes, named after their providers. */
 router.get('/app-settings/genstudio/voice-libraries', (_req, res) => {
-  res.json({ libraries: GENSTUDIO_VOICE_LIBRARIES.map(({ id, label }) => ({ id, label })) })
+  res.json({ libraries: GENSTUDIO_VOICE_LIBRARIES.map(({ id, label, provider_id }) => ({ id, label, provider_id })) })
 })
 
 router.get('/app-settings/genstudio/voice-libraries/:library', async (req, res) => {

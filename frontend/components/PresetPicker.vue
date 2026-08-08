@@ -16,25 +16,26 @@
         :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be overwritten. Use Save as… to make your own copy.' : ''"
         @click="$emit('overwrite')"
       >Save</button>
-      <button class="btn btn-sm btn-secondary" @click="openSaveAs">Save as…</button>
-      <!-- v1.0.284 — rename the active preset in place. Same modal shape as
-           Save-as (single input + Enter to confirm), pre-filled with the
-           current name. Surfaces here because the management page (Presets
-           tab) is too far away when you just want to fix a typo without
-           leaving the generator you're working in. -->
-      <button
-        class="btn btn-sm btn-secondary"
-        :disabled="!activeId || activePresetIsBuiltIn"
-        :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be renamed.' : ''"
-        @click="openRename"
-      >Rename</button>
-
-      <button
-        class="btn btn-sm btn-danger"
-        :disabled="!activeId || activePresetIsBuiltIn"
-        :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be deleted.' : ''"
-        @click="confirmDelete"
-      >Delete</button>
+      <details class="preset-more">
+        <summary class="btn btn-sm btn-secondary" aria-label="More preset actions">More</summary>
+        <div class="preset-more-menu" role="group" aria-label="More preset actions">
+          <button type="button" class="preset-menu-item" @click="openSaveAs">Save as…</button>
+          <button
+            type="button"
+            class="preset-menu-item"
+            :disabled="!activeId || activePresetIsBuiltIn"
+            :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be renamed.' : ''"
+            @click="openRename"
+          >Rename</button>
+          <button
+            type="button"
+            class="preset-menu-item preset-menu-danger"
+            :disabled="!activeId || activePresetIsBuiltIn"
+            :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be deleted.' : ''"
+            @click="confirmDelete"
+          >Delete</button>
+        </div>
+      </details>
     </div>
     <p v-if="hint" class="text-muted mt-1" style="font-size: 12px;">{{ hint }}</p>
 
@@ -206,5 +207,37 @@ async function confirmDelete() {
   border-radius: 999px;
   white-space: nowrap;
 }
+
+.preset-more { position: relative; }
+.preset-more > summary { list-style: none; user-select: none; }
+.preset-more > summary::-webkit-details-marker { display: none; }
+.preset-more[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
+.preset-more-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 170px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-lg);
+}
+.preset-menu-item {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.preset-menu-item:hover:not(:disabled) { background: var(--bg-hover); }
+.preset-menu-item:disabled { color: var(--text-muted); cursor: not-allowed; }
+.preset-menu-danger { color: var(--error); }
 
 </style>

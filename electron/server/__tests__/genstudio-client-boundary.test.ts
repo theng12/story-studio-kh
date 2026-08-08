@@ -378,6 +378,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
       if (url.endsWith('/v1/chat/models')) {
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
+          provider_name: 'Published LLM creator',
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
           unlimited_relaxed: true, input_credits_per_million_tokens: 10_000,
           output_credits_per_million_tokens: 20_000, minimum_credits: 3, price_version: 'chat-price-v1',
@@ -401,6 +402,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(capabilities[0]?.operation, 'voice.tts')
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
+    assert.equal(chat[0]?.provider_name, 'Published LLM creator')
     assert.equal(chat[0]?.unlimited_relaxed, true)
     assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
@@ -637,10 +639,12 @@ test('GenStudio image catalog carries every published capability and invents non
       return Response.json([{
           id: 'genstudio-image-fast-v1',
           display_name: 'GenStudio Image Fast',
+          provider_name: 'Published image creator',
           aspect_ratios: ['16:9', '4:3'],
           default_aspect_ratio: '16:9',
           default_resolution: '1K',
           execution_label: 'Local fleet',
+          unlimited_relaxed: true,
           availability_note: 'Fleet capacity is limited tonight.',
           base_credits_per_image: 6,
           credits_per_image: 4,
@@ -665,6 +669,7 @@ test('GenStudio image catalog carries every published capability and invents non
     }
     const [model] = await listImageModels('scoped-key')
     assert.equal(model?.default_resolution, '1K')
+    assert.equal(model?.provider_name, 'Published image creator')
     assert.equal(model?.availability_note, 'Fleet capacity is limited tonight.')
     assert.equal(model?.base_credits_per_image, 6)
     assert.equal(model?.promotion_name, 'Launch week')
@@ -718,7 +723,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
       'default_resolution', 'output_options', 'supports_seed', 'supports_image_to_image',
       'min_reference_images', 'reference_image_max_dimension', 'reference_generation_credits',
       'reference_generation_price_version', 'max_prompt_characters', 'prompt_token_allowance',
-      'operations',
+      'operations', 'provider_name',
     ] as const) {
       assert.equal(
         (model as any)?.[field] ?? undefined, undefined,

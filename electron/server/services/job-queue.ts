@@ -324,10 +324,6 @@ const queues: Record<JobType, QueueState> = {
   // Vision-LLM auto-tag — frames a clip's midpoint, asks GPT-4o-mini
   // for short tags, writes to the pool sidecar. Cheap (~$0.002/clip).
   broll_autotag: { pending: [], running: false, executor: null },
-  // v1.0.122+: B-Roll fetch — downloads one clip from Pexels/Pixabay
-  // into the target pool + writes a provenance sidecar. Does NOT
-  // auto-chain a normalize job (user-controlled per v1.0.122 design).
-  broll_fetch: { pending: [], running: false, executor: null },
   // v1.0.142+: Research phase for the timestamp-driven pipeline.
   // One-shot adapter call (Perplexity / LLM-only)
   // → writes research.json + research.md to the episode dir.

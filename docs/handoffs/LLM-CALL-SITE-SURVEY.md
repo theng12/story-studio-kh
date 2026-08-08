@@ -79,15 +79,6 @@ them; all correctly declare (or correctly default to) the shape their consumer n
   `lib/sound-design-mixer.ts`, `routes/sound-design.ts` — searched fully; no `callAi`,
   no `callChatWithGenStudio`, nothing. Cue placement is rule-based (density/spacing
   settings), not LLM-generated. **Not a current call site**, so nothing to correct here.
-- **B-roll stock-footage query direction.** `services/broll-shot-director.ts` has a
-  fully-built prompt (`buildShotPrompt`) and a tolerant JSON parser (`parseShotJson`,
-  correctly scoped to expect structured output — `{"beats":[{index, queries}]}`), but
-  **nothing in the codebase calls `buildShotPrompt`/`parseShotJson`** — grepped for
-  every reference outside the file itself and its own tests; none found. This matches
-  the file's own header comment: *"Executable direction is fail-closed pending a typed
-  GenStudio API."* It's finished code waiting to be wired up, not a live bug. Worth
-  knowing about if/when it gets wired in: it already declares the shape correctly
-  in its design (would need `outputContract: { mode: 'json_object' }` when connected).
 - **YouTube finalizer itself.** `services/youtube-metadata-finalizer.ts` — no LLM call.
   It's deterministic: it computes chapter timestamps from Audio Assembly's measured
   durations and inserts real research-source citations. The LLM-driven parts of the

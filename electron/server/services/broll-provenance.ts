@@ -1,5 +1,5 @@
 /**
- * Per-clip provenance sidecars for the B-Roll Fetch feature.
+ * Per-clip provenance sidecars retained for the local B-Roll asset log.
  *
  * Each clip downloaded via the Fetch flow gets a JSON sidecar at
  *   `<pool-folder>/.broll-provenance/<filename>.json`
@@ -28,8 +28,6 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
-import type { FetchProvider, FetchResult } from './broll-fetchers/types.js'
 
 export const PROVENANCE_SCHEMA_VERSION = 1 as const
 const PROVENANCE_DIR = '.broll-provenance'
@@ -37,7 +35,7 @@ const PROVENANCE_DIR = '.broll-provenance'
 export interface ProvenanceRecord {
   schema_version: typeof PROVENANCE_SCHEMA_VERSION
   filename: string
-  source: FetchProvider
+  source: 'pexels' | 'pixabay' | 'nasa'
   /** Provider's stable ID for the clip (stringified). */
   source_id: string
   source_url: string
@@ -61,48 +59,8 @@ export interface ProvenanceRecord {
   duration: number
 }
 
-export function provenanceDir(poolPath: string): string {
+function provenanceDir(poolPath: string): string {
   return path.join(poolPath, PROVENANCE_DIR)
-}
-
-export function provenancePathFor(poolPath: string, filename: string): string {
-  return path.join(provenanceDir(poolPath), `${filename}.json`)
-}
-
-/**
- * Write a provenance sidecar atomically. Caller must ensure the
- * pool's folder is online — we don't check that here because the
- * fetch executor has already downloaded a file into the same pool,
- * so the folder is definitionally present.
- */
-export async function writeProvenance(
-  poolPath: string,
-  rec: ProvenanceRecord,
-): Promise<void> {
-  const dir = provenanceDir(poolPath)
-  await fs.mkdir(dir, { recursive: true })
-  const target = provenancePathFor(poolPath, rec.filename)
-  await writeJsonAtomic(target, rec)
-}
-
-/** Read one sidecar. Returns null on missing file (not an error —
- *  hand-added clips legitimately have no provenance). Throws on
- *  parse error so a corrupt sidecar surfaces instead of silently
- *  treating the clip as local. */
-export async function readProvenance(
-  poolPath: string,
-  filename: string,
-): Promise<ProvenanceRecord | null> {
-  const p = provenancePathFor(poolPath, filename)
-  if (!existsSync(p)) return null
-  const raw = await fs.readFile(p, 'utf-8')
-  const parsed = JSON.parse(raw)
-  // Schema-version gate — at v1 there's nothing to migrate, but the
-  // explicit check means future versions can't be silently truncated.
-  if (parsed?.schema_version !== PROVENANCE_SCHEMA_VERSION) {
-    throw new Error(`Unsupported provenance schema ${parsed?.schema_version} at ${p}`)
-  }
-  return parsed as ProvenanceRecord
 }
 
 /**
@@ -136,83 +94,4 @@ export async function listProvenance(poolPath: string): Promise<ProvenanceRecord
     }
   }
   return out
-}
-
-/**
- * Dedupe check: does this pool already have a clip from
- * `source + source_id`? Used by the search route to annotate results
- * with `already_have: true` so the UI can grey them out.
- *
- * O(N) over sidecars per call — fine for pools up to a few thousand
- * clips. Cache the results inside the search route if a single
- * search request needs many lookups (typical: 20 results × one
- * lookup each = 20 sidecar reads, well under a second on SSD).
- */
-export async function hasFetchedClip(
-  poolPath: string,
-  source: FetchProvider,
-  sourceId: string,
-): Promise<boolean> {
-  const all = await listProvenance(poolPath)
-  return all.some(p => p.source === source && p.source_id === sourceId)
-}
-
-/**
- * Convenience: derive a stable, filesystem-safe filename for a
- * fetch result. Format:
- *   `<source>-<sourceId>-<keyword>.mp4`
- *
- * The keyword segment is the first non-empty search term (lowercased,
- * non-alphanumerics stripped) — gives a human-readable filename
- * without losing the dedupe key. Provider+ID together guarantee
- * global uniqueness across keyword runs (the same clip fetched via
- * "ocean" and again via "sunset" would yield the same filename and
- * the second fetch short-circuits at the dedupe check).
- */
-export function suggestFilename(
-  source: FetchProvider,
-  sourceId: string,
-  keywords: string[],
-  ext = 'mp4',
-): string {
-  const slug = (keywords[0] || 'clip')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32) || 'clip'
-  return `${source}-${sourceId}-${slug}.${ext}`
-}
-
-/**
- * Build a `ProvenanceRecord` from a fetch result. The fetch executor
- * calls this after the download finishes so the `downloaded_*`
- * fields reflect what's actually on disk (not just what the
- * provider's catalogue claimed).
- */
-export function recordFromResult(
-  result: FetchResult,
-  filename: string,
-  downloadedWidth: number,
-  downloadedHeight: number,
-  keywords: string[],
-  fetchedAt: string = new Date().toISOString(),
-): ProvenanceRecord {
-  return {
-    schema_version: PROVENANCE_SCHEMA_VERSION,
-    filename,
-    source: result.provider,
-    source_id: result.source_id,
-    source_url: result.source_url,
-    author: result.author,
-    author_url: result.author_url,
-    license: result.license,
-    license_url: result.license_url,
-    fetched_at: fetchedAt,
-    search_keywords: keywords,
-    downloaded_width: downloadedWidth,
-    downloaded_height: downloadedHeight,
-    source_width: result.width,
-    source_height: result.height,
-    duration: result.duration,
-  }
 }

@@ -26,8 +26,7 @@ export const RESEARCH_ADAPTERS: Readonly<Record<ResearchModeProvider, ResearchAd
   [GENSTUDIO_WEB_RESEARCH_PROVIDER]: genStudioWebResearch,
 }
 
-/** The provider ids that can actually be executed today. `perplexity` is a
- *  migration alias only and never appears here. */
+/** The provider ids that can actually be executed today. */
 export type ResearchModeProvider = typeof GENSTUDIO_RESEARCH_PROVIDER | typeof GENSTUDIO_WEB_RESEARCH_PROVIDER
 
 /** The default mode. A sidecar, preset, or job with no mode came from before
@@ -35,10 +34,8 @@ export type ResearchModeProvider = typeof GENSTUDIO_RESEARCH_PROVIDER | typeof G
 export const DEFAULT_RESEARCH_MODE: ResearchMode = 'model-knowledge'
 
 /**
- * Normalize only known historical values. This keeps saved `perplexity`
- * presets and jobs usable after upgrade without retaining a direct provider
- * path. Missing values normalize to the model-knowledge route, which is what
- * every sidecar written before web search existed actually used.
+ * Missing values normalize to the model-knowledge route. Unknown provider
+ * identities are rejected instead of being carried as migration aliases.
  */
 export function normalizeResearchSourceProvider(provider: unknown): ResearchModeProvider {
   if (provider === GENSTUDIO_WEB_RESEARCH_PROVIDER) return GENSTUDIO_WEB_RESEARCH_PROVIDER
@@ -46,9 +43,6 @@ export function normalizeResearchSourceProvider(provider: unknown): ResearchMode
     provider == null
     || provider === ''
     || provider === GENSTUDIO_RESEARCH_PROVIDER
-    || provider === 'perplexity'
-    || provider === 'genstudio'
-    || provider === 'genstudio-llm'
   ) {
     return GENSTUDIO_RESEARCH_PROVIDER
   }

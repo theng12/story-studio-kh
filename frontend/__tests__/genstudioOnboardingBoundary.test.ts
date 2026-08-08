@@ -9,10 +9,9 @@ const source = readFileSync(
 )
 
 describe('GenStudio-only project onboarding', () => {
-  test('offers one scoped GenStudio credential and no retired provider keys', () => {
-    assert.match(source, /Scoped GenStudio API key/)
-    assert.match(source, /type KeyProvider = 'genstudio'/)
-    assert.match(source, /\['genstudio', apiKeys\.genstudio\]/)
+  test('keeps service credentials out of channel creation', () => {
+    assert.match(source, /appSettingsModal\.open\(\)/)
+    assert.doesNotMatch(source, /KeyProvider|apiKeys|Scoped GenStudio API key/)
 
     for (const retired of [
       'OpenAI API Key',
@@ -25,9 +24,7 @@ describe('GenStudio-only project onboarding', () => {
     }
   })
 
-  test('tests the GenStudio scopes through the app-settings boundary', () => {
-    assert.match(source, /\/app-settings\/api-keys\/\$\{provider\}\/test/)
-    assert.doesNotMatch(source, /\/test-key\/\$\{provider\}/)
-    assert.doesNotMatch(source, /\/connectivity\/precheck/)
+  test('does not duplicate connectivity or credential APIs on the channel list', () => {
+    assert.doesNotMatch(source, /app-settings\/api-keys|test-key|connectivity\/precheck/)
   })
 })

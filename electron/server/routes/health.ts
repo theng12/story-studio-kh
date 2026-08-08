@@ -113,6 +113,7 @@ router.get('/models', async (_req, res) => {
       // every model in the app, crowding out the one thing the row is for.
       label: model.display_name,
       provider: 'genstudio',
+      provider_name: model.provider_name || null,
       available: model.available,
       disabled_reason: model.available
         ? null

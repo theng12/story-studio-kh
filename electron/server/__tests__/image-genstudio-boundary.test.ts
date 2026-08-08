@@ -15,7 +15,6 @@ const generationFiles = [
   'generators/continuity-render.ts',
   'generators/image-pool-generate.ts',
   'generators/composition-template.ts',
-  'services/broll-aigen.ts',
 ]
 
 test('every reachable Story image generator is pinned to the GenStudio boundary', async () => {

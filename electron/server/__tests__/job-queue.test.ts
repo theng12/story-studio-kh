@@ -536,16 +536,16 @@ describe('cooperative pause and resume', () => {
     const proj = await pm.createProject({ name: 'JQ Pause Queued' })
     let release!: () => void
     const blocker = new Promise<void>(resolve => { release = resolve })
-    jq.registerExecutor('broll_fetch', async job => {
+    jq.registerExecutor('broll_normalize', async job => {
       if (job.episode_id === 'HOLD') await blocker
     })
-    jq.enqueue({ project_slug: proj.slug, type: 'broll_fetch', episode_id: 'HOLD', title: 'hold', params: {} })
-    const waiting = jq.enqueue({ project_slug: proj.slug, type: 'broll_fetch', episode_id: 'EP001', title: 'waiting', params: {} })
+    jq.enqueue({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'HOLD', title: 'hold', params: {} })
+    const waiting = jq.enqueue({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'EP001', title: 'waiting', params: {} })
     await new Promise(resolve => setTimeout(resolve, 30))
 
     const paused = await jq.pauseJob(waiting.job_id)
     assert.equal(paused?.status, 'paused')
-    assert.equal(jq.isDuplicate(proj.slug, 'EP001', 'broll_fetch'), true)
+    assert.equal(jq.isDuplicate(proj.slug, 'EP001', 'broll_normalize'), true)
 
     const resumed = await jq.resumeJob(waiting.job_id)
     assert.equal(resumed?.job_id, waiting.job_id)

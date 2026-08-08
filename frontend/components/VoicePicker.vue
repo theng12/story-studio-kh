@@ -24,19 +24,22 @@
       size="xl"
       @close="close"
     >
-      <template v-if="isGenStudioScope" #actions>
+      <template v-if="isGenStudioScope && compatibleLibrary" #actions>
         <button
           type="button"
           class="btn btn-sm btn-secondary"
           @click="libraryOpen = !libraryOpen"
-        >{{ libraryOpen ? 'Close libraries' : 'Browse libraries' }}</button>
+        >{{ libraryOpen ? 'Close library' : `Browse ${compatibleLibrary.label} library` }}</button>
       </template>
 
-      <div v-if="isGenStudioScope && libraryOpen" class="vp-add-panel">
-        <VoiceLibraryBrowser @added="onLibraryVoiceAdded" />
+      <div v-if="isGenStudioScope && libraryOpen && compatibleLibrary" class="vp-add-panel">
+        <VoiceLibraryBrowser :key="compatibleLibrary.id" :library="compatibleLibrary" @added="onLibraryVoiceAdded" />
       </div>
 
-      <div class="vp-toolbar">
+      <template v-else>
+        <p v-if="cloneHint" class="vp-clone-hint">{{ cloneHint }}</p>
+
+        <div class="vp-toolbar">
         <input ref="searchEl" v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" @keydown="onListKeydown" />
         <div v-if="isGenStudioScope" class="vp-filter" role="group" aria-label="Filter voices">
           <button
@@ -56,13 +59,13 @@
           :disabled="voiceListLoading"
           @click="refreshVoices"
         >{{ voiceListLoading ? 'Loading…' : 'Refresh' }}</button>
-      </div>
+        </div>
 
-      <!-- Stated here as well as in a toast: the dialog sits above the toast
-           stack, so a save failure has to be readable without closing it. -->
-      <div v-if="saveError" class="vp-warning" role="alert">{{ saveError }}</div>
+        <!-- Stated here as well as in a toast: the dialog sits above the toast
+             stack, so a save failure has to be readable without closing it. -->
+        <div v-if="saveError" class="vp-warning" role="alert">{{ saveError }}</div>
 
-      <div ref="listEl" class="vp-list" @keydown="onListKeydown">
+        <div ref="listEl" class="vp-list" @keydown="onListKeydown">
         <button
           v-if="!requireSelection"
           type="button"
@@ -142,7 +145,8 @@
             <button type="button" class="vp-preview" title="Preview voice" @click="$emit('preview', encodedLocalVoice(voice))">▶</button>
           </div>
         </section>
-      </div>
+        </div>
+      </template>
     </PickerDialog>
   </div>
 </template>
@@ -189,6 +193,9 @@ const props = withDefaults(defineProps<{
   /** The selected GenStudio TTS model. Voices are listed for this model only. */
   ttsModelId?: string
   ttsModelName?: string
+  ttsModelProviderId?: string
+  ttsModelDescription?: string
+  ttsModelSupportsVoiceCloning?: boolean
   /**
    * Restrict the list to the voices the selected model serves. False lists
    * every voice on the account with the model that serves it named on each
@@ -204,6 +211,9 @@ const props = withDefaults(defineProps<{
   audioModelId: '',
   ttsModelId: '',
   ttsModelName: '',
+  ttsModelProviderId: '',
+  ttsModelDescription: '',
+  ttsModelSupportsVoiceCloning: false,
   scopeToModel: true,
   modelCreditsPer1000Characters: null,
   requireSelection: false,
@@ -225,6 +235,8 @@ const {
   loadVoices,
   clearVoices,
   setSaved,
+  libraries,
+  loadLibraries,
 } = useGenStudioVoices()
 
 type Scope = 'genstudio' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin'
@@ -283,6 +295,13 @@ const ALL_VOICES = ''
 const voicesReady = computed(() => !props.scopeToModel || !!props.ttsModelId)
 const voiceListLoading = computed(() => localLoading.value || voicesLoading.value)
 const searchPlaceholder = computed(() => isGenStudioScope.value ? 'Search voices…' : 'Search local voices…')
+const compatibleLibrary = computed(() => libraries.value.find(
+  library => library.provider_id === props.ttsModelProviderId,
+) || null)
+const cloneHint = computed(() => {
+  if (!isGenStudioScope.value || !props.ttsModelSupportsVoiceCloning || !props.ttsModelName) return ''
+  return `Clone a voice in GenStudio KH; once its compatible copy is ready, it appears here for ${props.ttsModelName}.`
+})
 
 const matchingVoices = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -313,8 +332,9 @@ const emptyStateHint = computed(() => {
   // An empty clone list is the normal answer for someone who has not cloned
   // anything — say where cloning happens rather than letting it read as a
   // failure to load. Story Studio deliberately does not clone voices.
-  if (voiceFilter.value === 'cloned') return 'Voices are cloned in GenStudio KH; once you clone one there it appears here under its provider.'
-  return 'Browse the provider libraries to add one, or refresh the catalog.'
+  if (voiceFilter.value === 'cloned') return 'Voices are cloned in GenStudio KH; once its compatible copy is ready, it appears here for the selected model.'
+  if (compatibleLibrary.value) return `Browse the ${compatibleLibrary.value.label} library to add one, or refresh the catalog.`
+  return cloneHint.value || 'Refresh the catalog after GenStudio makes compatible voices available.'
 })
 const savedVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved === true))
 const otherVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved !== true))
@@ -381,7 +401,7 @@ const scopeTitle = computed(() => isGenStudioScope.value
   ? props.ttsModelName ? `${props.ttsModelName} voices` : 'GenStudio KH voices'
   : localSectionTitle.value)
 const scopeDescription = computed(() => isGenStudioScope.value
-  ? 'Read live from your GenStudio KH account for the selected voice model.'
+  ? props.ttsModelDescription || 'Read live from your GenStudio KH account for the selected voice model.'
   : 'This list comes from the selected local voice engine.')
 const localSectionTitle = computed(() => {
   if (isMacosScope.value) return 'macOS built-in voices'
@@ -592,6 +612,7 @@ function goToGenStudioSettings() {
 // Escape, backdrop dismissal and focus restoration all come from Modal via
 // PickerDialog, so this component owns no global key or click listeners.
 onMounted(() => {
+  if (isGenStudioScope.value) void loadLibraries()
   void loadLocalVoices()
   void loadGenStudioVoices()
 })
@@ -616,8 +637,9 @@ watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], ()
 /* min-height:0 so this flex child can shrink inside the dialog's fixed
    max-height; without it the library browser overflows behind the dialog's
    overflow:hidden and the tail of the list becomes unreachable. */
-.vp-add-panel { margin: 10px 12px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); display: flex; flex-direction: column; min-height: 0; }
+.vp-add-panel { flex: 1; margin: 10px 12px 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); display: flex; flex-direction: column; min-height: 0; }
 .vp-add-panel p { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
+.vp-clone-hint { flex: 0 0 auto; margin: 8px 12px 0; padding: 8px 10px; border-left: 2px solid var(--accent); background: var(--accent-dim); color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
 .vp-add-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(180px,1.3fr) auto; gap: 6px; }
 .vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .vp-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 12px 12px 9px; }

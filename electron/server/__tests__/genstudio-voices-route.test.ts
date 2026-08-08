@@ -45,6 +45,7 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
       },
       { id: 'voice_qwen3_aiden', display_name: 'Aiden', language: 'en' },
       { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
+      { id: 'voice_other_model', display_name: 'Wrong model', tts_model_id: 'tts-somewhere-else' },
     ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 
@@ -84,7 +85,7 @@ test('the voice model catalogue is published with its price, minimum and boundar
       id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
       description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
       maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
-      preview_policy: 'catalog', generation_enabled: true,
+      preview_policy: 'catalog', unlimited_relaxed: true, generation_enabled: true,
     }])
   }
 
@@ -95,13 +96,14 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(model.minimum_credits, 10)
   assert.equal(model.maximum_input_characters, 12_000)
   assert.equal(model.supports_speed, true)
+  assert.equal(model.unlimited_relaxed, true, 'free-plan eligibility is preserved from GenStudio')
 })
 
 test('the published voice libraries are named after their providers', async () => {
   const response = await request(app).get('/api/app-settings/genstudio/voice-libraries').expect(200)
   assert.deepEqual(response.body.libraries, [
-    { id: 'elevenlabs', label: 'ElevenLabs' },
-    { id: 'fish', label: 'Fish Audio' },
+    { id: 'elevenlabs', label: 'ElevenLabs', provider_id: 'elevenlabs-direct' },
+    { id: 'fish', label: 'Fish Audio', provider_id: 'fish-audio' },
   ])
 })
 

@@ -387,7 +387,7 @@ describe('per-mode provenance wording', () => {
 describe('mode persistence', () => {
   it('resolves an absent or unknown mode to model-knowledge, never to web-search', () => {
     assert.equal(DEFAULT_RESEARCH_MODE, 'model-knowledge')
-    for (const value of [undefined, null, '', 'llm-only', 'perplexity', 'anything-else', 42]) {
+    for (const value of [undefined, null, '', 'llm-only', 'anything-else', 42]) {
       assert.equal(normalizeResearchMode(value), 'model-knowledge')
     }
     assert.equal(normalizeResearchMode('web-search'), 'web-search')
@@ -397,10 +397,10 @@ describe('mode persistence', () => {
     assert.equal(providerForResearchMode('model-knowledge'), GENSTUDIO_RESEARCH_PROVIDER)
     assert.equal(providerForResearchMode('web-search'), GENSTUDIO_WEB_RESEARCH_PROVIDER)
     assert.equal(researchModeForProvider(GENSTUDIO_WEB_RESEARCH_PROVIDER), 'web-search')
-    // Legacy provider values are model-knowledge, which is what they were.
-    for (const legacy of [undefined, '', 'llm-only', 'perplexity', 'genstudio', 'genstudio-llm']) {
-      assert.equal(researchModeForProvider(legacy), 'model-knowledge')
+    for (const current of [undefined, '', 'llm-only']) {
+      assert.equal(researchModeForProvider(current), 'model-knowledge')
     }
+    assert.throws(() => researchModeForProvider('perplexity'), /Unknown research source/)
   })
 
   it('loads a legacy sidecar with no mode as model-knowledge', () => {

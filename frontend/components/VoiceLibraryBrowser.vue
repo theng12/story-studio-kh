@@ -1,17 +1,7 @@
 <template>
   <div class="vlb">
     <div class="vlb-head">
-      <nav class="vlb-tabs" aria-label="Voice library providers">
-        <button
-          v-for="library in libraries"
-          :key="library.id"
-          type="button"
-          class="vlb-tab"
-          :class="{ active: activeLibrary === library.id }"
-          :aria-current="activeLibrary === library.id ? 'page' : undefined"
-          @click="selectLibrary(library.id)"
-        >{{ library.label }}</button>
-      </nav>
+      <strong class="vlb-provider">{{ library.label }} library</strong>
       <input
         v-model="search"
         type="search"
@@ -32,7 +22,9 @@
     <div class="vlb-list">
       <div v-if="error" class="vlb-warning">{{ error }}</div>
       <div v-else-if="loading && !rows.length" class="vlb-empty">Loading {{ activeLibraryLabel }} voices…</div>
-      <div v-else-if="!rows.length" class="vlb-empty">No voices matched this search.</div>
+      <div v-else-if="!rows.length" class="vlb-empty">
+        {{ search.trim() ? 'No voices matched this search.' : `${activeLibraryLabel} returned no voices right now.` }}
+      </div>
 
       <div v-for="voice in rows" :key="voice.public_voice_id" class="vlb-row">
       <div class="vlb-row-main">
@@ -65,33 +57,31 @@
       </div>
     </div>
 
-    <div v-if="rows.length" class="vlb-pager">
-      <button type="button" class="btn btn-sm btn-secondary" :disabled="page <= 0 || loading" @click="goTo(page - 1)">
-        ← Previous
-      </button>
-      <span class="vlb-page">Page {{ page + 1 }}</span>
-      <button type="button" class="btn btn-sm btn-secondary" :disabled="!hasMore || loading" @click="goTo(page + 1)">
-        Next →
-      </button>
-    </div>
+    <button
+      v-if="hasMore"
+      type="button"
+      class="btn btn-sm btn-secondary vlb-more"
+      :disabled="loading"
+      @click="load(page + 1, true)"
+    >{{ loading ? 'Loading…' : 'Load more voices' }}</button>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * Browse the provider voice libraries GenStudio publishes, BY PROVIDER and
- * named as such (AGENTS.md → Provider Transparency). The provider list comes
- * from GenStudio via `/app-settings/genstudio/voice-libraries`; this component
- * hardcodes none of it.
+ * Browse the one provider library linked to the selected model. The link is
+ * published by Story's GenStudio boundary as a provider id; this component
+ * neither guesses from the model name nor offers unrelated provider tabs.
  */
-import type { GenStudioLibraryVoice } from '~/composables/useGenStudioVoices'
+import type { GenStudioLibraryVoice, GenStudioVoiceLibrary } from '~/composables/useGenStudioVoices'
+
+const props = defineProps<{ library: GenStudioVoiceLibrary }>()
 
 const emit = defineEmits<{ added: [voiceId: string] }>()
 
-const { libraries, loadLibraries, browseLibrary, addLibraryVoice, libraryPreviewUrl } = useGenStudioVoices()
+const { browseLibrary, addLibraryVoice, libraryPreviewUrl } = useGenStudioVoices()
 const { success, error: showError } = useToast()
 
-const activeLibrary = ref('')
 const search = ref('')
 const page = ref(0)
 const hasMore = ref(false)
@@ -102,8 +92,7 @@ const adding = ref('')
 const previewing = ref('')
 let audio: HTMLAudioElement | null = null
 
-const activeLibraryLabel = computed(() =>
-  libraries.value.find(library => library.id === activeLibrary.value)?.label || 'this library')
+const activeLibraryLabel = computed(() => props.library.label)
 
 function metaParts(voice: GenStudioLibraryVoice): string[] {
   return [
@@ -116,13 +105,12 @@ function metaParts(voice: GenStudioLibraryVoice): string[] {
   ].filter(Boolean) as string[]
 }
 
-async function load() {
-  if (!activeLibrary.value) return
+async function load(nextPage = 0, append = false) {
   loading.value = true
   error.value = ''
   try {
-    const result = await browseLibrary(activeLibrary.value, { search: search.value, page: page.value })
-    rows.value = result.voices
+    const result = await browseLibrary(props.library.id, { search: search.value, page: nextPage })
+    rows.value = append ? [...rows.value, ...result.voices] : result.voices
     hasMore.value = result.has_more
     page.value = result.page
   } catch (e: any) {
@@ -135,27 +123,14 @@ async function load() {
 }
 
 function reload() {
-  page.value = 0
-  void load()
-}
-
-function goTo(next: number) {
-  page.value = Math.max(0, next)
-  void load()
-}
-
-function selectLibrary(id: string) {
-  if (activeLibrary.value === id) return
-  activeLibrary.value = id
-  search.value = ''
-  reload()
+  void load(0)
 }
 
 async function preview(voice: GenStudioLibraryVoice) {
   previewing.value = voice.public_voice_id
   try {
     audio?.pause()
-    const url = voice.preview_url || await libraryPreviewUrl(activeLibrary.value, voice.public_voice_id)
+    const url = voice.preview_url || await libraryPreviewUrl(props.library.id, voice.public_voice_id)
     if (!url) throw new Error('No sample was returned for this voice.')
     audio = new Audio(url)
     await audio.play()
@@ -169,12 +144,12 @@ async function preview(voice: GenStudioLibraryVoice) {
 async function add(voice: GenStudioLibraryVoice) {
   adding.value = voice.public_voice_id
   try {
-    const result = await addLibraryVoice(activeLibrary.value, voice.public_voice_id)
+    const result = await addLibraryVoice(props.library.id, voice.public_voice_id)
     success(result.created
       ? `Added “${voice.name}” to your GenStudio library.`
       : `“${voice.name}” was already in your GenStudio library.`)
     emit('added', result.voice_id)
-    void load()
+    void load(0)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Could not add this voice')
   } finally {
@@ -182,19 +157,13 @@ async function add(voice: GenStudioLibraryVoice) {
   }
 }
 
-onMounted(async () => {
-  await loadLibraries()
-  if (!activeLibrary.value && libraries.value.length) {
-    activeLibrary.value = libraries.value[0]!.id
-    await load()
-  }
-})
+onMounted(() => { void load(0) })
 onBeforeUnmount(() => { audio?.pause(); audio = null })
 </script>
 
 <style scoped>
-.vlb { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-/* The rows are the only part that scrolls: provider tabs, search and the pager
+.vlb { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; }
+/* The rows are the only part that scrolls: search, provider label and Load more
    stay reachable no matter how long the library is. `contain` stops the scroll
    chaining out to the page behind the picker once the list hits its end. */
 .vlb-list {
@@ -202,14 +171,12 @@ onBeforeUnmount(() => { audio?.pause(); audio = null })
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  max-height: min(48vh, 420px);
+  flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 .vlb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.vlb-tabs { display: flex; gap: 4px; }
-.vlb-tab { padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; }
-.vlb-tab.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.vlb-provider { color: var(--accent); font-size: var(--font-xs); letter-spacing: .05em; text-transform: uppercase; }
 .vlb-search { flex: 1; min-width: 140px; }
 .vlb-note { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .vlb-warning { padding: 8px; border: 1px solid rgba(245,158,11,.4); border-radius: var(--radius-sm); color: rgb(245,158,11); font-size: var(--font-xs); }
@@ -221,6 +188,5 @@ onBeforeUnmount(() => { audio?.pause(); audio = null })
 .vlb-meta, .vlb-description, .vlb-notice { color: var(--text-muted); font-size: var(--font-xs); }
 .vlb-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .vlb-notice { color: rgb(245,158,11); }
-.vlb-pager { display: flex; align-items: center; justify-content: center; gap: 10px; padding-top: 4px; }
-.vlb-page { color: var(--text-muted); font-size: var(--font-xs); }
+.vlb-more { align-self: center; }
 </style>

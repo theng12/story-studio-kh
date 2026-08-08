@@ -12,6 +12,7 @@ import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 export interface GenStudioChatModelInfo {
   id: string
   display_name: string
+  provider_name?: string
   description?: string
   available: boolean
   qualification_only: boolean

@@ -1,470 +1,168 @@
 <template>
   <div class="dashboard-layout">
-    <!-- Skip link for keyboard users — appears on focus, lets them jump past the sidebar nav -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
-    <!-- Top bar: draggable area reserving space for macOS traffic lights,
-         with a no-drag actions cluster on the right for the notification
-         bell. The drag region flexes to fill the gap so the window stays
-         draggable everywhere except over the bell. -->
     <header class="top-bar">
-      <!-- v1.0.366 — hamburger for narrow screens (iPad/phone). Hidden ≥900px via CSS. -->
-      <button class="menu-toggle" aria-label="Open navigation" @click="mobileNavOpen = true">&#9776;</button>
-      <div class="titlebar-drag"></div>
+      <button
+        ref="menuToggle"
+        type="button"
+        class="menu-toggle"
+        :aria-expanded="mobileNavOpen"
+        aria-controls="project-navigation"
+        :aria-label="mobileNavOpen ? 'Close navigation' : 'Open navigation'"
+        @click="toggleMobileNav"
+      >
+        <span aria-hidden="true">{{ mobileNavOpen ? 'Close' : 'Menu' }}</span>
+      </button>
+      <div class="titlebar-drag" />
       <div class="top-bar-actions">
         <FeatureHelpCenter />
         <NotificationCenter v-if="slug" :slug="slug" />
       </div>
     </header>
+
     <FfmpegSetupDialog />
+
     <div class="layout-body">
-    <div v-if="mobileNavOpen" class="sidebar-overlay" @click="mobileNavOpen = false" />
-    <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }">
-      <div class="sidebar-brand">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
-          <path d="M15.5 12a5.5 5.5 0 01-9 4.24A7 7 0 0012 5a5.5 5.5 0 013.5 7z" fill="var(--accent)" opacity="0.6" />
-        </svg>
-        <div>
-          <div class="brand-name">Story Studio KH</div>
-          <div class="project-name">{{ project?.name || 'Loading...' }}</div>
-        </div>
-      </div>
+      <div v-if="mobileNavOpen" class="sidebar-overlay" aria-hidden="true" @click="closeMobileNav()" />
 
-      <NuxtLink
-        v-if="slug"
-        :to="`/projects/${slug}/settings#channel`"
-        class="channel-identity-card"
-        title="Open Channel Identity: Series Formula, Topic Packs, and Production Path"
+      <aside
+        id="project-navigation"
+        ref="sidebar"
+        class="sidebar"
+        :class="{ 'mobile-open': mobileNavOpen }"
+        aria-label="Project navigation"
       >
-        <span class="channel-identity-label">Channel identity <span aria-hidden="true">↗</span></span>
-        <span class="channel-identity-row"><span>Formula</span><strong>{{ channelFormulaName }}</strong></span>
-        <span class="channel-identity-row"><span>Topics</span><strong>{{ channelTopicPackLabel }}</strong></span>
-        <span class="channel-identity-row"><span>Production</span><strong>{{ productionPathName }}</strong></span>
-      </NuxtLink>
-
-      <nav class="sidebar-nav">
-        <NuxtLink :to="`/projects/${slug}`" class="nav-item" exact-active-class="active">
-          <span class="nav-icon">&#9776;</span> Dashboard
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/ideas`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#10024;</span> Ideas Generator
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/pipeline`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#9881;</span> Pipeline
-        </NuxtLink>
-        <!-- v1.0.341 — Production Board: episodes × steps status grid. The
-             episode-centric overview ("where is EP0042?") to complement the
-             tool-centric generator pages. -->
-        <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active" title="Every episode × every pipeline step at a glance — see what's done, what's pending, and jump straight to any step for any episode.">
-          <span class="nav-icon">&#9783;</span> Production Board
-        </NuxtLink>
-
-        <div class="nav-divider" />
-        <div class="nav-section-label">Generators</div>
-        <!-- v1.0.141+ — Research page comes BEFORE Script Generator
-             for the timestamp-driven pipeline; it produces a citations
-             sidecar the script generator can consume. Hidden for
-             scene-images / broll pipelines (those don't have a
-             research phase today). Real content lands in 1.0.142. -->
-        <NuxtLink
-          v-if="isTimestampDriven || isContinuityChain || isNarratedScenes"
-          :to="`/projects/${slug}/research`"
-          class="nav-item"
-          active-class="active"
-          title="Research phase. Produces a claims sidecar the script generator consumes — model-generated, so you decide claim by claim what it may use. When the channel requires reviewed research (Settings → Channel), an episode is complete only after every claim has been marked Verified or Ignore here and at least one is kept."
-        >
-          <span class="nav-icon">&#128270;</span> Research
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/scripts`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#128221;</span> Script Generator <span v-if="scriptGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <!-- v1.0.88+: prompt generation split into two sidebar entries that
-             both open /image-prompts but pre-select the corresponding tab
-             via ?tab=. Active highlighting is computed manually because
-             NuxtLink's active-class matches paths, not query strings —
-             two entries point at the same path with different query
-             values, so we need to disambiguate. Default tab when no
-             query is set is 'thumbnails' (matches the page's own default
-             from v1.0.87). -->
-        <NuxtLink
-          :to="`/projects/${slug}/image-prompts?tab=thumbnails`"
-          :class="['nav-item', { active: isImagePromptsActive('thumbnails') }]"
-        >
-          <span class="nav-icon">&#128173;</span> Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <NuxtLink
-          :to="`/projects/${slug}/images?tab=thumbnails`"
-          :class="['nav-item', { active: isImagesActive('thumbnails') }]"
-        >
-          <span class="nav-icon">&#128444;</span> Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/audio`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#127897;</span> Audio Generator <span v-if="audioGenerating" class="nav-pulse" />
-        </NuxtLink>
-
-        <div class="nav-divider" />
-        <div class="nav-section-label">Assembly</div>
-        <NuxtLink :to="`/projects/${slug}/audio-merge`" class="nav-item" active-class="active">
-          <span class="nav-icon">&#128266;</span> Audio Assembly <span v-if="audioMergeGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <!-- Subtitles creates the episode's transcribed or imported subtitle
-             tracks. Scene Plan stitches per-chapter SRTs and Video Assembly
-             burns the selected track in. -->
-        <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create or import the episode's subtitles. Built from chapter audio; consumed by Scene Plan and Video Assembly.">
-          <span class="nav-icon">&#128292;</span> Subtitles
-        </NuxtLink>
-        <NuxtLink
-          :to="`/projects/${slug}/metadata`"
-          class="nav-item"
-          active-class="active"
-          title="Finalize the upload-ready YouTube title, description, tags, measured chapters, and selected research sources."
-        >
-          <span class="nav-icon">&#128203;</span> YouTube Finalizer <span v-if="metaGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <!-- v1.0.187+ — Character Sheet: continuity-chain (hard img2img lock)
-             and (v1.0.301) narrated-scenes (OPTIONAL — guidance + prompt /
-             negative-prompt control, not a hard lock). Drop in the anchor
-             image (+ optional Characters) before planning/rendering scenes. -->
-        <NuxtLink
-          v-if="isContinuityChain || isNarratedScenes"
-          :to="`/projects/${slug}/character-sheet`"
-          class="nav-item"
-          active-class="active"
-          title="Drop in the character sheet that anchors every scene's look, plus any project Characters to keep on screen."
-        >
-          <span class="nav-icon">&#127917;</span> Character Sheet
-        </NuxtLink>
-        <!-- v1.0.141+ — Scene Plan + Scene Review sit between Audio
-             Assembly (audio + stitched subtitle land here) and Video
-             Assembly (final render). Both show for the audio-paced
-             pipelines (timestamp-driven + continuity-chain, v1.0.187+);
-             scene-images and broll skip straight to Video Assembly. -->
-        <NuxtLink
-          v-if="usesScenePlan"
-          :to="`/projects/${slug}/scene-plan`"
-          class="nav-item"
-          active-class="active"
-          title="Plan scenes against the stitched audio timeline — LLM picks natural beats from the script + merged subtitle."
-        >
-          <span class="nav-icon">&#128218;</span> Scene Plan
-        </NuxtLink>
-        <NuxtLink
-          v-if="usesScenePlan"
-          :to="`/projects/${slug}/contextual-cues`"
-          class="nav-item"
-          active-class="active"
-          title="Optional reviewed location, date, and documentary context labels. Enabled projects require every cue to be resolved before Video Assembly."
-        >
-          <span class="nav-icon">&#127991;</span> Contextual Cues
-        </NuxtLink>
-        <NuxtLink
-          v-if="usesScenePlan"
-          :to="`/projects/${slug}/sound-design`"
-          class="nav-item"
-          active-class="active"
-          title="Optional reviewed ambient beds and spot effects. Enabled projects require Sound Design approval before Final Video mixes audio."
-        >
-          <span class="nav-icon">&#127925;</span> Sound Design
-        </NuxtLink>
-        <NuxtLink
-          v-if="usesScenePlan"
-          :to="`/projects/${slug}/scene-review`"
-          class="nav-item"
-          active-class="active"
-          title="Per-scene preview against transcript + audio. Approve scenes before final assembly is allowed."
-        >
-          <span class="nav-icon">&#9989;</span> Scene Review
-        </NuxtLink>
-        <NuxtLink
-          v-if="usesScenePlan"
-          :to="`/projects/${slug}/motion-review`"
-          class="nav-item"
-          active-class="active"
-          title="Second visual pass: turn approved scene images into reviewed image-to-video clips without changing scene timestamps."
-        >
-          <span class="nav-icon">&#127916;</span> Motion Review
-        </NuxtLink>
-        <!-- v1.0.346 — Video Assembly always opens the full editor. Audio-paced
-             projects can still use the fast timestamp renderer from the
-             Timestamps tab inside the editor area, but the main nav should not
-             strand them on the simplified assembler when they need timeline,
-             effects, filters, and subtitle controls. -->
-        <NuxtLink
-          :to="`/projects/${slug}/video-assembly`"
-          class="nav-item"
-          active-class="active"
-        >
-          <span class="nav-icon">&#127902;</span> Video Assembly <span v-if="videoAssemblyGenerating" class="nav-pulse" />
-        </NuxtLink>
-
-        <div class="nav-divider" />
-        <div class="nav-section-label">Upload Center</div>
-        <NuxtLink :to="`/projects/${slug}/upload`" class="nav-item" active-class="active" title="YouTube Upload — connect a channel, queue episodes, schedule via publishAt.">
-          <span class="nav-icon">&#9654;</span> YouTube Upload
-        </NuxtLink>
-        <!-- v1.0.163 — TikTok + Facebook upload entries removed.
-             The pages were 41-line "Coming in v2" stubs cluttering the
-             sidebar. When real work on either platform starts, add the
-             entry back as part of that implementation task. -->
-
-        <div class="nav-divider" />
-        <div class="nav-section-label">Library</div>
-        <NuxtLink :to="{ path: '/character-library', query: { channel: slug } }" class="nav-item" active-class="active" title="Shared character roster filtered to this channel, including its channel-specific voice profiles.">
-          <span class="nav-icon">&#128100;</span> Channel Characters
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active" title="Manage every saved preset in this project — rename, duplicate, export, delete.">
-          <span class="nav-icon">&#128194;</span> Presets
-        </NuxtLink>
-        <!-- v1.0.481 — the per-project "Assets" tab was retired. Its audit
-             matrix is redundant with the Production Board; its unique Repair
-             action (re-pull provider-completed jobs that didn't persist
-             locally) moved into the Production Board (↻ Repair… button). -->
-
-
-        <div class="nav-divider" />
-        <NuxtLink :to="`/projects/${slug}/jobs`" class="nav-item" :class="{ active: isJobsScope('project') }">
-          <span class="nav-icon">&#9881;</span> Project Jobs
-          <span v-if="stats.running + stats.queued > 0" class="nav-badge">{{ stats.running + stats.queued }}</span>
-        </NuxtLink>
-        <NuxtLink :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }" class="nav-item" :class="{ active: isJobsScope('all') }" title="Monitor and control jobs from every project in one queue.">
-          <span class="nav-icon">&#9783;</span> All Jobs
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active" title="Everything for this project AND this Mac — API keys, appearance, models, voices, folders. Grouped into ‘This Mac’ vs ‘This Project’ zones.">
-          <span class="nav-icon">&#9881;</span> Settings
-        </NuxtLink>
-        <!-- v1.0.186 (S3) — the standalone "App Settings" button was retired.
-             Its contents (API keys, appearance, server mode) now live in the
-             Settings page under the "This Mac" zone, so a single "Settings"
-             entry is the one front door. The modal still exists for the
-             all-projects index, where no project Settings page is available. -->
-
-        <div class="nav-divider" />
-        <div class="nav-section-label">Shared Library</div>
-        <NuxtLink to="/broll-library" class="nav-item" active-class="active" title="App-level Assets Library. Register folders (typically your portable SSD) holding B-Roll video clips, still images, or sound effects (SFX). Indexes, tags, and shares them across every project on this machine.">
-          <span class="nav-icon">&#127909;</span> Assets Library
-        </NuxtLink>
-        <!-- v1.0.96+ — Niches sidebar link removed. The full niche library
-             (browse / create custom / delete custom) now lives inside each
-             project's Settings → Niche tab as a sub-tab. One place for
-             niche stuff instead of two. -->
-        <NuxtLink to="/" class="nav-item">
-          <span class="nav-icon">&#8592;</span> All Projects
-        </NuxtLink>
-      </nav>
-
-      <footer class="sidebar-credits" aria-label="Story Studio status">
-        <div
-          class="network-status"
-          :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
-          :title="networkQueueSyncFailed
-            ? 'Queue pause/resume command failed — backend may not have honoured the state. Retrying automatically.'
-            : (networkOnline ? 'Local Story Studio engine reachable. GenStudio connection and credits are shown separately.' : 'Can\'t reach the Story Studio engine — new jobs will wait until it\'s back')"
-        >
-          <span class="network-dot" />
-          <span class="network-label">{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
-          <span v-if="networkQueueSyncFailed" class="network-warn" aria-label="Queue state out of sync">⚠</span>
-        </div>
-
-        <section v-if="anyCreditRow" class="credit-card" aria-label="Credit balances">
-          <div class="credit-card-header">
-            <span>Credits</span>
-            <div class="credit-card-actions" :title="`Balances refresh automatically every ${Math.round(pollIntervalMs / 1000)} seconds.`">
-              <button
-                type="button"
-                class="footer-icon-button"
-                :class="{ spinning: isRefreshing }"
-                :disabled="isRefreshing"
-                aria-label="Refresh balances now"
-                title="Refresh balances now"
-                @click="refreshNow"
-              >↻</button>
-              <button
-                type="button"
-                class="footer-icon-button"
-                :class="{ active: editingCredits }"
-                :aria-label="editingCredits ? 'Done choosing balances' : 'Choose which balances to show'"
-                :title="editingCredits ? 'Done — tap a balance to show or hide it' : 'Choose which balances appear here'"
-                @click="editingCredits = !editingCredits"
-              >{{ editingCredits ? '✓' : '⚙' }}</button>
-            </div>
+        <div class="sidebar-brand">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
+            <path d="M15.5 12a5.5 5.5 0 0 1-9 4.24A7 7 0 0 0 12 5a5.5 5.5 0 0 1 3.5 7Z" fill="var(--accent)" opacity=".65" />
+          </svg>
+          <div>
+            <div class="brand-name">Story Studio KH</div>
+            <div class="project-name">{{ project?.name || 'Loading channel…' }}</div>
           </div>
-          <template v-for="row in creditRows" :key="row.id">
-            <button
-              v-if="row.show && (isCreditVisible(row.id) || editingCredits)"
-              type="button"
-              class="credit-badge"
-              :class="{ 'credit-badge-editing': editingCredits, 'credit-badge-off': editingCredits && !isCreditVisible(row.id) }"
-              :disabled="!editingCredits"
-              :title="editingCredits
-                ? (isCreditVisible(row.id) ? 'Hide this balance from the sidebar' : 'Show this balance in the sidebar')
-                : (row.title || undefined)"
-              @click="toggleCredit(row.id)"
-            >
-              <span class="credit-label">{{ row.label }}</span>
-              <strong class="credit-value">
-                <span v-if="editingCredits" class="credit-eye" aria-hidden="true">{{ isCreditVisible(row.id) ? '✓' : '—' }}</span>
-                {{ row.value }}
-              </strong>
-            </button>
-          </template>
-          <p v-if="editingCredits" class="credits-edit-hint">Choose the balances to keep visible.</p>
-        </section>
-
-        <div class="release-card">
-          <button
-            type="button"
-            class="version-badge"
-            :title="`Story Studio KH v${appVersion} · built ${buildDate} — click to copy`"
-            @click="copyVersion"
-          >
-            <span class="version-product">Story Studio KH</span>
-            <strong>v{{ appVersion }}</strong>
-            <time v-if="buildDate" class="version-build" :datetime="buildDate">{{ buildDateLabel }}</time>
-            <span v-if="versionCopied" class="version-copied" aria-live="polite">copied</span>
-          </button>
-          <button
-            type="button"
-            class="whats-new-link"
-            title="What's new in this release?"
-            @click="openWhatsNew"
-          ><span aria-hidden="true">✦</span> What’s new</button>
         </div>
-      </footer>
-    </aside>
 
-    <main id="main-content" class="main-content" tabindex="-1">
-      <!-- (Removed: foreign-provenance + decrypt-failed credential banners.
-           API keys now live app-level (per-machine, never synced), so the
-           cross-machine "credentials came from a different machine"
-           condition can't arise. See app-secrets-store.ts. -->
+        <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#channel`" class="channel-identity-card">
+          <span class="channel-identity-label">Channel identity</span>
+          <strong>{{ channelFormulaName }}</strong>
+          <span>{{ productionPathName }}</span>
+        </NuxtLink>
 
-      <!-- v1.0.100+ Auto-dismissing unclean-shutdown banner.
-           Was a sticky banner that hung around until the user manually
-           clicked ✕ on every launch following a crash; visible at the
-           top of every navigation. Now: shows for 30 seconds with a
-           visible countdown bar, then quietly persists the dismissal
-           and disappears. Manual ✕ still works for immediate dismissal.
-           If the app crashes AGAIN, a fresh unclean_shutdown flag is
-           set and the banner returns — that's the only way it comes
-           back. -->
-      <div
-        v-if="uncleanShutdown"
-        class="unclean-shutdown-banner"
-        role="status"
-        aria-live="polite"
-      >
-        <span class="unclean-shutdown-icon" aria-hidden="true">⚠️</span>
-        <span class="unclean-shutdown-text">
-          <strong>Story Studio quit unexpectedly last time.</strong>
-          Some jobs may not have finished — review them in
-          <NuxtLink :to="`/projects/${slug}/jobs`" class="unclean-shutdown-link">Jobs</NuxtLink>.
-        </span>
-        <span
-          class="unclean-shutdown-timer"
-          :title="`Auto-dismissing in ${uncleanShutdownSecondsLeft}s`"
-          aria-hidden="true"
-        >{{ uncleanShutdownSecondsLeft }}s</span>
-        <button
-          type="button"
-          class="unclean-shutdown-dismiss"
-          title="Dismiss now"
-          aria-label="Dismiss unclean-shutdown banner"
-          @click="dismissUncleanShutdown"
-        >✕</button>
-        <div
-          class="unclean-shutdown-progress"
-          :style="{ width: `${uncleanShutdownProgressPct}%` }"
-          aria-hidden="true"
-        />
-      </div>
-      <div
-        v-if="restoredChip"
-        class="restored-chip"
-        role="status"
-        aria-live="polite"
-      >
-        <span class="restored-chip-icon" aria-hidden="true">↩</span>
-        <span class="restored-chip-text">Resumed where you left off</span>
-        <button
-          type="button"
-          class="restored-chip-action"
-          @click="returnToProjectList"
-        >Return to project list</button>
-        <button
-          type="button"
-          class="restored-chip-dismiss"
-          title="Dismiss"
-          aria-label="Dismiss restored chip"
-          @click="restoredChip = false"
-        >✕</button>
-      </div>
-      <!-- v1.0.169 — Format-aware production flow ribbon. Renders the full
-           creation chain for this project's format (resolved into
-           `visualSource` above) with the current page highlighted, so the
-           user always sees where they are + what's next. Only shows on
-           project pages (slug present). -->
-      <FlowRibbon v-if="slug" :slug="slug" :visual-source="visualSource" />
-      <!-- v1.0.280+ — surface a clear prompt when a project has no niche, so
-           the user doesn't get silently-generic output. Niche is now the
-           primary content/voice layer. -->
-      <NicheMissingBanner v-if="slug" :slug="slug" :niche-id="project?.niche_id" />
-      <slot />
-    </main>
-    </div><!-- /.layout-body -->
+        <nav class="sidebar-nav" aria-label="Channel workspace">
+          <div class="nav-group">
+            <span class="nav-section-label">Overview</span>
+            <NuxtLink :to="`/projects/${slug}`" class="nav-item" exact-active-class="active">Dashboard</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/pipeline`" class="nav-item" active-class="active">Pipeline</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active">Production Board</NuxtLink>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-section-label">Workflow</span>
+            <NuxtLink
+              v-for="step in workflowSteps"
+              :key="step.key"
+              :to="workflowRouteFor(step)"
+              class="nav-item"
+              :class="{ active: currentWorkflowKey === step.key }"
+              :title="step.optional ? `${workflowLabel(step)} is optional for this production path` : undefined"
+            >
+              <span class="nav-item-main"><span aria-hidden="true">{{ step.icon }}</span>{{ workflowLabel(step) }}</span>
+              <span v-if="step.key === 'ideas'" class="nav-hint">Start here</span>
+              <span v-else-if="step.optional" class="nav-hint nav-hint-muted">Optional</span>
+            </NuxtLink>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-section-label">Publish</span>
+            <NuxtLink :to="`/projects/${slug}/upload`" class="nav-item" active-class="active">YouTube Upload</NuxtLink>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-section-label">Manage</span>
+            <NuxtLink
+              :to="`/projects/${slug}/jobs`"
+              class="nav-item"
+              :class="{ active: isJobsScope('project') }"
+            >
+              <span>Project Jobs</span>
+              <span v-if="activeJobCount > 0" class="nav-badge">{{ activeJobCount }}</span>
+            </NuxtLink>
+            <NuxtLink
+              :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }"
+              class="nav-item"
+              :class="{ active: isJobsScope('all') }"
+            >All Jobs</NuxtLink>
+            <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">Channel Characters</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
+            <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">Settings</NuxtLink>
+          </div>
+
+          <NuxtLink to="/" class="all-projects-link">All Projects <span aria-hidden="true">→</span></NuxtLink>
+        </nav>
+
+        <footer class="sidebar-credits" aria-label="Story Studio status">
+          <div
+            class="network-status"
+            :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
+          >
+            <span class="network-dot" aria-hidden="true" />
+            <span>{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
+          </div>
+          <NuxtLink to="/usage" class="credit-card" aria-label="Credit balances" :title="usageError || 'Open GenStudio usage'">
+            <span>GenStudio</span>
+            <strong>{{ creditSummary }}</strong>
+          </NuxtLink>
+        </footer>
+      </aside>
+
+      <main id="main-content" class="main-content" tabindex="-1">
+        <FlowRibbon v-if="slug" :slug="slug" :visual-source="visualSource" />
+        <NicheMissingBanner v-if="slug" :slug="slug" :niche-id="project?.niche_id" />
+        <slot />
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+import { normalizeVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { projectSlug } from '~/utils/project-slug'
 
 const route = useRoute()
-const slug = computed(() => projectSlug(route.params.slug))
-
-// v1.0.366 — mobile/touch: the sidebar becomes an off-canvas drawer below 900px.
-// Closes on navigation so tapping a nav item doesn't leave the drawer open.
+const slug = computed(() => (
+  projectSlug(route.params.slug)
+  || projectSlug(route.query.project)
+  || projectSlug(route.query.channel)
+))
 const mobileNavOpen = ref(false)
-watch(() => route.fullPath, () => { mobileNavOpen.value = false })
-
-// v1.0.88+: helpers for the four split image-prompts/images sidebar
-// entries. Each pair points at the same URL path with a different
-// ?tab= query value, so NuxtLink's path-based active-class can't
-// disambiguate them. These helpers check both: the current route's
-// path must match AND the tab query (defaulting to 'thumbnails' to
-// match the pages' own defaults) must match the requested tab.
-function isImagePromptsActive(tab: 'thumbnails'): boolean {
-  if (!route.path.endsWith('/image-prompts')) return false
-  const q = String(route.query.tab || 'thumbnails')
-  return q === tab
-}
-function isImagesActive(tab: 'thumbnails'): boolean {
-  if (!route.path.endsWith('/images')) return false
-  const q = String(route.query.tab || 'thumbnails')
-  return q === tab
-}
-
-function isJobsScope(scope: 'project' | 'all'): boolean {
-  if (!route.path.endsWith('/jobs')) return false
-  return scope === 'all' ? route.query.scope === 'all' : route.query.scope !== 'all'
-}
+const menuToggle = ref<HTMLButtonElement | null>(null)
+const sidebar = ref<HTMLElement | null>(null)
 
 const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
 const { niches } = useNiches()
-const { topicPacks } = useTopicPacks()
+const { refreshReadiness } = useNotifications()
+const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
+const {
+  genstudioCredits,
+  genstudioConfigured,
+  usageError,
+  startPolling: startCreditPolling,
+  stopPolling: stopCreditPolling,
+} = useCredits()
+const { get: apiGet } = useApi()
 
+const visualSource = ref<VisualSource>('narrated-scenes')
+const {
+  steps: workflowSteps,
+  routeFor: workflowRouteFor,
+  currentKey: currentWorkflowKey,
+} = useProjectFlow(slug, visualSource)
 const channelFormula = computed(() => niches.value.find(niche => niche.id === project.value?.niche_id))
-const channelFormulaName = computed(() => channelFormula.value?.catalogName || channelFormula.value?.name || 'Choose a formula')
-const channelTopicPackLabel = computed(() => {
-  const ids = project.value?.topic_pack_ids || channelFormula.value?.defaultTopicPackIds || []
-  if (!ids.length) return 'Choose topic packs'
-  const names = ids
-    .map(id => topicPacks.value.find(pack => pack.id === id)?.name || id)
-    .filter(Boolean)
-  if (!names.length) return 'Loading topic packs…'
-  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0]
-})
+const channelFormulaName = computed(() => channelFormula.value?.catalogName || channelFormula.value?.name || 'Choose a Series Formula')
 const productionPathName = computed(() => {
   switch (project.value?.continuity_mode) {
     case 'character-continuity': return 'Character continuity'
@@ -472,330 +170,146 @@ const productionPathName = computed(() => {
     default: return 'Independent scenes'
   }
 })
-// Notification-center readiness checks (upload dest / API keys / FFmpeg).
-// Refreshed per project below; the bell lives in the top bar.
-const { refreshReadiness } = useNotifications()
+const activeJobCount = computed(() => Number(stats.value.running || 0) + Number(stats.value.queued || 0))
+const creditSummary = computed(() => {
+  if (!genstudioConfigured.value) return 'Set up'
+  if (genstudioCredits.value === null) return 'Unavailable'
+  return `${genstudioCredits.value.toLocaleString()} credits`
+})
 
-// Format-aware sidebar. Fetched lazily so navigation does not block while the
-// effective continuity format is resolving.
-// Reuses the `apiGet` declared further down in this script-setup block
-// (line ~423: const { get: apiGet, patch: apiPatch, del: apiDel } = useApi()).
-// Vue script-setup hoists const declarations, so referencing it before
-// its textual position is safe at runtime. A duplicate `const { get: apiGet } = useApi()`
-// here passed tsx-watch but failed Vite's prod build with "Identifier
-// already declared" — removed in v1.0.89.
-// v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
-// and chooses its pacing via `sceneAlignment` ('sentence' → audio-paced flow).
-// normalizeVisualSource() collapses (visualSource, sceneAlignment) onto the
-// existing VS vocabulary so every isX flag below stays unchanged.
-type VS = VisualSource
-const visualSource = ref<VS>('narrated-scenes')
+function isJobsScope(scope: 'project' | 'all'): boolean {
+  if (!route.path.endsWith('/jobs')) return false
+  return scope === 'all' ? route.query.scope === 'all' : route.query.scope !== 'all'
+}
+
+function workflowLabel(step: FlowStep): string {
+  switch (step.key) {
+    case 'ideas': return 'Ideas Generator'
+    case 'script': return 'Script Generator'
+    case 'thumbnails': return 'Thumbnail Generator'
+    case 'audio': return 'Audio Generator'
+    default: return step.label
+  }
+}
+
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await apiGet<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
-    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { /* leave as default */ }
+    const format = await apiGet<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
+    visualSource.value = normalizeVisualSource(format?.visualSource, format?.sceneAlignment)
+  } catch {
+    visualSource.value = 'narrated-scenes'
+  }
 }
-const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
-// v1.0.187+ — continuity-chain extends the timestamp (audio-paced) pipeline:
-// it shares Scene Plan / Scene Review / unified Video Assembly and hides the
-// scene-prompts/generator pages, but adds a Character Sheet step and has NO
-// Research phase.
-const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
-// v1.0.300 — narrated-scenes: story/fiction on the audio-paced pipeline.
-// Shares Scene Plan / Scene Review / unified Video Assembly, but NO Research and
-// NO Character Sheet (see usesScenePlan; Research + Character Sheet nav stay
-// gated on their own flags below, which narrated-scenes deliberately fails).
-const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
-/** True when the active pipeline plans scenes against the actual audio
- *  timeline (timestamp-driven, continuity-chain, OR narrated-scenes) — these
- *  share the Scene Plan / Scene Review pages and unified Video Assembly. */
-const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
-watch(slug, () => { void loadVisualSource() }, { immediate: true })
-// v1.0.146+ — also re-fetch the effective format when the project's
-// format_id / niche_id changes, even while staying on the
-// same slug. Without this, switching the project to a different format
-// in Settings → Format (or Ideas → Format Overrides) updates the
-// merged format on disk but the sidebar stays stuck on whatever the
-// visualSource was when the layout first mounted, because the slug
-// watcher above only fires on slug change. The Settings tab calls
-// loadProject() after saving, so project.value.format_id is reactive
-// here; watching it covers every format-mutating UI path.
+
+function focusableSidebarItems(): HTMLElement[] {
+  if (!sidebar.value) return []
+  return Array.from(sidebar.value.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'))
+    .filter(item => !item.hasAttribute('aria-hidden'))
+}
+
+function openMobileNav(): void {
+  mobileNavOpen.value = true
+  nextTick(() => focusableSidebarItems()[0]?.focus())
+}
+
+function closeMobileNav(restoreFocus = true): void {
+  mobileNavOpen.value = false
+  if (restoreFocus) nextTick(() => menuToggle.value?.focus())
+}
+
+function toggleMobileNav(): void {
+  if (mobileNavOpen.value) closeMobileNav()
+  else openMobileNav()
+}
+
+function onDocumentKeydown(event: KeyboardEvent): void {
+  if (!mobileNavOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobileNav()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const items = focusableSidebarItems()
+  if (!items.length) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+watch(() => route.fullPath, () => {
+  if (mobileNavOpen.value) closeMobileNav(false)
+})
+
+watch(slug, async currentSlug => {
+  if (!currentSlug) return
+  await loadProject(currentSlug)
+  startJobPolling(currentSlug)
+  startCreditPolling(currentSlug)
+  void refreshReadiness(currentSlug)
+  void loadVisualSource()
+}, { immediate: true })
+
 watch(
   () => [project.value?.format_id, project.value?.niche_id] as const,
   () => { void loadVisualSource() },
 )
 
-// Cross-tab batch-completion signals (toast + title badge). The Electron
-// main process owns the native-OS notification path via job-notifier.ts;
-// this composable covers the in-window case where the operator is focused
-// but on a page other than /jobs. Skipped on /jobs — the banner is the
-// durable summary there.
 useBatchCompletionSignals(() => jobs.value as any)
-const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
-const {
-  genstudioCredits, genstudioConfigured, usageError,
-  isRefreshing, pollIntervalMs,
-  startPolling: startCreditPolling, stopPolling: stopCreditPolling, refreshNow,
-} = useCredits()
 
-// ── Sidebar credit visibility (per-machine UI preference) ──────────────────
-// Users keep every API key configured, but can hide the balance badge for
-// providers whose credit they've exhausted so the sidebar doesn't get crowded.
-// Stored in localStorage; a missing entry means "visible" (preserves the old
-// always-show default). Applies to every balance/credit/value-reporting row.
-const CREDIT_VIS_KEY = 'ssk_credit_visibility'
-const creditVisible = reactive<Record<string, boolean>>({})
-const editingCredits = ref(false)
-function isCreditVisible(id: string) { return creditVisible[id] !== false }
-function toggleCredit(id: string) {
-  creditVisible[id] = creditVisible[id] === false
-  try { localStorage.setItem(CREDIT_VIS_KEY, JSON.stringify(creditVisible)) } catch { /* private mode / quota */ }
-}
-function loadCreditVisibility() {
-  try {
-    const raw = localStorage.getItem(CREDIT_VIS_KEY)
-    if (raw) Object.assign(creditVisible, JSON.parse(raw))
-  } catch { /* corrupt prefs — ignore */ }
-}
-
-// Data-driven so the badge list + visibility toggle scale as more
-// balance-reporting providers are added. `show` = key configured AND the
-// provider reports a balance/credit/value.
-const creditRows = computed(() => [
-  {
-    id: 'genstudio',
-    label: 'GenStudio',
-    show: genstudioConfigured.value,
-    value: genstudioCredits.value === null ? 'unavailable' : `${genstudioCredits.value.toLocaleString()} credits`,
-    title: usageError.value || 'Authoritative GenStudio credit balance',
-  },
-])
-const anyCreditRow = computed(() => creditRows.value.some(r => r.show))
-const {
-  scriptGenerating, promptGenerating, thumbPromptGenerating,
-  imageGenerating, thumbImageGenerating,
-  audioGenerating, audioMergeGenerating, metaGenerating, videoGenerating,
-  videoAssemblyGenerating,
-} = useGenerating()
-
-
-watch(slug, async (s) => {
-  if (s) {
-    await loadProject(s)
-    startJobPolling(s)
-    startCreditPolling(s)
-    // Fire the readiness probes for the notification center. Fail-quiet
-    // inside the composable; never blocks project load.
-    void refreshReadiness(s)
-  }
-}, { immediate: true })
-
-// ── Restore-session UI ────────────────────────────────────────────────────
-// `restoredChip`: true when we landed here via auto-restore from the home
-// page (signalled via sessionStorage in pages/index.vue's onMounted). Local
-// to this run — clearing it just hides the chip; it doesn't affect the
-// last-session record on disk.
-//
-// `uncleanShutdown`: read once from /api/last-session on mount. Persists
-// across reloads via the dismissed flag on the same record so a refresh
-// during the same boot doesn't re-fire the banner.
-const { get: apiGet, patch: apiPatch, del: apiDel } = useApi()
-const restoredChip = ref(false)
-const uncleanShutdown = ref(false)
-
-async function loadSessionUiState() {
-  if (typeof sessionStorage !== 'undefined') {
-    restoredChip.value = sessionStorage.getItem('story-studio:restored') === '1'
-  }
-  try {
-    const last = await apiGet<{
-      unclean_shutdown?: boolean; unclean_shutdown_dismissed?: boolean;
-    }>('/last-session')
-    uncleanShutdown.value = !!last?.unclean_shutdown && !last?.unclean_shutdown_dismissed
-  } catch {
-    uncleanShutdown.value = false
-  }
-}
-
-async function dismissUncleanShutdown() {
-  uncleanShutdown.value = false
-  if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
-  try {
-    await apiPatch('/last-session', { unclean_shutdown_dismissed: true })
-  } catch {
-    // Fail-quiet — worst case the banner re-appears on the next reload.
-  }
-}
-
-// v1.0.100+ — 30-second auto-dismiss with a visible countdown so the
-// banner stops being visually noisy after the initial heads-up. We
-// persist the dismissal on auto-fade too (same semantics as the manual
-// ✕) so navigating between pages doesn't re-show the banner within the
-// same crash-recovery session. A fresh crash sets a new
-// unclean_shutdown flag and the banner returns.
-const UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS = 30
-const uncleanShutdownSecondsLeft = ref(UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS)
-const uncleanShutdownProgressPct = computed(() =>
-  Math.max(0, Math.min(100, (uncleanShutdownSecondsLeft.value / UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS) * 100)),
-)
-let uncleanShutdownTimer: ReturnType<typeof setInterval> | null = null
-
-watch(uncleanShutdown, (showing) => {
-  // Start the countdown only on the transition false → true. When the
-  // banner is dismissed (manually or auto), tear the timer down.
-  if (!showing) {
-    if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
-    return
-  }
-  uncleanShutdownSecondsLeft.value = UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS
-  if (uncleanShutdownTimer) clearInterval(uncleanShutdownTimer)
-  uncleanShutdownTimer = setInterval(() => {
-    uncleanShutdownSecondsLeft.value -= 1
-    if (uncleanShutdownSecondsLeft.value <= 0) {
-      // Auto-dismiss: same persistence semantics as the manual ✕.
-      void dismissUncleanShutdown()
-    }
-  }, 1000)
+onMounted(() => document.addEventListener('keydown', onDocumentKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', onDocumentKeydown)
+  stopJobPolling()
+  stopCreditPolling()
 })
-
-onBeforeUnmount(() => {
-  if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
-})
-
-async function returnToProjectList() {
-  restoredChip.value = false
-  if (typeof sessionStorage !== 'undefined') {
-    sessionStorage.removeItem('story-studio:restored')
-  }
-  try {
-    await apiDel('/last-session')
-  } catch { /* fail-quiet */ }
-  await navigateTo('/')
-}
-
-onMounted(loadSessionUiState)
-onMounted(loadCreditVisibility)
-
-onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
-
-// ── App version + build date ────────────────────────────────────────────
-// Read at frontend build time from the root package.json (see
-// nuxt.config.ts → runtimeConfig.public). Surfaced in the sidebar footer
-// so beta testers can quote a precise version when reporting an issue.
-const { public: pubCfg } = useRuntimeConfig()
-const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
-const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
-const buildDateLabel = computed(() => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(buildDate.value)
-  if (!match) return buildDate.value
-  const [, year, month, day] = match
-  const monthName = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString(undefined, { month: 'short' })
-  return `${monthName} ${Number(day)}, ${year}`
-})
-const versionCopied = ref(false)
-async function copyVersion() {
-  const txt = `Story Studio KH v${appVersion.value} · built ${buildDate.value}`
-  try {
-    await navigator.clipboard.writeText(txt)
-    versionCopied.value = true
-    setTimeout(() => { versionCopied.value = false }, 1400)
-  } catch {
-    // Clipboard API unavailable (rare in Electron renderer); fail-quiet.
-  }
-}
-
-// v1.0.77 — open the WhatsNewModal on demand from the sidebar link.
-import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
-const _whatsNew = useWhatsNewModal()
-function openWhatsNew() { _whatsNew.open() }
 </script>
 
 <style scoped>
-/* Vertical flex column: top-bar (titlebar + banner) stacked above layout-body (sidebar + main).
-   This makes the banner push content down NATURALLY — no more fixed-position overlap. */
-/* Lock the dashboard to viewport height so the page itself never scrolls.
-   Only the .main-content pane scrolls its contents — the sidebar stays put. */
 .dashboard-layout {
   display: flex;
+  height: 100dvh;
   flex-direction: column;
-  height: 100vh;
   overflow: hidden;
 }
 
-/* Top bar: sticky so it stays at the top while main area scrolls.
-   Holds the draggable titlebar that reserves space for macOS traffic lights. */
 .top-bar {
-  position: sticky;
-  top: 0;
   z-index: 200;
-  background: var(--bg-secondary);
-  flex-shrink: 0;
   display: flex;
-  align-items: stretch;
+  flex: 0 0 38px;
+  background: var(--bg-secondary);
 }
-
-/* Draggable titlebar area — reserves space for macOS traffic lights and lets
-   user drag window. Flexes to fill all space left of the actions cluster. */
 .titlebar-drag {
   flex: 1;
-  height: 38px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
-
-/* Right-aligned, non-draggable cluster holding the notification bell. */
 .top-bar-actions {
   display: flex;
   align-items: center;
-  height: 38px;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: no-drag;
 }
-
-/* v1.0.366 — hamburger + off-canvas sidebar for narrow screens (iPad/phone).
-   Desktop (≥900px) is unchanged; the toggle + overlay only appear below it. */
 .menu-toggle {
   display: none;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 38px;
-  flex-shrink: 0;
-  font-size: 20px;
-  background: transparent;
-  border: none;
+  min-width: 60px;
+  border: 0;
   border-bottom: 1px solid var(--border);
-  color: var(--text, inherit);
+  background: transparent;
+  color: var(--text-primary);
+  font: 650 var(--font-sm)/1 inherit;
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
-.sidebar-overlay { display: none; }
-@media (max-width: 900px) {
-  .menu-toggle { display: inline-flex; }
-  .sidebar {
-    position: fixed;
-    top: 0; left: 0; bottom: 0;
-    width: 264px;
-    max-width: 82vw;
-    transform: translateX(-100%);
-    transition: transform 0.22s ease;
-    z-index: 300;
-  }
-  .sidebar.mobile-open { transform: translateX(0); box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); }
-  .sidebar-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 250;
-  }
-  .main-content { padding: 16px; }
-}
 
-/* Body takes remaining space below top-bar, holds sidebar + main content side-by-side. */
 .layout-body {
   display: flex;
   flex: 1;
@@ -803,416 +317,137 @@ function openWhatsNew() { _whatsNew.open() }
   min-height: 0;
 }
 
-/* Sidebar is a fixed-height flex column:
-   - brand (fixed) at top
-   - nav (scrollable, flex: 1) in the middle — this is the ONLY scrolling region
-   - credits (fixed) pinned at the bottom
-   The `min-height: 0` on .sidebar-nav is what lets overflow:auto take effect inside a flex child. */
 .sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
   display: flex;
+  width: 232px;
+  flex: 0 0 232px;
   flex-direction: column;
-  align-self: stretch;
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
-
 .sidebar-brand {
-  flex-shrink: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px;
   border-bottom: 1px solid var(--border);
 }
-.brand-name { font-size: 14px; font-weight: 600; color: var(--accent); }
-.project-name { font-size: var(--font-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-.channel-identity-card { display: flex; flex-direction: column; gap: 5px; margin: 0 10px 10px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 8px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 9%, var(--bg-secondary)), var(--bg-secondary)); color: inherit; text-decoration: none; transition: border-color .16s ease, transform .16s ease, background .16s ease; }
-.channel-identity-card:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)); transform: translateY(-1px); }
-.channel-identity-label { display: flex; align-items: center; justify-content: space-between; color: var(--accent); font-size: var(--font-xs); font-weight: 760; text-transform: uppercase; letter-spacing: .08em; }
-.channel-identity-row { display: grid; grid-template-columns: 67px minmax(0, 1fr); gap: 6px; align-items: baseline; font-size: var(--font-xs); }
-.channel-identity-row > span { color: var(--text-muted); }
-.channel-identity-row strong { min-width: 0; overflow: hidden; color: var(--text-primary); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-brand > div { min-width: 0; }
+.brand-name { color: var(--accent); font-size: var(--font-md); font-weight: 750; }
+.project-name { overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+
+.channel-identity-card {
+  display: flex;
+  margin: 12px 10px 4px;
+  padding: 11px 12px;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+.channel-identity-card:hover { border-color: var(--accent); color: var(--text-primary); }
+.channel-identity-label { color: var(--accent); font-size: var(--font-xs); font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.channel-identity-card strong { overflow: hidden; font-size: var(--font-sm); text-overflow: ellipsis; white-space: nowrap; }
+.channel-identity-card > span:last-child { color: var(--text-secondary); font-size: var(--font-xs); }
 
 .sidebar-nav {
-  flex: 1;
-  padding: 6px;
-  /* The two properties the comment block above describes but were never
-     actually applied. min-height: 0 lets a flex child shrink below its
-     content size; overflow-y: auto then engages a scrollbar instead of
-     pushing sidebar-credits off the bottom of the window. Without
-     min-height: 0, flex children default to min-content height — which
-     is why the whole sidebar grew taller than the window before. */
-  min-height: 0;
-  overflow-y: auto;
-  /* Subtler scrollbar so it doesn't fight the sidebar's flat aesthetic. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-.sidebar-nav::-webkit-scrollbar { width: 8px; }
-.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
-.sidebar-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-.sidebar-nav::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
-.nav-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: var(--radius-sm);
-  color: var(--text-secondary); font-size: 12.5px;
-  transition: all 0.15s; text-decoration: none;
-}
-.nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.nav-item.active { background: var(--accent-dim); color: var(--accent); }
-.nav-icon { width: 16px; text-align: center; font-size: 13px; }
-
-.nav-divider-label,
-.nav-section-label {
-  padding: 10px 10px 4px;
-  font-size: var(--font-xs); font-weight: 600;
-  color: var(--text-muted); text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.nav-divider { height: 1px; background: var(--border); margin: 6px 10px; }
-
-.nav-pulse { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
-@keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.8); } }
-
-.nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-on); font-size: var(--font-xs); font-weight: 600; padding: 1px 6px; border-radius: 8px; }
-
-.sidebar-credits {
-  flex-shrink: 0;
-  padding: 10px;
-  border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-tertiary)), var(--bg-secondary));
-  display: grid;
-  gap: 8px;
-}
-.network-status {
-  display: inline-flex;
-  align-items: center;
-  justify-self: start;
-  gap: 6px;
-  min-height: 22px;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  font-size: var(--font-xs);
-}
-.network-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-.network-status.online { border-color: color-mix(in srgb, #22c55e 40%, var(--border)); }
-.network-status.online .network-dot { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.55); }
-.network-status.online .network-label { color: #8ee5ae; }
-.network-status.offline { border-color: color-mix(in srgb, #f87171 42%, var(--border)); }
-.network-status.offline .network-dot { background: #f87171; animation: networkPulse 1.5s ease-in-out infinite; }
-.network-status.offline .network-label { color: #fca5a5; font-weight: 650; }
-.network-status .network-warn { color: #fbbf24; }
-
-.credit-card,
-.release-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-}
-.credit-card { padding: 8px; }
-.credit-card-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-  color: var(--text-muted);
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 8px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.nav-group { display: grid; gap: 3px; }
+.nav-section-label {
+  padding: 4px 10px;
+  color: var(--text-secondary);
   font-size: var(--font-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 750;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
-.credit-card-actions { display: inline-flex; gap: 3px; }
-.footer-icon-button {
-  width: 21px;
-  height: 21px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 0;
-  transition: color .15s, border-color .15s, background .15s;
-}
-.footer-icon-button:hover:not(:disabled), .footer-icon-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
-.footer-icon-button:disabled { cursor: default; opacity: .62; }
-.footer-icon-button.spinning { animation: creditSpin .7s linear infinite; }
-@keyframes creditSpin { to { transform: rotate(360deg); } }
-.credit-badge {
+.nav-item,
+.all-projects-link {
   display: flex;
-  width: 100%;
-  align-items: baseline;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 550;
+}
+.nav-item:hover,
+.all-projects-link:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-item.active { border-color: color-mix(in srgb, var(--accent) 34%, transparent); background: var(--accent-dim); color: var(--text-primary); }
+.nav-item.active::before { content: ''; width: 3px; height: 18px; margin-left: -5px; border-radius: 999px; background: var(--accent); }
+.nav-item.active > span:first-child { margin-right: auto; }
+.nav-item-main { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.nav-item-main > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-hint { color: var(--accent); font-size: var(--font-xs); font-weight: 750; }
+.nav-hint-muted { color: var(--text-secondary); font-weight: 600; }
+.nav-badge { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-on); text-align: center; font-size: var(--font-xs); }
+.all-projects-link { margin-top: auto; border-color: var(--border); color: var(--text-primary); }
+
+.sidebar-credits {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+.network-status,
+.credit-card {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 3px 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: inherit;
-  text-align: left;
-}
-.credit-badge:disabled { cursor: default; }
-.credit-label { color: var(--text-secondary); font-size: 12px; }
-.credit-value { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
-.credit-badge-editing { cursor: pointer; border-radius: 5px; padding: 4px 5px; margin: 0 -5px; }
-.credit-badge-editing:hover { background: var(--bg-hover); }
-.credit-badge-off { opacity: .5; }
-.credit-badge-off .credit-value { color: var(--text-muted); text-decoration: line-through; }
-.credit-eye { margin-right: 3px; text-decoration: none; }
-.credits-edit-hint { margin: 5px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
-
-.release-card { display: grid; overflow: hidden; }
-.version-badge {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 1px 8px;
-  width: 100%;
-  padding: 8px;
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.version-badge:hover { background: var(--bg-hover); }
-.version-product { color: var(--text-muted); font-size: var(--font-xs); }
-.version-badge strong { font-size: 12px; font-variant-numeric: tabular-nums; }
-.version-build { grid-column: 1; color: var(--text-muted); font-size: var(--font-xs); }
-.version-copied { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: var(--font-xs); font-weight: 650; }
-.whats-new-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 29px;
-  border: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--accent);
-  font-family: inherit;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   font-size: var(--font-xs);
-  font-weight: 650;
-  cursor: pointer;
 }
-.whats-new-link:hover { background: var(--accent-dim); color: var(--accent-hover); }
-@keyframes networkPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(248, 113, 113, 0.5); }
-  50% { opacity: 0.5; box-shadow: 0 0 10px rgba(248, 113, 113, 0.8); }
-}
+.network-status { justify-content: flex-start; }
+.network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
+.network-status.online .network-dot { background: var(--success); }
+.credit-card { border: 1px solid var(--border); }
+.credit-card:hover { background: var(--bg-hover); color: var(--text-primary); }
+.credit-card strong { color: var(--text-primary); font-weight: 650; }
 
 .main-content {
-  flex: 1;
   min-width: 0;
   min-height: 0;
-  width: 100%;
-  padding: 32px;
-  /* v1.0.103+ — was `padding-top: 0` which let any first-child banner
-     (unclean-shutdown, restored-chip) sit at y=0,
-     where the Electron `titleBarStyle: 'hiddenInset'` traffic lights
-     overlap content. The unclean-shutdown banner in particular got
-     its top edge clipped because `margin-top: 16px` put it at y=16 —
-     right under the traffic-light row (which sits at y=16 per
-     `trafficLightPosition` in electron/main.ts).
-     16px clears the traffic-light row (≈22px bottom edge) plus the
-     banner's own 16px margin-top = banner at y=32, with ~10px of
-     breathing room. Page titles without a leading banner also get
-     a slight +16px nudge down, which reads better aesthetically
-     against the chrome anyway. */
-  padding-top: 16px;
+  flex: 1;
+  padding: var(--workspace-gutter);
   overflow-x: hidden;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
 }
 
-/* Foreign-provenance secrets banner — surfaces when secrets.json was
-   encrypted on a different machine (user copied the project folder
-   manually). Stale OAuth tokens could upload to the wrong channel if
-   reactivated, so the banner is louder than informational. */
-.foreign-secrets-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 16px 0 8px;
-  padding: 12px 14px;
-  background: var(--bg-secondary);
-  border: 1px solid #dc2626;
-  border-left: 3px solid #dc2626;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.foreign-secrets-icon { font-size: 15px; line-height: 1.2; flex-shrink: 0; }
-.foreign-secrets-text { flex: 1; line-height: 1.5; }
-.foreign-secrets-text strong { color: var(--text-primary); display: block; margin-bottom: 2px; }
-.foreign-secrets-reset {
-  background: #dc2626;
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-.foreign-secrets-reset:hover:not(:disabled) { background: #b91c1c; }
-.foreign-secrets-reset:disabled { opacity: 0.6; cursor: wait; }
+.sidebar-overlay { display: none; }
 
-/* Decrypt-failed banner reuses the foreign banner's layout but in a calmer
-   amber palette — this is recoverable (just re-enter keys) rather than a
-   security-critical "different machine" warning. */
-.secrets-decrypt-banner {
-  background: rgba(245, 158, 11, 0.10);
-  border-color: rgba(245, 158, 11, 0.4);
-}
-.secrets-decrypt-banner .foreign-secrets-icon { color: rgb(180, 83, 9); }
-.inline-link { color: var(--accent); text-decoration: underline; }
-.inline-link:hover { text-decoration: none; }
-
-.inline-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: var(--font-xs);
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
-  word-break: break-all;
+@media (max-width: 900px) {
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar {
+    position: fixed;
+    z-index: 300;
+    inset: 0 auto 0 0;
+    width: min(286px, 84vw);
+    transform: translateX(-100%);
+    transition: transform var(--motion-base) ease;
+  }
+  .sidebar.mobile-open { transform: translateX(0); box-shadow: 18px 0 50px rgba(0, 0, 0, .42); }
+  .sidebar-overlay { position: fixed; z-index: 250; inset: 0; display: block; background: rgba(0, 0, 0, .5); }
+  .main-content { padding: 16px; }
 }
 
-/* Unclean-shutdown banner — prior run died without firing before-quit
-   (force-quit, OOM, hard crash). Soft yellow accent. */
-.unclean-shutdown-banner {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 16px 0 8px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-left: 3px solid #eab308;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-}
-.unclean-shutdown-icon { font-size: 15px; line-height: 1.2; flex-shrink: 0; }
-.unclean-shutdown-text { flex: 1; line-height: 1.5; }
-.unclean-shutdown-text strong { color: var(--text-primary); }
-.unclean-shutdown-link { color: var(--accent); text-decoration: underline; }
-/* v1.0.100+ — visible countdown chip so the user knows the banner is
-   on a timer and isn't going to nag forever. Tabular-nums keeps it from
-   jittering as the count ticks down. */
-.unclean-shutdown-timer {
-  font-size: var(--font-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  padding: 1px 7px;
-  background: var(--bg-tertiary);
-  border-radius: 999px;
-  flex-shrink: 0;
-  line-height: 1.4;
-}
-.unclean-shutdown-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-.unclean-shutdown-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
-/* Bottom progress bar mirrors the timer chip — shrinks from 100% → 0%
-   over the auto-dismiss window. CSS transition softens the per-second
-   tick so it reads as a smooth fade rather than a stuttery countdown. */
-.unclean-shutdown-progress {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  background: #eab308;
-  transition: width 1s linear;
-}
-
-/* Restored-where-you-left-off chip — quieter than the banners; informs the
-   operator the page didn't open by their click but offers a fast escape. */
-.restored-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0 4px;
-  padding: 6px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.restored-chip-icon { color: var(--accent); font-weight: 600; }
-.restored-chip-text { line-height: 1.3; }
-.restored-chip-action {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: var(--font-xs);
-  padding: 3px 10px;
-  border-radius: 999px;
-}
-.restored-chip-action:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
-.restored-chip-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0 4px;
-  border-radius: var(--radius-sm);
-}
-.restored-chip-dismiss:hover { color: var(--text-primary); }
-
-/* Content wrapper inside main-content applies max-width constraint
-   without affecting scroll container position. Each page wraps its
-   content in this for consistent centering behavior. */
-.main-content > * {
-  /* Default: let content take full available width */
-  width: 100%;
-}
-
-/* Optional: apply max-width via padding/flexbox if needed per page,
-   but the scroll container (main-content) always goes edge-to-edge. */
-.main-content:focus { outline: none; }  /* focused via skip link, not visible */
-
-/* Skip-to-main link — visible only when focused (keyboard users) */
-.skip-link {
-  position: absolute;
-  top: -9999px;
-  left: 0;
-  z-index: 9999;
-  padding: 10px 18px;
-  background: var(--accent);
-  color: #0f1117;
-  font-weight: 600;
-  text-decoration: none;
-  border-radius: 0 0 var(--radius-sm) 0;
-}
-.skip-link:focus {
-  top: 0;
-  outline: 2px solid #0f1117;
-  outline-offset: -4px;
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }
 </style>

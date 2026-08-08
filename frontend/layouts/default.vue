@@ -109,21 +109,4 @@ function openWhatsNew() { _whatsNew.open() }
 }
 .page-content:focus { outline: none; }
 
-.skip-link {
-  position: absolute;
-  top: -9999px;
-  left: 0;
-  z-index: 9999;
-  padding: 10px 18px;
-  background: var(--accent);
-  color: #0f1117;
-  font-weight: 600;
-  text-decoration: none;
-  border-radius: 0 0 var(--radius-sm) 0;
-}
-.skip-link:focus {
-  top: 0;
-  outline: 2px solid #0f1117;
-  outline-offset: -4px;
-}
 </style>

@@ -19,6 +19,7 @@ test('project routes redirect before dashboard or page setup can fetch', () => {
   const home = readFileSync(resolve(import.meta.dirname, '../pages/index.vue'), 'utf8')
   assert.match(middleware, /to\.path\.startsWith\('\/projects\/'\)/)
   assert.match(middleware, /navigateTo\('\/', \{ replace: true \}\)/)
-  assert.match(home, /function openProject\(project: \{ slug\?: unknown \}\)/)
+  assert.match(home, /function projectHref\(project: \{ slug\?: unknown \}\)/)
   assert.match(home, /const slug = projectSlug\(project\?\.slug\)/)
+  assert.match(home, /return slug \? `\/projects\/\$\{slug\}` : ''/)
 })

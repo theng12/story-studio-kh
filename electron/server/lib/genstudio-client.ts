@@ -623,6 +623,8 @@ export interface GenStudioImageOutputOption {
 export interface GenStudioImageModel {
   id: string
   display_name: string
+  /** Published model creator/provider label. Absent until GenStudio supplies it. */
+  provider_name?: string
   description?: string
   available: boolean
   /** Why an unavailable model is unavailable, when GenStudio explains it. */
@@ -814,6 +816,7 @@ export interface GenStudioTtsModel {
   supports_speed: boolean
   supports_voice_cloning: boolean
   preview_policy: string
+  unlimited_relaxed: boolean
   generation_enabled: boolean
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with
@@ -867,8 +870,8 @@ export interface GenStudioTtsQuote {
  * is one entry. Nothing else in Story Studio may enumerate voice providers.
  */
 export const GENSTUDIO_VOICE_LIBRARIES = [
-  { id: 'elevenlabs', label: 'ElevenLabs', path: '/v1/voice-library/elevenlabs' },
-  { id: 'fish', label: 'Fish Audio', path: '/v1/voice-library/fish' },
+  { id: 'elevenlabs', label: 'ElevenLabs', provider_id: 'elevenlabs-direct', path: '/v1/voice-library/elevenlabs' },
+  { id: 'fish', label: 'Fish Audio', provider_id: 'fish-audio', path: '/v1/voice-library/fish' },
 ] as const
 
 export type GenStudioVoiceLibraryId = typeof GENSTUDIO_VOICE_LIBRARIES[number]['id']
@@ -915,6 +918,8 @@ export interface GenStudioModelCapability {
 export interface GenStudioChatModel {
   id: string
   display_name: string
+  /** Published model creator/provider label. Absent until GenStudio supplies it. */
+  provider_name?: string
   description?: string
   available: boolean
   qualification_only: boolean
@@ -2814,6 +2819,7 @@ export async function listTtsModelsSnapshot(
         supports_speed: value?.supports_speed === true,
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
+        unlimited_relaxed: value?.unlimited_relaxed === true,
         generation_enabled: value?.generation_enabled === true,
         // Carried through exactly as published. An absent or empty list means
         // this model takes no controls — never a reason to supply some.
@@ -3089,6 +3095,7 @@ export async function listChatModelsSnapshot(
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
@@ -4605,11 +4612,12 @@ export async function listImageModelsSnapshot(
     return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
+    provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
     execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
-    unlimited_relaxed: value?.unlimited_relaxed === true || value?.execution_label === 'Local fleet',
+    unlimited_relaxed: value?.unlimited_relaxed === true,
     credits_per_image: Number.isFinite(value?.credits_per_image)
       ? Math.max(0, value.credits_per_image)
       : null,

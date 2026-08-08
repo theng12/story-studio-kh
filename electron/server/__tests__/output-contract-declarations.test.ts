@@ -334,7 +334,6 @@ describe('the prose call sites are left alone', () => {
     'services/audio-expression.ts',       // performance-tag markup
     'routes/upload.ts',                   // playlist description + reply drafts
     'lib/reply-drafter.ts',               // reply draft parsing
-    'services/broll-shot-director.ts',    // built, never invoked — leave it built
   ]
   for (const file of untouched) {
     test(`${file} declares no contract at all`, () => {

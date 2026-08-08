@@ -6,8 +6,8 @@
  * Adapters return the unified ResearchOutput shape so the Research
  * page UI + the script-generator consumer don't branch per source.
  *
- * Mirrors the broll-fetchers/ pattern (one adapter file per source,
- * a registry in index.ts).
+ * A small adapter boundary keeps the two supported research modes behind one
+ * response shape.
  */
 
 import type { ResearchOutput, ResearchRunOptions, ResearchSourceProvider } from '../../models/types.js'

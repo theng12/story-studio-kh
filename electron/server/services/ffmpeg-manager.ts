@@ -680,7 +680,8 @@ function stripQuarantine(paths: string[]): Promise<void> {
  * evermeet.cx zips contain the binary at the archive root.
  */
 async function extractZipBinary(zipPath: string, binaryName: string, destPath: string): Promise<void> {
-  // Use JSZip (already a transitive dep via docx package)
+  // JSZip is a direct runtime dependency because packaged installs use this
+  // path when the downloaded FFmpeg bundle is a ZIP archive.
   const JSZip = (await import('jszip')).default as any
   const zipData = await fs.readFile(zipPath)
   const zip = await JSZip.loadAsync(zipData)

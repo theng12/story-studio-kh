@@ -28,7 +28,6 @@ import { normalizeBroll } from '../generators/broll-normalize.js'
 import { generateBrollAssemble } from '../generators/broll-assemble.js'
 import { generateBrollSelection } from '../generators/broll-select.js'
 import { generateBrollAutotag } from '../generators/broll-autotag.js'
-import { fetchBroll } from '../generators/broll-fetch.js'
 import { generateImagePoolImages } from '../generators/image-pool-generate.js'
 import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
@@ -109,11 +108,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('broll_select', generateBrollSelection)
   registerExecutor('broll_assemble', guardMedia(generateBrollAssemble))
   registerExecutor('broll_autotag', generateBrollAutotag)
-  // v1.0.122+: B-Roll Fetch — downloads one Pexels/Pixabay clip into a
-  // pool + writes the provenance sidecar. Search routes live in
-  // routes/broll-fetch.ts; the per-pool queue endpoint lives in
-  // routes/broll-pools.ts alongside normalize/autotag.
-  registerExecutor('broll_fetch', fetchBroll)
   // v1.0.410+ — generate stills into an Image Pool (grow the pool).
   registerExecutor('image_pool_generate', generateImagePoolImages)
   // v1.0.142+ — Research phase for the timestamp-driven pipeline.

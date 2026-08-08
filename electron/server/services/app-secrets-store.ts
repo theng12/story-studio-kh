@@ -39,15 +39,6 @@ export const SECRET_PROVIDERS = [
   'genstudio',
   // Non-generation integrations remain independent from GenStudio.
   'google',
-  // v1.0.122+ — Free / CC stock-footage providers for the B-Roll Fetch
-  // feature. Both expose a simple JSON search API and free tier; keys
-  // are personal (one per Mac) and never shipped with the binary.
-  'pexels',
-  'pixabay',
-  // v1.0.142+ — Perplexity API. Powers the live-web-search source of the
-  // Research phase in the timestamp-driven pipeline. Optional — the
-  // LLM-only research source works with any configured text-provider key.
-  'perplexity',
 ] as const
 export type ProviderId = typeof SECRET_PROVIDERS[number]
 

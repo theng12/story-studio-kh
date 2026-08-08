@@ -13,7 +13,7 @@
     <div v-else-if="!available.length" class="empty-cast">
       No Channel Characters are assigned yet.
       <button class="btn btn-secondary btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
-      <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug } }" class="link-sm">Open Channel Characters →</NuxtLink>
+      <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug, project: projectSlug } }" class="link-sm">Open Channel Characters →</NuxtLink>
     </div>
 
     <div v-else class="picker-list">
@@ -32,7 +32,7 @@
       </label>
       <div class="picker-actions">
         <button class="btn btn-ghost btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
-        <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug } }" class="link-sm">Manage Channel Characters →</NuxtLink>
+        <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug, project: projectSlug } }" class="link-sm">Manage Channel Characters →</NuxtLink>
       </div>
     </div>
 

@@ -31,7 +31,7 @@
           v-model="previewModel"
           :project-slug="projectSlug"
           class="psl-preview-model"
-          default-label="Choose a GenStudio image model…"
+          default-label="Choose an image model…"
         />
         <select v-if="aspectOptions.length" v-model="previewAspect" class="input input-sm">
           <option v-for="opt in aspectOptions" :key="opt" :value="opt">{{ opt }}</option>

@@ -13,6 +13,7 @@ const modal = source('../components/Modal.vue')
 const imagePicker = source('../components/ImageModelPicker.vue')
 const imageGenerator = source('../pages/projects/[slug]/images.vue')
 const voicePicker = source('../components/VoicePicker.vue')
+const voiceLibraryBrowser = source('../components/VoiceLibraryBrowser.vue')
 const modelSelector = source('../components/ModelSelector.vue')
 const transcriptionCatalog = source('../composables/useGenStudioTranscription.ts')
 const imageCatalog = source('../composables/useGenStudioImageModels.ts')
@@ -45,6 +46,8 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /selectableOptionCount/)
     // Every published fact the anchored panel carried still renders.
     assert.match(modelMenu, /option\.meta \|\| option\.description/)
+    assert.match(modelMenu, /model-menu-option-provider/)
+    assert.match(modelMenu, /option\.provider/)
     assert.match(modelMenu, /option\.disabledReason/)
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
   })
@@ -56,22 +59,16 @@ describe('shared model menus', () => {
     assert.doesNotMatch(imagePicker, /Unavailable saved selection|migration required|Historical/)
   })
 
-  test('customer model menus state the gateway once per surface, never per row', () => {
-    // The point this has always protected — one clear boundary, and a provider
-    // identity that is never invented — is unchanged. What changed is WHERE.
-    // A single LLM row used to say "GenStudio KH" three times: the group
-    // heading, a "[GenStudio KH]" suffix on the model name, and a per-row
-    // badge. The gateway serves every model in the app, so those repeats
-    // carried no information and took the width the model name needed.
-    //
-    // The surviving statement is the GROUP HEADING: it renders once per dialog
-    // however long the catalogue is, and it is the slot ModelMenu already had.
-    // A badge would have been per row by construction.
-    for (const source of [imagePicker, modelSelector, modelSurfaces.motion]) {
-      assert.match(source, /group: 'GenStudio KH'/)
-      assert.doesNotMatch(source, /label: 'GenStudio KH'/)
-      assert.doesNotMatch(source, /provider: 'GenStudio KH'/)
-    }
+  test('customer model menus separate plan access from published provider identity', () => {
+    assert.match(modelSelector, /group: 'GenStudio KH'/)
+    assert.match(imagePicker, /group: model\.unlimited_relaxed === true \? 'Free \+ paid plans' : 'Paid plan'/)
+    assert.match(modelSurfaces.audio, /group: model\.unlimited_relaxed === true \? 'Free \+ paid plans' : 'Paid plan'/)
+    assert.match(imagePicker, /provider: model\.provider_name \|\| ''/)
+    assert.match(modelSelector, /provider: model\.provider_name \|\| ''/)
+    assert.match(modelSurfaces.audio, /provider: model\.provider_name \|\| ''/)
+    assert.match(modelSurfaces.audio, /genstudioUnlimitedBadge\(model\.unlimited_relaxed === true\)/)
+    assert.doesNotMatch(imagePicker, /provider: model\.execution_label/)
+    assert.doesNotMatch(modelSelector, /provider: model\.label|provider: model\.id/)
     // Nothing may append the gateway to a model's own name.
     for (const source of [imagePicker, modelSelector, transcriptionCatalog, modelSurfaces.audio, modelSurfaces.motion]) {
       assert.doesNotMatch(source, /\[GenStudio( KH)?\]/)
@@ -80,27 +77,17 @@ describe('shared model menus', () => {
     // Where the catalogue DOES publish who serves a product, that is what the
     // row shows — the real vendor, not the gateway standing in for it.
     // (AGENTS.md → "Provider Transparency".)
-    assert.match(modelSurfaces.audio, /group: model\.provider_name \|\| 'Voice models'/)
-    assert.match(modelSurfaces.audio, /provider: model\.provider_name \|\| ''/)
     assert.match(transcriptionCatalog, /group: model\.provider \|\| 'Transcription models'/)
     assert.match(transcriptionCatalog, /provider: model\.provider \|\| ''/)
     // An unpublished provider is unknown. It is never backfilled with the
     // gateway's name, and never guessed from an id.
     assert.doesNotMatch(modelSurfaces.audio, /provider_name \|\| 'GenStudio/)
     assert.doesNotMatch(transcriptionCatalog, /provider \|\| 'GenStudio/)
-    // The chat, image and video catalogues publish NO provider at all, so
-    // those rows set none rather than inventing one. Asserted as "no quoted
-    // provider is handed to a menu row", which is the thing that would be a
-    // fabrication; `LlmModelRow.provider: 'genstudio'` is the transport key on
-    // the /models payload, not a vendor, and never reaches a row.
-    for (const source of [modelSelector, imagePicker, modelSurfaces.motion]) {
-      assert.doesNotMatch(source, /provider: '(?!genstudio')/)
-    }
-    // The trigger line summarises a PUBLISHED provider, never the group — the
-    // group is the heading, and echoing it there restated the same fact twice.
+    // The trigger and open rows summarise a PUBLISHED provider, never the plan
+    // group. Optional provider fields remain empty until GenStudio publishes
+    // them, rather than being guessed from model brands.
     assert.match(modelMenu, /\[option\.provider, option\.meta\]/)
-    assert.doesNotMatch(imagePicker, /model\.execution_label|model\.description/)
-    assert.doesNotMatch(imageCatalog, /execution_label/)
+    assert.match(imageCatalog, /provider_name\?: string/)
     // AGENTS.md → "Provider Transparency" (2026-08-01) reversed the old masking:
     // what GenStudio publishes about who serves a product now reaches the
     // customer. No catalogue route may delete those fields on the way out.
@@ -187,7 +174,14 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /:title="scopeTitle"/)
     assert.match(voicePicker, /:description="scopeDescription"/)
     assert.match(voicePicker, /scopeFamily === 'cloud' \? 'accent' : 'success'/)
-    assert.match(voicePicker, /<VoiceLibraryBrowser @added="onLibraryVoiceAdded" \/>/)
+    assert.match(voicePicker, /v-if="isGenStudioScope && compatibleLibrary" #actions/)
+    assert.match(voicePicker, /:library="compatibleLibrary"/)
+    assert.match(voicePicker, /library\.provider_id === props\.ttsModelProviderId/)
+    assert.match(voicePicker, /Clone a voice in GenStudio KH/)
+    assert.match(appSettings, /voices\.filter\(voice => !voice\.tts_model_id \|\| voice\.tts_model_id === modelId\)/)
+    assert.match(voiceLibraryBrowser, /v-if="hasMore"/)
+    assert.match(voiceLibraryBrowser, /Load more voices/)
+    assert.doesNotMatch(voiceLibraryBrowser, /vlb-tabs|selectLibrary|Previous|Next →/)
     // The saved filter survived the dialog conversion; it is now one option in
     // the All / Saved / Cloned group rather than a standalone checkbox.
     assert.match(voicePicker, /id: 'saved' as const, label: 'Saved'/)
@@ -200,6 +194,8 @@ describe('shared model menus', () => {
 
   test('LLM, image, TTS, video, and transcription surfaces use shared menus', () => {
     assert.match(modelSelector, /<ModelMenu/)
+    assert.match(modelSelector, /title="Choose LLM model"/)
+    assert.match(imagePicker, /title="Choose an image model"/)
     assert.match(modelSurfaces.audio, /media-type="tts"/)
     assert.match(modelSurfaces.motion, /media-type="video"/)
     assert.match(modelSurfaces.subtitles, /media-type="transcription"/)

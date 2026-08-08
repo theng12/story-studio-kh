@@ -7,7 +7,7 @@
 :root {
   --workspace-max: 1680px;
   --workspace-gutter: clamp(16px, 2.2vw, 32px);
-  --workspace-section-gap: clamp(16px, 1.8vw, 24px);
+  --workspace-section-gap: clamp(14px, 1.5vw, 20px);
   --control-height-sm: 34px;
   --control-height-md: 42px;
   --surface-raised: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent) 6%);
@@ -30,8 +30,8 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-5);
-  min-height: 132px;
-  padding: clamp(20px, 2.4vw, 34px);
+  min-height: 104px;
+  padding: clamp(18px, 2vw, 26px);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -92,7 +92,7 @@
 
 .workspace-hero h1 {
   margin: 0;
-  font-size: clamp(27px, 3vw, 42px);
+  font-size: clamp(25px, 2.6vw, 36px);
   font-weight: 750;
   letter-spacing: -0.035em;
   line-height: 1.05;
@@ -100,9 +100,9 @@
 
 .workspace-hero-description {
   max-width: 760px;
-  margin-top: var(--space-3);
+  margin-top: var(--space-2);
   color: var(--text-secondary);
-  font-size: var(--font-lg);
+  font-size: var(--font-md);
   line-height: 1.55;
 }
 
@@ -155,7 +155,7 @@
 
 .workspace-section {
   margin-top: var(--workspace-section-gap);
-  padding: clamp(18px, 2vw, 26px);
+  padding: clamp(16px, 1.7vw, 22px);
 }
 
 .workspace-section-header {

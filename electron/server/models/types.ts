@@ -2103,7 +2103,7 @@ export const JOB_TYPES = [
   'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
-  'broll_autotag', 'broll_fetch', 'research_run', 'scene_plan_run',
+  'broll_autotag', 'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_images_batch', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
   'prompt_director', 'composition_generate', 'expression_markup', 'contextual_cues',
@@ -3244,7 +3244,7 @@ export interface AudioMergeRequest {
 // output was never checked for the user, and web-mode sources back the RUN,
 // not any individual claim.
 
-export type ResearchSourceProvider = 'perplexity' | 'llm-only' | 'genstudio-web'
+export type ResearchSourceProvider = 'llm-only' | 'genstudio-web'
 
 /**
  * Which research route produced (or should produce) an output.

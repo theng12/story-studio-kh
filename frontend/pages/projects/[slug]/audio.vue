@@ -74,7 +74,7 @@
             :options="audioModelOptions"
             media-type="tts"
             title="Choose a voice model"
-            placeholder="Pick a GenStudio voice model…"
+            placeholder="Pick a voice model…"
             search-placeholder="Search voice models…"
             aria-label="GenStudio TTS model options"
             :catalog-notice="genstudioPlanNotice"
@@ -107,6 +107,9 @@
             :audio-model-provider="currentAudioProvider"
             :tts-model-id="form.model"
             :tts-model-name="selectedTtsModel?.display_name || ''"
+            :tts-model-provider-id="selectedTtsModel?.provider_id || ''"
+            :tts-model-description="selectedTtsModel?.description || ''"
+            :tts-model-supports-voice-cloning="selectedTtsModel?.supports_voice_cloning === true"
             :model-credits-per1000-characters="selectedTtsModel?.credits_per_1000_characters ?? null"
             require-selection
             class="voice-picker-flex"
@@ -450,15 +453,11 @@ const {
  * is respected — a model GenStudio has switched off cannot be chosen.
  */
 const audioModelOptions = computed(() => ttsModels.value.map((model) => {
-  const unlimited = genstudioUnlimitedBadge(false)
+  const unlimited = genstudioUnlimitedBadge(model.unlimited_relaxed === true)
   return {
     id: model.id,
     label: model.display_name,
-    // Grouped by the PUBLISHED provider (`TTSModelResponse.provider_name`), so
-    // the heading says ElevenLabs / Fish Audio rather than restating the one
-    // gateway every model here already shares. A model with no published
-    // provider gets a neutral bucket, never the gateway as a stand-in.
-    group: model.provider_name || 'Voice models',
+    group: model.unlimited_relaxed === true ? 'Free + paid plans' : 'Paid plan',
     provider: model.provider_name || '',
     meta: [
       `${formatCredits(model.credits_per_1000_characters)} / 1,000 characters`,
@@ -469,14 +468,15 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     disabled: !model.generation_enabled,
     disabledReason: model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.',
     badges: [
-      // No provider badge: the rows are already grouped under the provider's
-      // own heading, so a badge repeating it on every row inside that group
-      // only takes width from the model name.
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
       ...(unlimited ? [unlimited] : []),
     ],
   }
+}).sort((left, right) => {
+  const leftFree = left.group === 'Free + paid plans'
+  const rightFree = right.group === 'Free + paid plans'
+  return Number(rightFree) - Number(leftFree)
 }))
 
 /** The one model every published figure on this page is read from. */

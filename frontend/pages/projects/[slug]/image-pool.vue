@@ -50,7 +50,7 @@
       </template>
       <p v-else class="text-muted text-sm mt-2">
         No image pools yet. Create one in the
-        <NuxtLink to="/broll-library" class="text-accent">B-Roll Library</NuxtLink>
+        <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="text-accent">B-Roll Library</NuxtLink>
         (＋ Register pool → 🖼 Still images), point it at your image folder, then Re-scan.
       </p>
     </section>

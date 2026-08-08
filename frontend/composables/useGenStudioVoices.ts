@@ -35,6 +35,7 @@ export interface GenStudioTtsModel {
   supports_speed: boolean
   supports_voice_cloning: boolean
   preview_policy: string
+  unlimited_relaxed: boolean
   generation_enabled: boolean
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its
@@ -104,6 +105,8 @@ export interface GenStudioLibraryVoice {
 export interface GenStudioVoiceLibrary {
   id: string
   label: string
+  /** The exact provider id whose selected models may browse this library. */
+  provider_id: string
 }
 
 /**

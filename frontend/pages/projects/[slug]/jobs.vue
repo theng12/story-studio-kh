@@ -1247,7 +1247,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_select: 'B-roll selection',
   broll_assemble: 'B-roll assembly',
   broll_autotag: 'B-roll tags',
-  broll_fetch: 'B-roll download',
 }
 function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABELS[type] || type

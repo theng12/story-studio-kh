@@ -75,6 +75,7 @@
           >
             <span class="model-menu-option-copy">
               <strong>{{ option.label }}</strong>
+              <small v-if="option.provider" class="model-menu-option-provider">{{ option.provider }}</small>
               <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
               <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
             </span>
@@ -167,10 +168,10 @@ const selectedAccessBadges = computed(() => (
  * `provider` ONLY — never `group`. `group` is this dialog's section heading and
  * is where the gateway is named, once; echoing it here restated the same fact
  * on a second surface while adding nothing. `provider` is different: it is the
- * vendor GenStudio publishes for a product (TTS `provider_name`, voice
- * `provider`/`engine_name`, transcription `provider`), which is genuinely
- * informative. Where the catalogue publishes no provider — chat, image and
- * video all publish none — this is empty, and nothing is invented to fill it.
+ * provider or model creator GenStudio publishes for a product. It is genuinely
+ * informative, so it also appears as a compact line on each open-menu row.
+ * Where the catalogue publishes no provider this stays empty; nothing is
+ * reconstructed from a model id or display name.
  */
 const selectedSummary = computed(() => {
   const option = selectedOption.value
@@ -339,6 +340,7 @@ function onListKeydown(event: KeyboardEvent) {
 .model-menu-option.disabled { cursor: not-allowed; opacity: .48; }
 .model-menu-option-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
 .model-menu-option-copy strong { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+.model-menu-option-copy .model-menu-option-provider { color: var(--accent); font-size: var(--font-xs); font-weight: 750; letter-spacing: .08em; line-height: 1.2; text-transform: uppercase; }
 .model-menu-option-copy span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; overflow-wrap: anywhere; }
 .model-menu-option-copy small { color: var(--warning); font-size: var(--font-xs); line-height: 1.3; }
 .model-menu-option-side { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 5px; }

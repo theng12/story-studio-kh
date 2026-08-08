@@ -5,10 +5,10 @@
       :options="options"
       :loading="loading"
       media-type="image"
-      title="Choose a GenStudio image model"
+      title="Choose an image model"
       :placeholder="defaultLabel"
-      search-placeholder="Search GenStudio image models…"
-      aria-label="GenStudio image model options"
+      search-placeholder="Search image models…"
+      aria-label="Image model options"
       :catalog-notice="planNotice"
       catalog-notice-href="/usage"
       @update:model-value="select"
@@ -45,7 +45,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   imageMode: 'text2img',
   imageModels: () => ({}),
-  defaultLabel: 'Pick a GenStudio model…',
+  defaultLabel: 'Pick an image model…',
 })
 
 const emit = defineEmits<{ 'update:modelValue': [modelId: string] }>()
@@ -56,14 +56,17 @@ const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
     : models.value
-  const rows = visibleModels.map((model) => {
+  const orderedModels = [
+    ...visibleModels.filter(model => model.unlimited_relaxed === true),
+    ...visibleModels.filter(model => model.unlimited_relaxed !== true),
+  ]
+  const rows = orderedModels.map((model) => {
     const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
       label: model.display_name,
-      // Named once, by the group heading. `ImageModelResponse` publishes no
-      // provider field, so no `provider` is set and none is invented.
-      group: 'GenStudio KH',
+      group: model.unlimited_relaxed === true ? 'Free + paid plans' : 'Paid plan',
+      provider: model.provider_name || '',
       disabled: !model.available,
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'

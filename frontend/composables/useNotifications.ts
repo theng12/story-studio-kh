@@ -89,7 +89,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_assemble: 'B-Roll Assembly',
   broll_select: 'B-Roll Selection',
   broll_autotag: 'B-Roll Tagging',
-  broll_fetch: 'B-Roll Fetch',
   research_run: 'Research',
   scene_plan_run: 'Scene Plan',
   contextual_cues: 'Contextual Cues',

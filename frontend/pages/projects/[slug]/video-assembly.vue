@@ -7,7 +7,6 @@
     >
       <template #aside>
         <div class="workspace-metrics">
-          <span class="workspace-metric"><strong>{{ currentStep }}/6</strong> {{ stepLabels[currentStep - 1] }}</span>
           <span class="workspace-metric" :data-tone="step1Valid ? 'success' : 'warning'">
             <strong>{{ step1Valid ? 'Ready' : 'Check' }}</strong> assets
           </span>
@@ -27,7 +26,8 @@
         generate-label="Generate Video"
         loading-label="Rendering…"
         :generate-loading="generating || assemblyJobActiveForEpisode"
-        :generate-disabled="!episodeId || !step1Valid"
+        :generate-disabled="!episodeId || !step1Valid || currentStep !== 6"
+        :show-generate="currentStep === 6"
         :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
         @generate="generateVideo"
         @episode-selected="onEpisodeSelected"
@@ -81,24 +81,27 @@
     </div>
 
     <!-- Stepper Bar -->
-    <div class="workspace-command-surface assembly-stepper-surface" aria-label="Video assembly steps">
-      <div class="stepper">
-        <template v-for="step in 6" :key="step">
-          <div
-            :class="['step-circle', { active: currentStep === step, completed: step < maxStepReached && step < currentStep }]"
+    <nav class="workspace-command-surface assembly-stepper-surface" aria-label="Video assembly steps">
+      <ol class="stepper">
+        <li v-for="step in 6" :key="step" class="step-item">
+          <button
+            type="button"
+            :class="['step-button', { active: currentStep === step, completed: step < maxStepReached && step < currentStep }]"
+            :aria-current="currentStep === step ? 'step' : undefined"
+            :disabled="!canVisitStep(step)"
+            :title="`Step ${step}: ${stepLabels[step - 1]}`"
             @click="goToStep(step)"
-            :title="stepLabels[step - 1]"
           >
-            <span v-if="step < maxStepReached && step < currentStep">&#10003;</span>
-            <span v-else>{{ step }}</span>
-          </div>
-          <div v-if="step < 6" :class="['step-line', { completed: step < currentStep }]" />
-        </template>
-      </div>
-      <div class="step-labels">
-        <span v-for="(label, i) in stepLabels" :key="i" :class="{ active: currentStep === i + 1 }">{{ label }}</span>
-      </div>
-    </div>
+            <span class="step-circle" aria-hidden="true">
+              <span v-if="step < maxStepReached && step < currentStep">&#10003;</span>
+              <span v-else>{{ step }}</span>
+            </span>
+            <span class="step-label">{{ stepLabels[step - 1] }}</span>
+          </button>
+          <span v-if="step < 6" :class="['step-line', { completed: step < currentStep }]" aria-hidden="true" />
+        </li>
+      </ol>
+    </nav>
 
     <!-- ============ STEP 1: Select & Validate Assets ============ -->
     <div v-if="currentStep === 1" class="card workspace-section assembly-step-panel">
@@ -2285,7 +2288,7 @@
         ⚠ {{ lowAssetWarning }}
       </div>
 
-      <!-- Generate lives in the top banner — reachable from every wizard step. -->
+      <!-- Render progress stays with the final Export step. -->
       <div v-if="generating || activeJobId" class="generating-status mt-2">
         <div class="gen-head">
           <span class="gen-label">
@@ -4650,6 +4653,11 @@ function goToStep(n: number) {
   }
 }
 
+function canVisitStep(n: number): boolean {
+  if (n < 1 || n > 6) return false
+  return n <= currentStep.value || canProceed.value
+}
+
 // The 130-line payload builder + cost-confirm + queue submit flow now lives
 // in useVideoAssemblyIo.generateVideo(). Page keeps a thin wrapper so the
 // template's `@click="generateVideo"` binding doesn't change.
@@ -4969,18 +4977,28 @@ onUnmounted(() => {
 /* "(optional)" rider beside the Text Overlays heading. */
 .text-overlays-heading { color: var(--text-secondary); }
 
-/* Stepper */
-.stepper { display: flex; align-items: center; justify-content: center; gap: 0; padding: 20px 0 4px; }
-.step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; border: 2px solid var(--border); color: var(--text-muted); background: var(--bg-secondary); cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
-.step-circle:hover { border-color: var(--text-secondary); }
-.step-circle.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-.step-circle.completed { border-color: var(--success); color: var(--success); background: rgba(74, 222, 128, 0.1); }
-.step-line { width: 48px; height: 2px; background: var(--border); flex-shrink: 0; }
+/* One semantic progress control: native buttons provide keyboard and disabled states. */
+.stepper { display: flex; align-items: flex-start; justify-content: center; margin: 0; padding: 8px 4px 2px; list-style: none; }
+.step-item { display: flex; min-width: 0; flex: 0 1 150px; align-items: flex-start; }
+.step-button { display: flex; width: 82px; min-width: 0; flex: 0 0 82px; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.step-button:disabled { cursor: not-allowed; opacity: .5; }
+.step-circle { display: flex; width: 36px; height: 36px; flex-shrink: 0; align-items: center; justify-content: center; border: 2px solid var(--border); border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); font-size: 14px; font-weight: 700; transition: border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast); }
+.step-button:hover:not(:disabled) .step-circle { border-color: var(--text-secondary); }
+.step-button:focus-visible { outline: none; }
+.step-button:focus-visible .step-circle { box-shadow: var(--focus-ring); }
+.step-button.active { color: var(--accent); font-weight: 650; }
+.step-button.active .step-circle { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.step-button.completed .step-circle { border-color: var(--success); background: color-mix(in srgb, var(--success) 10%, transparent); color: var(--success); }
+.step-label { max-width: 82px; font-size: var(--font-xs); line-height: 1.25; text-align: center; }
+.step-line { width: min(68px, 5vw); height: 2px; margin-top: 17px; flex: 1 1 68px; background: var(--border); }
 .step-line.completed { background: var(--success); }
 
-.step-labels { display: flex; justify-content: center; gap: 50px; padding: 6px 0 0; }
-.step-labels span { font-size: var(--font-xs); color: var(--text-muted); text-align: center; width: 36px; }
-.step-labels span.active { color: var(--accent); font-weight: 600; }
+@media (max-width: 760px) {
+  .assembly-stepper-surface { overflow-x: auto; }
+  .stepper { width: max-content; min-width: 100%; justify-content: flex-start; }
+  .step-item { flex-basis: 118px; }
+  .step-line { width: 36px; flex-basis: 36px; }
+}
 
 /* Step navigation */
 .step-nav { display: flex; justify-content: space-between; align-items: center; }

@@ -47,7 +47,7 @@
       <div v-if="loadingPools" class="text-muted text-sm">Loading pools…</div>
       <div v-else-if="!pools.length" class="empty">
         No B-Roll pools registered on this Mac yet.
-        <NuxtLink to="/broll-library">Open the B-Roll Library</NuxtLink> to register a pool first.
+        <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }">Open the B-Roll Library</NuxtLink> to register a pool first.
       </div>
       <div v-else class="pool-picker">
         <label>Pool for this project:</label>
@@ -57,7 +57,7 @@
             {{ p.name }}{{ !p.online ? ' (offline)' : '' }}
           </option>
         </select>
-        <NuxtLink to="/broll-library" class="text-sm">Manage pools →</NuxtLink>
+        <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="text-sm">Manage pools →</NuxtLink>
       </div>
       <div v-if="subscribedPool && !subscribedPool.online" class="offline-banner mt-2">
         🔌 The pool's SSD isn't connected. Plug in <code>{{ subscribedPool.folder_path }}</code>

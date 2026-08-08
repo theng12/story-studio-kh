@@ -26,16 +26,16 @@ describe('GenStudio Research boundary', () => {
     assert.equal(RESEARCH_ADAPTERS['genstudio-web'].displayName, 'GenStudio web search')
   })
 
-  it('migrates known legacy provider values without restoring a direct provider', () => {
-    for (const savedValue of [undefined, '', 'llm-only', 'perplexity', 'genstudio', 'genstudio-llm']) {
+  it('accepts only the two GenStudio research identities', () => {
+    for (const savedValue of [undefined, '', 'llm-only']) {
       assert.equal(normalizeResearchSourceProvider(savedValue), 'llm-only')
       assert.equal(getResearchAdapter(savedValue), RESEARCH_ADAPTERS['llm-only'])
     }
     assert.equal(normalizeResearchSourceProvider('genstudio-web'), 'genstudio-web')
     assert.equal(getResearchAdapter('genstudio-web'), RESEARCH_ADAPTERS['genstudio-web'])
     assert.throws(
-      () => normalizeResearchSourceProvider('openai-direct'),
-      /Unknown research source: openai-direct/,
+      () => normalizeResearchSourceProvider('perplexity'),
+      /Unknown research source: perplexity/,
     )
   })
 

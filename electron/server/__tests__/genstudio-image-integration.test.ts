@@ -669,7 +669,6 @@ test('no image submit boundary defaults an aspect ratio to a hardcoded 16:9', ()
     '../generators/composition-template.ts',
     '../generators/continuity-render.ts',
     '../generators/image-pool-generate.ts',
-    '../services/broll-aigen.ts',
   ]) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /aspect_ratio \|\| '16:9'/, file)

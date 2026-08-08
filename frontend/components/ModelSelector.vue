@@ -1,7 +1,7 @@
 <template>
   <div class="form-group">
     <label>
-      {{ label || 'GenStudio model' }}
+      {{ label || 'LLM model' }}
       <span v-if="loading" class="loading">Loading GenStudio catalog…</span>
     </label>
     <ModelMenu
@@ -9,10 +9,10 @@
       :options="menuOptions"
       :loading="loading"
       media-type="llm"
-      title="Choose a GenStudio model"
-      placeholder="Pick a GenStudio model…"
-      search-placeholder="Search GenStudio models…"
-      aria-label="GenStudio model options"
+      title="Choose LLM model"
+      placeholder="Pick an LLM model…"
+      search-placeholder="Search LLM models…"
+      aria-label="LLM model options"
       :catalog-notice="planNotice"
       catalog-notice-href="/usage"
       @update:model-value="selectModel"
@@ -32,6 +32,7 @@ interface LlmModelRow {
   id: string
   label: string
   provider: 'genstudio'
+  provider_name?: string | null
   available: boolean
   disabled_reason?: string | null
   hint?: string | null
@@ -78,21 +79,16 @@ const menuOptions = computed(() => {
   const eligibleModels = props.requireVision
     ? allModels.value.filter(model => isUsableLiveGenStudioModel(model, true))
     : allModels.value
-  // The gateway is named ONCE per dialog, by the group heading. It is not
-  // repeated as a per-row badge and no longer appended to the model name:
-  // every model in this app comes through GenStudio, so a row that said it
-  // three times spent its width on the one fact that never varies.
-  //
-  // No `provider` is set, because the chat catalogue publishes none.
-  // `ChatModelResponse` has no provider/vendor/engine field at all, and
-  // AGENTS.md → "Provider Transparency" is explicit that an unpublished
-  // provider is unknown, never reconstructed from an id or a name.
+  // The gateway is named once by the group heading. A creator/provider is a
+  // separate published fact and appears on the row only when GenStudio sends
+  // `provider_name`; it is never reconstructed from an id or display name.
   const rows = eligibleModels.map((model) => {
     const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
       label: model.label,
       group: 'GenStudio KH',
+      provider: model.provider_name || '',
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),

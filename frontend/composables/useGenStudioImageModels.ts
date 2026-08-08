@@ -27,6 +27,7 @@ export interface GenStudioImageOutputOption {
 export interface GenStudioImageModelInfo {
   id: string
   display_name: string
+  provider_name?: string
   description?: string
   available: boolean
   availability_note?: string

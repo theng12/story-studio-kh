@@ -208,7 +208,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   expression_markup: 'Expression markup',
   research_run: 'Research',
   broll_normalize: 'B-roll normalize', broll_assemble: 'B-roll assembly',
-  broll_autotag: 'B-roll auto-tag', broll_fetch: 'B-roll fetch',
+  broll_autotag: 'B-roll auto-tag',
   youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
   youtube_thumbnail_refresh: 'Thumbnail backfill',
 }

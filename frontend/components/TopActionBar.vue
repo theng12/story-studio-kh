@@ -1,7 +1,7 @@
 <!--
   Compact toolbar strip for generator pages. Holds the three things that
   always go together at the start of a generator flow:
-    1. Preset picker plus direct actions (Apply / Save / Save as / Rename / Delete)
+    1. Preset picker, direct Apply / Save actions, and secondary CRUD in More
     2. Episode selector (targets the generation)
     3. Generate button (kicks off the job)
 
@@ -50,12 +50,6 @@
           </template>
         </template>
       </Popover>
-      <!-- v1.0.119+ — Preset actions inlined as buttons. The previous
-           ⋯ overflow menu hid common actions (Apply / Save /
-           Save as… / Rename / Delete) behind a kebab, which trained the user to
-           click twice for the operation they perform every session.
-           Matches the PresetPicker row style used elsewhere (Ideas,
-           Prompts) so the action set is consistent project-wide. -->
       <div class="preset-actions" role="group" aria-label="Preset actions">
         <button
           type="button"
@@ -71,27 +65,29 @@
           title="Save the page's current values back into the active preset."
           @click="onOverwrite"
         >{{ presetActionLabel('save', 'Save', 'Saving…', '✓ Saved') }}</button>
-        <button
-          type="button"
-          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'save-as' }]"
-          :disabled="presetActionBusy"
-          title="Snapshot the current values under a new preset name."
-          @click="openSaveAs"
-        >{{ presetActionLabel('save-as', 'Save as…', 'Saving…', '✓ Saved') }}</button>
-        <button
-          type="button"
-          :class="['btn btn-sm btn-secondary', { 'preset-action-success': presetActionSuccess === 'rename' }]"
-          :disabled="!hasActivePreset || presetActionBusy"
-          title="Change the active preset's name without changing its saved settings."
-          @click="openRename"
-        >{{ presetActionLabel('rename', 'Rename', 'Renaming…', '✓ Renamed') }}</button>
-        <button
-          type="button"
-          :class="['btn btn-sm btn-danger', { 'preset-action-success': presetActionSuccess === 'delete' }]"
-          :disabled="!hasActivePreset || presetActionBusy"
-          title="Remove the active preset from this project."
-          @click="onDelete"
-        >{{ presetActionLabel('delete', 'Delete', 'Deleting…', '✓ Deleted') }}</button>
+        <details class="preset-more">
+          <summary class="btn btn-sm btn-secondary" aria-label="More preset actions">More</summary>
+          <div class="preset-more-menu" role="group" aria-label="More preset actions">
+            <button
+              type="button"
+              :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'save-as' }]"
+              :disabled="presetActionBusy"
+              @click="openSaveAs"
+            >{{ presetActionLabel('save-as', 'Save as…', 'Saving…', '✓ Saved') }}</button>
+            <button
+              type="button"
+              :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'rename' }]"
+              :disabled="!hasActivePreset || presetActionBusy"
+              @click="openRename"
+            >{{ presetActionLabel('rename', 'Rename', 'Renaming…', '✓ Renamed') }}</button>
+            <button
+              type="button"
+              :class="['preset-menu-item preset-menu-danger', { 'preset-action-success': presetActionSuccess === 'delete' }]"
+              :disabled="!hasActivePreset || presetActionBusy"
+              @click="onDelete"
+            >{{ presetActionLabel('delete', 'Delete', 'Deleting…', '✓ Deleted') }}</button>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -143,7 +139,7 @@
     <!-- Generate region -->
     <div class="region generate-region">
       <slot name="actions" />
-      <Popover>
+      <Popover v-if="showGenerate">
         <button
           class="btn btn-primary btn-primary-cta"
           :disabled="generateDisabled || generateLoading"
@@ -230,8 +226,6 @@ import Modal from './Modal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import Popover from './Popover.vue'
 import { useToast } from '../composables/useToast.js'
-// v1.0.119 — Removed OverflowMenu import + OverflowItem shape: preset
-// actions inlined as buttons in the template, no kebab fallback.
 
 // `presets` is the full object returned by usePresets() on the page.
 // Typed loosely to avoid pulling the composable's type graph into here;
@@ -266,8 +260,11 @@ const props = withDefaults(defineProps<{
   generateLoading?: boolean
   generateDisabled?: boolean
   generateStatus?: string
+  /** Hide the primary CTA until the page reaches the action-ready stage. */
+  showGenerate?: boolean
 }>(), {
   showEpisode: true,
+  showGenerate: true,
 })
 
 const emit = defineEmits<{
@@ -541,11 +538,6 @@ function episodeStatusClass(ep: any, key: string) {
   min-height: var(--control-height-sm);
 }
 
-/* v1.0.119 — inline preset actions (Apply / Save / Save as… / Delete).
-   flex-wrap so the row gracefully collapses
-   under the dropdown on a tight viewport instead of pushing Generate
-   off-screen on the right. gap matches the surrounding region's gap
-   so the whole bar reads as one rhythm. */
 .preset-actions {
   display: flex;
   align-items: center;
@@ -563,6 +555,42 @@ function episodeStatusClass(ep: any, key: string) {
   color: var(--success);
   transform: translateY(-1px);
 }
+.preset-more { position: relative; }
+.preset-more > summary {
+  min-height: var(--control-height-sm);
+  list-style: none;
+  user-select: none;
+}
+.preset-more > summary::-webkit-details-marker { display: none; }
+.preset-more[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
+.preset-more-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 170px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-lg);
+}
+.preset-menu-item {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.preset-menu-item:hover:not(:disabled) { background: var(--bg-hover); }
+.preset-menu-item:disabled { color: var(--text-muted); cursor: not-allowed; }
+.preset-menu-danger { color: var(--error); }
+.preset-menu-item.preset-action-success { color: var(--success); }
 .episode-region {
   flex: 1 1 280px;
   min-width: 0;
