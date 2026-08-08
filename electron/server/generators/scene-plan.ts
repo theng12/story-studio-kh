@@ -765,7 +765,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
     // Creative interpretation is selected once per plan, then assigned across
     // the full episode before any packs leave this Mac. This keeps variety
-    // stable across Hub batches without introducing a second LLM pass.
+    // stable across prompt batches without introducing a second LLM pass.
     const creativeDirection = !isMotion
       ? normalizeCreativeDirection(plan.creative_direction || params.creative_direction)
       : plan.creative_direction

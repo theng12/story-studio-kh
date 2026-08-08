@@ -341,7 +341,7 @@ const queues: Record<JobType, QueueState> = {
   // v1.0.144+: Per-scene image gen for the timestamp-driven pipeline.
   // One job per scene; bulk "Generate all missing" enqueues N of these.
   scene_image_generate: { pending: [], running: false, executor: null },
-  // v1.0.535 — bulk scene-image render as ONE Studio Hub batch (fleet-wide).
+  // Bulk Scene Plan image generation with per-scene durable checkpoints.
   scene_images_batch: { pending: [], running: false, executor: null },
   // v1.0.470 — Phase 2: animate one scene's image into a clip (image-to-video).
   scene_clip_generate: { pending: [], running: false, executor: null },
@@ -433,8 +433,8 @@ export function getSubtitleTranscribeConcurrency(): number {
 }
 function groupLimit(group: string): number {
   if (group === LLM_GROUP) return llmConcurrency
-  // Local Chat Studio work is admitted immediately. Studio Hub or the Direct
-  // endpoint dispatcher owns the actual machine queue and backpressure.
+  // Local Chat Studio work is admitted immediately; its own dispatcher owns
+  // the machine queue and backpressure.
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
   return 1
@@ -1093,7 +1093,7 @@ export interface SceneRenderJoinResult {
 /**
  * Join Pipeline continuation work to an already-running full scene render.
  * This lets a manually-started Scene Review render become the owner of the
- * Pipeline's remaining steps rather than starting a second Hub batch.
+ * Pipeline's remaining steps rather than starting a duplicate render.
  */
 export async function joinActiveBulkSceneRender(opts: {
   project_slug: string

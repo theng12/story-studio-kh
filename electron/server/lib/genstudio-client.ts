@@ -1,11 +1,8 @@
 /**
  * GenStudio KH client boundary for Story Studio.
  *
- * This module knows only the public GenStudio API contract. It has no Studio
- * Hub URL, token, worker list, or direct Voice Studio connection. Keeping that
- * boundary here keeps Story Studio's local Studio Hub token and Voice Studio
- * endpoints out of every GenStudio request. Direct/Hub TTS remains a separate
- * legacy route; AI transcription does not.
+ * This module knows only the public GenStudio API contract. It has no sibling
+ * Studio URL, token, worker list, or direct provider connection.
  */
 
 import fs from 'fs/promises'

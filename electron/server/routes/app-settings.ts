@@ -299,8 +299,7 @@ router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
   }
 })
 
-// Kept distinct from the local Studio Hub URL: this is the externally-facing
-// GenStudio API boundary used during the parallel Story Studio migration.
+// The single externally-facing generation boundary.
 router.get('/app-settings/genstudio', async (_req, res) => {
   try {
     res.json({ url: await getGenStudioUrl(), default_url: DEFAULT_GENSTUDIO_URL })

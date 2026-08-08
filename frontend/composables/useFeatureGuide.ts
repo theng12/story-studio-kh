@@ -277,13 +277,13 @@ export const featureGuides: Record<string, FeatureGuide> = {
   'video-assembly': {
     title: 'Video Assembly',
     summary: 'Combine the approved scene timeline, narration, music, titles, overlays, subtitles, framing, and export settings into one final video.',
-    workflow: ['Validate episode assets.', 'Configure timeline, effects, subtitles, and export.', 'Preview representative frames, then render locally or through the selected render route.'],
+    workflow: ['Validate episode assets.', 'Configure timeline, effects, subtitles, and export.', 'Preview representative frames, then render on this Mac.'],
     topics: [
       { title: 'Assets', purpose: 'Verifies required scene media and merged narration before editing begins.' },
       { title: 'Intro and timeline', purpose: 'Places title media and approved scenes against Scene Plan timestamps automatically.' },
       { title: 'Effects and overlays', purpose: 'Adds motion, framing, backgrounds, logo, vignette, layers, and optional text treatment.' },
       { title: 'Subtitles', purpose: 'Burns the reviewed stitched track with safe-area positioning and style controls.' },
-      { title: 'Render route', purpose: 'Chooses local rendering or durable remote Render Studio assembly when qualified.' },
+      { title: 'Local render', purpose: 'Builds the final video on this Mac without spending GenStudio credits.' },
       { title: 'Export', purpose: 'Sets resolution, encoder, quality, output path, and final validation.' },
     ],
     tips: ['Presets save reusable editing behavior but never save an episode-specific title image path.', 'Use preview before a long render, especially after changing overlays, framing, or subtitle placement.'],

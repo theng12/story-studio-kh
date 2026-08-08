@@ -207,7 +207,8 @@ setting) is the intended cost of that decision, not a problem to engineer away.
 ## Model Inventory Ownership
 
 - The Settings Models tab may edit built-in pricing and operational limits only. Do not restore the retired Add Custom Model form, project-level `models` catalog, `is_custom` entries, or unified catalog write path.
-- Model/provider inventory belongs to the studio applications and Studio Hub. Future Video Studio integration must discover and dispatch its live catalog there rather than duplicating provider setup inside Story Studio.
+- Model/provider inventory and dispatch belong to GenStudio. Story Studio reads the live GenStudio catalog and must not restore direct Studio Hub or sibling-Studio routing.
+- Final Video Assembly is local-only. Do not restore Render Studio selection, remote-render fields, remote assembly clients, or credit charging for FFmpeg work performed on the customer's Mac.
 
 ## Verified Completion Contract
 

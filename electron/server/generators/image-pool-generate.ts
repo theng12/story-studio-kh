@@ -47,8 +47,6 @@ interface ImagePoolGenerateParams {
   variants?: number
   /** Durable identity retained by manual/local retries. */
   run_id?: string
-  /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
-  hub_repair_only?: boolean
 }
 
 export async function generateImagePoolImages(job: Job): Promise<void> {
@@ -122,7 +120,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
   const remaining = items.filter(item => !initialReady.has(item.filename))
   const generationIdentity = `image-pool:${poolId}:${runId}`
-  const repairOnly = params.hub_repair_only === true
   let made = 0
   let failed = 0
   let processed = items.length - remaining.length
@@ -220,12 +217,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         job.progress = Math.round((processed / total) * 90)
         continue
       }
-      if (repairOnly) {
-        throw new Error(
-          `No accepted GenStudio image job was recorded for ${item.filename}. ` +
-          'Repair is read-only and did not submit replacement work.',
-        )
-      }
       // Identity on disk before the charged POST: a lost response replays the
       // same idempotency key rather than paying for a second image.
       await recordState(item.filename, { taskId: '', submittedAt, inputHash, scope }, 'prepared', true)
@@ -281,20 +272,6 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const missing: string[] = []
   for (const item of items) if (!await isUsable(item.filename)) missing.push(item.filename)
   for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)
-  if (repairOnly) {
-    job.result = {
-      repair_only: true,
-      total_expected: items.length,
-      recovered: items.length - missing.length,
-      still_missing: missing.length,
-    }
-    job.output_lines.push(
-      missing.length === 0
-        ? `Repair complete — all ${items.length} GenStudio image artifact(s) are verified on disk.`
-        : `Repair recovered every available GenStudio artifact; ${missing.length} image(s) still need a deliberate Retry.`,
-    )
-    return
-  }
   requireJobCompletion(job, {
     label: 'Image pool generation', expected: total, completed: total - missing.length,
     missing,

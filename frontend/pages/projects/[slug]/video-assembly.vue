@@ -2006,7 +2006,7 @@
           <label>Render location</label>
           <div class="input">This Mac</div>
           <p class="text-muted text-sm mt-1">
-            Final FFmpeg assembly stays on this Mac until GenStudio exposes a qualified render route.
+            Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits.
           </p>
         </div>
 

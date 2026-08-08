@@ -139,10 +139,9 @@ const COST_VOCABULARY = /\b(cost|costs|price|pricing|priced|credit|credits|usd|d
 /**
  * Upstream routing identities: the aggregator and direct-provider keys Story
  * Studio carried before every generation moved behind GenStudio (v1.0.669), plus
- * Studio Hub — the retired local control plane whose routes now 410. GenStudio
- * owns provider selection and deliberately does not disclose who it routes to,
- * so none of these names may appear anywhere in the frontend — not in a label
- * map, a template, a toast string, or a request payload.
+ * Studio Hub — the retired local control plane whose routes are absent. GenStudio
+ * owns provider selection, so none of these hardcoded names may appear anywhere
+ * in the frontend — not in a label map, template, toast, or request payload.
  *
  * v1.0.783 shipped this with five names and frontend-only scope, deliberately
  * leaving out openai/anthropic/deepseek so a rule could not fire on a true

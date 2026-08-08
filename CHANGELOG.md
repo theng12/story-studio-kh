@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.801 — 2026-08-08
+
+- **Final Video Assembly is explicitly local and free of GenStudio charges** — removed the last
+  customer-visible Render Studio guidance, obsolete Studio Hub comments, and unreachable legacy
+  Hub-repair flags. The Video Assembly workspace now states the durable product rule directly:
+  FFmpeg runs on this Mac and does not spend GenStudio credits.
+
 ## v1.0.800 — 2026-08-08
 
 - **Story Studio now carries only the product it actually ships** — the retired Studio Hub and

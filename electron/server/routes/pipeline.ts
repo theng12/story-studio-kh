@@ -1356,7 +1356,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     // Scene Review and Pipeline share one episode-wide render owner. If the
     // user already started images from Scene Review, join this Pipeline's
     // remaining steps to that active job instead of submitting the same scene
-    // set to Studio Hub again.
+    // set again.
     if (first.type === 'continuity_render' && !first.params.single_scene_id) {
       const joined = await jq.joinActiveBulkSceneRender({
         project_slug: slug,

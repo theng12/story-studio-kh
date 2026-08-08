@@ -1,14 +1,6 @@
 /**
- * Scene-plan images — BATCH (v1.0.535).
- *
- * The bulk "Generate all missing" action enqueues N `scene_image_generate` jobs,
- * which run ONE AT A TIME (each type is a singleton in the queue) — i.e. serial,
- * one Hub job at a time, using a single studio. In Studio Hub mode this job
- * instead generates every requested/missing scene image in ONE Hub batch, so the
- * Hub work-steals them across the WHOLE fleet. Text2img only (the timestamp
- * scene-image path carries no references). Results stream in and are written back
- * to scene_plan.json as each scene finishes. On a Hub connection error, falls
- * back to per-scene generation via the same provider.
+ * Generate every requested missing Scene Plan image through GenStudio.
+ * Results are checkpointed into scene_plan.json as each scene finishes.
  */
 
 import fs from 'fs/promises'
@@ -44,8 +36,6 @@ interface SceneImagesBatchParams {
   auto_approve_generated?: boolean
   /** Specific scenes to render; when omitted, every scene missing an image. */
   scene_ids?: string[]
-  /** Internal Jobs-page recovery mode: reconnect/download only, never submit. */
-  hub_repair_only?: boolean
 }
 
 export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
@@ -64,13 +54,6 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
 
-  const repairOnly = params.hub_repair_only === true
-  if (repairOnly) {
-    throw new Error(
-      'Legacy batch repair is retired. No request was made. ' +
-      'Use the image Repair action for a saved GenStudio job, or Retry to submit deliberate new GenStudio work.',
-    )
-  }
   const idSet = Array.isArray(params.scene_ids) && params.scene_ids.length ? new Set(params.scene_ids) : null
   const targets = plan.scenes.filter((s) => {
     if (idSet) return idSet.has(s.id)

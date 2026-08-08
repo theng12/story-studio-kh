@@ -5,7 +5,7 @@
         <h4>Scene Plan timing</h4>
         <p>
           {{ timing.scenes.length }} exact windows across {{ formatTime(timing.audio_duration_sec) }}.
-          Applied automatically during local or Render Studio assembly.
+          Applied automatically during local assembly.
         </p>
       </div>
       <span class="timing-state" :class="timing.complete ? 'ready' : 'blocked'">

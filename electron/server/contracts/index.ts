@@ -533,7 +533,7 @@ export interface JobEnqueuedResponse {
   error: string | null
   output_lines: string[]
   /** Bounded automatic retry state. `eligible` is true only for work proven
-   * to stay on this Mac or the local Studio Hub fleet. */
+   * to stay on this Mac. */
   auto_retry?: {
     eligible: boolean
     reason: string
