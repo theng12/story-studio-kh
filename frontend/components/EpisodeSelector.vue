@@ -28,6 +28,22 @@
         {{ loading || isRevalidating ? '…' : '↻' }}
       </button>
     </div>
+    <WorkspaceNotice
+      v-if="loadError && !loading"
+      title="Episodes could not be refreshed"
+      tone="error"
+      class="ep-load-error"
+    >
+      {{ episodes.length ? 'Your last loaded episode list is still available.' : episodeErrorMessage }}
+      <template #actions>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="isRevalidating"
+          @click="refresh()"
+        >{{ isRevalidating ? 'Retrying…' : 'Retry' }}</button>
+      </template>
+    </WorkspaceNotice>
     <!-- v1.0.92+ Episode search.
          A native <select> can't be searched once it's open (you only get
          the OS's "first letter jumps to next match" behaviour), which is
@@ -54,7 +70,7 @@
     </div>
     <select
       :value="modelValue"
-      :disabled="loading && episodes.length === 0"
+      :disabled="loading || (!episodes.length && !!loadError)"
       @change="onSelect(($event.target as HTMLSelectElement).value)"
       @focus="loadEpisodes"
       class="select"
@@ -140,12 +156,20 @@ const {
   episodes,
   isLoading: loading,
   isRevalidating,
+  error: loadError,
   refresh,
   revalidateAfterMutation,
   rescan,
   updateEpisode,
 } = useEpisodes(slugRef)
 const showAll = ref(false)
+const episodeErrorMessage = computed(() => {
+  const value = loadError.value as any
+  const message = value?.data?.detail || value?.message
+  return typeof message === 'string' && message.trim()
+    ? message
+    : 'Check that Story Studio is online, then retry.'
+})
 
 // v1.0.341 — preselect from ?episode_id= in the URL. The Production Board
 // links every cell to a step page with ?episode_id=CODE, so landing there
@@ -635,6 +659,7 @@ defineExpose({ refresh, rescan })
   color: var(--text-muted);
   margin-top: 4px;
 }
+.ep-load-error { margin: 8px 0; }
 
 /* v1.0.48 — episode-count + loading-state hints next to the label. */
 .ep-count {

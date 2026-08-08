@@ -58,20 +58,23 @@
             <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active">Production Board</NuxtLink>
           </div>
 
-          <div class="nav-group">
+          <div class="nav-group nav-workflow">
             <span class="nav-section-label">Workflow</span>
-            <NuxtLink
-              v-for="step in workflowSteps"
-              :key="step.key"
-              :to="workflowRouteFor(step)"
-              class="nav-item"
-              :class="{ active: currentWorkflowKey === step.key }"
-              :title="step.optional ? `${workflowLabel(step)} is optional for this production path` : undefined"
-            >
-              <span class="nav-item-main"><span aria-hidden="true">{{ step.icon }}</span>{{ workflowLabel(step) }}</span>
-              <span v-if="step.key === 'ideas'" class="nav-hint">Start here</span>
-              <span v-else-if="step.optional" class="nav-hint nav-hint-muted">Optional</span>
-            </NuxtLink>
+            <div v-for="(phase, index) in workflowPhases" :key="phase.key" class="nav-phase">
+              <span class="nav-phase-label">{{ index + 1 }} · {{ phase.label }}</span>
+              <NuxtLink
+                v-for="step in phase.steps"
+                :key="step.key"
+                :to="workflowRouteFor(step)"
+                class="nav-item"
+                :class="{ active: currentWorkflowKey === step.key }"
+                :title="step.optional ? `${workflowLabel(step)} is optional for this production path` : undefined"
+              >
+                <span class="nav-item-main"><span aria-hidden="true">{{ step.icon }}</span>{{ workflowLabel(step) }}</span>
+                <span v-if="step.key === 'ideas'" class="nav-hint">Start here</span>
+                <span v-else-if="step.optional" class="nav-hint nav-hint-muted">Optional</span>
+              </NuxtLink>
+            </div>
           </div>
 
           <div class="nav-group">
@@ -128,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { normalizeVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, normalizeVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { projectSlug } from '~/utils/project-slug'
 
 const route = useRoute()
@@ -161,6 +164,10 @@ const {
   routeFor: workflowRouteFor,
   currentKey: currentWorkflowKey,
 } = useProjectFlow(slug, visualSource)
+const workflowPhases = computed(() => FLOW_PHASES.map(phase => ({
+  ...phase,
+  steps: workflowSteps.value.filter(step => step.phase === phase.key),
+})).filter(phase => phase.steps.length))
 const channelFormula = computed(() => niches.value.find(niche => niche.id === project.value?.niche_id))
 const channelFormulaName = computed(() => channelFormula.value?.catalogName || channelFormula.value?.name || 'Choose a Series Formula')
 const productionPathName = computed(() => {
@@ -363,6 +370,17 @@ onUnmounted(() => {
   scrollbar-width: thin;
 }
 .nav-group { display: grid; gap: 3px; }
+.nav-workflow { gap: 6px; }
+.nav-phase { display: grid; gap: 2px; }
+.nav-phase + .nav-phase { margin-top: 5px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+.nav-phase-label {
+  padding: 1px 10px 3px 18px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 .nav-section-label {
   padding: 4px 10px;
   color: var(--text-secondary);

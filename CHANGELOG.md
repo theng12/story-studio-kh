@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.811 — 2026-08-09
+
+- **The full production journey is easier to scan without hiding any destination** — the sidebar,
+  current-step ribbon, and Production Board now share Story, Media, and Video phase labels. Every
+  generator remains one click away, while long workflows and the wide status matrix no longer
+  require memorizing an unbroken sixteen-stage list.
+
+- **Dashboard priorities and progress now have distinct visual weight** — progress metrics form a
+  compact status strip, while the first verified “Focus now” recommendation receives the strongest
+  action treatment. The dashboard remains a progress overview and direct sidebar work stays intact.
+
+- **Episode lists now recover visibly from load failures** — generator selectors keep any cached
+  episodes available, explain when a refresh failed, and provide a direct Retry action instead of
+  leaving an empty or indefinitely ambiguous selector.
+
 ## v1.0.810 — 2026-08-09
 
 - **Production Board status cells now say what they mean to assistive technology** — symbolic
@@ -42,15 +57,3 @@ What's new in each release. Newest first.
 - **Cloned-voice guidance and long libraries are clearer** — cloning-capable models explain that
   compatible copies created in GenStudio appear in that model's voice list. The overlapping
   Previous/Next pager is replaced by one “Load more voices” action when another page exists.
-
-## v1.0.806 — 2026-08-08
-
-- **Model choices now use customer-facing names and clear plan groups** — LLM and image pickers
-  no longer call the selected product a “GenStudio model.” Image and voice catalogs put models
-  available through the Free plan first, followed by Paid-plan-only models, using GenStudio’s
-  published Unlimited Relaxed eligibility instead of model-name rules.
-
-- **Provider identity is easier to scan without becoming routing logic** — the shared picker shows
-  each published provider as a compact line below the model name. Voice providers appear now;
-  image and LLM creators will appear automatically when GenStudio publishes that field, and Story
-  Studio never guesses a company from a product name.

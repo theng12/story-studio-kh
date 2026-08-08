@@ -165,12 +165,22 @@
     <div v-else class="board-scroll">
       <table class="board-grid">
         <thead>
+          <tr class="board-phase-row">
+            <th class="col-ep sticky-col phase-head" rowspan="2">Episode</th>
+            <th
+              v-for="phase in columnPhases"
+              :key="phase.key"
+              class="phase-head"
+              :colspan="phase.count"
+            >
+              {{ phase.label }}
+            </th>
+          </tr>
           <tr>
-            <th class="col-ep sticky-col sticky-head">Episode</th>
             <th
               v-for="col in columns"
               :key="col.key"
-              class="col-step sticky-head"
+              class="col-step sticky-head stage-head"
             >
               <button
                 type="button"
@@ -283,7 +293,7 @@
 </template>
 
 <script setup lang="ts">
-import { normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -383,6 +393,10 @@ const columns = computed<BoardCol[]>(() =>
       // Required by the project gate, so it is NOT an optional column here.
       ? ({ ...s, optional: false, field: 'research' })
       : ({ ...s, field: STEP_FIELD[s.key] })))
+const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
+  ...phase,
+  count: columns.value.filter(column => column.phase === phase.key).length,
+})).filter(phase => phase.count > 0))
 const requiredColumnFields = computed(() =>
   columns.value.filter(col => !col.optional).map(col => col.field))
 const columnDoneCounts = computed(() => {
@@ -755,7 +769,7 @@ async function markCell(ep: any, col: BoardCol) {
 }
 .sticky-head {
   position: sticky;
-  top: 0;
+  top: 27px;
   z-index: 2;
   background: var(--bg-secondary);
 }
@@ -766,6 +780,25 @@ async function markCell(ep: any, col: BoardCol) {
   background: var(--bg-secondary);
 }
 .sticky-head.sticky-col { z-index: 3; }
+.phase-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 27px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--accent) 12%);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.phase-head.sticky-col {
+  z-index: 5;
+  text-align: left;
+  vertical-align: middle;
+}
 
 .col-ep {
   text-align: left;

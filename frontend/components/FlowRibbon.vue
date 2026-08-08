@@ -12,7 +12,7 @@
     <span v-else class="flow-direction flow-placeholder" aria-hidden="true" />
 
     <div class="flow-current" aria-current="step">
-      <span>Step {{ currentIndex }} of {{ steps.length }}</span>
+      <span>{{ currentPhaseLabel }} · Step {{ currentIndex }} of {{ steps.length }}</span>
       <strong>{{ currentStep.label }}</strong>
     </div>
 
@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { toRef } from 'vue'
-import { useProjectFlow, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, useProjectFlow, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 
 const props = defineProps<{
   slug: string
@@ -44,6 +44,9 @@ const { steps, routeFor, currentIndex } = useProjectFlow(
 )
 
 const currentStep = computed<FlowStep | null>(() => steps.value[currentIndex.value - 1] || null)
+const currentPhaseLabel = computed(() => (
+  FLOW_PHASES.find(phase => phase.key === currentStep.value?.phase)?.label || 'Workflow'
+))
 const previousStep = computed<FlowStep | null>(() => steps.value[currentIndex.value - 2] || null)
 const nextStep = computed<FlowStep | null>(() => steps.value[currentIndex.value] || null)
 </script>

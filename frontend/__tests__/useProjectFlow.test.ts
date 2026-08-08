@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import {
   normalizeVisualSource,
   flowForVisualSource,
+  FLOW_PHASES,
   requiredFlowSteps,
   type VisualSource,
 } from '../composables/useProjectFlow.js'
@@ -122,7 +123,8 @@ describe('flowForVisualSource — per-format step sets', () => {
       const steps = flowForVisualSource(vs)
       const seen = new Set<string>()
       for (const s of steps) {
-        assert.ok(s.key && s.label && s.icon && s.path, `${vs} step missing a field: ${JSON.stringify(s)}`)
+        assert.ok(s.key && s.label && s.icon && s.path && s.phase, `${vs} step missing a field: ${JSON.stringify(s)}`)
+        assert.ok(FLOW_PHASES.some(phase => phase.key === s.phase), `${vs} step has unknown phase: ${s.phase}`)
         assert.ok(!seen.has(s.key), `${vs} has a duplicate step key: ${s.key}`)
         seen.add(s.key)
         assert.ok(s.path.startsWith('/'), `${vs} step path should be a suffix: ${s.path}`)

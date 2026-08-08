@@ -11,6 +11,8 @@ const projectFlow = source('../composables/useProjectFlow.ts')
 const actionBar = source('../components/TopActionBar.vue')
 const presetPicker = source('../components/PresetPicker.vue')
 const videoAssembly = source('../pages/projects/[slug]/video-assembly.vue')
+const board = source('../pages/projects/[slug]/board.vue')
+const episodeSelector = source('../components/EpisodeSelector.vue')
 
 describe('focused workspace UX', () => {
   test('channel cards and the mobile drawer use native accessible controls', () => {
@@ -29,7 +31,9 @@ describe('focused workspace UX', () => {
       assert.ok(dashboard.includes(label), `missing primary destination: ${label}`)
     }
     assert.match(dashboard, /<span class="nav-section-label">Workflow<\/span>/)
-    assert.match(dashboard, /v-for="step in workflowSteps"/)
+    assert.match(dashboard, /v-for="\(phase, index\) in workflowPhases"/)
+    assert.match(dashboard, /v-for="step in phase\.steps"/)
+    assert.match(dashboard, /FLOW_PHASES/)
     assert.match(dashboard, /useProjectFlow\(slug, visualSource\)/)
     for (const workflowStage of ['Research', 'Thumbnail Prompts', 'Audio Assembly', 'Subtitles', 'Character Sheet', 'Scene Plan', 'Contextual Cues', 'Sound Design', 'Scene Review', 'Motion Review', 'Video Assembly']) {
       assert.ok(projectFlow.includes(`label: '${workflowStage}'`), `missing workflow stage: ${workflowStage}`)
@@ -40,6 +44,23 @@ describe('focused workspace UX', () => {
     assert.match(flow, /previousStep/)
     assert.match(flow, /nextStep/)
     assert.doesNotMatch(flow, /v-for="\(step, i\) in steps"/)
+  })
+
+  test('long workflows stay fully visible but gain shared phase orientation', () => {
+    for (const phase of ['Story', 'Media', 'Video']) {
+      assert.match(projectFlow, new RegExp(`label: '${phase}'`))
+    }
+    assert.match(flow, /currentPhaseLabel/)
+    assert.match(board, /v-for="phase in columnPhases"/)
+    assert.match(board, /:colspan="phase\.count"/)
+  })
+
+  test('episode loading failures preserve cached data and expose retry', () => {
+    assert.match(episodeSelector, /error: loadError/)
+    assert.match(episodeSelector, /title="Episodes could not be refreshed"/)
+    assert.match(episodeSelector, /Your last loaded episode list is still available/)
+    assert.match(episodeSelector, /@click="refresh\(\)"/)
+    assert.match(episodeSelector, /Check that Story Studio is online, then retry/)
   })
 
   test('shared libraries retain the active project navigation context', () => {

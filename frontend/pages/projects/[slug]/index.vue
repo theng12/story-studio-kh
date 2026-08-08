@@ -118,7 +118,7 @@
             <span class="coverage-count">{{ stage.done }}/{{ episodeCount }}</span>
           </div>
           <div class="coverage-track" aria-hidden="true">
-            <span :style="{ width: `${stage.pct}%` }" />
+            <span :style="{ transform: `scaleX(${stage.pct / 100})` }" />
           </div>
           <div class="coverage-card-foot">
             <span>{{ stage.pct }}% complete</span>
@@ -556,39 +556,41 @@ onBeforeUnmount(() => {
 .dashboard-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  gap: 1px;
   /* Keep the metric cards clear of the hero border at every workspace width. */
   margin-top: var(--workspace-section-gap);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--border);
 }
 
 .dashboard-metric {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 148px;
-  padding: 18px;
+  min-height: 104px;
+  padding: 14px 16px;
   flex-direction: column;
   justify-content: flex-start;
   gap: 8px;
   overflow: hidden;
   color: inherit;
   text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(255,255,255,.045), transparent 42%),
-    var(--bg-secondary);
-  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-secondary);
+  transition: background .18s ease;
 }
 
-.dashboard-metric:hover { transform: translateY(-2px); border-color: var(--border-light); }
+.dashboard-metric:hover { background: var(--bg-hover); }
 .dashboard-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .dashboard-metric-kicker { color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .dashboard-metric-arrow { width: 34px; height: 3px; border-radius: 3px; background: var(--text-muted); color: transparent; flex: 0 0 auto; opacity: .5; }
 .dashboard-metric-attention .dashboard-metric-arrow { background: var(--dashboard-gold); opacity: 1; }
 .dashboard-metric-accent .dashboard-metric-arrow { background: var(--dashboard-blue); opacity: 1; }
 .dashboard-metric-success .dashboard-metric-arrow { background: var(--dashboard-green); opacity: 1; }
-.dashboard-metric strong { margin: 0; font: 700 36px/1 var(--font-display); color: var(--text-primary); }
+.dashboard-metric strong { margin: 0; font: 700 28px/1 var(--font-display); color: var(--text-primary); }
 .dashboard-metric-detail { display: block; min-width: 0; margin-top: auto; color: var(--text-secondary); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 
 .focus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -607,9 +609,10 @@ onBeforeUnmount(() => {
   transition: border-color .16s ease, background .16s ease;
 }
 .focus-card:hover { border-color: var(--border-light); background: var(--bg-hover); }
-.focus-card[data-tone="warning"] { border-left: 3px solid #d98b45; }
-.focus-card[data-tone="accent"] { border-left: 3px solid var(--dashboard-gold); }
-.focus-card[data-tone="success"] { border-left: 3px solid var(--dashboard-green); }
+.focus-card:first-child {
+  border-color: color-mix(in srgb, var(--dashboard-gold) 38%, var(--border));
+  background: color-mix(in srgb, var(--dashboard-gold) 6%, var(--bg-secondary));
+}
 .focus-index { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--bg-tertiary); color: var(--dashboard-gold); font: 700 11px/1 var(--font-mono); }
 .focus-card strong { display: block; color: var(--text-primary); font-size: 14px; }
 .focus-card p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
@@ -627,7 +630,7 @@ onBeforeUnmount(() => {
 .coverage-optional { padding: 2px 6px; color: #d8b471; border: 1px solid rgba(216,180,113,.25); border-radius: 999px; font-size: var(--font-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .coverage-count { color: var(--text-secondary); font: 600 10px/1 var(--font-mono); }
 .coverage-track { height: 4px; margin: 11px 0 7px 54px; overflow: hidden; border-radius: 99px; background: var(--bg-tertiary); }
-.coverage-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c88f37, #f0cb78); transition: width .35s ease; }
+.coverage-track span { display: block; width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c88f37, #f0cb78); transform-origin: left; transition: transform .35s ease; }
 .coverage-card-foot { display: flex; justify-content: space-between; margin-left: 54px; color: var(--text-muted); font-size: var(--font-xs); }
 
 .dashboard-lower-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(340px, .75fr); gap: 16px; align-items: stretch; }
@@ -663,7 +666,7 @@ onBeforeUnmount(() => {
 @media (max-width: 760px) {
   .dashboard-hero-summary { grid-template-columns: repeat(3, 1fr); width: 100%; }
   .dashboard-metrics, .focus-grid, .coverage-grid, .pulse-grid { grid-template-columns: 1fr; }
-  .dashboard-metric { min-height: 132px; }
+  .dashboard-metric { min-height: 100px; }
   .operation-row { grid-template-columns: 38px minmax(0, 1fr); }
   .operation-state, .operation-actions { grid-column: 2; justify-self: start; }
   .pulse-note { flex-direction: column; }
@@ -671,6 +674,5 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .dashboard-metric, .focus-card, .coverage-track span { transition: none; }
-  .dashboard-metric:hover { transform: none; }
 }
 </style>

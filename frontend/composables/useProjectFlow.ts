@@ -29,6 +29,14 @@ export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-s
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
+export type FlowPhaseKey = 'story' | 'media' | 'video'
+
+export const FLOW_PHASES: ReadonlyArray<{ key: FlowPhaseKey; label: string }> = [
+  { key: 'story', label: 'Story' },
+  { key: 'media', label: 'Media' },
+  { key: 'video', label: 'Video' },
+]
+
 /**
  * v1.0.280 (format↔niche refactor) — normalize the unified `scenes` format
  * onto the pipeline's existing VisualSource vocabulary.
@@ -70,6 +78,8 @@ export interface FlowStep {
   icon: string
   /** Route path suffix (appended to /projects/:slug). */
   path: string
+  /** Production phase used to orient long workflow views without hiding steps. */
+  phase: FlowPhaseKey
   /** For pages that share a path via ?tab=. */
   tab?: 'thumbnails'
   /** Visible in the workflow, but never blocks an episode from being done. */
@@ -78,22 +88,22 @@ export interface FlowStep {
 
 // ── Shared steps (referenced by multiple flows) ────────────────────────────
 const STEP = {
-  ideas:        { key: 'ideas',        label: 'Ideas',          icon: '✨', path: '/ideas' },
-  research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research', optional: true },
-  script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts' },
-  metadata:     { key: 'metadata',     label: 'YouTube Finalizer', icon: '📋', path: '/metadata' },
-  thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', tab: 'thumbnails' },
-  thumbnails:   { key: 'thumbnails',   label: 'Thumbnails',     icon: '🖼', path: '/images', tab: 'thumbnails' },
-  audio:        { key: 'audio',        label: 'Audio',          icon: '🎙', path: '/audio' },
-  audioMerge:   { key: 'audio-merge',  label: 'Audio Assembly', icon: '🔊', path: '/audio-merge' },
-  subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles' },
-  characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet' },
-  scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan' },
-  contextualCues: { key: 'contextual-cues', label: 'Contextual Cues', icon: '🏷️', path: '/contextual-cues', optional: true },
-  soundDesign: { key: 'sound-design', label: 'Sound Design', icon: '🎵', path: '/sound-design', optional: true },
-  sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review' },
-  motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', optional: true },
-  videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
+  ideas:        { key: 'ideas',        label: 'Ideas',          icon: '✨', path: '/ideas', phase: 'story' },
+  research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research', phase: 'story', optional: true },
+  script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts', phase: 'story' },
+  metadata:     { key: 'metadata',     label: 'YouTube Finalizer', icon: '📋', path: '/metadata', phase: 'media' },
+  thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', phase: 'media', tab: 'thumbnails' },
+  thumbnails:   { key: 'thumbnails',   label: 'Thumbnails',     icon: '🖼', path: '/images', phase: 'media', tab: 'thumbnails' },
+  audio:        { key: 'audio',        label: 'Audio',          icon: '🎙', path: '/audio', phase: 'media' },
+  audioMerge:   { key: 'audio-merge',  label: 'Audio Assembly', icon: '🔊', path: '/audio-merge', phase: 'media' },
+  subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles', phase: 'media' },
+  characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet', phase: 'video' },
+  scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan', phase: 'video' },
+  contextualCues: { key: 'contextual-cues', label: 'Contextual Cues', icon: '🏷️', path: '/contextual-cues', phase: 'video', optional: true },
+  soundDesign: { key: 'sound-design', label: 'Sound Design', icon: '🎵', path: '/sound-design', phase: 'video', optional: true },
+  sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review', phase: 'video' },
+  motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', phase: 'video', optional: true },
+  videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly', phase: 'video' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
