@@ -4,8 +4,7 @@ Living roadmaps and backlogs. Items here change state as work happens — `[ ]` 
 
 ## Contents
 
-*No backlogs currently open. The upload-feature backlog (2026-05-03) shipped
-in full and moved to [`../history/upload-backlog-2026-05-03.md`](../history/upload-backlog-2026-05-03.md).*
+- [`dependency-maintenance-2026-08.md`](dependency-maintenance-2026-08.md) — clear the current development/build audit findings without changing runtime dependencies.
 
 ## When to update
 
