@@ -50,7 +50,7 @@ export function useGenerating() {
       'script-only', 'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
       'images', 'scene_images', 'thumb_images', 'images_repair',
       'audio', 'audio_merge',
-      'video', 'video_repair', 'video_assembly',
+      'video', 'video_assembly',
     ])
     const activeSignal = computed(() =>
       jobs.value

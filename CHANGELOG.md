@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.800 — 2026-08-08
+
+- **Story Studio now carries only the product it actually ships** — the retired Studio Hub and
+  remote-render clients, old project migrations, external-asset migration flow, character-store
+  migration, legacy narration normalizer, inert video-repair path, compatibility-only routes and
+  moved-page stubs are gone. Final assembly has one local queue, and stale remote-render fields are
+  stripped before a job is saved. Current GenStudio task recovery, project moves, character-library
+  assignment, image/audio repair, input validation and verified-completion gates remain intact.
+
+- **The dependency and documentation footprint is smaller** — six unused packages were removed,
+  UUID generation now uses Node's built-in crypto API, and 5,040 lines of dated audit/history
+  snapshots were replaced by one living security-and-reliability contract. This release removes
+  more than 13,000 lines overall while keeping the full backend, frontend and release test suites
+  green.
+
 ## v1.0.799 — 2026-08-07
 
 - **An apostrophe in an episode title no longer costs you the burned-in subtitles** — the same

@@ -339,32 +339,6 @@
            cross-machine "credentials came from a different machine"
            condition can't arise. See app-secrets-store.ts. -->
 
-      <!-- Asset-migration recovery banner — only fires when this
-           project's metadata appears to live in iCloud (or somewhere
-           syncable) but its `output_root` points at an external,
-           non-syncing path. That's the half-migrated state from
-           pre-v1.0.13 Storage moves: cross-Mac sync would carry the
-           metadata but render against missing assets. The banner
-           directs the operator to Settings → Project tab where the
-           Move asset location button runs the per-project migrator. -->
-      <div
-        v-if="assetMigration.status.value && assetMigration.status.value.needed && assetMigration.isProbablyUnsynced()"
-        class="foreign-secrets-banner asset-migration-banner"
-        role="alert"
-      >
-        <span class="foreign-secrets-icon" aria-hidden="true">☁️</span>
-        <span class="foreign-secrets-text">
-          <strong>This project's assets weren't moved with the metadata.</strong>
-          Metadata lives in the synced projects folder, but assets are still at
-          <code class="inline-code">{{ assetMigration.status.value.current_output_root }}</code>
-          — they won't sync to your other Mac.
-          Open
-          <NuxtLink :to="`/projects/${slug}/settings`" class="inline-link">Settings → Project</NuxtLink>
-          and click <strong>Move asset location</strong> to co-locate them.
-          ({{ formatBytes(assetMigration.status.value.estimated_bytes || 0) }} across
-          {{ assetMigration.status.value.estimated_files || 0 }} file(s).)
-        </span>
-      </div>
       <!-- v1.0.100+ Auto-dismissing unclean-shutdown banner.
            Was a sticky banner that hung around until the user manually
            clicked ✕ on every launch following a crash; visible at the
@@ -606,29 +580,6 @@ const {
   videoAssemblyGenerating,
 } = useGenerating()
 
-// Cross-machine credential warnings are retired — API keys live app-level
-// now, so the "credentials came from a different machine" condition can't
-// arise. (See app-secrets-store.ts.)
-const assetMigration = useAssetMigration()
-
-/**
- * Compact byte formatter for the recovery banner copy. Mirrors the
- * backend's lib/disk.ts:formatBytes shape so the user reads the same
- * units in both places (e.g. "274 GB" not "274.34 GB"). Defined inline
- * because the layout doesn't otherwise pull in lib/disk.
- */
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  const decimals = i >= 2 ? (value < 10 ? 2 : 0) : 0
-  return `${value.toFixed(decimals)} ${units[i]}`
-}
 
 watch(slug, async (s) => {
   if (s) {
@@ -1068,7 +1019,7 @@ function openWhatsNew() { _whatsNew.open() }
   width: 100%;
   padding: 32px;
   /* v1.0.103+ — was `padding-top: 0` which let any first-child banner
-     (asset-migration, unclean-shutdown, restored-chip) sit at y=0,
+     (unclean-shutdown, restored-chip) sit at y=0,
      where the Electron `titleBarStyle: 'hiddenInset'` traffic lights
      overlap content. The unclean-shutdown banner in particular got
      its top edge clipped because `margin-top: 16px` put it at y=16 —
@@ -1131,14 +1082,6 @@ function openWhatsNew() { _whatsNew.open() }
 .inline-link { color: var(--accent); text-decoration: underline; }
 .inline-link:hover { text-decoration: none; }
 
-/* Asset-migration recovery banner — sky-blue accent so the user reads
-   it as "iCloud-sync issue" distinct from the keys-related amber and
-   the security-red foreign-machine variants. */
-.asset-migration-banner {
-  background: rgba(56, 189, 248, 0.08);
-  border-color: rgba(56, 189, 248, 0.4);
-}
-.asset-migration-banner .foreign-secrets-icon { color: rgb(14, 165, 233); }
 .inline-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--font-xs);

@@ -2,7 +2,7 @@
  * Sanitization for YouTube upload metadata. `snippetFromMeta` is the single
  * chokepoint before LLM-produced title/description/tags hit the YouTube
  * Data API. These tests pin the defensive behavior documented in
- * audit-reports/06-providers.md §H3 — a compromised or misbehaving provider
+ * A compromised or misbehaving provider
  * can't smuggle control chars, promotional URLs, or oversize payloads past
  * this function.
  */

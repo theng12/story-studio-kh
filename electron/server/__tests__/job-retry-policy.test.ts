@@ -40,7 +40,7 @@ describe('local auto-retry policy', () => {
     assert.equal(policy('outline_only', { model: 'deepseek-v4-flash' }).eligible, false)
   })
 
-  test('retries deterministic timeline and explicitly local assembly work', () => {
+  test('retries deterministic timeline and local assembly work', () => {
     assert.equal(policy('scene_plan_run', { stage: 'timeline' }).eligible, true)
     const genStudioPromptRun = policy('scene_plan_run', {
       stage: 'visual',
@@ -49,8 +49,7 @@ describe('local auto-retry policy', () => {
     assert.equal(genStudioPromptRun.eligible, false)
     assert.match(genStudioPromptRun.reason, /ID-scoped GenStudio prompt repair/)
     assert.equal(policy('audio_merge').eligible, true)
-    assert.equal(policy('video_assembly', { render_target: 'local' }).eligible, true)
-    assert.equal(policy('video_assembly', { render_target: 'remote' }).eligible, false)
+    assert.equal(policy('video_assembly').eligible, true)
     assert.equal(policy('broll_normalize').eligible, true)
   })
 

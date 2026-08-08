@@ -20,7 +20,6 @@ const reachableRoutes = [
   '/',
   '/login',
   '/remote',
-  '/niches',
   '/usage',
   '/character-library',
   '/broll-library',

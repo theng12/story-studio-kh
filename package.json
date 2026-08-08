@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.0.799",
+  "version": "1.0.800",
   "private": true,
   "description": "Story Studio KH — continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -40,14 +40,10 @@
     "reset-server-auth": "npx tsx scripts/reset-server-auth.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "~0.52.0",
-    "body-parser": "~2.3.0",
     "cors": "~2.8.5",
     "express": "~5.2.1",
     "mammoth": "~1.12.0",
-    "openai": "~5.1.0",
     "sharp": "^0.35.3",
-    "uuid": "~11.1.0",
     "zod": "~3.25.76"
   },
   "devDependencies": {
@@ -56,7 +52,6 @@
     "@types/express": "~5.0.0",
     "@types/node": "~22.0.0",
     "@types/supertest": "~7.2.0",
-    "@types/uuid": "~10.0.0",
     "concurrently": "~9.1.0",
     "docx": "~9.5.0",
     "electron": "~39.8.5",
@@ -66,7 +61,6 @@
     "tsx": "~4.19.0",
     "typescript": "~5.8.0",
     "typescript-eslint": "~8.59.0",
-    "undici": "~6.27.0",
     "wait-on": "~8.0.0"
   }
 }

@@ -141,9 +141,8 @@ export async function listOwnCharacters(slug: string, opts?: { episodeCode?: str
  *
  * Library characters carry project-scope semantics, so they appear for every
  * episode regardless of the `episodeCode` filter (same as a scope:'project'
- * character). Dedup-by-id (project wins) means a character that has been both
- * migrated into the library AND left on disk shows up exactly once — running
- * the migration never produces duplicates. See docs/character-unification-spec.md.
+ * character). Dedup-by-id means a matching project and library character is
+ * shown exactly once. See docs/character-unification-spec.md.
  */
 export async function listCharacters(slug: string, opts?: { episodeCode?: string }): Promise<Character[]> {
   const own = await listOwnCharacters(slug, opts)

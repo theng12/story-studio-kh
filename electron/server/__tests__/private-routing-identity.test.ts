@@ -25,19 +25,12 @@ const read = (relative: string) => readFileSync(
 )
 
 describe('repair results carry the task id, not the transport that produced it', () => {
-  for (const [name, relative] of [
-    ['image', '../services/image-reconciler.ts'],
-    ['video', '../services/video-reconciler.ts'],
-  ] as const) {
-    test(`${name} reconciler outcomes do not include a provider field`, () => {
-      const source = read(relative)
-      assert.equal(source.includes('provider: entry.provider'), false,
-        `${name} reconciler copies the manifest provider into an outcome that reaches job.result`)
-      // The branch that decides HOW to recover may read entry.provider; only
-      // writing it into a returned shape is forbidden.
-      assert.match(source, /entry\.provider === 'genstudio/)
-    })
-  }
+  test('image reconciler outcomes do not include a provider field', () => {
+    const source = read('../services/image-reconciler.ts')
+    assert.equal(source.includes('provider: entry.provider'), false,
+      'image reconciler copies the manifest provider into an outcome that reaches job.result')
+    assert.match(source, /entry\.provider === 'genstudio/)
+  })
 
   test('the image repair-status items expose recoverability, not a provider', () => {
     const source = read('../services/image-reconciler.ts')
@@ -62,14 +55,6 @@ describe('legacy-evidence messages describe the situation without naming a route
 })
 
 describe('user-facing errors name the gateway or nobody', () => {
-  test('the normalize-script key guard lists no text vendors', () => {
-    const source = read('../routes/scripts.ts')
-    assert.equal(source.includes('kie.ai, DeepSeek, OpenRouter, or OpenAI'), false)
-    // Every hasAnyTextProviderKey guard in the file now says the same thing,
-    // and hasAnyTextProviderKey checks exactly one scoped GenStudio key.
-    assert.equal(source.includes('Project missing API keys'), false)
-  })
-
   test('the unavailable-video-model error does not list the retired fallbacks', () => {
     const source = read('../generators/scene-clip.ts')
     assert.equal(/no fal\.ai, Kie\.ai, or Studio Hub fallback/.test(source), false)

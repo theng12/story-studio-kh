@@ -5,9 +5,7 @@ import request from 'supertest'
 import { readFile } from 'fs/promises'
 
 import { router as healthRouter } from '../routes/health.js'
-import { router as jobsRouter } from '../routes/jobs.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
-import { fetchFalVideo, fetchKieVideo } from '../services/video-reconciler.js'
 import { useTempDataDir } from './_helpers.js'
 /**
  * Claim an isolated data dir before anything runs.
@@ -54,19 +52,17 @@ describe('GenStudio-only legacy network boundary', () => {
     for (const routePath of [
       '/models',
       '/usage',
-      '/usage/pricing',
       '/usage/rollup',
       '/projects/:slug/health',
       '/connectivity/precheck',
       '/test-key/:provider',
       '/projects/:slug/test-key/:provider',
-      '/local-servers/status',
     ]) {
       assert.equal(paths.filter((path: string) => path === routePath).length, 1, routePath)
     }
   })
 
-  test('rejects legacy key checks and local-server discovery without network access', async () => {
+  test('rejects legacy key checks without network access', async () => {
     const calls = trapExternalFetch()
     const app = mounted(healthRouter)
 
@@ -74,32 +70,6 @@ describe('GenStudio-only legacy network boundary', () => {
     assert.equal(key.status, 410)
     assert.equal(key.body.code, 'GENSTUDIO_ONLY')
 
-    const local = await request(app).get('/local-servers/status')
-    assert.equal(local.status, 410)
-    assert.equal(local.body.code, 'GENSTUDIO_ONLY')
-    assert.deepEqual(calls, [])
-  })
-
-  test('retires the Studio Hub repair endpoint without enqueueing or contacting Hub', async () => {
-    const calls = trapExternalFetch()
-    const response = await request(mounted(jobsRouter))
-      .post('/projects/example/jobs/legacy-job/repair-hub-image')
-
-    assert.equal(response.status, 410)
-    assert.equal(response.body.code, 'GENSTUDIO_ONLY')
-    assert.match(response.body.detail, /no request was attempted/i)
-    assert.deepEqual(calls, [])
-  })
-
-  test('legacy video fetch compatibility exports are inert', async () => {
-    const calls = trapExternalFetch()
-    const kie = await fetchKieVideo('task-1', '/jobs/recordInfo', 'secret')
-    const fal = await fetchFalVideo('https://queue.fal.run/task-1')
-
-    assert.equal(kie.status, 'unknown')
-    assert.equal(fal.status, 'unknown')
-    assert.match(kie.message || '', /direct legacy provider recovery is retired/i)
-    assert.match(fal.message || '', /direct legacy provider recovery is retired/i)
     assert.deepEqual(calls, [])
   })
 
@@ -110,12 +80,9 @@ describe('GenStudio-only legacy network boundary', () => {
     assert.deepEqual(calls, [])
 
     const bootSource = await readFile(new URL('../services/boot-recovery.ts', import.meta.url), 'utf8')
-    const videoSource = await readFile(new URL('../services/video-reconciler.ts', import.meta.url), 'utf8')
-    for (const source of [bootSource, videoSource]) {
-      assert.equal(source.includes('api.kie.ai'), false)
-      assert.equal(source.includes('queue.fal.run'), false)
-      assert.equal(source.includes('studiohub-client'), false)
-    }
+    assert.equal(bootSource.includes('api.kie.ai'), false)
+    assert.equal(bootSource.includes('queue.fal.run'), false)
+    assert.equal(bootSource.includes('studiohub-client'), false)
     assert.equal(bootSource.includes("../lib/kie-client.js"), false)
     assert.equal(bootSource.includes("../lib/genaipro-client.js"), false)
     assert.equal(bootSource.includes("../lib/fal-client.js"), false)
@@ -129,7 +96,6 @@ describe('GenStudio-only legacy network boundary', () => {
     assert.equal(routeIndex.includes('chatstudioRouter'), false)
     assert.equal(videoGenerator.includes('tryRunRemoteVideoAssembly'), false)
     assert.equal(videoGenerator.includes('studiohub-client'), false)
-    assert.match(videoRoute, /render_target\s*=\s*'local'/)
-    assert.match(videoRoute, /remote_render_requested\s*=\s*false/)
+    assert.equal(videoRoute.includes('studiohub-client'), false)
   })
 })

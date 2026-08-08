@@ -35,5 +35,4 @@ above always works.)
 ## Project docs
 
 - [`CHANGELOG.md`](CHANGELOG.md) — what shipped in each release.
-- [`docs/`](docs/) — architecture, operations, planning, history, in-flight refactors. Start at [`docs/README.md`](docs/README.md) for the map.
-- [`audit-reports/`](audit-reports/) — the 12-part audit series (kept at root because the test suite cites it).
+- [`docs/`](docs/) — current architecture, operations, planning, and in-flight refactors. Start at [`docs/README.md`](docs/README.md) for the map.

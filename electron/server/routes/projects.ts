@@ -211,14 +211,13 @@ router.get('/projects/:slug/assets-audit-detail', async (req, res) => {
 // Universal repair — fans out the existing per-modality repair endpoints
 // for every episode with missing assets. "Repair" here means: ask the
 // provider for jobs it already completed (and billed) but whose output
-// never landed on disk. Zero credit cost; safe to run anytime. For clips
-// / images without a stored task id the repair job reports them as
+// never landed on disk. Zero credit cost; safe to run anytime. For images
+// without a stored task id the repair job reports them as
 // "needs_fresh_generation" in its log so the user can decide.
 //
 // Scope can be narrowed via body: `{ episode_codes?, modalities? }`.
-// Default is all episodes × all modalities. Audio repair is synchronous
-// (runs inline against GenAIPro's history) while image/video repair
-// enqueue background jobs — the response shape reflects both paths.
+// Default is audio and images. Audio repair is synchronous while image repair
+// enqueues background jobs — the response shape reflects both paths.
 router.post('/projects/:slug/assets/repair-all', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -227,9 +226,9 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
     const requestedCodes: string[] | undefined = Array.isArray(req.body?.episode_codes)
       ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
       : undefined
-    const requestedModalities: Array<'audio' | 'images' | 'video'> = Array.isArray(req.body?.modalities)
-      ? req.body.modalities.filter((m: any) => m === 'audio' || m === 'images' || m === 'video')
-      : ['audio', 'images', 'video']
+    const requestedModalities: Array<'audio' | 'images'> = Array.isArray(req.body?.modalities)
+      ? req.body.modalities.filter((m: any) => m === 'audio' || m === 'images')
+      : ['audio', 'images']
 
     const rows = await auditProjectAssets(slug)
     const enqueued: Array<{ episode_id: string; type: JobType; job_id: string }> = []
@@ -254,22 +253,6 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
             params: { episode_id: row.episode_id },
           })
           enqueued.push({ episode_id: row.episode_id, type: 'images_repair', job_id: job.job_id })
-        }
-      }
-
-      // Video clip repair — only when the row has missing clips.
-      if (requestedModalities.includes('video') && row.video.missing > 0) {
-        if (jq.isDuplicate(slug, row.episode_id, 'video_repair' as any)) {
-          skipped.push({ episode_id: row.episode_id, modality: 'video', reason: 'already queued/running' })
-        } else {
-          const job = jq.enqueue({
-            project_slug: slug,
-            type: 'video_repair' as any,
-            episode_id: row.episode_id,
-            title: 'Video Repair (no credits)',
-            params: { episode_id: row.episode_id },
-          })
-          enqueued.push({ episode_id: row.episode_id, type: 'video_repair' as any, job_id: job.job_id })
         }
       }
 

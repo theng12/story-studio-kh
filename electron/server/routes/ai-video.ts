@@ -276,34 +276,6 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   res.status(201).json(job)
 })
 
-// ── Repair endpoint — recovers missing video clips from provider task records ──
-//
-// Mirrors POST /generate/images-repair. The reconciler reads the sidecar
-// task-manifest, looks up each missing clip's stored task_id, and downloads
-// from the provider's existing result URL. Zero credit cost. Clips with no
-// manifest entry come back as `no_manifest` so the user can decide whether
-// to click Generate for those.
-router.post('/projects/:slug/generate/video-repair', async (req, res) => {
-  const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-
-  const episodeId: string | undefined = req.body?.episode_id
-  if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
-
-  if (jq.isDuplicate(slug, episodeId, 'video_repair' as any)) {
-    return res.status(409).json({ detail: `Video repair already queued/running for ${episodeId}` })
-  }
-
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'video_repair' as any,
-    episode_id: episodeId,
-    title: 'Video Repair (no credits)',
-    params: { episode_id: episodeId },
-  })
-  res.status(201).json(job)
-})
-
 // ── List scene images for the image-to-video source picker ──
 
 router.get('/projects/:slug/:episodeId/scene-images', async (req, res) => {

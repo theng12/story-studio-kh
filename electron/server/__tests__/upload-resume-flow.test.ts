@@ -1,5 +1,5 @@
 /**
- * End-to-end resume-flow test for audit-reports/10-uploads.md M4.
+ * End-to-end resumable-upload flow test.
  *
  * Drives `uploadVideo` against a real local HTTP server that mimics
  * Google's resumable-upload protocol, with the goal of verifying:

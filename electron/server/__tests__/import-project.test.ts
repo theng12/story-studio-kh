@@ -1,6 +1,6 @@
 /**
  * Tests for `importProjectFromFolder` — the channel-isolation guarantee
- * verified manually in Session 10 (audit-reports/12 §A.9).
+ * verified by the import contract below.
  *
  * Three load-bearing invariants:
  *

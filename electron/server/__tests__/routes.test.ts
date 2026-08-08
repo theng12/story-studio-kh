@@ -48,7 +48,7 @@ describe('Health & meta routes', () => {
     assert.ok(['bundled', 'system', 'not-found'].includes(res.body.source))
   })
 
-  test('direct sibling-Studio and Studio Hub control routes are retired', async () => {
+  test('direct sibling-Studio and Studio Hub control routes are absent', async () => {
     for (const path of [
       '/api/imagestudio/base-url',
       '/api/voicestudio/base-url',
@@ -57,8 +57,7 @@ describe('Health & meta routes', () => {
       '/api/studiohub/status',
     ]) {
       const res = await request(app).get(path)
-      assert.equal(res.status, 410, path)
-      assert.equal(res.body.code, 'GENSTUDIO_ONLY', path)
+      assert.equal(res.status, 404, path)
     }
   })
 })

@@ -341,7 +341,6 @@ test('every long-form workflow declares a product-derived budget', () => {
     // than taking the product's whole ceiling — see chunking-budget.test.ts.
     ['chunked narration batches', '../lib/chunked-narration.ts', /outputBudget: batchOutputBudget\(batch, params\.wordsPerChapter\)/],
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
-    ['docx normalizer', '../services/docx-normalizer.ts', /outputBudget: 'maximum'/],
     ['audio expression markup', '../services/audio-expression.ts', /outputBudget: 'maximum'/],
     ['scene planner windows', '../services/scene-planner.ts', /outputBudget: 'maximum'/],
     ['prompt director', '../generators/prompt-director.ts', /outputBudget: 'maximum'/],

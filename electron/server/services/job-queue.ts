@@ -12,7 +12,7 @@ import { redactSensitiveValue } from '../lib/redact-secrets.js'
 import { boundGenStudioRequestPreviews, pendingGenStudioEntryId } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -292,15 +292,12 @@ const queues: Record<JobType, QueueState> = {
   images: { pending: [], running: false, executor: null },
   scene_images: { pending: [], running: false, executor: null },
   thumb_images: { pending: [], running: false, executor: null },
-  // images_repair / video_repair are zero-cost recovery jobs — they share
-  // the same queue plumbing as their generation siblings but never
-  // submit a new provider job.
+  // Image repair uses the queue lifecycle but never submits a new provider job.
   images_repair: { pending: [], running: false, executor: null },
   audio: { pending: [], running: false, executor: null },
   audio_merge: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video: { pending: [], running: false, executor: null },
-  video_repair: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },
   subtitles_transcribe: { pending: [], running: false, executor: null },
   // Upload Center — YouTube video upload (resumable) + metadata PATCH.
@@ -396,30 +393,9 @@ export function unregisteredJobTypes(): JobType[] {
 const LLM_GROUP = 'llm'
 const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
-const REMOTE_RENDER_GROUP = 'remote_render'
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
 ])
-/** Which concurrency group a type belongs to: the shared LLM group, or its
- *  own singleton group (= the type name) so non-LLM types keep one slot. */
-/** Remote final renders upload a complete recipe, then execute independently
- * on Render Studio Macs. Let the Hub schedule several episodes at once while
- * preserving serial safety for the local FFmpeg renderer. */
-const REMOTE_RENDER_CONCURRENCY = 4
-
-function usesRemoteRender(job: Job | undefined): boolean {
-  if (job?.type !== 'video_assembly') return false
-  // New jobs persist the export preset's choice. Legacy jobs without a
-  // target become remote by default so the control-centre Mac is not silently
-  // recruited as a worker after an update.
-  if (job.params?.render_target === 'local') return false
-  if (job.params?.render_target === 'remote') return true
-  if (Object.prototype.hasOwnProperty.call(job.params || {}, 'remote_render_requested')) {
-    return job.params?.remote_render_requested === true
-  }
-  return true
-}
-
 function usesLocalTextFleet(job: Job | undefined): boolean {
   if (!job || !LLM_TYPES.has(job.type)) return false
   if (job.type === 'scene_plan_run' && (job.params?.stage === 'timeline' || job.params?.model === 'deterministic-timeline')) {
@@ -431,7 +407,6 @@ function usesLocalTextFleet(job: Job | undefined): boolean {
 }
 
 function groupOf(type: JobType, job?: Job): string {
-  if (usesRemoteRender(job)) return REMOTE_RENDER_GROUP
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
   if (usesLocalTextFleet(job)) return LOCAL_LLM_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
@@ -462,7 +437,6 @@ function groupLimit(group: string): number {
   // endpoint dispatcher owns the actual machine queue and backpressure.
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
-  if (group === REMOTE_RENDER_GROUP) return REMOTE_RENDER_CONCURRENCY
   return 1
 }
 
@@ -521,8 +495,8 @@ async function persistJob(job: Job): Promise<void> {
 
 /**
  * Persist a durable checkpoint while a long-running executor is still active.
- * Remote batches use this immediately after Hub acceptance, so a monitoring
- * disconnect can reconnect to the existing work instead of submitting it again.
+ * Accepted GenStudio work uses this so a monitoring disconnect can reconnect
+ * without submitting it again.
  */
 export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
@@ -560,18 +534,6 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
             }
             mutated = true
           } else if (j.status === 'running') {
-            const checkpoint = j.params?.hub_image_recovery
-            const recoverableHubImage = !!checkpoint
-              && checkpoint.version === 1
-              && (checkpoint.state === 'prepared' || checkpoint.state === 'accepted')
-              && ['scene_images_batch', 'continuity_render', 'image_pool_generate'].includes(j.type)
-              && !!queues[j.type as JobType]?.executor
-            const remoteRender = j.params?.remote_render
-            const recoverableHubRender = j.type === 'video_assembly'
-              && usesRemoteRender(j)
-              && typeof remoteRender?.batch_id === 'string'
-              && remoteRender.batch_id.trim().length > 0
-              && !!queues[j.type as JobType]?.executor
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -587,17 +549,13 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
                 && asset.idempotency_key.startsWith('story-')
                 && asset?.state !== 'failed'
               ))
-            if (recoverableHubImage || recoverableHubRender || recoverableGenStudio) {
+            if (recoverableGenStudio) {
               j.status = 'queued'
               j.started_at = null
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push(recoverableGenStudio
-                ? '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.'
-                : recoverableHubRender
-                  ? '↻ Story Studio restarted — reconnecting the original remote render batch automatically; no duplicate render will be submitted.'
-                  : '↻ Story Studio restarted — reconnecting the saved image batch automatically; no duplicate submission will be made.')
+              j.output_lines.push('↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -630,14 +588,13 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 }
 
 /**
- * Eager boot scan for accepted Hub image, remote-render, and checkpointed
- * GenStudio work. Ordinary job history is loaded
+ * Eager boot scan for checkpointed GenStudio work. Ordinary job history is loaded
  * lazily per project, but recovery cannot depend on somebody opening the Jobs
  * page after a power cut. Executors call this once after every queue lane has
  * been registered; loadPersistedJobs then requeues only checkpoints that can
  * safely reconnect without duplicating generation.
  */
-export async function resumeInterruptedHubJobsAtBoot(): Promise<void> {
+export async function resumeInterruptedJobsAtBoot(): Promise<void> {
   const { listProjects } = await import('./project-manager.js')
   const projects = await listProjects()
   for (const project of projects as Array<{ slug?: string }>) {
@@ -658,19 +615,10 @@ function pump(type: JobType): void {
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
-    // A local final render owns this queue alone. Remote final renders have
-    // their own bounded group because their FFmpeg work happens off this Mac.
-    if (group === REMOTE_RENDER_GROUP && q.running) return
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
       const job = q.pending.shift()!
-      // Keep release/cancellation in the same lane even if Settings changes
-      // while this remote batch is running.
-      if (group === REMOTE_RENDER_GROUP) {
-        job.params.render_target = 'remote'
-        job.params.remote_render_requested = true
-      }
       groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
     }
@@ -681,7 +629,6 @@ function pump(type: JobType): void {
       queueMicrotask(() => pump(type))
     }
   } else {
-    if (type === 'video_assembly' && (groupActive[REMOTE_RENDER_GROUP] || 0) > 0) return
     if (q.running || q.pending.length === 0) return
     q.running = true
     const job = q.pending.shift()!
@@ -694,13 +641,12 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
-  else if (group === REMOTE_RENDER_GROUP) pump('video_assembly')
 }
 
 /** Release the slot a finished job held, then pull in the next work. */
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || group === REMOTE_RENDER_GROUP) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     pumpGroup(group)
   } else {
@@ -725,7 +671,7 @@ async function recordChainHandoffFailure(
   const message = cause instanceof Error ? cause.message : String(cause)
   const batchId = parent.params?.pipeline_batch_id
   const failed: Job = {
-    job_id: uuidv4().slice(0, 8),
+    job_id: randomUUID().slice(0, 8),
     project_slug: parent.project_slug,
     type,
     episode_id: parent.episode_id,
@@ -1243,7 +1189,7 @@ export async function enqueueOrRun(opts: {
   const executor = queues[opts.type]?.executor
   if (!executor) throw new Error(`enqueueOrRun(sync): no executor registered for ${opts.type}`)
 
-  const jobId = uuidv4().slice(0, 8)
+  const jobId = randomUUID().slice(0, 8)
   const job: Job = {
     job_id: jobId,
     project_slug: opts.project_slug,
@@ -1306,7 +1252,7 @@ export function enqueue(opts: {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
 
-  const jobId = uuidv4().slice(0, 8)
+  const jobId = randomUUID().slice(0, 8)
   const job: Job = {
     job_id: jobId,
     project_slug: opts.project_slug,

@@ -17,7 +17,7 @@ import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
-import { parseMetadataTxt } from '../services/folder-migration.js'
+import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 
 export interface EpisodeMetadataForUpload {

@@ -1905,22 +1905,6 @@
           <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">
             📂 Open in Finder
           </button>
-          <!-- Move asset location button — only renders when the
-               asset-migration status reports the assets are external
-               to the project's metadata folder (i.e. a move would
-               change something). Disabled while a check is in flight
-               or a previous migration hasn't finished. -->
-          <button
-            v-if="assetMigration.status.value && assetMigration.status.value.needed"
-            class="btn btn-sm btn-primary"
-            :disabled="assetMigration.migrating.value || assetMigration.loading.value"
-            :title="assetMigration.status.value.blockers.length > 0
-              ? assetMigration.status.value.blockers.join('\n')
-              : `Copy ${formatBytes(assetMigration.status.value.estimated_bytes || 0)} from the current location into the project folder so a single sync hop carries everything.`"
-            @click="openMoveAssetsDialog"
-          >
-            {{ assetMigration.migrating.value ? '↻ Moving…' : '📦 Move asset location' }}
-          </button>
           <!-- Move THIS PROJECT to a different folder. Distinct from the
                Storage tab's global "Move projects to…" — that one moves
                every project at once; this lets the operator pick a
@@ -1939,89 +1923,9 @@
           Story Studio reads and writes all generated files here. Don't move this folder —
           if you do, use <strong>Repair Folder Structure</strong> below.
         </span>
-        <p
-          v-if="assetMigration.status.value && assetMigration.status.value.needed"
-          class="text-muted mt-1"
-          style="font-size: var(--font-xs); max-width: 720px;"
-        >
-          Assets currently sit at this absolute path. For cross-Mac iCloud sync to actually carry the
-          files (not just the metadata), they need to live INSIDE the project's folder. Click
-          <strong>Move asset location</strong> to copy them to <code class="path-display"
-          >{{ assetMigration.status.value.projected_target }}</code> and rewrite this project's
-          <code class="path-display">project.json</code> so future moves carry everything.
-        </p>
       </div>
 
-      <!-- Move asset location confirmation dialog -->
-      <div v-if="moveAssetsDialogOpen" class="modal-overlay" @click.self="closeMoveAssetsDialog">
-        <div class="modal" style="max-width: 620px;">
-          <h2>Move asset location</h2>
-          <p class="text-muted mt-1" style="font-size: 13px;">
-            This copies your assets from the current external folder into the project's metadata
-            folder so cross-Mac iCloud sync carries everything. Source files stay in place by
-            default — verify the new location renders correctly before deleting the old one.
-          </p>
-
-          <div class="move-assets-summary mt-2">
-            <div class="move-assets-row">
-              <span class="text-muted">From</span>
-              <code class="path-display">{{ assetMigration.status.value?.current_output_root || '' }}</code>
-            </div>
-            <div class="move-assets-row">
-              <span class="text-muted">To</span>
-              <code class="path-display">{{ assetMigration.status.value?.projected_target || '' }}</code>
-            </div>
-            <div class="move-assets-row">
-              <span class="text-muted">Size</span>
-              <span>
-                {{ formatBytes(assetMigration.status.value?.estimated_bytes || 0) }}
-                across {{ assetMigration.status.value?.estimated_files || 0 }} file(s)
-              </span>
-            </div>
-          </div>
-
-          <div
-            v-if="assetMigration.status.value?.blockers?.length"
-            class="move-assets-blockers mt-2"
-          >
-            <strong>⛔ Blocked — fix before retrying:</strong>
-            <ul>
-              <li v-for="(b, i) in assetMigration.status.value.blockers" :key="i">{{ b }}</li>
-            </ul>
-          </div>
-
-          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
-            <input type="checkbox" v-model="moveAssetsDeleteSource" />
-            <span>
-              <strong>Delete source folder after a successful copy.</strong>
-              Off by default — leaves the original at <code class="path-display">{{ assetMigration.status.value?.current_output_root || '' }}</code>
-              so you can verify the move before reclaiming the space.
-            </span>
-          </label>
-
-          <div v-if="assetMigration.lastError.value" class="move-assets-error mt-2">
-            {{ assetMigration.lastError.value }}
-          </div>
-
-          <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
-            <button
-              class="btn btn-secondary"
-              :disabled="assetMigration.migrating.value"
-              @click="closeMoveAssetsDialog"
-            >Cancel</button>
-            <button
-              class="btn btn-primary"
-              :disabled="assetMigration.migrating.value || (assetMigration.status.value?.blockers?.length ?? 0) > 0"
-              @click="runMoveAssets"
-            >
-              {{ assetMigration.migrating.value ? 'Moving…' : 'Move now' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Move-this-project-to dialog. Distinct from the asset-migration
-           dialog above: this relocates the project's ENTIRE folder
+      <!-- Move-this-project-to dialog. This relocates the project's ENTIRE folder
            (metadata + assets) to a chosen destination, then registers
            it as a linked project so its slug keeps resolving after the
            move. Powers the per-project "one channel to iCloud while
@@ -2318,52 +2222,10 @@ const { get, post, put, del } = useApi()
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
-const assetMigration = useAssetMigration()
-
-// `formatBytes` is already defined further down (used by the projects-
-// root migration banner); reusing it keeps a single source of truth for
-// byte formatting on this page.
-
-// Move-asset-location dialog state. The source-of-truth for "should I
-// migrate" + "what's the size" lives in the composable; this just
-// gates the modal + holds the delete-source checkbox.
-const moveAssetsDialogOpen = ref(false)
-const moveAssetsDeleteSource = ref(false)
-
-function openMoveAssetsDialog(): void {
-  moveAssetsDeleteSource.value = false
-  // Refresh status before opening so the dialog reflects up-to-date
-  // blockers (e.g. user just downloaded an iCloud placeholder).
-  void assetMigration.checkNow()
-  moveAssetsDialogOpen.value = true
-}
-function closeMoveAssetsDialog(): void {
-  moveAssetsDialogOpen.value = false
-}
-async function runMoveAssets(): Promise<void> {
-  const r = await assetMigration.migrate({ delete_source: moveAssetsDeleteSource.value })
-  if (r.ok) {
-    success(
-      moveAssetsDeleteSource.value
-        ? 'Assets moved + source removed. Restart the app or re-render to confirm.'
-        : 'Assets moved. Source kept at the original location until you delete it manually.',
-    )
-    closeMoveAssetsDialog()
-    // Reload the project meta so projectLocation reflects the new
-    // (now-relative) output_root once the backend has rewritten
-    // project.json.
-    if (project.value) {
-      await loadProject((project.value as any).slug || '')
-    }
-  } else {
-    showError(r.error || 'Move failed — see banner for details.')
-  }
-}
-
 // ── Move-this-project-to dialog ─────────────────────────────────────────
 // Per-project relocation — moves the entire project folder (metadata +
 // assets) to a chosen destination, then registers it as a linked path
-// so the slug keeps resolving. Distinct from the asset-migration above
+// so the slug keeps resolving.
 // which only co-locates assets inside the existing project folder.
 const linkedProjects = useLinkedProjects()
 const moveProjectDialogOpen = ref(false)

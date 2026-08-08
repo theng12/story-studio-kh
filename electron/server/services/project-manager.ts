@@ -334,7 +334,7 @@ function uniqueSlug(base: string): string {
  * Thrown when a project JSON file exists but can't be parsed. Read-modify-write
  * callers MUST NOT swallow this — silently returning `{}` and merging updates
  * back replaces the file with the merged-into-empty object, wiping the rest of
- * the metadata (see audit-reports/08-persistence.md finding #4).
+ * the metadata (see docs/architecture/security-reliability.md).
  *
  * Pure readers may catch and degrade to "unavailable" / skip-this-entry;
  * writers must propagate so the request fails loudly rather than corrupting

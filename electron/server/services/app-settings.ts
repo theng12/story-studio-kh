@@ -443,40 +443,8 @@ export async function setLastSeenVersion(version: string): Promise<void> {
   await setAppSetting(LAST_SEEN_VERSION_KEY, version)
 }
 
-// ── Local generation backend (v1.0.528 — Studio Hub) ────────────────────────
-//
-// Chooses how the LOCAL Studio providers (image / voice / chat) reach the
-// fleet:
-//   'direct' — Story Studio talks to each Mac's Studio server directly via
-//              the per-provider endpoint pools.
-//   'hub'    — route generation through Studio Hub KH (a single control-plane
-//              that delegates across the fleet). Failure is reported; direct
-//              endpoints are never used unless 'direct' is selected.
-// Per-machine (like server_mode / last_seen_version).
-//
-// The SETTER for this value is retired along with the rest of the direct
-// local-generation control surface (routes/app-settings.ts 410s both
-// /app-settings/local-backend and /app-settings/hub/*) — there is no longer
-// any live way to change it. The getter stays: lib/studiohub-client.ts still
-// reads it to decide whether image/video generation routes through Studio
-// Hub, which remains a live, in-use fleet-routing path.
-export const LOCAL_BACKEND_KEY = 'local_backend'
-export const HUB_URL_KEY = 'hub_url'
-export const RENDER_WORKERS_ENABLED_KEY = 'render_workers_enabled'
-export const DEFAULT_HUB_URL = 'http://127.0.0.1:47873'
 export const GENSTUDIO_URL_KEY = 'genstudio_url'
 export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8000'
-export type LocalBackend = 'direct' | 'hub'
-
-export async function getLocalBackend(): Promise<LocalBackend> {
-  const v = await getAppSetting(LOCAL_BACKEND_KEY)
-  return v === 'hub' ? 'hub' : 'direct'
-}
-
-export async function getHubUrl(): Promise<string> {
-  const v = await getAppSetting(HUB_URL_KEY)
-  return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_HUB_URL
-}
 
 /**
  * GenStudio is intentionally configured separately from the local Hub. During
@@ -492,14 +460,6 @@ export async function getGenStudioUrl(): Promise<string> {
 export async function setGenStudioUrl(url: string): Promise<void> {
   const cleaned = normalizeServiceBaseUrl(typeof url === 'string' ? url : '', 'GenStudio')
   await setAppSetting(GENSTUDIO_URL_KEY, cleaned)
-}
-
-export async function getRenderWorkersEnabled(): Promise<boolean> {
-  return (await getAppSetting(RENDER_WORKERS_ENABLED_KEY)) === true
-}
-
-export async function setRenderWorkersEnabled(enabled: boolean): Promise<void> {
-  await setAppSetting(RENDER_WORKERS_ENABLED_KEY, enabled === true)
 }
 
 // ── Disabled endpoints (v1.0.311) ───────────────────────────────────────────

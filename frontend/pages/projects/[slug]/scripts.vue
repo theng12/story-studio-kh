@@ -130,19 +130,6 @@
         </div>
       </div>
 
-      <!-- v1.0.174 — the legacy-narration normalizer moved into the Outline
-           tab's "Advanced options" disclosure (it's a power op, not a
-           per-episode basic). The dialog itself stays mounted here so it
-           can open from there. -->
-      <NormalizeNarrationDialog
-        v-if="normalizeOpen && form.episode_id"
-        :visible="normalizeOpen"
-        :slug="slug"
-        :episode-code="form.episode_id"
-        @close="normalizeOpen = false"
-        @normalized="onNarrationNormalized"
-      />
-
       <!-- Opening is an optional channel-branding layer in the outline flow.
            It is generated only after the approved chapters exist, but its
            intent and reusable settings stay visible before outlining. -->
@@ -620,14 +607,6 @@
           <span class="text-muted text-xs">
             Overwrites the existing outline. Per-chapter regeneration remains available on the Script tab.
           </span>
-        </div>
-        <div v-if="form.episode_id" class="script-maintenance-action">
-          <button
-            class="btn btn-sm btn-secondary"
-            title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
-            @click="normalizeOpen = true"
-          >🛠 Normalize legacy narration…</button>
-          <span class="text-muted text-xs">For imported or pre-Story-Studio scripts.</span>
         </div>
       </div>
 
@@ -1813,15 +1792,6 @@ watch(cachedEpisodeList, (list) => {
   const fresh = list.find((e: any) => e.episode_code === form.episode_id)
   if (fresh) selectedEpisode.value = fresh
 })
-
-// ── Legacy narration normaliser (Part 3 of mark-done plan) ────────────────
-// Modal-only state; the dialog component handles the route call + result
-// rendering. We refresh the episode status on success so the script /
-// introduction badges flip without a manual reload.
-const normalizeOpen = ref(false)
-function onNarrationNormalized(_result: any) {
-  refetchEpisodeStatus().catch(() => {})
-}
 
 function moveBeat(index: number, direction: number) {
   const newIndex = index + direction

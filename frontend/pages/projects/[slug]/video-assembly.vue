@@ -3265,7 +3265,6 @@ const outroCard = reactive({
 
 // --------------- Step 6: Export ---------------
 const exportSettings = reactive<{
-  render_target: 'remote' | 'local'
   resolution: '720p' | '1080p' | '1440p' | '4k'
   quality: 'compact' | 'fast' | 'medium' | 'high'
   fps: 24 | 25 | 30 | 60
@@ -3273,7 +3272,6 @@ const exportSettings = reactive<{
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
 }>({
-  render_target: 'local',
   resolution: '1080p',
   quality: 'high',
   fps: 30,

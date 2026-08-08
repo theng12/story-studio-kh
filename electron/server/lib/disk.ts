@@ -1,8 +1,8 @@
 /**
  * Free-disk-space precheck helpers.
  *
- * Audit finding M3 (audit-reports/09-jobs.md): a 20-episode 1080p/high
- * batch averages 500 MB-1 GB per episode and hours of FFmpeg time. Running
+ * A 20-episode 1080p/high batch can require 500 MB-1 GB per episode and
+ * hours of FFmpeg time. Running
  * on a nearly-full disk fails halfway through and burns the encode cost
  * on episodes that then can't write. docs/operations/qa-checklist.md:12 documents the
  * 5 GB-free rule as manual operator discipline; these helpers move it

@@ -18,7 +18,7 @@
  *   - scenes/thumb: expected stems derived from the prompts docx; "present"
  *                   means at least one `_v*` variant with content.
  *   - video:        expected filenames come from the clip task-manifest
- *                   (same as video-reconciler.ts — AI video prompts may
+ *                   (AI video prompts may
  *                   have been revised after submit, so the manifest is the
  *                   source of truth for "what we asked for").
  *   - merged_audio: single output per episode; expected iff either the

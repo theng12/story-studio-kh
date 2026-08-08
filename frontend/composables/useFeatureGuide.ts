@@ -394,16 +394,6 @@ export const featureGuides: Record<string, FeatureGuide> = {
     ],
     tips: ['Configure presets on the desktop workspace before relying on remote runs.', 'Use Tailscale plus Server Mode authentication for iPad or remote-browser access.'],
   },
-  'niches-moved': {
-    title: 'Niche Settings Moved',
-    summary: 'Niche selection and its library now live inside each project so the channel formula and production defaults have one authoritative home.',
-    workflow: ['Return to Projects.', 'Open the intended channel.', 'Choose Settings, then Niche.'],
-    topics: [
-      { title: 'Niche library', purpose: 'Provides built-in and custom channel topic systems inside project Settings.' },
-      { title: 'Project assignment', purpose: 'Connects the selected niche directly to that channel’s formulas and defaults.' },
-    ],
-    tips: ['This compatibility page preserves old bookmarks only.', 'Create or edit niches from the project that will use them.'],
-  },
   'metadata-template': {
     title: 'YouTube Publishing Profile',
     summary: 'Store recurring channel copy separately from episode-specific metadata so titles, links, disclosures, credits, and calls to action stay consistent.',
@@ -524,7 +514,6 @@ export function featureGuideKeyForPath(path: string): string {
   if (path === '/') return 'projects'
   if (path === '/login') return 'login'
   if (path === '/remote') return 'remote'
-  if (path === '/niches') return 'niches-moved'
   if (path === '/usage') return 'usage'
   if (path === '/character-library') return 'channel-characters'
   if (path === '/broll-library') return 'assets-library'

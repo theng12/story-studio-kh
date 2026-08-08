@@ -23,7 +23,7 @@ import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
-import { formatMetadataTxt } from '../services/folder-migration.js'
+import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'

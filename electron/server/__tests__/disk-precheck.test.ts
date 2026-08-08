@@ -1,7 +1,7 @@
 /**
  * Free-disk-space precheck for batch runs.
  *
- * Audit-finding M3 (audit-reports/09-jobs.md): a 20-episode 1080p/high
+ * A 20-episode 1080p/high
  * batch averages 500 MB-1 GB per episode. A nearly-full disk causes the
  * batch to fail halfway through after burning encode cost. These tests
  * pin three invariants:

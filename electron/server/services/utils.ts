@@ -280,9 +280,6 @@ export async function resolveEpisodePathsByCodeWithSidecar(
  * whole prompt pipeline in one place. Episodes created before this change keep
  * the file at the episode root; this resolver returns whichever location
  * actually holds it, falling back to the new location for fresh writes. The
- * boot migration (scene-plan-migration.ts) moves legacy files forward, after
- * which only the new location is ever used.
- *
  * Resolution order (same path for reads AND writes, so in-place edits like
  * approve / regenerate-prompt never split state across the two locations):
  *   1. <scene_prompts_dir>/scene_plan.json exists → use it (new, preferred)

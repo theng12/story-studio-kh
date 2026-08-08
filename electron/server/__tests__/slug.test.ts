@@ -2,7 +2,7 @@
  * Cross-platform slug sanitisation — project directory names have to
  * survive Windows rules even though the app is typically developed on
  * macOS. See services/slug.ts for the full rationale; these tests pin
- * the contract documented in audit-reports/08-persistence.md (H5).
+ * the current project-path contract.
  */
 
 import { test, describe } from 'node:test'

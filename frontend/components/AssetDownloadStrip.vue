@@ -29,7 +29,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   jobTypes: () => [
     'images', 'scene_images', 'thumb_images', 'images_repair',
-    'audio', 'video', 'video_repair',
+    'audio', 'video',
   ],
 })
 
@@ -50,7 +50,7 @@ const label = computed(() => {
     return 'Downloading scene assets'
   }
   if (t === 'audio') return 'Downloading audio (TTS)'
-  if (t === 'video' || t === 'video_repair') return 'Downloading video clips'
+  if (t === 'video') return 'Downloading video clips'
   return 'Downloading assets'
 })
 

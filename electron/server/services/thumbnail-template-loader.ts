@@ -21,12 +21,6 @@
  *                                                  niche default → null
  *
  * Caching mirrors niche-loader: built-ins forever, user-custom by mtime.
- *
- * Legacy bridge: if a niche JSON has the deprecated inline
- * `thumbnailTemplate` field AND no `defaultThumbnailTemplateId`, we
- * synthesize an in-memory template under id `legacy:{nicheId}` so old
- * niches keep composing without forcing a migration. New niches declare
- * `defaultThumbnailTemplateId` and store their layout in the library.
  */
 
 import fs from 'fs/promises'
@@ -115,16 +109,10 @@ function validateShape(t: any, filePath: string): void {
 
 /**
  * Load a template by id. User-custom first, then built-in. Returns
- * null when not found. `legacy:{nicheId}` ids are synthesized by
- * `promoteInlineNicheTemplate()` and never live on disk.
+ * null when not found.
  */
 export async function loadTemplate(id: string): Promise<ThumbnailTemplate | null> {
   if (!id) return null
-  // In-memory legacy bridge lookup — returns the cached synthesized
-  // template if a niche promoted its inline layout earlier this session.
-  if (id.startsWith('legacy:')) {
-    return builtinCache.get(id) || null
-  }
   const userPath = path.join(userTemplatesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)
@@ -183,39 +171,11 @@ export async function listTemplates(): Promise<ThumbnailTemplate[]> {
 }
 
 /**
- * Legacy bridge — when a niche JSON ships an INLINE thumbnailTemplate
- * (v1.0.104 era, before the library refactor), promote it into the
- * in-memory cache under id `legacy:{nicheId}` so the compose endpoint
- * + gallery picker treat it like any other template. Called by
- * `getEffectiveTemplateFor` so legacy niches keep working.
- *
- * Niches that ship BOTH `defaultThumbnailTemplateId` AND an inline
- * `thumbnailTemplate` use the explicit id — inline is fallback only.
- */
-function promoteInlineNicheTemplate(niche: Niche): ThumbnailTemplate | null {
-  if (!niche.thumbnailTemplate) return null
-  const id = `legacy:${niche.id}`
-  if (builtinCache.has(id)) return builtinCache.get(id)!
-  const synth: ThumbnailTemplate = {
-    id,
-    name: `${niche.name} (inline)`,
-    description: `Legacy inline layout from niche ${niche.id}. Move this into electron/server/thumbnail-templates/{id}.json and set niche.defaultThumbnailTemplateId so it appears in the gallery picker.`,
-    builtin: true,
-    schemaVersion: 1,
-    recommendedNicheIds: [niche.id],
-    ...niche.thumbnailTemplate,
-  }
-  builtinCache.set(id, synth)
-  return synth
-}
-
-/**
  * Resolve the effective template for a project, given its already-
  * resolved niche. Resolution chain:
  *
  *   project.config.thumbnail_template_id   (explicit override)
  *     → niche.defaultThumbnailTemplateId    (niche's recommended default)
- *     → niche.thumbnailTemplate (legacy bridge — promotes inline → library)
  *     → null
  *
  * Callers can pass `niche = null` (project has no niche set) — the
@@ -239,13 +199,7 @@ export async function getEffectiveTemplateFor(
   if (niche?.defaultThumbnailTemplateId) {
     const t = await loadTemplate(niche.defaultThumbnailTemplateId)
     if (t) return t
-    console.warn(`[thumbnail-template-loader] niche '${niche.id}' references default template '${niche.defaultThumbnailTemplateId}' but no file found; falling back to inline (if any)`)
-  }
-
-  // 3. Legacy inline bridge — niches that still ship the old inline
-  //    field keep working without forcing a migration.
-  if (niche?.thumbnailTemplate) {
-    return promoteInlineNicheTemplate(niche)
+    console.warn(`[thumbnail-template-loader] niche '${niche.id}' references default template '${niche.defaultThumbnailTemplateId}' but no file was found`)
   }
 
   return null

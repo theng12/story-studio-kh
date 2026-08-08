@@ -7,7 +7,7 @@
       </h2>
       <p class="dialog-sub text-muted">
         Scans every accepted episode for gaps the provider might already have finished, then
-        re-downloads from the provider's history. <strong>No credits consumed.</strong> Use this
+        re-downloads audio and images from provider history. <strong>No credits consumed.</strong> Use this
         after an app crash, network blip, or timeout left provider-completed output unsaved locally.
         Files without a stored task ID come back as "needs fresh generation" in the job log.
       </p>
@@ -18,7 +18,6 @@
       <span v-if="repairableCounts.total > 0" class="repair-summary">
         <span class="repair-chip">Audio: {{ repairableCounts.audio }}</span>
         <span class="repair-chip">Images: {{ repairableCounts.images }}</span>
-        <span class="repair-chip">Video: {{ repairableCounts.video }}</span>
       </span>
       <div class="repair-toolbar-actions">
         <button class="btn btn-sm btn-secondary" :disabled="loading" @click="runAudit">
@@ -30,7 +29,7 @@
           :disabled="repairing || repairableCounts.total === 0"
           :title="repairableCounts.total === 0
             ? 'No gaps detected — nothing to repair. Rescan after a generation attempt if you think something is missing.'
-            : 'Queues repair jobs for every episode with missing audio/images/video. Reads provider history; no credits consumed.'"
+            : 'Queues repair jobs for every episode with missing audio or images. Reads provider history; no credits consumed.'"
           @click="repairAll"
         >
           <LoadingSpinner v-if="repairing" size="sm" />
@@ -56,7 +55,6 @@
         <span class="repair-ep">Episode</span>
         <span class="repair-gap">Audio gap</span>
         <span class="repair-gap">Images gap</span>
-        <span class="repair-gap">Video gap</span>
         <span class="repair-actions"></span>
       </div>
       <div v-for="row in repairableRows" :key="row.episode_id" class="repair-row">
@@ -73,9 +71,6 @@
           <template v-if="row.thumbnails.missing > 0">{{ row.thumbnails.missing }} thumbs</template>
           <template v-if="row.scenes.missing === 0 && row.thumbnails.missing === 0">✓</template>
         </span>
-        <span class="repair-gap" :class="row.video.missing > 0 ? 'gap-missing' : 'gap-ok'">
-          {{ row.video.missing > 0 ? `${row.video.missing} clips` : '✓' }}
-        </span>
         <span class="repair-actions">
           <button
             v-if="row.audio.missing > 0"
@@ -91,13 +86,6 @@
             title="Repair scene + thumbnail images for this episode. Reads provider task history, no credits consumed."
             @click="repairSingleImages(row.episode_id)"
           >↻ Images</button>
-          <button
-            v-if="row.video.missing > 0"
-            class="btn btn-sm btn-ghost repair-btn-row"
-            :disabled="repairingRow === row.episode_id"
-            title="Repair video clips for this episode. Reads provider task history, no credits consumed."
-            @click="repairSingleVideo(row.episode_id)"
-          >↻ Video</button>
         </span>
       </div>
     </div>
@@ -147,17 +135,16 @@ const repairing = ref(false)
 const repairingRow = ref<string | null>(null)
 
 const repairableRows = computed(() => rows.value.filter(r =>
-  r.audio.missing > 0 || r.scenes.missing > 0 || r.thumbnails.missing > 0 || r.video.missing > 0,
+  r.audio.missing > 0 || r.scenes.missing > 0 || r.thumbnails.missing > 0,
 ))
 
 const repairableCounts = computed(() => {
-  const counts = { audio: 0, images: 0, video: 0, total: 0 }
+  const counts = { audio: 0, images: 0, total: 0 }
   for (const r of rows.value) {
     if (r.audio.missing > 0) counts.audio++
     if (r.scenes.missing > 0 || r.thumbnails.missing > 0) counts.images++
-    if (r.video.missing > 0) counts.video++
   }
-  counts.total = counts.audio + counts.images + counts.video
+  counts.total = counts.audio + counts.images
   return counts
 })
 
@@ -182,18 +169,6 @@ async function repairSingleImages(code: string) {
     success(`Image repair queued for ${code} · Job ${job.job_id}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Image repair failed to queue')
-  } finally {
-    repairingRow.value = null
-  }
-}
-
-async function repairSingleVideo(code: string) {
-  repairingRow.value = code
-  try {
-    await post(`/projects/${props.slug}/generate/video-repair`, { episode_id: code })
-    success(`Video repair queued for ${code}`)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Video repair failed to queue')
   } finally {
     repairingRow.value = null
   }
@@ -237,7 +212,7 @@ async function repairAll() {
     }
 
     const msg = [
-      r.total_repair_jobs > 0 ? `${r.total_repair_jobs} image/video repair job(s) queued` : '',
+      r.total_repair_jobs > 0 ? `${r.total_repair_jobs} image repair job(s) queued` : '',
       r.audio_repair_candidates.length > 0 ? `${r.audio_repair_candidates.length} audio repair(s) run` : '',
     ].filter(Boolean).join(' · ')
     success(msg || 'No repairs were needed')
@@ -303,7 +278,7 @@ watch(() => props.visible, (open) => {
 }
 .repair-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1.2fr) minmax(100px, 1fr) minmax(140px, 1fr) minmax(100px, 1fr) minmax(220px, auto);
+  grid-template-columns: minmax(160px, 1.2fr) minmax(100px, 1fr) minmax(140px, 1fr) minmax(220px, auto);
   gap: 8px;
   align-items: center;
   padding: 8px 12px;

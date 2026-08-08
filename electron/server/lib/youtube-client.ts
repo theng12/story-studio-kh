@@ -36,7 +36,7 @@ import {
  * silent ledger miss leaves the UI showing a stale "0 / 10,000" while
  * Google's real counter ticks up. recordQuotaUsage also writes a
  * `youtube_quota_ledger_stale: true` flag to config.json on failure so the
- * UI banner can warn the user. See audit-reports/10-uploads.md M2.
+ * UI banner can warn the user.
  */
 async function recordQuotaOrLog(slug: string, key: QuotaKey): Promise<void> {
   try {

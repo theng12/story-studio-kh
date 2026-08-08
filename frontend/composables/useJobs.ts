@@ -47,7 +47,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   audio_merge: 'Audio merge',
   metadata: 'Metadata',
   video: 'Video (AI scenes)',
-  video_repair: 'Video repair',
   video_assembly: 'Video assembly',
   subtitles_transcribe: 'Subtitles',
   youtube_upload: 'YouTube upload',

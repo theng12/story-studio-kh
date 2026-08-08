@@ -3,7 +3,7 @@
  * reconcilers (image / video / audio) use to decide whether an expected
  * asset is already on disk.
  *
- * Pins down the bug documented in audit-reports/05-portability.md §9
+ * Pins down case-insensitive path matching
  * (P9 / High): reconcilers build expected filenames by uppercasing the
  * episode code (`TN0001_Scene01_v1.png`) and used to call `existsSync`
  * against that exact path. On macOS APFS the lookup silently succeeded

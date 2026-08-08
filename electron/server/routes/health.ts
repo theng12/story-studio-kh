@@ -157,10 +157,6 @@ async function authoritativeUsage(res: any): Promise<void> {
 }
 
 router.get('/usage', (_req, res) => authoritativeUsage(res))
-router.get('/usage/pricing', (_req, res) => res.status(410).json({
-  code: 'GENSTUDIO_AUTHORITATIVE_PRICING',
-  detail: 'GenStudio is the only pricing and settlement authority.',
-}))
 router.get('/usage/rollup', (_req, res) => authoritativeUsage(res))
 
 router.get('/projects/:slug/health', async (req, res) => {
@@ -209,11 +205,6 @@ router.post('/projects/:slug/test-key/:provider', async (req, res) => {
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   await testGenStudioKey(await withGenStudioKey(), res)
 })
-
-router.get('/local-servers/status', (_req, res) => res.status(410).json({
-  code: 'GENSTUDIO_ONLY',
-  detail: 'Model availability comes exclusively from GenStudio.',
-}))
 
 router.get('/projects/:slug/dashboard-stats', async (req, res) => {
   const config = await pm.getConfig(req.params.slug)

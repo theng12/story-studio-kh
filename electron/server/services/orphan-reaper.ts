@@ -13,9 +13,8 @@
  * SIGTERM, then SIGKILL after killAfterMs.
  *
  * macOS-only — `ps -eo` is portable across BSD `ps`, but Windows has no
- * equivalent without spawning tasklist (different output format). Per
- * audit-reports/04-threat-model-personal.md §1 the personal-use model is
- * macOS-primary, so we log-and-skip on Windows for now.
+ * equivalent without spawning tasklist (different output format), so we
+ * log-and-skip on Windows for now.
  */
 
 import { spawn } from 'child_process'

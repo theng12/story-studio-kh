@@ -331,7 +331,6 @@ describe('the prose call sites are left alone', () => {
   const untouched = [
     'generators/episode.ts',              // legacy generateEpisode script + prompt paths
     'routes/scripts.ts',                  // interactive metadata routes
-    'services/docx-normalizer.ts',        // legacy narration normalizer
     'services/audio-expression.ts',       // performance-tag markup
     'routes/upload.ts',                   // playlist description + reply drafts
     'lib/reply-drafter.ts',               // reply draft parsing

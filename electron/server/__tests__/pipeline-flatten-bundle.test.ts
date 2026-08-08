@@ -28,7 +28,7 @@ describe('flattenVideoAssemblyBundle', () => {
     const out = flattenVideoAssemblyBundle({}, 'EP0042', 'My Episode')
     assert.equal(out.episode_id, 'EP0042')
     assert.equal(out.title, 'My Episode')
-    assert.equal(out.render_target, 'local', 'Story Studio never bypasses GenStudio by dispatching directly to Studio Hub')
+    assert.equal('render_target' in out, false)
   })
 
   test('flattens export slot fields to top level', () => {
@@ -44,7 +44,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.fps, 30)
     assert.equal(out.codec, 'h264')
     assert.equal(out.format, 'mp4')
-    assert.equal(out.render_target, 'local')
+    assert.equal('render_target' in out, false)
   })
 
   test('flattens timeline slot — scene_recycling, duration, transition, scene_animation', () => {
@@ -303,10 +303,10 @@ describe('flattenVideoAssemblyBundle', () => {
       const out = flattenVideoAssemblyBundle({}, 'EP0042', 'Empty')
       assert.equal(out.episode_id, 'EP0042')
       assert.equal(out.title, 'Empty')
-      assert.equal(out.render_target, 'local')
+      assert.equal('render_target' in out, false)
       // Should NOT have triggered legacy passthrough — bundle was empty,
-      // not legacy; only the routing safety default was applied.
-      assert.equal(Object.keys(out).length, 3)
+      // not legacy; only the required episode metadata was applied.
+      assert.equal(Object.keys(out).length, 2)
     })
 
     test('bundle with `fallback` ignores legacy passthrough even if top-level looks flat', () => {

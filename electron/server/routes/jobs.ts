@@ -268,16 +268,6 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   res.json(job)
 })
 
-// Retained compatibility endpoint for older renderer builds. Direct Studio Hub
-// repair is retired; the saved checkpoint stays on the historical job as audit
-// evidence, and the user must retry through the GenStudio-owned job identity.
-router.post('/projects/:slug/jobs/:jobId/repair-hub-image', (_req, res) => {
-  res.status(410).json({
-    code: 'GENSTUDIO_ONLY',
-    detail: 'Legacy batch repair is retired. Retry the original job through GenStudio; no request was attempted.',
-  })
-})
-
 // Queue-level Retry fallback. Specialized generator pages may still use their
 // own healing endpoints, but every registered job type remains recoverable
 // even when a newer executor has not yet been added to a frontend map.

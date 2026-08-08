@@ -6,7 +6,7 @@
  * old upload sidecars keep their stale account_id pointer and metadata
  * PATCH calls get routed to the new channel's tokens against a videoId
  * that lives on the old channel, which YouTube returns as an opaque
- * 404. See audit-reports/10-uploads.md finding H1.
+ * 404.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'

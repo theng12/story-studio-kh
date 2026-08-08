@@ -43,20 +43,6 @@ import {
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
 
-// Direct local generation control ("Local Models: Direct | Studio Hub", plus
-// fleet studio start/stop/restart from Settings) is retired — GenStudio is
-// the sole generation boundary now. This 410 is the only thing left standing
-// at these paths; the CRUD/ops handlers that used to live here are gone.
-router.use((req, res, next) => {
-  if (req.path === '/app-settings/local-backend' || req.path.startsWith('/app-settings/hub/')) {
-    return res.status(410).json({
-      code: 'GENSTUDIO_ONLY',
-      detail: 'Direct local generation controls are retired. GenStudio is the sole generation boundary.',
-    })
-  }
-  next()
-})
-
 router.get('/app-settings/notifications', async (_req, res) => {
   try {
     res.json(await getNotifierSettings())

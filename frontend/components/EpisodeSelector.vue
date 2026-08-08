@@ -415,7 +415,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   'audio':               'audio',
   'audio_merge':         'audio merge',
   'subtitles_transcribe':'subtitles',
-  'video_repair':        'video repair',
   'video_assembly':      'video assembly',
   'youtube_upload':      'YouTube upload',
   'tiktok_upload':       'TikTok upload',

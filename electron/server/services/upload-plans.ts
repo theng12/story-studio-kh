@@ -334,23 +334,8 @@ function daysBetween(a: Date, b: Date, _tz: string): number {
 
 // ── Per-item scheduled_for map (item I-eager: sidecar-backed) ─────────────
 //
-// Historical model (≤ v1.0.37): a single `config.upload_item_schedule`
-// record on the project, keyed by episode_code, mapping → ISO 8601 publishAt.
-// Two reads / writes were enough to mutate the whole project's schedule.
-//
-// Item I-eager (v1.0.38+) moved per-episode `scheduled_for` into each
-// episode's YouTube sidecar so there's exactly one source of truth per
-// episode. Imports keep using the config map (they have no sidecar).
-// The boot-time migration in `upload-schedule-migration.ts` walks the
-// legacy map once on app start and pours each entry into the matching
-// sidecar.
-//
-// Backwards-compat invariant: `readItemSchedule` returns the merged view
-// (sidecars first, then any unmigrated import-keyed entries from the
-// legacy map). Existing callers that loop the map don't need to know
-// where the data came from. After all installs have booted past the
-// migration, the legacy map is empty for episodes; only `import:*` keys
-// remain. We can delete the legacy field entirely after a release or two.
+// Episode schedules live in their YouTube sidecars. Imported videos have no
+// episode sidecar, so their `import:*` schedule entries remain in config.
 
 export const LEGACY_SCHEDULE_FIELD = 'upload_item_schedule'
 

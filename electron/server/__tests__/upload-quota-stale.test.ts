@@ -1,7 +1,7 @@
 /**
  * Stale-ledger tests for upload-quota — per-account JSONL edition.
  *
- * Pins the M2 fix from audit-reports/10-uploads.md, but adapted to the
+ * Pins the stale-quota-ledger fix, adapted to the
  * post-migration storage layout: stale state lives in
  * `<userData>/youtube-quota/<accountId>.meta.json`, not in the project's
  * config.json. The behavioural contract is the same:

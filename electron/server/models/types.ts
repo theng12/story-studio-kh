@@ -1163,15 +1163,6 @@ export interface Niche {
    */
   defaultThumbnailTemplateId?: string
 
-  /**
-   * @deprecated v1.0.105 — inline `thumbnailTemplate` on the niche
-   * is preserved for backwards compat (old niche JSONs keep working;
-   * the loader promotes the inline template into the library cache
-   * under a synthetic id). For NEW niches, declare
-   * `defaultThumbnailTemplateId` and put the template in
-   * electron/server/thumbnail-templates/{id}.json.
-   */
-  thumbnailTemplate?: Omit<ThumbnailTemplate, 'id' | 'name' | 'description' | 'builtin' | 'schemaVersion'>
 }
 
 /**
@@ -2109,7 +2100,7 @@ export const JOB_TYPES = [
   'idea_campaign', 'broll_select', 'script-only', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'images',
   'scene_images', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
-  'metadata', 'video', 'video_repair', 'video_assembly',
+  'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
   'broll_autotag', 'broll_fetch', 'research_run', 'scene_plan_run',
@@ -3068,9 +3059,6 @@ export interface GenerateVideoRequest {
   scene_recycling: VideoSceneRecycling
   /** Unified assembly always hydrates this to `scene_plan` before rendering. */
   scene_pool_mode?: 'scene_plan'
-  /** Where this final assembly runs. Remote is strict: it never falls back
-   * to the control-centre Mac when no external Render Studio is available. */
-  render_target?: 'remote' | 'local'
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

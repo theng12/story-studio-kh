@@ -79,7 +79,7 @@ export function armProbeWatchdog(
  * The single-quote escape below (`'\''`) is the lenient form we've shipped
  * for a while; FFmpeg's documented grammar is actually a bare backslash
  * escape, but the lenient form works in practice and tightening it risks
- * breaking existing rendered paths. See audit-reports/07-ffmpeg.md §3.
+ * breaking existing rendered paths.
  */
 export function formatConcatFileLine(p: string): string {
   if (/[\n\r\0]/.test(p)) {

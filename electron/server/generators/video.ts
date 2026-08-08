@@ -2401,8 +2401,7 @@ async function prepareSceneClips(
     // metadata while the post-audio / outro segments emit bt709 — the
     // stream-copy concat into intermediate_video.mp4 then carries a tag
     // switch mid-file, which libx265 rejects at final composition init with
-    // exit code 183 / return code -22 (EINVAL). See docs/history/
-    // fal-model-audit-2026-04.md? no — investigation trail in plan file.
+    // exit code 183 / return code -22 (EINVAL).
     // Stills loop a single frame (`-loop 1`); video scenes stream-loop the
     // source so a clip shorter than `duration` repeats to fill it, and the
     // trailing `-t` trims a longer clip — either way the output is exactly

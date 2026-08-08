@@ -698,7 +698,7 @@ async function generateEpisode(job: Job): Promise<void> {
         savedAt: new Date().toISOString(),
         version: 1,
       }
-      const { formatMetadataTxt } = await import('../services/folder-migration.js')
+      const { formatMetadataTxt } = await import('../services/metadata-format.js')
       await fs.mkdir(paths.metadata_dir, { recursive: true })
       await fs.writeFile(paths.metadata_txt, formatMetadataTxt(meta))
       await fs.writeFile(paths.metadata_json, JSON.stringify(meta, null, 2) + '\n')

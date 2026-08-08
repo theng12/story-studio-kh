@@ -288,7 +288,7 @@ describe('Standards (production_standards.txt)', () => {
 
 describe('Corrupt project.json handling (audit #4 / H2)', () => {
   test('updateProject REJECTS when project.json is corrupt (does not silently merge into {})', async () => {
-    // Regression guard for audit-reports/08-persistence.md finding #4:
+    // Regression guard for corrupt project metadata:
     // the old readJson swallowed parse errors and returned {}, so this
     // updateProject would merge-and-write `{ name: 'Renamed' }` as the
     // entire file, wiping slug/project_id/output_root/episode_prefix.

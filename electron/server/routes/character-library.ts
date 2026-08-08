@@ -23,35 +23,11 @@ import { Router } from 'express'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import * as cl from '../services/character-library.js'
-import * as migration from '../services/character-migration.js'
 
 export const router = Router()
 
-let initialMigration: Promise<void> | null = null
-
-function ensureLegacyCharactersMigrated(): Promise<void> {
-  if (!initialMigration) {
-    initialMigration = migration.runMigration({ confirm: true })
-      .then(result => {
-        if (result.totals.failed) {
-          console.warn(`[character-library] ${result.totals.failed} legacy character migration(s) failed verification`)
-        }
-        const conflicts = result.items.filter(item => item.status === 'conflict')
-        if (conflicts.length) {
-          console.warn(`[character-library] ${conflicts.length} legacy id conflict(s) remain in the safety bridge`)
-        }
-      })
-      .catch(error => {
-        initialMigration = null
-        throw error
-      })
-  }
-  return initialMigration
-}
-
 router.get('/character-library', async (_req, res) => {
   try {
-    await ensureLegacyCharactersMigrated()
     res.json(await cl.listLibrary())
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to list character library: ${e.message}` })

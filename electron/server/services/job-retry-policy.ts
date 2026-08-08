@@ -84,8 +84,8 @@ const IMAGE_MODEL_TYPES = new Set<JobType>([
 /**
  * Deny-by-default retry classification.
  *
- * "Free" means no external provider submission: this Mac or a Studio Hub
- * worker performs the compute. A free tier on a cloud API is still an API and
+ * "Free" means no external provider submission: this Mac performs the compute.
+ * A free tier on a cloud API is still an API and
  * is deliberately manual-only because automatic resubmission can consume
  * quota or create duplicate provider tasks.
  */
@@ -98,9 +98,7 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (job.type === 'video_assembly') {
-    return params.render_target === 'local'
-      ? localPolicy('Local video assembly can retry without provider charges.')
-      : { ...MANUAL_ONLY, reason: 'Remote Render Studio batches reconnect to their accepted Hub job; a new remote render is only started by manual Retry after a terminal failure.' }
+    return localPolicy('Local video assembly can retry without provider charges.')
   }
 
   if (ALWAYS_LOCAL_TYPES.has(job.type)) {

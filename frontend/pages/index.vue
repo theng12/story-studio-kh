@@ -762,7 +762,7 @@
              Inserted between GenStudio and Review so the machine is pinned
              to the right YouTube channel at setup — not 30 minutes later,
              which is when a wrong-channel upload could already have happened
-             (see audit-reports/04 §3). Each row is skippable so users without
+             Each row is skippable so users without
              a TikTok/FB presence aren't blocked. -->
         <div v-if="step ===5">
           <div class="flex justify-between items-center mb-2" style="gap: 8px; flex-wrap: wrap;">

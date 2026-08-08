@@ -1162,11 +1162,10 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
     return res.status(409).json({ detail: `Video assembly already queued/running for ${episode_id}` })
   }
 
-  // Story Studio is a GenStudio client only. Final FFmpeg assembly remains a
-  // local desktop operation until GenStudio exposes a qualified render API;
-  // never bypass the gateway by submitting directly to Studio Hub.
-  req.body.render_target = 'local'
-  req.body.remote_render_requested = false
+  // Final FFmpeg assembly is local. Strip retired render-target fields from
+  // stale presets before the job is persisted.
+  delete req.body.render_target
+  delete req.body.remote_render_requested
 
   const job = enqueue({
     project_slug: slug,

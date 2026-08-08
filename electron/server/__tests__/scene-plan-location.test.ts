@@ -1,12 +1,8 @@
 /**
  * v1.0.467 — scene_plan.json now lives inside the "03 Scene Prompts" folder.
  *
- * Covers:
- *   - resolveScenePlanPath: new-location preferred, legacy-root fallback,
- *     fresh-write default, and "✅ "-prefixed scene-prompts folder tolerance.
- *   - migrateScenePlanIntoPrompts: moves a legacy root file forward, is
- *     idempotent, leaves an ambiguous "both present" state untouched, and sets
- *     its marker so a second pass is a no-op.
+ * Covers resolveScenePlanPath: new-location preferred, legacy-root fallback,
+ * fresh-write default, and "✅ "-prefixed scene-prompts folder tolerance.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -19,7 +15,6 @@ import { useTempDataDir } from './_helpers.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let utils: typeof import('../services/utils.js')
-let migr: typeof import('../services/scene-plan-migration.js')
 let projectsRoot: string
 
 before(async () => {
@@ -27,7 +22,6 @@ before(async () => {
   tempDir = t.dir
   cleanup = t.cleanup
   utils = await import('../services/utils.js')
-  migr = await import('../services/scene-plan-migration.js')
   const pm = await import('../services/project-manager.js')
   projectsRoot = pm.projectsRoot()
 })
@@ -105,48 +99,5 @@ describe('resolveScenePlanPath', () => {
     await fs.writeFile(donePlan, PLAN)
     const resolved = await utils.resolveScenePlanPath('alpha', 'EP0001', episodeDir)
     assert.equal(resolved, donePlan)
-  })
-})
-
-describe('migrateScenePlanIntoPrompts', () => {
-  test('moves a legacy root file into the 03 folder', async () => {
-    const { legacyPlan, newPlan } = await seedEpisode('alpha')
-    await fs.writeFile(legacyPlan, PLAN)
-
-    await migr.migrateScenePlanIntoPrompts()
-
-    assert.equal(existsSync(legacyPlan), false, 'legacy file should be gone')
-    assert.equal(existsSync(newPlan), true, 'file should now be in 03 folder')
-    assert.equal(await fs.readFile(newPlan, 'utf-8'), PLAN, 'contents preserved')
-  })
-
-  test('is idempotent — second pass is a no-op and contents survive', async () => {
-    const { legacyPlan, newPlan } = await seedEpisode('alpha')
-    await fs.writeFile(legacyPlan, PLAN)
-
-    await migr.migrateScenePlanIntoPrompts()
-    // Marker is set now; a second call must not throw or move anything.
-    await migr.migrateScenePlanIntoPrompts()
-
-    assert.equal(existsSync(newPlan), true)
-    assert.equal(await fs.readFile(newPlan, 'utf-8'), PLAN)
-  })
-
-  test('both present → leaves the root file untouched (no clobber)', async () => {
-    const { scenePromptsDir, legacyPlan, newPlan } = await seedEpisode('alpha')
-    await fs.writeFile(legacyPlan, PLAN)
-    await fs.mkdir(scenePromptsDir, { recursive: true })
-    await fs.writeFile(newPlan, '{"scenes":[{"id":"existing"}]}')
-
-    await migr.migrateScenePlanIntoPrompts()
-
-    assert.equal(existsSync(legacyPlan), true, 'ambiguous state: root file left in place')
-    assert.equal(await fs.readFile(newPlan, 'utf-8'), '{"scenes":[{"id":"existing"}]}', '03 file not overwritten')
-  })
-
-  test('no scene_plan.json anywhere → no-op, no folder created', async () => {
-    const { scenePromptsDir } = await seedEpisode('alpha')
-    await migr.migrateScenePlanIntoPrompts()
-    assert.equal(existsSync(scenePromptsDir), false, 'should not create an empty 03 folder')
   })
 })

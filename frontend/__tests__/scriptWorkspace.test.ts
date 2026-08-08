@@ -12,7 +12,7 @@ describe('Script Generator workspace', () => {
   test('keeps regeneration controls visible without an advanced disclosure', () => {
     assert.match(scripts, /class="script-regeneration-controls"/)
     assert.match(scripts, /<strong>Force regenerate<\/strong>/)
-    assert.match(scripts, /Normalize legacy narration/)
+    assert.doesNotMatch(scripts, /Normalize legacy narration/)
     assert.doesNotMatch(scripts, /label="Advanced options"/)
     assert.doesNotMatch(scripts, /scriptAdvancedExpanded/)
   })

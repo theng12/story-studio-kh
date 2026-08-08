@@ -250,7 +250,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // the type-narrowing from that block doesn't carry across the meta-
     // resolution code that sits between them.
     if (!videoPath) throw new Error('internal: missing videoPath in fresh-upload branch')
-    // Restart-safe resume (audit-reports/10-uploads.md M4): if a transient
+    // Restart-safe resume: if a transient
     // sidecar from a prior interrupted run exists AND its TTL hasn't
     // expired AND file_size matches AND account_id matches, hand the
     // session URL to uploadVideo so it skips init + the 1600-unit quota

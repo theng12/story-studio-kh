@@ -7,14 +7,13 @@
  * grep across app.ts.
  */
 
-import { initializeQueuePauseState, registerExecutor, resumeInterruptedHubJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
+import { initializeQueuePauseState, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
 } from '../generators/episode.js'
 import { generateImages } from '../generators/images.js'
 import { reconcileImages } from '../services/image-reconciler.js'
-import { reconcileVideos } from '../services/video-reconciler.js'
 import { generateImagePrompts } from '../generators/image-prompts.js'
 import { generateAudio } from '../generators/audio.js'
 import { generateVideo as generateVideoAssembly } from '../generators/video.js'
@@ -94,22 +93,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
       retry_hint: 'Recovered files were saved. Items without a task result need fresh generation.',
     })
   }))
-  // Same shape as images_repair — delegates the per-provider dispatch
-  // (kie-video / fal-video) to the reconciler itself.
-  registerExecutor('video_repair', guardMedia(async (job) => {
-    const episodeId = (job.params as any)?.episode_id || job.episode_id
-    const result = await reconcileVideos(job.project_slug, episodeId, job)
-    if (result.total_expected === 0) throw new Error('No tracked video tasks were found to repair. Run fresh generation first.')
-    job.result = result
-    const unresolved = result.outcomes
-      .filter(item => item.status !== 'recovered' && item.status !== 'skipped_ok')
-      .map(item => item.filename)
-    requireJobCompletion(job, {
-      label: 'Video repair', expected: result.total_expected,
-      completed: result.recovered + result.skipped_ok, missing: unresolved,
-      retry_hint: 'Recovered clips were saved. Items without a usable task result need fresh generation.',
-    })
-  }))
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
   registerExecutor('metadata', generateMetadata)
@@ -161,7 +144,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
 
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()
-      .then(() => resumeInterruptedHubJobsAtBoot())
+      .then(() => resumeInterruptedJobsAtBoot())
       .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
     // The durable recovery scan is chained after queue-hold restoration above,
     // so a user-paused queue cannot race and start work during app boot.

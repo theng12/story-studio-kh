@@ -9,8 +9,7 @@
  *
  * Boot-ready gate: every page mounts and fires several API calls in
  * parallel. Without this gate, calls that land before the backend's
- * async boot migrations finish (migrateAppSecrets, migrateDescriptionTo
- * Metadata, etc.) can hit transient state and surface "Project not
+ * async boot maintenance finishes can hit transient state and surface "Project not
  * found" / "COULDN'T VERIFY" warnings to the user. The gate polls
  * /api/health for `boot_complete: true` on the very first call, then
  * caches the resolution so subsequent calls are no-ops. A 15 s timeout

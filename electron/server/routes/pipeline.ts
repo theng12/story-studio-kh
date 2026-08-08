@@ -904,11 +904,15 @@ export function flattenVideoAssemblyBundle(
       `[pipeline] video_assembly preset has legacy flat shape (no \`fallback\` block). `
       + `Passing fields through; re-save the preset from the Video Assembly page to migrate to the bundle shape.`,
     )
-    const { episode_id: _e, title: _t, ...rest } = bundleData
+    const {
+      episode_id: _episodeId,
+      title: _title,
+      render_target: _renderTarget,
+      remote_render_requested: _remoteRenderRequested,
+      ...rest
+    } = bundleData
     return {
       ...rest,
-      // Final assembly is local until GenStudio exposes a qualified render API.
-      render_target: 'local',
       episode_id: episodeId,
       title: title || '',
     }
@@ -930,9 +934,6 @@ export function flattenVideoAssemblyBundle(
   for (const k of ['resolution', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
-  // Old remote presets are healed to the current GenStudio-only boundary.
-  out.render_target = 'local'
-
   // ── Timeline slot
   if (timeline.scene_recycling)  out.scene_recycling  = timeline.scene_recycling
   if (timeline.duration)         out.duration         = timeline.duration

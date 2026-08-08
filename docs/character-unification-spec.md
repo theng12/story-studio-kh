@@ -116,44 +116,14 @@ shared characters):
 - `libraryCharacterDir(id)` — exported so callers can resolve reference images.
 - `saveToLibrary` now **auto-assigns** the source project (`projects:[slug]`)
   and preserves `projects` on overwrite; `updateLibraryCharacter` preserves
-  `projects`. `import-to/:slug` (legacy snapshot copy) is unchanged and still
-  available.
-
-## Migration — `character-migration.ts`
-
-One-time, **copy-only**, reversible consolidation of per-project characters into
-the library.
-
-- `planMigration()` — **dry run**. For every project, lists its
-  `listOwnCharacters`. For each, computes target library id (= character id) and
-  a status:
-  - `copy` — no library entry with that id yet → will create + assign.
-  - `assign-only` — a library entry with that id already exists and is
-    byte-identical on the meaningful fields → will just add the slug to its
-    `projects[]` (no overwrite).
-  - `conflict` — a *different* character already owns that library id → **skipped**
-    and reported; the user resolves by renaming.
-  Returns counts + the full per-character plan. Writes nothing.
-- `runMigration({ confirm: true })` — executes the plan: copies `character.json`
-  (tagged `projects:[slug]`, `source:'library'`) + every reference image into
-  the library, then **verifies** (re-reads the library record, checks fields +
-  that each image file exists). **Never deletes** the project original. Returns a
-  per-character verified/failed report. Conflicts are skipped, never overwritten.
-
-Reversibility: because originals are untouched, "undoing" is just deleting the
-freshly-created library entries (or unassigning the slug). The migration report
-lists exactly which library ids it created, so a revert is mechanical.
-
-Routes: `GET /api/character-migration/plan` (dry run) and
-`POST /api/character-migration/run` (requires `{ "confirm": true }`).
+  `projects`. `import-to/:slug` remains available for an intentional snapshot
+  copy.
 
 ## API surface added
 
 - `POST   /api/character-library/:id/assign/:slug`
 - `DELETE /api/character-library/:id/assign/:slug`
 - `POST   /api/projects/:slug/characters/assign-from-library` `{ libraryId }`
-- `GET    /api/character-migration/plan`
-- `POST   /api/character-migration/run` `{ confirm: true }`
 
 Existing routes (`save-to-library`, `import-to/:slug`, all CRUD) are unchanged.
 
@@ -176,11 +146,9 @@ Existing routes (`save-to-library`, `import-to/:slug`, all CRUD) are unchanged.
 - `character-manager.test.ts` — unified `listCharacters` merges assigned library
   characters, dedups by id (project wins), `getCharacter`/`referenceImagePath`
   library fallback, `listOwnCharacters` stays project-only.
-- `character-migration.test.ts` — dry-run writes nothing, `copy`/`assign-only`/
-  `conflict` classification, run copies+verifies+assigns and leaves originals.
 
 ## Rollback
 
-Disable the read-merge by reverting `character-manager` to call the old project-only
-body — no data migration needed, both stores are intact. The `projects` field and
-library entries created by the migration are inert to the old code path.
+Unassigning a channel leaves the library character intact and removes it from
+that channel's unified view. Deleting a project-local character does not delete
+the corresponding library record.

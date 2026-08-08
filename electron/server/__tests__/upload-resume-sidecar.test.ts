@@ -1,5 +1,5 @@
 /**
- * Tests for the transient resumable-upload sidecar (audit-reports/10-uploads.md M4).
+ * Tests for the transient resumable-upload sidecar.
  *
  * Two layers:
  *

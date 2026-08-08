@@ -28,12 +28,10 @@ import { router as appSettingsRouter } from './app-settings.js'
 import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
-import { router as characterMigrationRouter } from './character-migration.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
 import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
-import { router as assetMigrateRouter } from './asset-migrate.js'
 import { router as linkedProjectsRouter } from './linked-projects.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
 import { router as imagePreviewRouter } from './image-preview.js'
@@ -66,20 +64,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', jobsRouter)
   app.use('/api', scriptsRouter)
 
-  // Story Studio has one generation boundary: GenStudio KH. Keep the legacy
-  // sibling-Studio handlers in source only for historical data compatibility,
-  // but make every direct control URL unreachable before those routers mount.
-  // This is deliberately a 410 (not a fall-through 404) so old clients receive
-  // a clear migration signal and cannot silently reconnect to a local fleet.
-  for (const prefix of ['imagestudio', 'voicestudio', 'chatstudio', 'videostudio', 'studiohub']) {
-    app.use(`/api/${prefix}`, (_req, res) => {
-      res.status(410).json({
-        code: 'GENSTUDIO_ONLY',
-        detail: 'Direct local generation control routes are retired. Configure the single GenStudio connection in Settings → This Mac.',
-      })
-    })
-  }
-
   app.use('/api', imagesRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
@@ -98,12 +82,10 @@ export function mountRoutes(app: Express): void {
   app.use('/api', uploadRouter)
   app.use('/api', charactersRouter)
   app.use('/api', characterLibraryRouter)
-  app.use('/api', characterMigrationRouter)
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)
   app.use('/api', recencyRouter)
   app.use('/api', musicPoolRouter)
-  app.use('/api', assetMigrateRouter)
   app.use('/api', linkedProjectsRouter)
   app.use('/api', softDeletedProjectsRouter)
   app.use('/api', imagePreviewRouter)

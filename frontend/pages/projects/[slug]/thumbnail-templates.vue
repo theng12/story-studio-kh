@@ -160,8 +160,6 @@ async function loadAll() {
       effectiveSource.value = 'project override'
     } else if (eff?.template && niche?.niche?.defaultThumbnailTemplateId === eff.template.id) {
       effectiveSource.value = `niche default (${niche.niche.id})`
-    } else if (eff?.template?.id?.startsWith('legacy:')) {
-      effectiveSource.value = 'niche legacy inline'
     } else if (eff?.template) {
       effectiveSource.value = 'library default'
     } else {

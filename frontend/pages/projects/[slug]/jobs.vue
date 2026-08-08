@@ -360,7 +360,7 @@
                  combined button caused duplicate provider tasks when
                  users clicked it repeatedly to "make it work". -->
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && (!job.auto_retry?.eligible || hasHubImageCheckpoint(job))"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
               class="btn btn-xs btn-primary"
               @click="repairJobOnly(job)"
               title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
@@ -612,7 +612,7 @@
             <div class="job-actions">
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && (!job.auto_retry?.eligible || hasHubImageCheckpoint(job))"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
                 class="btn btn-xs btn-primary"
                 @click="repairJobOnly(job)"
                 title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
@@ -1222,7 +1222,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   scene_images: 'Scene Images',
   thumb_images: 'Thumbnail Images',
   images_repair: 'Image Repair',
-  video_repair: 'Video Repair',
   audio: 'Audio',
   audio_merge: 'Audio Merge',
   metadata: 'Metadata',
@@ -1313,7 +1312,6 @@ const filterTabs = computed(() => {
     { type: 'images_repair',        label: 'Image Repair' },
     { type: 'video',                label: 'AI Video' },
     { type: 'scene_clips_batch',    label: 'Motion Review' },
-    { type: 'video_repair',         label: 'Video Repair' },
     { type: 'audio',                label: 'Audio' },
     { type: 'audio_merge',          label: 'Audio Merge' },
     { type: 'video_assembly',       label: 'Video Assembly' },
@@ -1589,7 +1587,6 @@ function getOutputDir(job: RJob): string | null {
   //   - "All clips saved to: /path/to/dir"          (ai-video.ts)
   //   - "All files saved to: /path/to/dir"          (episode.ts)
   //   - "Wrote N cues → /path/to/file.srt"          (subtitles.ts)
-  //   - "No task manifest at /path/to/dir."         (video-reconciler.ts)
   //   - "Saved → file1.json + file2.txt"            (metadata.ts — basenames only, no path)
   // The matcher is intentionally permissive: any line containing an
   // absolute path counts. File paths get folded to their parent dir
@@ -1675,7 +1672,7 @@ const COST_INCURRING_TYPES = new Set([
   'subtitles_transcribe',
 ])
 
-const HUB_CANCELLABLE_TYPES = new Set([
+const REMOTE_CANCELLABLE_TYPES = new Set([
   'scene_plan_run',
   'continuity_render',
   'scene_images_batch',
@@ -1690,8 +1687,8 @@ async function cancelJob(job: RJob) {
     && !job.auto_retry?.eligible
   try {
     await del(jobQueuePath(job))
-    if (job.status === 'running' && HUB_CANCELLABLE_TYPES.has(job.type)) {
-      success('Stop requested. Any active remote batch will also be cancelled; completed checkpoints remain saved.')
+    if (job.status === 'running' && REMOTE_CANCELLABLE_TYPES.has(job.type)) {
+      success('Stop requested. Any active provider task will also be cancelled; completed checkpoints remain saved.')
     } else if (wasRunningWithCost) {
       // Multi-line toast — local cancel doesn't signal upstream, so
       // already-submitted provider tasks may complete on their side and
@@ -1775,23 +1772,11 @@ const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; b
     body: { episode_id: '__EPISODE__' },
     mode: 'queued',
   },
-  video: {
-    url: projectSlug => `/projects/${projectSlug}/generate/video-repair`,
-    body: { episode_id: '__EPISODE__' },
-    mode: 'queued',
-  },
-}
-
-function hasHubImageCheckpoint(job: Pick<RJob, 'type' | 'params'>): boolean {
-  const checkpoint = (job.params as any)?.hub_image_recovery
-  return ['scene_images_batch', 'continuity_render', 'image_pool_generate'].includes(job.type)
-    && typeof checkpoint?.batch_id === 'string'
-    && checkpoint.batch_id.length > 0
 }
 
 function jobCanBeRepaired(jobOrType: Pick<RJob, 'type' | 'params'> | string): boolean {
   if (typeof jobOrType === 'string') return jobOrType in REPAIR_ENDPOINTS
-  return hasHubImageCheckpoint(jobOrType) || jobOrType.type in REPAIR_ENDPOINTS
+  return jobOrType.type in REPAIR_ENDPOINTS
 }
 
 // v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
@@ -1802,9 +1787,6 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'FREE LOCAL RETRY — The automatic attempts are exhausted or this run was stopped. Starts another bounded local retry cycle and keeps verified files already on disk. No paid API request is made.'
   }
   const jobType = job.type
-  if (hasHubImageCheckpoint(job as RJob)) {
-    return 'SAFE RECOVERY — Repair reconnects to the accepted batch and downloads completed images without submitting anything new. Retry reuses the saved idempotency identity, then submits only verified-missing images if the old batch is terminal.'
-  }
   if (jobType === 'scene_plan_run') {
     return 'SMART RETRY — Keeps every prompt already verified on disk and sends only missing or duplicated stable scene IDs in bounded GenStudio packs.'
   }
@@ -1864,14 +1846,7 @@ function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {
  * missing).
  */
 async function repairJobOnly(job: RJob) {
-  const hubRepair = hasHubImageCheckpoint(job)
-  const template = hubRepair
-    ? {
-        url: (projectSlug: string) => `/projects/${projectSlug}/jobs/${encodeURIComponent(job.job_id)}/repair-hub-image`,
-        body: {},
-        mode: 'queued' as const,
-      }
-    : REPAIR_ENDPOINTS[job.type]
+  const template = REPAIR_ENDPOINTS[job.type]
   if (!template) {
     showError(`This job type doesn't support repair. Use Retry to re-submit instead.`)
     return
@@ -1974,7 +1949,6 @@ async function retryJob(job: RJob) {
     video:           { url: `/projects/${projectSlug}/generate/video`,         params: job.params },
     video_assembly:  { url: `/projects/${projectSlug}/generate/video-assembly`, params: job.params },
     images_repair:   { url: `/projects/${projectSlug}/generate/images-repair`,  params: { episode_id: job.episode_id } },
-    video_repair:    { url: `/projects/${projectSlug}/generate/video-repair`,   params: { episode_id: job.episode_id } },
     continuity_render: {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
       params: job.params,
@@ -2077,7 +2051,7 @@ async function retryJob(job: RJob) {
 /**
  * Poll a job until it reaches a terminal state (done / error / cancelled),
  * or the timeout fires. Used to gate retry-after-repair on the actual
- * completion of a queued repair job (images-repair / video-repair) since
+ * completion of a queued image-repair job since
  * their POST returns immediately after enqueue, not after the work lands.
  *
  * Polls every 2 s — fast enough that a small repair job (5-10 s) doesn't

@@ -1,9 +1,8 @@
 /**
  * Niche-templated thumbnail composer (v1.0.104+).
  *
- * Takes a source image (typically a generated character portrait) and a
- * niche's `thumbnailTemplate` schema, returns a PNG buffer with the
- * niche's text shape composited over it. The whole point is so the
+ * Takes a source image and a ThumbnailTemplate, then returns a PNG buffer with
+ * the template's text shape composited over it. The whole point is so the
  * user can drop a randomized portrait into the Compose modal and get
  * back the SAME thumbnail layout the channel always uses — title text
  * baked in, subtitle banner baked in, accent rule, logo slot.
@@ -41,8 +40,7 @@ export interface ComposeInput {
   sourcePath: string
   /** Layout template. v1.0.105+ takes the template directly (decoupled
    *  from niches) — the route is responsible for resolving the
-   *  effective template via the loader's chain (project override →
-   *  niche default → legacy inline). */
+   *  effective template via the loader's project-override → niche-default chain. */
   template: ThumbnailTemplate
   /** Text overrides keyed by zone `name`. Empty / undefined falls
    *  back to the zone's `defaultText` (with placeholder substitution
@@ -64,9 +62,7 @@ export interface ComposeInput {
 /**
  * Compose a thumbnail. Returns a PNG buffer ready to write to disk.
  *
- * Throws if the niche has no `thumbnailTemplate` — callers should
- * surface that to the user as "this niche doesn't ship a thumbnail
- * template; nothing to compose with" instead of generating garbage.
+ * Throws when no template is supplied.
  */
 export async function composeThumbnail(input: ComposeInput): Promise<Buffer> {
   const tmpl = input.template

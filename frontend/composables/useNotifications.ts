@@ -80,7 +80,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   audio_merge: 'Audio Assembly',
   video: 'Video',
   video_assembly: 'Video Assembly',
-  video_repair: 'Video Repair',
   continuity_render: 'Continuity Render',
   metadata: 'Metadata',
   youtube_upload: 'YouTube Upload',
