@@ -4,7 +4,7 @@ Living roadmaps and backlogs. Items here change state as work happens — `[ ]` 
 
 ## Contents
 
-- [`dependency-maintenance-2026-08.md`](dependency-maintenance-2026-08.md) — clear the current development/build audit findings without changing runtime dependencies.
+No active plans. Completed plans are retained in [`../history/`](../history/).
 
 ## When to update
 

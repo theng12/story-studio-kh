@@ -1,5 +1,8 @@
 # Dependency maintenance — August 2026
 
+**Completed in Story Studio v1.0.808 (`8926d74`).** Both the production-only
+and full npm audits report zero vulnerabilities.
+
 Snapshot from 2026-08-08: `npm audit --omit=dev` reports zero production
 vulnerabilities. The full audit reports 12 vulnerable development/build
 dependency entries (10 high, 2 moderate) across 11 distinct advisories.
@@ -32,23 +35,23 @@ The 10 high entries are `app-builder-lib`, `brace-expansion`, `builder-util`,
   [GHSA-m8rv-5g2x-5cg5](https://github.com/advisories/GHSA-m8rv-5g2x-5cg5),
   [GHSA-v3r7-h72x-cjcm](https://github.com/advisories/GHSA-v3r7-h72x-cjcm)).
 
-## Work to do
+## Completed work
 
-- [ ] Upgrade `electron-builder` from 26.9.0 to 26.15.3. Confirm the update
+- [x] Upgrade `electron-builder` from 26.9.0 to 26.15.3. Confirm the update
   resolves the affected `app-builder-lib`, `builder-util`,
   `builder-util-runtime`, `dmg-builder`, `electron-builder-squirrel-windows`,
   and `electron-publish` entries.
-- [ ] Refresh vulnerable transitive packages to patched versions:
+- [x] Refresh vulnerable transitive packages to patched versions:
   `brace-expansion` 1.1.18 / 2.1.4 / 5.0.9, `js-yaml` 4.3.1,
   `nanoid` 5.1.16, `tar` 7.5.22, and `undici` 6.28.0 or newer compatible
   releases. Prefer normal dependency resolution; add `overrides` only if a
   parent package cannot resolve a patched version.
-- [ ] Run `npm audit` and `npm audit --omit=dev`; require both to report zero
+- [x] Run `npm audit` and `npm audit --omit=dev`; require both to report zero
   before closing this backlog.
-- [ ] Run the full verification suite and exercise macOS packaging. Inspect
+- [x] Run the full verification suite and exercise macOS packaging. Inspect
   Windows/Linux packaging configuration even when those artifacts cannot be
   built on this Mac.
-- [ ] Ship the dependency-only release with the required version and changelog
+- [x] Ship the dependency-only release with the required version and changelog
   update, then move this completed backlog to `docs/history/`.
 
 ## Boundaries
