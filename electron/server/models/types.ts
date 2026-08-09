@@ -2947,6 +2947,12 @@ export interface VideoFilmGrain {
   strength: number        // 0-100, default 15
 }
 
+/** Self-contained archival-film treatment; deliberately separate from grade, vignette, and grain. */
+export interface VideoAgedArchiveFilm {
+  enabled: boolean
+  strength: number        // 1-100, default 45
+}
+
 export interface VideoLetterbox {
   enabled: boolean
   ratio: '2.35:1' | '2.00:1' | '1.85:1'  // cinematic aspect ratios
@@ -3122,6 +3128,7 @@ export interface GenerateVideoRequest {
    *  doesn't need to re-probe. */
   chapter_durations?: Array<{ slug: string; duration_s: number }>
   film_grain?: VideoFilmGrain
+  aged_archive_film?: VideoAgedArchiveFilm
   letterbox?: VideoLetterbox
   frame?: VideoFrameConfig
   subtitles?: VideoSubtitleConfig

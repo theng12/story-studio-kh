@@ -976,6 +976,7 @@ export function flattenVideoAssemblyBundle(
   if (effects.color_grading?.enabled) out.color_grading = effects.color_grading
   if (effects.vignette?.enabled)      out.vignette      = effects.vignette
   if (effects.film_grain?.enabled)    out.film_grain    = effects.film_grain
+  if (effects.aged_archive_film?.enabled) out.aged_archive_film = effects.aged_archive_film
   if (effects.letterbox?.enabled)     out.letterbox     = effects.letterbox
   if (effects.frame?.enabled)         out.frame         = effects.frame
   if (effects.chroma_key?.enabled && effects.chroma_key.source_path) {

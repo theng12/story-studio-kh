@@ -828,6 +828,7 @@
               </template>
               <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
               <div v-if="filmGrain.enabled" class="effect-grain-overlay" :style="{ opacity: filmGrain.strength / 80 }" />
+              <div v-if="agedArchiveFilm.enabled" class="effect-aged-archive-film-overlay" :style="{ opacity: agedArchiveFilm.strength / 100 }" />
               <template v-if="letterbox.enabled">
                 <div class="letterbox-bar letterbox-top" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
                 <div class="letterbox-bar letterbox-bottom" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
@@ -1213,6 +1214,26 @@
             <p class="text-muted text-sm mt-1">
               Values above 20 add visible noise and can significantly increase final file size —
               random noise doesn't compress well. <strong>10–15</strong> is a subtle cinematic look.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aged Archive Film -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="agedArchiveFilm.enabled" />
+          </label>
+          <h4>Aged Archive Film</h4>
+          <span class="text-muted text-sm">(dust, scratches, flicker, gate weave)</span>
+        </div>
+        <div v-if="agedArchiveFilm.enabled" class="mt-2">
+          <div class="form-group">
+            <label>Intensity ({{ agedArchiveFilm.strength }})</label>
+            <SliderWithNumber v-model="agedArchiveFilm.strength" :min="1" :max="100" :step="1" />
+            <p class="text-muted text-sm mt-1">
+              A self-contained archival treatment. It does not enable or change Color Grading, Vignette, or Film Grain; turn those on separately only when you want them stacked.
             </p>
           </div>
         </div>
@@ -3133,6 +3154,11 @@ const filmGrain = reactive({
   strength: 15,
 })
 
+const agedArchiveFilm = reactive({
+  enabled: false,
+  strength: 45,
+})
+
 const letterbox = reactive({
   enabled: false,
   ratio: '2.35:1' as string,
@@ -3399,6 +3425,7 @@ const effectsPresets = usePresets({
     color_grading: { ...colorGrading },
     vignette: { ...vignette },
     film_grain: { ...filmGrain },
+    aged_archive_film: { ...agedArchiveFilm },
     letterbox: { ...letterbox },
     frame: { ...frame },
     chroma_key: { ...chromaKey },
@@ -3424,6 +3451,7 @@ const effectsPresets = usePresets({
     if (data.color_grading) Object.assign(colorGrading, data.color_grading)
     if (data.vignette) Object.assign(vignette, data.vignette)
     if (data.film_grain) Object.assign(filmGrain, data.film_grain)
+    if (data.aged_archive_film) Object.assign(agedArchiveFilm, data.aged_archive_film)
     if (data.letterbox) Object.assign(letterbox, data.letterbox)
     if (data.frame) Object.assign(frame, data.frame)
     if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
@@ -3536,6 +3564,7 @@ function snapshotEffectsData() {
     color_grading: { ...colorGrading },
     vignette: { ...vignette },
     film_grain: { ...filmGrain },
+    aged_archive_film: { ...agedArchiveFilm },
     letterbox: { ...letterbox },
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
@@ -3567,6 +3596,7 @@ function applyEffectsData(data: any) {
   if (data.color_grading) Object.assign(colorGrading, data.color_grading)
   if (data.vignette) Object.assign(vignette, data.vignette)
   if (data.film_grain) Object.assign(filmGrain, data.film_grain)
+  if (data.aged_archive_film) Object.assign(agedArchiveFilm, data.aged_archive_film)
   if (data.letterbox) Object.assign(letterbox, data.letterbox)
   if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
   if (data.overlays && Array.isArray(data.overlays.layers)) {
@@ -4197,6 +4227,7 @@ const activeEffectsList = computed(() => {
   if (colorGrading.enabled) items.push(colorGrading.preset !== 'none' ? colorGrading.preset.replace(/-/g, ' ') : 'Custom grading')
   if (vignette.enabled) items.push('Vignette')
   if (filmGrain.enabled) items.push('Film Grain')
+  if (agedArchiveFilm.enabled) items.push('Aged Archive Film')
   if (letterbox.enabled) items.push(`Letterbox ${letterbox.ratio}`)
   if (frame.enabled) items.push(`Frame ${frame.inset_pct}% / ${frame.corner_radius}px corners`)
   if (chromaKey.enabled) items.push('Chroma Key')
@@ -4611,7 +4642,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
-  colorGrading, vignette, filmGrain, letterbox, frame, chromaKey,
+  colorGrading, vignette, filmGrain, agedArchiveFilm, letterbox, frame, chromaKey,
   overlays,
   compilationLayout: {
     layout: computed({
@@ -5389,6 +5420,8 @@ onUnmounted(() => {
 .effect-overlay-media { position: absolute; inset: auto; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .effect-vignette-overlay { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
 .effect-grain-overlay { position: absolute; inset: 0; pointer-events: none; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E"); background-size: 100px 100px; mix-blend-mode: overlay; }
+.effect-aged-archive-film-overlay { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen; background-image: radial-gradient(circle at 58% 31%, rgba(255,255,255,.8) 0 1px, transparent 2px), linear-gradient(90deg, transparent 13%, rgba(255,255,255,.35) 13.1% 13.2%, transparent 13.3%), linear-gradient(90deg, transparent 77%, rgba(0,0,0,.45) 77.1% 77.2%, transparent 77.3%); animation: aged-archive-flicker .16s steps(2, end) infinite; }
+@keyframes aged-archive-flicker { 50% { transform: translate(1px, -1px); filter: brightness(1.04); } }
 .letterbox-bar { position: absolute; left: 0; right: 0; pointer-events: none; }
 .letterbox-top { top: 0; }
 .letterbox-bottom { bottom: 0; }

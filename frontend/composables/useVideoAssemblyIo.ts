@@ -88,6 +88,7 @@ export interface VideoAssemblyIoState {
   colorGrading: any
   vignette: any
   filmGrain: any
+  agedArchiveFilm: any
   letterbox: any
   frame?: any
   chromaKey: any
@@ -325,6 +326,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       }
     }
     if (s.filmGrain.enabled)    payload.film_grain    = { ...s.filmGrain }
+    if (s.agedArchiveFilm.enabled) payload.aged_archive_film = { ...s.agedArchiveFilm }
     if (s.letterbox.enabled)    payload.letterbox     = { ...s.letterbox }
     if (s.frame?.enabled)       payload.frame         = { ...s.frame }
 

@@ -1,0 +1,133 @@
+{
+  "id": "hidden-mechanics-history",
+  "name": "Hidden Mechanics of History",
+  "catalogName": "Hidden Mechanics of History",
+  "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures, financial arrangements, alliances, decisions, and contingencies beneath a familiar event. Each episode tests a popular simple account against the record without turning historical disagreement into manufactured contrarianism.",
+  "tagline": "The forces beneath the familiar story.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "kind": "series-formula",
+  "formulaFamily": "Evidence & systems",
+  "defaultTopicPackIds": [
+    "historical-states-revolutions-collapse",
+    "historical-money-debt-financial-institutions",
+    "historical-empires-trade-extraction",
+    "historical-wars-treaties-world-order",
+    "historical-infrastructure-commodities-corporate-power"
+  ],
+  "compatibleTopicPackIds": [
+    "historical-states-revolutions-collapse",
+    "historical-money-debt-financial-institutions",
+    "historical-empires-trade-extraction",
+    "historical-wars-treaties-world-order",
+    "historical-infrastructure-commodities-corporate-power",
+    "economics-ancient-civilizations"
+  ],
+  "productionKit": {
+    "id": "hidden-mechanics-history-kit",
+    "label": "Hidden Mechanics History Production Kit",
+    "description": "One reusable channel system binding the historical-causality Formula to its evidence-led Topic Packs, Archival Documentary Reconstruction art direction, and Archival Map Investigation thumbnail grammar.",
+    "recommendedVisualStyleId": "builtin-archival-documentary-reconstruction"
+  },
+  "ideaAxes": [
+    {
+      "id": "causal-mechanism",
+      "label": "Causal mechanism",
+      "values": ["state capacity", "fiscal pressure", "credit and debt", "trade and extraction", "elite coalition", "popular mobilization", "diplomacy and deterrence", "military logistics", "technology and industry", "demography and public health", "resources and geography"]
+    },
+    {
+      "id": "popular-account-gap",
+      "label": "What the familiar account misses",
+      "values": ["a single-cause story", "a great-person story", "an inevitability story", "the economic mechanism", "the institutional constraint", "the long-run condition", "the role of contingency", "the people bearing the cost"]
+    },
+    {
+      "id": "causal-stage",
+      "label": "Causal stage",
+      "values": ["long-run condition", "accelerating pressure", "immediate trigger", "critical decision", "unintended consequence"]
+    },
+    {
+      "id": "evidence-posture",
+      "label": "Evidence posture",
+      "values": ["well-documented record", "contested interpretation", "source-limited reconstruction", "new evidence or reinterpretation"]
+    }
+  ],
+  "exampleTopics": [
+    "The Hidden Mechanics Behind the Fall of the Roman Republic",
+    "Why the French Revolution Became a Continental War",
+    "How the Gold Standard Turned a Crisis Into a Depression",
+    "The Real Origins of the Opium Wars",
+    "How Railways Changed the Balance of Power",
+    "Why the Soviet Union Could No Longer Hold Together"
+  ],
+  "vocabulary": {
+    "mood": ["investigative", "clear-eyed", "measured", "evidence-led", "patient", "analytical", "historically grounded", "precise", "unsensational"],
+    "theme": ["causation", "institutions", "power", "state capacity", "trade", "debt", "war", "social change", "contingency", "historical interpretation"],
+    "genre": ["long-form history documentary", "historical causality", "political economy history", "world history explainer", "historical investigation"],
+    "keyword": ["history explained", "historical causes", "political economy", "empires", "revolutions", "financial history", "world order", "trade history", "historical documentary"]
+  },
+  "audienceHint": "Viewers who want 30-45 minute evidence-led explanations of why major historical outcomes happened, including the economic and institutional forces that a simple event summary leaves out.",
+  "ideaSystemPromptRole": "You generate original episode ideas for a long-form historical-causality documentary channel. Each episode examines ONE major historical outcome, transformation, crisis, or settlement and reconstructs the interacting causes beneath the familiar story. Choose durable questions with an identifiable outcome, a credible evidence path, and more than one causal layer. Do not imitate a named channel or package ordinary history as a secret cover-up.",
+  "ideaGuidanceText": "Honor every reserved assignment exactly. The subject and assigned causal dimensions must be visible in the title and logline. Favor a specific outcome over a vague era. A strong idea distinguishes background conditions, actors and institutions, material or financial pressures, an immediate trigger, and the limits of the evidence. Do not pitch listicles, trivia, hero biographies, invented scandals, or a claim that historians are wrong unless there is a real, supportable interpretive disagreement.",
+  "scriptContext": "Treat each episode as a causal reconstruction, not a claim that one hidden fact explains history. Name dates, places, actors, institutions, and source types where they clarify the analysis. Separate documentary record, reasonable inference, and genuinely contested interpretation. Never invent quotations, sources, intent, consensus, or a scholarly dispute. Do not say the app or viewer checked a source; if a citation is absent from the available project material, do not imply it exists.",
+  "scriptSystemPromptRole": "You are a meticulous long-form history documentary writer. Begin with the familiar explanation of a major outcome, then patiently show the conditions, institutions, interests, choices, and contingencies that made it possible. Your voice is vivid but unsensational, analytical but human-scale. Treat historical disagreement honestly: say what is documented, what is inferred, what interpretations compete, and what remains unknown. Your purpose is to make causation clearer, not to manufacture a contrarian reveal.",
+  "scriptClosingHint": "Close by returning to the outcome: state the best-supported causal picture, the important uncertainty or debate that remains, and the concrete consequence that followed. Do not turn nuance into a teaser or a grand moral.",
+  "scriptStructure": {
+    "defaultChapterCount": 9,
+    "chapterCountRange": [9, 9],
+    "defaultLengthMinutes": 36,
+    "lengthMinutesRange": [30, 45],
+    "durationPresets": [30, 36, 45],
+    "defaultWordsPerMinute": 140,
+    "chaptersIndependent": true,
+    "pacingArc": [
+      "Chapter 1: The familiar story — establish the dated outcome, why it matters, and the incomplete explanation the episode will test.",
+      "Chapter 2: The world before it — orient the viewer in place, period, institutions, and conditions already shaping the outcome.",
+      "Chapter 3: The pressure builds — trace the first material, social, fiscal, or political force that made the status quo unstable.",
+      "Chapter 4: The system beneath the event — explain the institutions, incentives, and constraints that directed those pressures.",
+      "Chapter 5: The actors and choices — show what key groups could see, wanted, feared, and actually decided without inventing private intent.",
+      "Chapter 6: The trigger — reconstruct the immediate crisis, decision, or encounter that converted pressure into change.",
+      "Chapter 7: The causal chain — follow how the outcome unfolded, including feedback loops, costs, and unintended consequences.",
+      "Chapter 8: What the record can bear — weigh the strongest evidence, alternative interpretations, and important uncertainty without false balance.",
+      "Chapter 9: The changed world — resolve the causal picture, identify the lasting consequence, and leave the remaining question precise."
+    ],
+    "additionalRules": [
+      "Open on a dated outcome, document, decision, map, material trace, or concrete contradiction—not a generic invitation or mystery-bait question.",
+      "Every chapter must add a distinct causal, evidentiary, institutional, or chronological step; do not restate the premise as suspense.",
+      "Keep background conditions, mechanisms, immediate triggers, and consequences distinct. Never treat correlation or sequence alone as proof of causation.",
+      "Name source types only when supported by the available material. Never fabricate citations, quotations, archival access, scholarly consensus, or controversy.",
+      "Use careful attribution for contested claims and state uncertainty in plain language. Do not imply that all historians agree, or that all historians are mistaken, without support.",
+      "Use concrete scenes, maps, documents, institutions, transactions, infrastructure, and human decisions so visual planning has a legible subject in each section.",
+      "Avoid present-day moral projection where it replaces historical explanation; present-day relevance is allowed only when it follows directly from the evidence."
+    ]
+  },
+  "perspectivePolicy": "Third-person evidence-led documentary narration. Explain historical actors, systems, and evidence without placing the viewer inside an invented past.",
+  "narrativeQualityContract": {
+    "openingPolicy": "Open on the actual outcome, dated decision, material trace, or historical contradiction. Establish the episode directly; do not use a generic audience-address hook.",
+    "forbiddenPatterns": ["Imagine you are there", "You won't believe", "Watch what happens next", "history's best kept secret", "the truth THEY hid", "historians got everything wrong", "invented quotations", "false certainty"],
+    "requiredHabits": ["Separate evidence, inference, and interpretation in plain language.", "Name the institutions and mechanisms connecting conditions to outcomes.", "Use dates, places, groups, and material constraints precisely.", "Treat disagreement proportionately; a popular simplification is not proof of a scholarly cover-up.", "Vary chapter openings among evidence, place, decision, process, or consequence."],
+    "closingPolicy": "Close the historical inquiry with its best-supported causal account and remaining uncertainty; never manufacture a final reveal or sequel tease."
+  },
+  "narratorStyles": [
+    { "id": "historical-investigator", "label": "Historical investigator", "description": "Measured, lucid, and evidence-forward; connects institutions and decisions without sensationalising them." },
+    { "id": "political-economy-documentary", "label": "Political economy documentary", "description": "Clear and analytical, making money, power, infrastructure, and state capacity understandable in spoken language." },
+    { "id": "human-scale-historian", "label": "Human-scale historian", "description": "Patient and concrete, keeping real people and costs visible inside large historical systems." }
+  ],
+  "defaultNarratorStyleId": "historical-investigator",
+  "titleShapeRules": [
+    "Name ONE specific historical outcome, transformation, crisis, settlement, or institutional change.",
+    "Rotate title shapes: 'The Hidden Mechanics Behind {Outcome}', 'Why {Outcome} Happened', 'The Real Origins of {Outcome}', 'How {System or Decision} Changed {Outcome}', and 'What the Story of {Outcome} Misses'.",
+    "A title may contrast a familiar account with a more complete one, but must not assert a hidden conspiracy, false consensus, or that historians are universally wrong.",
+    "FORBIDDEN: 'secret truth', 'cover-up', unsupported villain claims, all-caps hype, and titles that turn an unresolved debate into a settled reveal."
+  ],
+  "titleLengthRange": [6, 16],
+  "loglineShapeRules": ["Write 1-2 concise sentences naming the historical outcome, the causal mechanism under examination, and the evidence or interpretive boundary."],
+  "loglineSentenceRange": [1, 2],
+  "themeShapeRules": ["Choose 2-4 concrete terms spanning outcome, period or place, mechanism, and institution or evidence type."],
+  "themeCountRange": [2, 4],
+  "structuralVariety": "vary-all",
+  "defaultThumbnailTemplateId": "archival-map-investigation",
+  "youtubeTagsHint": ["history documentary", "history explained", "historical causes", "political economy history", "world history", "financial history", "empires and revolutions"],
+  "metadataTitleStyleHint": "Specific, evidence-led long-form history title that names the outcome and hints at the causal mechanism without conspiracy framing.",
+  "metadataTitleHookRules": ["Name the outcome early.", "Make the explanatory question concrete rather than simply calling an event important.", "Do not promise a secret, cover-up, or universal historical correction."],
+  "metadataTagsHookRules": ["Mix the exact period, place, outcome, institution, and mechanism actually covered.", "Do not add unmentioned countries, wars, people, or conspiratorial terms for reach."]
+}

@@ -70,6 +70,7 @@ function makeState() {
     colorGrading:  reactive({ enabled: false, preset: 'none', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }),
     vignette:      reactive({ enabled: false, strength: 0.4 }),
     filmGrain:     reactive({ enabled: false, strength: 15 }),
+    agedArchiveFilm: reactive({ enabled: false, strength: 45 }),
     letterbox:     reactive({ enabled: false, ratio: '2.35:1', color: 'black' }),
     frame:         reactive({ enabled: false, inset_pct: 4, border_width: 12, corner_radius: 28, border_color: '#fff', background_color: '#111', fit: 'cover' }),
     chromaKey:     reactive({ enabled: false, source_path: '', color: '#00FF00', similarity: 0.15, blend: 0.1 }),
@@ -137,6 +138,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(capturedBody.vignette, undefined)
     assert.equal(capturedBody.chroma_key, undefined)
     assert.equal(capturedBody.film_grain, undefined)
+    assert.equal(capturedBody.aged_archive_film, undefined)
     assert.equal(capturedBody.letterbox, undefined)
     assert.equal(capturedBody.subtitles, undefined)
     assert.equal(capturedBody.title_card, undefined)
@@ -188,6 +190,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     state.colorGrading.enabled = true
     state.vignette.enabled = true
     state.filmGrain.enabled = true
+    state.agedArchiveFilm.enabled = true
     state.letterbox.enabled = true
     state.frame.enabled = true
     state.chromaKey.enabled = true
@@ -216,6 +219,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.ok(body.color_grading, 'color_grading present when enabled')
     assert.ok(body.vignette, 'vignette present when enabled')
     assert.ok(body.film_grain, 'film_grain present when enabled')
+    assert.deepEqual(body.aged_archive_film, { enabled: true, strength: 45 }, 'archive effect sends only its own settings')
     assert.ok(body.letterbox, 'letterbox present when enabled')
     assert.equal(body.frame.corner_radius, 28, 'presentation frame present when enabled')
     assert.ok(body.chroma_key, 'chroma_key present when enabled AND source_path set')

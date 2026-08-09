@@ -92,10 +92,11 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.outro, undefined, 'disabled outro should be dropped')
   })
 
-  test('flattens effects slot — chroma_key, overlays, chapter_titles, and frame', () => {
+  test('flattens effects slot — archive film, chroma_key, overlays, chapter_titles, and frame', () => {
     const out = flattenVideoAssemblyBundle(
       bundle({
         effects: {
+          aged_archive_film: { enabled: true, strength: 45 },
           chroma_key: { enabled: true, source_path: '/tmp/fire.webm', color: '#00ff00', similarity: 0.1, blend: 0.05 },
           overlays: {
             enabled: true,
@@ -119,6 +120,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(((out.overlays as any).layers as any[])[0].id, 'a')
     assert.equal((out.chapter_titles as any).animation, 'fade')
     assert.equal((out.frame as any).corner_radius, 28)
+    assert.deepEqual(out.aged_archive_film, { enabled: true, strength: 45 })
     assert.equal(out.exclude_intro_from_effects, true)
   })
 

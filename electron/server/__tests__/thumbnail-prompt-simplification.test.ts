@@ -100,6 +100,30 @@ test('recipe thumbnails instruct the image model to render the complete episode 
   assert.match(fixed, /Render the exact episode title "The Economics of a Coffee Shop" inside the image/i)
 })
 
+test('archival map investigation keeps the exact title and evidence-led safety rules', () => {
+  const directive = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'The Loan That Changed Egypt',
+    textStyle: 'shadow',
+    fontStyle: 'bold',
+    textPosition: 'bottom',
+    fmt: {
+      layout: 'annotated-collage',
+      conceptGuidance: 'An evidence-led historical investigation.',
+      compositionRules: ['Place a weathered parchment map in the upper-right.', 'Render the exact episode title in two to four stacked white headline bands.'],
+      requiredElements: ['one period portrait or defining historical artifact', 'one marked parchment map'],
+      avoid: ['unsupported secret plots', 'a sole-cause claim'],
+    },
+  })
+
+  assert.match(directive, /render this exact episode title inside the image/i)
+  assert.match(directive, /The Loan That Changed Egypt/)
+  assert.match(directive, /parchment map/i)
+  assert.match(directive, /stacked white headline bands/i)
+  assert.match(directive, /unsupported secret plots/i)
+  assert.match(directive, /sole-cause claim/i)
+})
+
 test('curiosity-hook recipes keep a short truthful hook separate from the full episode title', () => {
   const directive = buildThumbnailDirective({
     thumbs: 1,

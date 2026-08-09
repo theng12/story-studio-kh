@@ -402,7 +402,7 @@ describe('format-loader', () => {
       'sleep', 'listicle-explainer', 'pov-hustle', 'prayer', 'devotional',
       'preaching', 'history-narration', 'mindfulness', 'motivation',
       'animals', 'plants', 'fungi', 'insects', 'philosophy', 'psychology',
-      'business-economics',
+      'business-economics', 'hidden-mechanics-history',
     ]
     for (const id of COMPLETE_NICHES) {
       const niche = await nicheLoader.loadNiche(id)
@@ -441,6 +441,24 @@ describe('format-loader', () => {
     assert.doesNotMatch(thumbnail?.conceptGuidance || '', /single dramatic focal subject/i)
     assert.ok(thumbnail?.compositionRules?.some(rule => /red underline/i.test(rule)))
     assert.equal(thumbnail?.defaultFontStyle, 'bold')
+  })
+
+  test('Hidden Mechanics of History owns a nine-part, 30-45 minute causal reconstruction', async () => {
+    const nicheLoader = await import('../services/niche-loader.js')
+    const shell = (await loader.loadFormat('continuity-chain'))!
+    const niche = await nicheLoader.loadNiche('hidden-mechanics-history')
+    assert.ok(niche, 'Hidden Mechanics of History Formula must ship as a built-in niche')
+
+    const merged = loader.applyNicheToFormat(shell, niche!)
+    assert.equal(merged.script.defaultChapterCount, 9)
+    assert.deepEqual(merged.script.chapterCountRange, [9, 9])
+    assert.equal(merged.script.defaultLengthMinutes, 36)
+    assert.deepEqual(merged.script.lengthMinutesRange, [30, 45])
+    assert.match(merged.script.pacingArc[0] || '', /familiar story/i)
+    assert.ok(merged.script.additionalRules.some(rule => /Never treat correlation/i.test(rule)))
+    assert.ok((merged.idea.titleShapeRules || []).some(rule => /Hidden Mechanics/i.test(rule)))
+    assert.equal(niche!.defaultThumbnailTemplateId, 'archival-map-investigation')
+    assert.equal(niche!.productionKit?.recommendedVisualStyleId, 'builtin-archival-documentary-reconstruction')
   })
 
   test('Deep Time Documentary owns feature-length duration, calm evidence rules, and two-phase visual pacing', async () => {

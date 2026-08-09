@@ -1,0 +1,16 @@
+{
+  "id": "historical-empires-trade-extraction",
+  "name": "Empires, Trade & Extraction",
+  "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance to extraction.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["hidden-mechanics-history"],
+  "subjects": [
+    "the Spanish conquest of the Americas", "the Atlantic slave trade", "the Manila galleon trade", "the Dutch East India Company", "the British East India Company", "the triangular trade system", "the Haitian plantation economy", "the Opium Wars", "the scramble for Africa", "the Congo Free State", "the Suez Canal", "the Indian Ocean spice trade", "the trans-Saharan trade", "the fur trade in North America", "the guano trade", "the rubber boom", "the cotton economy of the American South", "British rule in India", "the partition of India", "the Berlin Conference", "the British Empire's decline", "decolonization in Africa", "the Non-Aligned Movement", "the history of sanctions", "the global oil trade"
+  ],
+  "ideaAxes": [
+    { "id": "extraction-system", "label": "Imperial and trade mechanism", "values": ["chartered-company rule", "monopoly and tariff", "forced labor", "commodity dependency", "maritime chokepoint", "settler expansion", "colonial taxation", "anti-colonial resistance"] }
+  ],
+  "promptContext": "Trace how imperial power, trade, labor, commodity flows, and local resistance interacted. Keep agency distributed among states, companies, communities, and workers; do not flatten complex colonial histories into a single villain or an economics-only explanation.",
+  "tags": ["empires", "colonial history", "trade", "extraction", "global history"]
+}

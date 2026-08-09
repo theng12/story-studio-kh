@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.812 — 2026-08-10
+
+- **Evidence-led historical documentaries are now a complete reusable channel system** — the new
+  Hidden Mechanics of History Formula combines five distinct Topic Packs with causal-reconstruction
+  structure, 30–45 minute pacing, source-aware writing rules, and enough planned variation for more
+  than 1,000 non-duplicate episode concepts. Ancient Civilizations remains available as an optional
+  compatible lane.
+
+- **Archival history now has coordinated scene and thumbnail identities** — Archival Documentary
+  Reconstruction joins the visual-style library with an original preview, while Archival Map
+  Investigation adds three browsable thumbnail examples, AI-rendered episode titles, and safeguards
+  against unsupported conspiracy, scapegoating, and sole-cause claims.
+
+- **Video Assembly can create an aged archive-film finish without a missing overlay asset** — the new
+  built-in effect procedurally adds restrained archival grading, grain, dust, scratches, flicker, and
+  gate weave. It persists through presets and Pipeline jobs while remaining independently selectable
+  from color grading, vignette, and the existing film-grain control.
+
 ## v1.0.811 — 2026-08-09
 
 - **The full production journey is easier to scan without hiding any destination** — the sidebar,

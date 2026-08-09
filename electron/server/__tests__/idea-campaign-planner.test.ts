@@ -64,6 +64,39 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     assert.ok(second.every(item => !firstFingerprints.has(item.fingerprint)))
   })
 
+  test('Hidden Mechanics of History keeps five default lanes and reserves a thousand causal investigations', async () => {
+    const formula = await loadNiche('hidden-mechanics-history')
+    assert.ok(formula, 'Hidden Mechanics of History Formula must ship')
+    assert.deepEqual(formula!.defaultTopicPackIds, [
+      'historical-states-revolutions-collapse',
+      'historical-money-debt-financial-institutions',
+      'historical-empires-trade-extraction',
+      'historical-wars-treaties-world-order',
+      'historical-infrastructure-commodities-corporate-power',
+    ])
+
+    const composed = await composeNicheWithTopicPacks(formula!, [
+      ...formula!.defaultTopicPackIds!,
+      'economics-ancient-civilizations',
+    ])
+    assert.equal(composed.activeTopicPacks?.length, 6,
+      'Ancient Civilizations & Empires remains a reusable sixth lane')
+    assert.ok(composed.activeTopicPacks?.some(pack => pack.id === 'economics-ancient-civilizations'))
+
+    const assignments = planIdeaAssignments({
+      niche: composed,
+      count: 1000,
+      seed: 'hidden-mechanics-thousand',
+    }).slice(0, 1000)
+    assert.equal(assignments.length, 1000)
+    assert.equal(new Set(assignments.map(item => item.fingerprint)).size, 1000)
+    assert.equal(new Set(assignments.map(item => item.idea_key)).size, 1000)
+    assert.ok(new Set(assignments.map(item => item.topic_pack_id)).size >= 6,
+      'large campaigns should distribute across every compatible lane')
+    assert.ok(assignments.every(item => item.dimensions['causal-mechanism']))
+    assert.ok(assignments.every(item => item.dimensions['evidence-posture']))
+  })
+
   test('a generic formula can still reserve 100 conceptual slots', () => {
     const generic = planIdeaAssignments({
       niche: {

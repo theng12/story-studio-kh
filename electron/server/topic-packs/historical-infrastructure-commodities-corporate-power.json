@@ -1,0 +1,16 @@
+{
+  "id": "historical-infrastructure-commodities-corporate-power",
+  "name": "Infrastructure, Commodities & Corporate Power",
+  "description": "Railways, canals, energy, food, communications, industrial systems, corporations, and the material networks that reshape political power.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "compatibleNicheIds": ["hidden-mechanics-history"],
+  "subjects": [
+    "Roman roads", "the Grand Canal of China", "the medieval grain trade", "the printing press", "the Atlantic cable", "the transcontinental railroad", "the Suez Canal", "the Panama Canal", "Standard Oil", "the steel industry", "the telegraph network", "the automobile industry", "the assembly line", "the Tennessee Valley Authority", "the Soviet industrialization drive", "the global shipping container", "the OPEC oil embargo", "the Green Revolution", "the semiconductor supply chain", "the nuclear power industry", "the internet backbone", "the rare-earth supply chain", "the global fertilizer trade", "the history of public sanitation", "the construction of national power grids"
+  ],
+  "ideaAxes": [
+    { "id": "material-system", "label": "Material-system lens", "values": ["transport network", "energy transition", "commodity bottleneck", "industrial concentration", "communications revolution", "food and public health", "supply-chain dependence", "public-private power"] }
+  ],
+  "promptContext": "Show how a material system changed capacity, incentives, geography, and political leverage. Explain what the infrastructure or corporation actually enabled, who financed and controlled it, and who bore its costs; avoid treating technology as an autonomous force outside institutions and choices.",
+  "tags": ["infrastructure history", "commodity history", "corporate power", "industrial history", "technology and power"]
+}

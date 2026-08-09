@@ -31,6 +31,53 @@ export function buildLetterboxFilter(
     `drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=${color}:t=fill${outputLabel}`
 }
 
+/**
+ * A procedural, asset-free old-film treatment.  It owns its grade, grain,
+ * dust, scratches, flicker, and gate weave so enabling it never mutates the
+ * separately selectable Video Assembly effects.
+ */
+export function buildAgedArchiveFilmFilters(opts: {
+  input: string
+  output: string
+  grade: string
+  noise: string
+  marked: string
+  base: string
+  weave: string
+  shifted: string
+  width: number
+  height: number
+  strength: unknown
+  gateSuffix?: string
+}): string[] {
+  const amount = Math.max(1, Math.min(100, Math.round(Number(opts.strength) || 45))) / 100
+  const grain = Math.round(6 + amount * 16)
+  const contrast = (1.02 + amount * 0.12).toFixed(3)
+  const saturation = Math.max(0.18, 0.72 - amount * 0.26).toFixed(3)
+  const flicker = (0.006 + amount * 0.018).toFixed(3)
+  const crop = Math.max(2, Math.round(4 + amount * 12) * 2)
+  const shift = Math.max(1, Math.round(1 + amount * 3))
+  const gate = opts.gateSuffix || ''
+  const scratchOpacity = (0.05 + amount * 0.13).toFixed(2)
+  const dustOpacity = (0.08 + amount * 0.15).toFixed(2)
+  const scratchX = Math.round(opts.width * 0.13)
+  const scratchX2 = Math.round(opts.width * 0.77)
+  const dustX = Math.round(opts.width * 0.58)
+  const dustY = Math.round(opts.height * 0.31)
+
+  return [
+    `${opts.input}eq=brightness='${flicker}*sin(2*PI*t*8)':contrast=${contrast}:saturation=${saturation}:eval=frame${gate}${opts.grade}`,
+    `${opts.grade}noise=alls=${grain}:allf=t+u${gate}${opts.noise}`,
+    `${opts.noise}drawbox=x=${scratchX}:y=0:w=1:h=ih:color=white@${scratchOpacity}:t=fill${gate},` +
+      `drawbox=x=${scratchX2}:y=0:w=1:h=ih:color=black@${scratchOpacity}:t=fill${gate},` +
+      `drawbox=x=${dustX}:y=${dustY}:w=2:h=2:color=white@${dustOpacity}:t=fill${gate}${opts.marked}`,
+    `${opts.marked}split=2${opts.base}${opts.weave}`,
+    `${opts.weave}crop=w=iw-${crop}:h=ih-${crop}:x='${crop / 2}+${shift}*sin(2*PI*t*0.73)':y='${crop / 2}+${shift}*cos(2*PI*t*0.53)',` +
+      `scale=${opts.width}:${opts.height}:flags=bilinear,setsar=1${opts.shifted}`,
+    `${opts.base}${opts.shifted}overlay=0:0${gate}${opts.output}`,
+  ]
+}
+
 /** Keep this preset table aligned with the Video Assembly live preview. */
 export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = ''): string {
   const presets: Record<string, { brightness: number; contrast: number; saturation: number; warmth: number; tint: number }> = {

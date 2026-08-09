@@ -66,3 +66,18 @@ test('deep-time documentary recipe is browseable, AI-rendered, and profile-aware
   assert.equal(formula.defaultThumbnailTemplateId, recipe.id)
   assert.equal(formula.productionKit.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
 })
+
+test('archival map investigation is discoverable as an original history recipe', () => {
+  const recipe = JSON.parse(source('../../electron/server/thumbnail-templates/archival-map-investigation.json'))
+  assert.equal(recipe.category, 'History')
+  assert.ok(recipe.tags.includes('archival'))
+  assert.equal(recipe.recipe.titleMode, 'ai')
+  assert.match(recipe.recipe.compositionRules.join('\n'), /parchment map/i)
+  assert.match(recipe.recipe.compositionRules.join('\n'), /exact episode title/i)
+  assert.match(recipe.recipe.avoid.join('\n'), /copied creator trade dress/i)
+  assert.deepEqual(recipe.previewImages, [
+    '/builtin-thumbnail-previews/archival-map-investigation-1.webp',
+    '/builtin-thumbnail-previews/archival-map-investigation-2.webp',
+    '/builtin-thumbnail-previews/archival-map-investigation-3.webp',
+  ])
+})

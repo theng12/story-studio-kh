@@ -1,0 +1,51 @@
+{
+  "id": "archival-map-investigation",
+  "name": "Archival Map Investigation",
+  "description": "A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival-event strip beneath a precise model-rendered headline.",
+  "tagline": "Portrait, map, and evidence-led historical reveal",
+  "builtin": true,
+  "schemaVersion": 1,
+  "category": "History",
+  "tags": ["history", "archival", "map", "investigation", "empire", "political economy"],
+  "recommendedNicheIds": ["hidden-mechanics-history", "history-narration"],
+  "previewImages": [
+    "/builtin-thumbnail-previews/archival-map-investigation-1.webp",
+    "/builtin-thumbnail-previews/archival-map-investigation-2.webp",
+    "/builtin-thumbnail-previews/archival-map-investigation-3.webp"
+  ],
+  "recipe": {
+    "layout": "annotated-collage",
+    "titleMode": "ai",
+    "conceptGuidance": "Build an original evidence-led historical investigation cover. Pair one period-appropriate portrait or defining artifact on the left with a parchment map in the upper-right and a narrow archival scene, document, or event strip below it. The frame should promise a careful explanation of how a concrete institution, agreement, route, or policy shaped an outcome.",
+    "compositionRules": [
+      "Place one original period portrait or defining artifact in the left third; never reuse a real channel's crop, identity treatment, logo, or branding.",
+      "Place a weathered parchment map in the upper-right with only a few clear route arrows, dots, or boundary marks; preserve a clean visual hierarchy rather than a dense infographic.",
+      "Use a narrow lower-right archival-event strip showing a relevant historical setting, document, crowd, ship, rail line, market, or institution.",
+      "Reserve the lower-left to lower-middle as a title-safe zone for two to four stacked white headline bands. Render the exact episode title in those bands as bold, readable black uppercase lettering.",
+      "Use black, cream, sepia, and restrained oxblood accents; keep the image sober, legible, and mobile-readable."
+    ],
+    "requiredElements": [
+      "one period portrait or defining historical artifact",
+      "one marked parchment map",
+      "one archival-event strip",
+      "two to four stacked white bands containing the exact episode title"
+    ],
+    "avoid": [
+      "copied creator trade dress, logos, watermarks, channel names, or recognizable source-thumbnail layouts",
+      "unsupported secret plots, ethnic or religious scapegoating, a sole-cause claim, or claims of intentionality not supported by the episode's evidence",
+      "sensational accusations, conspiracy imagery, dense labels, illegible map text, placeholder lettering, or post-render headline overlays",
+      "more than one competing portrait, excessive arrows, or a crowded undifferentiated collage"
+    ],
+    "defaultTextStyle": "shadow",
+    "defaultFontStyle": "bold",
+    "defaultTextPosition": "bottom",
+    "headlineFormats": [
+      "THE LOAN THAT CHANGED {SUBJECT}",
+      "HOW {SUBJECT} BECAME POLITICAL POWER",
+      "THE DEAL BEHIND {SUBJECT}",
+      "WHY {SUBJECT} CHANGED THE OUTCOME"
+    ],
+    "visualStyleGuidance": "Original archival editorial collage: high-contrast black-and-cream historical portraiture or artifact study, weathered parchment map, restrained sepia documentary texture, sparse oxblood route marks, and bold white newspaper-like headline bands. Preserve the selected project visual art style as the final rendering authority; do not imitate a specific channel or historical publisher."
+  },
+  "aspectRatio": "16:9"
+}

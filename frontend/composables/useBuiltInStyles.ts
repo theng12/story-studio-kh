@@ -83,6 +83,21 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/sepia-ink-wash.webp',
   },
   {
+    id: 'builtin-archival-documentary-reconstruction',
+    name: 'Archival Documentary Reconstruction',
+    builtin: true,
+    blurb: 'Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged documentary atmosphere.',
+    category: 'Realistic',
+    tags: ['archival', 'historical', 'monochrome', 'photographic reconstruction', 'old film'],
+    data: {
+      style_bible:
+        'original archival documentary photographic reconstruction, historically plausible people environments objects maps newspapers offices streets institutions and industry, candid observational staging rather than theatrical posing, warm charcoal-sepia monochrome, restrained contrast with softly lifted highlights and deep but readable blacks, authentic period clothing architecture materials and technology, natural lens falloff, subtle silver-gelatin emulsion grain, faint dust and occasional hairline scratches, gently uneven exposure, soft vignette, modest depth of field, documentary evidence-room atmosphere, convincing early photographic texture while remaining an explicitly created reconstruction rather than a claimed recovered source',
+      negative_prompt:
+        'modern objects, contemporary clothing, glossy colour photography, vivid saturation, cinematic blockbuster lighting, polished CGI, painterly illustration, ink wash, cartoon, copied historical photograph, famous-person likeness unless explicitly requested, fabricated readable newspaper claims, propaganda poster styling, subtitles, captions, labels, logos, watermark, player UI, borders, letterbox bars, extreme film damage that obscures the subject',
+    },
+    preview_image: '/builtin-style-previews/archival-documentary-reconstruction.webp',
+  },
+  {
     id: 'builtin-paleo-documentary-tableau',
     name: 'Paleo Documentary Tableau',
     builtin: true,

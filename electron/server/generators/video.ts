@@ -41,6 +41,7 @@ import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
 import {
   buildColorGradingFilters,
+  buildAgedArchiveFilmFilters,
   buildGateEnable,
   buildLetterboxFilter,
   calculateLogoPosition,
@@ -64,7 +65,7 @@ import type {
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
   VideoTitleImageConfig, VideoTitleCard, VideoOutroCard, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
-  VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox, VideoFrameConfig,
+  VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoAgedArchiveFilm, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
   VideoSceneAnimation, VideoPostAudio, ScenePlan, ContextualCue, SoundDesignCue,
 } from '../models/types.js'
@@ -1256,6 +1257,7 @@ export async function generateVideo(job: Job): Promise<void> {
           chromaKey: req.chroma_key,
           overlays: req.overlays,
           filmGrain: req.film_grain,
+          agedArchiveFilm: req.aged_archive_film,
           letterbox: req.letterbox,
           frame: req.frame,
           subtitles: req.subtitles,
@@ -1846,6 +1848,7 @@ export async function generateVideo(job: Job): Promise<void> {
         chromaKey: req.chroma_key,
         overlays: req.overlays,
         filmGrain: req.film_grain,
+        agedArchiveFilm: req.aged_archive_film,
         letterbox: req.letterbox,
         frame: req.frame,
         subtitles: req.subtitles,
@@ -3732,6 +3735,7 @@ interface CompositionOpts {
   /** Multi-layer overlay system. When present, supersedes `chromaKey`. */
   overlays?: VideoOverlaysConfig
   filmGrain?: VideoFilmGrain
+  agedArchiveFilm?: VideoAgedArchiveFilm
   letterbox?: VideoLetterbox
   frame?: VideoFrameConfig
   subtitles?: import('../models/types.js').VideoSubtitleConfig
@@ -3763,7 +3767,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   const {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
-    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, frame, subtitles, contextualCues,
+    colorGrading, vignette, chromaKey, overlays, filmGrain, agedArchiveFilm, letterbox, frame, subtitles, contextualCues,
     excludeIntroFromEffects,
     preSceneDuration,
     postAudioStart,
@@ -4020,7 +4024,24 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     vLabel = fg
   }
 
-  // 6. Letterbox — global, but drawn over the existing frame. It does not
+  // 6. Aged Archive Film is self-contained: it does not turn on or alter the
+  // standalone colour-grade, vignette, or Film Grain controls above.
+  if (agedArchiveFilm?.enabled) {
+    const grade = vn()
+    const noise = vn()
+    const marked = vn()
+    const base = vn()
+    const weave = vn()
+    const shifted = vn()
+    const archive = vn()
+    filterParts.push(...buildAgedArchiveFilmFilters({
+      input: vLabel, output: archive, grade, noise, marked, base, weave, shifted,
+      width: w, height: h, strength: agedArchiveFilm.strength, gateSuffix: gateEnable,
+    }))
+    vLabel = archive
+  }
+
+  // 7. Letterbox — global, but drawn over the existing frame. It does not
   // squeeze, crop, or otherwise change the source picture geometry.
   if (letterbox?.enabled) {
     const lb = vn()
@@ -4415,6 +4436,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   if (colorGrading?.enabled) requestedBurnIns.push('color grading')
   if (vignette?.enabled) requestedBurnIns.push('vignette')
   if (filmGrain?.enabled) requestedBurnIns.push('film grain')
+  if (agedArchiveFilm?.enabled) requestedBurnIns.push('aged archive film')
   if (letterbox?.enabled) requestedBurnIns.push('letterbox')
   if (frame?.enabled) requestedBurnIns.push('frame')
   if (overlayLayers.length) {

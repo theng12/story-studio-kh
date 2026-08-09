@@ -9,6 +9,8 @@ const templatePath = resolve(root, 'electron/server/thumbnail-templates/annotate
 const businessNichePath = resolve(root, 'electron/server/niches/business-economics.json')
 const documentaryTemplatePath = resolve(root, 'electron/server/thumbnail-templates/documentary-label-tableau.json')
 const deepTimeNichePath = resolve(root, 'electron/server/niches/deep-time-documentary.json')
+const hiddenMechanicsNichePath = resolve(root, 'electron/server/niches/hidden-mechanics-history.json')
+const archivalMapTemplatePath = resolve(root, 'electron/server/thumbnail-templates/archival-map-investigation.json')
 
 test('annotated business board ships an AI-headline recipe and three real browseable examples', () => {
   const recipe = JSON.parse(readFileSync(templatePath, 'utf8'))
@@ -57,4 +59,29 @@ test('Deep Time binds its reusable production kit to the documentary recipe', ()
     ['deep rest documentary', 'immersive documentary'],
   )
   assert.equal(niche.scriptStructure.motionProfile.id, 'ambient-documentary')
+})
+
+test('archival map investigation is an original, evidence-led AI-title recipe', () => {
+  const recipe = JSON.parse(readFileSync(archivalMapTemplatePath, 'utf8'))
+  assert.equal(recipe.id, 'archival-map-investigation')
+  assert.equal(recipe.category, 'History')
+  assert.equal(recipe.recipe.titleMode, 'ai')
+  assert.equal(recipe.recipe.layout, 'annotated-collage')
+  assert.match(recipe.recipe.compositionRules.join('\n'), /parchment map/i)
+  assert.match(recipe.recipe.compositionRules.join('\n'), /two to four stacked white headline bands/i)
+  assert.match(recipe.recipe.avoid.join('\n'), /sole-cause claim/i)
+  assert.ok(recipe.recommendedNicheIds.includes('hidden-mechanics-history'))
+  assert.equal(recipe.previewImages.length, 3)
+  for (const preview of recipe.previewImages) {
+    assert.match(preview, /^\/builtin-thumbnail-previews\/archival-map-investigation-[123]\.webp$/)
+    const diskPath = resolve(root, 'frontend/public', preview.replace(/^\//, ''))
+    assert.equal(existsSync(diskPath), true, `${preview} exists`)
+    assert.ok(statSync(diskPath).size > 20_000, `${preview} is a real raster preview`)
+  }
+})
+
+test('Hidden Mechanics of History binds its visual style and thumbnail recipe as one production kit', () => {
+  const niche = JSON.parse(readFileSync(hiddenMechanicsNichePath, 'utf8'))
+  assert.equal(niche.defaultThumbnailTemplateId, 'archival-map-investigation')
+  assert.equal(niche.productionKit.recommendedVisualStyleId, 'builtin-archival-documentary-reconstruction')
 })
