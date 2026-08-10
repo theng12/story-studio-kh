@@ -13,7 +13,6 @@ const capacity = (
   paid_queued_jobs: 0,
   max_queued_jobs: 25,
   generation_submissions_per_minute: 30,
-  relaxed_concurrency_limit: 1,
   ...overrides,
 })
 

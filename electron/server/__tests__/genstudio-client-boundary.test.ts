@@ -380,7 +380,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           provider_name: 'Published LLM creator',
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
-          unlimited_relaxed: true, input_credits_per_million_tokens: 10_000,
+          input_credits_per_million_tokens: 10_000,
           output_credits_per_million_tokens: 20_000, minimum_credits: 3, price_version: 'chat-price-v1',
         }])
       }
@@ -403,7 +403,6 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.provider_name, 'Published LLM creator')
-    assert.equal(chat[0]?.unlimited_relaxed, true)
     assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
@@ -644,7 +643,6 @@ test('GenStudio image catalog carries every published capability and invents non
           default_aspect_ratio: '16:9',
           default_resolution: '1K',
           execution_label: 'Local fleet',
-          unlimited_relaxed: true,
           availability_note: 'Fleet capacity is limited tonight.',
           base_credits_per_image: 6,
           credits_per_image: 4,
@@ -697,7 +695,6 @@ test('GenStudio image catalog carries every published capability and invents non
       },
     ])
     assert.equal(model?.execution_label, 'Local fleet')
-    assert.equal(model?.unlimited_relaxed, true)
     // Story Studio publishes no step contract of its own.
     assert.equal((model as any)?.default_steps, undefined)
     assert.equal((model as any)?.min_steps, undefined)
@@ -735,7 +732,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
   }
 })
 
-test('GenStudio preserves published Unlimited Relaxed account and transcription status', async () => {
+test('GenStudio drops retired Relaxed fields from account and transcription responses', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
@@ -764,7 +761,6 @@ test('GenStudio preserves published Unlimited Relaxed account and transcription 
         return Response.json([{
           id: 'genstudio-transcribe-tiny-v1',
           display_name: 'Whisper Tiny',
-          provider: 'GenStudio KH',
           language: 'multilingual',
           available: true,
           available_workers: 3,
@@ -781,8 +777,9 @@ test('GenStudio preserves published Unlimited Relaxed account and transcription 
     assert.equal(overview.subscription_plan_name, 'Mekong Studio')
     assert.equal(overview.paid_concurrency_limit, 5)
     assert.equal(overview.max_queued_jobs, 250)
-    assert.equal(overview.relaxed_concurrency_limit, 10)
-    assert.equal(models[0]?.unlimited_relaxed, true)
+    assert.equal((overview as unknown as Record<string, unknown>).relaxed_concurrency_limit, undefined)
+    assert.equal((models[0] as unknown as Record<string, unknown> | undefined)?.unlimited_relaxed, undefined)
+    assert.equal(models[0]?.provider, '')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -915,7 +912,6 @@ test('image generation automatically reconnects an accepted task after polling i
           paid_queued_jobs: 0,
           max_queued_jobs: 25,
           generation_submissions_per_minute: 30,
-          relaxed_concurrency_limit: 0,
         })
       }
       if (url.endsWith('/v1/images/generations')) {
@@ -1078,7 +1074,6 @@ test('transcription automatically reconnects an accepted task after polling inte
           paid_queued_jobs: 0,
           max_queued_jobs: 25,
           generation_submissions_per_minute: 30,
-          relaxed_concurrency_limit: 0,
         })
       }
       if (url.endsWith('/v1/audio/transcriptions/quotes')) {

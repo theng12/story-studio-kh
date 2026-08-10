@@ -49,10 +49,6 @@
               <strong>{{ genStudioAdmission.generation_submissions_per_minute }}</strong>
               submissions/min
             </span>
-            <span v-if="genStudioAdmission.relaxed_concurrency_limit > 0">
-              <strong>{{ genStudioAdmission.relaxed_concurrency_limit }}</strong>
-              Unlimited Relaxed
-            </span>
           </div>
           <div class="jobs-hero-actions">
             <button
@@ -768,7 +764,6 @@ interface GenStudioAdmissionSnapshot {
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
-  relaxed_concurrency_limit: number
   local_waiting: number
   submitting: number
   available_paid_slots: number
@@ -945,7 +940,8 @@ function genStudioSettled(
 }
 
 function genStudioTerminalFailure(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
-  return !!remote.failure_code || /fail|error|cancel|reject/.test(genStudioCreditState(remote))
+  const state = genStudioCreditState(remote)
+  return state === 'failed' || state === 'cancelled'
 }
 
 function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {

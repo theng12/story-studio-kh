@@ -178,7 +178,6 @@ function webModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatMod
     max_output_tokens: 8_192,
     controls: [],
     activation_blockers: [],
-    unlimited_relaxed: false,
     input_credits_per_million_tokens: 100,
     output_credits_per_million_tokens: 300,
     minimum_credits: 1,

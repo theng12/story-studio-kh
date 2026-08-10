@@ -91,8 +91,8 @@
           <span aria-hidden="true">✨</span>
           Reprompt With Notes
         </button>
-        <!-- Manual only. Story Studio cannot tell a content refusal from any
-             other failure, so nothing triggers this automatically. -->
+        <!-- Manual only. GenStudio's exact IMAGE_CONTENT_REFUSED code can
+             identify a refusal, but nothing triggers this automatically. -->
         <button
           type="button"
           class="btn btn-sm btn-secondary"
@@ -196,8 +196,8 @@ function emitRegenerate(): void {
 /**
  * "This prompt did not render — reword it." Same regenerate call, plus the
  * different-angle steering and the difficult-subjects guidance on the backend.
- * Manual by design: a content refusal is not distinguishable from any other
- * failure today, so this is never triggered automatically.
+ * Manual by design: IMAGE_CONTENT_REFUSED is diagnostic guidance only, so
+ * this is never triggered automatically.
  */
 function emitReword(): void {
   if (!canSave.value) return

@@ -34,7 +34,6 @@ import {
   addGenStudioVoiceLibraryVoice,
   downloadVoicePreview as downloadGenStudioVoicePreview,
   GENSTUDIO_VOICE_LIBRARIES,
-  getGenStudioAccountOverview,
   getGenStudioAccountSnapshot,
   refreshGenStudioAdmission,
   GenStudioApiError,
@@ -552,26 +551,6 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
       e,
       'Could not load GenStudio KH image models. Ensure the saved key includes images:generate.',
     ))
-  }
-})
-
-router.get('/app-settings/genstudio/access', async (_req, res) => {
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key first.' })
-  try {
-    const overview = await getGenStudioAccountOverview(apiKey)
-    res.json({
-      plan_name: overview.subscription_plan_name,
-      credit_balance: overview.credit_balance,
-      relaxed_concurrency_limit: overview.relaxed_concurrency_limit,
-      relaxed_capacity_reported: overview.relaxed_concurrency_limit > 0,
-      activation: 'after-credit-exhaustion',
-      api_eligibility: 'verified-by-genstudio-at-submission',
-      plan_portal_available: false,
-      plan_portal_url: null,
-    })
-  } catch (error: any) {
-    res.status(502).json(humanizeBackendError(error, 'Could not load the GenStudio plan and credit status'))
   }
 })
 

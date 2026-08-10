@@ -17,7 +17,7 @@ Story Studio implemented that immediately — the masking that used to strip `pr
 `engine_id`, `engine_name`, `model_family` and `model_revision_id` at our backend boundary is
 gone, and provider is now displayed wherever GenStudio publishes it.
 
-The gap is that GenStudio publishes it for only three of seven modalities.
+The gap is that GenStudio publishes it for speech and voice-clone surfaces only.
 
 ## Current state, read from the live spec
 
@@ -25,7 +25,7 @@ The gap is that GenStudio publishes it for only three of seven modalities.
 |---|---|
 | `StandardVoiceResponse` | `provider`, `engine_id`, `engine_name`, `model_family`, `model_revision_id` |
 | `TTSModelResponse` | `provider_id`, `provider_name` |
-| `TranscriptionModelResponse` | `provider` |
+| `TranscriptionModelResponse` | **none** |
 | `ChatModelResponse` | **none** |
 | `ImageModelResponse` | **none** |
 | `VideoModelResponse` | **none** |
@@ -36,13 +36,11 @@ human-readable `provider_name` is exactly the right shape — an id to key on an
 
 ## The request
 
-**Publish the serving provider on the remaining modalities: chat, image, video and music** —
-ideally as the `provider_id` + `provider_name` pair `TTSModelResponse` already uses, so Story
-Studio can consume all of them through one code path.
-
-`TranscriptionModelResponse` publishes a bare `provider`. A `provider_name` beside it would let
-transcription use the same path as everything else, but that is cosmetic and not worth a
-migration on its own.
+**Publish the serving provider on the remaining modalities: chat, image, video, music, and
+transcription.** A scalar `provider_name` fits chat, video, music, and transcription. Images
+need an operation-aware shape such as `provider_name_by_operation`, because their serving
+route can differ by operation and output variant. Story Studio will display either shape but
+will not infer it.
 
 ## Why it is worth doing
 
@@ -71,10 +69,8 @@ is simply blank.
 
 Adopting the fields is a small change on our side, because voice already established the path.
 
-## A "no" is a fine answer
+## Owner decision
 
-If provider identity is deliberately private for the routed modalities — that would be a
-reasonable position, and it was Story Studio's original instruction until 1 August — then say
-so and we will stop asking. What is awkward is only that it is currently private for four
-modalities and public for three, with no stated reason for the split, so neither side can tell
-whether the gap is a decision or an oversight.
+The owner chose **extend** on 2026-08-01, as quoted above. Provider identity stays display-only
+and GenStudio-owned; this request does not authorize Story Studio to infer providers or steer
+routing.

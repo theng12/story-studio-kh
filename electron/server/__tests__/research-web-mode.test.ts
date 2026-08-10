@@ -73,7 +73,6 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     max_output_tokens: 8_192,
     controls: [],
     activation_blockers: [],
-    unlimited_relaxed: false,
     input_credits_per_million_tokens: 100,
     output_credits_per_million_tokens: 300,
     minimum_credits: 1,
@@ -323,7 +322,8 @@ describe('envelope citations', () => {
     )
     assert.deepEqual(output.citations, [])
     const notice = researchModeNotice('web-search', output.citations.length)
-    assert.match(notice, /came back with no sources/)
+    assert.match(notice, /Research ran, but GenStudio did not publish structured citations or source URLs/)
+    assert.doesNotMatch(notice, /model knowledge/i)
     assert.notEqual(notice, WEB_SEARCH_NOTICE)
   })
 

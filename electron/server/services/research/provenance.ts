@@ -51,12 +51,11 @@ export const WEB_SEARCH_MODE_BLURB =
 /**
  * Honest wording for a web run that came back with NO sources. Silence here
  * would be the worst outcome: the page would promise "cited its sources" over
- * an empty list. Say plainly that the run produced no sources, so the claims
- * are only as good as model knowledge for now.
+ * an empty list. The run still succeeded as web research; GenStudio simply
+ * did not publish structured citations or source URLs for it.
  */
 export const WEB_SEARCH_NO_SOURCES_NOTICE =
-  'This run searched the web but came back with no sources. Treat these claims as model knowledge until you '
-  + 'find sources yourself, or run it again.'
+  'Research ran, but GenStudio did not publish structured citations or source URLs for this run.'
 
 /**
  * Web-search notice when GenStudio grounded at least one claim to a source.

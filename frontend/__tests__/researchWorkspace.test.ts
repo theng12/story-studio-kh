@@ -196,8 +196,11 @@ describe('Research workspace flow', () => {
   test('shows citations at run level and never fabricates per-claim links', () => {
     assert.match(research, /These sources back the whole run/)
     assert.match(research, /resultMode !== 'web-search'/)
-    // A web run with no sources is stated plainly instead of left blank.
+    // A successful web run may return no structured citations. Surface the
+    // missing published evidence without relabelling the run as model knowledge.
     assert.match(research, /research-nosources-note/)
+    assert.match(research, /GenStudio did not publish structured citations or source URLs/)
+    assert.doesNotMatch(research, /Treat these claims as model knowledge/)
   })
 
   test('round-trips mode and domain filters through research presets', () => {

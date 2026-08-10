@@ -1,19 +1,18 @@
 # Request to GenStudio: publish per-model voice controls
 
 **From:** Story Studio KH
-**Status:** OPEN
-**Urgency:** medium — Story Studio is currently showing customers controls that reach nothing.
+**Status:** ANSWERED — shipped in `TTSModelResponse.controls[]` and consumed by Story Studio
+**Urgency:** closed; preserve the live model-driven contract
 
 ## The problem, concretely
 
-Story Studio's audio page has **Stability** and **Similarity** sliders. The customer moves
-them. They do nothing at all.
+Historically, Story Studio's audio page had **Stability** and **Similarity** sliders that
+reached nothing. GenStudio now publishes each selected model's accepted controls, ranges,
+defaults, labels, and descriptions, and Story Studio renders and submits only those controls.
 
-`POST /v1/tts/jobs` accepts `{voice_id, text, speed}`. There is no field for stability, no
-field for similarity, and no field for anything else of that kind. The values are collected
-and discarded. We have just removed the same class of problem for `speed` — it is now shown
-only when the model publishes `supports_speed` — but stability and similarity cannot be fixed
-the same way, because there is nothing published to gate them on and nowhere to send them.
+The selected `/v1/tts/models` row is the authority. A model switch re-resolves the published
+control list and re-clamps or clears client state before submission; the server independently
+revalidates the request. Do not restore fixed sliders or provider-derived controls.
 
 So today Story Studio has two choices, both bad: keep showing dead controls, or delete
 capability that some models genuinely have.

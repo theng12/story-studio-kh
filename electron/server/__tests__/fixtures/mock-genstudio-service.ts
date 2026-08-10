@@ -746,7 +746,6 @@ export class MockGenStudioService {
         paid_queued_jobs: 0,
         max_queued_jobs: 100,
         generation_submissions_per_minute: 120,
-        relaxed_concurrency_limit: 3,
         total_jobs: this.jobs.size,
         active_jobs: 0,
         completed_jobs: this.jobs.size,

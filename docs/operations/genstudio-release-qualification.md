@@ -39,7 +39,7 @@ The qualification is deterministic and zero-spend:
 | Generation scopes | Missing `chat:generate`, `images:generate`, `tts:generate`, or `audio:transcribe` creates no GenStudio job. |
 | LLM, image, TTS, transcription | Submits every requested modality through the public GenStudio routes and verifies its terminal output. |
 | Polling and terminal states | Observes `accepted → reserved → dispatched → running → validating → succeeded`, plus terminal `failed`. |
-| Account admission | Uses one shared scheduler across modalities and API keys, reads canonical `paid_concurrency_limit`, queue, submission-rate, and Unlimited Relaxed metadata, and leaves all execution admission authoritative in GenStudio. |
+| Account admission | Uses one shared scheduler across modalities and API keys, reads canonical `paid_concurrency_limit`, queue, and submission-rate metadata, and leaves all execution admission authoritative in GenStudio. |
 | Durable local queue | Preserves local pending work across restart, then resumes the same accepted GenStudio job ID instead of creating replacement work. |
 | Submission pacing | Applies a rolling account submission-rate window and remote queue backpressure without treating Story Studio's local active count as total account activity. |
 | Backpressure | Honors GenStudio `Retry-After` guidance for retryable submission and polling responses without creating a second logical request. |
@@ -85,7 +85,6 @@ owns:
 - generation submissions per minute;
 - active paid jobs and the durable account queue;
 - provider and local-worker capacity;
-- Unlimited Relaxed capacity after spendable credits are exhausted.
 
 A valid request accepted with HTTP 202 remains the same logical job across
 polling errors, app restarts, and artifact-download retries. Only GenStudio job

@@ -14,23 +14,15 @@
  * THREE DISTINCT STATES, DELIBERATELY NOT COLLAPSED
  * -------------------------------------------------
  * - `published`     the model published the languages it accepts. Real picker.
- * - `unenumerated`  the model published a sentinel like "multilingual": it can
- *                   do many, but GenStudio has not said which. Auto-detect
- *                   plus a free-entry code, clearly marked as unvalidated.
- * - `unpublished`   the model published no language information at all. Same
- *                   controls, DIFFERENT wording — this is missing data, not a
- *                   capability statement.
+ * - `unenumerated`  the model published a sentinel like "multilingual", but
+ *                   no usable language list.
+ * - `unpublished`   the model published no language information at all.
  *
- * Auto-detect is a separate thing again: a deliberate customer choice to let
- * the model decide. Rendering "auto-detect" and "we were told nothing" the
- * same way would make a gap in GenStudio's catalogue look like a decision
- * somebody made.
+ * Auto-detect is a separate capability. It is offered only when GenStudio
+ * explicitly publishes it; otherwise Story Studio must not omit `language`.
  *
- * WHEN GENSTUDIO SHIPS `supported_languages[]`
- * --------------------------------------------
- * `mode` flips to `published` on its own, the picker fills itself from the
- * catalogue, and the free-entry fallback disappears. No release, no code
- * change. See docs/genstudio-handoff/transcription-language-request.md.
+ * `supported_languages[]` now drives the picker. A model that publishes
+ * neither a concrete language nor auto-detect has no valid submission state.
  */
 
 /** The choice value meaning "send no `language` and let the model decide". */
@@ -50,6 +42,7 @@ export const DEFAULT_TRANSCRIPTION_LANGUAGE = 'en'
 const UNENUMERATED_SENTINELS = new Set(['multilingual', 'multi', 'auto', 'any'])
 
 export interface TranscriptionLanguageModel {
+  display_name?: string
   language?: string
   supported_languages?: string[]
   supports_language_auto_detect?: boolean | null
@@ -64,9 +57,9 @@ export interface TranscriptionLanguageOption {
 
 export interface TranscriptionLanguageControl {
   mode: TranscriptionLanguageMode
-  /** Auto-detect first, then whatever the model published. Never empty. */
+  /** Auto-detect first when published, then the model's explicit languages. */
   options: TranscriptionLanguageOption[]
-  /** True only when nothing enumerable was published. */
+  /** Free-entry is deliberately unsupported: requests must be catalog-valid. */
   allowsFreeEntry: boolean
   /** The raw published string, for display. Empty when nothing was published. */
   publishedLanguage: string
@@ -106,14 +99,13 @@ export function transcriptionLanguageControl(
       : 'unpublished'
   return {
     mode,
-    // Auto-detect is always offered, in every state — it is the one choice
-    // that needs no catalogue support, because it is implemented by leaving
-    // the field off the request entirely.
     options: [
-      { value: AUTO_DETECT_LANGUAGE, label: 'Auto-detect' },
+      ...(model?.supports_language_auto_detect === true
+        ? [{ value: AUTO_DETECT_LANGUAGE, label: 'Auto-detect' }]
+        : []),
       ...codes.map(code => ({ value: code, label: code })),
     ],
-    allowsFreeEntry: mode !== 'published',
+    allowsFreeEntry: false,
     publishedLanguage,
     autoDetectPublished: typeof model?.supports_language_auto_detect === 'boolean'
       ? model.supports_language_auto_detect
@@ -124,24 +116,23 @@ export function transcriptionLanguageControl(
 /**
  * The starting choice for a model the customer has not chosen a language for.
  *
- * English when the model can take it (the current content), auto-detect when
- * the model published a list that does not include English — inventing a code
- * the model never published would be a guess.
+ * The preferred language when GenStudio publishes it, then the first published
+ * language. Auto-detect is only a fallback when the selected model publishes
+ * that capability. Otherwise no selection is valid.
  */
 export function defaultTranscriptionLanguage(
   model: TranscriptionLanguageModel | null | undefined,
   fallback: string = DEFAULT_TRANSCRIPTION_LANGUAGE,
 ): string {
   const codes = publishedTranscriptionLanguages(model)
-  if (!codes.length) return fallback
+  if (!codes.length) return model?.supports_language_auto_detect === true ? AUTO_DETECT_LANGUAGE : ''
   const match = codes.find(code => code.toLowerCase() === fallback.toLowerCase())
-  return match || AUTO_DETECT_LANGUAGE
+  return match || codes[0]!
 }
 
 /**
- * Whether a remembered choice (from a preset) still makes sense for the model
- * now selected. A published list is authoritative; a free-entry mode accepts
- * anything the customer typed, because it is explicitly unvalidated.
+ * Whether a remembered choice (from a preset) is still published for the
+ * model now selected.
  */
 export function isTranscriptionLanguageUsable(
   choice: string,
@@ -149,22 +140,27 @@ export function isTranscriptionLanguageUsable(
 ): boolean {
   const value = (choice || '').trim()
   if (!value) return false
-  if (value === AUTO_DETECT_LANGUAGE) return true
+  if (value === AUTO_DETECT_LANGUAGE) return model?.supports_language_auto_detect === true
   const codes = publishedTranscriptionLanguages(model)
-  if (!codes.length) return true
   return codes.some(code => code.toLowerCase() === value.toLowerCase())
 }
 
 /**
- * The `language` field for a transcription request — or nothing at all.
- *
- * Auto-detect is implemented by OMITTING the field. That is the whole
- * mechanism: there is no "auto" value on the wire, so a GenStudio model that
- * detects the language sees exactly the request it would have seen before this
- * control existed.
+ * The validated `language` field for a transcription request. Auto-detect is
+ * implemented by omission only when the selected model publishes that flag.
  */
-export function transcriptionLanguageRequestFields(choice: string): { language?: string } {
+export function transcriptionLanguageRequestFields(
+  choice: string,
+  model: TranscriptionLanguageModel | null | undefined,
+): { language?: string } {
   const value = (choice || '').trim()
-  if (!value || value === AUTO_DETECT_LANGUAGE) return {}
-  return { language: value }
+  const label = model?.display_name || 'the selected transcription model'
+  if (!value || value === AUTO_DETECT_LANGUAGE) {
+    if (model?.supports_language_auto_detect === true) return {}
+    throw new Error(`${label} has not published auto-detect. Select one of its published languages before transcription.`)
+  }
+  const published = publishedTranscriptionLanguages(model)
+  const matched = published.find(code => code.toLowerCase() === value.toLowerCase())
+  if (!matched) throw new Error(`${label} does not publish ${value} as a supported language.`)
+  return { language: matched }
 }

@@ -16,8 +16,7 @@ next launch:
 - **Context window and output allowance** (`context_window_tokens`, `max_output_tokens`),
   plus the available-input budget that falls out of them
 - **Price and credit cost** — per image, per video variant, per 1,000 TTS characters, per
-  second of transcription, per million chat tokens, plus promotions, `chargeable`, and
-  Unlimited eligibility
+  second of transcription, per million chat tokens, plus promotions and `chargeable`
 - **Reference-image support and counts** (`supports_reference_images`,
   `min_reference_images`, `max_reference_images`)
 - **Aspect ratios, resolutions, durations, modes, voice tiers, languages** — every published

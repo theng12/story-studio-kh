@@ -35,6 +35,27 @@ test('Contextual Cues pipeline params preserve the preset review decision', () =
   assert.equal(trusted.auto_approve, true)
 })
 
+test('subtitles pipeline params preserve the preset language without guessing English', () => {
+  const explicit = resolveStepParams('subtitles' as any, 'EP0042', 'Berlin story', {
+    id: 'subtitle-language', name: 'Khmer transcript', data: {
+      model: 'published-stt', language: 'km', force: true,
+    },
+  } as any, null)
+  assert.deepEqual(explicit, {
+    episode_id: 'EP0042',
+    per_chapter: true,
+    engine: 'genstudio',
+    model: 'published-stt',
+    language: 'km',
+    force: true,
+  })
+
+  const unspecified = resolveStepParams('subtitles' as any, 'EP0042', 'Berlin story', {
+    id: 'subtitle-language-missing', name: 'Legacy transcript', data: { model: 'published-stt' },
+  } as any, null)
+  assert.equal('language' in unspecified, false, 'a missing legacy choice must block at live validation, not become English')
+})
+
 // ── Test fixtures ─────────────────────────────────────────────────────────
 
 const LISTICLE_FORMAT: Format = {

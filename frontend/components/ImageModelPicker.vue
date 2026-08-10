@@ -9,8 +9,6 @@
       :placeholder="defaultLabel"
       search-placeholder="Search image models…"
       aria-label="Image model options"
-      :catalog-notice="planNotice"
-      catalog-notice-href="/usage"
       @update:model-value="select"
     />
     <!-- Price of the CURRENT selection, in GenStudio's published terms. A
@@ -50,30 +48,23 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [modelId: string] }>()
 const { models, loading, error, refresh } = useGenStudioImageModels()
-const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
 const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
     : models.value
-  const orderedModels = [
-    ...visibleModels.filter(model => model.unlimited_relaxed === true),
-    ...visibleModels.filter(model => model.unlimited_relaxed !== true),
-  ]
-  const rows = orderedModels.map((model) => {
-    const unlimited = badgeFor(model.unlimited_relaxed === true)
-    return {
+  const rows = visibleModels.map((model) => ({
       id: model.id,
       label: model.display_name,
-      group: model.unlimited_relaxed === true ? 'Free + paid plans' : 'Paid plan',
+      group: 'Image models',
       provider: model.provider_name || '',
       disabled: !model.available,
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'
         : '',
-      badges: unlimited ? [unlimited] : [],
+      badges: [],
     }
-  })
+  ))
   return rows
 })
 
@@ -166,7 +157,7 @@ function syncLiveSelection(): void {
 watch([models, () => props.modelValue, () => props.imageMode], syncLiveSelection, { deep: true, immediate: true })
 
 onMounted(() => {
-  void Promise.all([refresh(), refreshAccess()])
+  void refresh()
 })
 </script>
 

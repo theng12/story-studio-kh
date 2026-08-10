@@ -61,14 +61,11 @@
  *
  * ── On rewriting after a refusal ────────────────────────────────────────────
  * `IMAGE_PROMPT_REWORD_DIRECTIVE` powers a MANUAL, user-invoked reword only.
- * Story Studio cannot today tell a content refusal from any other failure, and
- * pattern-matching provider error text to infer one is exactly the inference
- * this app's rules forbid — it would break the first time a provider reworded
- * its message. A request for a distinct `content_refused` reason code is open
- * with GenStudio (docs/genstudio-handoff/content-refusal-code-request.md). When
- * that code lands, wiring it is small: read the code off the failed job and
- * invoke this same reword action. Nothing here needs to change to allow that,
- * and nothing here guesses at it in the meantime.
+ * GenStudio's exact terminal `IMAGE_CONTENT_REFUSED` code can identify that
+ * one refusal in job diagnostics. Pattern-matching provider error text remains
+ * forbidden — it would break the first time a provider reworded its message.
+ * The code can offer this existing action, but must never invoke it on the
+ * customer's behalf; every other failure stays unknown.
  */
 
 /**

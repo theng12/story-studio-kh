@@ -37,7 +37,6 @@ function accountOverview() {
     paid_queued_jobs: 0,
     max_queued_jobs: 25,
     generation_submissions_per_minute: 30,
-    relaxed_concurrency_limit: 1,
   }
 }
 
@@ -288,7 +287,6 @@ function imageModel(overrides: Record<string, unknown> = {}) {
     display_name: 'Reference Renderer',
     available: true,
     qualification_only: false,
-    unlimited_relaxed: false,
     credits_per_image: 4,
     minimum_credits: 4,
     price_version: '2026-07-01',

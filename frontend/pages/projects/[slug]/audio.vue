@@ -77,8 +77,6 @@
             placeholder="Pick a voice model…"
             search-placeholder="Search voice models…"
             aria-label="GenStudio TTS model options"
-            :catalog-notice="genstudioPlanNotice"
-            catalog-notice-href="/usage"
           />
           <p v-if="ttsModelsError" class="text-muted text-xs hint-line">{{ ttsModelsError }}</p>
           <p v-else-if="ttsModelsLoading && !audioModelOptions.length" class="text-muted text-xs hint-line">
@@ -110,7 +108,6 @@
             :tts-model-provider-id="selectedTtsModel?.provider_id || ''"
             :tts-model-description="selectedTtsModel?.description || ''"
             :tts-model-supports-voice-cloning="selectedTtsModel?.supports_voice_cloning === true"
-            :model-credits-per1000-characters="selectedTtsModel?.credits_per_1000_characters ?? null"
             require-selection
             class="voice-picker-flex"
             @preview="previewVoiceId"
@@ -138,11 +135,7 @@
         <p v-if="selectedVoice" class="text-muted text-xs hint-line">
           <template v-if="selectedVoice.language">{{ selectedVoice.language }} · </template>
           <template v-if="selectedVoiceProviderText">{{ selectedVoiceProviderText }} · </template>
-          <template v-if="voiceRateDiffers">
-            This voice is priced at {{ formatCredits(selectedVoice.credits_per_1000_characters!) }} / 1,000 characters —
-            different from the model's rate.
-          </template>
-          <template v-else>Priced at the model's rate.</template>
+          Priced at the model's rate.
           <template v-if="selectedVoice.preview_notice"> {{ selectedVoice.preview_notice }}</template>
         </p>
       </div>
@@ -433,12 +426,6 @@ const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config, refreshConfig } = useProject()
 const {
-  planNotice: genstudioPlanNotice,
-  badgeFor: genstudioUnlimitedBadge,
-  refresh: refreshGenstudioAccess,
-} = useGenStudioAccess()
-
-const {
   models: ttsModels,
   modelsLoading: ttsModelsLoading,
   modelsError: ttsModelsError,
@@ -453,11 +440,10 @@ const {
  * is respected — a model GenStudio has switched off cannot be chosen.
  */
 const audioModelOptions = computed(() => ttsModels.value.map((model) => {
-  const unlimited = genstudioUnlimitedBadge(model.unlimited_relaxed === true)
   return {
     id: model.id,
     label: model.display_name,
-    group: model.unlimited_relaxed === true ? 'Free + paid plans' : 'Paid plan',
+    group: model.provider_name || 'Voice models',
     provider: model.provider_name || '',
     meta: [
       `${formatCredits(model.credits_per_1000_characters)} / 1,000 characters`,
@@ -470,13 +456,8 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     badges: [
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
-      ...(unlimited ? [unlimited] : []),
     ],
   }
-}).sort((left, right) => {
-  const leftFree = left.group === 'Free + paid plans'
-  const rightFree = right.group === 'Free + paid plans'
-  return Number(rightFree) - Number(leftFree)
 }))
 
 /** The one model every published figure on this page is read from. */
@@ -584,13 +565,6 @@ const selectedVoiceProviderText = computed(() => {
 
 /** The model's published rate, shown before there is any text to quote. */
 const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
-/** The voice's own rate, shown only when GenStudio prices it differently. */
-const voiceRateDiffers = computed(() => {
-  const voiceRate = selectedVoice.value?.credits_per_1000_characters
-  return typeof voiceRate === 'number'
-    && selectedTtsModel.value !== null
-    && voiceRate !== selectedTtsModel.value.credits_per_1000_characters
-})
 
 /**
  * Whether the selected model takes Story Studio's inline pause/emotion tags.
@@ -954,7 +928,6 @@ onMounted(async () => {
     applyAudioFormatDefaultsIfNoPreset(),
     audioPresets.load(),
     loadTtsModels(),
-    refreshGenstudioAccess(),
   ])
 })
 

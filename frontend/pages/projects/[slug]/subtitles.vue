@@ -115,21 +115,13 @@
               placeholder="Pick a transcription model…"
               search-placeholder="Search transcription models…"
               aria-label="Transcription model options"
-              :catalog-notice="genstudioPlanNotice"
-              catalog-notice-href="/usage"
             />
           </div>
-          <!-- Spoken language. Three states, deliberately distinguishable:
-               a published list gets a real picker; a model that says only
-               "multilingual" gets auto-detect plus an UNVALIDATED free-entry
-               code; a model that published nothing gets the same controls with
-               different wording, because missing data is not a capability
-               statement. Auto-detect is always offered and is its own thing —
-               a choice, not a gap. See utils/transcription-language.ts. -->
+          <!-- Language choices come only from the selected live model. -->
           <div v-if="genstudioSelectedModel" class="form-group mt-2">
             <label for="sub-language">Spoken language</label>
             <select
-              v-if="languageControl.mode === 'published'"
+              v-if="languageControl.options.length"
               id="sub-language"
               v-model="language"
               class="input"
@@ -140,41 +132,14 @@
                 :value="option.value"
               >{{ option.label }}</option>
             </select>
-            <div v-else class="flex gap-2 items-center">
-              <label class="flex items-center gap-1 text-sm">
-                <input
-                  type="checkbox"
-                  :checked="language === AUTO_DETECT_LANGUAGE"
-                  @change="toggleAutoDetect(($event.target as HTMLInputElement).checked)"
-                >
-                Auto-detect
-              </label>
-              <input
-                v-if="language !== AUTO_DETECT_LANGUAGE"
-                id="sub-language"
-                v-model="language"
-                class="input"
-                type="text"
-                placeholder="Language code, e.g. en"
-              >
-            </div>
-
-            <small v-if="languageControl.mode === 'published'" class="text-muted">
+            <small v-if="languageControl.options.length" class="text-muted">
               {{ genstudioSelectedModel.display_name }} publishes these languages.
-              <strong>Auto-detect</strong> sends no language and lets the model decide.
+              <template v-if="languageControl.autoDetectPublished">
+                <strong>Auto-detect</strong> sends no language and lets the model decide.
+              </template>
             </small>
-            <small v-else-if="languageControl.mode === 'unenumerated'" class="text-muted">
-              {{ genstudioSelectedModel.display_name }} publishes
-              “{{ languageControl.publishedLanguage }}” but not the list of codes it accepts,
-              so this code is <strong>not validated</strong> — a wrong one is only caught by
-              GenStudio. <strong>Auto-detect</strong> sends no language at all.
-            </small>
-            <small v-else class="text-muted">
-              GenStudio published <strong>no language information</strong> for
-              {{ genstudioSelectedModel.display_name }} — that is missing catalogue data, not
-              a statement that the model detects the language. The code below is
-              <strong>not validated</strong>. <strong>Auto-detect</strong> sends no language
-              and lets the model decide.
+            <small v-else class="validation-msg">
+              This model has not published a supported language list or auto-detect. Choose another transcription model; no request can be submitted.
             </small>
           </div>
         </div>
@@ -316,7 +281,6 @@
 
 <script setup lang="ts">
 import {
-  AUTO_DETECT_LANGUAGE,
   DEFAULT_TRANSCRIPTION_LANGUAGE,
   defaultTranscriptionLanguage,
   isTranscriptionLanguageUsable,
@@ -362,8 +326,7 @@ const loading = ref(false)
 const force = ref(false)
 const transcribing = ref(false)
 /**
- * The chosen spoken language: a code, or `AUTO_DETECT_LANGUAGE` meaning
- * "send no language field at all".
+ * The chosen spoken language, or published auto-detect.
  *
  * Seeded to English because that is what this channel produces TODAY — a
  * default, not a hardcode. The customer can change it, it round-trips through
@@ -379,25 +342,13 @@ const {
   loading: genstudioModelsLoading,
   error: genstudioModelsError,
   ready: genstudioModelReady,
-  planNotice: genstudioPlanNotice,
   load: loadGenstudioModels,
 } = useGenStudioTranscriptionModels()
 
-/** Published list vs unenumerated vs nothing published — three renders. */
 const languageControl = computed(() => transcriptionLanguageControl(genstudioSelectedModel.value))
 
-/** Auto-detect is a mode, not a code. Turning it off restores the working
- *  default rather than leaving an empty box that silently means auto-detect —
- *  the two must never look the same. */
-function toggleAutoDetect(on: boolean): void {
-  language.value = on
-    ? AUTO_DETECT_LANGUAGE
-    : defaultTranscriptionLanguage(genstudioSelectedModel.value)
-}
-
-// A remembered choice that the newly selected model cannot honour is replaced
-// by that model's default. A model with no published list validates nothing,
-// so a typed code survives a model switch.
+// A remembered choice is accepted only while the selected live model still
+// publishes it. A stale auto-detect preset becomes a clear blocked state.
 watch(genstudioSelectedModel, (model) => {
   if (!model) return
   if (!isTranscriptionLanguageUsable(language.value, model)) {
@@ -495,7 +446,7 @@ const transcribeLabel = computed(() => 'Transcribe')
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false
   if (transcribing.value || transcribeJobActive.value) return false
-  return genstudioModelReady.value
+  return genstudioModelReady.value && isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)
 })
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
@@ -505,6 +456,9 @@ const transcribeDisabledReason = computed(() => {
   if (genstudioModelsError.value) return genstudioModelsError.value
   if (!genstudioModel.value) return 'No transcription model is available'
   if (!genstudioModelReady.value) return 'The selected transcription model is temporarily unavailable'
+  if (!isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) {
+    return 'Select a language published by this transcription model'
+  }
   return ''
 })
 
@@ -591,9 +545,7 @@ async function transcribe(): Promise<void> {
       per_chapter: true,
       engine: 'genstudio',
       model: genstudioModel.value,
-      // Auto-detect is implemented by OMITTING `language` — there is no "auto"
-      // value on the wire. Any other choice is sent verbatim.
-      ...transcriptionLanguageRequestFields(language.value),
+      ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
       force: force.value,
     })
     showInfo('Per-chapter transcription queued — progress shows in Jobs / the bell.')

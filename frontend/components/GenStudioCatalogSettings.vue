@@ -3,8 +3,8 @@
     <header class="catalog-header">
       <div>
         <span class="eyebrow">Connected account</span>
-        <h3>GenStudio Catalog &amp; Access</h3>
-        <p>Read-only availability and account access shared by every Story Studio project on this Mac.</p>
+        <h3>GenStudio Catalog</h3>
+        <p>Read-only model availability shared by every Story Studio project on this Mac.</p>
       </div>
       <button class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh">
         {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -16,16 +16,6 @@
         <span>Connection</span>
         <strong :class="`status-${connectionState.tone}`">{{ connectionState.label }}</strong>
         <small>{{ connectionState.detail }}</small>
-      </article>
-      <article>
-        <span>Current plan</span>
-        <strong>{{ access?.plan_name || 'Unavailable' }}</strong>
-        <small>Owned by the connected GenStudio account</small>
-      </article>
-      <article>
-        <span>Credits</span>
-        <strong>{{ formattedCredits }}</strong>
-        <small>Authoritative GenStudio balance</small>
       </article>
       <article>
         <span>Last refresh</span>
@@ -60,7 +50,7 @@
     <WorkspaceNotice
       v-if="combinedErrors.length"
       tone="warning"
-      title="Some GenStudio account data is unavailable"
+      title="Some GenStudio catalog data is unavailable"
     >
       <ul class="error-list">
         <li v-for="message in combinedErrors" :key="message">{{ message }}</li>
@@ -106,27 +96,8 @@
     </details>
 
     <footer class="catalog-footer">
-      <p>{{ planNotice }}</p>
       <div>
         <NuxtLink class="btn btn-secondary btn-sm" to="/usage">Credits &amp; settlement</NuxtLink>
-        <a
-          v-if="access?.plan_portal_available && access.plan_portal_url"
-          class="btn btn-secondary btn-sm"
-          :href="access.plan_portal_url"
-          target="_blank"
-          rel="noopener"
-        >
-          Manage plan
-        </a>
-        <button
-          v-else
-          type="button"
-          class="btn btn-secondary btn-sm"
-          disabled
-          title="The GenStudio plan website is not hosted yet."
-        >
-          Manage plan · coming soon
-        </button>
       </div>
     </footer>
   </section>
@@ -205,16 +176,6 @@ const configurationChecked = ref(false)
 const loading = ref(false)
 const requestErrors = ref<string[]>([])
 const lastRefreshedAt = ref<Date | null>(null)
-const {
-  access,
-  error: accessError,
-  planNotice,
-  refresh: refreshAccess,
-  lastFetchedAt: accessLastFetchedAt,
-  isStale: accessIsStale,
-  isExpired: accessIsExpired,
-} = useGenStudioAccess()
-
 function isAvailable(entry: CatalogEntry): boolean {
   return entry.available !== false && entry.generation_enabled !== false
 }
@@ -247,7 +208,6 @@ const catalogGroups = computed(() => [
 
 const combinedErrors = computed(() => Array.from(new Set([
   ...requestErrors.value,
-  accessError.value,
   imageError.value,
   mediaError.value,
   chatModelsCache.error.value,
@@ -274,7 +234,6 @@ const freshnessEntries = computed(() => [
   { label: 'TTS & Video models', lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
   { label: 'Voices', ...freshnessOf(voicesCache) },
   { label: 'Transcription models', ...freshnessOf(transcriptionCatalog) },
-  { label: 'Account access', lastFetchedAt: accessLastFetchedAt.value, isStale: accessIsStale.value, isExpired: accessIsExpired.value },
 ])
 
 const CATALOG_FRESH_MINUTES = Math.round(GENSTUDIO_CATALOG_FRESH_MS / 60_000)
@@ -313,17 +272,8 @@ const connectionState = computed(() => {
   if (combinedErrors.value.length) {
     return { label: 'Needs attention', detail: 'Connected, with live-data errors', tone: 'warning' }
   }
-  if (access.value) {
-    return { label: 'Connected', detail: 'Live account data received', tone: 'success' }
-  }
-  return { label: 'Checking…', detail: 'Waiting for GenStudio', tone: 'muted' }
+  return { label: 'Connected', detail: 'Live catalog data received', tone: 'success' }
 })
-
-const formattedCredits = computed(() =>
-  typeof access.value?.credit_balance === 'number'
-    ? access.value.credit_balance.toLocaleString()
-    : 'Unavailable',
-)
 
 const lastRefreshLabel = computed(() =>
   lastRefreshedAt.value
@@ -352,7 +302,6 @@ async function refresh(): Promise<void> {
       voicesCache.refresh(true),
       refreshImages(true),
       refreshMedia(true),
-      refreshAccess(true),
     ])
 
     if (keys.status === 'fulfilled') {

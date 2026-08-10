@@ -1054,7 +1054,7 @@ export async function generateImages(job: Job): Promise<void> {
     let settled = false
     // Stage independent Story assets promptly. The shared GenStudio admission
     // pool applies the account's live paid concurrency; GenStudio owns its
-    // durable queue, rate limits, relaxed capacity, and provider execution.
+    // durable queue, rate limits, and provider execution.
     // UNCHANGED — this is the fan-out width, not the retry/progress work
     // above; `currentConcurrency` only mirrors it for the item_progress
     // display, it never feeds back into what `ensureWorkers` does below.

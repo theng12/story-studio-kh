@@ -576,7 +576,6 @@ export interface GenStudioTranscriptionModel {
   available: boolean
   available_workers: number
   qualification_only: boolean
-  unlimited_relaxed: boolean
   /**
    * Published per-SECOND rate for this model.
    *
@@ -631,7 +630,6 @@ export interface GenStudioImageModel {
   availability_note?: string
   qualification_only: boolean
   execution_label?: string
-  unlimited_relaxed: boolean
   credits_per_image: number | null
   /** Undiscounted list price; present when a promotion is running. */
   base_credits_per_image: number | null
@@ -789,7 +787,6 @@ export interface GenStudioVoice {
   credits_per_1000_characters?: number
   output_format?: string
   catalog_status?: string
-  unlimited_relaxed?: boolean
   quote_enabled?: boolean
   generation_enabled?: boolean
   preview_available?: boolean
@@ -816,7 +813,6 @@ export interface GenStudioTtsModel {
   supports_speed: boolean
   supports_voice_cloning: boolean
   preview_policy: string
-  unlimited_relaxed: boolean
   generation_enabled: boolean
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with
@@ -942,7 +938,6 @@ export interface GenStudioChatModel {
   max_output_tokens: number
   controls: string[]
   activation_blockers: string[]
-  unlimited_relaxed: boolean
   input_credits_per_million_tokens: number
   output_credits_per_million_tokens: number
   minimum_credits: number
@@ -1196,7 +1191,6 @@ export interface GenStudioAccountOverview {
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
-  relaxed_concurrency_limit: number
   total_jobs: number
   active_jobs: number
   completed_jobs: number
@@ -1549,7 +1543,6 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
     paid_queued_jobs: overview.paid_queued_jobs,
     max_queued_jobs: overview.max_queued_jobs,
     generation_submissions_per_minute: overview.generation_submissions_per_minute,
-    relaxed_concurrency_limit: overview.relaxed_concurrency_limit,
   }
 })
 
@@ -2767,7 +2760,6 @@ export async function listVoicesSnapshot(
     credits_per_1000_characters: optionalCount(value?.credits_per_1000_characters),
     output_format: optionalText(value?.output_format),
     catalog_status: optionalText(value?.catalog_status),
-    unlimited_relaxed: typeof value?.unlimited_relaxed === 'boolean' ? value.unlimited_relaxed : undefined,
     quote_enabled: typeof value?.quote_enabled === 'boolean' ? value.quote_enabled : undefined,
     generation_enabled: typeof value?.generation_enabled === 'boolean' ? value.generation_enabled : undefined,
     preview_available: typeof value?.preview_available === 'boolean' ? value.preview_available : undefined,
@@ -2819,7 +2811,6 @@ export async function listTtsModelsSnapshot(
         supports_speed: value?.supports_speed === true,
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
-        unlimited_relaxed: value?.unlimited_relaxed === true,
         generation_enabled: value?.generation_enabled === true,
         // Carried through exactly as published. An absent or empty list means
         // this model takes no controls — never a reason to supply some.
@@ -3115,7 +3106,6 @@ export async function listChatModelsSnapshot(
     activation_blockers: Array.isArray(value?.activation_blockers)
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
       : [],
-    unlimited_relaxed: value?.unlimited_relaxed === true,
     input_credits_per_million_tokens: Number.isFinite(value?.input_credits_per_million_tokens)
       ? Math.max(0, value.input_credits_per_million_tokens)
       : 0,
@@ -3489,9 +3479,42 @@ async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> 
   })) as Promise<T>
 }
 
-/** Lightweight authoritative account status used by model catalogs and plan guidance. */
+/** Lightweight authoritative account status used by the usage surfaces. */
 export async function getGenStudioAccountOverview(apiKey: string): Promise<GenStudioAccountOverview> {
-  return readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+  const {
+    credit_balance,
+    credits_used_30d,
+    subscription_plan_name,
+    api_concurrency_limit,
+    paid_concurrency_limit,
+    paid_active_jobs,
+    paid_queued_jobs,
+    max_queued_jobs,
+    generation_submissions_per_minute,
+    total_jobs,
+    active_jobs,
+    completed_jobs,
+    failed_jobs,
+    available_assets,
+    next_asset_expiration,
+  } = await readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+  return {
+    credit_balance,
+    credits_used_30d,
+    subscription_plan_name,
+    api_concurrency_limit,
+    paid_concurrency_limit,
+    paid_active_jobs,
+    paid_queued_jobs,
+    max_queued_jobs,
+    generation_submissions_per_minute,
+    total_jobs,
+    active_jobs,
+    completed_jobs,
+    failed_jobs,
+    available_assets,
+    next_asset_expiration,
+  }
 }
 
 /** Authoritative balance and settlement data; never reconstructed locally. */
@@ -4541,7 +4564,9 @@ export async function listTranscriptionModelsSnapshot(
     return payload.map((value: any) => ({
       id: typeof value?.id === 'string' ? value.id.trim() : '',
       display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
-      provider: typeof value?.provider === 'string' ? value.provider.trim() : 'GenStudio KH',
+      // Provider transparency means pass through what GenStudio publishes.
+      // An absent provider is unknown, never the gateway name.
+      provider: typeof value?.provider === 'string' ? value.provider.trim() : '',
       // NOT defaulted to 'multilingual': an absent field is missing data, and
       // collapsing it into a sentinel makes a gap look like a published fact.
       language: typeof value?.language === 'string' ? value.language.trim() : '',
@@ -4558,7 +4583,6 @@ export async function listTranscriptionModelsSnapshot(
         ? Math.max(0, value.available_workers)
         : 0,
       qualification_only: value?.qualification_only !== false,
-      unlimited_relaxed: value?.unlimited_relaxed === true,
       // GenStudio publishes a per-SECOND rate. Reading `credits_per_minute`
       // here (a field it does not publish) made every model parse as 0.
       credits_per_second: Number.isFinite(value?.credits_per_second)
@@ -4617,7 +4641,6 @@ export async function listImageModelsSnapshot(
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
     execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
-    unlimited_relaxed: value?.unlimited_relaxed === true,
     credits_per_image: Number.isFinite(value?.credits_per_image)
       ? Math.max(0, value.credits_per_image)
       : null,

@@ -9,12 +9,12 @@ showing nothing (or, historically, a local guess). This lists only the small gap
 
 | Modality | Fields Story Studio will read |
 |---|---|
-| Image | `credits_per_image`, `base_credits_per_image`, `promotion_name`, `promotion_discount_percent`, `reference_generation_credits`, `chargeable`, `unlimited_relaxed`, `price_version` |
+| Image | `credits_per_image`, `base_credits_per_image`, `promotion_name`, `promotion_discount_percent`, `reference_generation_credits`, `chargeable`, `price_version` |
 | Video | per-variant `credits_per_video`, `minimum_credits`, `price_version` |
-| Voice / TTS | `credits_per_1000_characters`, `unlimited_relaxed`, **plus `POST /v1/tts/quotes` → exact `credits`** |
+| Voice / TTS | `/v1/tts/models` → `credits_per_1000_characters`, `minimum_credits`, **plus `POST /v1/tts/quotes` → exact `credits`** |
 | Transcription | `credits_per_second`, `minimum_credits`, `price_version`, **plus the quote endpoint → `quoted_credits`** |
 | Music | `credits_per_request`, `minimum_credits` |
-| Chat | `input_credits_per_million_tokens`, `output_credits_per_million_tokens`, `minimum_credits`, `unlimited_relaxed`, and now `web_search_credits_per_search` |
+| Chat | `input_credits_per_million_tokens`, `output_credits_per_million_tokens`, `minimum_credits`, and `web_search_credits_per_search` |
 
 Story Studio never computes a customer charge. It displays GenStudio's published unit
 price, and after a run it displays the `credit_cost` GenStudio reports. Where a quote
@@ -42,10 +42,12 @@ increasing order of effort:
 Story Studio will implement (a) now and can adopt (b) or (c) with no redesign — the display
 already distinguishes "estimate" from "actual".
 
-## Gap 2 — `price_version` missing on voice and music
+## Gap 2 — `price_version` missing on TTS models and music
 
-Every other modality carries `price_version`. `StandardVoiceResponse` and
-`MusicModelResponse` do not.
+Every other modality carries `price_version`. `TTSModelResponse` and
+`MusicModelResponse` do not. The authenticated rate card can now be joined through
+`customer_handle`, but publishing the value on each model list would keep the normal
+catalogue path self-contained.
 
 Story Studio stores `price_version` with each job so historical jobs stay interpretable
 after prices change ("this cost 4 credits under the 2026-07 price list"). Without it, voice
@@ -54,11 +56,11 @@ priced against.
 
 Small addition, and it makes the audit trail consistent across modalities.
 
-## Gap 3 — `minimum_credits` missing on voice and image
+## Gap 3 — `minimum_credits` missing on image
 
-`ChatModelResponse`, `TranscriptionModelResponse`, `VideoPriceVariantResponse` and
-`MusicModelResponse` all publish `minimum_credits`. `StandardVoiceResponse` and
-`ImageModelResponse` do not.
+`ChatModelResponse`, `TranscriptionModelResponse`, `VideoPriceVariantResponse`,
+`MusicModelResponse`, and `TTSModelResponse` all publish `minimum_credits`.
+`ImageModelResponse` does not.
 
 If a floor applies to those two, Story Studio would under-display the price of a very small
 request. If no floor applies, ignore this — Story Studio will assume none.

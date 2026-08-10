@@ -139,10 +139,7 @@ export async function runResearchJob(job: Job): Promise<void> {
     const attributed = persisted.claims.filter(c => c.citation_indices?.length).length
     const uncitedWeb = persisted.claims.length - attributed
     if (!persisted.citations.length) {
-      job.output_lines.push(
-        'This run searched the web but returned no sources. Treat these claims as model knowledge until '
-        + 'you find sources yourself, or run it again.',
-      )
+      job.output_lines.push(researchModeNotice(mode, persisted.citations.length))
     } else if (attributed > 0) {
       // Only claims GenStudio actually grounded are counted here. A claim it
       // could not ground is reported as uncited, never covered by the run's
@@ -304,8 +301,7 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   lines.push('')
   if (!r.citations.length) {
     lines.push(mode === 'web-search'
-      ? 'None. This run searched the web but came back with no sources. Treat these claims as model knowledge '
-        + 'until you find sources yourself, or run it again.'
+      ? `None. ${researchModeNotice(mode, r.citations.length)}`
       : 'None. This run used the model’s own knowledge, which cannot cite live sources — it is deliberately '
         + 'not allowed to invent URLs. Find sources yourself for anything specific or recent.')
     lines.push('')

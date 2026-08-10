@@ -25,6 +25,7 @@ import {
   recoverTranscriptionWithGenStudio,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
+import type { GenStudioTranscriptionModel } from '../lib/genstudio-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
 import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
@@ -154,24 +155,33 @@ async function hashTranscriptionAudio(audioPath: string): Promise<string> {
 /**
  * The language a transcription submits with.
  *
- * Story Studio produces Khmer, English and mixed-script narration, so pinning
- * `'en'` was actively wrong: it told a multilingual model to decode Khmer
- * audio as English. The order is (1) what the user explicitly asked for,
- * (2) the language the MODEL publishes, and (3) nothing at all — a model that
- * publishes `multilingual` (or publishes no language) is left to detect,
- * which is what it is for. No local default is invented anywhere.
+ * The requested language must be one the selected live model publishes.
+ * Omitting it means auto-detect only when that same model explicitly publishes
+ * `supports_language_auto_detect: true`; missing contract data never becomes
+ * permission to guess or silently submit.
  */
 export function resolveTranscriptionLanguage(
-  publishedLanguage: string | undefined,
+  model: Pick<GenStudioTranscriptionModel, 'display_name' | 'language' | 'supported_languages' | 'supports_language_auto_detect'>,
   requested: string | undefined,
 ): string | undefined {
+  const name = model.display_name || 'The selected transcription model'
   const wanted = (requested || '').trim()
-  if (wanted) return wanted
-  const published = (publishedLanguage || '').trim().toLowerCase()
-  if (!published || published === 'multilingual' || published === 'multi' || published === 'auto') {
-    return undefined
+  const automatic = !wanted || wanted.toLowerCase() === 'auto'
+  if (automatic) {
+    if (model.supports_language_auto_detect === true) return undefined
+    throw new Error(`${name} has not published auto-detect. Select one of its published languages before transcription; no transcription was submitted or charged.`)
   }
-  return published
+  const sentinels = new Set(['multilingual', 'multi', 'auto', 'any'])
+  const listed = Array.isArray(model.supported_languages)
+    ? model.supported_languages.filter(code => typeof code === 'string' && !!code.trim())
+    : []
+  const concrete = (model.language || '').trim()
+  if (!listed.length && concrete && !sentinels.has(concrete.toLowerCase())) listed.push(concrete)
+  const matched = listed.find(code => code.toLowerCase() === wanted.toLowerCase())
+  if (!matched) {
+    throw new Error(`${name} does not publish ${wanted} as a supported language. Select a language from its live catalogue; no transcription was submitted or charged.`)
+  }
+  return matched
 }
 
 async function resolveGenStudioTranscription(
@@ -210,11 +220,11 @@ async function resolveGenStudioTranscription(
     job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)
   }
   job.output_lines.push(`Model: ${selected.display_name}`)
-  const language = resolveTranscriptionLanguage(selected.language, req.language)
+  const language = resolveTranscriptionLanguage(selected, req.language)
   job.output_lines.push(
     language
       ? `Language: ${language}${req.language?.trim() ? ' (requested)' : ` (published by ${selected.display_name})`}`
-      : `Language: auto-detected — ${selected.display_name} publishes "${selected.language || 'no language'}".`,
+      : `Language: automatic detection requested — ${selected.display_name} publishes auto-detect.`,
   )
   return { apiKey, modelId: selected.id, language }
 }

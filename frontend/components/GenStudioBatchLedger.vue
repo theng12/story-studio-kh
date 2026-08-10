@@ -34,6 +34,10 @@
       </button>
     </div>
 
+    <p v-if="contentRefusedCount" class="gs-batch-guidance">
+      GenStudio marked {{ contentRefusedCount.toLocaleString() }} image{{ contentRefusedCount === 1 ? '' : 's' }} as a content refusal. Review the prompt, then use Reword to try a different angle; nothing is rewritten automatically.
+    </p>
+
     <GenStudioCreditSettlementHint :remote-jobs="remoteJobs" />
 
     <div v-if="ledgerOpen" class="gs-batch-ledger">
@@ -44,7 +48,10 @@
       <ul class="gs-batch-items">
         <li v-for="remote in pageItems" :key="remote.id">
           <span>{{ remote.operation }}</span>
-          <strong :class="stateClass(remote)">{{ displayState(remote) }}</strong>
+          <strong :class="stateClass(remote)">
+            {{ displayState(remote) }}
+            <small v-if="remote.failure_code" class="gs-batch-diagnostic">{{ remote.failure_code }}</small>
+          </strong>
           <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} charged</span>
           <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} returned</span>
           <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} on hold</span>
@@ -102,10 +109,16 @@ function effectiveState(remote: RemoteJob): string {
 
 function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'failed' {
   const state = effectiveState(remote)
-  if (remote.failure_code || /fail|error|cancel|reject/.test(state)) return 'failed'
+  if (state === 'failed' || state === 'cancelled') return 'failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
   if (/queue|pending|wait|accept/.test(state)) return 'queued'
   return 'active'
+}
+
+function isImageContentRefused(remote: RemoteJob): boolean {
+  return stateBucket(remote) === 'failed'
+    && remote.operation === 'image.generation'
+    && remote.failure_code === 'IMAGE_CONTENT_REFUSED'
 }
 
 function chargedFor(remote: RemoteJob): number {
@@ -145,6 +158,7 @@ const heldCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum 
 const returnedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + returnedFor(remote), 0))
 /** Terminal failures whose reservation is released but whose amount GenStudio has not published. */
 const releasedCount = computed(() => props.remoteJobs.filter(remote => isReleased(remote) && returnedFor(remote) === 0).length)
+const contentRefusedCount = computed(() => props.remoteJobs.filter(isImageContentRefused).length)
 const exceptionJobs = computed(() => props.remoteJobs.filter(remote => {
   const bucket = stateBucket(remote)
   return bucket === 'active' || bucket === 'failed'
@@ -205,8 +219,9 @@ watch([visibleJobs, pageCount], () => {
 .gs-batch-progress span { min-width: 2px; }.gs-batch-progress .settled { background: var(--success, #3fb950); }.gs-batch-progress .active { background: var(--accent); }.gs-batch-progress .queued { background: #64748b; }.gs-batch-progress .failed { background: var(--danger, #f85149); }
 .gs-batch-statuses { margin-top: 6px; font-size: var(--font-xs); }.gs-batch-statuses .settled { color: var(--success, #3fb950); }.gs-batch-statuses .active { color: var(--accent); }.gs-batch-statuses .queued { color: var(--text-muted); }.gs-batch-statuses .failed { color: var(--danger, #f85149); }
 .gs-batch-actions { margin-top: 7px; }.link-btn { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; cursor: pointer; }.link-btn:hover { text-decoration: underline; }
+.gs-batch-guidance { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .gs-batch-ledger { margin-top: 8px; padding: 8px; border-radius: var(--radius-sm); background: var(--bg-primary); }.gs-batch-ledger-head { justify-content: space-between; color: var(--text-muted); font-size: var(--font-xs); }
-.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
+.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.gs-batch-diagnostic { display: block; margin-top: 2px; color: var(--text-muted); font-size: inherit; font-weight: 400; text-transform: none; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
 .gs-batch-pagination { justify-content: flex-end; margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
 @media (max-width: 620px) { .gs-batch-items li { grid-template-columns: 1fr auto; }.gs-batch-items li > :last-child { grid-column: 1 / -1; } }
 </style>

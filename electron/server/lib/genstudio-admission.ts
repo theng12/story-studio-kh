@@ -4,7 +4,6 @@ export interface GenStudioAccountCapacity {
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
-  relaxed_concurrency_limit: number
 }
 
 export type GenStudioAdmissionState =
@@ -46,7 +45,6 @@ const SAFE_FALLBACK: GenStudioAccountCapacity = {
   paid_queued_jobs: 0,
   max_queued_jobs: 10,
   generation_submissions_per_minute: 30,
-  relaxed_concurrency_limit: 0,
 }
 
 function whole(value: unknown, fallback: number, minimum = 0): number {
@@ -61,7 +59,6 @@ function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCap
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
     max_queued_jobs: whole(value.max_queued_jobs, 10, 1),
     generation_submissions_per_minute: whole(value.generation_submissions_per_minute, 30, 1),
-    relaxed_concurrency_limit: whole(value.relaxed_concurrency_limit, 0),
   }
 }
 

@@ -456,8 +456,7 @@
         <!-- A web run that cited nothing is surfaced, not hidden. Without this
              the page would promise "cited its sources" over an empty space. -->
         <p v-if="resultMode === 'web-search' && !result.citations?.length" class="research-nosources-note">
-          This run searched the web but came back with no sources. Treat these claims as model knowledge until
-          you find sources yourself, or run it again.
+          {{ WEB_SEARCH_NO_SOURCES_NOTICE }}
         </p>
 
         <div v-if="result.citations?.length" class="research-sources-panel">
@@ -596,8 +595,7 @@ const WEB_SEARCH_NOTICE =
   'Searched the web and cited its sources below. Sources are listed for the whole run — individual claims '
   + 'aren’t linked to specific sources yet.'
 const WEB_SEARCH_NO_SOURCES_NOTICE =
-  'This run searched the web but came back with no sources. Treat these claims as model knowledge until you '
-  + 'find sources yourself, or run it again.'
+  'Research ran, but GenStudio did not publish structured citations or source URLs for this run.'
 // Shown before a run exists, so it describes the mechanism and not an outcome:
 // whether a claim ends up linked depends on what the model can point at.
 const WEB_SEARCH_MODE_BLURB =

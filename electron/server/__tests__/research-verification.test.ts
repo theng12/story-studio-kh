@@ -634,7 +634,10 @@ describe('the research generator resets the triage', () => {
   // ── Web-search mode ────────────────────────────────────────────────────
   // Same generator, same triage rules, DIFFERENT provenance. Nothing here
   // touches GenStudio: the web adapter is stubbed with a fixture envelope.
-  async function runWebGenerator(citations: ResearchOutput['citations']): Promise<Job> {
+  async function runWebGenerator(
+    citations: ResearchOutput['citations'],
+    web_run: ResearchOutput['web_run'] = { searches_performed: 3, credits_per_search: 5 },
+  ): Promise<Job> {
     const { genStudioWebResearch } = await import('../services/research/genstudio-web.js')
     const generator = await import('../generators/research.js')
     const adapter = genStudioWebResearch as any
@@ -649,7 +652,7 @@ describe('the research generator resets the triage', () => {
         // Deliberately the RETIRED v1.0.764 field name: a sidecar written by
         // that release must still display, and still say "not reported" for
         // the field GenStudio genuinely did not send.
-        web_run: { searches_performed: 3, credits_per_search: 5 },
+        web_run,
       }),
       // Claims are never mapped to sources in web mode — the sources back the
       // run as a whole.
@@ -701,15 +704,22 @@ describe('the research generator resets the triage', () => {
     assert.ok(job.output_lines.some(l => /Web search cost: not reported/.test(l)))
   })
 
-  test('a web run that cited nothing says so rather than implying sources exist', async () => {
+  test('a web run without structured citations remains a successful web outcome', async () => {
     const epDir = await makeProject(true)
-    const job = await runWebGenerator([])
+    const job = await runWebGenerator([], {
+      web_searches_executed: 3,
+      web_search_credit_cost: 5,
+    })
 
     const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
     const md = await fs.readFile(mdPath, 'utf-8')
-    assert.match(md, /came back with no sources/)
+    assert.match(md, /Research ran, but GenStudio did not publish structured citations or source URLs for this run\./)
+    assert.match(md, /Searches executed: 3\. Web search cost: 5 credits\./)
     assert.doesNotMatch(md, /Searched the web and cited its sources below/)
-    assert.ok(job.output_lines.some(l => /returned no sources/.test(l)))
+    assert.doesNotMatch(md, /Treat these claims as model knowledge/)
+    assert.ok(job.output_lines.some(l => /did not publish structured citations or source URLs/.test(l)))
+    assert.ok(job.output_lines.some(l => /Searches executed: 3\. Web search cost: 5 credits\./.test(l)))
+    assert.ok(!job.output_lines.some(l => /Treat these claims as model knowledge/.test(l)))
   })
 })
 

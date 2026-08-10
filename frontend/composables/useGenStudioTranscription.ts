@@ -25,7 +25,6 @@ export interface GenStudioTranscriptionModel {
   available: boolean
   available_workers: number
   qualification_only: boolean
-  unlimited_relaxed?: boolean
   /** Published per-SECOND rate. Optional because an older backend build did
    *  not send it; 0 or absent both mean "GenStudio published no rate", which
    *  is rendered as unpublished — never as free. */
@@ -79,7 +78,6 @@ const catalogCache = createGenStudioCatalogCache<GenStudioTranscriptionModel[]>(
 
 /** Shared live transcription catalog state for Subtitles and B-Roll. */
 export function useGenStudioTranscriptionModels() {
-  const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
   const modelId = ref('')
 
   const models = catalogCache.data
@@ -88,7 +86,6 @@ export function useGenStudioTranscriptionModels() {
   )
   const ready = computed(() => selectedModel.value?.available === true)
   const options = computed(() => models.value.map((model) => {
-    const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
       label: model.display_name,
@@ -112,13 +109,12 @@ export function useGenStudioTranscriptionModels() {
         ...(model.qualification_only
           ? [{ label: 'qualification', tone: 'info' as const }]
           : []),
-        ...(unlimited ? [unlimited] : []),
       ],
     }
   }))
 
   async function load(): Promise<void> {
-    await Promise.all([catalogCache.refresh(), refreshAccess()])
+    await catalogCache.refresh()
     // A remembered id is only a preference. Never leave a retired or
     // temporarily unavailable model selected just because it still exists
     // in an old preset; choose a currently usable catalog model instead.
@@ -146,7 +142,6 @@ export function useGenStudioTranscriptionModels() {
     loading: catalogCache.loading,
     error,
     ready,
-    planNotice,
     lastFetchedAt: catalogCache.lastFetchedAt,
     isStale: catalogCache.isStale,
     isExpired: catalogCache.isExpired,

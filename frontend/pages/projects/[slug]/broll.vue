@@ -423,10 +423,19 @@
             media-type="transcription"
             title="Choose a transcription model"
             search-placeholder="Search transcription models…"
-            :catalog-notice="brollGenstudioPlanNotice"
-            catalog-notice-href="/usage"
           />
         </div>
+        <div v-if="brollLanguageControl.options.length" class="form-group mt-2">
+          <label class="text-muted text-xs">Spoken language</label>
+          <select v-model="form.transcription_language" class="select">
+            <option v-for="option in brollLanguageControl.options" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+        <p v-else-if="brollGenstudioSelectedModel" class="validation-msg text-sm mt-2">
+          This model has not published a usable language or auto-detect. Choose a different transcription model.
+        </p>
 
         <!-- Shared: merged-audio guard + existing-SRT reuse + go button -->
         <p
@@ -571,6 +580,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, reactive } from 'vue'
+import {
+  DEFAULT_TRANSCRIPTION_LANGUAGE,
+  defaultTranscriptionLanguage,
+  isTranscriptionLanguageUsable,
+  transcriptionLanguageControl,
+  transcriptionLanguageRequestFields,
+} from '~/utils/transcription-language'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('B-Roll Picker')
@@ -609,6 +625,7 @@ const form = reactive({
   motion_pool: ['static', 'zoom-in', 'pan-right'] as string[],
   transition_id: 'crossfade' as string,
   transition_duration: 0.5,
+  transcription_language: DEFAULT_TRANSCRIPTION_LANGUAGE,
 })
 
 // v1.0.121+ — Preset hookup. Mirrors the pattern used by every other
@@ -661,13 +678,21 @@ const brollSubtitleUploadPath = ref('')
 const brollWhisperForce = ref(false)
 const {
   modelId: brollGenstudioModel,
+  selectedModel: brollGenstudioSelectedModel,
   options: brollGenstudioModelOptions,
   loading: brollGenstudioModelsLoading,
   error: brollGenstudioModelsError,
   ready: brollGenstudioModelReady,
-  planNotice: brollGenstudioPlanNotice,
   load: loadBrollGenstudioModels,
 } = useGenStudioTranscriptionModels()
+
+const brollLanguageControl = computed(() => transcriptionLanguageControl(brollGenstudioSelectedModel.value))
+
+watch(brollGenstudioSelectedModel, (model) => {
+  if (model && !isTranscriptionLanguageUsable(form.transcription_language, model)) {
+    form.transcription_language = defaultTranscriptionLanguage(model)
+  }
+})
 
 // Persistent subtitle config — saved to config.broll_subtitles. Default
 // shape matches what broll-assemble.ts expects on the wire + the
@@ -729,6 +754,7 @@ const brollExistingWhisperSrtName = computed(() => {
 const canTranscribeBroll = computed(() => {
   if (!form.episode_id || !subtitlesStatus.value?.audio_assembly_ready) return false
   return brollGenstudioModelReady.value
+    && isTranscriptionLanguageUsable(form.transcription_language, brollGenstudioSelectedModel.value)
 })
 
 async function loadBrollSubtitlesStatus(): Promise<void> {
@@ -797,10 +823,10 @@ async function transcribeBrollWithGenStudio(): Promise<void> {
     await post(
       `/projects/${slug.value}/video-editor/subtitles/transcribe/${form.episode_id}`,
       {
-        language: 'en',
         force: brollWhisperForce.value,
         engine: 'genstudio',
         model: brollGenstudioModel.value,
+        ...transcriptionLanguageRequestFields(form.transcription_language, brollGenstudioSelectedModel.value),
       },
     )
     success(

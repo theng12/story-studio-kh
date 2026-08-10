@@ -48,6 +48,9 @@ import {
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import { listTranscriptionModels } from '../lib/genstudio-client.js'
+import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
 
@@ -798,7 +801,9 @@ export function resolveStepParams(
       per_chapter: true,
       engine: 'genstudio',
       model: data.model || undefined,
-      language: 'en',
+      ...(typeof data.language === 'string' && data.language.trim()
+        ? { language: data.language.trim() }
+        : {}),
       force: data.force === true,
     }
   }
@@ -854,6 +859,35 @@ export function resolveStepParams(
     }
   }
   return { episode_id: episodeId }
+}
+
+/**
+ * Validate the one subtitles preset against the live catalogue before the
+ * Pipeline can enqueue any work. The generator repeats this at execution time
+ * because a catalogue can change while a job waits in the queue.
+ */
+async function resolvePipelineTranscriptionParams(
+  preset: StoredPreset,
+): Promise<{ model: string; language?: string }> {
+  const params = resolveStepParams('subtitles', '', '', preset)
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey.trim()) {
+    throw new Error('Transcription is not configured. Add an API key in Settings → This Mac → API Keys.')
+  }
+  let models: Awaited<ReturnType<typeof listTranscriptionModels>>
+  try {
+    models = await listTranscriptionModels(apiKey)
+  } catch {
+    throw new Error('Could not load transcription models. Check your connection and try again.')
+  }
+  const requestedModel = typeof params.model === 'string' ? params.model.trim() : ''
+  const modelId = resolveGenStudioModelId('transcription', requestedModel)
+  if (!modelId) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
+  const selected = models.find(model => model.id === modelId)
+  if (!selected) throw new Error('The selected transcription model is no longer available.')
+  if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
+  const language = resolveTranscriptionLanguage(selected, params.language)
+  return { model: selected.id, ...(language ? { language } : {}) }
 }
 
 /**
@@ -1209,6 +1243,17 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     }
   }
 
+  let pipelineTranscriptionParams: { model: string; language?: string } | null = null
+  if (steps.includes('subtitles')) {
+    try {
+      pipelineTranscriptionParams = await resolvePipelineTranscriptionParams(presetByStep.subtitles)
+    } catch (error: unknown) {
+      return res.status(400).json({
+        detail: `${error instanceof Error ? error.message : 'Select a current transcription model and published language.'} Nothing was started.`,
+      })
+    }
+  }
+
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
@@ -1317,6 +1362,9 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       const jobType = jobTypeForStep(step)
       const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       const params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+      if (step === 'subtitles' && pipelineTranscriptionParams) {
+        Object.assign(params, pipelineTranscriptionParams)
+      }
       if ((step === 'introduction-only' || step === 'metadata') && !params.model) {
         if (!batchDefaultChatModel) {
           skipped.push({

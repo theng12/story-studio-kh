@@ -16,6 +16,7 @@ import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import type { EpisodeStatus } from '../services/asset-status.js'
 
 // IMPORTANT: isStepAlreadyDone is pulled in dynamically inside `before()`
@@ -314,6 +315,40 @@ async function findEpisodeDir(slug: string, episodeId: string): Promise<string> 
 }
 
 describe('run-batch — v1.0.363 audio-paced wiring', () => {
+  test('subtitles rejects an unsupported preset language before enqueueing a job', async () => {
+    const service = await startMockGenStudioService()
+    try {
+      assert.equal((await request(app).put('/api/app-settings/genstudio').send({ url: service.baseUrl })).status, 200)
+      assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
+      const proj = await pm.createProject({ name: 'Pipeline Transcription Contract Test' })
+      await pm.updateConfig(proj.slug, {
+        subtitles_generator_presets: [{
+          id: 'stt1', name: 'Unsupported language', data: { model: 'mock-whisper-v1', language: 'km' },
+        }],
+        subtitles_generator_last_preset: 'stt1',
+      } as any)
+      const im = await import('../services/idea-manager.js')
+      const ideas = await im.addIdeas(proj.slug, [{
+        title: 'Transcription test', logline: '', themes: [], suggested_chapters: 1, suggested_length: '1 min', mood: 'calm',
+      }], 'test-model')
+      await im.acceptIdea(proj.slug, ideas[0].id)
+      const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+
+      const res = await request(app)
+        .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+        .send({ episode_ids: [episodeId], steps: ['subtitles'] })
+
+      assert.equal(res.status, 400)
+      assert.match(res.body.detail, /does not publish km/i)
+      assert.match(res.body.detail, /Nothing was started/i)
+      const jq = await import('../services/job-queue.js')
+      assert.equal((await jq.getJobs(proj.slug)).length, 0, 'invalid language must not enter the queue')
+      assert.equal(service.providerSubmissionCount('transcription'), 0, 'catalog validation must not submit paid work')
+    } finally {
+      await service.close()
+    }
+  })
+
   test('script-only expands into outline_only → expand_chapters (auto-approved)', async () => {
     const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
     // A typed script preset so findActivePreset resolves the script step.

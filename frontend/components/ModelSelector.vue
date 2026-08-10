@@ -13,8 +13,6 @@
       placeholder="Pick an LLM model…"
       search-placeholder="Search LLM models…"
       aria-label="LLM model options"
-      :catalog-notice="planNotice"
-      catalog-notice-href="/usage"
       @update:model-value="selectModel"
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
@@ -37,7 +35,6 @@ interface LlmModelRow {
   disabled_reason?: string | null
   hint?: string | null
   supports_vision?: boolean
-  unlimited_relaxed?: boolean
   /** Total prompt-plus-output budget, published live by GenStudio. */
   context_window_tokens?: number
   /** @deprecated Backwards-compatibility alias for older GenStudio releases.
@@ -65,7 +62,6 @@ const { get } = useApi()
 const allModels = ref<LlmModelRow[]>([])
 const loading = ref(false)
 const loadError = ref('')
-const { planNotice, badgeFor, refresh: refreshAccess } = useGenStudioAccess()
 
 function isDisabled(model: LlmModelRow): boolean {
   return !isUsableLiveGenStudioModel(model, props.requireVision === true)
@@ -83,16 +79,15 @@ const menuOptions = computed(() => {
   // separate published fact and appears on the row only when GenStudio sends
   // `provider_name`; it is never reconstructed from an id or display name.
   const rows = eligibleModels.map((model) => {
-    const unlimited = badgeFor(model.unlimited_relaxed === true)
     return {
       id: model.id,
       label: model.label,
-      group: 'GenStudio KH',
+      group: 'Language models',
       provider: model.provider_name || '',
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
-      badges: unlimited ? [unlimited] : [],
+      badges: [],
     }
   })
   return rows
@@ -141,10 +136,7 @@ async function loadModels(force = false): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    const [models] = await Promise.all([
-      get<LlmModelRow[]>(`/models?project=${props.projectSlug}`),
-      refreshAccess(),
-    ])
+    const models = await get<LlmModelRow[]>(`/models?project=${props.projectSlug}`)
     allModels.value = models
     syncModelSelection()
   } catch (error: any) {

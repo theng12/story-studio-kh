@@ -29,7 +29,7 @@ function numeric(value: unknown): number {
 
 function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'failed' {
   const state = String(remote.queue_state || remote.state || '').toLowerCase()
-  if (remote.failure_code || /fail|error|cancel|reject/.test(state)) return 'failed'
+  if (state === 'failed' || state === 'cancelled') return 'failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
   if (/queue|pending|wait|accept/.test(state)) return 'queued'
   return 'active'

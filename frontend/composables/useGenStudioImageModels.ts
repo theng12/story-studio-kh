@@ -33,7 +33,6 @@ export interface GenStudioImageModelInfo {
   availability_note?: string
   chargeable: boolean
   qualification_only: boolean
-  unlimited_relaxed?: boolean
   credits_per_image?: number | null
   base_credits_per_image?: number | null
   promotion_name?: string

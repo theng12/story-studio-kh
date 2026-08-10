@@ -1,7 +1,7 @@
 # Request to GenStudio: publish transcription language support
 
 **From:** Story Studio KH
-**Status:** open
+**Status:** partial — `supported_languages[]` shipped; auto-detect publication remains open
 **Urgency:** low — Story Studio ships a working control either way; this makes it accurate
 
 ## Goal
@@ -13,9 +13,9 @@ Story Studio needs a code change or a release.
 
 ## What is published today
 
-`TranscriptionModelResponse` carries a single `language` string, defaulting to
-`"multilingual"`. That tells us a model isn't English-only, but not *which* languages it
-handles — so a list cannot be built from it.
+`TranscriptionModelResponse` now publishes `supported_languages[]`, and Story Studio builds
+the picker from that list. GenStudio does not yet publish
+`supports_language_auto_detect` or a job's `detected_language`.
 
 ## Requested
 
@@ -40,14 +40,15 @@ handles — so a list cannot be built from it.
 
 ## What Story Studio does meanwhile
 
-Offers **Auto-detect** (by omitting `language`), plus a free-entry language code clearly
-marked as unvalidated because the model has not published its list. The moment
-`supported_languages[]` arrives, that becomes a proper selector and the free-entry fallback
-disappears — no release required.
+Offers only the selected model's published language codes and sends the chosen code
+explicitly. Auto-detect remains hidden until the selected model explicitly publishes
+`supports_language_auto_detect: true`; Story Studio never turns missing contract data into a
+customer option. A stale preset requesting auto-detect fails before submission rather than
+silently omitting `language`.
 
-Auto-detect and "the model published no language" are rendered as different states.
-Auto-detect is a deliberate customer choice; an unpublished language is a gap in what
-GenStudio told us. Collapsing them would make missing data look like a decision.
+Auto-detect and "the model published no language" remain different states. Auto-detect is a
+deliberate customer choice only after GenStudio publishes it; an unpublished language is a
+blocking catalogue gap, never a decision Story Studio invents.
 
 ## Context, so you can judge priority
 

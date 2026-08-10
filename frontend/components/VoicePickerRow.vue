@@ -46,8 +46,6 @@ const props = withDefaults(defineProps<{
   providerLabel?: string
   language?: string
   description?: string
-  /** The voice's own published rate, shown only when it differs from the model's. */
-  rateText?: string
   /** The model serving this voice. Shown when the list is not model-scoped. */
   modelName?: string
   previewAvailable?: boolean
@@ -59,7 +57,6 @@ const props = withDefaults(defineProps<{
   providerLabel: '',
   language: '',
   description: '',
-  rateText: '',
   modelName: '',
   previewAvailable: false,
   previewNotice: null,
@@ -75,7 +72,7 @@ defineEmits<{
 }>()
 
 const metaParts = computed(() =>
-  [props.language, props.providerLabel, props.modelName, props.rateText].filter(Boolean))
+  [props.language, props.providerLabel, props.modelName].filter(Boolean))
 const saveTitle = computed(() => props.favourite ? 'Remove from your saved voices' : 'Save to your GenStudio voices')
 </script>
 

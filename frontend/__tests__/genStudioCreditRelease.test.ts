@@ -59,6 +59,101 @@ const FAILED_IMAGE_JOB = {
 }
 
 describe('GenStudio released reservations are never shown as held', () => {
+  it('keeps a reserved job with a transient diagnostic code active and on hold', async () => {
+    const source = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      ['numeric', 'effectiveState', 'stateBucket', 'chargedFor', 'returnedFor', 'isReleased', 'heldFor']
+        .map(name => extractFunction(source, name)),
+      ['stateBucket', 'isReleased', 'heldFor'],
+    )
+    const transientVoiceReference = {
+      id: 'gs-voice-reference-1',
+      operation: 'voice.tts',
+      state: 'RESERVED',
+      reserved_credits: 13,
+      failure_code: 'VOICE_REFERENCE_PROCESSING',
+    }
+
+    assert.equal(ledger.stateBucket(transientVoiceReference), 'active')
+    assert.equal(ledger.isReleased(transientVoiceReference), false)
+    assert.equal(ledger.heldFor(transientVoiceReference), 13)
+
+    const hintSource = read('frontend/components/GenStudioCreditSettlementHint.vue')
+    const hint = await loadLifted(
+      'type RemoteJob = any',
+      [extractFunction(hintSource, 'stateBucket')],
+      ['stateBucket'],
+    )
+    assert.equal(hint.stateBucket(transientVoiceReference), 'active')
+  })
+
+  it('does not mark a reserved voice-reference job as failed in compact job views', async () => {
+    const transientVoiceReference = {
+      id: 'gs-voice-reference-compact',
+      operation: 'voice.tts',
+      state: 'RESERVED',
+      reserved_credits: 13,
+      failure_code: 'VOICE_REFERENCE_PROCESSING',
+    }
+
+    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
+    const preview = await loadLifted(
+      'type RemoteJob = any',
+      [extractFunction(previewSource, 'effectiveState'), extractFunction(previewSource, 'stateClass')],
+      ['stateClass'],
+    )
+    assert.equal(preview.stateClass(transientVoiceReference), 'is-active')
+
+    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
+    const declarations = [
+      'genStudioNumeric',
+      'genStudioCreditState',
+      'genStudioSettled',
+      'genStudioTerminalFailure',
+      'genStudioChargedCredits',
+      'genStudioReturnedCredits',
+      'genStudioHeldCredits',
+      'genStudioReservationReleased',
+    ]
+      .map(name => extractFunction(jobsSource, name))
+      .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
+    const jobs = await loadLifted(
+      [
+        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
+        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
+      ].join('\n'),
+      declarations,
+      ['genStudioTerminalFailure', 'genStudioHeldCredits', 'genStudioReservationReleased'],
+    )
+    assert.equal(jobs.genStudioTerminalFailure(transientVoiceReference), false)
+    assert.equal(jobs.genStudioHeldCredits(transientVoiceReference), 13)
+    assert.equal(jobs.genStudioReservationReleased(transientVoiceReference), false)
+  })
+
+  it('offers Reword guidance only for GenStudio\'s exact terminal image-refusal code', async () => {
+    const source = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      ['effectiveState', 'stateBucket', 'isImageContentRefused']
+        .map(name => extractFunction(source, name)),
+      ['isImageContentRefused'],
+    )
+
+    assert.match(source, /remote\.failure_code === 'IMAGE_CONTENT_REFUSED'/)
+    assert.match(source, /use Reword/i)
+    assert.doesNotMatch(source, /failure_code\s*&&/)
+    assert.equal(ledger.isImageContentRefused({
+      operation: 'image.generation', state: 'failed', failure_code: 'IMAGE_CONTENT_REFUSED',
+    }), true)
+    assert.equal(ledger.isImageContentRefused({
+      operation: 'image.generation', state: 'failed', failure_code: 'image_content_refused',
+    }), false, 'a provider-text variation must not become refusal guidance')
+    assert.equal(ledger.isImageContentRefused({
+      operation: 'image.generation', state: 'reserved', failure_code: 'IMAGE_CONTENT_REFUSED',
+    }), false, 'a diagnostic code does not override a non-terminal state')
+  })
+
   it('batch ledger: a terminal failed image job reads as released, not on hold', async () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(

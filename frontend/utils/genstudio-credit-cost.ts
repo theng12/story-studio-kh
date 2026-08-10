@@ -73,7 +73,6 @@ export function unpublishedCost(what = 'This action'): CreditDisplay {
 export interface PricedImageModel {
   display_name?: string
   chargeable?: boolean
-  unlimited_relaxed?: boolean
   credits_per_image?: number | null
   base_credits_per_image?: number | null
   promotion_name?: string
@@ -142,12 +141,6 @@ export function describeImageUnitCost(
     }
   }
 
-  if (model.unlimited_relaxed) {
-    parts.push(
-      'This model is Unlimited Relaxed eligible: GenStudio spends credits first and may run it at no credit cost '
-      + 'once available credits cannot cover the request.',
-    )
-  }
   parts.push('GenStudio reports the charge it actually applied on the finished job.')
   return { text, basis: 'rate', title: parts.join(' ') }
 }
@@ -186,7 +179,7 @@ export function describeImageBatchEstimate(
     basis: 'estimate',
     title: `${unitDisplay.title} This total is Story Studio's own arithmetic over ${count.toLocaleString()} image(s) `
       + 'at that published rate — it is an estimate, not a charge GenStudio has quoted. '
-      + 'Retries, replays and Relaxed eligibility all change what is actually spent.',
+      + 'Retries and replays can change what is actually spent.',
   }
 }
 
@@ -201,7 +194,6 @@ export function describeImageBatchEstimate(
 export function describeChatRate(model: {
   display_name?: string
   chargeable?: boolean
-  unlimited_relaxed?: boolean
   input_credits_per_million_tokens?: number | null
   output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null

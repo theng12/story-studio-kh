@@ -123,7 +123,6 @@ router.get('/models', async (_req, res) => {
       // by reference-guided thumbnail prompts to keep text-only models out of
       // the picker once an image reference is attached.
       supports_vision: model.supports_vision,
-      unlimited_relaxed: model.unlimited_relaxed,
       // Published live per model. The UI derives its output-allowance options
       // and its available-input estimate from these two numbers — Story Studio
       // holds no context window, output ceiling, or character cap of its own.

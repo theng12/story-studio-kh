@@ -16,7 +16,7 @@ import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
-import { resolveSubtitlesDir } from '../generators/subtitles.js'
+import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -856,6 +856,12 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
       detail: 'The selected transcription model is temporarily unavailable.',
     })
   }
+  const requestedLanguage = typeof req.body?.language === 'string' ? req.body.language : undefined
+  try {
+    resolveTranscriptionLanguage(selectedModel, requestedLanguage)
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Select a published transcription language before continuing.' })
+  }
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
     return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
   }
@@ -867,7 +873,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     title: `Transcribe subtitles (${episodeId})`,
     params: {
       episode_id: episodeId,
-      language: req.body?.language,
+      language: requestedLanguage,
       model: selectedModel.id,
       audio_path: req.body?.audio_path,
       // When true, re-run even if the SRT exists. Default false: the generator

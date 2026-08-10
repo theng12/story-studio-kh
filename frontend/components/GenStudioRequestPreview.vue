@@ -210,7 +210,7 @@ function displayState(entry: RemoteJob): string {
 
 function stateClass(entry: RemoteJob): string {
   const state = effectiveState(entry)
-  if (entry.failure_code || /fail|error|cancel|reject/.test(state)) return 'is-failed'
+  if (state === 'failed' || state === 'cancelled') return 'is-failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'is-ok'
   return 'is-active'
 }

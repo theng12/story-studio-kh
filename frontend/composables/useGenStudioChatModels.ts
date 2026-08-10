@@ -16,7 +16,6 @@ export interface GenStudioChatModelInfo {
   description?: string
   available: boolean
   qualification_only: boolean
-  unlimited_relaxed?: boolean
   context_window_tokens?: number
   max_output_tokens?: number
   input_credits_per_million_tokens?: number

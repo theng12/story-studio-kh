@@ -35,7 +35,6 @@ export interface GenStudioTtsModel {
   supports_speed: boolean
   supports_voice_cloning: boolean
   preview_policy: string
-  unlimited_relaxed: boolean
   generation_enabled: boolean
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its
@@ -72,7 +71,6 @@ export interface GenStudioVoice {
   credits_per_1000_characters?: number
   output_format?: string
   catalog_status?: string
-  unlimited_relaxed?: boolean
   quote_enabled?: boolean
   generation_enabled?: boolean
   preview_available?: boolean

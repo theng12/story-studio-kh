@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.813 — 2026-08-10
+
+- **Story Studio now matches GenStudio's current customer contract** — retired Unlimited
+  Relaxed fields, free/paid grouping, badges, and account-access copy are gone. Model menus use
+  neutral modality groups and only show provider identity that GenStudio actually publishes.
+
+- **Transcription choices now fail safely before paid work** — languages come from the selected
+  live model, Auto-detect appears only when explicitly published, and stale or unsupported
+  choices cannot be enqueued. A missing provider remains unknown instead of being relabelled as
+  GenStudio KH.
+
+- **Pricing, research evidence, and job outcomes are more truthful** — TTS pricing follows the
+  selected model and GenStudio quotes rather than voice rows; searched runs without structured
+  sources remain successful without being called model knowledge; transient diagnostic codes no
+  longer look terminal; and exact image content refusals offer a manual Reword path.
+
 ## v1.0.812 — 2026-08-10
 
 - **Evidence-led historical documentaries are now a complete reusable channel system** — the new
@@ -49,29 +65,3 @@ What's new in each release. Newest first.
 - **What’s New now stays focused on recent customer-visible changes** — the changelog keeps the
   latest five releases instead of carrying hundreds of test-era entries into the app and desktop
   package. Older release history remains available in Git when engineering archaeology is needed.
-
-## v1.0.808 — 2026-08-08
-
-- **Development and packaging dependencies now audit cleanly** — Electron Builder moves to
-  26.15.3, bringing its packaging, archive, YAML and HTTP tooling onto patched releases. The
-  twelve development-only advisories are resolved without changing Story Studio's production
-  dependency set or generation behavior.
-
-- **Retired direct-provider code no longer ships as dormant baggage** — unreachable Fish Audio,
-  Pexels, Pixabay and NASA clients, unused endpoint-latency tracking, obsolete provider secrets,
-  old research-provider aliases and dead fetch-result styling are removed. FFmpeg ZIP extraction
-  now declares JSZip directly instead of keeping an unused DOCX package solely by accident.
-  The unreachable Scripted B-Roll provider workflow, its always-unavailable routes and queue lane,
-  stale draft specification, and unused UI are also gone. Local B-Roll import, review, provenance,
-  normalization and assembly remain intact.
-
-## v1.0.807 — 2026-08-08
-
-- **Voice browsing now follows the selected model** — ElevenLabs models expose only the
-  ElevenLabs public library, Fish Audio exposes only Fish Audio, and models without a linked
-  public library no longer show unrelated provider tabs. The compatible voice list remains
-  scoped by GenStudio's authoritative `model_id` catalogue.
-
-- **Cloned-voice guidance and long libraries are clearer** — cloning-capable models explain that
-  compatible copies created in GenStudio appear in that model's voice list. The overlapping
-  Previous/Next pager is replaced by one “Load more voices” action when another page exists.

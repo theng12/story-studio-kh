@@ -85,7 +85,7 @@ test('the voice model catalogue is published with its price, minimum and boundar
       id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
       description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
       maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
-      preview_policy: 'catalog', unlimited_relaxed: true, generation_enabled: true,
+      preview_policy: 'catalog', generation_enabled: true,
     }])
   }
 
@@ -96,7 +96,6 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(model.minimum_credits, 10)
   assert.equal(model.maximum_input_characters, 12_000)
   assert.equal(model.supports_speed, true)
-  assert.equal(model.unlimited_relaxed, true, 'free-plan eligibility is preserved from GenStudio')
 })
 
 test('the published voice libraries are named after their providers', async () => {
@@ -288,7 +287,6 @@ test('GenStudio usage requests supported account pagination and returns authorit
         credit_balance: 900,
         credits_used_30d: 100,
         subscription_plan_name: 'Angkor Pro',
-        relaxed_concurrency_limit: 3,
         active_jobs: 1,
         completed_jobs: 12,
       })

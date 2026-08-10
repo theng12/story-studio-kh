@@ -28,15 +28,6 @@
         <div>
           <span class="eyebrow">Current plan</span>
           <h2>{{ snapshot.overview.subscription_plan_name || 'GenStudio account' }}</h2>
-          <p v-if="snapshot.overview.relaxed_concurrency_limit > 0">
-            Reports up to {{ snapshot.overview.relaxed_concurrency_limit }} shared Unlimited Relaxed
-            {{ snapshot.overview.relaxed_concurrency_limit === 1 ? 'job' : 'jobs' }} for eligible models.
-            Credits are always used first; GenStudio verifies API eligibility when each job is submitted.
-          </p>
-          <p v-else>
-            This plan does not report Unlimited Relaxed capacity. Eligible models can still use paid credits,
-            but zero-credit fallback requires a qualifying plan.
-          </p>
         </div>
         <button
           type="button"
@@ -94,7 +85,6 @@ interface Snapshot {
     credit_balance: number
     credits_used_30d: number
     subscription_plan_name: string
-    relaxed_concurrency_limit: number
     active_jobs: number
     completed_jobs: number
   }

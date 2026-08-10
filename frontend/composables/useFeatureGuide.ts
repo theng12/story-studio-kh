@@ -377,7 +377,6 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Reserved credits', purpose: 'Maximum expected cost held for accepted jobs until they settle.' },
       { title: 'Final settlement', purpose: 'The actual GenStudio charge after completion.' },
       { title: 'Returned credits', purpose: 'Unused reservation or eligible cancellation/failure amount returned by GenStudio.' },
-      { title: 'Plan access', purpose: 'Shows account-level entitlements and Unlimited Relaxed availability when published.' },
     ],
     tips: ['Story Studio never maintains independent model prices.', 'If data is unavailable, repair the GenStudio connection or permission rather than trusting stale local totals.'],
   },

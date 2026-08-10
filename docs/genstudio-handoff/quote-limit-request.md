@@ -1,7 +1,7 @@
 # Request to GenStudio: make the quote text limit follow the model
 
 **From:** Story Studio KH
-**Status:** OPEN
+**Status:** ANSWERED on `/v1/tts/models`; legacy `/v1/models` remains GenStudio-owned debt
 **Urgency:** low — Story Studio has a correct workaround, but the contract is inconsistent.
 
 ## The inconsistency

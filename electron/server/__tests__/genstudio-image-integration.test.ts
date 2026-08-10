@@ -28,7 +28,6 @@ function publishedModel(overrides: Record<string, unknown> = {}): any {
     display_name: 'FLUX Fast',
     available: true,
     qualification_only: false,
-    unlimited_relaxed: false,
     credits_per_image: 4,
     minimum_credits: 4,
     price_version: '2026-07-01',
@@ -77,7 +76,6 @@ function stubGenStudio(models: any[]) {
         paid_queued_jobs: 0,
         max_queued_jobs: 100,
         generation_submissions_per_minute: 100,
-        relaxed_concurrency_limit: 0,
       })
     }
     if (url.endsWith('/v1/images/source-images')) {
@@ -613,16 +611,27 @@ test('no image request carries a steps field', async () => {
 
 // ── Transcription language ───────────────────────────────────────────────
 
-test('transcription defaults to the model published language rather than English', () => {
-  // A model that publishes one language transcribes in it.
-  assert.equal(resolveTranscriptionLanguage('km', undefined), 'km')
-  // A multilingual model auto-detects — nothing is pinned, least of all 'en'.
-  assert.equal(resolveTranscriptionLanguage('multilingual', undefined), undefined)
-  assert.equal(resolveTranscriptionLanguage('', undefined), undefined)
-  assert.equal(resolveTranscriptionLanguage(undefined, undefined), undefined)
-  // An explicit user choice always wins.
-  assert.equal(resolveTranscriptionLanguage('multilingual', 'km'), 'km')
-  assert.equal(resolveTranscriptionLanguage('en', 'km'), 'km')
+test('transcription refuses stale auto-detect selections before it can submit paid work', () => {
+  const model = {
+    id: 'gs-transcribe-v1',
+    display_name: 'Published languages only',
+    language: 'multilingual',
+    supported_languages: ['en', 'km'],
+    supports_language_auto_detect: false,
+  }
+  assert.equal(resolveTranscriptionLanguage(model as any, 'km'), 'km')
+  assert.throws(
+    () => resolveTranscriptionLanguage(model as any, undefined),
+    /has not published auto-detect/i,
+  )
+  assert.throws(
+    () => resolveTranscriptionLanguage(model as any, 'auto'),
+    /has not published auto-detect/i,
+  )
+  assert.throws(
+    () => resolveTranscriptionLanguage(model as any, 'th'),
+    /does not publish th/i,
+  )
 })
 
 // ── Regression pins ──────────────────────────────────────────────────────

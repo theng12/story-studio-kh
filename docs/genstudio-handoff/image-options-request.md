@@ -12,7 +12,8 @@ offer resolution choice without inventing capability — which it will not do.
 
 `ImageModelResponse`: `aspect_ratios[]`, `default_aspect_ratio`, one flat
 `credits_per_image` (plus `base_credits_per_image`, `promotion_*`, `chargeable`,
-`unlimited_relaxed`, `reference_generation_credits`).
+`reference_generation_credits`). The historical `unlimited_relaxed` entitlement was later
+retired and is not part of the current contract.
 
 `ImageGenerationRequest`: `prompt`, `model_id`, `aspect_ratio`, `seed`,
 `reference_asset_ids`.

@@ -157,10 +157,10 @@
  *
  * For GenStudio the flow is model-first: the caller passes the selected TTS
  * model, and this list shows the voices GenStudio says that model serves. Every
- * attribute rendered — language, provider/engine name, description, the voice's
- * own rate, preview availability and its notice, saved state — is published by
- * GenStudio. Nothing is inferred from an id and nothing is cached past a model
- * change. Provider identity is DISPLAY only; this component never sends one.
+ * attribute rendered — language, provider/engine name, description, preview
+ * availability and its notice, saved state — is published by GenStudio.
+ * Nothing is inferred from an id and nothing is cached past a model change.
+ * Provider identity is DISPLAY only; this component never sends one.
  *
  * Saved state belongs to GenStudio (`is_saved` + the save endpoints). There is
  * deliberately no local favourites list for GenStudio voices — a second copy
@@ -168,7 +168,6 @@
  */
 import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
-import { formatCredits } from '~/utils/genstudio-credit-cost'
 
 interface VoiceStudioVoice {
   id: string
@@ -202,8 +201,6 @@ const props = withDefaults(defineProps<{
    * row — for choosing a voice that is not being generated with right now.
    */
   scopeToModel?: boolean
-  /** The model's own published rate, so a voice only shows its own when it differs. */
-  modelCreditsPer1000Characters?: number | null
   requireSelection?: boolean
 }>(), {
   defaultLabel: 'Default (let model pick)',
@@ -215,7 +212,6 @@ const props = withDefaults(defineProps<{
   ttsModelDescription: '',
   ttsModelSupportsVoiceCloning: false,
   scopeToModel: true,
-  modelCreditsPer1000Characters: null,
   requireSelection: false,
 })
 
@@ -349,14 +345,6 @@ function voiceProviderText(voice: GenStudioVoice): string {
   return unique.join(' · ')
 }
 
-/** Only worth showing when the voice is priced differently from its model. */
-function voiceRateText(voice: GenStudioVoice): string {
-  const rate = voice.credits_per_1000_characters
-  if (typeof rate !== 'number' || !Number.isFinite(rate)) return ''
-  if (props.modelCreditsPer1000Characters === rate) return ''
-  return `${formatCredits(rate)} / 1,000 characters`
-}
-
 function unavailableReason(voice: GenStudioVoice): string {
   if (voice.generation_enabled === false) return 'GenStudio has generation turned off for this voice.'
   if (voice.catalog_status === 'qualification') return 'GenStudio lists this voice as qualification-only.'
@@ -373,7 +361,6 @@ function rowProps(voice: GenStudioVoice) {
     providerLabel: voiceProviderText(voice),
     language: voice.language || '',
     description: voice.description || '',
-    rateText: voiceRateText(voice),
     modelName: props.scopeToModel ? '' : (voice.tts_model_name || ''),
     previewAvailable: voice.preview_available === true,
     previewNotice: voice.preview_notice || null,

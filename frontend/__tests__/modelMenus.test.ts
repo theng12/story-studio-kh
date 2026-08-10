@@ -59,14 +59,16 @@ describe('shared model menus', () => {
     assert.doesNotMatch(imagePicker, /Unavailable saved selection|migration required|Historical/)
   })
 
-  test('customer model menus separate plan access from published provider identity', () => {
-    assert.match(modelSelector, /group: 'GenStudio KH'/)
-    assert.match(imagePicker, /group: model\.unlimited_relaxed === true \? 'Free \+ paid plans' : 'Paid plan'/)
-    assert.match(modelSurfaces.audio, /group: model\.unlimited_relaxed === true \? 'Free \+ paid plans' : 'Paid plan'/)
+  test('customer model menus use only neutral modality and published provider groups', () => {
+    assert.match(modelSelector, /group: 'Language models'/)
+    assert.match(imagePicker, /group: 'Image models'/)
+    assert.match(modelSurfaces.audio, /group: model\.provider_name \|\| 'Voice models'/)
     assert.match(imagePicker, /provider: model\.provider_name \|\| ''/)
     assert.match(modelSelector, /provider: model\.provider_name \|\| ''/)
     assert.match(modelSurfaces.audio, /provider: model\.provider_name \|\| ''/)
-    assert.match(modelSurfaces.audio, /genstudioUnlimitedBadge\(model\.unlimited_relaxed === true\)/)
+    for (const source of [imagePicker, modelSelector, transcriptionCatalog, modelSurfaces.audio]) {
+      assert.doesNotMatch(source, /unlimited_relaxed|Unlimited Relaxed|Relaxed eligible|Free \+ paid plans|Paid plan/)
+    }
     assert.doesNotMatch(imagePicker, /provider: model\.execution_label/)
     assert.doesNotMatch(modelSelector, /provider: model\.label|provider: model\.id/)
     // Nothing may append the gateway to a model's own name.
@@ -130,8 +132,6 @@ describe('shared model menus', () => {
     // Above every other dialog and above the toast stack (2500).
     assert.match(pickerDialog, /zIndex: 2600/)
     assert.match(imagePicker, /<ModelMenu/)
-    assert.match(imagePicker, /badgeFor\(model\.unlimited_relaxed === true\)/)
-    assert.match(modelSelector, /badgeFor\(model\.unlimited_relaxed === true\)/)
     assert.doesNotMatch(imagePicker, /<Teleport to="body">/)
   })
 

@@ -1,7 +1,7 @@
 /**
  * One shared caching policy for every GenStudio catalogue composable
  * (`useGenStudioImageModels`, `useGenStudioMediaModels`,
- * `useGenStudioAccess`, `useGenStudioTranscription`,
+ * `useGenStudioTranscription`,
  * `useGenStudioModelDisplay`).
  *
  * Before this module existed, each composable hand-rolled its own

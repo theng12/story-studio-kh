@@ -150,10 +150,10 @@ interface ScenePlanRunParams {
    * different angle on the same beat, with the difficult-subjects guidance
    * applied and the old prompt shown as something to move away from.
    *
-   * Only ever set by the explicit "Reword" action. Story Studio cannot tell a
-   * content refusal from any other failure today, and does not guess — see
-   * lib/image-content-guidance.ts and
-   * docs/genstudio-handoff/content-refusal-code-request.md.
+   * Only ever set by the explicit "Reword" action. GenStudio's exact terminal
+   * IMAGE_CONTENT_REFUSED code can offer this action, but never triggers it;
+   * Story Studio does not guess from other failures — see
+   * lib/image-content-guidance.ts.
    */
   reword_prompt?: boolean
   /** Bulk-repair every missing or duplicated visual_prompt through the same

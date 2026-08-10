@@ -102,6 +102,23 @@ test('the voice picker shows the published provider identity and GenStudio-owned
   assert.match(picker, /voiceIsGenerable/)
 })
 
+test('TTS pricing comes from the selected model and final quote, never a voice row', () => {
+  const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
+  const row = readFileSync(new URL('../components/VoicePickerRow.vue', import.meta.url), 'utf8')
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+
+  // /v1/voices is a compatibility/selection catalogue, not a pricing authority.
+  assert.doesNotMatch(picker, /credits_per_1000_characters/)
+  assert.doesNotMatch(picker, /modelCreditsPer1000Characters/)
+  assert.doesNotMatch(row, /rateText/)
+  assert.doesNotMatch(audioPage, /voiceRateDiffers/)
+  assert.doesNotMatch(audioPage, /selectedVoice\.credits_per_1000_characters/)
+  assert.doesNotMatch(audioPage, /different from the model's rate/)
+
+  // The selected /v1/tts/models row remains the pre-quote price source.
+  assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)
+})
+
 test('Audio Generator shows the boundary it enforces, read from the selected model', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /selectedTtsModel\.value\?\.maximum_input_characters/)
