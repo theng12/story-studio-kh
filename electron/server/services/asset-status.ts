@@ -611,6 +611,8 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
 //     asset-reconciler checks (partial generations report as NOT done)
 
 export interface EpisodeStatus {
+  /** Internal scene-image scan detail. Routes may project this separately. */
+  _scene_images?: { total: number, present: number, complete: boolean }
   // Research COMPLETION, resolved against the project's `research_required`
   // gate (see lib/research-verification.ts — one rule, every reader).
   //
@@ -1041,6 +1043,11 @@ export async function computeEpisodeStatus(
           }
           return typeof s?.image_path === 'string' && await fileHasContent(s.image_path)
         }))
+        status._scene_images = {
+          total: scenes.length,
+          present: imageReady.filter(Boolean).length,
+          complete: scenes.length > 0 && imageReady.every(Boolean),
+        }
         status.scene_review = inspectSceneReviewCompletion(
           scenes,
           imageReady,
@@ -1237,7 +1244,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     if (idea?.marked_done === true) {
-      return allDoneStatus(researchRequired)
+      return allDoneStatus(researchRequired, status._scene_images)
     }
     if (idea?.status_overrides) {
       // Overrides only carry the boolean asset-presence flags — the
@@ -1267,8 +1274,11 @@ export async function computeEpisodeStatus(
  * done by hand is itself the human decision, so the review flags read true
  * with no `research_reviewed_by` — no automatic run completed anything.
  */
-function allDoneStatus(researchRequired: boolean): EpisodeStatus {
-  return {
+function allDoneStatus(
+  researchRequired: boolean,
+  sceneImages?: EpisodeStatus['_scene_images'],
+): EpisodeStatus {
+  const status: EpisodeStatus = {
     research: true,
     research_generated: true, research_reviewed: true, research_has_usable_claims: true,
     research_required: researchRequired,
@@ -1284,4 +1294,6 @@ function allDoneStatus(researchRequired: boolean): EpisodeStatus {
     video: true,
     video_assembly: true,
   }
+  if (sceneImages) status._scene_images = sceneImages
+  return status
 }

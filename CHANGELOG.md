@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.815 — 2026-08-11
+
+- **Image Generator episode loading now scales cleanly** — each episode exposes exact planned scene-image counts from the existing status scan, so all-image completion no longer depends on Scene Review approval and the extension no longer needs an episode-by-episode recount.
+
 ## v1.0.814 — 2026-08-10
 
 - **The desktop interface now uses the secured Nuxt 4.5 foundation** — the framework, Vue

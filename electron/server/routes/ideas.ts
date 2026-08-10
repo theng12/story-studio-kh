@@ -1238,7 +1238,11 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // Publish every current and future EpisodeStatus field by default. This
     // prevents a newly-added workflow step from being computed correctly in
     // asset-status but silently disappearing when this route rebuilds status.
-    const { _unreliable: _internalStatusFlag, ...publicStatus } = status
+    const {
+      _unreliable: _internalStatusFlag,
+      _scene_images: sceneImages,
+      ...publicStatus
+    } = status
 
     return {
       // v1.0.70: idea.id surfaced so the Scripts page can PATCH back
@@ -1350,6 +1354,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
           && (!needsBrollPick || brollPickedDone)
           && videoAssemblyDone,
       },
+      scene_images: sceneImages || { total: 0, present: 0, complete: false },
       episode_dir: episodeDir,
     }
   }
@@ -1401,7 +1406,10 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
       // Raw EpisodeStatus (script/scene_prompts/thumb_prompts/metadata/…) plus
       // the `prompts` back-compat alias the list route exposes, so consumers
       // reading either name keep working.
-      status: { ...status, prompts: (status as any).scene_prompts },
+      status: (() => {
+        const { _scene_images, ...publicStatus } = status
+        return { ...publicStatus, prompts: (status as any).scene_prompts }
+      })(),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, `Could not load status for ${code}`))

@@ -36,10 +36,9 @@ import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-paths.js'
 
-// v11 — `research` is now the gated completion rule (evidence + verification
-// when the project requires research) rather than "a sidecar exists". Discard
-// cached v10 entries, whose `research: true` proves only that a file was there.
-export const SCHEMA_VERSION = 11 as const
+// v12 — scene-image counts now travel with the cached status so `/episodes`
+// can report them without a second filesystem scan. Discard v11 rows.
+export const SCHEMA_VERSION = 12 as const
 const MAX_ENTRIES = 1000
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000

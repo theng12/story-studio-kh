@@ -222,6 +222,88 @@ describe('Ideas routes', () => {
       'new EpisodeStatus fields must survive the /episodes public response')
   })
 
+  test('GET /episodes reports exact scene-image counts when planned images are missing', async () => {
+    const project = await request(app).post('/api/projects').send({
+      name: 'Scene Image Count Project', episode_prefix: 'SI', episode_digits: 3,
+    })
+    const isolatedSlug = project.body.slug
+    const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
+      title: 'Missing Images', suggested_chapters: 4,
+    })
+    const accepted = await request(app)
+      .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    const code = accepted.body.episode_code
+    const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Missing Images`)
+    const promptsDir = path.join(episodeDir, `${code} - 03 Scene Prompts`)
+    const imagesDir = path.join(episodeDir, `${code} - 05 Scene Images`)
+    await fs.mkdir(promptsDir, { recursive: true })
+    await fs.mkdir(imagesDir, { recursive: true })
+    await fs.writeFile(path.join(promptsDir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        { id: 'scene-1', visual_prompt: 'first unique visual' },
+        { id: 'scene-2', visual_prompt: 'second unique visual' },
+        { id: 'scene-3', visual_prompt: 'third unique visual' },
+      ],
+    }))
+    await fs.writeFile(path.join(imagesDir, 'scene-1.png'), 'image')
+    await fs.writeFile(path.join(imagesDir, 'scene-3.png'), 'image')
+
+    const episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
+    const episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.deepEqual(episode.scene_images, { total: 3, present: 2, complete: false })
+    assert.equal(episode.status._scene_images, undefined,
+      'internal scene image detail must not leak into public status')
+  })
+
+  test('GET /episodes treats all planned images as complete before Scene Review approval and preserves counts after Mark Done', async () => {
+    const project = await request(app).post('/api/projects').send({
+      name: 'Scene Image Approval Project', episode_prefix: 'SA', episode_digits: 3,
+    })
+    const isolatedSlug = project.body.slug
+    const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
+      title: 'Unapproved Images', suggested_chapters: 4,
+    })
+    const accepted = await request(app)
+      .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    const code = accepted.body.episode_code
+    const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Unapproved Images`)
+    const promptsDir = path.join(episodeDir, `${code} - 03 Scene Prompts`)
+    const imagesDir = path.join(episodeDir, `${code} - 05 Scene Images`)
+    const subtitlesDir = path.join(episodeDir, `${code} - 09 Subtitles Output`)
+    await fs.mkdir(promptsDir, { recursive: true })
+    await fs.mkdir(imagesDir, { recursive: true })
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    await fs.writeFile(path.join(promptsDir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        { id: 'scene-1', visual_prompt: 'first unique visual', approved: true },
+        { id: 'scene-2', visual_prompt: 'second unique visual', approved: false },
+      ],
+    }))
+    await fs.writeFile(path.join(imagesDir, 'scene-1.png'), 'image')
+    await fs.writeFile(path.join(imagesDir, 'scene-2.png'), 'image')
+    const stitched = path.join(subtitlesDir, `${code}_stitched.srt`)
+    await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:05,000\nNarration\n')
+    await fs.writeFile(`${stitched}.json`, JSON.stringify({
+      complete: true,
+      missing_sections: [],
+      sections: [{ slug: 'Introduction', source_srt: `${code}_Introduction.srt`, cues_added: 1 }],
+    }))
+
+    let episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
+    let episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.deepEqual(episode.scene_images, { total: 2, present: 2, complete: true })
+    assert.equal(episode.status.scene_review, false,
+      'image completion must not bypass Scene Review approval')
+
+    const marked = await request(app)
+      .patch(`/api/projects/${isolatedSlug}/episodes/${code}/mark-done`).send({ done: true })
+    assert.equal(marked.status, 200)
+    episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
+    episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.deepEqual(episode.scene_images, { total: 2, present: 2, complete: true },
+      'Mark Done must not discard the image counts computed from the scene plan')
+  })
+
   // ── Paste-import tests ─────────────────────────────────────────────────
   // These pin the validation rules for the `/ideas/import-paste` route so
   // a future tightening of the shape (e.g. requiring suggested_length be
