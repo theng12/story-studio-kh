@@ -253,6 +253,11 @@ describe('Ideas routes', () => {
     assert.deepEqual(episode.scene_images, { total: 3, present: 2, complete: false })
     assert.equal(episode.status._scene_images, undefined,
       'internal scene image detail must not leak into public status')
+
+    const single = await request(app).get(`/api/projects/${isolatedSlug}/episodes/${code}/status`)
+    assert.deepEqual(single.body.scene_images, { total: 3, present: 2, complete: false })
+    assert.equal(single.body.status._scene_images, undefined,
+      'single-episode status must expose the same public projection without leaking internals')
   })
 
   test('GET /episodes treats all planned images as complete before Scene Review approval and preserves counts after Mark Done', async () => {

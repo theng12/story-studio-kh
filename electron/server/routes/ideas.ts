@@ -1399,6 +1399,7 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
     const ideas = await im.getIdeas(slug, 'accepted')
     const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())
     const status = await episodeStatusCache.get(slug, code, ideas)
+    const { _scene_images: sceneImages, ...publicStatus } = status
     res.json({
       episode_code: code,
       title: idea?.title || '',
@@ -1406,10 +1407,8 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
       // Raw EpisodeStatus (script/scene_prompts/thumb_prompts/metadata/…) plus
       // the `prompts` back-compat alias the list route exposes, so consumers
       // reading either name keep working.
-      status: (() => {
-        const { _scene_images, ...publicStatus } = status
-        return { ...publicStatus, prompts: (status as any).scene_prompts }
-      })(),
+      status: { ...publicStatus, prompts: (status as any).scene_prompts },
+      scene_images: sceneImages || { total: 0, present: 0, complete: false },
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, `Could not load status for ${code}`))
