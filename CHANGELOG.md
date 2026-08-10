@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.814 — 2026-08-10
+
+- **The desktop interface now uses the secured Nuxt 4.5 foundation** — the framework, Vue
+  tooling, CSS processing, SVG optimization, archive handling, and related build dependencies
+  are updated to patched releases. The eight published frontend advisories are cleared without
+  changing Story Studio's production workflow or GenStudio contract.
+
 ## v1.0.813 — 2026-08-10
 
 - **Story Studio now matches GenStudio's current customer contract** — retired Unlimited
@@ -59,9 +66,3 @@ What's new in each release. Newest first.
   checkmarks and circles reuse the existing episode, stage, state, and action descriptions as
   accessible names. The row-level import shortcut also names the episode it will receive, while
   the compact visual board remains unchanged.
-
-## v1.0.809 — 2026-08-08
-
-- **What’s New now stays focused on recent customer-visible changes** — the changelog keeps the
-  latest five releases instead of carrying hundreds of test-era entries into the app and desktop
-  package. Older release history remains available in Git when engineering archaeology is needed.
