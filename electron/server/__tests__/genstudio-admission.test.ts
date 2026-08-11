@@ -93,10 +93,22 @@ test('GenStudio admission fails closed when account overview is unavailable', as
   assert.equal(pool.snapshot().submitting, 1)
   assert.equal(pool.snapshot().local_waiting, 1)
   assert.equal(pool.snapshot().limitSource, 'safe-fallback')
+  assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
   firstGate.resolve()
   await first
   await second
   assert.equal(secondStarted, true)
+})
+
+test('GenStudio admission fails closed when account overview publishes a malformed submission rate', async () => {
+  const pool = new GenStudioAdmissionPool(async () => capacity({
+    generation_submissions_per_minute: Number.NaN,
+  }))
+
+  await pool.refreshNow('malformed-overview-key')
+
+  assert.equal(pool.snapshot().limitSource, 'account-overview')
+  assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
 })
 
 test('a cancelled locally queued request never reaches GenStudio', async () => {

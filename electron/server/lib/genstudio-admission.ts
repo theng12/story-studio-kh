@@ -44,7 +44,7 @@ const SAFE_FALLBACK: GenStudioAccountCapacity = {
   paid_active_jobs: 0,
   paid_queued_jobs: 0,
   max_queued_jobs: 10,
-  generation_submissions_per_minute: 30,
+  generation_submissions_per_minute: 5,
 }
 
 function whole(value: unknown, fallback: number, minimum = 0): number {
@@ -58,7 +58,7 @@ function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCap
     paid_active_jobs: whole(value.paid_active_jobs, 0),
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
     max_queued_jobs: whole(value.max_queued_jobs, 10, 1),
-    generation_submissions_per_minute: whole(value.generation_submissions_per_minute, 30, 1),
+    generation_submissions_per_minute: whole(value.generation_submissions_per_minute, 5, 1),
   }
 }
 

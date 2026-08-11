@@ -38,6 +38,22 @@ function extractFunction(source: string, name: string): string {
   throw new Error(`unterminated function ${name}`)
 }
 
+/** Lift a queue-label object literal so assertions execute the shipped map. */
+function extractObject(source: string, name: string): string {
+  const start = source.indexOf(`const ${name}:`)
+  assert.notEqual(start, -1, `expected to find ${name}`)
+  const bodyStart = source.indexOf('{', start)
+  let depth = 0
+  for (let i = bodyStart; i < source.length; i++) {
+    if (source[i] === '{') depth++
+    else if (source[i] === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, i + 1)
+    }
+  }
+  throw new Error(`unterminated ${name}`)
+}
+
 let moduleSeq = 0
 
 /** Evaluate lifted declarations as a real TS module (tsx transpiles it). */
@@ -72,7 +88,7 @@ describe('GenStudio released reservations are never shown as held', () => {
       operation: 'voice.tts',
       state: 'RESERVED',
       reserved_credits: 13,
-      failure_code: 'VOICE_REFERENCE_PROCESSING',
+      failure_code: 'VOICE_REFERENCE_ASSET_MISSING',
     }
 
     assert.equal(ledger.stateBucket(transientVoiceReference), 'active')
@@ -94,7 +110,7 @@ describe('GenStudio released reservations are never shown as held', () => {
       operation: 'voice.tts',
       state: 'RESERVED',
       reserved_credits: 13,
-      failure_code: 'VOICE_REFERENCE_PROCESSING',
+      failure_code: 'VOICE_REFERENCE_ASSET_MISSING',
     }
 
     const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
@@ -129,6 +145,54 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(jobs.genStudioTerminalFailure(transientVoiceReference), false)
     assert.equal(jobs.genStudioHeldCredits(transientVoiceReference), 13)
     assert.equal(jobs.genStudioReservationReleased(transientVoiceReference), false)
+  })
+
+  it('shows GenStudio reserved, dispatched, validating, and reconciling queue states in product English', async () => {
+    const cases = [
+      ['reserved', 'Reserved'],
+      ['dispatched', 'Dispatched'],
+      ['validating', 'Validating'],
+      ['reconciling', 'Reconciling'],
+    ] as const
+
+    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
+    const preview = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(previewSource, 'QUEUE_LABELS'),
+        extractFunction(previewSource, 'effectiveState'),
+        extractFunction(previewSource, 'displayState'),
+      ],
+      ['displayState'],
+    )
+
+    const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(ledgerSource, 'QUEUE_LABELS'),
+        extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'displayState'),
+      ],
+      ['displayState'],
+    )
+
+    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
+    const jobs = await loadLifted(
+      'type RJob = any',
+      [
+        extractObject(jobsSource, 'GENSTUDIO_QUEUE_LABELS'),
+        extractFunction(jobsSource, 'genStudioQueueLabel'),
+      ],
+      ['genStudioQueueLabel'],
+    )
+
+    for (const [queueState, label] of cases) {
+      const remote = { state: 'failed', queue_state: queueState }
+      assert.equal(preview.displayState(remote), label)
+      assert.equal(ledger.displayState(remote), label)
+      assert.equal(jobs.genStudioQueueLabel(remote), label)
+    }
   })
 
   it('offers Reword guidance only for GenStudio\'s exact terminal image-refusal code', async () => {
