@@ -335,6 +335,52 @@ describe('remote cancellation checkpoints', () => {
     assert.deepEqual(Object.keys(repeated.body.job.remote_cancellations), ['voice.tts:pending-target'])
   })
 
+  test('keeps a rejected executor running until pending remote cancellation settles', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', jobsRouter)
+    const project = await pm.createProject({ name: 'PendingCancellationCannotFail' })
+    let release!: () => void
+    let executorRejected!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const rejected = new Promise<void>(resolve => { executorRejected = resolve })
+    jq.registerExecutor('audio', async () => {
+      await hold
+      executorRejected()
+      throw new Error('local executor failed while cancellation was pending')
+    })
+    registerJobCancellationAuditor('audio', async () => 'complete')
+
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'PENDING_CANCEL_FAILURE', title: 'pending failure', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'pending-failure-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.requestJobCancellation(project.slug, job.job_id)
+
+    release()
+    await rejected
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    const pending = jq.getJob(job.job_id)
+    assert.equal(pending?.status, 'running')
+    assert.equal(pending?.finished_at, null)
+    assert.equal(pending?.remote_cancellations?.['voice.tts:pending-failure-target']?.status, 'queued')
+    assert.match(pending?.error || '', /local executor failed while cancellation was pending/)
+    assert.match(pending?.output_lines.join('\n') || '', /local executor failed while cancellation was pending/)
+    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+    assert.equal(remove.status, 409)
+    const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
+    assert.equal(repeated.status, 200)
+    assert.deepEqual(Object.keys(repeated.body.job.remote_cancellations), ['voice.tts:pending-failure-target'])
+  })
+
   test('marks an ordinary completed executor done', async () => {
     const project = await pm.createProject({ name: 'OrdinaryCompletionStillDone' })
     jq.registerExecutor('broll_assemble', async () => {})
@@ -343,6 +389,19 @@ describe('remote cancellation checkpoints', () => {
     })
     await waitForTerminal(job.job_id)
     assert.equal(jq.getJob(job.job_id)?.status, 'done')
+  })
+
+  test('marks an ordinary failed executor as error', async () => {
+    const project = await pm.createProject({ name: 'OrdinaryFailureStillError' })
+    jq.registerExecutor('audio', async () => {
+      throw new Error('ordinary executor failure')
+    })
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'ORDINARY_ERROR', title: 'ordinary failure', params: {},
+    })
+    await waitForTerminal(job.job_id)
+    assert.equal(jq.getJob(job.job_id)?.status, 'error')
+    assert.match(jq.getJob(job.job_id)?.error || '', /ordinary executor failure/)
   })
 })
 
