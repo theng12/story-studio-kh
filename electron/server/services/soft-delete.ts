@@ -185,6 +185,8 @@ export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> 
   }
   const candidatePath = path.join(projectsRoot(), slug)
   if (existsSync(candidatePath)) {
+    const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
+    await assertProjectJobsSafeToRemove(candidatePath)
     await fs.rm(candidatePath, { recursive: true, force: true })
   }
   await setRawList(list.filter(e => e.slug !== slug))

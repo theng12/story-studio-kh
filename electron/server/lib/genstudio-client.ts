@@ -1720,6 +1720,29 @@ export async function getGenStudioCancellationStatus(
   return parsed
 }
 
+/** Read an already-submitted Chat response without creating or cancelling work. */
+export async function getGenStudioChatStatus(
+  baseUrl: string,
+  apiKey: string,
+  providerJobId: string,
+  idempotencyKey: string | undefined,
+  deadline: number,
+): Promise<GenStudioJob & GenStudioCancellationFields> {
+  const pending = providerJobId.startsWith('pending:')
+  if (pending && !idempotencyKey) throw new Error('Chat provider evidence has no durable idempotency key to reconcile')
+  const suffix = pending
+    ? `/v1/chat/responses/by-idempotency-key/${encodeURIComponent(idempotencyKey!)}`
+    : `/v1/chat/responses/${encodeURIComponent(providerJobId)}`
+  const response = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}${suffix}`,
+    { headers: authorization(apiKey) },
+    {}, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1,
+  )
+  const parsed = parseGenStudioCancellationResponse(response)
+  if (!pending && parsed.id !== providerJobId) throw new Error('GenStudio KH Chat status response did not match the requested provider job')
+  return parsed
+}
+
 /**
  * Ask GenStudio to cancel one accepted task and return its response untouched.
  * This intentionally has no catch or fallback: a timeout is unknown, not a

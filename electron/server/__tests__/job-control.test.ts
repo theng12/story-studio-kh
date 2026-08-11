@@ -92,6 +92,38 @@ describe('server-owned job controls', () => {
     assert.match(control.reason, /continue settling/i)
   })
 
+  test('never calls a checkpointed provider job unsubmitted merely because Story restored it queued or paused', () => {
+    for (const status of ['queued', 'paused'] as const) {
+      const control = classifyJobControl(job({
+        status,
+        genstudio_jobs: [evidence('voice.tts', 'accepted', { cancellable: true })],
+      }), { remoteCancellationAudited: true })
+
+      assert.notEqual(control.action, 'cancel-before-submit', status)
+      assert.notEqual(control.financial_effect, 'no-provider-request', status)
+    }
+  })
+
+  test('does not expose history removal for a terminal-looking job with unsettled provider evidence', () => {
+    const control = classifyJobControl(job({
+      status: 'error',
+      genstudio_jobs: [evidence('voice.tts', 'running')],
+    }), { remoteCancellationAudited: true })
+
+    assert.equal(control.action, 'return-later')
+    assert.equal(control.enabled, false)
+  })
+
+  test('enables pause submissions for known already-started batch work without claiming it stops provider work', () => {
+    const control = classifyJobControl(job({
+      genstudio_jobs: [evidence('image.generation', 'running', { cancellable: false })],
+    }), { remoteCancellationAudited: true })
+
+    assert.equal(control.action, 'pause-submissions')
+    assert.equal(control.enabled, true)
+    assert.match(control.reason, /already started and will continue settling/i)
+  })
+
   test('keeps known unsupported provider work settling while requesting eligible video cancellation', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [

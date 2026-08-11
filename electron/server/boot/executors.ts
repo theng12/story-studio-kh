@@ -76,8 +76,10 @@ async function auditSceneClips(job: any): Promise<'complete' | 'repair-required'
 /** Register only producer-specific completion proofs; no generic file guess. */
 function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('audio', async job => {
-    const status = await getAudioStatus(job.project_slug, job.episode_id)
-    return status.missing.length === 0 ? 'complete' : 'repair-required'
+    try {
+      const status = await getAudioStatus(job.project_slug, job.episode_id)
+      return status.expected.length > 0 && status.missing.length === 0 ? 'complete' : 'repair-required'
+    } catch { return 'repair-required' }
   })
   registerJobCancellationAuditor('subtitles_transcribe', async job => {
     const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
@@ -93,7 +95,7 @@ function registerCancellationAuditors(): void {
         : type === 'thumb_images'
           ? [status.thumbnails].filter(Boolean)
           : [status.scenes, status.thumbnails].filter(Boolean)
-      return parts.length > 0 && parts.every(part => part!.missing.length === 0) ? 'complete' : 'repair-required'
+      return parts.length > 0 && parts.every(part => part!.total > 0 && part!.missing.length === 0) ? 'complete' : 'repair-required'
     })
   }
   for (const type of ['scene_image_generate', 'scene_images_batch', 'continuity_render'] as const) {

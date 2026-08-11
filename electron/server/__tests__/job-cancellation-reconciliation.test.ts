@@ -140,6 +140,76 @@ test('continues polling an accepted sibling after the requested target is alread
   }
 })
 
+test('does not terminalize a cancelled Video while an accepted Chat sibling is still running', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    const requestPath = new URL(String(input)).pathname
+    requests.push(requestPath)
+    if (requestPath === '/v1/videos/video-cancelled') {
+      return Response.json({ id: 'video-cancelled', state: 'failed', cancelled: true })
+    }
+    if (requestPath === '/v1/chat/responses/chat-running') {
+      return Response.json({ id: 'chat-running', state: 'running' })
+    }
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  try {
+    const input = job('unknown')
+    input.genstudio_jobs = [
+      { id: 'video-cancelled', operation: 'video.generation', state: 'running', updated_at: new Date().toISOString() },
+      { id: 'chat-running', operation: 'chat.response', state: 'running', updated_at: new Date().toISOString() },
+    ]
+    input.remote_cancellations = {
+      'video.generation:video-cancelled': {
+        status: 'confirmed', operation: 'video.generation', provider_job_id: 'video-cancelled',
+        requested_at: new Date().toISOString(), updated_at: new Date().toISOString(), cancelled: true,
+      },
+    }
+
+    const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(result.kind, 'pending')
+    assert.deepEqual(requests, ['/v1/videos/video-cancelled', '/v1/chat/responses/chat-running'])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('keeps unsupported Music provider evidence nonterminal instead of skipping it', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    const requestPath = new URL(String(input)).pathname
+    requests.push(requestPath)
+    if (requestPath === '/v1/videos/video-cancelled') {
+      return Response.json({ id: 'video-cancelled', state: 'failed', cancelled: true })
+    }
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  try {
+    const input = job('unknown')
+    input.genstudio_jobs = [
+      { id: 'video-cancelled', operation: 'video.generation', state: 'running', updated_at: new Date().toISOString() },
+      { id: 'music-running', operation: 'music.generation' as any, state: 'running', updated_at: new Date().toISOString() },
+    ]
+    input.remote_cancellations = {
+      'video.generation:video-cancelled': {
+        status: 'confirmed', operation: 'video.generation', provider_job_id: 'video-cancelled',
+        requested_at: new Date().toISOString(), updated_at: new Date().toISOString(), cancelled: true,
+      },
+    }
+
+    const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(result.kind, 'pending')
+    assert.deepEqual(requests, ['/v1/videos/video-cancelled'])
+    assert.match(result.reason || '', /music\.generation music-running/i)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('mixed succeeded and cancelled provider targets terminalize as repair-first error, never Done', async () => {
   const original = globalThis.fetch
   globalThis.fetch = async (input) => {
@@ -228,6 +298,24 @@ test('the registered composition auditor turns a corrupt output into repair-requ
   const auditor = getJobCancellationAuditor('composition_generate')
   assert.ok(auditor)
   assert.equal(await auditor!(input), 'repair-required')
+})
+
+test('registered audio and image auditors reject an empty authoritative output set', async () => {
+  registerAllExecutors({ loadSettings: false })
+  const project = await pm.createProject({ name: 'Empty authoritative auditor set' })
+  const { resolveEpisodePaths } = await import('../services/utils.js')
+  const paths = await resolveEpisodePaths(project.slug, 'EP0001', '')
+  await fs.mkdir(paths.script_dir, { recursive: true })
+  await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+  await fs.writeFile(paths.narration_docx, '')
+  await fs.writeFile(paths.scene_prompts_docx, '')
+
+  const audioAuditor = getJobCancellationAuditor('audio')
+  const imageAuditor = getJobCancellationAuditor('images')
+  assert.ok(audioAuditor)
+  assert.ok(imageAuditor)
+  assert.equal(await audioAuditor!({ ...job(), project_slug: project.slug, episode_id: 'EP0001', type: 'audio' }), 'repair-required')
+  assert.equal(await imageAuditor!({ ...job(), project_slug: project.slug, episode_id: 'EP0001', type: 'images' }), 'repair-required')
 })
 
 test('cold persisted cancellation reconciles outside a generation lane and retains its duplicate lock', async () => {

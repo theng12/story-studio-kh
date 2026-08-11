@@ -35,6 +35,16 @@ async function seedProject(parentDir: string, slug: string): Promise<string> {
   return projDir
 }
 
+async function seedJob(dir: string, status: string, providerState?: string): Promise<void> {
+  await fs.writeFile(path.join(dir, 'jobs.json'), JSON.stringify({ jobs: [{
+    job_id: `job-${status}`, project_slug: path.basename(dir), type: 'audio', episode_id: 'EP0001', title: 'guard', status,
+    created_at: new Date().toISOString(), started_at: status === 'queued' ? null : new Date().toISOString(),
+    finished_at: ['done', 'error', 'cancelled'].includes(status) ? new Date().toISOString() : null,
+    error: status === 'error' ? 'local error' : null, output_lines: [], params: {},
+    ...(providerState ? { genstudio_jobs: [{ id: 'provider-1', operation: 'voice.tts', state: providerState, updated_at: new Date().toISOString() }] } : {}),
+  }] }))
+}
+
 describe('soft-delete', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -144,6 +154,60 @@ describe('soft-delete', () => {
       () => sd.hardDeleteSoftDeletedProject('not-tombstoned'),
       (e: any) => e.statusCode === 400 && /not currently soft-deleted/i.test(e.message),
     )
+  })
+
+  test('active and unsettled provider jobs block soft-delete, unlink, and hard-delete', async () => {
+    for (const status of ['queued', 'running', 'paused']) {
+      const slug = `active-${status}`
+      const dir = await seedProject(pm.projectsRoot(), slug)
+      await seedJob(dir, status)
+      await assert.rejects(() => pm.deleteProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
+      await sd.softDeleteProject(slug)
+      await assert.rejects(() => sd.hardDeleteSoftDeletedProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
+      assert.ok(existsSync(dir))
+    }
+
+    const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'accepted-linked')
+    await seedJob(linkedDir, 'error', 'running')
+    await lp.addLinkedProject(linkedDir)
+    await assert.rejects(() => lp.removeLinkedProject(linkedDir), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
+    assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
+  })
+
+  test('fully settled terminal provider evidence permits the existing delete flow', async () => {
+    const dir = await seedProject(pm.projectsRoot(), 'settled-delete')
+    await seedJob(dir, 'done', 'succeeded')
+    assert.equal((await pm.deleteProject('settled-delete')).ok, true)
+    await sd.hardDeleteSoftDeletedProject('settled-delete')
+    assert.equal(existsSync(dir), false)
+  })
+
+  test('delete, hard-delete, and unlink routes return 409 without removing guarded job evidence', async () => {
+    const express = (await import('express')).default
+    const request = (await import('supertest')).default
+    const projectsRouter = (await import('../routes/projects.js')).router
+    const softDeletedRouter = (await import('../routes/soft-deleted-projects.js')).router
+    const linkedRouter = (await import('../routes/linked-projects.js')).router
+    const app = express()
+    app.use(express.json())
+    app.use('/api', projectsRouter, softDeletedRouter, linkedRouter)
+
+    const defaultDir = await seedProject(pm.projectsRoot(), 'route-active')
+    await seedJob(defaultDir, 'queued')
+    const soft = await request(app).delete('/api/projects/route-active')
+    assert.equal(soft.status, 409)
+    assert.ok(existsSync(path.join(defaultDir, 'jobs.json')))
+    await sd.softDeleteProject('route-active')
+    const hard = await request(app).delete('/api/soft-deleted-projects/route-active')
+    assert.equal(hard.status, 409)
+    assert.ok(existsSync(defaultDir))
+
+    const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'route-linked')
+    await seedJob(linkedDir, 'error', 'running')
+    await lp.addLinkedProject(linkedDir)
+    const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
+    assert.equal(unlink.status, 409)
+    assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
   })
 
   test('addLinkedProject auto-clears a soft-delete tombstone for its slug', async () => {

@@ -2323,7 +2323,7 @@ export interface Job {
    */
   genstudio_jobs?: Array<{
     id: string
-    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'video.generation'
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'music.generation' | 'video.generation'
     state: string
     model_id?: string
     credit_cost?: number

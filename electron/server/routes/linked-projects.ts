@@ -99,7 +99,8 @@ router.delete('/linked-projects', async (req, res) => {
     if (!removed) return res.status(404).json({ detail: 'Path not found in linked-projects registry' })
     res.json({ ok: true })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to remove linked project'))
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to remove linked project'))
   }
 })
 

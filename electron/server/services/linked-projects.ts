@@ -242,6 +242,8 @@ export async function addLinkedProject(absPath: string): Promise<LinkedProjectIn
  * Returns true iff the path was registered (and is now gone).
  */
 export async function removeLinkedProject(absPath: string): Promise<boolean> {
+  const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
+  await assertProjectJobsSafeToRemove(path.resolve(absPath))
   const norm = path.isAbsolute(absPath) ? path.resolve(absPath) : absPath
   const current = await getLinkedProjectPaths()
   const next = current.filter(p => p !== norm)

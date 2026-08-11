@@ -1,6 +1,7 @@
 import { getGenStudioUrl } from './app-settings.js'
 import {
   getGenStudioCancellationStatus,
+  getGenStudioChatStatus,
   isSettledGenStudioJob,
   requestGenStudioCancellation,
   type GenStudioCancellationFields,
@@ -9,9 +10,11 @@ import {
 import type { Job, JobRemoteCancellation } from '../models/types.js'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
 
+type ProviderEvidenceOperation = NonNullable<Job['genstudio_jobs']>[number]['operation']
+
 type ReconcileEvidence = {
   records: Record<string, JobRemoteCancellation>
-  providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }>
+  providerJobs: Array<{ operation: ProviderEvidenceOperation; evidence_id: string; job: GenStudioJob & GenStudioCancellationFields }>
   reason?: string
 }
 
@@ -78,7 +81,7 @@ export async function reconcilePendingJobCancellation(
 ): Promise<JobCancellationReconcileOutcome> {
   const records = { ...(job.remote_cancellations || {}) }
   const pending = Object.entries(records).filter(([, record]) => PENDING.has(record.status))
-  const providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> = []
+  const providerJobs: ReconcileEvidence['providerJobs'] = []
   let reason: string | undefined
 
   const baseUrl = await getGenStudioUrl()
@@ -97,7 +100,7 @@ export async function reconcilePendingJobCancellation(
         )
       }
       records[key] = asRecord(record, provider, observedStatus(provider))
-      providerJobs.push({ operation: record.operation, job: provider })
+      providerJobs.push({ operation: record.operation, evidence_id: record.provider_job_id, job: provider })
     } catch (error) {
       // Missing credentials, a stopped GenStudio service, and a malformed
       // status response are not evidence that the provider stopped. Preserve
@@ -114,16 +117,21 @@ export async function reconcilePendingJobCancellation(
   // A Story job may have a mix of eligible and already-dispatched provider
   // targets. The latter are not cancellation records, but still must settle
   // before this job releases its duplicate lock or claims verified success.
-  const observed = new Set(providerJobs.map(item => `${item.operation}:${item.job.id}`))
+  const observed = new Set(providerJobs.map(item => `${item.operation}:${item.evidence_id}`))
   for (const evidence of job.genstudio_jobs || []) {
-    if (!evidence.id || !isRemoteOperation(evidence.operation)) continue
+    if (!evidence.id) return { kind: 'pending', records, providerJobs, reason: 'Story Studio cannot reconcile provider evidence without a durable task identity.' }
     const key = `${evidence.operation}:${evidence.id}`
     if (observed.has(key)) continue
     try {
-      const provider = await getGenStudioCancellationStatus(
-        evidence.operation, baseUrl, apiKey, evidence.id, {}, deadline,
-      )
-      providerJobs.push({ operation: evidence.operation, job: provider })
+      const provider = isRemoteOperation(evidence.operation)
+        ? await getGenStudioCancellationStatus(evidence.operation, baseUrl, apiKey, evidence.id, {}, deadline)
+        : evidence.operation === 'chat.response'
+          ? await getGenStudioChatStatus(baseUrl, apiKey, evidence.id, evidence.request?.idempotency_key, deadline)
+          : null
+      if (!provider) {
+        return { kind: 'pending', records, providerJobs, reason: `${evidence.operation} ${evidence.id} has no published read-only reconciliation path. Provider work may still settle.` }
+      }
+      providerJobs.push({ operation: evidence.operation, evidence_id: evidence.id, job: provider })
       observed.add(key)
     } catch (error) {
       // The exact accepted target cannot be proven terminal. This includes an

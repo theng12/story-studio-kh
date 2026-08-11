@@ -340,11 +340,14 @@ router.delete('/projects/:slug', async (req, res) => {
   // name so the dialog can say "files are still at <path>" and offer
   // an Open-in-Finder button. Hard delete is a separate, explicit
   // step via /soft-deleted-projects/:slug DELETE.
-  const result = await pm.deleteProject(req.params.slug)
-  if (!result.ok) {
-    return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const result = await pm.deleteProject(req.params.slug)
+    if (!result.ok) return res.status(404).json({ detail: 'Project not found' })
+    res.json(result)
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Project cannot be removed while its jobs are still settling'))
   }
-  res.json(result)
 })
 
 // ── Manifest sync (Stage 5) ───────────────────────────────────────────────

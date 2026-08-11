@@ -378,6 +378,13 @@ export function hasUnsettledProviderWork(job: Pick<Job, 'genstudio_jobs' | 'remo
   ))
 }
 
+/** Any durable provider identity is authoritative over a stale local terminal status. */
+export function hasUnsettledProviderEvidence(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
+  return hasPendingRemoteCancellation(job) || (job.genstudio_jobs || []).some(entry => (
+    entry.cancelled !== true && entry.state !== 'succeeded' && entry.state !== 'failed'
+  ))
+}
+
 function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean {
   return Object.keys(job.remote_cancellations || {}).length > 0
 }
@@ -395,7 +402,8 @@ function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'r
 
 function mergeGenStudioReconciliationEvidence(
   job: Job,
-  operation: JobRemoteOperation,
+  operation: NonNullable<Job['genstudio_jobs']>[number]['operation'],
+  evidenceId: string,
   provider: {
     id: string
     state: string
@@ -408,11 +416,12 @@ function mergeGenStudioReconciliationEvidence(
   },
 ): void {
   const entries = [...(job.genstudio_jobs || [])]
-  const index = entries.findIndex(entry => entry.id === provider.id && entry.operation === operation)
+  const index = entries.findIndex(entry => entry.id === evidenceId && entry.operation === operation)
   if (index < 0) return
   const prior = entries[index]!
   entries[index] = {
     ...prior,
+    id: provider.id,
     state: provider.state,
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
@@ -455,7 +464,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     job.remote_cancellations = outcome.records
     if (outcome.reason && outcome.reason !== job.reconciliation_error) job.output_lines.push(outcome.reason)
     job.reconciliation_error = outcome.reason
-    for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.job)
+    for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
 
     if (outcome.kind === 'cancelled') {
       job.status = 'cancelled'
@@ -880,6 +889,16 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
           // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = false
           if (j.status === 'queued') {
+            if (hasUnsettledProviderEvidence(j)) {
+              j.status = 'running'
+              j.local_execution_complete = true
+              j.started_at ||= new Date().toISOString()
+              j.finished_at = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — durable provider evidence is still settling; this job will not submit a replacement request.')
+              if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+              mutated = true
+            } else {
             const queue = queues[j.type as JobType]
             if (queue?.executor) {
               j.started_at = null
@@ -892,6 +911,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.finished_at = j.finished_at || new Date().toISOString()
             }
             mutated = true
+            }
           } else if (j.status === 'running') {
             if (requiresCancellationReconciliation(j)) {
               // The provider request already has a durable identity and an
@@ -936,6 +956,14 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
             }
           } else if (j.status === 'paused') {
+            if (hasUnsettledProviderEvidence(j)) {
+              j.status = 'running'
+              j.local_execution_complete = true
+              j.finished_at = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — durable provider evidence is still settling; this job remains locked for reconciliation.')
+              if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+            }
             j.pause_requested = false
             mutated = true
           }
@@ -1325,6 +1353,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
+    if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
   } finally {
     releaseSlot(type, job)
   }
@@ -1827,6 +1856,12 @@ export function retryTerminalJob(
   const chapterRetryMode = chatBackedRetry
     ? chapterChatRetryMode(original)
     : undefined
+  if (hasUnsettledProviderEvidence(original) && !(chatBackedRetry && chapterRetryMode === 'exact-replay')) {
+    throw Object.assign(
+      new Error('This job still has unsettled provider evidence. Story Studio will reconcile it before any fresh retry.'),
+      { status: 409, expose: true },
+    )
+  }
   const anotherUnresolvedExpansionExists = original.type === 'expand_chapters'
     && chapterRetryMode === 'fresh-replacement'
     && Array.from(jobs.values()).some(job =>
@@ -2032,6 +2067,12 @@ async function queueRemoteCancellationTargets(
     added++
   }
   job.remote_cancellations = records
+  if (job.status === 'queued') queues[job.type].pending = queues[job.type].pending.filter(candidate => candidate.job_id !== job.job_id)
+  job.status = 'running'
+  job.started_at ||= now
+  job.finished_at = null
+  job.pause_requested = false
+  pauseRequested.delete(job.job_id)
   if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for GenStudio confirmation.`)
   await persistJob(job)
   emitUpdate(job)
@@ -2068,7 +2109,7 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
 export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   const job = jobs.get(jobId)
   if (!job || job.project_slug !== projectSlug) return false
-  if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
+  if (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job)) return false
   jobs.delete(jobId)
   emitCleared(projectSlug, [jobId])
   void persistProjectSnapshot(projectSlug).catch(() => {})
@@ -2080,7 +2121,7 @@ export async function clearFinished(projectSlug: string): Promise<number> {
   let count = 0
   const clearedIds: string[] = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status)) {
+    if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && !hasUnsettledProviderEvidence(job)) {
       jobs.delete(id)
       clearedIds.push(id)
       count++

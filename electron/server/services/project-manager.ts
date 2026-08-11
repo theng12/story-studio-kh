@@ -833,6 +833,8 @@ export interface DeleteProjectResult {
 export async function deleteProject(slug: string): Promise<DeleteProjectResult> {
   const projectDir = getProjectDir(slug)
   if (!projectDir || !existsSync(projectDir)) return { ok: false }
+  const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
+  await assertProjectJobsSafeToRemove(projectDir)
 
   // Best-effort read of project.json so the post-delete dialog can
   // show the human name. Missing/corrupt project.json is non-fatal —

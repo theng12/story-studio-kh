@@ -22,6 +22,9 @@ const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled'])
 const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const PRE_DISPATCH_STATES = new Set(['accepted', 'reserved'])
 const VIDEO_POST_DISPATCH_STATES = new Set(['dispatched', 'running', 'validating', 'reconciling'])
+const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
+  'audio', 'images', 'scene_images', 'thumb_images', 'image_pool_generate', 'subtitles_transcribe',
+])
 
 function control(
   action: JobControl['action'],
@@ -64,11 +67,18 @@ export function classifyJobControl(
   job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
+  const evidence = job.genstudio_jobs || []
+  const unsettledEvidence = evidence.some(entry => (
+    entry.cancelled !== true && !TERMINAL_STATES.has(entry.state)
+  )) || Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))
+  if ((job.status === 'done' || job.status === 'error' || job.status === 'cancelled') && unsettledEvidence) {
+    return control('return-later', false, 'Checking provider status', 'Story Studio cannot remove this history while durable provider work is still settling.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+  }
   if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
     return control('clear-history', true, 'Remove from history', 'This finished job can be removed from the job list. Its files and provider evidence stay intact.', 'READY', 'history-only')
   }
 
-  if (job.status === 'queued' || job.status === 'paused') {
+  if ((job.status === 'queued' || job.status === 'paused') && !evidence.length && !Object.keys(job.remote_cancellations || {}).length) {
     return control('cancel-before-submit', true, 'Cancel', 'This job has not submitted provider work.', 'READY', 'no-provider-request')
   }
 
@@ -84,12 +94,11 @@ export function classifyJobControl(
     return control('return-later', false, 'Checking provider status', `Story Studio cannot yet confirm every accepted provider task. ${job.reconciliation_error}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
-  const evidence = job.genstudio_jobs || []
   if (!evidence.length) {
     if (isSafelyStoppableLocalJob(job)) {
       return control('stop-local', true, 'Stop local work', 'This local job has a proven cooperative or child-process stop path.', 'READY', 'local-only')
     }
-    return control('pause-submissions', false, 'Pause new submissions', 'This running job has no proven safe local stop. Let its current work settle before starting more.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
+    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', 'This running job has no proven safe local stop. Let its current work settle before starting more.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
   }
 
   if (evidence.some(isSubmissionUncertain)) {
@@ -147,7 +156,7 @@ export function classifyJobControl(
   }
 
   if (continuing.length) {
-    return control('pause-submissions', false, 'Pause new submissions', `${continuing.map(describes).join(', ')} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
+    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', `${continuing.map(describes).join(', ')} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
   }
 
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')

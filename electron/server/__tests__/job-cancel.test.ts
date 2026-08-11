@@ -486,7 +486,7 @@ describe('remote cancellation checkpoints', () => {
     const pending = jq.getJob(job.job_id)
     assert.equal(pending?.status, 'running')
     assert.equal(pending?.finished_at, null)
-    assert.equal(pending?.remote_cancellations?.['voice.tts:pending-target']?.status, 'queued')
+    assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-target']?.status || ''))
     const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
     assert.equal(remove.status, 409)
     const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
@@ -530,7 +530,7 @@ describe('remote cancellation checkpoints', () => {
     const pending = jq.getJob(job.job_id)
     assert.equal(pending?.status, 'running')
     assert.equal(pending?.finished_at, null)
-    assert.equal(pending?.remote_cancellations?.['voice.tts:pending-failure-target']?.status, 'queued')
+    assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-failure-target']?.status || ''))
     assert.match(pending?.error || '', /local executor failed while cancellation was pending/)
     assert.match(pending?.output_lines.join('\n') || '', /local executor failed while cancellation was pending/)
     const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
@@ -578,7 +578,7 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(pending?.status, 'running')
     assert.equal(pending?.finished_at, null)
     assert.equal(pending?.control?.action, 'return-later')
-    assert.equal(pending?.remote_cancellations?.['voice.tts:pending-pause-target']?.status, 'queued')
+    assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-pause-target']?.status || ''))
     assert.match(pending?.output_lines.join('\n') || '', /pause/i)
     const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
     assert.equal(remove.status, 409)
@@ -633,6 +633,91 @@ describe('remote cancellation checkpoints', () => {
     }
     assert.equal(jq.getJob(job.job_id)?.status, 'paused')
   })
+})
+
+describe('terminal provider-evidence guards', () => {
+  test('restored queued work with an accepted provider ID cannot be cancelled as unsubmitted', async () => {
+    const project = await pm.createProject({ name: 'AcceptedRestartCancellation' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    await jq.setQueuePaused(true)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [{
+      job_id: 'accepted-restart-cancel', project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'accepted',
+      status: 'queued', created_at: new Date().toISOString(), started_at: null, finished_at: null, error: null, output_lines: [], params: {},
+      genstudio_jobs: [{ id: 'accepted-tts', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() }],
+    }] }))
+    try {
+      await jq.getJobs(project.slug)
+      const controlled = await jq.requestJobCancellation(project.slug, 'accepted-restart-cancel')
+      assert.equal(controlled.status, 'running')
+      assert.equal(controlled.finished_at, null)
+      assert.ok(controlled.remote_cancellations?.['voice.tts:accepted-tts'])
+      assert.doesNotMatch(controlled.output_lines.join('\n'), /sent no provider request/i)
+      assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio'), true)
+    } finally {
+      await jq.setQueuePaused(false)
+    }
+  })
+
+  test('terminal-looking work with unsettled provider evidence cannot be removed, cleared, or retried', async () => {
+    const project = await pm.createProject({ name: 'TerminalEvidenceGuard' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    await jq.setQueuePaused(true)
+    const jobId = 'terminal-unsettled-evidence'
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [{
+      job_id: jobId, project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'unsafe terminal',
+      status: 'error', created_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: new Date().toISOString(), error: 'local error', output_lines: [], params: {},
+      genstudio_jobs: [{ id: 'still-running', operation: 'voice.tts', state: 'running', updated_at: new Date().toISOString() }],
+    }] }))
+    try {
+      await jq.getJobs(project.slug)
+      assert.throws(() => jq.retryTerminalJob(project.slug, jobId), /provider evidence/i)
+      assert.equal(jq.removeTerminalJob(project.slug, jobId), false)
+      assert.equal(await jq.clearFinished(project.slug), 0)
+      assert.equal(jq.getJob(jobId)?.status, 'error')
+    } finally {
+      await jq.setQueuePaused(false)
+    }
+  })
+
+  for (const scenario of ['success', 'error', 'pause'] as const) {
+    test(`schedules live reconciliation outside the worker lane after a ${scenario} boundary`, async () => {
+      const { setApiKey } = await import('../services/app-secrets-store.js')
+      const project = await pm.createProject({ name: `LiveReconcile-${scenario}` })
+      let release!: () => void
+      const hold = new Promise<void>(resolve => { release = resolve })
+      let afterBoundary = false
+      let readsAfterBoundary = 0
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (input) => {
+        if (afterBoundary) readsAfterBoundary++
+        return Response.json({ id: 'live-target', state: 'running', cancellable: false, cancelled: false })
+      }
+      jq.registerExecutor('audio', async job => {
+        await hold
+        if (scenario === 'error') throw new Error('local boundary error')
+        if (scenario === 'pause') jq.throwIfPauseRequested(job.job_id)
+      })
+      const queued = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: `EP_${scenario}`, title: scenario, params: {} })
+      const deadline = Date.now() + 2_000
+      while (Date.now() < deadline && jq.getJob(queued.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
+      await jq.recordGenStudioJob(queued.job_id, { id: 'live-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+      await jq.requestJobCancellation(project.slug, queued.job_id)
+      if (scenario === 'pause') await jq.pauseJob(queued.job_id)
+      await setApiKey('genstudio', 'live-reconcile-key')
+      afterBoundary = true
+      release()
+      try {
+        const reconcileDeadline = Date.now() + 1_000
+        while (Date.now() < reconcileDeadline && readsAfterBoundary === 0) await new Promise(resolve => setTimeout(resolve, 20))
+        assert.ok(readsAfterBoundary > 0, `${scenario} boundary must start a read-only reconciliation`)
+        assert.equal(jq.getJob(queued.job_id)?.status, 'running')
+        assert.equal(jq.getJob(queued.job_id)?.finished_at, null)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+  }
 })
 
 describe('job route controls', () => {
