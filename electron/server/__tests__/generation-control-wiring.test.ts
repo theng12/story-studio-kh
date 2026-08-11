@@ -24,6 +24,98 @@ function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8')
 }
 
+async function createEpisode(name: string) {
+  const pm = await import('../services/project-manager.js')
+  const ideas = await import('../services/idea-manager.js')
+  const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+  const project = await pm.createProject({ name, episode_prefix: 'EP', episode_digits: 3 })
+  const [idea] = await ideas.addIdeas(project.slug, [{
+    title: 'Checkpoint ordering', logline: 'A deterministic mock episode.', themes: [],
+    suggested_chapters: 1, suggested_length: 'short', mood: 'neutral',
+  }], 'mock-chat-v1')
+  assert.ok(idea)
+  const accepted = await ideas.acceptIdea(project.slug, idea.id, false)
+  return { project, episodeId: accepted.episode_code, paths: await resolveEpisodePathsByCode(project.slug, accepted.episode_code) }
+}
+
+async function configureMockGenStudio(baseUrl: string): Promise<void> {
+  const settings = await import('../services/app-settings.js')
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+  await settings.setGenStudioUrl(baseUrl)
+  await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+  clearGenStudioCatalogCache()
+}
+
+async function writeScenePrerequisites(paths: { scene_prompts_dir: string; subtitles_dir: string }, episodeId: string): Promise<void> {
+  await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+    scenes: [{ id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }],
+  }))
+  await fs.mkdir(paths.subtitles_dir, { recursive: true })
+  const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
+  await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:01,000\nTest\n')
+  await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
+}
+
+function job(projectSlug: string, episodeId: string, type: string, params: Record<string, unknown>): any {
+  return {
+    job_id: `generation-control-${type}-${Date.now()}`,
+    project_slug: projectSlug,
+    type,
+    episode_id: episodeId,
+    title: 'Generation control test',
+    status: 'running',
+    created_at: new Date().toISOString(),
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    error: null,
+    output_lines: [],
+    params: { episode_id: episodeId, ...params },
+  }
+}
+
+function statusPath(operation: 'image' | 'video', taskId: string): string {
+  return operation === 'image' ? `/v1/images/${taskId}` : `/v1/videos/${taskId}`
+}
+
+function withFirstStatusAssertion(
+  service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+  operation: 'image' | 'video',
+  assertAccepted: (taskId: string) => Promise<void>,
+): { restore: () => void; wasObserved: () => boolean } {
+  const originalFetch = globalThis.fetch
+  let observed = false
+  globalThis.fetch = async (input, init) => {
+    const response = await originalFetch(input, init)
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    if (!observed && url.origin === service.baseUrl && url.pathname.startsWith(operation === 'image' ? '/v1/images/' : '/v1/videos/')) {
+      const taskId = url.pathname.split('/').at(-1)!
+      if (url.pathname === statusPath(operation, taskId)) {
+        observed = true
+        await assertAccepted(taskId)
+      }
+    }
+    return response
+  }
+  return { restore: () => { globalThis.fetch = originalFetch }, wasObserved: () => observed }
+}
+
+function enableMockVideoCatalog(service: Awaited<ReturnType<typeof startMockGenStudioService>>): () => void {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    const response = await originalFetch(input, init)
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
+    const models = await response.json() as Array<Record<string, unknown>>
+    return new Response(JSON.stringify(models.map(model => ({ ...model, available: true }))), {
+      status: response.status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  return () => { globalThis.fetch = originalFetch }
+}
+
 test('GenStudio video reports each accepted variant before its first status poll', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -85,7 +177,205 @@ test('GenStudio video reports each accepted variant before its first status poll
   }
 })
 
-test('queue producers persist accepted work and honour the shared local-stop probe', () => {
+test('scene image writes its exact accepted task before the first image status read', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    const { generateSceneImageJob, resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { project, episodeId, paths } = await createEpisode('Scene checkpoint ordering')
+    await writeScenePrerequisites(paths, episodeId)
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
+    const status = withFirstStatusAssertion(service, 'image', async taskId => {
+      const entry = (await readManifest(outDir)).tasks['scene-001.png']
+      const submission = service.submissions.find(item => item.jobId === taskId)
+      assert.ok(entry, 'scene manifest exists before first provider poll')
+      assert.ok(submission)
+      assert.equal(entry.task_id, taskId)
+      assert.equal(entry.idempotency_key, submission.idempotencyKey)
+      assert.equal(entry.last_state, 'accepted')
+    })
+    try {
+      await generateSceneImageJob(job(project.slug, episodeId, 'scene_image_generate', {
+        scene_id: 'scene-001', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+      }))
+    } finally {
+      status.restore()
+    }
+    assert.ok(status.wasObserved(), 'scene image must poll the accepted task')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('composition template writes prepared then exact accepted work before its first image status read', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    const { generateCompositionTemplateJob } = await import('../generators/composition-template.js')
+    const compositionFilename = 'composition.png'
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { project, episodeId, paths } = await createEpisode('Composition checkpoint ordering')
+    const outDir = path.join(paths.episode_dir, 'img2img-references')
+    service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
+    const status = withFirstStatusAssertion(service, 'image', async taskId => {
+      const entry = (await readManifest(outDir)).tasks[compositionFilename]
+      const submission = service.submissions.find(item => item.jobId === taskId)
+      assert.ok(entry, 'composition manifest exists before first provider poll')
+      assert.ok(submission)
+      assert.equal(entry.task_id, taskId)
+      assert.equal(entry.idempotency_key, submission.idempotencyKey)
+      assert.equal(entry.last_state, 'accepted')
+    })
+    try {
+      await generateCompositionTemplateJob(job(project.slug, episodeId, 'composition_template_generate', {
+        model: 'mock-image-v1', prompt: 'A single central archival artifact on black velvet.', aspect_ratio: '16:9', resolution: '1K',
+      }))
+    } finally {
+      status.restore()
+    }
+    assert.ok(status.wasObserved(), 'composition template must poll the accepted task')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('AI video writes the accepted variant checkpoint before its first video status read', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    const restoreVideoCatalog = enableMockVideoCatalog(service)
+    await import('../providers/video/genstudio.js')
+    const { generateAiVideo } = await import('../generators/ai-video.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { project, episodeId, paths } = await createEpisode('Video checkpoint ordering')
+    await fs.writeFile(path.join(paths.bg_dir, `${episodeId}_Scene01_v1.png`), ONE_PIXEL_PNG)
+    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+    const status = withFirstStatusAssertion(service, 'video', async taskId => {
+      const entry = (await readManifest(paths.video_dir)).tasks[`${episodeId}_Video01_v1.mp4`]
+      const submission = service.submissions.find(item => item.jobId === taskId)
+      assert.ok(entry, 'video manifest exists before first provider poll')
+      assert.ok(submission)
+      assert.equal(entry.task_id, taskId)
+      assert.equal(entry.idempotency_key, submission.idempotencyKey)
+      assert.equal(entry.last_state, 'accepted')
+    })
+    try {
+      await generateAiVideo(job(project.slug, episodeId, 'ai_video_generate', {
+        model: 'mock-video-v1', mode: 'frames', prompt_source: 'manual',
+        manual_prompts: ['A slow push through a lamplit archive.'], number_of_videos_per_prompt: 1,
+        aspect_ratio: 'landscape', duration_seconds: 5, resolution: '720p', force: false,
+      }))
+    } finally {
+      status.restore()
+      restoreVideoCatalog()
+    }
+    assert.ok(status.wasObserved(), 'AI video must poll the accepted task')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('each GenStudio modality exposes its exact accepted identity before its first status read', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  const sourceImage = path.join(temp.dir, 'source.png')
+  const sourceAudio = path.join(temp.dir, 'source.wav')
+  await fs.writeFile(sourceImage, ONE_PIXEL_PNG)
+  await fs.writeFile(sourceAudio, Buffer.from('RIFF mock audio'))
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    const client = await import('../lib/genstudio-client.js')
+    const statusPrefix = { image: '/v1/images/', tts: '/v1/jobs/', transcription: '/v1/transcriptions/', video: '/v1/videos/' } as const
+    for (const operation of ['image', 'tts', 'transcription', 'video'] as const) {
+      service.reset()
+      service.queueScenario(operation, { states: ['accepted', 'running', 'succeeded'] })
+      let accepted: { taskId: string; key: string } | null = null
+      let polled = false
+      globalThis.fetch = async (input, init) => {
+        const response = await originalFetch(input, init)
+        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+        if (url.origin === service.baseUrl && new RegExp(`^${statusPrefix[operation]}mock-${operation}-\\d+$`).test(url.pathname)) {
+          const taskId = url.pathname.split('/').at(-1)!
+          assert.ok(accepted, `${operation} must expose acceptance before polling`)
+          assert.equal(accepted.taskId, taskId)
+          // Transcription persists the stable quote identity; its provider-side
+          // confirm POST deliberately namespaces that same identity with
+          // "-confirm". The other async products submit the checkpointed key
+          // directly.
+          const providerKey = service.submissions.find(item => item.jobId === taskId)?.idempotencyKey
+          assert.equal(providerKey, operation === 'transcription' ? `${accepted.key}-confirm` : accepted.key)
+          polled = true
+        }
+        return response
+      }
+      if (operation === 'image') {
+        await client.generateImageWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
+          prompt: 'A tested image checkpoint.', modelId: 'mock-image-v1', aspectRatio: '16:9', requestIdentity: 'checkpoint:image',
+          onJobAccepted: (taskId, key) => { accepted = { taskId, key } },
+        })
+      } else if (operation === 'tts') {
+        await client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, 'checkpoint.mp3'), {
+          text: 'A tested speech checkpoint.', voiceId: 'mock-voice', modelId: 'mock-tts-v1', maxInputCharacters: 1_000, speed: 1,
+          requestIdentity: 'checkpoint:tts', onJobAccepted: (taskId, key) => { accepted = { taskId, key } },
+        })
+      } else if (operation === 'transcription') {
+        await client.transcribeWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
+          audioPath: sourceAudio, modelId: 'mock-whisper-v1', requestIdentity: 'checkpoint:transcription', language: 'en',
+          onJobAccepted: (taskId, key) => { accepted = { taskId, key } },
+        })
+      } else {
+        await client.generateVideoWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
+          prompt: 'A tested video checkpoint.', modelId: 'mock-video-v1', sourceImagePath: sourceImage,
+          aspectRatio: '16:9', durationSeconds: 5, resolution: '720p', requestIdentity: 'checkpoint:video',
+          onJobAccepted: (taskId, key) => { accepted = { taskId, key } },
+        })
+      }
+      assert.ok(polled, `${operation} must poll the accepted task`)
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('an accepted GenStudio image stops local monitoring when its cancellation probe changes', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    const client = await import('../lib/genstudio-client.js')
+    let cancelled = false
+    let acceptedJobId = ''
+    service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
+    await assert.rejects(
+      client.generateImageWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
+        prompt: 'Stop local polling after acceptance.', modelId: 'mock-image-v1', aspectRatio: '16:9', requestIdentity: 'checkpoint:cancel',
+        isCancelled: () => cancelled,
+        onJobAccepted: taskId => { acceptedJobId = taskId; cancelled = true },
+      }),
+      /Cancelled by user/,
+    )
+    assert.ok(acceptedJobId)
+    assert.equal(service.pollCount(acceptedJobId), 0, 'the changed cancellation probe must prevent polling')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('static mutation tripwires keep queue-producer wiring intact', () => {
   const sceneImage = source('../generators/scene-image.ts')
   const composition = source('../generators/composition-template.ts')
   const aiVideo = source('../generators/ai-video.ts')
@@ -110,7 +400,7 @@ test('queue producers persist accepted work and honour the shared local-stop pro
   assert.match(genstudioVideo, /onJobAccepted\?\.\(taskId,\s*idempotencyKey,\s*index\)/)
 })
 
-test('every existing GenStudio producer keeps a prepared-to-accepted durable boundary', () => {
+test('static inventory supplements the runtime checkpoint seams', () => {
   for (const relativePath of [
     '../generators/audio.ts',
     '../generators/subtitles.ts',
