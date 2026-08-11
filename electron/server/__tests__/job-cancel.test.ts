@@ -381,6 +381,53 @@ describe('remote cancellation checkpoints', () => {
     assert.deepEqual(Object.keys(repeated.body.job.remote_cancellations), ['voice.tts:pending-failure-target'])
   })
 
+  test('keeps a pause race running until pending remote cancellation settles', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', jobsRouter)
+    const project = await pm.createProject({ name: 'PendingCancellationCannotPause' })
+    let release!: () => void
+    let executorPaused!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const paused = new Promise<void>(resolve => { executorPaused = resolve })
+    jq.registerExecutor('audio', async job => {
+      await hold
+      executorPaused()
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    registerJobCancellationAuditor('audio', async () => 'complete')
+
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'PENDING_CANCEL_PAUSE', title: 'pending pause', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'pending-pause-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.requestJobCancellation(project.slug, job.job_id)
+    await jq.pauseJob(job.job_id)
+
+    release()
+    await paused
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    const pending = jq.getJob(job.job_id)
+    assert.equal(pending?.status, 'running')
+    assert.equal(pending?.finished_at, null)
+    assert.equal(pending?.control?.action, 'return-later')
+    assert.equal(pending?.remote_cancellations?.['voice.tts:pending-pause-target']?.status, 'queued')
+    assert.match(pending?.output_lines.join('\n') || '', /pause/i)
+    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+    assert.equal(remove.status, 409)
+    const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
+    assert.equal(repeated.status, 200)
+    assert.deepEqual(Object.keys(repeated.body.job.remote_cancellations), ['voice.tts:pending-pause-target'])
+  })
+
   test('marks an ordinary completed executor done', async () => {
     const project = await pm.createProject({ name: 'OrdinaryCompletionStillDone' })
     jq.registerExecutor('broll_assemble', async () => {})
@@ -402,6 +449,30 @@ describe('remote cancellation checkpoints', () => {
     await waitForTerminal(job.job_id)
     assert.equal(jq.getJob(job.job_id)?.status, 'error')
     assert.match(jq.getJob(job.job_id)?.error || '', /ordinary executor failure/)
+  })
+
+  test('marks an ordinary pause as paused', async () => {
+    const project = await pm.createProject({ name: 'OrdinaryPauseStillPaused' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async job => {
+      await hold
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'ORDINARY_PAUSE', title: 'ordinary pause', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.pauseJob(job.job_id)
+    release()
+    const pausedDeadline = Date.now() + 2_000
+    while (Date.now() < pausedDeadline && jq.getJob(job.job_id)?.status !== 'paused') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'paused')
   })
 })
 

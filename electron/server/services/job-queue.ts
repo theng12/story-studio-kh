@@ -941,17 +941,20 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // probe — either way, the user's intent is "cancelled", not "error".
       if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
+      } else if (hasPendingRemoteCancellation(job)) {
+        const isPause = e instanceof JobPausedError || pauseRequested.has(job.job_id)
+        const message = e instanceof Error ? e.message : String(e)
+        job.status = 'running'
+        job.error = message
+        job.output_lines.push(isPause
+          ? `Local pause request retained while provider cancellation is pending: ${message}`
+          : `Local executor error retained while provider cancellation is pending: ${message}`)
       } else if (e instanceof JobPausedError || pauseRequested.has(job.job_id)) {
         job.status = 'paused'
         job.pause_requested = false
         job.error = null
         job.output_lines.push('Paused safely. Accepted provider work was allowed to finish and save; Resume will submit only work still missing on disk.')
         pauseRequested.delete(job.job_id)
-      } else if (hasPendingRemoteCancellation(job)) {
-        const message = e instanceof Error ? e.message : String(e)
-        job.status = 'running'
-        job.error = message
-        job.output_lines.push(`Local executor error retained while provider cancellation is pending: ${message}`)
       } else {
         job.status = 'error'
         job.error = e.message
