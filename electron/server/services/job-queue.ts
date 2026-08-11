@@ -23,6 +23,8 @@ import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import { classifyJobControl } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
+import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
+import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -163,12 +165,13 @@ export async function recordRemoteCancellation(
   }
   await persistJob(job)
   emitUpdate(job)
+  if (job.local_execution_complete) void finalizeSettledProviderJob(job.job_id)
 }
 
 /**
  * A process may crash after persisting `submitting` and before the control
- * socket returns.  A later read-only status poll is the only safe way to
- * release that lock: do not resend the cancellation POST.
+ * socket returns. A later status read must establish whether it is still
+ * cancellable before the idempotent control request may be retried.
  */
 export async function reconcileRemoteCancellationFromProvider(
   storyJobId: string,
@@ -344,6 +347,8 @@ export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status'
 
 const jobs = new Map<string, Job>()
 const providerFinalizing = new Set<string>()
+const cancellationReconciling = new Set<string>()
+const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
@@ -375,6 +380,129 @@ export function hasUnsettledProviderWork(job: Pick<Job, 'genstudio_jobs' | 'remo
 
 function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean {
   return Object.keys(job.remote_cancellations || {}).length > 0
+}
+
+function mergeGenStudioReconciliationEvidence(
+  job: Job,
+  operation: JobRemoteOperation,
+  provider: {
+    id: string
+    state: string
+    cancellable?: boolean | null
+    cancelled?: boolean | null
+    cancellation_requested?: boolean | null
+    cancellation_note?: string | null
+    failure_code?: string | null
+    released_credits?: number | null
+  },
+): void {
+  const entries = [...(job.genstudio_jobs || [])]
+  const index = entries.findIndex(entry => entry.id === provider.id && entry.operation === operation)
+  if (index < 0) return
+  const prior = entries[index]!
+  entries[index] = {
+    ...prior,
+    state: provider.state,
+    ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
+    ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
+    ...(provider.cancellation_requested !== undefined ? { cancellation_requested: provider.cancellation_requested } : {}),
+    ...(provider.cancellation_note !== undefined ? { cancellation_note: provider.cancellation_note } : {}),
+    ...(provider.failure_code !== undefined ? { failure_code: provider.failure_code } : {}),
+    ...(Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
+    updated_at: new Date().toISOString(),
+  }
+  job.genstudio_jobs = entries
+}
+
+/**
+ * Reconciliation has its own persisted set, not a queue worker slot. This is
+ * critical after restart: it retains the duplicate lock while allowing normal
+ * generation work in the same lane to proceed.
+ */
+async function reconcileCancellationJob(jobId: string): Promise<void> {
+  if (cancellationReconciling.has(jobId)) return
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'running' || !hasPendingRemoteCancellation(job)) return
+  cancellationReconciling.add(jobId)
+  try {
+    for (const [key, record] of Object.entries(job.remote_cancellations || {})) {
+      if (record.status !== 'queued') continue
+      const claimed = await claimRemoteCancellation(job.job_id, record.operation, record.provider_job_id).catch(() => false)
+      if (!claimed) continue
+      // The claim changes the in-memory object too. Reconciliation reads the
+      // fresh durable state below rather than carrying a stale closure.
+      job.output_lines.push(`Checking GenStudio cancellation for ${key}.`)
+    }
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) {
+      job.output_lines.push('Cancellation is waiting for the GenStudio API key to be available on this Mac.')
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
+    const outcome = await reconcilePendingJobCancellation(job, apiKey)
+    job.remote_cancellations = outcome.records
+    for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.job)
+
+    if (outcome.kind === 'cancelled') {
+      job.status = 'cancelled'
+      job.error = null
+      job.finished_at = new Date().toISOString()
+      job.output_lines.push('GenStudio confirmed cancellation for every requested provider task.')
+    } else if (outcome.kind === 'failed') {
+      job.status = 'error'
+      job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      job.finished_at = new Date().toISOString()
+      job.output_lines.push(job.error)
+    } else if (outcome.kind === 'succeeded') {
+      const auditor = getJobCancellationAuditor(job.type)
+      if (!auditor) {
+        job.output_lines.push('Provider work settled, but this job has no registered output auditor. Keeping its duplicate lock.')
+      } else if (await auditor(serializeJob(job)) === 'complete') {
+        await completeSuccessfulJob(job)
+        job.error = null
+        job.finished_at = new Date().toISOString()
+        job.output_lines.push('Provider work settled and required output was verified.')
+      } else {
+        job.status = 'error'
+        job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
+        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
+        job.finished_at = new Date().toISOString()
+        job.output_lines.push(job.error)
+      }
+    } else {
+      job.output_lines.push('Story Studio is reconciling the provider cancellation; no new generation request was sent.')
+    }
+    await persistJob(job)
+    emitUpdate(job)
+  } catch (error) {
+    // Fail closed: keep status=running and duplicate lock. A later boot/load
+    // or explicit status refresh can resume read-only reconciliation.
+    const job = jobs.get(jobId)
+    if (job?.status === 'running') {
+      job.output_lines.push(`Cancellation reconciliation is waiting: ${error instanceof Error ? error.message : String(error)}`)
+      await persistJob(job)
+      emitUpdate(job)
+    }
+  } finally {
+    cancellationReconciling.delete(jobId)
+    const latest = jobs.get(jobId)
+    if (latest?.status === 'running' && hasPendingRemoteCancellation(latest)) {
+      const existing = cancellationReconcileTimers.get(jobId)
+      if (!existing) {
+        const timer = setTimeout(() => {
+          cancellationReconcileTimers.delete(jobId)
+          scheduleCancellationReconciliation(jobId)
+        }, 5_000)
+        timer.unref()
+        cancellationReconcileTimers.set(jobId, timer)
+      }
+    }
+  }
+}
+
+function scheduleCancellationReconciliation(jobId: string): void {
+  void reconcileCancellationJob(jobId)
 }
 
 /** Finalize only after a returned local executor and authoritative provider settlement. */
@@ -417,6 +545,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       if (audit !== 'complete') {
         job.status = 'error'
         job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
+        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
         job.output_lines.push(job.error)
       } else {
         await completeSuccessfulJob(job)
@@ -712,6 +841,7 @@ export async function checkpointJobState(job: Job): Promise<void> {
 async function readPersistedJobs(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
+  const reconciliationJobs: string[] = []
   try {
     if (existsSync(p)) {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
@@ -736,6 +866,17 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             }
             mutated = true
           } else if (j.status === 'running') {
+            if (hasPendingRemoteCancellation(j)) {
+              // The provider request already has a durable identity and an
+              // explicit cancellation intent. Never convert it to an
+              // interrupted error or requeue it into a generation lane.
+              j.local_execution_complete = true
+              j.finished_at = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio cancellation request before allowing any retry.')
+              reconciliationJobs.push(j.job_id)
+              mutated = true
+            } else {
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -766,6 +907,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.finished_at = j.finished_at || new Date().toISOString()
             }
             mutated = true
+            }
           } else if (j.status === 'paused') {
             j.pause_requested = false
             mutated = true
@@ -786,6 +928,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
       }
     }
     for (const type of resumedTypes) pump(type)
+    for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
   } catch { /* ignore corrupt file */ }
 }
 

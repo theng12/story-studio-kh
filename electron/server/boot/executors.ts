@@ -41,8 +41,97 @@ import { generateCompositionTemplateJob } from '../generators/composition-templa
 import { runExpressionMarkupJob } from '../services/audio-expression.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
+import { getAudioStatus } from '../services/audio-reconciler.js'
+import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
+import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services/scene-media-checkpoint.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { assertDecodableImage } from '../lib/image-validation.js'
+import fs from 'fs/promises'
+import path from 'path'
+
+async function auditSceneImages(job: any): Promise<'complete' | 'repair-required'> {
+  const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+  const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
+  const ids = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
+    ? job.params.scene_ids.map(String)
+    : [job.params?.scene_id].filter(Boolean).map(String)
+  if (!ids.length) return 'repair-required'
+  const audit = await auditSceneImageCompletion(planPath, ids, [job.output_dir || path.join(paths.episode_dir, 'scene_images')])
+  return audit.completed === audit.expected ? 'complete' : 'repair-required'
+}
+
+async function auditSceneClips(job: any): Promise<'complete' | 'repair-required'> {
+  const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+  const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
+  const ids = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
+    ? job.params.scene_ids.map(String)
+    : [job.params?.scene_id].filter(Boolean).map(String)
+  if (!ids.length) return 'repair-required'
+  const audit = await auditSceneClipCompletion(planPath, ids, job.output_dir || paths.video_assets_dir)
+  return audit.completed === audit.expected ? 'complete' : 'repair-required'
+}
+
+/** Register only producer-specific completion proofs; no generic file guess. */
+function registerCancellationAuditors(): void {
+  registerJobCancellationAuditor('audio', async job => {
+    const status = await getAudioStatus(job.project_slug, job.episode_id)
+    return status.missing.length === 0 ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('subtitles_transcribe', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const status = await inspectSubtitleCompletion(paths.episode_dir, paths.subtitles_dir, job.episode_id, { require_per_section: true })
+    return status.complete ? 'complete' : 'repair-required'
+  })
+  for (const type of ['images', 'scene_images', 'thumb_images'] as const) {
+    registerJobCancellationAuditor(type, async job => {
+      const mode = type === 'thumb_images' ? 'thumbnails' : 'all'
+      const status = await getImageStatus(job.project_slug, job.episode_id, mode)
+      const parts = type === 'scene_images'
+        ? [status.scenes].filter(Boolean)
+        : type === 'thumb_images'
+          ? [status.thumbnails].filter(Boolean)
+          : [status.scenes, status.thumbnails].filter(Boolean)
+      return parts.length > 0 && parts.every(part => part!.missing.length === 0) ? 'complete' : 'repair-required'
+    })
+  }
+  for (const type of ['scene_image_generate', 'scene_images_batch', 'continuity_render'] as const) {
+    registerJobCancellationAuditor(type, auditSceneImages)
+  }
+  registerJobCancellationAuditor('composition_generate', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const file = path.join(paths.episode_dir, 'img2img-references', 'composition.png')
+    const stat = await fs.stat(file).catch(() => null)
+    if (!stat?.isFile() || stat.size <= 0) return 'repair-required'
+    await assertDecodableImage(file, 'Composition template').catch(() => { throw new Error('Composition template is not decodable') })
+    return 'complete'
+  })
+  registerJobCancellationAuditor('image_pool_generate', async job => {
+    const { getPool } = await import('../services/broll-pool-manager.js')
+    const pool = await getPool(String(job.params?.pool_id || ''))
+    const runId = String(job.params?.run_id || '')
+    const variants = Math.max(1, Math.min(4, Math.floor(Number(job.params?.variants) || 1)))
+    const expected = variants * (Array.isArray(job.params?.prompts) ? job.params.prompts.length : 0)
+    if (!pool || !runId || !expected) return 'repair-required'
+    const entries = await fs.readdir(pool.folder_path).catch(() => [] as string[])
+    const usable = await Promise.all(entries.filter(name => name.startsWith(`gen-${runId}-`)).map(async name => {
+      const stat = await fs.stat(path.join(pool.folder_path, name)).catch(() => null)
+      return !!stat?.isFile() && stat.size > 0
+    }))
+    return usable.filter(Boolean).length >= expected ? 'complete' : 'repair-required'
+  })
+  for (const type of ['scene_clip_generate', 'scene_clips_batch'] as const) {
+    registerJobCancellationAuditor(type, auditSceneClips)
+  }
+  registerJobCancellationAuditor('video', async job => {
+    const status = await getVideoStatus(job.project_slug, job.episode_id)
+    return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'
+  })
+}
 
 export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {
+  registerCancellationAuditors()
   // Level B — fail-loud guard for jobs that WRITE into the media-routed heavy
   // subfolders (05 Scene Images / 06 Thumbnails / 07-08 Audio / 10 Video). For
   // a project with an external media_root, this throws a clear error if the

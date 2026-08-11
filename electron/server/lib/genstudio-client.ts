@@ -1683,6 +1683,43 @@ const GENSTUDIO_CANCELLATION_PATHS: Record<JobRemoteOperation, (jobId: string) =
   'video.generation': jobId => `/v1/videos/${encodeURIComponent(jobId)}/cancel`,
 }
 
+const GENSTUDIO_STATUS_PATHS: Record<JobRemoteOperation, (jobId: string) => string> = {
+  'voice.tts': jobId => `/v1/jobs/${encodeURIComponent(jobId)}`,
+  'image.generation': jobId => `/v1/images/${encodeURIComponent(jobId)}`,
+  'audio.transcription': jobId => `/v1/transcriptions/${encodeURIComponent(jobId)}`,
+  'video.generation': jobId => `/v1/videos/${encodeURIComponent(jobId)}`,
+}
+
+/**
+ * Read the published state of one already-accepted provider task.  This is a
+ * control-plane lookup only: it can never create provider work.
+ */
+export async function getGenStudioCancellationStatus(
+  operation: JobRemoteOperation,
+  baseUrl: string,
+  apiKey: string,
+  providerJobId: string,
+  request: GenStudioOperationContext = {},
+  deadline: number,
+): Promise<GenStudioJob & GenStudioCancellationFields> {
+  const response = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}${GENSTUDIO_STATUS_PATHS[operation](providerJobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+    apiKey,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    true,
+    1,
+  )
+  const parsed = parseGenStudioCancellationResponse(response)
+  if (parsed.id !== providerJobId) {
+    throw new Error('GenStudio KH status response did not match the requested provider job')
+  }
+  return parsed
+}
+
 /**
  * Ask GenStudio to cancel one accepted task and return its response untouched.
  * This intentionally has no catch or fallback: a timeout is unknown, not a
