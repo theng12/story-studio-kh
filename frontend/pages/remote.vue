@@ -152,7 +152,7 @@ const episodeCount = computed(() => episodeCodes.value.length)
 
 // Active = anything not finished/cancelled. Errors stay so the user can retry.
 const activeJobs = computed<Job[]>(() =>
-  (jobs.value as Job[]).filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'error'),
+  (jobs.value as Job[]).filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused' || j.status === 'error'),
 )
 const BULK_CONTROL_ACTIONS = new Set(['cancel-before-submit', 'stop-local', 'request-remote-cancel'])
 const bulkControlJobs = computed(() => activeJobs.value.filter(job =>
@@ -163,6 +163,7 @@ const bulkSkippedCount = computed(() => activeJobs.value.length - bulkControlJob
 function jobSubline(job: Job): string {
   if (job.status === 'error') return job.error || 'failed'
   if (job.status === 'queued') return 'queued'
+  if (job.status === 'paused') return 'paused before provider submission'
   const last = job.output_lines?.[job.output_lines.length - 1]
   return last ? String(last).slice(0, 80) : 'running…'
 }
@@ -306,12 +307,13 @@ async function runJobControl(job: Job): Promise<boolean> {
 async function requestEligibleControls() {
   if (stoppingAll.value) return
   const snapshot = [...bulkControlJobs.value]
-  const skipped = activeJobs.value.length - snapshot.length
+  const total = activeJobs.value.length
   stoppingAll.value = true
   try {
-    const results = await Promise.all(snapshot.map(job => runJobControl(job)))
-    const requested = results.filter(Boolean).length
-    success(`Requested safe action for ${requested} job${requested === 1 ? '' : 's'}; left ${skipped} unchanged.`)
+    const outcomes = await Promise.all(snapshot.map(job => runJobControl(job)))
+    const requested = outcomes.filter(Boolean).length
+    const unchanged = total - requested
+    success(`Requested safe action for ${requested} job${requested === 1 ? '' : 's'}; left ${unchanged} unchanged.`)
   } finally {
     stoppingAll.value = false
   }
@@ -414,7 +416,7 @@ onBeforeUnmount(() => stopPolling())
 .rm-stop { color: #dc6666; border-color: rgba(220,38,38,0.4); }
 .rm-retry { color: #c79328; border-color: rgba(240,198,116,0.5); }
 .rm-approve { color: #4ade80; border-color: rgba(74,222,128,0.45); }
-.rm-stopall { height: 36px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
+.rm-stopall { height: 44px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
 
 .rm-foot { margin: 0; font-size: var(--font-xs); color: var(--text-muted, #888); text-align: center; }
 </style>

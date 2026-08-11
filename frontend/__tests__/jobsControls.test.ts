@@ -38,7 +38,17 @@ test('Remote uses the same server controls and bulk-manages only safe actions', 
   assert.match(remote, /cancel-before-submit.*stop-local.*request-remote-cancel/s)
   assert.match(remote, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
   assert.match(remote, /Requested safe action for/)
-  assert.match(remote, /left \$\{skipped\} unchanged/)
+  assert.match(remote, /left \$\{unchanged\} unchanged/)
   assert.doesNotMatch(remote, />Stop all</)
   assert.doesNotMatch(remote, />Stop</)
+})
+
+test('Remote includes paused jobs and counts failed bulk requests as unchanged', () => {
+  assert.match(remote, /j\.status === 'paused'/)
+  assert.match(remote, /const outcomes = await Promise\.all\(snapshot\.map\(job => runJobControl\(job\)\)\)/)
+  assert.match(remote, /const requested = outcomes\.filter\(Boolean\)\.length/)
+  assert.match(remote, /const total = activeJobs\.value\.length/)
+  assert.match(remote, /const unchanged = total - requested/)
+  assert.match(remote, /left \$\{unchanged\} unchanged/)
+  assert.match(remote, /\.rm-stopall \{ height: 44px;/)
 })
