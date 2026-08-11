@@ -152,9 +152,9 @@ export interface GenStudioJob {
   remaining_credits?: number
   /**
    * Settlement values, exactly as GenStudio publishes them. `released_credits`
-   * ships on TTS and transcription jobs; the full triad ships only on
-   * `GET /v1/account/jobs`. Image, chat, video and music jobs omit all three —
-   * Story Studio forwards whatever arrives and never derives a charge locally.
+   * ships on TTS, transcription, image, and video jobs; the full triad ships
+   * only on `GET /v1/account/jobs`. Chat and music jobs omit all three — Story
+   * Studio forwards whatever arrives and never derives a charge locally.
    */
   reserved_credits?: number | null
   settled_credits?: number | null
@@ -724,13 +724,10 @@ interface GenStudioImageJob {
   seed?: number | null
   failure_code?: string | null
   routing_status_code?: string | null
-  /**
-   * `ImageJobResponse` publishes only these two credit fields — there is no
-   * `released_credits` / `reserved_credits` / `settled_credits` on an image
-   * job. The full triad lives on `GET /v1/account/jobs` only.
-   */
+  /** `ImageJobResponse` publishes a released reservation when it has one. */
   credit_cost?: number
   remaining_credits?: number
+  released_credits?: number | null
   cancellable?: boolean | null
   cancelled?: boolean | null
   cancellation_note?: string | null
@@ -1223,11 +1220,8 @@ interface GenStudioVideoSourceAsset {
 interface GenStudioVideoJob extends GenStudioJob {
   model_id: string
   video_url?: string | null
-  /**
-   * `VideoJobResponse` carries `cancellation_requested` / `cancelled` — there
-   * is no `cancellable` and no `cancellation_note`, and (unlike TTS and
-   * transcription) no `released_credits`. Never invent one.
-   */
+  /** `VideoJobResponse` publishes cancellation booleans and released credits. */
+  released_credits?: number | null
   cancellation_requested?: boolean
   cancelled?: boolean
 }

@@ -181,12 +181,38 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.equal(service.providerSubmissionCount('video'), 2)
     })
 
-    await suite.test('video jobs never fabricate released_credits', async () => {
+    await suite.test('Image and Video responses preserve GenStudio-published released credits', async () => {
       service.reset()
-      const result = await submitVideo('video:settlement')
-      const body = service.submissions.find(submission => submission.jobId === result.jobId)
-      assert.ok(body)
-      assert.doesNotMatch(body.bodyText, /released_credits/i)
+      const cases = [
+        { operation: 'image', path: '/v1/images/generations', body: { model_id: 'mock-image-v1', prompt: 'settlement', aspect_ratio: '16:9' }, reservedCredits: 13 },
+        { operation: 'video', path: '/v1/videos/generations', body: { model_id: 'mock-video-v1', prompt: 'settlement', duration_seconds: 5, resolution: '720p' }, reservedCredits: 8 },
+      ] as const
+      for (const entry of cases) {
+        service.queueScenario(entry.operation, { states: ['failed'], reservedCredits: entry.reservedCredits })
+        const response = await fetch(`${service.baseUrl}${entry.path}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+            'Idempotency-Key': `published-release-${entry.operation}-001`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(entry.body),
+        })
+        const payload = await response.json() as Record<string, unknown>
+        assert.equal(payload.released_credits, entry.reservedCredits)
+      }
+
+      service.queueScenario('image', { states: ['failed'], reservedCredits: 5, omitReleasedCredits: true })
+      const omitted = await fetch(`${service.baseUrl}/v1/images/generations`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+          'Idempotency-Key': 'published-release-image-omitted-001',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: 'mock-image-v1', prompt: 'settlement omitted', aspect_ratio: '16:9' }),
+      })
+      assert.equal('released_credits' in await omitted.json() as Record<string, unknown>, false)
     })
 
     await suite.test('cancellation returns GenStudio truth without a replacement request', async () => {

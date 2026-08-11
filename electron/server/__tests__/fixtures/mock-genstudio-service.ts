@@ -51,6 +51,8 @@ export interface MockGenStudioScenario {
    *  envelope (`citations`, `research_ran_at`, …) rides here. */
   envelope?: Record<string, unknown>
   artifactExpired?: boolean
+  /** Omit optional settlement output to exercise a provider that publishes none. */
+  omitReleasedCredits?: boolean
   dropFirstSubmitResponse?: boolean
   /** Keeps a submitted job in flight long enough for fan-out tests to observe. */
   submitDelayMs?: number
@@ -241,6 +243,7 @@ function normalizeScenario(
     finishReason: scenario.finishReason || 'stop',
     envelope: scenario.envelope || {},
     artifactExpired: scenario.artifactExpired === true,
+    omitReleasedCredits: scenario.omitReleasedCredits === true,
     dropFirstSubmitResponse: scenario.dropFirstSubmitResponse === true,
     submitDelayMs: Number.isFinite(scenario.submitDelayMs) && scenario.submitDelayMs! > 0
       ? scenario.submitDelayMs!
@@ -563,6 +566,10 @@ export class MockGenStudioService {
     if (job.operation === 'image') {
       return {
         ...base,
+        // ImageJobResponse publishes released_credits when a reservation settles.
+        ...(job.scenario.omitReleasedCredits ? {} : {
+          released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
+        }),
         prompt: String(job.body.prompt || ''),
         width: Number(job.body.width) || 1_344,
         height: Number(job.body.height) || 768,
@@ -576,10 +583,12 @@ export class MockGenStudioService {
       }
     }
     if (job.operation === 'video') {
-      // VideoJobResponse: cancellation_requested/cancelled, and deliberately NO
-      // released_credits — only TTS and transcription publish that field.
+      // VideoJobResponse publishes cancellation booleans and released credits.
       return {
         ...base,
+        ...(job.scenario.omitReleasedCredits ? {} : {
+          released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
+        }),
         prompt: String(job.body.prompt || ''),
         mode: String(job.body.mode || 'image-to-video'),
         aspect_ratio: String(job.body.aspect_ratio || '16:9'),

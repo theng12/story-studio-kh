@@ -331,6 +331,45 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(page.genStudioReservationReleased(FAILED_IMAGE_JOB), false, 'a published amount replaces the generic label')
   })
 
+  it('jobs page: provider-published Image and Video releases take priority without an account snapshot', async () => {
+    const source = read('frontend/pages/projects/[slug]/jobs.vue')
+    const names = [
+      'genStudioNumeric',
+      'genStudioCreditState',
+      'genStudioSettled',
+      'genStudioTerminalFailure',
+      'genStudioChargedCredits',
+      'genStudioReturnedCredits',
+      'genStudioHeldCredits',
+      'genStudioReservationReleased',
+    ]
+    const declarations = names
+      .map(name => extractFunction(source, name))
+      .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
+    const page = await loadLifted(
+      [
+        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
+        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
+      ].join('\n'),
+      declarations,
+      ['genStudioReturnedCredits', 'genStudioHeldCredits', 'genStudioReservationReleased'],
+    )
+
+    const cases = [
+      { id: 'gs-image-direct-release', operation: 'image.generation', released_credits: 13 },
+      { id: 'gs-video-direct-release', operation: 'video.generation', released_credits: 8 },
+    ]
+    for (const remote of cases) {
+      assert.equal(page.genStudioReturnedCredits({ ...remote, state: 'failed', queue_state: 'failed' }), remote.released_credits)
+      assert.equal(page.genStudioHeldCredits({ ...remote, state: 'failed', queue_state: 'failed' }), 0)
+      assert.equal(page.genStudioReservationReleased({ ...remote, state: 'failed', queue_state: 'failed' }), false)
+    }
+
+    const omitted = { id: 'gs-image-no-release', operation: 'image.generation', state: 'failed', queue_state: 'failed' }
+    assert.equal(page.genStudioReturnedCredits(omitted), 0)
+    assert.equal(page.genStudioReservationReleased(omitted), true)
+  })
+
   it('settlement hint stops calling an unpublished quote a hold', () => {
     const source = read('frontend/components/GenStudioCreditSettlementHint.vue')
 

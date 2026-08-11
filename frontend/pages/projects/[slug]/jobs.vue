@@ -921,10 +921,8 @@ function genStudioCreditState(remote: NonNullable<RJob['genstudio_jobs']>[number
 /**
  * Authoritative settlement, merged from GenStudio's own account-jobs history.
  *
- * An image job's own API response carries only `credit_cost` and
- * `remaining_credits` — there is no released/reserved/settled field on it. The
- * full triad exists only on the account history, so that is the only place a
- * released reservation can be read from. Never computed locally.
+ * Account history publishes the full settlement triad. Image and Video jobs
+ * can also publish a direct released reservation; never compute one locally.
  */
 type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }
 const genStudioSettlement = ref<Record<string, GenStudioSettlement>>({})
@@ -933,11 +931,14 @@ let settlementFetched = false
 function genStudioSettled(
   remote: NonNullable<RJob['genstudio_jobs']>[number],
 ): GenStudioSettlement {
-  const authoritative = genStudioSettlement.value[remote.id]
+  const accountJob = genStudioSettlement.value[remote.id]
+  const released = accountJob?.released_credits
+    ?? remote.released_credits
+    ?? remote.returned_credits
   return {
-    reserved_credits: authoritative?.reserved_credits ?? remote.reserved_credits,
-    settled_credits: authoritative?.settled_credits ?? remote.settled_credits,
-    released_credits: authoritative?.released_credits ?? remote.returned_credits,
+    reserved_credits: accountJob?.reserved_credits ?? remote.reserved_credits,
+    settled_credits: accountJob?.settled_credits ?? remote.settled_credits,
+    ...(released !== undefined ? { released_credits: released } : {}),
   }
 }
 
