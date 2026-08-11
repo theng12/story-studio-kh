@@ -57,6 +57,12 @@ test('Jobs renders GenStudio standard lanes with optional live burst and tier fa
   assert.match(jobs, /next_tier\.generation_submissions_per_minute/)
 })
 
+test('Jobs makes temporary capacity best effort and directs upgrades to GenStudio', () => {
+  assert.match(jobs, /Temporary boost[\s\S]*?best effort, not guaranteed/i)
+  assert.match(jobs, /Purchase more standard capacity in GenStudio/i)
+  assert.match(jobs, /\.capacity-boost \{[\s\S]*?white-space: normal;[\s\S]*?overflow-wrap: anywhere;/)
+})
+
 test('Remote uses the same server controls and bulk-manages only safe actions', () => {
   assert.match(remote, /job\.control\.label/)
   assert.match(remote, /job\.control\.reason/)

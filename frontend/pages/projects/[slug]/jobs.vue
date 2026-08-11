@@ -45,7 +45,7 @@
               class="capacity-boost"
             >
               <strong>Temporary boost</strong>
-              up to {{ genStudioAdmission.burst_concurrency_ceiling }} lanes
+              up to {{ genStudioAdmission.burst_concurrency_ceiling }} jobs when GenStudio has spare capacity — best effort, not guaranteed.
             </span>
             <span v-if="genStudioAdmission.service_tier" class="capacity-tier">
               <strong>{{ genStudioAdmission.service_tier.current.display_name }}</strong>
@@ -59,6 +59,7 @@
               <strong>{{ genStudioAdmission.service_tier.next_tier.display_name }}</strong>:
               {{ genStudioAdmission.service_tier.next_tier.paid_concurrency_limit }} standard lanes,
               {{ genStudioAdmission.service_tier.next_tier.generation_submissions_per_minute }} submissions/min
+              Purchase more standard capacity in GenStudio.
             </span>
             <span :class="{ 'capacity-warning': genStudioAdmission.queue_near_capacity }">
               <strong>{{ genStudioAdmission.paid_queued_jobs }}/{{ genStudioAdmission.max_queued_jobs }}</strong>
@@ -2162,6 +2163,8 @@ async function clearFinished() {
 .genstudio-capacity-summary .capacity-boost {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--accent);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .genstudio-capacity-summary .capacity-next-tier {
   white-space: normal;
