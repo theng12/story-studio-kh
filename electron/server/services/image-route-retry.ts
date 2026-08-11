@@ -11,8 +11,8 @@
  * submission and the whole reservation was released.
  *
  * Kept as ITS OWN module rather than a re-export of the TTS constants
- * because the two modalities dispatch at very different widths. TTS
- * serialises to one upstream voice workspace (concurrency 1, by design —
+ * because the two modalities dispatch at very different widths. TTS follows
+ * its selected model's published submit hint (or serialises when unknown —
  * see `resolveGenStudioTtsFanout`). Images legitimately fan out to
  * `resolveGenStudioLocalFanout`'s full account concurrency (up to 50 at
  * once) and that width is explicitly NOT being changed by this file. An

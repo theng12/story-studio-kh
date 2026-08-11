@@ -262,11 +262,6 @@ export async function generateAudio(job: Job): Promise<void> {
   // The product every request in this run buys. Read once here, beside the
   // boundary, because both have to survive the handover into `processTask`.
   const genStudioModelId = ttsModel.id
-  // The ROUTE, for the same reason. GenStudio publishes `provider_id` only for
-  // models that can speak a cloned voice, which is exactly the case where one
-  // upstream workspace answers every section of an episode — so an absent
-  // value is an unattributed route, not an unmetered one.
-  const genStudioProviderId = ttsModel.provider_id
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
   const requestBudget = resolveTtsRequestBudget(ttsModel)
   // The control values this run submits, resolved against THIS model's
@@ -605,12 +600,9 @@ export async function generateAudio(job: Job): Promise<void> {
     concatPlans.set(finalPath, intermediates)
   }
 
-  // Paced against the VOICE PROVIDER, not against the GenStudio account.
-  // GenStudio admission already applies the account's paid concurrency; what
-  // it cannot apply is the one upstream workspace a cloned voice lives in, and
-  // that is the budget an episode's sections actually compete for. See
-  // `resolveGenStudioTtsFanout` for why an unattributed model serialises.
-  const concurrency = resolveGenStudioTtsFanout(tasks.length, genStudioProviderId)
+  // The selected model's live hint is advisory. GenStudio admission remains
+  // authoritative; no provider identity is inferred as a dispatch limit.
+  const concurrency = resolveGenStudioTtsFanout(tasks.length, ttsModel.provider_submit_concurrency)
 
   // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
   // section loop) so the chunkText() calls in the loop can reference it

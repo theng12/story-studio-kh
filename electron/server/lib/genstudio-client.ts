@@ -816,6 +816,12 @@ export interface GenStudioTtsModel {
   preview_policy: string
   generation_enabled: boolean
   /**
+   * Optional `TTSModelResponse.provider_submit_concurrency` hint. It is not
+   * capacity Story Studio owns or a submission gate; a null value means the
+   * selected model publishes no usable fan-out hint.
+   */
+  provider_submit_concurrency: number | null
+  /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with
    * its own label, type, bounds, default and description. Story Studio renders
    * the list and never names a member of it (lib/tts-controls.ts). An empty
@@ -2813,6 +2819,13 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        // This is a model-local hint, not something Story Studio may derive
+        // from the provider name or id. Absent, null, and malformed values
+        // stay unknown so the caller can safely serialize.
+        provider_submit_concurrency: Number.isInteger(value?.provider_submit_concurrency)
+          && value.provider_submit_concurrency > 0
+          ? value.provider_submit_concurrency
+          : null,
         // Carried through exactly as published. An absent or empty list means
         // this model takes no controls — never a reason to supply some.
         controls: parseTtsControls(value?.controls),

@@ -25,9 +25,11 @@ import {
   listImageModels,
   listChatModels,
   listModelCapabilities,
+  listTtsModels,
   listTranscriptionModels,
   listVoices,
   listVideoModels,
+  clearGenStudioCatalogCache,
   operationSignal,
   isGenStudioReleaseGenerationUnavailable,
   parseGenStudioRetryAfterMs,
@@ -47,6 +49,37 @@ test('Story-owned TTS defaults are empty because GenStudio owns the catalog', ()
   assert.equal(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], undefined)
   const voices = normalizeVoicePresets(DEFAULT_VOICE_PRESETS)
   assert.equal(voices.length, 0)
+})
+
+test('TTS models carry only a positive published provider submit concurrency hint', async () => {
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/tts\/models$/)
+      return Response.json([4, null, 0, 2.5, '6'].map((provider_submit_concurrency, index) => ({
+        id: `tts-${index}`,
+        display_name: `TTS ${index}`,
+        provider_id: `provider-${index}`,
+        provider_name: `Provider ${index}`,
+        description: '',
+        credits_per_1000_characters: 1,
+        minimum_credits: 0,
+        maximum_input_characters: 12_000,
+        supports_speed: true,
+        supports_voice_cloning: false,
+        preview_policy: '',
+        generation_enabled: true,
+        provider_submit_concurrency,
+        controls: [],
+      })))
+    }
+    const models = await listTtsModels('task3-tts-concurrency-parser')
+    assert.deepEqual(models.map(model => (model as any).provider_submit_concurrency), [4, null, null, null, null])
+  } finally {
+    globalThis.fetch = originalFetch
+    clearGenStudioCatalogCache()
+  }
 })
 
 test('only the authoritative exact-release charging failure opens the global submission breaker', () => {
