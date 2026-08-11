@@ -72,8 +72,10 @@ export function classifyJobControl(
     return control('cancel-before-submit', true, 'Cancel', 'This job has not submitted provider work.', 'READY', 'no-provider-request')
   }
 
-  if (Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))) {
-    return control('return-later', false, 'Checking cancellation', 'Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+  const pendingCancellation = Object.values(job.remote_cancellations || {}).find(record => PENDING_CANCELLATION_STATES.has(record.status))
+  if (pendingCancellation) {
+    const detail = pendingCancellation.reconciliation_error ? ` ${pendingCancellation.reconciliation_error}` : ''
+    return control('return-later', false, 'Checking cancellation', `Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.${detail}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   const evidence = job.genstudio_jobs || []

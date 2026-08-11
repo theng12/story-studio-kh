@@ -56,7 +56,7 @@ async function auditSceneImages(job: any): Promise<'complete' | 'repair-required
   const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
   const ids = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
     ? job.params.scene_ids.map(String)
-    : [job.params?.scene_id].filter(Boolean).map(String)
+    : [job.params?.single_scene_id || job.params?.scene_id].filter(Boolean).map(String)
   if (!ids.length) return 'repair-required'
   const audit = await auditSceneImageCompletion(planPath, ids, [job.output_dir || path.join(paths.episode_dir, 'scene_images')])
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
@@ -104,7 +104,8 @@ function registerCancellationAuditors(): void {
     const file = path.join(paths.episode_dir, 'img2img-references', 'composition.png')
     const stat = await fs.stat(file).catch(() => null)
     if (!stat?.isFile() || stat.size <= 0) return 'repair-required'
-    await assertDecodableImage(file, 'Composition template').catch(() => { throw new Error('Composition template is not decodable') })
+    try { await assertDecodableImage(file, 'Composition template') }
+    catch { return 'repair-required' }
     return 'complete'
   })
   registerJobCancellationAuditor('image_pool_generate', async job => {
@@ -112,14 +113,27 @@ function registerCancellationAuditors(): void {
     const pool = await getPool(String(job.params?.pool_id || ''))
     const runId = String(job.params?.run_id || '')
     const variants = Math.max(1, Math.min(4, Math.floor(Number(job.params?.variants) || 1)))
-    const expected = variants * (Array.isArray(job.params?.prompts) ? job.params.prompts.length : 0)
-    if (!pool || !runId || !expected) return 'repair-required'
-    const entries = await fs.readdir(pool.folder_path).catch(() => [] as string[])
-    const usable = await Promise.all(entries.filter(name => name.startsWith(`gen-${runId}-`)).map(async name => {
-      const stat = await fs.stat(path.join(pool.folder_path, name)).catch(() => null)
-      return !!stat?.isFile() && stat.size > 0
-    }))
-    return usable.filter(Boolean).length >= expected ? 'complete' : 'repair-required'
+    const promptCount = Array.isArray(job.params?.prompts) ? job.params.prompts.length : 0
+    if (!pool || !runId || !promptCount) return 'repair-required'
+    const recovery = job.params?.genstudio_recovery
+    const assets = recovery?.version === 1 && recovery?.route === 'genstudio' && recovery?.assets
+      ? recovery.assets as Record<string, { operation?: string; state?: string; output_path?: string }>
+      : null
+    if (!assets) return 'repair-required'
+    const expected = Array.from({ length: promptCount * variants }, (_, index) => (
+      `gen-${runId}-${String(index + 1).padStart(4, '0')}.png`
+    ))
+    for (const filename of expected) {
+      const asset = assets[filename]
+      const outputPath = asset?.output_path
+      if (asset?.operation !== 'image' || !['accepted', 'succeeded'].includes(String(asset.state)) || typeof outputPath !== 'string') return 'repair-required'
+      if (path.resolve(outputPath) !== path.resolve(pool.folder_path, filename)) return 'repair-required'
+      const stat = await fs.stat(outputPath).catch(() => null)
+      if (!stat?.isFile() || stat.size <= 0) return 'repair-required'
+      try { await assertDecodableImage(outputPath, `Image pool asset ${filename}`) }
+      catch { return 'repair-required' }
+    }
+    return 'complete'
   })
   for (const type of ['scene_clip_generate', 'scene_clips_batch'] as const) {
     registerJobCancellationAuditor(type, auditSceneClips)

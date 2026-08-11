@@ -31,9 +31,10 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 
 interface ImagePoolGenerateParams {
   pool_id: string
@@ -220,6 +221,18 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
       // Identity on disk before the charged POST: a lost response replays the
       // same idempotency key rather than paying for a second image.
       await recordState(item.filename, { taskId: '', submittedAt, inputHash, scope }, 'prepared', true)
+      const preparedKey = buildGenStudioImageIdempotencyKey({
+        prompt: item.prompt,
+        modelId: modelConfig.api_model || model,
+        aspectRatio,
+        ...(outputOption ? { resolution: outputOption.resolution } : {}),
+        seed: params.seed,
+        requestIdentity: `${generationIdentity}:${item.filename}:${scope}`,
+      })
+      await checkpointGenStudioAsset(job, item.filename, {
+        operation: 'image', idempotency_key: preparedKey, state: 'prepared',
+        output_path: path.join(pool.folder_path, item.filename),
+      })
       const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
@@ -236,6 +249,10 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
             await recordState(item.filename, {
               taskId, submittedAt, inputHash, scope, idempotencyKey,
             }, 'accepted', true)
+            await checkpointGenStudioAsset(job, item.filename, {
+              operation: 'image', idempotency_key: idempotencyKey, job_id: taskId,
+              state: 'accepted', output_path: path.join(pool.folder_path, item.filename),
+            })
           },
         })
         if (!result.urls.length) throw new Error('provider returned no image')
@@ -244,6 +261,10 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           await recordState(item.filename, {
             taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey,
           }, 'succeeded')
+          await checkpointGenStudioAsset(job, item.filename, {
+            operation: 'image', idempotency_key: acceptedKey || preparedKey, job_id: result.taskId,
+            state: 'succeeded', output_path: path.join(pool.folder_path, item.filename),
+          })
         }
         made++
         job.output_lines.push(`✓ ${successfulFiles.size}/${total} — "${item.prompt.slice(0, 60)}${item.prompt.length > 60 ? '…' : ''}"`)

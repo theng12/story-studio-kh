@@ -451,7 +451,12 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       job.output_lines.push('GenStudio confirmed cancellation for every requested provider task.')
     } else if (outcome.kind === 'failed') {
       job.status = 'error'
-      job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      const mixedSettlement = outcome.providerJobs.some(item => item.job.cancelled === true)
+        && outcome.providerJobs.some(item => item.job.state === 'succeeded')
+      job.error = mixedSettlement
+        ? 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
+        : 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      if (mixedSettlement) job.result = { ...(job.result || {}), provider_settled: 'mixed', repair_required: true }
       job.finished_at = new Date().toISOString()
       job.output_lines.push(job.error)
     } else if (outcome.kind === 'succeeded') {
@@ -523,7 +528,14 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.status = 'error'
       job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
       job.output_lines.push(job.error)
-    } else if (evidence.some(entry => entry.state === 'succeeded')) {
+    } else if (evidence.some(entry => entry.cancelled === true)) {
+      // A mixed success/cancellation is not a complete output set. Preserve
+      // every artifact and make the existing Repair path explicit.
+      job.status = 'error'
+      job.error = 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
+      job.result = { ...(job.result || {}), provider_settled: 'mixed', repair_required: true }
+      job.output_lines.push(job.error)
+    } else if (evidence.length && evidence.every(entry => entry.state === 'succeeded')) {
       const auditor = getJobCancellationAuditor(job.type)
       if (!auditor) {
         job.output_lines.push('Provider work settled, but no output auditor is registered. Keeping this job running until output can be verified.')

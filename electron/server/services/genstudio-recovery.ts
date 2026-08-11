@@ -26,6 +26,8 @@ interface GenStudioAssetRecovery {
   operation: GenStudioRecoveryOperation
   idempotency_key: string
   job_id?: string
+  /** Exact expected artifact path. Required where one provider task maps to one file. */
+  output_path?: string
   state: GenStudioRecoveryState
   updated_at: string
 }

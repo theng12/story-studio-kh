@@ -2164,6 +2164,8 @@ export interface JobRemoteCancellation {
   cancellation_note?: string | null
   failure_code?: string | null
   released_credits?: number
+  /** Redacted local explanation when Story cannot yet read provider status. */
+  reconciliation_error?: string
 }
 
 /**

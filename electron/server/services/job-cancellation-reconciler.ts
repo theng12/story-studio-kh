@@ -7,6 +7,7 @@ import {
   type GenStudioJob,
 } from '../lib/genstudio-client.js'
 import type { Job, JobRemoteCancellation } from '../models/types.js'
+import { redactSensitiveValue } from '../lib/redact-secrets.js'
 
 export type JobCancellationReconcileOutcome =
   | { kind: 'pending'; records: Record<string, JobRemoteCancellation>; providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> }
@@ -28,8 +29,9 @@ function asRecord(
   provider: GenStudioJob & GenStudioCancellationFields,
   status: JobRemoteCancellation['status'],
 ): JobRemoteCancellation {
+  const { reconciliation_error: _priorError, ...cleanPrior } = prior
   return {
-    ...prior,
+    ...cleanPrior,
     status,
     state: provider.state,
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
@@ -47,6 +49,14 @@ function observedStatus(provider: GenStudioJob & GenStudioCancellationFields): J
   if (isSettledGenStudioJob(provider)) return 'rejected'
   if (provider.cancellation_requested === true) return 'requested'
   return 'reconciling'
+}
+
+function reconciliationError(error: unknown): string {
+  const status = typeof (error as { status?: unknown })?.status === 'number'
+    ? `HTTP ${(error as { status: number }).status}: `
+    : ''
+  const message = error instanceof Error ? error.message : String(error)
+  return redactSensitiveValue(`GenStudio status check is waiting (${status}${message})`).slice(0, 320)
 }
 
 /**
@@ -81,11 +91,14 @@ export async function reconcilePendingJobCancellation(
       }
       records[key] = asRecord(record, provider, observedStatus(provider))
       providerJobs.push({ operation: record.operation, job: provider })
-    } catch {
+    } catch (error) {
       // Missing credentials, a stopped GenStudio service, and a malformed
       // status response are not evidence that the provider stopped. Preserve
       // the duplicate lock and let a later control-plane read decide.
-      records[key] = { ...record, status: 'unknown', updated_at: new Date().toISOString() }
+      records[key] = {
+        ...record, status: 'unknown', reconciliation_error: reconciliationError(error),
+        updated_at: new Date().toISOString(),
+      }
     }
   }
 
@@ -116,9 +129,11 @@ export async function reconcilePendingJobCancellation(
   if (providerJobs.some(item => item.job.state === 'failed' && item.job.cancelled !== true)) {
     return { kind: 'failed', records, providerJobs }
   }
-  if (providerJobs.some(item => item.job.state === 'succeeded')) {
-    return { kind: 'succeeded', records, providerJobs }
-  }
   if (providerJobs.length && providerJobs.every(item => item.job.cancelled === true)) return { kind: 'cancelled', records, providerJobs }
+  // A partial success plus cancellation is not a verified complete output
+  // set. The queue turns this into the same repair-first Error as a failed
+  // provider target; never let one successful sibling green-light the job.
+  if (providerJobs.some(item => item.job.cancelled === true)) return { kind: 'failed', records, providerJobs }
+  if (providerJobs.length && providerJobs.every(item => item.job.state === 'succeeded')) return { kind: 'succeeded', records, providerJobs }
   return { kind: 'pending', records, providerJobs }
 }

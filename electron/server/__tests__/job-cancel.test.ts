@@ -333,7 +333,10 @@ describe('remote cancellation checkpoints', () => {
     while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
-    assert.equal(jq.getJob(job.job_id)?.status, 'done')
+    const final = jq.getJob(job.job_id)!
+    assert.equal(final.status, 'error')
+    assert.match(final.error || '', /mixed completed and cancelled/i)
+    assert.deepEqual(final.result, { provider_settled: 'mixed', repair_required: true })
   })
 
   test('provider settlement chooses cancelled, error, or audited repair outcomes after local work returns', async () => {
@@ -371,6 +374,7 @@ describe('remote cancellation checkpoints', () => {
     const repair = await settle('REPAIR_REQUIRED', 'succeeded')
     assert.equal(repair.status, 'error')
     assert.match(repair.error || '', /needs repair/i)
+    assert.deepEqual(repair.result, { provider_settled: 'succeeded', repair_required: true })
     registerJobCancellationAuditor('audio', async () => { throw new Error('disk audit offline') })
     const auditFailure = await settle('AUDIT_THREW', 'succeeded')
     assert.equal(auditFailure.status, 'error')

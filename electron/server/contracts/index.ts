@@ -544,6 +544,7 @@ export interface JobRemoteCancellationResponse {
   cancellation_note?: string | null
   failure_code?: string | null
   released_credits?: number
+  reconciliation_error?: string
 }
 
 /** Response from `POST /projects/:slug/generate/{script,images,audio}`. */
