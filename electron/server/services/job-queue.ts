@@ -22,7 +22,7 @@ import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import { classifyJobControl } from './job-control.js'
-import { hasJobCancellationAuditor } from './job-cancellation-auditors.js'
+import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import type { JobControl } from '../models/types.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -99,6 +99,7 @@ export async function recordGenStudioJob(
   job.genstudio_jobs = boundGenStudioRequestPreviews(entries)
   await persistJob(job)
   emitUpdate(job)
+  void finalizeSettledProviderJob(job.job_id)
 }
 
 function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: string): string {
@@ -342,6 +343,7 @@ export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status'
 // ── In-memory state ─────────────────────────────────────────────────────────
 
 const jobs = new Map<string, Job>()
+const providerFinalizing = new Set<string>()
 const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
@@ -369,6 +371,70 @@ export function hasUnsettledProviderWork(job: Pick<Job, 'genstudio_jobs' | 'remo
     && entry.state !== 'succeeded'
     && entry.state !== 'failed'
   ))
+}
+
+function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean {
+  return Object.keys(job.remote_cancellations || {}).length > 0
+}
+
+/** Finalize only after a returned local executor and authoritative provider settlement. */
+async function finalizeSettledProviderJob(jobId: string): Promise<void> {
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'running' || !job.local_execution_complete) return
+  if (!hasCancellationContext(job) || hasUnsettledProviderWork(job)) return
+  if (providerFinalizing.has(jobId)) return
+  providerFinalizing.add(jobId)
+  try {
+    const evidence = job.genstudio_jobs || []
+    if (!evidence.length) return
+    if (evidence.every(entry => entry.cancelled === true)) {
+      job.status = 'cancelled'
+      job.error = null
+      job.output_lines.push('GenStudio confirmed cancellation for every provider task.')
+    } else if (evidence.some(entry => entry.state === 'failed' && entry.cancelled !== true)) {
+      job.status = 'error'
+      job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      job.output_lines.push(job.error)
+    } else if (evidence.some(entry => entry.state === 'succeeded')) {
+      const auditor = getJobCancellationAuditor(job.type)
+      if (!auditor) {
+        job.output_lines.push('Provider work settled, but no output auditor is registered. Keeping this job running until output can be verified.')
+        await persistJob(job)
+        emitUpdate(job)
+        return
+      }
+      let audit: 'complete' | 'repair-required'
+      try { audit = await auditor(serializeJob(job)) }
+      catch (error) {
+        job.output_lines.push(`Provider work settled, but output audit could not run: ${error instanceof Error ? error.message : String(error)}. Keeping this job running.`)
+        await persistJob(job)
+        emitUpdate(job)
+        return
+      }
+      if (audit !== 'complete') {
+        job.status = 'error'
+        job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
+        job.output_lines.push(job.error)
+      } else {
+        job.status = 'done'
+        job.error = null
+        job.output_lines.push('Provider work settled and required output was verified.')
+      }
+    } else {
+      // A terminal response with no success, failure, or confirmed cancellation
+      // is not a success signal. Keep the duplicate lock and await Task 5's
+      // operation-specific reconciliation.
+      job.output_lines.push('Provider settlement is terminal but not yet classifiable; keeping this job running for reconciliation.')
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
+    job.finished_at = new Date().toISOString()
+    await persistJob(job)
+    emitUpdate(job)
+  } finally {
+    providerFinalizing.delete(jobId)
+  }
 }
 
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
@@ -957,6 +1023,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
           // assembly would keep running until it finished or hit an error.
           await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+          job.local_execution_complete = true
           throwIfPauseRequested(job.job_id)
           assertJobDidNotDeclareIncomplete(job)
           completed = true
@@ -995,6 +1062,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
       if (hasUnsettledProviderWork(job)) {
         job.output_lines.push('Provider work remains unsettled. Story Studio will reconcile every accepted task before marking this job complete.')
+      } else if (hasCancellationContext(job)) {
+        await finalizeSettledProviderJob(job.job_id)
       } else if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
         // (a local stop may have already set status from another call context)
@@ -1055,10 +1124,21 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         }
       }
     } catch (e: any) {
+      job.local_execution_complete = true
+      if (hasCancellationContext(job) && !hasUnsettledProviderWork(job)) {
+        await finalizeSettledProviderJob(job.job_id)
+        if (job.status !== 'running') {
+          // Provider truth has chosen the terminal result; retain the local
+          // error as diagnostics only, never let it overwrite that truth.
+          job.output_lines.push(`Local executor ended during provider reconciliation: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
       // If the job was cancelled mid-flight the executor typically rejects
       // with an FFmpeg-exited error or a "Cancelled by user" from a cancel
       // probe — either way, the user's intent is "cancelled", not "error".
-      if (cancelled.has(job.job_id)) {
+      if (job.status !== 'running') {
+        // Provider reconciliation above already finalized this job.
+      } else if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
       } else if (hasUnsettledProviderWork(job)) {
         const isPause = e instanceof JobPausedError || pauseRequested.has(job.job_id)
@@ -1083,6 +1163,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     }
 
     job.finished_at = job.status === 'paused' || hasUnsettledProviderWork(job)
+      || (job.status === 'running' && hasCancellationContext(job))
       ? null
       : new Date().toISOString()
     jobs.set(job.job_id, job)

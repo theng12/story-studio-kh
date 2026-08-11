@@ -2239,6 +2239,8 @@ export interface Job {
   /** Distinguishes a user-paused job from one paused by the global queue hold.
    * Global Resume may restart only `queue` jobs; `manual` jobs stay paused. */
   pause_origin?: 'manual' | 'queue'
+  /** Executor reached a local boundary; remote cancellation settlement may now finalize this job. */
+  local_execution_complete?: boolean
   created_at: string
   started_at: string | null
   finished_at: string | null

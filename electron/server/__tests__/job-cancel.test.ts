@@ -329,6 +329,82 @@ describe('remote cancellation checkpoints', () => {
       updated_at: new Date().toISOString(),
     })
     assert.equal(jq.hasUnsettledProviderWork(jq.getJob(job.job_id)!), false)
+    const finalDeadline = Date.now() + 2_000
+    while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'done')
+  })
+
+  test('provider settlement chooses cancelled, error, or audited repair outcomes after local work returns', async () => {
+    const settle = async (episode: string, state: 'failed' | 'succeeded', cancelled = false) => {
+      let release!: () => void
+      const hold = new Promise<void>(resolve => { release = resolve })
+      jq.registerExecutor('audio', async () => await hold)
+      const project = await pm.createProject({ name: `ProviderFinal-${episode}` })
+      const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: episode, title: episode, params: {} })
+      const deadline = Date.now() + 2_000
+      while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
+      await jq.recordGenStudioJob(job.job_id, {
+        id: `${episode}-target`, operation: 'voice.tts', state: 'accepted', cancellable: true,
+        updated_at: new Date().toISOString(),
+      })
+      await jq.requestJobCancellation(project.slug, job.job_id)
+      release()
+      await new Promise(resolve => setTimeout(resolve, 40))
+      await jq.recordRemoteCancellation(job.job_id, 'voice.tts', `${episode}-target`, {
+        status: cancelled ? 'confirmed' : 'rejected', state, ...(cancelled ? { cancelled: true } : {}),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: `${episode}-target`, operation: 'voice.tts', state, ...(cancelled ? { cancelled: true } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      const finalDeadline = Date.now() + 2_000
+      while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 20))
+      return jq.getJob(job.job_id)!
+    }
+
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    assert.equal((await settle('ALL_CANCELLED', 'failed', true)).status, 'cancelled')
+    assert.equal((await settle('PROVIDER_FAILED', 'failed')).status, 'error')
+    registerJobCancellationAuditor('audio', async () => 'repair-required')
+    const repair = await settle('REPAIR_REQUIRED', 'succeeded')
+    assert.equal(repair.status, 'error')
+    assert.match(repair.error || '', /needs repair/i)
+    registerJobCancellationAuditor('audio', async () => { throw new Error('disk audit offline') })
+    const auditFailure = await settle('AUDIT_THREW', 'succeeded')
+    assert.equal(auditFailure.status, 'running')
+    assert.match(auditFailure.output_lines.join('\n'), /output audit could not run/i)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+  })
+
+  test('simultaneous final provider updates run the auditor and terminal transition once', async () => {
+    const project = await pm.createProject({ name: 'SingleProviderFinalization' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    let audits = 0
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => { audits++; return 'complete' })
+    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'FINAL_ONCE', title: 'final once', params: {} })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
+    for (const id of ['first', 'second']) {
+      await jq.recordGenStudioJob(job.job_id, { id, operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+    }
+    await jq.requestJobCancellation(project.slug, job.job_id)
+    release()
+    await new Promise(resolve => setTimeout(resolve, 40))
+    for (const id of ['first', 'second']) {
+      await jq.recordRemoteCancellation(job.job_id, 'voice.tts', id, { status: 'confirmed', state: 'succeeded' })
+    }
+    await Promise.all(['first', 'second'].map(id => jq.recordGenStudioJob(job.job_id, {
+      id, operation: 'voice.tts', state: 'succeeded', updated_at: new Date().toISOString(),
+    })))
+    const finalDeadline = Date.now() + 2_000
+    while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(jq.getJob(job.job_id)?.status, 'done')
+    assert.equal(audits, 1)
+    registerJobCancellationAuditor('audio', async () => 'complete')
   })
 
   test('coalesces cold persisted cancellation requests before the project load finishes', async () => {
