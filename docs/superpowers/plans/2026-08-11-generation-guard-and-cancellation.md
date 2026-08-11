@@ -615,7 +615,7 @@ Verify keyboard focus, readable adjacent reasons, no color-only state, no overfl
 
 The reviewer compares the full branch to the approved spec, with special attention to paid-work identity, classify→cancel races, restart locks, release language, and frontend/server authority. Any Critical/Important findings are fixed in one consolidated TDD wave and re-reviewed once.
 
-- [ ] **Step 7: Commit and push the release**
+- [x] **Step 7: Commit and push the release**
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md docs/superpowers/plans/2026-08-11-generation-guard-and-cancellation.md
