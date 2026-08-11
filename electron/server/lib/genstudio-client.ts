@@ -169,6 +169,7 @@ export interface GenStudioJob {
    */
   cancellable?: boolean | null
   cancelled?: boolean | null
+  cancellation_requested?: boolean | null
   cancellation_note?: string | null
 }
 
@@ -1700,15 +1701,18 @@ async function recordGenStudioEvidence(
     // stays absent so the UI can say "not settled yet" instead of inventing a
     // hold out of credit_cost.
     //
-    // Per the live contract, `released_credits` ships on ClientTTSJobResponse
-    // and TranscriptionJobResponse; image, chat, video and music jobs omit it.
-    // This forwards whatever actually arrived for the two that publish it and
-    // never fabricates one for the four that do not.
+    // This forwards every settlement field exactly when GenStudio published it;
+    // it never derives one from a price or another field.
     ...(Number.isFinite(job.reserved_credits) ? { reserved_credits: job.reserved_credits as number } : {}),
     ...(Number.isFinite(job.settled_credits) ? { settled_credits: job.settled_credits as number } : {}),
     ...(Number.isFinite(job.released_credits) ? { returned_credits: job.released_credits as number } : {}),
+    ...(Number.isFinite(job.released_credits) ? { released_credits: job.released_credits as number } : {}),
     price_version: job.price_version,
     failure_code: job.failure_code,
+    ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
+    ...(job.cancelled !== undefined ? { cancelled: job.cancelled } : {}),
+    ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
+    ...(job.cancellation_note !== undefined ? { cancellation_note: job.cancellation_note } : {}),
     routing_status_code: job.routing_status_code,
     location: job.location || undefined,
     queue_state: queueStateForJob(job),

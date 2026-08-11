@@ -569,6 +569,11 @@ export interface JobEnqueuedResponse {
     returned_credits?: number
     price_version?: string | null
     failure_code?: string | null
+    cancellable?: boolean | null
+    cancelled?: boolean | null
+    cancellation_requested?: boolean | null
+    cancellation_note?: string | null
+    released_credits?: number | null
     routing_status_code?: string | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'

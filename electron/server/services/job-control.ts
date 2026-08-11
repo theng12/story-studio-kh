@@ -20,6 +20,7 @@ const REMOTE_OPERATIONS = new Set<JobRemoteOperation>([
 
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled'])
 const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
+const PRE_DISPATCH_STATES = new Set(['accepted', 'reserved'])
 const VIDEO_POST_DISPATCH_STATES = new Set(['dispatched', 'running', 'validating', 'reconciling'])
 
 function control(
@@ -88,15 +89,15 @@ export function classifyJobControl(
   }
 
   const active = evidence.filter(entry => !isProviderTerminal(entry))
-  const unsupported = active.filter(entry => !isRemoteOperation(entry.operation))
-  if (unsupported.length) {
-    return control('return-later', false, 'Return later', `${unsupported.map(describes).join(', ')} does not publish a cancellation endpoint. Provider work may still settle.`, 'REMOTE_CANCELLATION_NOT_SUPPORTED', 'provider-work-may-settle')
-  }
-
   const targets: NonNullable<JobControl['targets']> = []
   const continuing: JobEvidence[] = []
+  const unsupported: JobEvidence[] = []
   const ambiguous: JobEvidence[] = []
   for (const entry of active) {
+    if (!isRemoteOperation(entry.operation)) {
+      unsupported.push(entry)
+      continue
+    }
     const target = targetFor(entry)
     if (!target) {
       ambiguous.push(entry)
@@ -106,11 +107,11 @@ export function classifyJobControl(
       targets.push(target)
       continue
     }
-    if (entry.cancellable === true) {
+    if (PRE_DISPATCH_STATES.has(entry.state) && entry.cancellable === true) {
       targets.push(target)
       continue
     }
-    if (entry.cancellable === false || entry.state === 'running' || entry.state === 'dispatched' || entry.state === 'validating') {
+    if (entry.cancellable === false || VIDEO_POST_DISPATCH_STATES.has(entry.state)) {
       continuing.push(entry)
       continue
     }
@@ -122,14 +123,19 @@ export function classifyJobControl(
   }
 
   if (targets.length && capabilities.remoteCancellationAudited) {
-    const continuingReason = continuing.length
-      ? ` ${continuing.map(describes).join(', ')} already started and will continue settling.`
+    const settling = [...continuing, ...unsupported]
+    const continuingReason = settling.length
+      ? ` ${settling.map(describes).join(', ')} already started and will continue settling.`
       : ''
     return control('request-remote-cancel', true, 'Request cancellation', `Story Studio will ask GenStudio to cancel ${targets.length === 1 ? 'the eligible provider task' : `${targets.length} eligible provider tasks`}; GenStudio determines whether credits are released.${continuingReason}`, 'READY', 'remote-result-required', targets)
   }
 
   if (targets.length) {
     return control('return-later', false, 'Return later', 'This job has no registered output auditor, so Story Studio cannot safely reconcile provider cancellation. Provider work may still settle.', 'REMOTE_CANCELLATION_NOT_SUPPORTED', 'provider-work-may-settle')
+  }
+
+  if (unsupported.length) {
+    return control('return-later', false, 'Return later', `${unsupported.map(describes).join(', ')} does not publish a cancellation endpoint. Provider work may still settle.`, 'REMOTE_CANCELLATION_NOT_SUPPORTED', 'provider-work-may-settle')
   }
 
   if (continuing.length) {
