@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.816 — 2026-08-11
+
+- **Web research evidence is now more transparent** — provider-reported source URLs stay with the run and appear as evidence without incorrectly claiming that a source-less result has no sources. Only safe HTTP(S) links are clickable.
+
+- **GenStudio capacity and job states now fail safely and read clearly** — temporary or malformed capacity data limits submissions to five per minute, while real job states use clear labels.
+
+- **TTS now follows each selected model's published submit concurrency** — missing or invalid values remain serial, while supported providers can process sections faster without inferring capability from the provider name.
+
 ## v1.0.815 — 2026-08-11
 
 - **Image Generator episode loading now scales cleanly** — each episode exposes exact planned scene-image counts from the existing status scan, so all-image completion no longer depends on Scene Review approval and the extension no longer needs an episode-by-episode recount.
@@ -48,25 +56,3 @@ What's new in each release. Newest first.
   built-in effect procedurally adds restrained archival grading, grain, dust, scratches, flicker, and
   gate weave. It persists through presets and Pipeline jobs while remaining independently selectable
   from color grading, vignette, and the existing film-grain control.
-
-## v1.0.811 — 2026-08-09
-
-- **The full production journey is easier to scan without hiding any destination** — the sidebar,
-  current-step ribbon, and Production Board now share Story, Media, and Video phase labels. Every
-  generator remains one click away, while long workflows and the wide status matrix no longer
-  require memorizing an unbroken sixteen-stage list.
-
-- **Dashboard priorities and progress now have distinct visual weight** — progress metrics form a
-  compact status strip, while the first verified “Focus now” recommendation receives the strongest
-  action treatment. The dashboard remains a progress overview and direct sidebar work stays intact.
-
-- **Episode lists now recover visibly from load failures** — generator selectors keep any cached
-  episodes available, explain when a refresh failed, and provide a direct Retry action instead of
-  leaving an empty or indefinitely ambiguous selector.
-
-## v1.0.810 — 2026-08-09
-
-- **Production Board status cells now say what they mean to assistive technology** — symbolic
-  checkmarks and circles reuse the existing episode, stage, state, and action descriptions as
-  accessible names. The row-level import shortcut also names the episode it will receive, while
-  the compact visual board remains unchanged.
