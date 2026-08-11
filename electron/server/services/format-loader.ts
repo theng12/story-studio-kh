@@ -38,8 +38,8 @@ const require = createRequire(import.meta.url)
  * Default base format used when a project has no `format_id` set, or when a
  * saved project names any format other than the Continuity Engine.
  */
-// New channels are continuity-first. Existing projects that explicitly saved
-// another format keep it; this only governs missing/default format values.
+// Stored project metadata is retained for migration safety, but every format
+// ID resolves to the Continuity Engine at the effective-format boundary.
 export const DEFAULT_FORMAT_ID = 'continuity-chain'
 
 export function canonicalFormatId(id?: string | null): string {

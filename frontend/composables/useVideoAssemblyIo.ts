@@ -332,9 +332,9 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value
 
-    // Compilation mode payload (v1.0.63+). Only emits the new fields
-    // when the user explicitly opted into compilation layout — the
-    // standard sleep-story path stays byte-identical.
+    // Compilation mode payload. Only emits these fields when the user
+    // explicitly opts into that layout; standard assembly payloads remain
+    // unchanged.
     const cl = s.compilationLayout
     if (cl?.layout?.value === 'compilation') {
       payload.video_layout = 'compilation'
@@ -360,7 +360,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         enabled: true,
         source: s.subtitles.source,
         srt_path: s.subtitles.srt_path,
-        // v1.0.423 — trim intro captions from the burn when on (sleep-story).
+        // Trim intro captions from the burn when the assembly setting enables it.
         hide_during_intro: !!s.subtitles.hide_during_intro,
         style: { ...s.subtitles.style },
       }

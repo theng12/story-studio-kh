@@ -114,20 +114,24 @@ Niche JSON (e.g. prayer.json)
 
 ## Generators (`electron/server/generators/`)
 
-| Generator | Pipeline | What it does |
+The workflow labels below are not `Format.visualSource` values: active
+narration-timed scenes use the three-value union above, while B-Roll and Image
+Pool remain independent operational workflows.
+
+| Generator | Workflow | What it does |
 |---|---|---|
-| `episode.ts` | both | Orchestrator. Invokes intro/script/metadata/image-prompts in sequence |
-| `image-prompts.ts` | scene-images | One prompt per scene from format scene-count config |
-| `images.ts` | scene-images | Fal/Stability calls; per-scene retries; sidecar manifest |
-| `audio.ts` | **both** | TTS via ElevenLabs/GenAIPro; chunked per-paragraph; sidecar |
-| `audio-merge.ts` | **both** | Concat chunks + intro + music bed + loudness normalize |
-| `metadata.ts` | **both** | Late-stage YouTube Finalizer: title, description, tags, measured chapter timestamps, selected real sources, and a warning-only subtitle audit |
-| `video.ts` | scene-images | ffmpeg concat of stills + audio + transitions |
-| `broll-assemble.ts` | broll | ffmpeg concat of pool clips + narration + music |
-| `broll-autotag.ts` | broll (prep) | Tags pool clips with mood/scene labels via vision model |
-| `broll-normalize.ts` | broll (prep) | Pre-renders pool clips to common codec/aspect for fast concat |
-| `subtitles.ts` | **both** | SRT generation from audio sentence-level timing |
-| `youtube-upload.ts` | **both** | YouTube Data API publish |
+| `episode.ts` | active scene + independent B-Roll/Image Pool | Orchestrator. Invokes intro/script/metadata/image-prompts in sequence |
+| `image-prompts.ts` | active narration-timed scenes | One prompt per scene from format scene-count config |
+| `images.ts` | active narration-timed scenes | Fal/Stability calls; per-scene retries; sidecar manifest |
+| `audio.ts` | active scene + independent B-Roll/Image Pool | TTS via ElevenLabs/GenAIPro; chunked per-paragraph; sidecar |
+| `audio-merge.ts` | active scene + independent B-Roll/Image Pool | Concat chunks + intro + music bed + loudness normalize |
+| `metadata.ts` | active scene + independent B-Roll/Image Pool | Late-stage YouTube Finalizer: title, description, tags, measured chapter timestamps, selected real sources, and a warning-only subtitle audit |
+| `video.ts` | active narration-timed scenes | ffmpeg concat of stills + audio + transitions |
+| `broll-assemble.ts` | independent B-Roll/Image Pool | ffmpeg concat of pool clips + narration + music |
+| `broll-autotag.ts` | independent B-Roll/Image Pool prep | Tags pool clips with mood/scene labels via vision model |
+| `broll-normalize.ts` | independent B-Roll/Image Pool prep | Pre-renders pool clips to common codec/aspect for fast concat |
+| `subtitles.ts` | active scene + independent B-Roll/Image Pool | SRT generation from audio sentence-level timing |
+| `youtube-upload.ts` | active scene + independent B-Roll/Image Pool | YouTube Data API publish |
 
 Generators are wired to the job queue via `electron/server/boot/executors.ts`. Each generator is per-chunk idempotent: re-running skips chunks already on disk (the foundation of the Repair flow).
 
@@ -165,14 +169,14 @@ PROJECTS_ROOT/
 │   │   ├── EP0001/
 │   │   │   ├── script.json
 │   │   │   ├── image_prompts.json
-│   │   │   ├── scenes/              (scene-images formats only)
+│   │   │   ├── scenes/              (active narration-timed scene workflows)
 │   │   │   │   ├── 01.png … 30.png
 │   │   │   │   └── manifest.json    (sidecar — task IDs for Repair)
 │   │   │   ├── audio/
 │   │   │   │   ├── chunks/          (per-paragraph TTS output)
 │   │   │   │   ├── manifest.json    (task IDs for audio-repair)
 │   │   │   │   └── merged.mp3
-│   │   │   ├── broll-selection.json (broll formats only)
+│   │   │   ├── broll-selection.json (independent B-Roll/Image Pool workflow)
 │   │   │   ├── thumbnails/          (generated thumbs)
 │   │   │   ├── final.mp4
 │   │   │   └── metadata.json

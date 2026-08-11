@@ -615,16 +615,16 @@ export interface EpisodeStatus {
   /** Research evidence exists. Claim triage remains separate editorial state. */
   research: boolean
   /** Raw artifact fact: the sidecar holds a real summary or a real claim.
-   *  Independent of the gate — used for "generated, claims still to review"
-   *  UI and to stop the Pipeline regenerating research it already has. */
+   *  Independent of project completion — used for "generated, claims still to
+   *  review" UI and to stop the Pipeline regenerating research it already has. */
   research_generated?: boolean
   /** Raw artifact fact: no claim is left pending (and there is at least one).
    *  v1.0.761 — derived from the per-claim triage, not from a separate
    *  attestation. */
   research_reviewed?: boolean
-  /** Raw artifact fact: at least one claim was KEPT, so the script has
-   *  evidence to work from. Reviewed-but-all-ignored is a real editorial
-   *  outcome; it reports reviewed = true, usable = false, complete = false. */
+  /** Raw editorial fact: at least one claim was KEPT, so the script has
+   *  evidence it may use. Reviewed-but-all-ignored is a real editorial
+   *  outcome: reviewed = true and usable = false, without blocking progress. */
   research_has_usable_claims?: boolean
   /** 'human' | 'pipeline-auto' — so the UI never implies a person read
    *  claims an unattended Pipeline run accepted on its own. */
@@ -936,11 +936,10 @@ export async function computeEpisodeStatus(
     // watches research.json itself — verification flips REWRITE the file in
     // place, which moves the file's mtime but not episode_dir's.
     //
-    // v1.0.760 — the boolean is no longer "a sidecar with text exists". It is
-    // the shared completion rule from lib/research-verification.ts, resolved
-    // against this project's gate. v1.0.761 — that rule now derives from the
-    // per-claim triage. Raw facts are surfaced alongside it so the UI can say
-    // "claims still to review" or "every claim ignored" instead of "pending".
+    // Research is evidence-only: its status is the shared evidence rule from
+    // lib/research-verification.ts, never a project-completion gate. Triage
+    // facts are surfaced alongside it so the UI can say "claims still to
+    // review" or "every claim ignored" instead of "pending".
     try {
       const researchPath = (await resolveResearchPaths(paths.episode_dir, code)).jsonPath
       const research = JSON.parse(await fs.readFile(researchPath, 'utf-8'))

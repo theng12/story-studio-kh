@@ -45,11 +45,8 @@
           />
         </li>
         <!-- Pagination controls. Only render when the scenes list exceeds
-             one page; tiny lists (typical sleep-story = 24, listicle = 10)
-             stay paginate-free so the UX is unchanged for them. v1.0.87+
-             for bound-explainer episodes that legitimately want 150-250
-             scenes per video — scrolling through that as one wall is
-             unusable. -->
+             one page; compact scene plans stay pagination-free, while long
+             narration-timed plans remain usable without one enormous list. -->
         <li v-if="totalScenesPages > 1" class="prp-pagination" role="navigation" aria-label="Scenes pagination">
           <button
             type="button"
