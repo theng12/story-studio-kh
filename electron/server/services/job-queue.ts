@@ -406,7 +406,10 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       let audit: 'complete' | 'repair-required'
       try { audit = await auditor(serializeJob(job)) }
       catch (error) {
-        job.output_lines.push(`Provider work settled, but output audit could not run: ${error instanceof Error ? error.message : String(error)}. Keeping this job running.`)
+        job.status = 'error'
+        job.error = 'Completion audit failed; repair missing output before Retry.'
+        job.output_lines.push(`${job.error} (${error instanceof Error ? error.message : String(error)})`)
+        job.finished_at = new Date().toISOString()
         await persistJob(job)
         emitUpdate(job)
         return
@@ -416,7 +419,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
         job.output_lines.push(job.error)
       } else {
-        job.status = 'done'
+        await completeSuccessfulJob(job)
         job.error = null
         job.output_lines.push('Provider work settled and required output was verified.')
       }
@@ -958,6 +961,41 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   }
 }
 
+/** One success path for ordinary completions and reconciled provider outputs. */
+async function completeSuccessfulJob(job: Job): Promise<void> {
+  if (job.status !== 'running') return
+  job.status = 'done'
+  const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
+  const trackType = typeMap[job.type]
+  if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
+
+  const chain = job.params?.pipeline_chain
+  if (!Array.isArray(chain) || chain.length === 0) return
+  const [nextStep, ...rest] = chain
+  if (!nextStep || typeof nextStep.type !== 'string') return
+  try {
+    const batchId = job.params.pipeline_batch_id
+    const nextParams = {
+      ...(nextStep.params || {}),
+      episode_id: job.episode_id,
+      pipeline_chain: rest,
+      ...(batchId ? { pipeline_batch_id: batchId } : {}),
+    }
+    const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
+      ? await joinActiveBulkSceneRender({ project_slug: job.project_slug, episode_id: job.episode_id, pipeline_chain: rest, pipeline_batch_id: batchId })
+      : null
+    if (joined?.conflict) throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
+    if (joined) job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
+    else {
+      enqueue({ project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams })
+      job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
+    }
+  } catch (error) {
+    const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
+    job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
+  }
+}
+
 /**
  * Full lifecycle for one job: mark running → run executor → persist final
  * status → chain the next pipeline step → release the slot. Fire-and-forget
@@ -1069,59 +1107,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         // (a local stop may have already set status from another call context)
         job.status = 'cancelled'
       } else if (job.status === 'running') {
-        job.status = 'done'
-        // Track generation for session stats
-        const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
-        const trackType = typeMap[job.type]
-        if (trackType) {
-          trackGeneration(job.project_slug, trackType).catch(() => {})
-        }
-
-        // Pipeline batch auto-chain: if this job was queued as part of a
-        // batch run (see routes/pipeline.ts), enqueue the next step for the
-        // same episode. Chain naturally stops on failure/cancellation because
-        // we only get here when status === 'running' → 'done' transitions.
-        const chain = job.params?.pipeline_chain
-        if (Array.isArray(chain) && chain.length > 0) {
-          const [nextStep, ...rest] = chain
-          if (nextStep && typeof nextStep.type === 'string') {
-            try {
-              const batchId = job.params.pipeline_batch_id
-              const nextParams = {
-                ...(nextStep.params || {}),
-                episode_id: job.episode_id,
-                pipeline_chain: rest,
-                ...(batchId ? { pipeline_batch_id: batchId } : {}),
-              }
-              const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
-                ? await joinActiveBulkSceneRender({
-                    project_slug: job.project_slug,
-                    episode_id: job.episode_id,
-                    pipeline_chain: rest,
-                    pipeline_batch_id: batchId,
-                  })
-                : null
-              if (joined?.conflict) {
-                throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
-              }
-              if (joined) {
-                job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
-              } else {
-                enqueue({
-                  project_slug: job.project_slug,
-                  type: nextStep.type as JobType,
-                  episode_id: job.episode_id,
-                  title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
-                  params: nextParams,
-                })
-                job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
-              }
-            } catch (e: any) {
-              const failed = await recordChainHandoffFailure(job, nextStep, rest, e)
-              job.output_lines.push(`Chain-next failed: ${e.message} (recorded as failed job ${failed.job_id})`)
-            }
-          }
-        }
+        await completeSuccessfulJob(job)
       }
     } catch (e: any) {
       job.local_execution_complete = true

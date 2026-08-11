@@ -373,8 +373,8 @@ describe('remote cancellation checkpoints', () => {
     assert.match(repair.error || '', /needs repair/i)
     registerJobCancellationAuditor('audio', async () => { throw new Error('disk audit offline') })
     const auditFailure = await settle('AUDIT_THREW', 'succeeded')
-    assert.equal(auditFailure.status, 'running')
-    assert.match(auditFailure.output_lines.join('\n'), /output audit could not run/i)
+    assert.equal(auditFailure.status, 'error')
+    assert.match(auditFailure.output_lines.join('\n'), /completion audit failed; repair missing output before retry/i)
     registerJobCancellationAuditor('audio', async () => 'complete')
   })
 
@@ -384,8 +384,12 @@ describe('remote cancellation checkpoints', () => {
     const hold = new Promise<void>(resolve => { release = resolve })
     let audits = 0
     jq.registerExecutor('audio', async () => await hold)
+    jq.registerExecutor('broll_assemble', async () => {})
     registerJobCancellationAuditor('audio', async () => { audits++; return 'complete' })
-    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'FINAL_ONCE', title: 'final once', params: {} })
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'FINAL_ONCE', title: 'final once',
+      params: { pipeline_chain: [{ type: 'broll_assemble', title: 'next local assembly', params: {} }] },
+    })
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
     for (const id of ['first', 'second']) {
@@ -404,6 +408,7 @@ describe('remote cancellation checkpoints', () => {
     while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jq.getJob(job.job_id)?.status, 'done')
     assert.equal(audits, 1)
+    assert.equal((await jq.getJobs(project.slug)).filter(candidate => candidate.type === 'broll_assemble').length, 1)
     registerJobCancellationAuditor('audio', async () => 'complete')
   })
 
