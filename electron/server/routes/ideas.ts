@@ -1230,11 +1230,6 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       video: videoDone,
       video_assembly: videoAssemblyDone,
     } = status
-    // v1.0.760 — the per-project Research gate, as resolved by asset-status for
-    // THIS episode. Read off the status rather than re-reading project.json per
-    // row: one authoritative resolution, no chance of the row and the board
-    // disagreeing.
-    const researchRequired = status.research_required === true
     // Publish every current and future EpisodeStatus field by default. This
     // prevents a newly-added workflow step from being computed correctly in
     // asset-status but silently disappearing when this route rebuilds status.
@@ -1339,17 +1334,8 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
           && mergedAudioDone && !videoAssemblyDone,
         publishable: thumbsDone && mergedAudioDone && videoAssemblyDone,
         metadata: metadataDone,
-        // v1.0.760 — research participates in all_done ONLY when this project
-        // requires it (project.json `research_required`, resolved explicitly in
-        // lib/research-verification.ts). Gate OFF → the term is inert and
-        // completion is byte-for-byte what it was before the gate shipped.
-        // Gate ON → `researchDone` is already the "evidence AND every claim
-        // triaged AND at least one kept" rule from asset-status, so research
-        // whose claims still need a decision blocks here exactly as it does in
-        // the Research pending filter.
         all_done: scriptDone && thumbPromptsDone && thumbsDone
           && audioDone && metadataDone && mergedAudioDone && subtitlesDone
-          && (!researchRequired || researchDone)
           && (!needsScenePlan || (scenePlanDone && sceneReviewDone))
           && (!needsBrollPick || brollPickedDone)
           && videoAssemblyDone,

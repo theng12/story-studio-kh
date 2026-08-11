@@ -25,10 +25,8 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
   autoCompleteResearchReview,
-  describeResearchGap,
   hasResearchEvidence,
   isResearchReviewed,
-  resolveResearchRequired,
 } from '../lib/research-verification.js'
 import {
   normalizeResearchMode,
@@ -301,30 +299,12 @@ async function preflightBatch(
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
   const effectiveFormat = await getEffectiveFormat(slug)
-  // v1.0.760 — per-project Research gate. When ON, an episode is not complete
-  // until every research claim has been triaged and at least one kept, so a
-  // run that never touches Research must say so up front rather than leaving
-  // the operator to discover an episode stuck at "incomplete" hours later.
-  const researchRequired = resolveResearchRequired(await pm.getProject(slug))
   for (const episodeId of episodeIds) {
     if (!ideaByCode.has(episodeId)) {
       issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
       continue
     }
     const status = await computeEpisodeStatus(slug, episodeId)
-    if (researchRequired && !steps.includes('research') && !status.research) {
-      const gap = describeResearchGap({
-        episodeId,
-        researchRequired,
-        hasEvidence: status.research_generated === true,
-        reviewed: status.research_reviewed === true,
-        hasUsableClaims: status.research_has_usable_claims === true,
-      })
-      // A WARNING, not an issue: the run is still allowed to proceed (the user
-      // may be repairing one late stage). Adding Research to this run resolves
-      // it automatically, because Pipeline runs complete the review as they go.
-      if (gap) warnings.push(`${gap} Add the Research stage to this run to resolve it automatically.`)
-    }
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
@@ -398,10 +378,8 @@ const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
  */
 export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format?: Format | null): boolean {
   switch (step) {
-    // `status.research` is the gated completion rule, not "a file exists".
-    // With the project's Research gate ON, unverified research is NOT done —
-    // but run-batch auto-verifies existing evidence before consulting this, so
-    // the only way to land here unverified is with no evidence to verify.
+    // Research is done once evidence exists. Pipeline still auto-triages an
+    // explicitly selected Research stage so its provenance stays honest.
     case 'research':          return status.research
     case 'broll':             return status.video_assembly
     case 'script-only':       return status.script

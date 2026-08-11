@@ -24,6 +24,14 @@ import type { JobType } from '../models/types.js'
 
 export const router = Router()
 
+const RETIRED_RESEARCH_POLICY = ['research', 'required'].join('_')
+
+function withoutRetiredResearchPolicy(project: ProjectMeta): ProjectMeta {
+  const current = { ...project } as Record<string, unknown>
+  delete current[RETIRED_RESEARCH_POLICY]
+  return current as unknown as ProjectMeta
+}
+
 router.get('/projects', async (_req, res) => {
   res.json(await pm.listProjects())
 })
@@ -315,23 +323,13 @@ router.post('/projects/import', async (req, res) => {
 router.get('/projects/:slug', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
-  res.json(project)
+  res.json(withoutRetiredResearchPolicy(project))
 })
 
 router.put('/projects/:slug', validateBody(UpdateProjectSchema), async (req, res) => {
   const project = await pm.updateProject(req.params.slug, req.body)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
-  // v1.0.760 — the Research gate lives in project.json, which the episode-status
-  // cache does NOT watch (it watches episode folders). Toggling it changes what
-  // `research` / `all_done` mean for every episode, so drop the project's cached
-  // statuses explicitly instead of waiting for an unrelated mtime to move.
-  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'research_required')) {
-    try {
-      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-      episodeStatusCache.invalidateProject(req.params.slug)
-    } catch { /* best-effort — a stale entry self-heals on the next real change */ }
-  }
-  res.json(project)
+  res.json(withoutRetiredResearchPolicy(project))
 })
 
 router.delete('/projects/:slug', async (req, res) => {

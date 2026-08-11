@@ -59,14 +59,8 @@
         <span class="research-flow-line" aria-hidden="true"></span>
         <span class="research-flow-step" :class="{ active: !!result && !reviewComplete, complete: reviewComplete }"><b>3</b> Review</span>
         <p class="workspace-command-copy">
-          <template v-if="researchRequired">
-            This project requires research: generating it is not enough — an episode counts as complete once every
-            claim has a <b>Verified</b> or <b>Ignore</b> decision and at least one is kept. Pipeline runs decide the
-            leftovers automatically and record that a machine did it.
-          </template>
-          <template v-else>
-            Research is optional for this project. When used, only claims you verify are passed to Script Generator.
-          </template>
+          Research is optional and never blocks generation or completion. When used, only claims you verify are
+          passed to Script Generator; Pipeline runs record automatic triage honestly.
         </p>
       </div>
     </div>
@@ -320,19 +314,11 @@
             </p>
             <p v-else-if="reviewState === 'pending'">
               Mark each claim <b>Verified</b> to keep it or <b>Ignore</b> to drop it, then <b>Save review</b>.
-              <template v-if="researchRequired">
-                <b>{{ episodeId }}</b> counts as complete once no claim is left pending and at least one is kept.
-              </template>
-              <template v-else>
-                This project treats research as optional, so nothing is blocked either way.
-              </template>
+              This improves the evidence set without blocking any other workflow.
             </p>
             <p v-else-if="reviewState === 'none-usable'">
               You read every claim and kept none, so this research hands the Script Generator nothing.
               Keep at least one claim, or re-run research for better ones.
-              <template v-if="researchRequired">
-                <b>{{ episodeId }}</b> stays incomplete until something is kept.
-              </template>
             </p>
             <p v-else-if="reviewState === 'auto'">
               An unattended one-click Pipeline run accepted the remaining claims so the batch could finish.
@@ -530,12 +516,7 @@
         <span class="research-empty-mark">R</span>
         <div>
           <strong>{{ episodeId ? 'This episode has no research yet' : 'Choose an episode to begin' }}</strong>
-          <p v-if="episodeId && researchRequired">
-            This project requires research. Confirm the topic and GenStudio model above, run research, then decide
-            each claim — {{ episodeId }} will not count as complete until every claim is decided and at least one
-            is kept.
-          </p>
-          <p v-else-if="episodeId">
+          <p v-if="episodeId">
             Confirm the topic and GenStudio model above, then run research when this story benefits from a
             reviewed evidence set.
           </p>
@@ -948,9 +929,6 @@ const reviewState = computed<'empty' | 'pending' | 'none-usable' | 'auto' | 'rev
   if (!acceptedCount.value) return 'none-usable'
   return completedByPipeline.value ? 'auto' : 'reviewed'
 })
-// Echoed by the backend on every episode status row — the SAME resolution the
-// completion rule used, so this page and the Production Board never disagree.
-const researchRequired = computed(() => (selectedEpisode.value?.status as any)?.research_required === true)
 const reviewedAtLabel = computed(() => {
   const at = reviewRecord.value?.completed_at
   if (!at) return ''
@@ -960,7 +938,7 @@ const reviewedAtLabel = computed(() => {
 
 const researchReadinessLabel = computed(() => {
   if (researching.value || researchJobActive.value) return 'Running'
-  if (!result.value) return researchRequired.value ? 'Required' : 'Optional'
+  if (!result.value) return 'Optional'
   if (dirty.value) return 'Unsaved'
   if (!claimCount.value) return 'No claims'
   if (unreviewedCount.value) return `${unreviewedCount.value} to review`
@@ -969,7 +947,7 @@ const researchReadinessLabel = computed(() => {
 })
 const researchReadinessTone = computed(() => {
   if (researching.value || researchJobActive.value) return 'info'
-  if (!result.value) return researchRequired.value ? 'warning' : 'info'
+  if (!result.value) return 'info'
   if (dirty.value || !reviewComplete.value) return 'warning'
   if (completedByPipeline.value) return 'warning'
   return 'success'

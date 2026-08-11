@@ -84,11 +84,6 @@ export const UpdateProjectSchema = z.object({
   // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
   // use neutral prompts. Empty/absent = 'format' (current behavior).
   content_mode: z.enum(['format', 'freeform']).optional(),
-  // v1.0.760 — per-project Research gate. When true, an episode is not
-  // complete until its research sidecar exists AND has been verified.
-  // Absent on the wire = leave the stored value alone (updateProject drops
-  // undefined keys); absent in project.json = legacy project, resolved OFF.
-  research_required: z.boolean().optional(),
   // Level B (opt-in) external media root — a portable ${NAME} token or absolute
   // path. Empty string clears it (back to everything under output_root).
   media_root: z.string().max(512).optional(),

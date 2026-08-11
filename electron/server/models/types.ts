@@ -118,20 +118,6 @@ export interface ProjectMeta {
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
 
   /**
-   * v1.0.760 — per-project Research gate.
-   *
-   * `true`  — research must exist AND be verified before the episode counts
-   *           as complete (Production Board, pending filters, Pipeline).
-   * `false` — research is optional enrichment, exactly as it behaved before.
-   * absent  — legacy project created before the gate shipped → resolved OFF.
-   *
-   * ALWAYS resolve this through `resolveResearchRequired()` in
-   * lib/research-verification.ts. New projects are stamped `true` at creation,
-   * which is what makes "absent means legacy" a safe migration rule.
-   */
-  research_required?: boolean
-
-  /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
    * answers "what shape of video" (bound-explainer, sleep-story, listicle);
    * Niche answers "what subject domain" (plants, animals, fungi, insects).
@@ -1528,8 +1514,6 @@ export interface UpdateProjectRequest {
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
   format_overrides?: DeepPartial<Format>
   content_mode?: 'format' | 'freeform'
-  /** v1.0.760 — per-project Research gate (Settings → Channel). */
-  research_required?: boolean
 }
 
 /**
@@ -3574,10 +3558,8 @@ export type ResearchReviewedBy = 'human' | 'pipeline-auto'
  * (`{code} - 11 Research/research.json`) so it travels with the artifact it
  * describes.
  *
- * This records who completed the triage; whether the research counts as
- * complete is derived from the per-claim `status` values (see
- * lib/research-verification.ts → isResearchComplete). Generating or
- * regenerating research clears this — new claims have never been read.
+ * This records who completed the triage. Generating or regenerating research
+ * clears it — new claims have never been read.
  */
 export interface ResearchReviewRecord {
   /** Human vs. automatic. See ResearchReviewedBy. */

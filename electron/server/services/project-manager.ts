@@ -713,13 +713,6 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     // change it after creation.
     format_id: 'continuity-chain',
     continuity_mode: req.continuity_mode || 'independent-stills',
-    // v1.0.760 — Research gate defaults ON for NEW channels: evidence-led
-    // topics (science, history) need claims that someone actually checked.
-    // This is written EXPLICITLY at creation so that a project.json WITHOUT
-    // the key can only mean "created before the gate shipped" — which
-    // resolveResearchRequired() then resolves to OFF, leaving every already
-    // finished episode complete. See lib/research-verification.ts.
-    research_required: true,
     // Niche is optional (subject-domain layer, orthogonal to format).
     // Unset = no niche, generators behave exactly like format defaults.
     // We trust the wizard to pass a valid id; the niche-loader logs and

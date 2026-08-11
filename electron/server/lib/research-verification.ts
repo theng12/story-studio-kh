@@ -1,17 +1,13 @@
 /**
- * Research gate + claim-review contract (v1.0.760, reworked in v1.0.761).
+ * Research evidence + claim-review contract.
  *
  * THIS MODULE IS THE SINGLE SOURCE OF TRUTH for two questions:
  *
- *   1. "Does this project require research?"      → resolveResearchRequired()
- *   2. "Does this episode's research count as     → isResearchComplete()
- *       complete right now?"
+ *   1. "Does this episode have real research evidence?" → isResearchComplete()
+ *   2. "What has been decided about its claims?"        → readResearchTriage()
  *
- * Everything that has an opinion about research completion — the generator,
- * the Job Queue, the Pipeline, the Production Board, the Research pending
- * filter, and the downstream gates — must call these helpers rather than
- * re-deriving the rule. That is the Verified Completion Contract requirement
- * that one authoritative rule is shared by every reader.
+ * Research is optional enrichment. Its evidence and triage are still surfaced
+ * honestly, but neither may block generation or episode completion.
  *
  * ── Why research has a review state ──────────────────────────────────────
  * Research used to be a pure enrichment step: generating it made it "done".
@@ -33,13 +29,11 @@
  *
  *   reviewed        = there is at least one claim AND none are 'unreviewed'
  *   usable          = at least one claim was kept ('verified')
- *   complete (gate ON) = evidence exists AND reviewed AND usable
+ *   complete        = real evidence exists
  *
  * The all-ignored case is a legitimate editorial outcome ("I read these and
- * none of them are good enough"), so it counts as REVIEWED — but it leaves
- * the script with no evidence at all, which is exactly what the gate exists
- * to prevent. It therefore does NOT satisfy completion, and every surface
- * says so in those words rather than reporting a generic "pending".
+ * none of them are good enough"), so it counts as REVIEWED while leaving the
+ * Script Generator no kept claims. It does not block any workflow.
  *
  * ── Where the state lives ────────────────────────────────────────────────
  * In the claims themselves (`{code} - 11 Research/research.json`, see
@@ -51,7 +45,6 @@
  */
 
 import type {
-  ProjectMeta,
   ResearchClaim,
   ResearchOutput,
   ResearchReviewRecord,
@@ -65,27 +58,6 @@ export const PIPELINE_AUTO_REVIEW_NOTE =
 /** Note stamped when a person triaged every claim on the Research page. */
 export const HUMAN_REVIEW_NOTE =
   'Every claim was triaged by hand on the Research page — kept or ignored.'
-
-/**
- * Resolve the per-project research gate.
- *
- * EXPLICIT default resolution — do not inline this as `!!meta.research_required`:
- *
- *   • `true`      → gate ON  (research must be reviewed to count as complete)
- *   • `false`     → gate OFF (research is optional, exactly as before)
- *   • absent/other → gate OFF, because the project predates the field.
- *     New projects are stamped `true` at creation time, so "absent" can only
- *     mean "created before the gate existed" and those episodes must not
- *     retroactively flip to incomplete.
- */
-export function resolveResearchRequired(project: Pick<ProjectMeta, 'research_required'> | null | undefined): boolean {
-  if (!project) return false
-  const value = (project as { research_required?: unknown }).research_required
-  if (value === true) return true
-  if (value === false) return false
-  // Field absent → legacy project created before the gate shipped. OFF.
-  return false
-}
 
 /**
  * Does this sidecar contain usable research at all?
@@ -152,8 +124,7 @@ export function isResearchReviewed(research: unknown): boolean {
   return readResearchTriage(research).reviewed
 }
 
-/** Normalized review provenance, or null when nobody has finished a triage.
- *  This is a RECORD, never an input to isResearchComplete(). */
+/** Normalized review provenance, or null when nobody has finished a triage. */
 export function readResearchReview(research: unknown): ResearchReviewRecord | null {
   const raw = (research as { review?: unknown } | null | undefined)?.review
   if (!raw || typeof raw !== 'object') return null
@@ -169,21 +140,11 @@ export function readResearchReview(research: unknown): ResearchReviewRecord | nu
 }
 
 /**
- * THE completion rule. `researchRequired` is the resolved project gate.
- *
- *   gate OFF → complete when evidence exists (identical to pre-gate behaviour)
- *   gate ON  → complete only when evidence exists AND every claim has been
- *              triaged AND at least one claim was kept.
- *
- * The last condition is why "I ignored all of them" is surfaced as reviewed
- * but incomplete: the gate exists to guarantee the script has evidence, and
- * an all-ignored sidecar hands the script nothing.
+ * Research-stage completion is evidence-only. Claim triage controls which
+ * claims reach Script Generator, not whether any other workflow may proceed.
  */
-export function isResearchComplete(research: unknown, researchRequired: boolean): boolean {
-  const hasEvidence = hasResearchEvidence(research)
-  if (!researchRequired) return hasEvidence
-  const triage = readResearchTriage(research)
-  return hasEvidence && triage.reviewed && triage.hasUsableClaims
+export function isResearchComplete(research: unknown): boolean {
+  return hasResearchEvidence(research)
 }
 
 /**
@@ -236,40 +197,4 @@ export function autoCompleteResearchReview<T extends ResearchOutput>(research: T
     )),
   }
   return withResearchReviewRecord(promoted, 'pipeline-auto')
-}
-
-/**
- * Actionable "what is missing and how do I fix it" sentence, or null when
- * research is fine. Used by the Pipeline preflight and downstream gates so
- * every surface reports the SAME reason in the SAME words.
- *
- * Wording rule: this text is MODE-NEUTRAL and must stay that way. It is shown
- * for research produced either by the model's own knowledge (no live sources)
- * or by a web search (sources recorded for the run, never per claim), so it
- * may only talk about the triage decision — never about where the claims came
- * from or what backs them. Mode-specific provenance lives in
- * services/research/provenance.ts.
- */
-export function describeResearchGap(input: {
-  episodeId: string
-  researchRequired: boolean
-  hasEvidence: boolean
-  reviewed: boolean
-  hasUsableClaims: boolean
-}): string | null {
-  if (!input.researchRequired) return null
-  if (!input.hasEvidence) {
-    return `${input.episodeId}: research is required for this project but no research evidence exists. `
-      + 'Open Research, run it for this episode, then mark every claim Verified or Ignore.'
-  }
-  if (!input.reviewed) {
-    return `${input.episodeId}: research exists but some claims are still waiting for a decision. `
-      + 'Open Research (the pending filter lists it) and mark every claim Verified or Ignore — '
-      + 'Verify all decides the whole list in one click. Pipeline runs complete the review automatically.'
-  }
-  if (!input.hasUsableClaims) {
-    return `${input.episodeId}: every research claim was ignored, so the script would have no evidence to use. `
-      + 'Open Research and keep at least one claim, or re-run research to get better ones.'
-  }
-  return null
 }

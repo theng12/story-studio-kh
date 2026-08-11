@@ -53,18 +53,10 @@ describe('Research workspace flow', () => {
     assert.match(research, /Sources in the video description/)
   })
 
-  // v1.0.760 — this replaces the former "continues to describe Research as
-  // optional" test. Research is now gated per project (`research_required`),
-  // so the page must describe BOTH states rather than hardcoding "optional".
-  // See AGENTS.md → "Gated Research and Retired Co-writer".
-  test('describes Research per the project gate rather than always-optional', () => {
-    // Gate on: generating is explicitly not enough.
-    assert.match(research, /v-if="researchRequired"/)
-    assert.match(research, /generating it is not enough/)
-    // Gate off: the previous, unchanged wording still has to be reachable.
-    assert.match(research, /Research is optional for this project/)
-    // The old unconditional claim must not come back.
-    assert.doesNotMatch(research, /Research stays optional and never blocks the production pipeline/)
+  test('keeps Research optional while preserving review guidance', () => {
+    assert.match(research, /Research is optional and never blocks generation or completion/)
+    assert.match(research, /only claims you verify are\s+passed to Script Generator/)
+    assert.doesNotMatch(research, /researchRequired/)
   })
 
   // v1.0.761 — this replaces the former "exposes a deliberate, reversible

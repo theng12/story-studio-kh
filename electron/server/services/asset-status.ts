@@ -33,7 +33,6 @@ import {
   isResearchComplete,
   readResearchReview,
   readResearchTriage,
-  resolveResearchRequired,
 } from '../lib/research-verification.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -52,8 +51,8 @@ import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
-import { readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
-import { readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
+import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
+import { normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -613,17 +612,7 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
 export interface EpisodeStatus {
   /** Internal scene-image scan detail. Routes may project this separately. */
   _scene_images?: { total: number, present: number, complete: boolean }
-  // Research COMPLETION, resolved against the project's `research_required`
-  // gate (see lib/research-verification.ts — one rule, every reader).
-  //
-  //   gate OFF → true when the sidecar holds usable evidence (legacy
-  //              behaviour: optional enrichment, never folded into all_done)
-  //   gate ON  → true only when every claim has been triaged AND at least one
-  //              was kept, and folded into all_done by routes/ideas.ts
-  //
-  // This is the field the Research page's "Pending only" filter keys off, so
-  // with the gate on, research whose claims still need a Verified / Ignore
-  // decision correctly stays in the pending list.
+  /** Research evidence exists. Claim triage remains separate editorial state. */
   research: boolean
   /** Raw artifact fact: the sidecar holds a real summary or a real claim.
    *  Independent of the gate — used for "generated, claims still to review"
@@ -640,9 +629,6 @@ export interface EpisodeStatus {
   /** 'human' | 'pipeline-auto' — so the UI never implies a person read
    *  claims an unattended Pipeline run accepted on its own. */
   research_reviewed_by?: 'human' | 'pipeline-auto'
-  /** The resolved per-project gate, echoed so the frontend and the error
-   *  messages agree with the backend without a second round trip. */
-  research_required?: boolean
   // Timestamp/continuity Scene Plan is complete when scene_plan.json has at
   // least one timeline row and every row has a non-empty visual prompt. A
   // timeline-only or partially prompted plan remains pending and resumable.
@@ -723,7 +709,6 @@ function emptyStatus(): EpisodeStatus {
   return {
     research: false,
     research_generated: false, research_reviewed: false, research_has_usable_claims: false,
-    research_required: false,
     scene_plan: false, contextual_cues: false, sound_design: false, scene_review: false, motion_review: false,
     character_sheet: false,
     script: false, introduction: false,
@@ -862,20 +847,17 @@ export async function computeEpisodeStatus(
   code: string,
   ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
 ): Promise<EpisodeStatus> {
-  const { getProjectOutputRoot, getProject } = await import('./project-manager.js')
+  const { getProjectOutputRoot } = await import('./project-manager.js')
   const outputRoot = await getProjectOutputRoot(slug)
   if (!outputRoot) return emptyStatus()
 
-  // v1.0.760 — resolve the per-project Research gate once. A corrupt/absent
-  // project.json falls back to OFF, i.e. the pre-gate behaviour, so a bad read
-  // can never mark finished episodes incomplete.
-  let researchRequired = false
-  try {
-    researchRequired = resolveResearchRequired(await getProject(slug))
-  } catch { researchRequired = false }
+  const projectConfig = await pm.getConfig(slug)
+  const cueConfig = normalizeContextualCueConfig(projectConfig?.contextual_cues)
+  const soundConfig = normalizeSoundDesignConfig(projectConfig?.sound_design)
 
   const status = emptyStatus()
-  status.research_required = researchRequired
+  status.contextual_cues = !cueConfig.enabled
+  status.sound_design = !soundConfig.enabled
   let authoritativePaths: EpisodePaths | undefined
 
   // Hoist ideas.json load to ONCE per call. Previously this function
@@ -972,7 +954,7 @@ export async function computeEpisodeStatus(
       // that every field of an empty status is a real boolean.
       if (review) status.research_reviewed_by = review.completed_by
       else delete status.research_reviewed_by
-      status.research = isResearchComplete(research, researchRequired)
+      status.research = isResearchComplete(research)
     } catch {
       status.research = false
       status.research_generated = false
@@ -1016,11 +998,11 @@ export async function computeEpisodeStatus(
           && subtitleIntegrity.complete
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
         const contextualCueTimeline = await readContextualCueTimeline(planPath)
-        status.contextual_cues = !!contextualCueTimeline
-          && validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0
+        status.contextual_cues = !cueConfig.enabled || (!!contextualCueTimeline
+          && validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0)
         const soundDesignTimeline = await readSoundDesignTimeline(planPath)
-        status.sound_design = !!soundDesignTimeline
-          && validateSoundDesignTimeline(soundDesignTimeline, plan, soundDesignTimeline.settings, { requireResolved: true }).length === 0
+        status.sound_design = !soundConfig.enabled || (!!soundDesignTimeline
+          && validateSoundDesignTimeline(soundDesignTimeline, plan, soundDesignTimeline.settings, { requireResolved: true }).length === 0)
         // Scene Review done = the plan is complete, every scene has a generated
         // image ON DISK, AND every scene is explicitly approved. Rendering is
         // not approval: even one unapproved scene must remain in Pending.
@@ -1244,7 +1226,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     if (idea?.marked_done === true) {
-      return allDoneStatus(researchRequired, status._scene_images)
+      return allDoneStatus(status._scene_images)
     }
     if (idea?.status_overrides) {
       // Overrides only carry the boolean asset-presence flags — the
@@ -1268,20 +1250,14 @@ export async function computeEpisodeStatus(
 /**
  * Phase 1 helper — returns an EpisodeStatus with every field set to true.
  *
- * `researchRequired` is passed through rather than hardcoded: it describes the
- * PROJECT's gate, not the episode's state, and the UI reads it to decide
- * whether to render research as a required step at all. Marking an episode
- * done by hand is itself the human decision, so the review flags read true
- * with no `research_reviewed_by` — no automatic run completed anything.
+ * Marking an episode done by hand is itself the human decision, so the review
+ * flags read true with no `research_reviewed_by` — no automatic run completed
+ * anything.
  */
-function allDoneStatus(
-  researchRequired: boolean,
-  sceneImages?: EpisodeStatus['_scene_images'],
-): EpisodeStatus {
+function allDoneStatus(sceneImages?: EpisodeStatus['_scene_images']): EpisodeStatus {
   const status: EpisodeStatus = {
     research: true,
     research_generated: true, research_reviewed: true, research_has_usable_claims: true,
-    research_required: researchRequired,
     scene_plan: true, contextual_cues: true, sound_design: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,

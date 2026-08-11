@@ -347,12 +347,8 @@ function onImported() {
 // Character Sheet — no per-episode signal) are intentionally omitted so every
 // cell is a real, meaningful status.
 //
-// Research is CONDITIONAL (v1.0.760). When the project's `research_required`
-// gate is off it earns no column — it's optional enrichment and would read as
-// forever-pending noise. When the gate is on, research is a real shipping
-// requirement (claims reviewed, not merely generated) and gets a column like any other
-// step. See `researchColumnActive` below and lib/research-verification.ts.
 const STEP_FIELD: Record<string, string> = {
+  research: 'research',
   script: 'script',
   metadata: 'metadata',
   'thumb-prompts': 'thumb_prompts',
@@ -380,19 +376,10 @@ async function loadVisualSource() {
 }
 watch(slug, loadVisualSource, { immediate: true })
 
-// The backend echoes the resolved per-project Research gate onto every episode
-// status row, so the board reads the SAME resolution the completion rule used
-// rather than re-deriving it from project.json.
-const researchColumnActive = computed(() =>
-  episodes.value.some(ep => ep.status?.research_required === true))
-
 const columns = computed<BoardCol[]>(() =>
   flowForVisualSource(visualSource.value)
-    .filter(s => s.key === 'research' ? researchColumnActive.value : !!STEP_FIELD[s.key])
-    .map(s => s.key === 'research'
-      // Required by the project gate, so it is NOT an optional column here.
-      ? ({ ...s, optional: false, field: 'research' })
-      : ({ ...s, field: STEP_FIELD[s.key] })))
+    .filter(s => !!STEP_FIELD[s.key])
+    .map(s => ({ ...s, field: STEP_FIELD[s.key] })))
 const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
   ...phase,
   count: columns.value.filter(column => column.phase === phase.key).length,
