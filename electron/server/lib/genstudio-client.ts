@@ -43,7 +43,7 @@ import {
   type GenStudioRequestPreview,
   type GenStudioRequestPreviewInput,
 } from './genstudio-request-preview.js'
-import type { ResearchEvidenceLevel } from '../models/types.js'
+import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -171,6 +171,17 @@ export interface GenStudioJob {
   cancelled?: boolean | null
   cancellation_requested?: boolean | null
   cancellation_note?: string | null
+}
+
+/** The cancellation fields GenStudio 0.93.1 actually publishes. */
+export type GenStudioCancellationFields = {
+  state: string
+  cancellable?: boolean
+  cancelled?: boolean
+  cancellation_requested?: boolean
+  cancellation_note?: string | null
+  failure_code?: string | null
+  released_credits?: number
 }
 
 /** The only two GenStudio job states that can never change again. */
@@ -1629,18 +1640,83 @@ async function reportQueueState(
   await request.onQueueState?.(queueStateForJob(job), job.id)
 }
 
-async function cancelGenStudioJob(
+const GENSTUDIO_CANCELLATION_PATHS: Record<JobRemoteOperation, (jobId: string) => string> = {
+  'voice.tts': jobId => `/v1/jobs/${encodeURIComponent(jobId)}/cancel`,
+  'image.generation': jobId => `/v1/images/${encodeURIComponent(jobId)}/cancel`,
+  'audio.transcription': jobId => `/v1/transcriptions/${encodeURIComponent(jobId)}/cancel`,
+  'video.generation': jobId => `/v1/videos/${encodeURIComponent(jobId)}/cancel`,
+}
+
+/**
+ * Ask GenStudio to cancel one accepted task and return its response untouched.
+ * This intentionally has no catch or fallback: a timeout is unknown, not a
+ * reason to resend a control POST and accidentally contradict provider truth.
+ */
+export async function requestGenStudioCancellation(
+  operation: JobRemoteOperation,
   baseUrl: string,
   apiKey: string,
-  cancelPath: string,
+  providerJobId: string,
+  request: GenStudioOperationContext = {},
+  deadline: number,
+): Promise<GenStudioJob & GenStudioCancellationFields> {
+  return requestJsonWithRetry(
+    `${apiBase(baseUrl)}${GENSTUDIO_CANCELLATION_PATHS[operation](providerJobId)}`,
+    { method: 'POST', headers: authorization(apiKey) },
+    request,
+    deadline,
+    undefined,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [409],
+    true,
+  ) as Promise<GenStudioJob & GenStudioCancellationFields>
+}
+
+function cancellationRecordStatus(result: GenStudioCancellationFields): 'confirmed' | 'requested' | 'reconciling' {
+  if (result.cancelled === true) return 'confirmed'
+  if (result.cancellation_requested === true) return 'requested'
+  return 'reconciling'
+}
+
+/**
+ * The poller already owns the API key and durable provider id. It is therefore
+ * the only place that can send a queued cancellation request.  A route merely
+ * records intent; it never races this worker with another provider POST.
+ */
+async function submitQueuedRemoteCancellation(
+  operation: JobRemoteOperation,
+  baseUrl: string,
+  apiKey: string,
+  providerJobId: string,
   deadline: number,
 ): Promise<void> {
-  await requestJsonWithRetry(
-    `${apiBase(baseUrl)}${cancelPath}`,
-    { method: 'POST', headers: authorization(apiKey) },
-    {},
-    deadline,
-  ).catch(() => undefined)
+  const queue = await import('../services/job-queue.js')
+  const storyJobId = queue.currentJobId()
+  if (!storyJobId || !queue.claimRemoteCancellation(storyJobId, operation, providerJobId)) return
+
+  try {
+    const result = await requestGenStudioCancellation(operation, baseUrl, apiKey, providerJobId, {}, deadline)
+    await queue.recordRemoteCancellation(storyJobId, operation, providerJobId, {
+      status: cancellationRecordStatus(result),
+      ...(Number.isFinite((result as any).http_status) ? { http_status: (result as any).http_status as number } : {}),
+      state: result.state,
+      ...(result.cancellable !== undefined ? { cancellable: result.cancellable } : {}),
+      ...(result.cancelled !== undefined ? { cancelled: result.cancelled } : {}),
+      ...(result.cancellation_requested !== undefined ? { cancellation_requested: result.cancellation_requested } : {}),
+      ...(result.cancellation_note !== undefined ? { cancellation_note: result.cancellation_note } : {}),
+      ...(result.failure_code !== undefined ? { failure_code: result.failure_code } : {}),
+      ...(Number.isFinite(result.released_credits) ? { released_credits: result.released_credits } : {}),
+    })
+  } catch (error) {
+    const status = error instanceof GenStudioApiError ? error.status : undefined
+    // A pre-execution 409 is authoritative only about this cancellation
+    // attempt, never about the task's final settlement. Keep polling it.
+    await queue.recordRemoteCancellation(storyJobId, operation, providerJobId, {
+      status: status === 409 ? 'rejected' : 'unknown',
+      ...(status !== undefined ? { http_status: status } : {}),
+      ...(error instanceof GenStudioApiError && error.code ? { failure_code: error.code } : {}),
+    })
+  }
 }
 
 /**
@@ -3414,14 +3490,8 @@ async function waitForVideoJob(
   await reportState()
   const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
+    await submitQueuedRemoteCancellation('video.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
-      await cancelGenStudioJob(
-        baseUrl,
-        apiKey,
-        `/v1/videos/${encodeURIComponent(current.id)}/cancel`,
-        deadline,
-      )
-      await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
@@ -5025,14 +5095,8 @@ async function waitForImageJob(
   request.onState?.(current.state)
   const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
+    await submitQueuedRemoteCancellation('image.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
-      await cancelGenStudioJob(
-        baseUrl,
-        apiKey,
-        `/v1/images/${encodeURIComponent(current.id)}/cancel`,
-        deadline,
-      )
-      await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) throw new Error('GenStudio KH image job timed out while waiting for completion')
@@ -5305,14 +5369,8 @@ async function waitForTranscriptionJob(
   await reportState()
   const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
+    await submitQueuedRemoteCancellation('audio.transcription', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
-      await cancelGenStudioJob(
-        baseUrl,
-        apiKey,
-        `/v1/transcriptions/${encodeURIComponent(current.id)}/cancel`,
-        deadline,
-      )
-      await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {
@@ -5552,14 +5610,8 @@ async function waitForJob(
   await reportState()
   const poller = createGenStudioJobPoller()
   while (!isSettledGenStudioJob(current)) {
+    await submitQueuedRemoteCancellation('voice.tts', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
-      await cancelGenStudioJob(
-        baseUrl,
-        apiKey,
-        `/v1/jobs/${encodeURIComponent(current.id)}/cancel`,
-        deadline,
-      )
-      await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {

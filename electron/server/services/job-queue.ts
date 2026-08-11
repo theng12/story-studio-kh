@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto'
 import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
-import type { Job, JobStats, JobType } from '../models/types.js'
+import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
@@ -97,6 +97,60 @@ export async function recordGenStudioJob(
     entries[index] = { ...previous, ...snapshot, ...(request ? { request } : {}) }
   } else entries.push(snapshot)
   job.genstudio_jobs = boundGenStudioRequestPreviews(entries)
+  await persistJob(job)
+  emitUpdate(job)
+}
+
+function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: string): string {
+  return `${operation}:${providerJobId}`
+}
+
+/**
+ * Atomically claim one already-queued provider cancellation.  The caller that
+ * receives true owns the one network POST; every other poller only observes
+ * the durable evidence it leaves behind.
+ */
+export function claimRemoteCancellation(
+  storyJobId: string,
+  operation: JobRemoteOperation,
+  providerJobId: string,
+): boolean {
+  const job = jobs.get(storyJobId)
+  const key = queuedCancellationKey(operation, providerJobId)
+  const record = job?.remote_cancellations?.[key]
+  if (!job || !record || record.status !== 'queued') return false
+  record.status = 'submitting'
+  record.updated_at = new Date().toISOString()
+  // Claiming is the ownership boundary. Persist it before the provider call
+  // can be retried by another in-process poller; a restart reconciles records
+  // left in submitting state instead of issuing a second blind POST.
+  void persistJob(job).catch(() => {})
+  emitUpdate(job)
+  return true
+}
+
+/** Record only GenStudio-published cancellation evidence for one exact task. */
+export async function recordRemoteCancellation(
+  storyJobId: string,
+  operation: JobRemoteOperation,
+  providerJobId: string,
+  evidence: Pick<JobRemoteCancellation, 'status'> & Partial<Omit<JobRemoteCancellation,
+    'operation' | 'provider_job_id' | 'requested_at' | 'updated_at' | 'status'>>,
+): Promise<void> {
+  const job = jobs.get(storyJobId)
+  const key = queuedCancellationKey(operation, providerJobId)
+  const previous = job?.remote_cancellations?.[key]
+  if (!job || !previous) return
+  job.remote_cancellations = {
+    ...job.remote_cancellations,
+    [key]: {
+      ...previous,
+      ...evidence,
+      operation,
+      provider_job_id: providerJobId,
+      updated_at: new Date().toISOString(),
+    },
+  }
   await persistJob(job)
   emitUpdate(job)
 }
@@ -1662,7 +1716,10 @@ async function queueRemoteCancellationTargets(
   for (const target of targets) {
     const key = remoteCancellationKey(target)
     const existing = records[key]
-    if (existing && ['queued', 'submitting', 'requested', 'reconciling'].includes(existing.status)) continue
+    // One Story target owns one provider cancellation attempt.  A timeout,
+    // 409, or confirmed response is evidence to reconcile, never permission
+    // to issue a second blind control POST for the same provider task.
+    if (existing) continue
     records[key] = {
       status: 'queued',
       operation: target.operation,

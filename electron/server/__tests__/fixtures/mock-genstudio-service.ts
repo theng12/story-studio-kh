@@ -97,6 +97,8 @@ interface MockJob {
   replayCount: number
   pollCount: number
   credits: MockCreditSnapshot
+  cancelled: boolean
+  cancellationRequested: boolean
 }
 
 interface MockTranscriptionQuote {
@@ -467,6 +469,8 @@ export class MockGenStudioService {
         final: 0,
         returned: 0,
       },
+      cancelled: false,
+      cancellationRequested: false,
     }
     this.jobs.set(id, job)
     this.jobByIdempotency.set(identity, id)
@@ -488,6 +492,7 @@ export class MockGenStudioService {
   }
 
   private advance(job: MockJob): void {
+    if (job.cancelled) return
     job.pollCount++
     if (job.stateIndex < job.scenario.states.length - 1) job.stateIndex++
     this.settleIfTerminal(job)
@@ -560,6 +565,9 @@ export class MockGenStudioService {
         steps: Number(job.body.steps) || 4,
         seed: job.body.seed ?? null,
         image_url: state === 'succeeded' ? `/v1/images/${job.id}/file` : null,
+        cancellable: state === 'accepted' || state === 'reserved',
+        cancelled: job.cancelled,
+        cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       }
     }
     if (job.operation === 'video') {
@@ -574,7 +582,8 @@ export class MockGenStudioService {
         resolution: String(job.body.resolution || '720p'),
         price_version: 'mock-video-price-v1',
         cancellation_requested: false,
-        cancelled: false,
+        ...(job.cancellationRequested ? { cancellation_requested: true } : {}),
+        cancelled: job.cancelled,
         video_url: state === 'succeeded' ? `/v1/videos/${job.id}/file` : null,
       }
     }
@@ -582,7 +591,10 @@ export class MockGenStudioService {
       return {
         ...base,
         // TranscriptionJobResponse publishes released_credits.
-        released_credits: state === 'succeeded' || state === 'failed' ? job.credits.returned : null,
+        released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
+        cancellable: state === 'accepted' || state === 'reserved',
+        cancelled: job.cancelled,
+        cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
         filename: 'mock.wav',
         language: job.body.language || null,
         word_timestamps: job.body.word_timestamps === 'true',
@@ -597,7 +609,10 @@ export class MockGenStudioService {
     return {
       ...base,
       // ClientTTSJobResponse publishes released_credits.
-      released_credits: state === 'succeeded' || state === 'failed' ? job.credits.returned : null,
+      released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
+      cancellable: state === 'accepted' || state === 'reserved',
+      cancelled: job.cancelled,
+      cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       voice_id: String(job.body.voice_id || 'mock-voice'),
       model_revision_id: 'mock-tts-r1',
       speed: Number(job.body.speed) || 1,
@@ -644,6 +659,29 @@ export class MockGenStudioService {
         return
       }
       if (method === 'POST') {
+        const cancellation = this.cancellationJob(url.pathname)
+        if (cancellation) {
+          const { job } = cancellation
+          const state = this.state(job)
+          if (job.operation === 'video') {
+            if (state === 'succeeded' || state === 'failed') {
+              json(response, 200, this.responseBody(job))
+              return
+            }
+            job.cancellationRequested = true
+            json(response, 202, this.responseBody(job))
+            return
+          }
+          if (!['accepted', 'reserved'].includes(state) || job.cancelled) {
+            json(response, 409, { detail: 'provider execution has already started', code: 'CANCELLATION_NOT_AVAILABLE' })
+            return
+          }
+          job.cancelled = true
+          job.credits.final = 0
+          job.credits.returned = job.credits.reserved
+          json(response, 200, this.responseBody(job))
+          return
+        }
         if (url.pathname === '/v1/chat/completions') {
           if (idempotencyKey.length < 8) {
             json(response, 400, { detail: 'Idempotency-Key is required' })
@@ -948,6 +986,22 @@ export class MockGenStudioService {
       if (!match) continue
       const job = this.jobs.get(decodeURIComponent(match[1]!))
       return job?.operation === operation ? job : null
+    }
+    return null
+  }
+
+  private cancellationJob(pathname: string): { job: MockJob } | null {
+    const patterns: Array<[MockGenStudioOperation, RegExp]> = [
+      ['tts', /^\/v1\/jobs\/([^/]+)\/cancel$/],
+      ['image', /^\/v1\/images\/([^/]+)\/cancel$/],
+      ['transcription', /^\/v1\/transcriptions\/([^/]+)\/cancel$/],
+      ['video', /^\/v1\/videos\/([^/]+)\/cancel$/],
+    ]
+    for (const [operation, pattern] of patterns) {
+      const match = pathname.match(pattern)
+      if (!match) continue
+      const job = this.jobs.get(decodeURIComponent(match[1]!))
+      return job?.operation === operation ? { job } : null
     }
     return null
   }

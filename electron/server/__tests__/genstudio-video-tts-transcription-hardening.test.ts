@@ -189,6 +189,28 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.doesNotMatch(body.bodyText, /released_credits/i)
     })
 
+    await suite.test('cancellation returns GenStudio truth without a replacement request', async () => {
+      service.reset()
+      service.queueScenario('tts', { states: ['accepted', 'running', 'succeeded'], reservedCredits: 5 })
+      const submitted = await fetch(`${service.baseUrl}/v1/audio/jobs`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+          'Idempotency-Key': 'cancel-truth-tts-001',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'cancel me', speed: 1 }),
+      })
+      const providerJob = await submitted.json() as { id: string }
+      const cancelled = await client.requestGenStudioCancellation(
+        'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
+      )
+      assert.equal(cancelled.cancelled, true)
+      assert.equal(cancelled.released_credits, 5)
+      assert.equal(service.providerSubmissionCount('tts'), 1)
+      assert.equal(service.requests.filter(request => request.path === `/v1/jobs/${providerJob.id}/cancel`).length, 1)
+    })
+
     // ── TTS ──────────────────────────────────────────────────────────────────
 
     await suite.test('TTS polls accepted → running → succeeded and surfaces released_credits', async () => {
