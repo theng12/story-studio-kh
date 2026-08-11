@@ -116,6 +116,8 @@ async function terminalExpansionJob(
   extraChatEntries: Array<{ id: string, state: string }> = [],
 ) {
   const jq = await import('../services/job-queue.js')
+  const wasPaused = jq.isQueuePaused()
+  await jq.setQueuePaused(true)
   const original = jq.enqueue({
     project_slug: slug,
     type: 'expand_chapters',
@@ -123,7 +125,8 @@ async function terminalExpansionJob(
     title: TITLE,
     params,
   })
-  jq.cancelJob(original.job_id)
+  await jq.requestJobCancellation(slug, original.job_id)
+  if (!wasPaused) await jq.setQueuePaused(false)
   await jq.recordGenStudioJob(original.job_id, {
     id: `job-terminal-${original.job_id}`,
     operation: 'chat.response',
@@ -139,6 +142,24 @@ async function terminalExpansionJob(
     })
   }
   return original
+}
+
+async function clearExpandJob(jobId: string) {
+  const jq = await import('../services/job-queue.js')
+  const initial = jq.getJob(jobId)
+  if (!initial) return
+  if (initial.status === 'queued' || initial.status === 'paused') {
+    await jq.requestJobCancellation(slug, jobId)
+  } else {
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+  const terminal = jq.getJob(jobId)
+  if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) {
+    jq.removeTerminalJob(slug, jobId)
+  }
 }
 
 beforeEach(async () => {
@@ -396,7 +417,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     assert.ok(res.body.job_id, 'must return a job_id')
     // Cancel the queued job so it doesn't keep running in the test process.
     const jq = await import('../services/job-queue.js')
-    if (res.body.job_id) jq.cancelJob(res.body.job_id)
+    if (res.body.job_id) await clearExpandJob(res.body.job_id)
   })
 })
 
@@ -417,7 +438,7 @@ describe('POST /expand-chapters — terminal manual retry', () => {
     assert.equal(res.status, 201, `expected 201, got ${res.status} body=${JSON.stringify(res.body)}`)
     const jq = await import('../services/job-queue.js')
     const replacement = jq.getJob(res.body.job_id)
-    jq.cancelJob(res.body.job_id)
+    await clearExpandJob(res.body.job_id)
     assert.equal(replacement?.params.model, 'current-live-model')
     assert.equal(replacement?.genstudio_chat_retry_scope, `terminal:job-terminal-${original.job_id}:${original.job_id}`)
     assert.equal(jq.getJob(original.job_id), null, 'replacement removes the terminal source only after enqueue')
@@ -469,7 +490,7 @@ describe('POST /expand-chapters — terminal manual retry', () => {
       assert.equal(jq.getJob(terminalSource.job_id)?.status, 'cancelled')
       assert.equal(jq.getJob(active.job_id)?.status, 'queued')
     } finally {
-      jq.cancelJob(active.job_id)
+      await clearExpandJob(active.job_id)
       await jq.setQueuePaused(false)
     }
   })
@@ -494,7 +515,7 @@ describe('POST /expand-chapters — terminal manual retry', () => {
     assert.equal(res.status, 201)
     const jq = await import('../services/job-queue.js')
     const retry = jq.getJob(res.body.job_id)
-    jq.cancelJob(res.body.job_id)
+    await clearExpandJob(res.body.job_id)
     assert.equal(retry?.params.model, 'old-model')
     assert.equal(retry?.genstudio_chat_retry_scope, undefined)
   })
@@ -520,7 +541,7 @@ describe('POST /expand-chapters — terminal manual retry', () => {
     assert.match(res.body.detail, /unresolved GenStudio chat/i)
     const jq = await import('../services/job-queue.js')
     assert.equal(jq.getJob(source.job_id)?.status, 'cancelled')
-    jq.cancelJob(source.job_id)
+    jq.removeTerminalJob(slug, source.job_id)
   })
 })
 
@@ -534,7 +555,7 @@ async function cancelAllExpandJobs() {
   const list = await jq.getJobs(slug)
   for (const j of list) {
     if (j.type === 'expand_chapters' && (j.status === 'queued' || j.status === 'running')) {
-      jq.cancelJob(j.job_id)
+      await clearExpandJob(j.job_id)
     }
   }
   await new Promise(r => setTimeout(r, 50))
@@ -543,7 +564,7 @@ async function cancelAllExpandJobs() {
   // unrelated probe suite would make its expected 201 depend on test order.
   for (const j of await jq.getJobs(slug)) {
     if (j.type === 'expand_chapters' && ['done', 'error', 'cancelled'].includes(j.status)) {
-      jq.cancelJob(j.job_id)
+      jq.removeTerminalJob(slug, j.job_id)
     }
   }
 }
@@ -577,6 +598,6 @@ describe('POST /expand-chapters — sidecar probe', () => {
       .send({ episode_id: EPISODE_ID, title: TITLE })
     assert.equal(res.status, 201, `expected 201, got ${res.status} body=${JSON.stringify(res.body)}`)
     const jq = await import('../services/job-queue.js')
-    if (res.body.job_id) jq.cancelJob(res.body.job_id)
+    if (res.body.job_id) await clearExpandJob(res.body.job_id)
   })
 })

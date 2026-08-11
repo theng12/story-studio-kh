@@ -19,6 +19,18 @@ function routePaths(): string[] {
 }
 
 describe('jobs router registration order', () => {
+  test('registers explicit POST cancellation routes before terminal DELETE routes', () => {
+    const stack = (router as any).stack as Array<{ route?: { path?: string; methods?: Record<string, boolean> } }>
+    const hasRoute = (path: string, method: string) => stack.some(layer =>
+      layer.route?.path === path && layer.route.methods?.[method] === true,
+    )
+
+    assert.ok(hasRoute('/projects/:slug/jobs/:jobId/cancel', 'post'))
+    assert.ok(hasRoute('/jobs/all/:jobId/cancel', 'post'))
+    assert.ok(hasRoute('/projects/:slug/jobs/:jobId', 'delete'))
+    assert.ok(hasRoute('/jobs/all/:jobId', 'delete'))
+  })
+
   test('/jobs/all/stream is registered before /jobs/all/:jobId', () => {
     const paths = routePaths()
     const streamIdx = paths.indexOf('/jobs/all/stream')

@@ -363,10 +363,12 @@ describe('retryTerminalJob()', () => {
   })
 })
 
-describe('cancelJob()', () => {
-  test('returns false for unknown job ID', () => {
-    const ok = jq.cancelJob('does-not-exist')
-    assert.equal(ok, false)
+describe('requestJobCancellation()', () => {
+  test('rejects an unknown job ID', async () => {
+    await assert.rejects(
+      jq.requestJobCancellation('missing-project', 'does-not-exist'),
+      (error: any) => error?.status === 404,
+    )
   })
 
   test('cancels a queued job', async () => {
@@ -381,8 +383,8 @@ describe('cancelJob()', () => {
     // Second job should be queued (not running)
     const second = jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_CANCEL', title: 'c', params: {} })
 
-    const ok = jq.cancelJob(second.job_id)
-    assert.equal(ok, true)
+    const cancelled = await jq.requestJobCancellation(proj.slug, second.job_id)
+    assert.equal(cancelled.status, 'cancelled')
 
     // Clean up
     release()
@@ -644,7 +646,7 @@ describe('cooperative pause and resume', () => {
     }
     assert.equal(jq.getJob(globallyHeld.job_id)?.status, 'done')
     assert.equal(jq.getJob(manuallyHeld.job_id)?.status, 'paused')
-    jq.cancelJob(manuallyHeld.job_id)
+    await jq.requestJobCancellation(proj.slug, manuallyHeld.job_id)
   })
 })
 

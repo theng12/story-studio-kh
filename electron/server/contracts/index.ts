@@ -517,6 +517,35 @@ export const GenerateAudioSchema = z.object({
 })
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 
+export interface JobControlResponse {
+  action: 'cancel-before-submit' | 'stop-local' | 'request-remote-cancel' | 'pause-submissions' | 'return-later' | 'clear-history' | 'none'
+  enabled: boolean
+  label: string
+  reason: string
+  code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
+  financial_effect: 'no-provider-request' | 'local-only' | 'remote-result-required' | 'provider-work-may-settle' | 'history-only' | 'none'
+  targets?: Array<{
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation'
+    provider_job_id: string
+  }>
+}
+
+export interface JobRemoteCancellationResponse {
+  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown'
+  operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation'
+  provider_job_id: string
+  requested_at: string
+  updated_at: string
+  http_status?: number
+  state?: string
+  cancellable?: boolean
+  cancelled?: boolean
+  cancellation_requested?: boolean
+  cancellation_note?: string | null
+  failure_code?: string | null
+  released_credits?: number
+}
+
 /** Response from `POST /projects/:slug/generate/{script,images,audio}`. */
 export interface JobEnqueuedResponse {
   job_id: string
@@ -545,6 +574,8 @@ export interface JobEnqueuedResponse {
   /** Structured terminal outcome for audit-style jobs such as image repair. */
   result?: Record<string, any>
   params: Record<string, any>
+  /** Fresh server classification; never persisted as a stale job field. */
+  control?: JobControlResponse
   /** Server-issued replacement identity for an explicit terminal chat Retry. */
   genstudio_chat_retry_scope?: string
   /** A pending chat Retry may only reconcile its existing provider request. */
@@ -604,6 +635,8 @@ export interface JobEnqueuedResponse {
       captured_at: string
     }
   }>
+  /** Per-provider-task cancellation evidence keyed by `${operation}:${provider_job_id}`. */
+  remote_cancellations?: Record<string, JobRemoteCancellationResponse>
   /**
    * Directory containing the job's primary output (audio dir, image dir,
    * video dir, …). Set by each generator on success. Drives the Jobs

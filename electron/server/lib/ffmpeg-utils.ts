@@ -235,7 +235,7 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
     const proc = spawn(ffmpegBin, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    // Register against the current job (via AsyncLocalStorage) so cancelJob
+    // Register against the current job (via AsyncLocalStorage) so a proven local stop
     // can SIGTERM us. No-op outside a job context.
     trackChild(proc)
 

@@ -3,7 +3,7 @@
  *
  * Three things this locks in:
  *   1. `trackChild(proc)` inside an executor registers against the current
- *      job via AsyncLocalStorage, so `cancelJob` can SIGTERM it.
+ *      job via AsyncLocalStorage, so `requestJobCancellation` can SIGTERM it.
  *   2. The final job status after a cancel is `cancelled`, not `error` —
  *      even though the executor rejects with an FFmpeg-exited-style error.
  *   3. `jobEvents` emits an `update` for the cancelled transition so the
@@ -19,14 +19,22 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'child_process'
+import express from 'express'
+import request from 'supertest'
+import fs from 'fs/promises'
+import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { router as jobsRouter } from '../routes/jobs.js'
+import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
 
 let cleanup: () => Promise<void>
+let tempDir: string
 let jq: typeof import('../services/job-queue.js')
 let pm: typeof import('../services/project-manager.js')
 
 before(async () => {
   const t = await useTempDataDir()
+  tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
@@ -34,7 +42,7 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-describe('cancelJob()', () => {
+describe('requestJobCancellation()', () => {
   test('sends SIGTERM to children registered via trackChild', async () => {
     const proj = await pm.createProject({ name: 'CancelChild' })
     let reportChildTracked!: () => void
@@ -43,7 +51,7 @@ describe('cancelJob()', () => {
     // A subprocess that would otherwise run indefinitely. The executor
     // registers it with the queue and then awaits its exit.
     const childExitedWithSignal = new Promise<string | null>((resolve) => {
-      jq.registerExecutor('script-only', async () => {
+      jq.registerExecutor('video_assembly', async () => {
         const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
         jq.trackChild(child)
         reportChildTracked()
@@ -57,7 +65,7 @@ describe('cancelJob()', () => {
     })
 
     const job = jq.enqueue({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'CANCEL_CHILD',
+      project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_CHILD',
       title: 't', params: {},
     })
 
@@ -67,7 +75,8 @@ describe('cancelJob()', () => {
     // job before this executor has attached its child.
     await childTracked
 
-    assert.equal(jq.cancelJob(job.job_id), true, 'cancelJob should report success')
+    const cancelled = await jq.requestJobCancellation(proj.slug, job.job_id)
+    assert.equal(cancelled.status, 'cancelled')
 
     const signal = await Promise.race([
       childExitedWithSignal,
@@ -83,7 +92,7 @@ describe('cancelJob()', () => {
     // SIGTERMs the child, the spawn wrapper would reject — exactly the
     // shape runFfmpeg produces on cancel. The queue must still classify
     // this terminal state as `cancelled`, not `error`.
-    jq.registerExecutor('script-only', async () => {
+    jq.registerExecutor('video_assembly', async () => {
       const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
       jq.trackChild(child)
       await new Promise<void>((_, reject) => {
@@ -95,12 +104,12 @@ describe('cancelJob()', () => {
     })
 
     const job = jq.enqueue({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'CANCEL_STATUS',
+      project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_STATUS',
       title: 't', params: {},
     })
     await new Promise((r) => setTimeout(r, 100))
 
-    jq.cancelJob(job.job_id)
+    await jq.requestJobCancellation(proj.slug, job.job_id)
 
     // Wait long enough for the child to exit + the queue runner to settle.
     await new Promise((r) => setTimeout(r, 400))
@@ -122,7 +131,7 @@ describe('cancelJob()', () => {
     jq.jobEvents.on('update', onUpdate)
 
     try {
-      jq.registerExecutor('script-only', async () => {
+      jq.registerExecutor('video_assembly', async () => {
         const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
         jq.trackChild(child)
         await new Promise<void>((_, reject) => {
@@ -131,11 +140,11 @@ describe('cancelJob()', () => {
       })
 
       const job = jq.enqueue({
-        project_slug: proj.slug, type: 'script-only', episode_id: 'CANCEL_EVENT',
+        project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_EVENT',
         title: 't', params: {},
       })
       await new Promise((r) => setTimeout(r, 100))
-      jq.cancelJob(job.job_id)
+      await jq.requestJobCancellation(proj.slug, job.job_id)
       await new Promise((r) => setTimeout(r, 300))
 
       const forThisJob = updates.filter(u => u.job_id === job.job_id)
@@ -183,18 +192,89 @@ describe('enqueue() dedupe', () => {
   test('isCancelled() reflects the cancelled set', async () => {
     const proj = await pm.createProject({ name: 'IsCancelled' })
 
-    jq.registerExecutor('script-only', async () => {
+    jq.registerExecutor('video_assembly', async () => {
       await new Promise(() => {}) // block forever
     })
 
     const job = jq.enqueue({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'ISC_1',
+      project_slug: proj.slug, type: 'video_assembly', episode_id: 'ISC_1',
       title: 't', params: {},
     })
     await new Promise((r) => setTimeout(r, 50))
 
     assert.equal(jq.isCancelled(job.job_id), false)
-    jq.cancelJob(job.job_id)
+    await jq.requestJobCancellation(proj.slug, job.job_id)
     assert.equal(jq.isCancelled(job.job_id), true)
+  })
+})
+
+describe('remote cancellation checkpoints', () => {
+  test('queues each eligible GenStudio target once and keeps the Story job running', async () => {
+    const proj = await pm.createProject({ name: 'RemoteCancellationTargets' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+
+    const job = jq.enqueue({
+      project_slug: proj.slug, type: 'audio', episode_id: 'REMOTE_CANCEL', title: 'remote', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(job.job_id)?.status, 'running')
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'tts-target-1', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+
+    const first = await jq.requestJobCancellation(proj.slug, job.job_id)
+    const second = await jq.requestJobCancellation(proj.slug, job.job_id)
+    const key = 'voice.tts:tts-target-1'
+    assert.equal(first.status, 'running')
+    assert.equal(first.finished_at, null)
+    assert.equal(first.remote_cancellations?.[key]?.status, 'queued')
+    assert.deepEqual(Object.keys(second.remote_cancellations || {}), [key])
+
+    release()
+  })
+})
+
+describe('job route controls', () => {
+  test('DELETE removes only terminal history while POST cancels queued work', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', jobsRouter)
+    const project = await pm.createProject({ name: 'TerminalRemovalOnly' })
+    const wrongProject = await pm.createProject({ name: 'TerminalRemovalWrongProject' })
+    const output = path.join(tempDir, 'projects', project.slug, 'output-kept.txt')
+    await fs.writeFile(output, 'generated output stays')
+    await jq.setQueuePaused(true)
+    jq.registerExecutor('script-only', async () => {})
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'DELETE_ONLY', title: 'terminal', params: {},
+    })
+
+    try {
+      const activeDelete = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+      assert.equal(activeDelete.status, 409)
+      assert.equal(jq.getJob(job.job_id)?.status, 'queued')
+
+      const wrongCancel = await request(app).post(`/api/projects/${wrongProject.slug}/jobs/${job.job_id}/cancel`)
+      assert.equal(wrongCancel.status, 404)
+      assert.equal(jq.getJob(job.job_id)?.status, 'queued')
+
+      const cancel = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
+      assert.equal(cancel.status, 200)
+      assert.equal(cancel.body.job.status, 'cancelled')
+
+      const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+      assert.equal(remove.status, 200)
+      assert.equal(jq.getJob(job.job_id), null)
+      assert.equal(await fs.readFile(output, 'utf8'), 'generated output stays')
+    } finally {
+      await jq.setQueuePaused(false)
+    }
   })
 })

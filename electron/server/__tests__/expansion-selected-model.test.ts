@@ -163,9 +163,25 @@ function fakeExpandJob(params: Record<string, unknown>): any {
 async function cancelQueuedExpandJobs() {
   const jq = await import('../services/job-queue.js')
   for (const j of await jq.getJobs(slug)) {
-    if (j.type === 'expand_chapters' && (j.status === 'queued' || j.status === 'running')) {
-      jq.cancelJob(j.job_id)
+    if (j.type === 'expand_chapters') await clearExpandJob(j.job_id)
+  }
+}
+
+async function clearExpandJob(jobId: string) {
+  const jq = await import('../services/job-queue.js')
+  const initial = jq.getJob(jobId)
+  if (!initial) return
+  if (initial.status === 'queued' || initial.status === 'paused') {
+    await jq.requestJobCancellation(slug, jobId)
+  } else {
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+      await new Promise(resolve => setTimeout(resolve, 20))
     }
+  }
+  const terminal = jq.getJob(jobId)
+  if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) {
+    jq.removeTerminalJob(slug, jobId)
   }
 }
 
@@ -194,7 +210,7 @@ describe('POST /expand-chapters — which model reaches the queue', () => {
     assert.equal((job as any).params.model, SELECTED_MODEL,
       'the route must not overwrite the caller\'s model with the outline snapshot\'s')
     assert.notEqual((job as any).params.model, STALE_OUTLINE_MODEL)
-    jq.cancelJob(res.body.job_id)
+    await clearExpandJob(res.body.job_id)
   })
 
   test('a caller that names no model still falls back to the outline\'s record', async () => {
@@ -209,7 +225,7 @@ describe('POST /expand-chapters — which model reaches the queue', () => {
     const jq = await import('../services/job-queue.js')
     const job = (await jq.getJobs(slug)).find(j => j.job_id === res.body.job_id)
     assert.equal((job as any).params.model, STALE_OUTLINE_MODEL)
-    jq.cancelJob(res.body.job_id)
+    await clearExpandJob(res.body.job_id)
   })
 
   test('a blank model in the body does not shadow the outline\'s record', async () => {
@@ -222,7 +238,7 @@ describe('POST /expand-chapters — which model reaches the queue', () => {
     const jq = await import('../services/job-queue.js')
     const job = (await jq.getJobs(slug)).find(j => j.job_id === res.body.job_id)
     assert.equal((job as any).params.model, STALE_OUTLINE_MODEL)
-    jq.cancelJob(res.body.job_id)
+    await clearExpandJob(res.body.job_id)
   })
 })
 

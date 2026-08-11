@@ -30,6 +30,28 @@ async function allJobsSnapshot() {
   return { jobs: jobsList, stats: summarizeJobs(jobsList) }
 }
 
+async function findUniversalJob(jobId: string): Promise<Job | undefined> {
+  return (await allJobsSnapshot()).jobs.find(job => job.job_id === jobId)
+}
+
+function sendJobControlError(res: import('express').Response, error: unknown): boolean {
+  if (!(error instanceof jq.JobControlError)) return false
+  res.status(error.status).json({
+    code: error.code,
+    control: error.control,
+    detail: error.message,
+  })
+  return true
+}
+
+function sendTerminalOnlyConflict(res: import('express').Response, job: Job): void {
+  res.status(409).json({
+    code: job.control?.code,
+    control: job.control,
+    detail: 'Only finished jobs can be removed from history.',
+  })
+}
+
 // ── Job stream (SSE) ────────────────────────────────────────────────────────
 /**
  * GET /projects/:slug/jobs/stream
@@ -161,10 +183,22 @@ router.post('/jobs/all/:jobId/resume', async (req, res) => {
   res.status(202).json({ ok: true, job })
 })
 
-router.delete('/jobs/all/:jobId', (req, res) => {
-  if (!jq.cancelJob(req.params.jobId)) {
-    return res.status(400).json({ detail: 'Job not found or not cancellable' })
+router.post('/jobs/all/:jobId/cancel', async (req, res, next) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    const job = await jq.requestJobCancellation(existing.project_slug, req.params.jobId)
+    res.json({ ok: true, job })
+  } catch (error) {
+    if (sendJobControlError(res, error)) return
+    next(error)
   }
+})
+
+router.delete('/jobs/all/:jobId', async (req, res) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (!jq.removeTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true })
 })
 
@@ -292,10 +326,22 @@ router.post('/projects/:slug/jobs/:jobId/resume', async (req, res) => {
   res.status(202).json({ ok: true, job })
 })
 
-router.delete('/projects/:slug/jobs/:jobId', (req, res) => {
-  if (!jq.cancelJob(req.params.jobId)) {
-    return res.status(400).json({ detail: 'Job not found or not cancellable' })
+router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {
+  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    const job = await jq.requestJobCancellation(req.params.slug, req.params.jobId)
+    res.json({ ok: true, job })
+  } catch (error) {
+    if (sendJobControlError(res, error)) return
+    next(error)
   }
+})
+
+router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
+  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  if (!jq.removeTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true })
 })
 

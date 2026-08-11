@@ -80,7 +80,7 @@ describe('status-aware durable job retention', () => {
     assert.deepEqual(persisted.map(job => job.job_id), queued.map(job => job.job_id))
     assert.equal(jq.isDuplicate(project.slug, 'EP0000', 'script-only'), true)
 
-    for (const job of queued) jq.cancelJob(job.job_id)
+    await Promise.all(queued.map(job => jq.requestJobCancellation(project.slug, job.job_id)))
     await jq.setQueuePaused(false)
   })
 
@@ -101,7 +101,7 @@ describe('status-aware durable job retention', () => {
     assert.deepEqual(restoredQueued.map(job => job.job_id), queued.map(job => job.job_id))
     assert.deepEqual(restoredQueued.map(job => job.queue_position), Array.from({ length: 130 }, (_, i) => i + 1))
 
-    for (const job of restoredQueued) jq.cancelJob(job.job_id)
+    await Promise.all(restoredQueued.map(job => jq.requestJobCancellation(project.slug, job.job_id)))
     await jq.setQueuePaused(false)
   })
 
@@ -215,7 +215,7 @@ describe('status-aware durable job retention', () => {
     assert.equal(persisted.some(job => job.job_id === terminal.job_id), false)
     assert.deepEqual(persisted.map(job => job.job_id), queued.map(job => job.job_id))
 
-    for (const job of queued) jq.cancelJob(job.job_id)
+    await Promise.all(queued.map(job => jq.requestJobCancellation(project.slug, job.job_id)))
     await jq.setQueuePaused(false)
   })
 

@@ -21,6 +21,9 @@ import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
+import { classifyJobControl } from './job-control.js'
+import { hasJobCancellationAuditor } from './job-cancellation-auditors.js'
+import type { JobControl } from '../models/types.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -28,7 +31,7 @@ import { getAppSetting, setAppSetting } from './app-settings.js'
 // identifies their job. Spawn helpers (runFfmpeg, runFfmpegWithStderr) call
 // `trackChild(proc)` to register the child against the current job without
 // having to thread a jobId through every function signature. When the user
-// cancels, `cancelJob` sends SIGTERM to every registered child so ffmpeg
+// requests a proven local stop, `requestJobCancellation` sends SIGTERM to every registered child so ffmpeg
 // actually stops instead of continuing to burn CPU and disk.
 //
 // A 5-second SIGKILL fallback handles the rare ffmpeg invocation that
@@ -174,7 +177,7 @@ function emitUpdate(job: Job): void {
   // Isolate listeners from each other — one bad handler shouldn't break the
   // queue's state machine. EventEmitter.emit is synchronous, so any throw
   // would propagate into the generator; swallow defensively.
-  try { jobEvents.emit('update', safeJob(job)) } catch { /* noop */ }
+  try { jobEvents.emit('update', serializeJob(job)) } catch { /* noop */ }
 }
 
 // Stream running jobs' output_lines to SSE subscribers on a modest cadence.
@@ -460,7 +463,18 @@ function safeJob(job: Job): Omit<Job, never> {
   // Provider adapters should never put credentials in params/output, but this
   // final boundary is deny-by-default so an accidental future field cannot
   // leak into jobs.json, SSE, exports, or support screenshots.
-  return redactSensitiveValue(structuredClone(job))
+  const copy = redactSensitiveValue(structuredClone(job))
+  delete copy.control
+  return copy
+}
+
+/** Public job snapshots derive controls at the last possible moment. */
+function serializeJob(job: Job): Job {
+  const copy = safeJob(job)
+  copy.control = classifyJobControl(job, {
+    remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+  })
+  return copy
 }
 
 async function persistJob(job: Job): Promise<void> {
@@ -841,7 +855,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
       if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
-        // (cancelJob may have already set status from another call context)
+        // (a local stop may have already set status from another call context)
         job.status = 'cancelled'
       } else if (job.status === 'running') {
         job.status = 'done'
@@ -1008,7 +1022,7 @@ export async function pauseJob(jobId: string, origin: 'manual' | 'queue' = 'manu
   }
   await persistJob(job)
   emitUpdate(job)
-  return safeJob(job)
+  return serializeJob(job)
 }
 
 /** Resume the same durable job record. Executors audit disk/manifests first,
@@ -1028,7 +1042,7 @@ export async function resumeJob(jobId: string): Promise<Job | null> {
   await persistJob(job)
   emitUpdate(job)
   pump(job.type)
-  return safeJob(job)
+  return serializeJob(job)
 }
 
 /**
@@ -1077,7 +1091,7 @@ function findActiveBulkSceneRenderInternal(projectSlug: string, episodeId: strin
 /** Return the existing owner of an episode's full scene-image render, if any. */
 export function getActiveBulkSceneRenderJob(projectSlug: string, episodeId: string): Job | null {
   const job = findActiveBulkSceneRenderInternal(projectSlug, episodeId)
-  return job ? safeJob(job) : null
+  return job ? serializeJob(job) : null
 }
 
 export interface SceneRenderJoinResult {
@@ -1107,10 +1121,10 @@ export async function joinActiveBulkSceneRender(opts: {
     ? active.params.pipeline_batch_id
     : ''
   if (existingBatchId && opts.pipeline_batch_id && existingBatchId !== opts.pipeline_batch_id) {
-    return { job: safeJob(active), attached: false, conflict: true }
+    return { job: serializeJob(active), attached: false, conflict: true }
   }
   if (incomingChain.length > 0 && existingChain.length > 0 && !sameChain) {
-    return { job: safeJob(active), attached: false, conflict: true }
+    return { job: serializeJob(active), attached: false, conflict: true }
   }
 
   let attached = false
@@ -1127,7 +1141,7 @@ export async function joinActiveBulkSceneRender(opts: {
     await persistJob(active)
     emitUpdate(active)
   }
-  return { job: safeJob(active), attached, conflict: false }
+  return { job: serializeJob(active), attached, conflict: false }
 }
 
 /** True if the given job has been cancelled. Generators should poll this at
@@ -1211,7 +1225,7 @@ export async function enqueueOrRun(opts: {
     job.finished_at = new Date().toISOString()
     throw e
   }
-  return safeJob(job)
+  return serializeJob(job)
 }
 
 export function enqueue(opts: {
@@ -1290,7 +1304,7 @@ export function enqueue(opts: {
   // Kick off processing
   pump(opts.type)
 
-  return safeJob(job)
+  return serializeJob(job)
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {
@@ -1298,7 +1312,7 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
   const projectJobs: Job[] = []
   for (const job of jobs.values()) {
     if (job.project_slug === projectSlug) {
-      const j = safeJob(job)
+      const j = serializeJob(job)
       if (j.status === 'queued') {
         const q = queues[job.type]
         j.queue_position = q ? q.pending.findIndex(p => p.job_id === j.job_id) + 1 : 0
@@ -1314,7 +1328,7 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
 
 export function getJob(jobId: string): Job | null {
   const job = jobs.get(jobId)
-  return job ? safeJob(job) : null
+  return job ? serializeJob(job) : null
 }
 
 /**
@@ -1555,58 +1569,118 @@ export function recordAccountUsed(
   emitUpdate(job)
 }
 
-export function cancelJob(jobId: string): boolean {
-  const job = jobs.get(jobId)
-  if (!job) return false
+export class JobControlError extends Error {
+  readonly status = 409
+  readonly expose = true
+  readonly code: JobControl['code']
 
-  // If queued, cancel it
-  if (job.status === 'queued' || job.status === 'paused') {
-    cancelled.add(jobId)
-    pauseRequested.delete(jobId)
-    if (job.status === 'queued') {
-      const q = queues[job.type]
-      q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
+  constructor(readonly control: JobControl) {
+    super(control.reason)
+    this.name = 'JobControlError'
+    this.code = control.code
+  }
+}
+
+function controlFor(job: Job): JobControl {
+  return classifyJobControl(job, {
+    remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+  })
+}
+
+async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
+  cancelled.add(job.job_id)
+  pauseRequested.delete(job.job_id)
+  if (job.status === 'queued') {
+    const q = queues[job.type]
+    q.pending = q.pending.filter(candidate => candidate.job_id !== job.job_id)
+  }
+  job.status = 'cancelled'
+  job.pause_requested = false
+  job.pause_origin = undefined
+  job.finished_at = new Date().toISOString()
+  job.output_lines.push('Cancelled before submission. This operation sent no provider request.')
+  await persistJob(job)
+  emitUpdate(job)
+  return serializeJob(job)
+}
+
+async function stopLocalJob(job: Job): Promise<Job> {
+  cancelled.add(job.job_id)
+  job.status = 'cancelled'
+  job.finished_at = new Date().toISOString()
+  job.output_lines.push('Local processing stopped. This operation sent no provider generation request.')
+  killChildrenFor(job.job_id)
+  await persistJob(job)
+  emitUpdate(job)
+  return serializeJob(job)
+}
+
+function remoteCancellationKey(target: NonNullable<JobControl['targets']>[number]): string {
+  return `${target.operation}:${target.provider_job_id}`
+}
+
+async function queueRemoteCancellationTargets(
+  job: Job,
+  targets: NonNullable<JobControl['targets']>,
+): Promise<Job> {
+  const now = new Date().toISOString()
+  const records = { ...(job.remote_cancellations || {}) }
+  let added = 0
+  for (const target of targets) {
+    const key = remoteCancellationKey(target)
+    const existing = records[key]
+    if (existing && ['queued', 'submitting', 'requested', 'reconciling'].includes(existing.status)) continue
+    records[key] = {
+      status: 'queued',
+      operation: target.operation,
+      provider_job_id: target.provider_job_id,
+      requested_at: now,
+      updated_at: now,
     }
-    job.status = 'cancelled'
-    job.pause_requested = false
-    job.pause_origin = undefined
-    job.finished_at = new Date().toISOString()
-    persistJob(job).catch(() => {})
-    emitUpdate(job)
-    return true
+    added++
+  }
+  job.remote_cancellations = records
+  if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for GenStudio confirmation.`)
+  await persistJob(job)
+  emitUpdate(job)
+  return serializeJob(job)
+}
+
+/**
+ * Request the one control the server can prove safe for this exact job.
+ * Remote requests remain running until GenStudio reports their terminal truth.
+ */
+export async function requestJobCancellation(projectSlug: string, jobId: string): Promise<Job> {
+  await loadPersistedJobs(projectSlug)
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
 
-  // If running, mark as cancelled, kill any spawned child processes
-  // (FFmpeg for video assembly, audio merge, etc.), and let the
-  // generators' AbortController watchers tear down in-flight provider
-  // HTTP calls. Each generator installs a 500 ms watcher that polls
-  // `isCancelled(jobId)` and aborts the current fetch/stream — so a
-  // cancelled image batch stops polling kie.ai, a cancelled TTS batch
-  // stops the ElevenLabs stream, and so on. Short submit requests that
-  // don't carry a signal may still complete; that's fine — the batch
-  // stops starting new work immediately.
-  if (job.status === 'running') {
-    cancelled.add(jobId)
-    job.status = 'cancelled'
-    job.finished_at = new Date().toISOString()
-    job.output_lines.push('Cancelled by user')
-    killChildrenFor(jobId)
-    persistJob(job).catch(() => {})
-    emitUpdate(job)
-    return true
-  }
+  // A repeated click must not create another provider cancellation request.
+  // Keep returning the durable first request while its authoritative outcome
+  // is still being reconciled.
+  if (Object.values(job.remote_cancellations || {}).some(record => (
+    record.status === 'queued' || record.status === 'submitting' || record.status === 'requested' || record.status === 'reconciling'
+  ))) return serializeJob(job)
 
-  // If done/error/cancelled, remove from memory
-  if (['done', 'error', 'cancelled'].includes(job.status)) {
-    jobs.delete(jobId)
-    // Synthesise a final "gone" event so subscribers can drop the row even
-    // though we're deleting it entirely (not transitioning its status).
-    emitCleared(job.project_slug, [jobId])
-    void persistProjectSnapshot(job.project_slug).catch(() => {})
-    return true
-  }
+  const control = controlFor(job)
+  if (!control.enabled) throw new JobControlError(control)
+  if (control.action === 'cancel-before-submit') return cancelQueuedBeforeSubmit(job)
+  if (control.action === 'stop-local') return stopLocalJob(job)
+  if (control.action === 'request-remote-cancel') return queueRemoteCancellationTargets(job, control.targets || [])
+  throw new JobControlError(control)
+}
 
-  return false
+/** Remove terminal history only. Generated files and provider evidence remain intact. */
+export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug) return false
+  if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
+  jobs.delete(jobId)
+  emitCleared(projectSlug, [jobId])
+  void persistProjectSnapshot(projectSlug).catch(() => {})
+  return true
 }
 
 export async function clearFinished(projectSlug: string): Promise<number> {
