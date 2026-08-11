@@ -323,8 +323,8 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(page.genStudioHeldCredits(running), 0)
     assert.equal(page.genStudioHeldCredits({ ...running, reserved_credits: 13 }), 13)
 
-    // The account-jobs snapshot is authoritative for released credits, which is
-    // the only place an image job's released amount is ever published.
+    // The account-jobs snapshot is authoritative when present; direct Image and
+    // Video released credits are the fallback when no account entry exists.
     page.genStudioSettlement.value = { 'gs-image-1': { reserved_credits: 13, settled_credits: 0, released_credits: 13 } }
     assert.equal(page.genStudioReturnedCredits(FAILED_IMAGE_JOB), 13)
     assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0)
