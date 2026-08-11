@@ -1378,12 +1378,31 @@ export function retryTerminalJob(
     )
   }
 
+  const chapterRetryMode = original.type === 'expand_chapters'
+    ? chapterChatRetryMode(original)
+    : undefined
+  const anotherUnresolvedExpansionExists = chapterRetryMode === 'fresh-replacement'
+    && Array.from(jobs.values()).some(job =>
+      job.job_id !== original.job_id
+      && job.project_slug === original.project_slug
+      && job.episode_id === original.episode_id
+      && job.type === 'expand_chapters'
+      && (job.status === 'error' || job.status === 'cancelled')
+      && chatEntries(job).some(entry => !isResolvedChatEntry(entry)),
+    )
+  if (anotherUnresolvedExpansionExists) {
+    throw Object.assign(
+      new Error('Another terminal chapter expansion has unresolved GenStudio chat evidence.'),
+      { status: 409, expose: true },
+    )
+  }
+
   // A fresh provider identity is allowed only after every recorded chat batch
   // has settled and at least one failed terminally. Mixed/pending evidence
   // must reattach with the original key. This marker is deliberately minted
   // only from the explicit manual Retry path; pause/resume and lost-response
   // recovery retain the original provider identity.
-  const genstudio_chat_retry_scope = original.type === 'expand_chapters'
+  const genstudio_chat_retry_scope = chapterRetryMode === 'fresh-replacement'
     ? terminalChatRetryScope(original)
     : undefined
 
@@ -1433,20 +1452,6 @@ export function retryTerminalChapterExpansion(
   if (!retryMode) {
     throw Object.assign(
       new Error('Terminal retry job has no durable GenStudio chat evidence.'),
-      { status: 409, expose: true },
-    )
-  }
-  const anotherUnresolvedExpansionExists = Array.from(jobs.values()).some(job =>
-    job.job_id !== original.job_id
-    && job.project_slug === projectSlug
-    && job.episode_id === episodeId
-    && job.type === 'expand_chapters'
-    && (job.status === 'error' || job.status === 'cancelled')
-    && chatEntries(job).some(entry => !isResolvedChatEntry(entry)),
-  )
-  if (anotherUnresolvedExpansionExists) {
-    throw Object.assign(
-      new Error('Another terminal chapter expansion has unresolved GenStudio chat evidence.'),
       { status: 409, expose: true },
     )
   }

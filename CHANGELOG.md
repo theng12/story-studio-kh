@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.819 — 2026-08-11
+
+- **Interrupted chapter expansions can always be reconciled safely** — when several earlier
+  attempts still contain unresolved GenStudio evidence, Story Studio replays those exact request
+  identities first instead of deadlocking or starting replacement work. A newly selected model is
+  used only after every older submission has settled.
+
 ## v1.0.818 — 2026-08-11
 
 - **Approved episode direction now survives the complete script workflow** — outline edits keep
@@ -32,10 +39,3 @@ What's new in each release. Newest first.
 ## v1.0.815 — 2026-08-11
 
 - **Image Generator episode loading now scales cleanly** — each episode exposes exact planned scene-image counts from the existing status scan, so all-image completion no longer depends on Scene Review approval and the extension no longer needs an episode-by-episode recount.
-
-## v1.0.814 — 2026-08-10
-
-- **The desktop interface now uses the secured Nuxt 4.5 foundation** — the framework, Vue
-  tooling, CSS processing, SVG optimization, archive handling, and related build dependencies
-  are updated to patched releases. The eight published frontend advisories are cleared without
-  changing Story Studio's production workflow or GenStudio contract.

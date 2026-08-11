@@ -542,7 +542,15 @@ function terminalExpansionRetryJob(): any | undefined {
       ),
     )
     .sort((a: any, b: any) =>
-      Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''),
+      Number((b.genstudio_jobs || []).some((entry: any) =>
+        entry.operation === 'chat.response'
+        && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)),
+      ))
+      - Number((a.genstudio_jobs || []).some((entry: any) =>
+        entry.operation === 'chat.response'
+        && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)),
+      ))
+      || Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''),
     )[0]
 }
 

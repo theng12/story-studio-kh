@@ -736,6 +736,99 @@ describe('manual GenStudio chat retries', () => {
     await waitForTerminalJob(retry.job_id)
   })
 
+  test('an unresolved chapter retry can replay its exact identity while another unresolved attempt exists', async () => {
+    const proj = await pm.createProject({ name: 'JQ Multiple Unresolved Chapter Replays' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: `pending:story-chat-${job.params.model}`,
+        operation: 'chat.response',
+        state: 'submitting',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('submission evidence still needs exact replay')
+    })
+    const older = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'older-model' },
+    })
+    await waitForTerminalJob(older.job_id)
+    const newer = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'newer-model' },
+    })
+    await waitForTerminalJob(newer.job_id)
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalChapterExpansion(
+      proj.slug,
+      newer.job_id,
+      'EP001',
+      { model: 'deepseek-v4-flash' },
+    )
+
+    assert.equal(retry.params.model, 'newer-model')
+    assert.equal(retry.genstudio_chat_retry_scope, undefined)
+    assert.equal(jq.getJob(older.job_id)?.status, 'error')
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('generic Jobs Retry blocks a fresh chapter identity while another unresolved attempt exists', async () => {
+    const proj = await pm.createProject({ name: 'JQ Jobs Retry Shared Fresh Guard' })
+    let evidenceMode: 'unresolved' | 'settled' = 'unresolved'
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, evidenceMode === 'unresolved'
+        ? {
+            id: 'pending:story-chat-older',
+            operation: 'chat.response',
+            state: 'submitting',
+            updated_at: new Date().toISOString(),
+          }
+        : {
+            id: 'job-newer-failed',
+            operation: 'chat.response',
+            state: 'failed',
+            updated_at: new Date().toISOString(),
+          })
+      throw new Error('terminal fixture')
+    })
+    const unresolved = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'older-model' },
+    })
+    await waitForTerminalJob(unresolved.job_id)
+    evidenceMode = 'settled'
+    const settledFailure = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'newer-model' },
+    })
+    await waitForTerminalJob(settledFailure.job_id)
+
+    assert.throws(
+      () => jq.retryTerminalJob(proj.slug, settledFailure.job_id),
+      /another terminal chapter expansion has unresolved/i,
+    )
+    assert.equal(jq.getJob(unresolved.job_id)?.status, 'error')
+    assert.equal(jq.getJob(settledFailure.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const exactReplay = jq.retryTerminalJob(proj.slug, unresolved.job_id)
+    assert.equal(exactReplay.params.model, 'older-model')
+    assert.equal(exactReplay.genstudio_chat_retry_scope, undefined)
+    await waitForTerminalJob(exactReplay.job_id)
+  })
+
   test('a terminal chapter retry can replace historical params with the current validated form', async () => {
     const proj = await pm.createProject({ name: 'JQ Terminal Chat Retry Current Params' })
     jq.registerExecutor('expand_chapters', async job => {
