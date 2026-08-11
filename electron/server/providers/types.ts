@@ -71,6 +71,8 @@ export interface ImageGenerationRequest {
   /** Optional deterministic seed. Omit to let the provider randomize. */
   seed?: number
   idempotencyIdentity?: string
+  /** Reuse an image key checkpointed by a durable queue executor. */
+  idempotencyKey?: string
   /**
    * Durable providers call this as soon as upstream accepts the task, before
    * polling or downloading. The caller can then recover the same paid/free
@@ -150,6 +152,8 @@ export interface VideoGenerationRequest {
   idempotencyIdentity?: string
   /** Probe for user cancel — honoured in poll loops. */
   isCancelled?: () => boolean
+  /** Called after each durable provider variant is accepted, before polling. */
+  onJobAccepted?: (taskId: string, idempotencyKey: string, variantIndex: number) => void | Promise<void>
 }
 
 export interface VideoGenerationResult {

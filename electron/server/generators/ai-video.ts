@@ -26,7 +26,7 @@ import { downloadVideo } from '../lib/download-video.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
@@ -294,6 +294,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
     try {
       const startImage = sceneImages.find(s => s.number === p.number)
       if (!startImage) throw new Error(`Scene ${p.number} has no matching source image.`)
+      const acceptedKeys: string[] = []
 
       const result = await provider.generateVideo({
         mode,
@@ -306,6 +307,19 @@ export async function generateAiVideo(job: Job): Promise<void> {
         providerParams: (modelConfig as any).provider_params || {},
         idempotencyIdentity: `${project_slug}:${episode_id}:scene:${p.number}`,
         isCancelled,
+        onJobAccepted: async (taskId, idempotencyKey, variantIndex) => {
+          const filename = `${stem}_v${variantIndex + 1}.mp4`
+          acceptedKeys[variantIndex] = idempotencyKey
+          await recordTaskStrict(videoDir, filename, {
+            provider: provider.meta.providerId || provider.meta.id,
+            task_id: taskId,
+            submitted_at: new Date().toISOString(),
+            input_hash: hashInput(p.prompt),
+            idempotency_key: idempotencyKey,
+            operation: 'video',
+            last_state: 'accepted',
+          })
+        },
       })
       if (!result.videoUrls.length) throw new Error(`${provider.meta.name} returned no video URL`)
 
@@ -323,6 +337,9 @@ export async function generateAiVideo(job: Job): Promise<void> {
             task_id: taskId,
             submitted_at: new Date().toISOString(),
             input_hash: hashInput(p.prompt),
+            ...(acceptedKeys[v] ? { idempotency_key: acceptedKeys[v] } : {}),
+            operation: 'video',
+            last_state: 'succeeded',
             ...(result.videoUrls[v] ? { result_url: result.videoUrls[v] } : {}),
           })
         }

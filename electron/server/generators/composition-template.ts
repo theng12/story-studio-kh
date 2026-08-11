@@ -20,10 +20,12 @@ import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { hashInput, recordTask } from '../services/task-manifest.js'
+import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
+import { hashInput, recordTaskStrict } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import * as jq from '../services/job-queue.js'
 
 const COMPOSITION_FILENAME = 'composition.png'
 
@@ -83,6 +85,25 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
   const outDir = path.join(paths.episode_dir, 'img2img-references')
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, COMPOSITION_FILENAME)
+  const requestIdentity = `${job.project_slug}:${episode_id}:composition-template`
+  const submittedAt = new Date().toISOString()
+  const inputHash = hashInput(prompt)
+  const idempotencyKey = buildGenStudioImageIdempotencyKey({
+    prompt,
+    modelId: modelConfig.api_model || model,
+    aspectRatio,
+    ...(outputOption ? { resolution: outputOption.resolution } : {}),
+    requestIdentity,
+  })
+  await recordTaskStrict(outDir, COMPOSITION_FILENAME, {
+    provider: imageProvider.meta.providerId || imageProvider.meta.id,
+    task_id: '',
+    submitted_at: submittedAt,
+    input_hash: inputHash,
+    idempotency_key: idempotencyKey,
+    operation: 'image',
+    last_state: 'prepared',
+  })
   const result = await imageProvider.generateImage({
     prompt,
     apiKey,
@@ -90,13 +111,18 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     modelId: modelConfig.api_model || model,
     providerParams,
     ...(outputOption ? { resolution: outputOption.resolution } : {}),
-    idempotencyIdentity: `${job.project_slug}:${episode_id}:composition-template`,
-    onJobAccepted: async (taskId) => {
-      await recordTask(outDir, COMPOSITION_FILENAME, {
+    idempotencyIdentity: requestIdentity,
+    idempotencyKey,
+    isCancelled: () => jq.isCancelled(job.job_id),
+    onJobAccepted: async (taskId, acceptedIdempotencyKey) => {
+      await recordTaskStrict(outDir, COMPOSITION_FILENAME, {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,
         task_id: taskId,
-        submitted_at: new Date().toISOString(),
-        input_hash: hashInput(prompt),
+        submitted_at: submittedAt,
+        input_hash: inputHash,
+        idempotency_key: acceptedIdempotencyKey,
+        operation: 'image',
+        last_state: 'accepted',
       })
     },
   })
@@ -106,14 +132,6 @@ export async function generateCompositionTemplateJob(job: Job): Promise<void> {
     throw new Error(`${imageProvider.meta.name} returned no image for the composition template.`)
   }
 
-  if (result.taskId) {
-    await recordTask(outDir, COMPOSITION_FILENAME, {
-      provider: imageProvider.meta.providerId || imageProvider.meta.id,
-      task_id: result.taskId,
-      submitted_at: new Date().toISOString(),
-      input_hash: hashInput(prompt),
-    })
-  }
   await saveGenStudioImage(result.urls[0]!, outPath)
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error('Downloaded composition template is empty.')

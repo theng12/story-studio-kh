@@ -145,6 +145,7 @@ const genstudioImageProvider: ImageProvider = {
         ...(outputOption ? {} : { width: request.width, height: request.height }),
         seed,
         requestIdentity: request.idempotencyIdentity,
+        idempotencyKey: request.idempotencyKey,
         isCancelled: request.isCancelled,
         onJobAccepted: request.onJobAccepted,
         onReconnect: request.onReconnect,

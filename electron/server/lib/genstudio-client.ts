@@ -760,6 +760,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   referenceAssetIds?: string[]
   /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
   requestIdentity?: string
+  /** Reuse a key checkpointed before the charged image POST. */
+  idempotencyKey?: string
   onState?: (state: GenStudioJob['state']) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
 }
@@ -5299,7 +5301,7 @@ async function generateImageWithGenStudioAdmitted(
     ...(request.seed === undefined ? {} : { seed: request.seed }),
     ...(request.referenceAssetIds?.length ? { reference_asset_ids: request.referenceAssetIds } : {}),
   }
-  const idempotencyKey = buildGenStudioImageIdempotencyKey({
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioImageIdempotencyKey({
     prompt,
     modelId,
     aspectRatio: request.aspectRatio,

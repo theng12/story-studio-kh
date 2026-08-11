@@ -36,8 +36,10 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
-import { recordTask, hashInput } from '../services/task-manifest.js'
+import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
+import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import * as jq from '../services/job-queue.js'
 
 /** Legacy flat folder at the episode root where continuity / scene-review
  *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
@@ -175,6 +177,27 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
+  const requestIdentity = `${job.project_slug}:${episode_id}:scene:${scene_id}:image`
+  const submittedAt = new Date().toISOString()
+  const inputHash = hashInput(scene.visual_prompt)
+  const seed = modelConfig.supports_seed === false ? undefined : params.seed
+  const idempotencyKey = buildGenStudioImageIdempotencyKey({
+    prompt: scene.visual_prompt,
+    modelId: modelConfig.api_model || model,
+    aspectRatio,
+    ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
+    seed,
+    requestIdentity,
+  })
+  await recordTaskStrict(outDir, `${scene_id}.png`, {
+    provider: imageProvider.meta.providerId || imageProvider.meta.id,
+    task_id: '',
+    submitted_at: submittedAt,
+    input_hash: inputHash,
+    idempotency_key: idempotencyKey,
+    operation: 'image',
+    last_state: 'prepared',
+  })
   const result = await imageProvider.generateImage({
     prompt: scene.visual_prompt,
     apiKey,
@@ -184,15 +207,19 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     ...(outputOption
       ? { resolution: outputOption.resolution }
       : { width: renderWidth, height: renderHeight }),
-    seed: params.seed,
-    idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene_id}:image`,
-    isCancelled: () => false,
-    onJobAccepted: async (taskId) => {
-      await recordTask(outDir, `${scene_id}.png`, {
+    seed,
+    idempotencyIdentity: requestIdentity,
+    idempotencyKey,
+    isCancelled: () => jq.isCancelled(job.job_id),
+    onJobAccepted: async (taskId, acceptedIdempotencyKey) => {
+      await recordTaskStrict(outDir, `${scene_id}.png`, {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,
         task_id: taskId,
-        submitted_at: new Date().toISOString(),
-        input_hash: hashInput(scene.visual_prompt),
+        submitted_at: submittedAt,
+        input_hash: inputHash,
+        idempotency_key: acceptedIdempotencyKey,
+        operation: 'image',
+        last_state: 'accepted',
       })
     },
   })

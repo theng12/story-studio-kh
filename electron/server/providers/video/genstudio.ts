@@ -102,6 +102,7 @@ const genstudioVideoProvider: VideoProvider = {
         resolution,
         requestIdentity: `${request.idempotencyIdentity || request.startImagePath}:variant:${index + 1}`,
         isCancelled: request.isCancelled,
+        onJobAccepted: (taskId, idempotencyKey) => request.onJobAccepted?.(taskId, idempotencyKey, index),
       }))
     }
     return {
