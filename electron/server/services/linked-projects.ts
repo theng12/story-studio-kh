@@ -241,15 +241,21 @@ export async function addLinkedProject(absPath: string): Promise<LinkedProjectIn
  * the user can re-add it later or move/delete the folder manually.
  * Returns true iff the path was registered (and is now gone).
  */
-export async function removeLinkedProject(absPath: string): Promise<boolean> {
-  const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
-  await assertProjectJobsSafeToRemove(path.resolve(absPath))
+export async function removeLinkedProjectAfterGuard(absPath: string): Promise<boolean> {
   const norm = path.isAbsolute(absPath) ? path.resolve(absPath) : absPath
   const current = await getLinkedProjectPaths()
   const next = current.filter(p => p !== norm)
   if (next.length === current.length) return false
   await setLinkedProjectPaths(next)
   return true
+}
+
+export async function removeLinkedProject(absPath: string): Promise<boolean> {
+  const norm = path.isAbsolute(absPath) ? path.resolve(absPath) : absPath
+  const info = await inspectLinkedPath(norm)
+  const slug = info.slug || path.basename(norm)
+  const { withProjectJobRemovalGuard } = await import('./job-queue.js')
+  return withProjectJobRemovalGuard(slug, norm, () => removeLinkedProjectAfterGuard(norm))
 }
 
 /**

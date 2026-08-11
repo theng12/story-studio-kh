@@ -25,7 +25,7 @@ import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
-import { getSoftDeletedSlugSet, softDeleteProject, forgetSoftDeletedProject } from './soft-delete.js'
+import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
 import { randomUUID } from 'crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -833,40 +833,41 @@ export interface DeleteProjectResult {
 export async function deleteProject(slug: string): Promise<DeleteProjectResult> {
   const projectDir = getProjectDir(slug)
   if (!projectDir || !existsSync(projectDir)) return { ok: false }
-  const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
-  await assertProjectJobsSafeToRemove(projectDir)
+  const { withProjectJobRemovalGuard } = await import('./job-queue.js')
+  return withProjectJobRemovalGuard(slug, projectDir, async () => {
+    // Best-effort read of project.json so the post-delete dialog can
+    // show the human name. Missing/corrupt project.json is non-fatal —
+    // the dialog falls back to the slug.
+    let meta: ProjectMeta | null = null
+    try {
+      const raw = await readJson(path.join(projectDir, 'project.json'))
+      meta = raw as ProjectMeta
+    } catch { /* fall through */ }
 
-  // Best-effort read of project.json so the post-delete dialog can
-  // show the human name. Missing/corrupt project.json is non-fatal —
-  // the dialog falls back to the slug.
-  let meta: ProjectMeta | null = null
-  try {
-    const raw = await readJson(path.join(projectDir, 'project.json'))
-    meta = raw as ProjectMeta
-  } catch { /* fall through */ }
+    const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(projectsRoot()) + path.sep)
 
-  const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(projectsRoot()) + path.sep)
+    if (inDefaultLocation) {
+      const { softDeleteProjectAfterGuard } = await import('./soft-delete.js')
+      await softDeleteProjectAfterGuard(slug)
+      return {
+        ok: true,
+        disposition: 'soft_deleted',
+        orphan_path: projectDir,
+        name: meta?.name || slug,
+      }
+    }
 
-  if (inDefaultLocation) {
-    await softDeleteProject(slug)
+    // Linked project: just unregister from the linked-projects list. The
+    // folder is external (e.g. iCloud), so we never touch it.
+    const { removeLinkedProjectAfterGuard } = await import('./linked-projects.js')
+    await removeLinkedProjectAfterGuard(projectDir)
     return {
       ok: true,
-      disposition: 'soft_deleted',
+      disposition: 'unlinked',
       orphan_path: projectDir,
       name: meta?.name || slug,
     }
-  }
-
-  // Linked project: just unregister from the linked-projects list. The
-  // folder is external (e.g. iCloud), so we never touch it.
-  const { removeLinkedProject } = await import('./linked-projects.js')
-  await removeLinkedProject(projectDir)
-  return {
-    ok: true,
-    disposition: 'unlinked',
-    orphan_path: projectDir,
-    name: meta?.name || slug,
-  }
+  })
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ test('Jobs renders only the server-provided job control and dispatches its exact
   assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
   assert.match(jobs, /control\.action === 'clear-history'/)
   assert.match(jobs, /await del\(jobQueuePath\(job\)\)/)
+  assert.match(jobs, /:disabled="!job\.control\.enabled \|\| controlBusy\.has\(job\.job_id\)"/)
   assert.doesNotMatch(jobs, /COST_INCURRING_TYPES/)
   assert.doesNotMatch(jobs, /REMOTE_CANCELLABLE_TYPES/)
 })

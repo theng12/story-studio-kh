@@ -23,6 +23,7 @@ import { useTempDataDir } from './_helpers.js'
 let lp: typeof import('../services/linked-projects.js')
 let sd: typeof import('../services/soft-delete.js')
 let pm: typeof import('../services/project-manager.js')
+let jq: typeof import('../services/job-queue.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 async function seedProject(parentDir: string, slug: string): Promise<string> {
@@ -51,6 +52,7 @@ describe('soft-delete', () => {
     pm = await import('../services/project-manager.js')
     lp = await import('../services/linked-projects.js')
     sd = await import('../services/soft-delete.js')
+    jq = await import('../services/job-queue.js')
   })
 
   after(async () => { await tmp.cleanup() })
@@ -160,9 +162,10 @@ describe('soft-delete', () => {
     for (const status of ['queued', 'running', 'paused']) {
       const slug = `active-${status}`
       const dir = await seedProject(pm.projectsRoot(), slug)
+      await sd.softDeleteProject(slug)
       await seedJob(dir, status)
       await assert.rejects(() => pm.deleteProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
-      await sd.softDeleteProject(slug)
+      await assert.rejects(() => sd.softDeleteProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
       await assert.rejects(() => sd.hardDeleteSoftDeletedProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
       assert.ok(existsSync(dir))
     }
@@ -193,11 +196,11 @@ describe('soft-delete', () => {
     app.use('/api', projectsRouter, softDeletedRouter, linkedRouter)
 
     const defaultDir = await seedProject(pm.projectsRoot(), 'route-active')
+    await sd.softDeleteProject('route-active')
     await seedJob(defaultDir, 'queued')
     const soft = await request(app).delete('/api/projects/route-active')
     assert.equal(soft.status, 409)
     assert.ok(existsSync(path.join(defaultDir, 'jobs.json')))
-    await sd.softDeleteProject('route-active')
     const hard = await request(app).delete('/api/soft-deleted-projects/route-active')
     assert.equal(hard.status, 409)
     assert.ok(existsSync(defaultDir))
@@ -208,6 +211,37 @@ describe('soft-delete', () => {
     const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
     assert.equal(unlink.status, 409)
     assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
+  })
+
+  test('queue insertion blocks immediate soft-delete and unlink before its async snapshot reaches disk', async () => {
+    const express = (await import('express')).default
+    const request = (await import('supertest')).default
+    const projectsRouter = (await import('../routes/projects.js')).router
+    const linkedRouter = (await import('../routes/linked-projects.js')).router
+    const app = express()
+    app.use(express.json())
+    app.use('/api', projectsRouter, linkedRouter)
+    await jq.setQueuePaused(true)
+    let defaultJob: { job_id: string } | undefined
+    let linkedJob: { job_id: string } | undefined
+    try {
+      const defaultDir = await seedProject(pm.projectsRoot(), 'immediate-queued-delete')
+      defaultJob = jq.enqueue({ project_slug: 'immediate-queued-delete', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
+      const soft = await request(app).delete('/api/projects/immediate-queued-delete')
+      assert.equal(soft.status, 409)
+      assert.ok(existsSync(defaultDir), 'the soft-delete mutation must not win the enqueue/persist race')
+
+      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'immediate-queued-unlink')
+      await lp.addLinkedProject(linkedDir)
+      linkedJob = jq.enqueue({ project_slug: 'immediate-queued-unlink', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
+      const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
+      assert.equal(unlink.status, 409)
+      assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
+    } finally {
+      if (defaultJob) await jq.requestJobCancellation('immediate-queued-delete', defaultJob.job_id)
+      if (linkedJob) await jq.requestJobCancellation('immediate-queued-unlink', linkedJob.job_id)
+      await jq.setQueuePaused(false)
+    }
   })
 
   test('addLinkedProject auto-clears a soft-delete tombstone for its slug', async () => {

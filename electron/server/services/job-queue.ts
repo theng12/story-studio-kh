@@ -353,6 +353,7 @@ const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
+const projectRemovalInProgress = new Set<string>()
 const PENDING_REMOTE_CANCELLATION_STATUSES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 
 function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): boolean {
@@ -445,6 +446,16 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
   if (!job || job.status !== 'running' || !requiresCancellationReconciliation(job)) return
   cancellationReconciling.add(jobId)
   try {
+    // Do not claim the one cancellation POST before credentials exist. A
+    // durable queued intent is safely retryable; a stranded submitting claim
+    // is not useful until a later boot/control-plane pass.
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) {
+      job.output_lines.push('Cancellation is waiting for the GenStudio API key to be available on this Mac.')
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
     for (const [key, record] of Object.entries(job.remote_cancellations || {})) {
       if (record.status !== 'queued') continue
       const claimed = await claimRemoteCancellation(job.job_id, record.operation, record.provider_job_id).catch(() => false)
@@ -452,13 +463,6 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       // The claim changes the in-memory object too. Reconciliation reads the
       // fresh durable state below rather than carrying a stale closure.
       job.output_lines.push(`Checking GenStudio cancellation for ${key}.`)
-    }
-    const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) {
-      job.output_lines.push('Cancellation is waiting for the GenStudio API key to be available on this Mac.')
-      await persistJob(job)
-      emitUpdate(job)
-      return
     }
     const outcome = await reconcilePendingJobCancellation(job, apiKey)
     job.remote_cancellations = outcome.records
@@ -815,6 +819,43 @@ async function persistProjectSnapshot(projectSlug: string): Promise<void> {
       .map(j => safeJob(j)))
     await writeJsonAtomic(p, { jobs: remaining })
   })
+}
+
+/**
+ * Queue-owned project removal boundary. The in-memory insertion point is
+ * synchronous, while persistence is asynchronous, so disk alone cannot
+ * protect a delete/unlink immediately after enqueue.
+ */
+export async function withProjectJobRemovalGuard<T>(
+  projectSlug: string,
+  projectDir: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  if (projectRemovalInProgress.has(projectSlug)) {
+    throw Object.assign(new Error('Project removal is already being checked. Return later and retry.'), { statusCode: 409 })
+  }
+  projectRemovalInProgress.add(projectSlug)
+  try {
+    return await withLock(path.join(projectDir, 'jobs.json'), async () => {
+      const active = Array.from(jobs.values()).find(job => (
+        job.project_slug === projectSlug
+        && (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job))
+      ))
+      if (active) {
+        throw Object.assign(
+          new Error(`Project has active or unsettled provider job ${active.job_id}. Return later until Story Studio confirms final settlement.`),
+          { statusCode: 409 },
+        )
+      }
+      // This is under the same mutex as persistJob, so a queued snapshot
+      // finishes before the restart-safe disk evidence is inspected.
+      const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
+      await assertProjectJobsSafeToRemove(projectDir)
+      return action()
+    })
+  } finally {
+    projectRemovalInProgress.delete(projectSlug)
+  }
 }
 
 function safeJob(job: Job): Omit<Job, never> {
@@ -1612,6 +1653,9 @@ export async function enqueueOrRun(opts: {
   params?: Record<string, any>
   sync?: boolean
 }): Promise<Job> {
+  if (projectRemovalInProgress.has(opts.project_slug)) {
+    throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
+  }
   if (!opts.sync) return enqueue(opts)
 
   const executor = queues[opts.type]?.executor
@@ -1668,6 +1712,9 @@ export function enqueue(opts: {
    *  enqueue (run back-to-back) without rejecting each other. */
   dedupeParams?: (params: any) => boolean
 }): Job {
+  if (projectRemovalInProgress.has(opts.project_slug)) {
+    throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
+  }
   if (!queues[opts.type]) {
     throw new Error(`No queue lane registered for job type: ${opts.type}`)
   }
@@ -2076,6 +2123,10 @@ async function queueRemoteCancellationTargets(
   if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for GenStudio confirmation.`)
   await persistJob(job)
   emitUpdate(job)
+  // Recovered jobs have no executor boundary; live jobs can be inside one.
+  // Start the read-only control-plane reconciliation after the one durable
+  // intent, with the reconciler retaining one-shot cancellation ownership.
+  scheduleCancellationReconciliation(job.job_id)
   return serializeJob(job)
 }
 

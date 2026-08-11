@@ -6,7 +6,16 @@ export type JobCancellationAuditor = (job: Job) => Promise<'complete' | 'repair-
 const auditors = new Map<JobType, JobCancellationAuditor>()
 
 export function registerJobCancellationAuditor(type: JobType, auditor: JobCancellationAuditor): void {
-  auditors.set(type, auditor)
+  // Provider success does not make malformed or unreadable local output
+  // complete. Convert audit faults into repair-first evidence rather than a
+  // transport retry loop in the cancellation reconciler.
+  auditors.set(type, async job => {
+    try {
+      return await auditor(job)
+    } catch {
+      return 'repair-required'
+    }
+  })
 }
 
 export function hasJobCancellationAuditor(type: JobType): boolean {

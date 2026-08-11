@@ -23,7 +23,10 @@ const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested'
 const PRE_DISPATCH_STATES = new Set(['accepted', 'reserved'])
 const VIDEO_POST_DISPATCH_STATES = new Set(['dispatched', 'running', 'validating', 'reconciling'])
 const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
-  'audio', 'images', 'scene_images', 'thumb_images', 'image_pool_generate', 'subtitles_transcribe',
+  // These executors check the cooperative pause marker between submissions.
+  // Image batches currently do not, so advertising Pause there would let an
+  // in-flight batch continue submitting work after promising otherwise.
+  'audio', 'subtitles_transcribe',
 ])
 
 function control(

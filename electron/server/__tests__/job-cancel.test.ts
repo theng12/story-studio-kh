@@ -38,6 +38,8 @@ before(async () => {
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', '')
 })
 
 after(async () => { await cleanup() })
@@ -250,7 +252,7 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(first.finished_at, null)
     assert.deepEqual(Object.keys(first.remote_cancellations || {}).sort(), keys)
     assert.deepEqual(Object.keys(second.remote_cancellations || {}).sort(), keys)
-    assert.ok(keys.every(key => first.remote_cancellations?.[key]?.status === 'queued'))
+    assert.ok(keys.every(key => ['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(first.remote_cancellations?.[key]?.status || '')))
 
     release()
     await new Promise(resolve => setTimeout(resolve, 30))
@@ -375,10 +377,11 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(repair.status, 'error')
     assert.match(repair.error || '', /needs repair/i)
     assert.deepEqual(repair.result, { provider_settled: 'succeeded', repair_required: true })
-    registerJobCancellationAuditor('audio', async () => { throw new Error('disk audit offline') })
+    registerJobCancellationAuditor('audio', async () => { throw new Error('malformed narration artifact') })
     const auditFailure = await settle('AUDIT_THREW', 'succeeded')
     assert.equal(auditFailure.status, 'error')
-    assert.match(auditFailure.output_lines.join('\n'), /completion audit failed; repair missing output before retry/i)
+    assert.match(auditFailure.error || '', /needs repair/i)
+    assert.equal(auditFailure.result?.repair_required, true)
     registerJobCancellationAuditor('audio', async () => 'complete')
   })
 
@@ -636,6 +639,42 @@ describe('remote cancellation checkpoints', () => {
 })
 
 describe('terminal provider-evidence guards', () => {
+  test('a live remote-cancel request begins reconciliation before its executor returns', async () => {
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    await setApiKey('genstudio', 'live-cancel-key')
+    const project = await pm.createProject({ name: 'Live cancellation dispatch' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const requests: string[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input, init) => {
+      const requestPath = new URL(String(input)).pathname
+      requests.push(`${init?.method || 'GET'} ${requestPath}`)
+      if (requestPath.endsWith('/cancel')) return Response.json({ id: 'live-cancel-target', state: 'running', cancellation_requested: true, cancelled: false })
+      return Response.json({ id: 'live-cancel-target', state: 'accepted', cancellable: true, cancelled: false })
+    }
+    jq.registerExecutor('audio', async () => await hold)
+    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_CANCEL', title: 'live', params: {} })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
+    await jq.recordGenStudioJob(job.job_id, { id: 'live-cancel-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+    try {
+      await jq.requestJobCancellation(project.slug, job.job_id)
+      const reconcileDeadline = Date.now() + 1_000
+      while (Date.now() < reconcileDeadline && requests.length < 2) await new Promise(resolve => setTimeout(resolve, 20))
+      assert.deepEqual(requests, [
+        'GET /v1/jobs/live-cancel-target',
+        'POST /v1/jobs/live-cancel-target/cancel',
+      ])
+      assert.equal(jq.getJob(job.job_id)?.status, 'running')
+      assert.equal(jq.isDuplicate(project.slug, 'LIVE_CANCEL', 'audio'), true)
+    } finally {
+      release()
+      globalThis.fetch = originalFetch
+      await setApiKey('genstudio', '')
+    }
+  })
+
   test('restored queued work with an accepted provider ID cannot be cancelled as unsubmitted', async () => {
     const project = await pm.createProject({ name: 'AcceptedRestartCancellation' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
@@ -646,15 +685,36 @@ describe('terminal provider-evidence guards', () => {
       status: 'queued', created_at: new Date().toISOString(), started_at: null, finished_at: null, error: null, output_lines: [], params: {},
       genstudio_jobs: [{ id: 'accepted-tts', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() }],
     }] }))
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const originalFetch = globalThis.fetch
+    const requests: Array<{ method: string; path: string }> = []
+    globalThis.fetch = async (input, init) => {
+      const requestPath = new URL(String(input)).pathname
+      requests.push({ method: (init?.method || 'GET').toUpperCase(), path: requestPath })
+      if (requestPath === '/v1/jobs/accepted-tts') return Response.json({ id: 'accepted-tts', state: 'accepted', cancellable: true, cancelled: false })
+      if (requestPath === '/v1/jobs/accepted-tts/cancel') return Response.json({ id: 'accepted-tts', state: 'running', cancellation_requested: true, cancelled: false })
+      return Response.json({ detail: 'unexpected request' }, { status: 500 })
+    }
     try {
       await jq.getJobs(project.slug)
+      await setApiKey('genstudio', 'restored-cancel-key')
       const controlled = await jq.requestJobCancellation(project.slug, 'accepted-restart-cancel')
       assert.equal(controlled.status, 'running')
       assert.equal(controlled.finished_at, null)
       assert.ok(controlled.remote_cancellations?.['voice.tts:accepted-tts'])
       assert.doesNotMatch(controlled.output_lines.join('\n'), /sent no provider request/i)
+      const reconcileDeadline = Date.now() + 1_000
+      while (Date.now() < reconcileDeadline && requests.length < 2) await new Promise(resolve => setTimeout(resolve, 20))
+      assert.deepEqual(requests, [
+        { method: 'GET', path: '/v1/jobs/accepted-tts' },
+        { method: 'POST', path: '/v1/jobs/accepted-tts/cancel' },
+      ])
+      assert.equal(jq.getJob('accepted-restart-cancel')?.status, 'running')
+      assert.equal(jq.getJob('accepted-restart-cancel')?.finished_at, null)
       assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio'), true)
     } finally {
+      globalThis.fetch = originalFetch
+      await setApiKey('genstudio', '')
       await jq.setQueuePaused(false)
     }
   })

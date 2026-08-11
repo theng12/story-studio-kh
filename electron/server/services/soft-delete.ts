@@ -106,11 +106,19 @@ export async function getSoftDeletedSlugSet(): Promise<Set<string>> {
  * Add a slug to the soft-delete list. Idempotent — calling twice with
  * the same slug just refreshes the deleted_at timestamp.
  */
-export async function softDeleteProject(slug: string): Promise<void> {
+export async function softDeleteProjectAfterGuard(slug: string): Promise<void> {
   const list = await getRawList()
   const filtered = list.filter(e => e.slug !== slug)
   filtered.push({ slug, deleted_at: new Date().toISOString() })
   await setRawList(filtered)
+}
+
+/** Keep the public registry mutation behind the same queue-owned guard. */
+export async function softDeleteProject(slug: string): Promise<void> {
+  const projectDir = path.join(projectsRoot(), slug)
+  if (!existsSync(projectDir)) return softDeleteProjectAfterGuard(slug)
+  const { withProjectJobRemovalGuard } = await import('./job-queue.js')
+  return withProjectJobRemovalGuard(slug, projectDir, () => softDeleteProjectAfterGuard(slug))
 }
 
 /**
@@ -185,9 +193,10 @@ export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> 
   }
   const candidatePath = path.join(projectsRoot(), slug)
   if (existsSync(candidatePath)) {
-    const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
-    await assertProjectJobsSafeToRemove(candidatePath)
-    await fs.rm(candidatePath, { recursive: true, force: true })
+    const { withProjectJobRemovalGuard } = await import('./job-queue.js')
+    await withProjectJobRemovalGuard(slug, candidatePath, async () => {
+      await fs.rm(candidatePath, { recursive: true, force: true })
+    })
   }
   await setRawList(list.filter(e => e.slug !== slug))
 }

@@ -114,14 +114,24 @@ describe('server-owned job controls', () => {
     assert.equal(control.enabled, false)
   })
 
-  test('enables pause submissions for known already-started batch work without claiming it stops provider work', () => {
+  test('does not promise pause submissions for image batches without cooperative item boundaries', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [evidence('image.generation', 'running', { cancellable: false })],
     }), { remoteCancellationAudited: true })
 
     assert.equal(control.action, 'pause-submissions')
-    assert.equal(control.enabled, true)
+    assert.equal(control.enabled, false)
     assert.match(control.reason, /already started and will continue settling/i)
+  })
+
+  test('keeps Pause submissions enabled only for an executor with a proven cooperative boundary', () => {
+    const control = classifyJobControl(job({
+      type: 'audio',
+      genstudio_jobs: [evidence('voice.tts', 'running', { cancellable: false })],
+    }), { remoteCancellationAudited: true })
+
+    assert.equal(control.action, 'pause-submissions')
+    assert.equal(control.enabled, true)
   })
 
   test('keeps known unsupported provider work settling while requesting eligible video cancellation', () => {
