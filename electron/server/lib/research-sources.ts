@@ -16,6 +16,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveResearchPaths } from './research-paths.js'
+import { canonicalHttpUrl } from '../services/research/urls.js'
 import type { Format, ResearchOutput } from '../models/types.js'
 
 const DIVIDER = '──────────────────────────────────────'
@@ -46,12 +47,12 @@ export async function readSelectedResearchSources(
     const { jsonPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
     if (!existsSync(jsonPath)) return []
     const research = JSON.parse(await fs.readFile(jsonPath, 'utf-8')) as ResearchOutput
-    return (research.citations || [])
-      .filter(c => c && typeof c.url === 'string' && c.url.trim() && c.include_in_description !== false)
-      .map(c => ({
-        title: (c.title || '').trim() || c.url.trim(),
-        url: c.url.trim(),
-      }))
+    return (research.citations || []).flatMap(c => {
+      const url = canonicalHttpUrl(c?.url)
+      return c && url && c.include_in_description !== false
+        ? [{ title: (c.title || '').trim() || url, url }]
+        : []
+    })
   } catch {
     return []
   }

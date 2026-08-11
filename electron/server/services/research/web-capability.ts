@@ -41,6 +41,7 @@
 
 import type { GenStudioChatModel, GenStudioCitation, GenStudioWebSearchBlock } from '../../lib/genstudio-client.js'
 import type { ResearchCitation, ResearchWebSearchSettings } from '../../models/types.js'
+import { sanitizeResearchCitations } from './urls.js'
 
 /** Shown wherever web mode is offered but nothing qualifies. Deliberately
  *  explains the situation instead of reading as a failure. */
@@ -223,7 +224,7 @@ export function buildWebSearchBlock(
  * ResearchOutput.generated_at.
  */
 export function toResearchCitations(citations: readonly GenStudioCitation[]): ResearchCitation[] {
-  return citations.map(citation => ({
+  return sanitizeResearchCitations(citations.map(citation => ({
     // Carried so a grounded per-claim link has something to point at.
     ...(citation.id ? { source_id: citation.id } : {}),
     // A citation with no title still has to be openable and identifiable, so
@@ -235,5 +236,5 @@ export function toResearchCitations(citations: readonly GenStudioCitation[]): Re
     ...(citation.published_at ? { published_at: citation.published_at } : {}),
     ...(citation.start_index !== null ? { start_index: citation.start_index } : {}),
     ...(citation.end_index !== null ? { end_index: citation.end_index } : {}),
-  }))
+  })))
 }

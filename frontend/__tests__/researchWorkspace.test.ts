@@ -139,6 +139,15 @@ describe('Research workspace flow', () => {
     assert.match(research, /do not back individual claims/)
   })
 
+  test('labels the two source counts distinctly and never renders unchecked citation URLs', () => {
+    assert.match(research, /Structured citations/)
+    assert.match(research, /retrieved pages/)
+    assert.match(research, /const structuredCitationCount = computed/)
+    assert.match(research, /function safeCitationUrl/)
+    assert.match(research, /:href="safeCitationUrl\(result\.citations\[idx\]\)"/)
+    assert.match(research, /v-if="safeCitationUrl\(c\)"/)
+  })
+
   test('filters edited sidecar source URLs before rendering them as links', () => {
     assert.match(research, /const resultSourceUrls = computed/)
     assert.match(research, /new URL\(raw\.trim\(\)\)/)

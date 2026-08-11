@@ -367,7 +367,8 @@
             <span data-tone="success"><b>{{ acceptedCount }}</b> verified</span>
             <span data-tone="warning"><b>{{ unreviewedCount }}</b> pending</span>
             <span><b>{{ ignoredCount }}</b> ignored</span>
-            <span><b>{{ result.citations.length }}</b> sources</span>
+            <span><b>{{ structuredCitationCount }}</b> Structured citations</span>
+            <span v-if="resultHasSourceUrls"><b>{{ resultSourceUrls.length }}</b> retrieved pages</span>
           </div>
           <div v-if="result.claims.length" class="research-claims-bulk">
             <button type="button" class="btn btn-xs btn-primary" @click="bulkClaims('verified')" title="Mark every claim verified">Verify all</button>
@@ -395,17 +396,18 @@
               <div v-if="claim.note" class="research-claim-note">{{ claim.note }}</div>
               <div v-if="claim.citation_indices?.length" class="research-claim-refs">
                 <span>Evidence</span>
-                <a
-                  v-for="idx in claim.citation_indices"
-                  :key="idx"
-                  class="research-cite-link"
-                  :href="result.citations[idx]?.url || '#'"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  :title="result.citations[idx]?.snippet || result.citations[idx]?.title"
-                >
-                  Source {{ idx + 1 }}
-                </a>
+                <template v-for="idx in claim.citation_indices" :key="idx">
+                  <a
+                    v-if="safeCitationUrl(result.citations[idx])"
+                    class="research-cite-link"
+                    :href="safeCitationUrl(result.citations[idx])"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :title="result.citations[idx]?.snippet || result.citations[idx]?.title"
+                  >
+                    Source {{ idx + 1 }}
+                  </a>
+                </template>
               </div>
               <!-- An absent citation is a fact the reviewer needs, but only
                    where absence actually means something. In model-knowledge
@@ -474,13 +476,13 @@
           </ul>
         </div>
 
-        <div v-if="result.citations?.length" class="research-sources-panel">
+        <div v-if="structuredCitationCount" class="research-sources-panel">
           <div class="research-sources-head">
             <div>
               <span class="research-panel-kicker">Source handoff</span>
               <h3>Sources in the video description</h3>
               <p>
-                {{ includedSourceCount }} of {{ result.citations.length }} selected. Metadata will append their titles and links.
+                {{ includedSourceCount }} of {{ structuredCitationCount }} selected. Metadata will append their titles and links.
                 <template v-if="resultMode === 'web-search' && attributedClaimCount === 0">
                   These sources back the whole run — they are not linked to individual claims.
                 </template>
@@ -497,10 +499,10 @@
             </div>
           </div>
           <ol class="research-sources">
-            <li v-for="(c, i) in result.citations" :key="i" :class="{ 'src-excluded': c.url && !isSourceIncluded(c) }">
+            <li v-for="(c, i) in result.citations" :key="i" :class="{ 'src-excluded': safeCitationUrl(c) && !isSourceIncluded(c) }">
               <label class="research-source-toggle">
                 <input
-                  v-if="c.url"
+                  v-if="safeCitationUrl(c)"
                   type="checkbox"
                   :checked="isSourceIncluded(c)"
                   :title="isSourceIncluded(c) ? 'Included in the description' : 'Excluded from the description'"
@@ -509,14 +511,14 @@
                 <span>{{ i + 1 }}</span>
               </label>
               <div class="research-source-content">
-                <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
+                <a v-if="safeCitationUrl(c)" :href="safeCitationUrl(c)" target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
                 <strong v-else>{{ c.title }}</strong>
                 <!-- publisher / published_at are shown only when the provider
                      actually supplied them; neither is reliable today. -->
                 <span v-if="sourceAttribution(c)" class="research-source-meta">{{ sourceAttribution(c) }}</span>
                 <p v-if="c.snippet">{{ c.snippet }}</p>
               </div>
-              <span v-if="c.url && verifiedBackingIdx.has(i)" class="research-source-vbadge" title="Cited by a verified claim">Verified evidence</span>
+              <span v-if="safeCitationUrl(c) && verifiedBackingIdx.has(i)" class="research-source-vbadge" title="Cited by a verified claim">Verified evidence</span>
             </li>
           </ol>
         </div>
@@ -1008,6 +1010,21 @@ const resultSourceUrls = computed(() => {
   }
   return urls
 })
+function safeCitationUrl(citation: ResearchCitation | undefined): string {
+  const url = typeof citation?.url === 'string' ? citation.url.trim() : ''
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname
+      ? parsed.toString()
+      : ''
+  } catch {
+    return ''
+  }
+}
+const structuredCitationCount = computed(() =>
+  (result.value?.citations || []).filter(c => !!safeCitationUrl(c)).length,
+)
 const resultWebRun = computed(() => ({
   ...result.value?.web_run,
   source_urls: resultSourceUrls.value,
@@ -1063,7 +1080,7 @@ function sourceAttribution(c: ResearchCitation): string {
 function isSourceIncluded(c: ResearchCitation): boolean { return c.include_in_description !== false }
 function setSourceIncluded(c: ResearchCitation, val: boolean): void { c.include_in_description = val }
 const includedSourceCount = computed(() =>
-  (result.value?.citations || []).filter(c => c.url && isSourceIncluded(c)).length,
+  (result.value?.citations || []).filter(c => safeCitationUrl(c) && isSourceIncluded(c)).length,
 )
 // A citation index is "verified-backing" when at least one VERIFIED claim cites it.
 const verifiedBackingIdx = computed(() => {

@@ -36,6 +36,7 @@ import {
 import { getApiKey } from '../services/app-secrets-store.js'
 import { listChatModels } from '../lib/genstudio-client.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
+import { sanitizeResearchOutputUrls } from '../services/research/urls.js'
 import {
   readResearchReview,
   readResearchTriage,
@@ -243,7 +244,7 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
     } catch { /* first save for this episode — no prior decisions to compare */ }
 
     const triage = readResearchTriage(body)
-    let normalized: ResearchOutput = { ...(body as ResearchOutput) }
+    let normalized: ResearchOutput = sanitizeResearchOutputUrls({ ...(body as ResearchOutput) })
     delete (normalized as { verification?: unknown }).verification  // retired v1.0.760 block
     delete normalized.review
     if (triage.reviewed) {

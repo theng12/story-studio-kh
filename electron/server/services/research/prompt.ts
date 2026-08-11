@@ -22,6 +22,7 @@ import type {
   ResearchStructureSection,
   ResearchWebRunReport,
 } from '../../models/types.js'
+import { canonicalHttpUrl, sanitizeResearchCitations } from './urls.js'
 
 export interface ResearchJsonContract {
   summary?: string
@@ -209,12 +210,13 @@ export function assembleOutput(
   // evidence that anything was read — accepting those would let web mode
   // present a hallucinated URL with the same authority as a real source.
   const byUrl = new Map<string, ResearchCitation>()
-  for (const c of liveCitations) {
+  for (const c of sanitizeResearchCitations(liveCitations)) {
     if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
   }
   if (mode !== 'web-search') {
     for (const c of parsed.citations || []) {
-      if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
+      const url = canonicalHttpUrl(c.url)
+      if (url && !byUrl.has(url)) byUrl.set(url, { ...c, title: c.title || url, url })
     }
   }
   const finalCitations = Array.from(byUrl.values())
@@ -249,7 +251,7 @@ export function assembleOutput(
   // Rewrite each parsed claim's citation indices to point into the
   // merged list. The LLM produces indices into ITS own citations
   // array; we map those URLs to positions in finalCitations.
-  const parsedCitationUrls = (parsed.citations || []).map(c => c.url)
+  const parsedCitationUrls = (parsed.citations || []).map(c => canonicalHttpUrl(c.url))
   const claims: ResearchClaim[] = (parsed.claims || []).map((c, claimIndex) => {
     const remapped: number[] = []
     for (const idx of c.citation_indices || []) {

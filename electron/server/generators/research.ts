@@ -33,6 +33,7 @@ import {
   readResearchTriage,
   withResearchUntriaged,
 } from '../lib/research-verification.js'
+import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
 
 // Re-exported for back-compat with importers that referenced these here.
 export { RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
@@ -88,7 +89,7 @@ export async function runResearchJob(job: Job): Promise<void> {
   if (params.model) {
     job.output_lines.push(`Model: ${params.model}`)
   }
-  const result = await adapter.run({
+  const result = sanitizeResearchOutputUrls(await adapter.run({
     topic,
     specific_questions: params.specific_questions,
     max_sources: params.max_sources,
@@ -102,7 +103,7 @@ export async function runResearchJob(job: Job): Promise<void> {
           },
         }
       : {}),
-  })
+  }))
 
   job.progress = 80
   job.output_lines.push(
@@ -297,21 +298,14 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     }
   }
 
-  lines.push('## Sources')
+  lines.push('## Structured citations')
   lines.push('')
   if (!r.citations.length) {
-    const sourceUrls = r.web_run?.source_urls || []
     lines.push(mode === 'web-search'
-      ? sourceUrls.length
-        ? 'No structured citations were published. Provider-reported pages retrieved for this run:'
-        : `None. ${researchModeNotice(mode, r.citations.length, r.web_run)}`
+      ? `None. ${researchModeNotice(mode, r.citations.length, r.web_run)}`
       : 'None. This run used the model’s own knowledge, which cannot cite live sources — it is deliberately '
         + 'not allowed to invent URLs. Find sources yourself for anything specific or recent.')
     lines.push('')
-    if (mode === 'web-search' && sourceUrls.length) {
-      for (const url of sourceUrls) lines.push(`- ${url}`)
-      lines.push('')
-    }
   } else {
     if (mode === 'web-search') {
       const attributed = r.claims.filter(c => c.citation_indices?.length).length
@@ -327,13 +321,24 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     }
     for (let i = 0; i < r.citations.length; i++) {
       const c = r.citations[i]!
-      const link = c.url ? `[${c.title}](${c.url})` : c.title
+      const url = canonicalHttpUrl(c.url)
+      const link = url ? `[${c.title}](${url})` : c.title
       // publisher / published_at are carried through only when the provider
       // actually supplied them — they are not reliable today.
       const attribution = [c.publisher, c.published_at].filter(Boolean).join(', ')
       lines.push(`${i + 1}. ${link}${attribution ? ` — ${attribution}` : ''}`)
       if (c.snippet) lines.push(`   > ${c.snippet}`)
     }
+    lines.push('')
+  }
+
+  const sourceUrls = canonicalHttpUrls(r.web_run?.source_urls)
+  if (mode === 'web-search' && sourceUrls.length) {
+    lines.push('## Pages GenStudio reported retrieving')
+    lines.push('')
+    lines.push('These are pages the provider reported opening. They are not citations and do not back individual claims.')
+    lines.push('')
+    for (const url of sourceUrls) lines.push(`- [${url}](${url})`)
     lines.push('')
   }
 

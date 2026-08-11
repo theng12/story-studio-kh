@@ -704,6 +704,32 @@ describe('the research generator resets the triage', () => {
     assert.ok(job.output_lines.some(l => /Web search cost: not reported/.test(l)))
   })
 
+  test('research.md separates retrieved pages from structured citations and filters unsafe links', async () => {
+    const epDir = await makeProject(true)
+    await runWebGenerator(
+      [
+        { title: 'Safe citation', url: ' https://example.invalid/citation ' },
+        { title: 'Unsafe citation', url: 'javascript:alert(1)' },
+      ],
+      {
+        source_urls: [
+          ' https://example.invalid/opened ',
+          'javascript:alert(1)',
+          'data:text/html,unsafe',
+        ],
+      },
+    )
+
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /## Structured citations/)
+    assert.match(md, /\[Safe citation\]\(https:\/\/example\.invalid\/citation\)/)
+    assert.match(md, /## Pages GenStudio reported retrieving/)
+    assert.match(md, /https:\/\/example\.invalid\/opened/)
+    assert.match(md, /not citations and do not back individual claims/i)
+    assert.doesNotMatch(md, /javascript:|data:text\/html/)
+  })
+
   test('a web run without structured citations remains a successful web outcome', async () => {
     const epDir = await makeProject(true)
     const job = await runWebGenerator([], {

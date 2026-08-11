@@ -291,6 +291,18 @@ describe('envelope citations', () => {
     assert.equal('retrieved_at' in stored[0]!, false)
   })
 
+  it('persists only canonical HTTP(S) envelope citations', () => {
+    const stored = toResearchCitations(parseGenStudioCitations([
+      { id: 'safe', title: 'Safe', url: ' https://example.org/a ' },
+      { id: 'script', title: 'Script', url: 'javascript:alert(1)' },
+      { id: 'data', title: 'Data', url: 'data:text/html,unsafe' },
+      { id: 'file', title: 'File', url: 'file:///private.txt' },
+      { id: 'malformed', title: 'Malformed', url: 'not a URL' },
+    ]))
+
+    assert.deepEqual(stored.map(c => c.url), ['https://example.org/a'])
+  })
+
   it('stores envelope citations at RUN level and ignores model-authored URLs in web mode', () => {
     const modelJson = JSON.stringify({
       summary: 'Summary',
@@ -340,6 +352,22 @@ describe('envelope citations', () => {
     assert.deepEqual(output.citations.map(c => c.url), ['https://example.org/enc'])
     assert.deepEqual(output.claims[0]!.citation_indices, [0])
     assert.equal(output.research_mode, 'model-knowledge')
+  })
+
+  it('drops unsafe model-authored citations before producing a sidecar shape', () => {
+    const output = assembleOutput(
+      JSON.stringify({
+        claims: [{ text: 'A claim.', citation_indices: [0, 1] }],
+        citations: [
+          { title: 'Unsafe', url: 'javascript:alert(1)' },
+          { title: 'Safe', url: 'https://example.org/kept' },
+        ],
+      }),
+      [],
+      { topic: 'T', provider: GENSTUDIO_RESEARCH_PROVIDER, mode: 'model-knowledge' },
+    )
+    assert.deepEqual(output.citations.map(c => c.url), ['https://example.org/kept'])
+    assert.deepEqual(output.claims[0]!.citation_indices, [0])
   })
 })
 

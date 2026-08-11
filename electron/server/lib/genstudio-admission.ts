@@ -53,10 +53,9 @@ function whole(value: unknown, fallback: number, minimum = 0): number {
 }
 
 function positiveWhole(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' && typeof value !== 'string') return fallback
-  if (typeof value === 'string' && !value.trim()) return fallback
-  const parsed = Math.floor(Number(value))
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1
+    ? value
+    : fallback
 }
 
 function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCapacity {

@@ -107,6 +107,8 @@ for (const [value, label] of [
   [0, 'zero'],
   [-1, 'a negative value'],
   [0.5, 'a fraction below one'],
+  [7.5, 'a non-whole number above one'],
+  ['999', 'a numeric string'],
   [Number.NaN, 'NaN'],
 ] as const) {
   test(`GenStudio admission falls back to five for ${label} submission rate`, async () => {
