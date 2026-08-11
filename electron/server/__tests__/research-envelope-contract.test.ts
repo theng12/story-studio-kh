@@ -197,6 +197,23 @@ test('the retired GUESSED names are no longer read off the wire', async () => {
   assert.equal(result.webSearch.searchCreditCost, null)
 })
 
+test('source URLs retain only valid HTTP(S) pages at the GenStudio boundary', async () => {
+  const result = await webCall({
+    source_urls: [
+      ' https://example.invalid/retrieved ',
+      'javascript:alert(1)',
+      'file:///Users/customer/private.txt',
+      'data:text/html,unsafe',
+      'not a URL',
+      'http://example.invalid/also-retrieved',
+    ],
+  })
+  assert.deepEqual(result.webSearch.sourceUrls, [
+    'https://example.invalid/retrieved',
+    'http://example.invalid/also-retrieved',
+  ])
+})
+
 test('absent fields stay null and are rendered "not reported"', async () => {
   const result = await webCall({})
   assert.equal(result.webSearch.searchesExecuted, null)

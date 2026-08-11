@@ -3799,9 +3799,15 @@ function readWebSearchUsage(envelope: GenStudioResearchEnvelope): GenStudioWebSe
   const cost = envelope.web_search_credit_cost
   return {
     sourceUrls: Array.isArray(envelope.source_urls)
-      ? [...new Set(envelope.source_urls
-        .filter((url): url is string => typeof url === 'string' && !!url.trim())
-        .map(url => url.trim()))]
+      ? [...new Set(envelope.source_urls.flatMap(raw => {
+        if (typeof raw !== 'string' || !raw.trim()) return []
+        try {
+          const url = new URL(raw.trim())
+          return url.protocol === 'http:' || url.protocol === 'https:' ? [url.toString()] : []
+        } catch {
+          return []
+        }
+      }))]
       : [],
     researchEvidenceLevel: envelope.research_evidence_level === 'attributed_claim_citations'
       || envelope.research_evidence_level === 'claim_citations'
