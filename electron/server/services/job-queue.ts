@@ -352,6 +352,25 @@ function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): b
   return Object.values(job.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))
 }
 
+/**
+ * A Story executor returning is not a provider settlement.  Keep its duplicate
+ * lock until every durable GenStudio target has an authoritative terminal
+ * state; a target excluded from the Cancel button still counts.
+ */
+export function hasUnsettledProviderWork(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
+  // Ordinary providers already keep their own executor pending. This extra
+  // cross-target hold begins only once the customer requests cancellation;
+  // otherwise legacy durable chat recovery would be stranded without its
+  // established retry/reconciliation path.
+  if (Object.keys(job.remote_cancellations || {}).length === 0) return false
+  if (hasPendingRemoteCancellation(job)) return true
+  return (job.genstudio_jobs || []).some(entry => (
+    entry.cancelled !== true
+    && entry.state !== 'succeeded'
+    && entry.state !== 'failed'
+  ))
+}
+
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
 // job. The Jobs workspace controls it explicitly; provider jobs already
 // accepted upstream are allowed to checkpoint before becoming paused.
@@ -974,8 +993,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         delete job.auto_retry.next_retry_at
         job.auto_retry.exhausted = false
       }
-      if (hasPendingRemoteCancellation(job)) {
-        job.output_lines.push('Provider cancellation remains pending. Story Studio will reconcile the final result before marking this job complete.')
+      if (hasUnsettledProviderWork(job)) {
+        job.output_lines.push('Provider work remains unsettled. Story Studio will reconcile every accepted task before marking this job complete.')
       } else if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
         // (a local stop may have already set status from another call context)
@@ -1041,7 +1060,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // probe — either way, the user's intent is "cancelled", not "error".
       if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
-      } else if (hasPendingRemoteCancellation(job)) {
+      } else if (hasUnsettledProviderWork(job)) {
         const isPause = e instanceof JobPausedError || pauseRequested.has(job.job_id)
         const message = e instanceof Error ? e.message : String(e)
         job.status = 'running'
@@ -1063,7 +1082,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
-    job.finished_at = job.status === 'paused' || hasPendingRemoteCancellation(job)
+    job.finished_at = job.status === 'paused' || hasUnsettledProviderWork(job)
       ? null
       : new Date().toISOString()
     jobs.set(job.job_id, job)

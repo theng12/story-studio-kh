@@ -1705,7 +1705,11 @@ export async function requestGenStudioCancellation(
     true,
     1,
   )
-  return parseGenStudioCancellationResponse(response)
+  const parsed = parseGenStudioCancellationResponse(response)
+  if (parsed.id !== providerJobId) {
+    throw new Error('GenStudio KH cancellation response did not match the requested provider job')
+  }
+  return parsed
 }
 
 function cancellationRecordStatus(result: GenStudioCancellationFields): 'confirmed' | 'requested' | 'reconciling' {

@@ -331,6 +331,21 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       }
     })
 
+    await suite.test('refuses a cancellation response for a different provider job', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async () => Response.json({ id: 'wrong-provider-job', state: 'accepted' }, { status: 200 })
+      try {
+        await assert.rejects(
+          client.requestGenStudioCancellation(
+            'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, 'expected-provider-job', {}, Date.now() + 10_000,
+          ),
+          /did not match the requested provider job/,
+        )
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
     // ── TTS ──────────────────────────────────────────────────────────────────
 
     await suite.test('TTS polls accepted → running → succeeded and surfaces released_credits', async () => {

@@ -288,6 +288,49 @@ describe('remote cancellation checkpoints', () => {
     release()
   })
 
+  test('does not terminalize while an excluded accepted provider sibling still settles', async () => {
+    const project = await pm.createProject({ name: 'AllProviderTargetsMustSettle' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'ALL_TARGETS', title: 'all targets', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'eligible-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'already-running-sibling', operation: 'voice.tts', state: 'running', cancellable: false,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.requestJobCancellation(project.slug, job.job_id)
+    await jq.recordRemoteCancellation(job.job_id, 'voice.tts', 'eligible-target', {
+      status: 'confirmed', state: 'failed', cancelled: true,
+    })
+    release()
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const whileSiblingRuns = jq.getJob(job.job_id)
+    assert.equal(whileSiblingRuns?.status, 'running')
+    assert.equal(whileSiblingRuns?.finished_at, null)
+    assert.equal(jq.hasUnsettledProviderWork(whileSiblingRuns!), true)
+
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'already-running-sibling', operation: 'voice.tts', state: 'succeeded', cancellable: false,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'eligible-target', operation: 'voice.tts', state: 'failed', cancelled: true,
+      updated_at: new Date().toISOString(),
+    })
+    assert.equal(jq.hasUnsettledProviderWork(jq.getJob(job.job_id)!), false)
+  })
+
   test('coalesces cold persisted cancellation requests before the project load finishes', async () => {
     const project = await pm.createProject({ name: 'ColdCancellationLoad' })
     const jobId = 'cold-cancellation-job'
@@ -600,6 +643,10 @@ describe('job route controls', () => {
       assert.equal(response.body.control.action, 'pause-submissions')
       assert.equal(typeof response.body.detail, 'string')
     } finally {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'already-started', operation: 'voice.tts', state: 'succeeded', cancellable: false,
+        updated_at: new Date().toISOString(),
+      })
       release()
       await waitForTerminal(job.job_id)
     }
