@@ -134,9 +134,16 @@ describe('Research workspace flow', () => {
 
   test('renders provider-reported pages as run-level evidence, never claim citations', () => {
     assert.match(research, /research-retrieved-pages/)
-    assert.match(research, /v-for="url in result\.web_run\?\.source_urls"/)
+    assert.match(research, /v-for="url in resultSourceUrls"/)
     assert.match(research, /not citations/)
     assert.match(research, /do not back individual claims/)
+  })
+
+  test('filters edited sidecar source URLs before rendering them as links', () => {
+    assert.match(research, /const resultSourceUrls = computed/)
+    assert.match(research, /new URL\(raw\.trim\(\)\)/)
+    assert.match(research, /url\.protocol !== 'http:' && url\.protocol !== 'https:'/)
+    assert.match(research, /v-for="url in resultSourceUrls"/)
   })
 
   // ── "Search the web" mode ──────────────────────────────────────────────

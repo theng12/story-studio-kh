@@ -468,7 +468,7 @@
             </div>
           </div>
           <ul>
-            <li v-for="url in result.web_run?.source_urls" :key="url">
+            <li v-for="url in resultSourceUrls" :key="url">
               <a :href="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
             </li>
           </ul>
@@ -549,7 +549,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import {
-  hasResearchSourceUrls,
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
   researchRanAt,
@@ -992,14 +991,35 @@ const resultMode = computed<ResearchMode>(() => {
 const attributedClaimCount = computed(
   () => (result.value?.claims || []).filter(c => c.citation_indices?.length).length,
 )
-const resultHasSourceUrls = computed(() => hasResearchSourceUrls(result.value?.web_run))
+const resultSourceUrls = computed(() => {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  for (const raw of result.value?.web_run?.source_urls || []) {
+    if (typeof raw !== 'string' || !raw.trim()) continue
+    try {
+      const url = new URL(raw.trim())
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') continue
+      const canonical = url.toString()
+      if (!seen.has(canonical)) {
+        seen.add(canonical)
+        urls.push(canonical)
+      }
+    } catch { /* edited legacy sidecars may contain malformed URLs */ }
+  }
+  return urls
+})
+const resultWebRun = computed(() => ({
+  ...result.value?.web_run,
+  source_urls: resultSourceUrls.value,
+}))
+const resultHasSourceUrls = computed(() => resultSourceUrls.value.length > 0)
 const resultProvenanceNotice = computed(() => {
   if (resultMode.value !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
   return webResearchNotice(
     result.value?.citations?.length || 0,
     attributedClaimCount.value,
     result.value?.claims?.length || 0,
-    result.value?.web_run,
+    resultWebRun.value,
   )
 })
 /** Run-level recency. There is no per-source retrieval timestamp on purpose —
