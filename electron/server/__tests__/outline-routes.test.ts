@@ -110,6 +110,37 @@ async function createSidecar(opts: {
   await fs.writeFile(sidecarFile, JSON.stringify(sidecar, null, 2))
 }
 
+async function terminalExpansionJob(
+  episodeId: string,
+  params: Record<string, unknown> = { model: 'old-model' },
+  extraChatEntries: Array<{ id: string, state: string }> = [],
+) {
+  const jq = await import('../services/job-queue.js')
+  const original = jq.enqueue({
+    project_slug: slug,
+    type: 'expand_chapters',
+    episode_id: episodeId,
+    title: TITLE,
+    params,
+  })
+  jq.cancelJob(original.job_id)
+  await jq.recordGenStudioJob(original.job_id, {
+    id: `job-terminal-${original.job_id}`,
+    operation: 'chat.response',
+    state: 'failed',
+    failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+    updated_at: new Date().toISOString(),
+  })
+  for (const entry of extraChatEntries) {
+    await jq.recordGenStudioJob(original.job_id, {
+      ...entry,
+      operation: 'chat.response',
+      updated_at: new Date().toISOString(),
+    })
+  }
+  return original
+}
+
 beforeEach(async () => {
   // Wipe the sidecar between cases so each test seeds the shape it needs.
   await fs.rm(sidecarFile, { force: true })
@@ -170,6 +201,49 @@ describe('PUT /outline — length validation', () => {
     const sidecar = JSON.parse(raw)
     assert.equal(sidecar.outline.length, TOTAL_CHAPTERS)
     assert.equal(sidecar.outline[0].title, 'Edited 1')
+  })
+
+  test('editing a v3 outline preserves its generation snapshot for chapter expansion', async () => {
+    const direction = 'Keep every chapter multi-causal and distinguish fact from interpretation.'
+    await fs.mkdir(scriptDir, { recursive: true })
+    const now = new Date().toISOString()
+    const outline = Array.from({ length: TOTAL_CHAPTERS }, (_, i) => ({
+      n: i + 1,
+      title: `Topic ${i + 1}`,
+      hook_line: `Hook ${i + 1}`,
+    }))
+    await fs.writeFile(sidecarFile, JSON.stringify({
+      schema_version: 3,
+      episode_id: EPISODE_ID,
+      mode: 'listicle',
+      total_chapters: TOTAL_CHAPTERS,
+      outline,
+      outline_completed_at: now,
+      outline_approved_at: null,
+      outline_edited_at: null,
+      generation_params: {
+        model: 'test-model',
+        words_per_chapter: 607,
+        manual_guidance: direction,
+      },
+      chapters_done: [],
+      params_hash: 'v3-snapshot-hash',
+      last_updated: now,
+    }, null, 2))
+
+    const putResult = await request(app)
+      .put(`/api/projects/${slug}/episodes/${EPISODE_ID}/outline?title=${encodeURIComponent(TITLE)}`)
+      .send({ outline, approved: true })
+    assert.equal(putResult.status, 200)
+
+    const onDisk = JSON.parse(await fs.readFile(sidecarFile, 'utf-8'))
+    assert.equal(onDisk.schema_version, 3)
+    assert.equal(onDisk.generation_params.manual_guidance, direction)
+
+    const getResult = await request(app)
+      .get(`/api/projects/${slug}/episodes/${EPISODE_ID}/outline?title=${encodeURIComponent(TITLE)}`)
+    assert.equal(getResult.status, 200)
+    assert.equal(getResult.body.generation_params.manual_guidance, direction)
   })
 
   test('rejects duplicate n', async () => {
@@ -326,6 +400,130 @@ describe('POST /expand-chapters — chapters[] validation', () => {
   })
 })
 
+describe('POST /expand-chapters — terminal manual retry', () => {
+  test('uses the current validated model while replacing the referenced terminal job', async () => {
+    await createSidecar({ approved: true })
+    const original = await terminalExpansionJob(EPISODE_ID)
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        terminal_retry_job_id: original.job_id,
+      })
+
+    assert.equal(res.status, 201, `expected 201, got ${res.status} body=${JSON.stringify(res.body)}`)
+    const jq = await import('../services/job-queue.js')
+    const replacement = jq.getJob(res.body.job_id)
+    jq.cancelJob(res.body.job_id)
+    assert.equal(replacement?.params.model, 'current-live-model')
+    assert.equal(replacement?.genstudio_chat_retry_scope, `terminal:job-terminal-${original.job_id}:${original.job_id}`)
+    assert.equal(jq.getJob(original.job_id), null, 'replacement removes the terminal source only after enqueue')
+  })
+
+  test('rejects a terminal retry job from another episode', async () => {
+    await createSidecar({ approved: true })
+    const foreignEpisodeJob = await terminalExpansionJob('EP002')
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        terminal_retry_job_id: foreignEpisodeJob.job_id,
+      })
+
+    assert.equal(res.status, 409)
+    assert.match(res.body.detail, /same episode/)
+    const jq = await import('../services/job-queue.js')
+    assert.equal(jq.getJob(foreignEpisodeJob.job_id)?.status, 'cancelled')
+  })
+
+  test('rejects a terminal retry while another chapter expansion is active without replacing either job', async () => {
+    await createSidecar({ approved: true })
+    const terminalSource = await terminalExpansionJob(EPISODE_ID)
+    const jq = await import('../services/job-queue.js')
+    await jq.setQueuePaused(true)
+    const active = jq.enqueue({
+      project_slug: slug,
+      type: 'expand_chapters',
+      episode_id: EPISODE_ID,
+      title: TITLE,
+      params: { model: 'active-model' },
+    })
+
+    try {
+      const res = await request(app)
+        .post(`/api/projects/${slug}/generate/expand-chapters`)
+        .send({
+          episode_id: EPISODE_ID,
+          title: TITLE,
+          model: 'current-live-model',
+          terminal_retry_job_id: terminalSource.job_id,
+        })
+
+      assert.equal(res.status, 409)
+      assert.equal(jq.getJob(terminalSource.job_id)?.status, 'cancelled')
+      assert.equal(jq.getJob(active.job_id)?.status, 'queued')
+    } finally {
+      jq.cancelJob(active.job_id)
+      await jq.setQueuePaused(false)
+    }
+  })
+
+  test('replays a mixed chat source with its historical model instead of the current form model', async () => {
+    await createSidecar({ approved: true })
+    const source = await terminalExpansionJob(
+      EPISODE_ID,
+      { model: 'old-model' },
+      [{ id: 'job-unresolved-route-replay', state: 'running' }],
+    )
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'new-selected-model',
+        terminal_retry_job_id: source.job_id,
+      })
+
+    assert.equal(res.status, 201)
+    const jq = await import('../services/job-queue.js')
+    const retry = jq.getJob(res.body.job_id)
+    jq.cancelJob(res.body.job_id)
+    assert.equal(retry?.params.model, 'old-model')
+    assert.equal(retry?.genstudio_chat_retry_scope, undefined)
+  })
+
+  test('rejects an unreferenced expansion while a terminal source has unresolved chat evidence', async () => {
+    await createSidecar({ approved: true })
+    const source = await terminalExpansionJob(
+      EPISODE_ID,
+      { model: 'old-model' },
+      [{ id: 'pending:story-chat-route-block', state: 'submitting' }],
+    )
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'new-selected-model',
+        chapters_to_expand: [1],
+      })
+
+    assert.equal(res.status, 409)
+    assert.match(res.body.detail, /unresolved GenStudio chat/i)
+    const jq = await import('../services/job-queue.js')
+    assert.equal(jq.getJob(source.job_id)?.status, 'cancelled')
+    jq.cancelJob(source.job_id)
+  })
+})
+
 // ── POST /expand-chapters — probe widening (5c) ────────────────────────────
 
 // Make sure no expand_chapters job is still queued before the probe-widening
@@ -340,6 +538,14 @@ async function cancelAllExpandJobs() {
     }
   }
   await new Promise(r => setTimeout(r, 50))
+  // Remove terminal fixtures too: a cancelled mixed-evidence job is precisely
+  // what the fail-closed route should detect, so letting one leak into the
+  // unrelated probe suite would make its expected 201 depend on test order.
+  for (const j of await jq.getJobs(slug)) {
+    if (j.type === 'expand_chapters' && ['done', 'error', 'cancelled'].includes(j.status)) {
+      jq.cancelJob(j.job_id)
+    }
+  }
 }
 
 describe('POST /expand-chapters — sidecar probe', () => {

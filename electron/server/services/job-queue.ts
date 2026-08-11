@@ -1220,6 +1220,8 @@ export function enqueue(opts: {
   episode_id: string
   title?: string
   params?: Record<string, any>
+  /** Server-only replacement scope for a terminal GenStudio chat retry. */
+  genstudio_chat_retry_scope?: string
   /** Narrow the duplicate check to jobs whose params satisfy this predicate.
    *  When omitted, dedupe is per (project, episode, type) — the historical
    *  behaviour. chapter-only passes a predicate that compares
@@ -1262,6 +1264,7 @@ export function enqueue(opts: {
     error: null,
     output_lines: [],
     params: opts.params || {},
+    ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
   }
 
   jobs.set(jobId, job)
@@ -1311,7 +1314,59 @@ export function getJob(jobId: string): Job | null {
  * about it. This queue-level fallback keeps the original record until the new
  * job has been accepted, then removes it from history.
  */
-export function retryTerminalJob(projectSlug: string, jobId: string): Job {
+type ChapterChatRetryMode = 'exact-replay' | 'fresh-replacement'
+
+function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
+  return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
+}
+
+function isResolvedChatEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
+  return typeof entry.id === 'string'
+    && !!entry.id
+    && !entry.id.startsWith('pending:')
+    && (entry.state === 'succeeded' || entry.state === 'failed')
+}
+
+function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
+  const chats = chatEntries(job)
+  if (chats.length === 0) return undefined
+  const terminalFailure = chats.find(entry =>
+    entry.state === 'failed'
+    && typeof entry.id === 'string'
+    && !!entry.id
+    && !entry.id.startsWith('pending:'),
+  )
+  // A Story retry may replace the provider key only after every chat batch is
+  // resolved. Any pending preview or unknown/nonterminal state can still be
+  // reattached with the original key, so a fresh scope would risk duplicate
+  // paid work.
+  return terminalFailure && chats.every(isResolvedChatEntry)
+    ? 'fresh-replacement'
+    : 'exact-replay'
+}
+
+function terminalChatRetryScope(job: Job): string | undefined {
+  if (chapterChatRetryMode(job) !== 'fresh-replacement') return undefined
+  const terminalFailure = chatEntries(job).find(entry => entry.state === 'failed' && !entry.id.startsWith('pending:'))
+  return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
+}
+
+export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episodeId: string): boolean {
+  return Array.from(jobs.values()).some(job =>
+    job.project_slug === projectSlug
+    && job.episode_id === episodeId
+    && job.type === 'expand_chapters'
+    && (job.status === 'error' || job.status === 'cancelled')
+    && chatEntries(job).length > 0
+    && chatEntries(job).some(entry => !isResolvedChatEntry(entry)),
+  )
+}
+
+export function retryTerminalJob(
+  projectSlug: string,
+  jobId: string,
+  replacementParams?: Record<string, any>,
+): Job {
   const original = jobs.get(jobId)
   if (!original || original.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
@@ -1323,12 +1378,22 @@ export function retryTerminalJob(projectSlug: string, jobId: string): Job {
     )
   }
 
+  // A fresh provider identity is allowed only after every recorded chat batch
+  // has settled and at least one failed terminally. Mixed/pending evidence
+  // must reattach with the original key. This marker is deliberately minted
+  // only from the explicit manual Retry path; pause/resume and lost-response
+  // recovery retain the original provider identity.
+  const genstudio_chat_retry_scope = original.type === 'expand_chapters'
+    ? terminalChatRetryScope(original)
+    : undefined
+
   const retried = enqueue({
     project_slug: original.project_slug,
     type: original.type,
     episode_id: original.episode_id,
     title: original.title,
-    params: structuredClone(original.params || {}),
+    params: structuredClone(replacementParams || original.params || {}),
+    ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
   })
 
   jobs.delete(jobId)
@@ -1341,6 +1406,55 @@ export function retryTerminalJob(projectSlug: string, jobId: string): Job {
     })
   })
   return retried
+}
+
+/**
+ * Resume a terminal chapter expansion from an already-validated form body.
+ * It uses that current body only after all chat evidence settled with a
+ * failure; mixed evidence replays the exact historical parameters instead.
+ */
+export function retryTerminalChapterExpansion(
+  projectSlug: string,
+  jobId: string,
+  episodeId: string,
+  replacementParams: Record<string, any>,
+): Job {
+  const original = jobs.get(jobId)
+  if (!original || original.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  if (original.type !== 'expand_chapters' || original.episode_id !== episodeId) {
+    throw Object.assign(
+      new Error('Terminal retry job must be a chapter expansion for the same episode.'),
+      { status: 409, expose: true },
+    )
+  }
+  const retryMode = chapterChatRetryMode(original)
+  if (!retryMode) {
+    throw Object.assign(
+      new Error('Terminal retry job has no durable GenStudio chat evidence.'),
+      { status: 409, expose: true },
+    )
+  }
+  const anotherUnresolvedExpansionExists = Array.from(jobs.values()).some(job =>
+    job.job_id !== original.job_id
+    && job.project_slug === projectSlug
+    && job.episode_id === episodeId
+    && job.type === 'expand_chapters'
+    && (job.status === 'error' || job.status === 'cancelled')
+    && chatEntries(job).some(entry => !isResolvedChatEntry(entry)),
+  )
+  if (anotherUnresolvedExpansionExists) {
+    throw Object.assign(
+      new Error('Another terminal chapter expansion has unresolved GenStudio chat evidence.'),
+      { status: 409, expose: true },
+    )
+  }
+  return retryTerminalJob(
+    projectSlug,
+    jobId,
+    retryMode === 'fresh-replacement' ? replacementParams : undefined,
+  )
 }
 
 /**

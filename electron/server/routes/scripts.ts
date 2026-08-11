@@ -173,10 +173,6 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     }
   }
 
-  if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
-    return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
-  }
-
   // v1.0.786 — the queue job carries the model expansion will ACTUALLY use,
   // which is the caller's current selection. This used to overwrite the body's
   // model with the outline snapshot's, so a stale recorded id reached the
@@ -189,15 +185,49 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     ? req.body.model.trim()
     : undefined
   const expansionModel = selectedModel || sidecar?.generation_params?.model
+  const { terminal_retry_job_id: terminalRetryJobId, ...expansionRequest } = req.body
+  const validatedParams = {
+    ...expansionRequest,
+    ...(expansionModel ? { model: expansionModel } : {}),
+  }
+
+  // Keep the paid-work boundary ahead of both normal enqueue and a terminal
+  // replacement. enqueue() also defends this invariant atomically, but this
+  // route must not begin terminal-retry handling while another expansion owns
+  // the episode.
+  if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
+    return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
+  }
+
+  // Full Script-page Resume sends a terminal source reference alongside its
+  // current form fields. The queue chooses exact replay while any chat batch
+  // is unresolved, and can mint a replacement scope only after all settle.
+  // The body itself is never trusted to supply a provider identity.
+  if (terminalRetryJobId !== undefined) {
+    if (typeof terminalRetryJobId !== 'string' || !terminalRetryJobId) {
+      return res.status(400).json({ detail: 'terminal_retry_job_id must be a job ID.' })
+    }
+    const job = jq.retryTerminalChapterExpansion(
+      slug,
+      terminalRetryJobId,
+      episode_id,
+      validatedParams,
+    )
+    return res.status(201).json(job)
+  }
+
+  if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
+    return res.status(409).json({
+      detail: 'A terminal chapter expansion has unresolved GenStudio chat evidence. Resume that job before starting another expansion.',
+    })
+  }
+
   const job = jq.enqueue({
     project_slug: slug,
     type: 'expand_chapters',
     episode_id,
     title: title || '',
-    params: {
-      ...req.body,
-      ...(expansionModel ? { model: expansionModel } : {}),
-    },
+    params: validatedParams,
   })
   res.status(201).json(job)
 })
@@ -312,7 +342,6 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
       : (existing.outline_approved_at ?? null)
     const updated = {
       ...existing,
-      schema_version: 2,
       outline: incoming,
       outline_edited_at: nowIso,
       outline_approved_at: approvedAt,

@@ -2230,6 +2230,12 @@ export interface Job {
   speed_bps?: number          // rolling 5-second average
   eta_seconds?: number        // undefined when bytes_total unknown
   params: Record<string, any>
+  /**
+   * Server-issued replacement identity for an explicit Retry of a known
+   * terminal GenStudio language job. Kept outside request params so a normal
+   * generator POST cannot mint it.
+   */
+  genstudio_chat_retry_scope?: string
   queue_position?: number
   /**
    * Which account served each provider the job called. Keyed by canonical

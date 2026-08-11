@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.818 — 2026-08-11
+
+- **Approved episode direction now survives the complete script workflow** — outline edits keep
+  their generation snapshot, chapter expansion and regeneration reuse the saved guidance, and
+  affected v1.0.817 sidecars preserve any recoverable snapshot.
+
+- **Manual chapter recovery is safe and usable** — fully settled failures can receive one fresh
+  retry identity, while pending or mixed provider evidence reattaches with the original model and
+  request identity. Partial chapter progress refreshes after every terminal outcome.
+
 ## v1.0.817 — 2026-08-11
 
 - **Production release qualification is now deterministic** — the selected-model TTS fan-out check
@@ -29,19 +39,3 @@ What's new in each release. Newest first.
   tooling, CSS processing, SVG optimization, archive handling, and related build dependencies
   are updated to patched releases. The eight published frontend advisories are cleared without
   changing Story Studio's production workflow or GenStudio contract.
-
-## v1.0.813 — 2026-08-10
-
-- **Story Studio now matches GenStudio's current customer contract** — retired Unlimited
-  Relaxed fields, free/paid grouping, badges, and account-access copy are gone. Model menus use
-  neutral modality groups and only show provider identity that GenStudio actually publishes.
-
-- **Transcription choices now fail safely before paid work** — languages come from the selected
-  live model, Auto-detect appears only when explicitly published, and stale or unsupported
-  choices cannot be enqueued. A missing provider remains unknown instead of being relabelled as
-  GenStudio KH.
-
-- **Pricing, research evidence, and job outcomes are more truthful** — TTS pricing follows the
-  selected model and GenStudio quotes rather than voice rows; searched runs without structured
-  sources remain successful without being called model knowledge; transient diagnostic codes no
-  longer look terminal; and exact image content refusals offer a manual Reword path.

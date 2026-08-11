@@ -253,4 +253,34 @@ describe('chunked-narration sidecar — v2 → v3 migration', () => {
     assert.equal(upgraded!.outline.length, 3)
     assert.equal(upgraded!.params_hash, 'v2hash00000000bb')
   })
+
+  test('v2 marker preserves a generation snapshot written by the v1.0.817 outline editor', async () => {
+    const generationParams = {
+      model: 'gemma-test',
+      words_per_chapter: 607,
+      manual_guidance: 'Keep the approved evidence and avoid monocausal narration.',
+    }
+    const v2Raw = {
+      schema_version: 2,
+      episode_id: 'EP0502',
+      mode: 'listicle',
+      total_chapters: 1,
+      outline: [{ n: 1, title: 'Only topic', hook_line: 'Only hook' }],
+      outline_completed_at: '2026-08-11T08:44:03.399Z',
+      outline_approved_at: '2026-08-11T08:45:55.271Z',
+      outline_edited_at: '2026-08-11T08:45:55.271Z',
+      generation_params: generationParams,
+      chapters_done: [],
+      params_hash: 'v817-editor-bug',
+      last_updated: '2026-08-11T08:45:55.271Z',
+    }
+    await fs.writeFile(sidecarPath(tmpDir, 'EP0502'), JSON.stringify(v2Raw), 'utf-8')
+
+    const { readSidecar } = await import('../lib/chunked-narration.js')
+    const upgraded = await readSidecar(tmpDir, 'EP0502')
+
+    assert.ok(upgraded)
+    assert.equal(upgraded!.schema_version, 3)
+    assert.deepEqual(upgraded!.generation_params, generationParams)
+  })
 })

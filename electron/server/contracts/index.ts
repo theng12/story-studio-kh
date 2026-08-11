@@ -545,6 +545,8 @@ export interface JobEnqueuedResponse {
   /** Structured terminal outcome for audit-style jobs such as image repair. */
   result?: Record<string, any>
   params: Record<string, any>
+  /** Server-issued replacement identity for an explicit terminal chat Retry. */
+  genstudio_chat_retry_scope?: string
   queue_position?: number
   /**
    * Which provider accounts served this job. Keyed by providerId. The

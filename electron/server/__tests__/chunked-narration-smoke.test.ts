@@ -39,7 +39,7 @@ import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
 // matching `kind`. Outline calls are detected by "Plan the chapter
 // structure" / "Plan a listicle"; expansion calls by "Write N chapter(s)".
 
-interface FakeCall { kind: 'outline' | 'expansion'; userMessage: string }
+interface FakeCall { kind: 'outline' | 'expansion'; userMessage: string; requestIdentity?: string }
 
 let fakeCalls: FakeCall[] = []
 let fakeOutlineResponse: string = '[]'
@@ -62,10 +62,10 @@ const fakeProvider: TextProvider = {
     if (fakeCalls.length >= fakeAbortAfterNCalls) throw new Error('Cancelled by user')
     const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
     if (isOutline) {
-      fakeCalls.push({ kind: 'outline', userMessage: req.userMessage })
+      fakeCalls.push({ kind: 'outline', userMessage: req.userMessage, requestIdentity: req.requestIdentity })
       return fakeOutlineResponse
     }
-    fakeCalls.push({ kind: 'expansion', userMessage: req.userMessage })
+    fakeCalls.push({ kind: 'expansion', userMessage: req.userMessage, requestIdentity: req.requestIdentity })
     if (fakeIncompleteExpansion) {
       const incomplete = fakeIncompleteExpansion
       fakeIncompleteExpansion = null
@@ -173,6 +173,33 @@ async function freshDir(): Promise<string> {
 // ── Smoke tests ────────────────────────────────────────────────────────────
 
 describe('generateNarrativeChunked — end-to-end with fake provider', () => {
+  test('a queue-stamped terminal chat retry scope reaches the replacement expansion request', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    job.genstudio_chat_retry_scope = 'terminal:job-old:story-old'
+
+    await generateNarrativeChunked(job, {
+      episode_id: 'EP0001',
+      title: 'Test Episode',
+      totalChapters: 3,
+      wordsPerChapter: 500,
+      format: makeFormat('narrative'),
+      systemPrompt: 'system',
+      scriptDir,
+      model: FAKE_MODEL,
+      apiKeys: {},
+    })
+
+    const expansion = fakeCalls.find(call => call.kind === 'expansion')
+    assert.equal(
+      expansion?.requestIdentity,
+      'test-slug:manual-retry:terminal:job-old:story-old',
+      'a deliberate replacement must not replay the terminal provider key',
+    )
+  })
+
   test('outline + 4 batches × 3 chapters lands all 12 chapters on disk', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(12, 'narrative')

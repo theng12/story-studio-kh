@@ -531,6 +531,21 @@ const activeChapterOnlyChapter = computed<number | null>(() => {
 })
 const expanding = computed(() => postingExpand.value || activeExpandJob.value)
 
+function terminalExpansionRetryJob(): any | undefined {
+  return jobs.value
+    .filter((job: any) =>
+      job.episode_id === props.episodeId
+      && job.type === 'expand_chapters'
+      && (job.status === 'error' || job.status === 'cancelled')
+      && (job.genstudio_jobs || []).some((entry: any) =>
+        entry.operation === 'chat.response'
+      ),
+    )
+    .sort((a: any, b: any) =>
+      Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''),
+    )[0]
+}
+
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
 }
@@ -934,6 +949,11 @@ async function postExpand(chapters: number[] | null): Promise<void> {
       custom_style_text: props.form?.custom_style_text,
     }
     if (chapters) body.chapters_to_expand = chapters
+    // The full-outline Resume button references any durable chat evidence. The
+    // server uses current form fields only after every batch has resolved; a
+    // mixed/pending chat source replays its exact historical params and key.
+    const terminalRetry = chapters === null ? terminalExpansionRetryJob() : undefined
+    if (terminalRetry) body.terminal_retry_job_id = terminalRetry.job_id
     const resp = await post<{ job_id: string }>(
       `/projects/${props.projectSlug}/generate/expand-chapters`,
       body,
@@ -1053,25 +1073,20 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
 // THAT instead. The signal only changes when a relevant job transitions
 // states (queued → running → done/error/cancelled), so the watcher fires
 // once per transition, not once per output line.
-const relevantJobsSignal = computed(() =>
+const relevantTerminalJobsSignal = computed(() =>
   jobs.value
     .filter(j =>
       j.episode_id === props.episodeId &&
-      (j.type === 'outline_only' || j.type === 'expand_chapters'),
+      (j.type === 'outline_only' || j.type === 'expand_chapters') &&
+      (j.status === 'done' || j.status === 'error' || j.status === 'cancelled'),
     )
     .map(j => `${j.job_id}:${j.status}`)
     .sort()
     .join('|'),
 )
-watch(relevantJobsSignal, (next, prev) => {
+watch(relevantTerminalJobsSignal, (next, prev) => {
   if (next === prev) return
-  // Reload only when something just transitioned to 'done' (or back from
-  // an in-flight state). The signal changes on any transition, but
-  // queued → running doesn't need a sidecar refresh — only the terminal
-  // ones do.
-  const prevHasDone = (prev || '').includes(':done')
-  const nextHasDone = next.includes(':done')
-  if (nextHasDone && !prevHasDone) {
+  if (next) {
     void loadOutline()
     // expand_chapters just landed → on-disk chapter content is fresh.
     // Wipe + re-fetch any open preview drawers so the user sees the

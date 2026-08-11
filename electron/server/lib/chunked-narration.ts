@@ -552,9 +552,10 @@ export type ChunkedMode = 'narrative' | 'listicle'
  * — a fragile contract that previously crashed `callAi` when a request body
  * dropped `model` (the EP0002 startsWith bug).
  *
- * Stored on `ChunkedSidecar.generation_params`. v2 sidecars upgrade with
- * `null`; the executor falls back to the request body when null (existing
- * behaviour) so in-flight outlines aren't broken by the schema bump.
+ * Stored on `ChunkedSidecar.generation_params`. Genuine legacy v2 sidecars
+ * upgrade with `null`; a v2 marker written by v1.0.817 that already contains
+ * the snapshot preserves it. The executor falls back to the request body only
+ * when the upgraded value is null.
  */
 export interface GenerationParams {
   model: string
@@ -597,8 +598,9 @@ export interface ChunkedSidecar {
   /** v3+: snapshot of script-form fields used to build this outline. The
    *  expand-chapters executor reads these instead of the request body so
    *  expansion always runs against the same model / words / pattern /
-   *  characters the outline was built with. null on v2 sidecars upgraded
-   *  in memory — executor falls back to the request body in that case. */
+   *  characters the outline was built with. Genuine legacy v2 sidecars have
+   *  no snapshot and upgrade to null; v1.0.817 v2 markers preserve an existing
+   *  snapshot. The executor falls back to the request body only when null. */
   generation_params: GenerationParams | null
   chapters_done: number[]
   /** sha256(first 16 chars) of the input params — invalidates resume when
@@ -1162,8 +1164,8 @@ function sectionTerms(p: ChunkedNarrationParams): { Singular: string; Plural: st
  * override the model's tendency to reach for the same handful of names/settings
  * across a long-running channel.
  */
-function producerNotesBlock(p: ChunkedNarrationParams): string {
-  const g = p.manualGuidance?.trim()
+export function producerNotesBlock(manualGuidance?: string): string {
+  const g = manualGuidance?.trim()
   if (!g) return ''
   return `\nPRODUCER NOTES (binding — follow these over any generic default. If they name specific characters, places, or names to AVOID, honour them exactly):\n${g}\n`
 }
@@ -1179,7 +1181,7 @@ Episode title: ${p.title}
 Format: ${p.format.name}
 Target ${t.plural}: ${p.totalChapters}
 Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
-${producerNotesBlock(p)}
+${producerNotesBlock(p.manualGuidance)}
 PACING ARC TO COVER (apply across the ${p.totalChapters} ${t.plural}):
 ${p.format.script.pacingArc.map((l, i) => `  ${i + 1}. ${l}`).join('\n')}
 
@@ -1219,7 +1221,7 @@ Episode title: ${p.title}
 Format: ${p.format.name}
 Target ${t.plural}: ${p.totalChapters}
 Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
-${producerNotesBlock(p)}
+${producerNotesBlock(p.manualGuidance)}
 ${fieldHint}
 
 Each ${t.singular.toLowerCase()} must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). ${t.Plural} should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
@@ -1272,6 +1274,12 @@ async function expandNarrativeSequential(
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
       outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
+      // Only queue-level manual Retry can stamp this server-owned scope after
+      // a known terminal GenStudio chat job. Normal runs and paused/resumed
+      // jobs leave it absent so lost-response recovery replays the same key.
+      requestIdentity: job.genstudio_chat_retry_scope
+        ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
+        : undefined,
     }
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
@@ -1411,7 +1419,7 @@ function narrativeBatchPrompt(
 Episode title: ${p.title}
 Format: ${p.format.name}
 ${targetLine}
-${producerNotesBlock(p)}
+${producerNotesBlock(p.manualGuidance)}
 ${outlineBlock}
 ${transitionBlock}
 SLOTS TO WRITE NOW:
@@ -1480,6 +1488,11 @@ async function expandListicleParallel(
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
           outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
+          // See narrative expansion above: this exists only for a deliberate
+          // replacement after terminal GenStudio evidence, never for resume.
+          requestIdentity: job.genstudio_chat_retry_scope
+            ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
+            : undefined,
         }
         const text = await withModelFallback(job, params, model =>
           callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
@@ -1614,7 +1627,7 @@ WORD BUDGET (how to spend each slot's target inside one ${t.singular}):
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-${producerNotesBlock(p)}
+${producerNotesBlock(p.manualGuidance)}
 ${lengthHeader}
 
 SLOTS TO WRITE:
@@ -1705,7 +1718,7 @@ export async function readSidecar(scriptDir: string, episode_id: string): Promis
         ...parsed,
         episode_id,
         schema_version: 3,
-        generation_params: null,
+        generation_params: parsed.generation_params ?? null,
       } as ChunkedSidecar
     }
     if (parsed?.schema_version === 3) {

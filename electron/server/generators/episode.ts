@@ -27,6 +27,7 @@ import {
   expandChapters,
   inspectChunkedScriptCompletion,
   readSidecar,
+  producerNotesBlock,
   type ChunkedNarrationParams,
   type ChunkedMode,
   type GenerationParams,
@@ -842,6 +843,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
   const sysPrompt = systemPrompt(format, standards)
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
+  const savedGuidance = (await readSidecar(paths.script_dir, episode_id))?.generation_params?.manual_guidance?.trim()
+  const requestGuidance = typeof req.manual_guidance === 'string' ? req.manual_guidance.trim() : undefined
+  const manualGuidance = savedGuidance || requestGuidance
 
   const {
     ensureChapterFilesMigrated,
@@ -940,6 +944,7 @@ Episode: "${title}" (code ${episode_id})
 Narrator style: Style ${style} — ${styleDesc}
 Total ${sectionLowerPluralRegen} in this episode: ${totalChapters}
 Target word count for this ${sectionLowerRegen}: ~${wordsPerChapter} words
+${producerNotesBlock(manualGuidance)}
 ${outlineBlock}${independenceLine}
 ${priorSummaries.length && !independenceLine ? `Story so far (prior ${sectionLowerPluralRegen}, summarised):\n${priorSummaries.join('\n')}\n` : ''}
 

@@ -647,3 +647,192 @@ describe('cooperative pause and resume', () => {
     jq.cancelJob(manuallyHeld.job_id)
   })
 })
+
+async function waitForTerminalJob(jobId: string): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.ok(
+    ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || ''),
+    `job ${jobId} did not reach a terminal state before test cleanup`,
+  )
+}
+
+describe('manual GenStudio chat retries', () => {
+  test('a failed chat alongside a running chat retains the original identity', async () => {
+    const proj = await pm.createProject({ name: 'JQ Mixed Terminal And Running Chat' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-terminal-mixed-running', operation: 'chat.response', state: 'failed', updated_at: new Date().toISOString(),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-still-running', operation: 'chat.response', state: 'running', updated_at: new Date().toISOString(),
+      })
+      throw new Error('one batch is still reconcilable')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+    assert.equal(retry.genstudio_chat_retry_scope, undefined)
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a failed chat alongside a pending request preview retains the original identity', async () => {
+    const proj = await pm.createProject({ name: 'JQ Mixed Terminal And Pending Chat' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-terminal-mixed-pending', operation: 'chat.response', state: 'failed', updated_at: new Date().toISOString(),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:story-chat-mixed', operation: 'chat.response', state: 'submitting', updated_at: new Date().toISOString(),
+      })
+      throw new Error('a submission response is still unresolved')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+    assert.equal(retry.genstudio_chat_retry_scope, undefined)
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a mixed chat retry ignores replacement params and replays the historical model', async () => {
+    const proj = await pm.createProject({ name: 'JQ Mixed Chat Exact Replay' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-terminal-exact-replay', operation: 'chat.response', state: 'failed', updated_at: new Date().toISOString(),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-running-exact-replay', operation: 'chat.response', state: 'running', updated_at: new Date().toISOString(),
+      })
+      throw new Error('one submitted batch must be reattached')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'old-model' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalChapterExpansion(
+      proj.slug,
+      failed.job_id,
+      'EP001',
+      { model: 'new-selected-model' },
+    )
+
+    assert.equal(retry.params.model, 'old-model')
+    assert.equal(retry.genstudio_chat_retry_scope, undefined)
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a terminal chapter retry can replace historical params with the current validated form', async () => {
+    const proj = await pm.createProject({ name: 'JQ Terminal Chat Retry Current Params' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-terminal-current-params',
+        operation: 'chat.response',
+        state: 'failed',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('GenStudio settled the request as terminal')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'old-model' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalChapterExpansion(
+      proj.slug,
+      failed.job_id,
+      'EP001',
+      { model: 'current-live-model' },
+    )
+
+    assert.equal(retry.params.model, 'current-live-model')
+    assert.equal(retry.genstudio_chat_retry_scope, `terminal:job-terminal-current-params:${failed.job_id}`)
+    assert.equal(jq.getJob(failed.job_id), null)
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a failed chapter expansion receives a new scope only when GenStudio recorded a terminal chat job', async () => {
+    const proj = await pm.createProject({ name: 'JQ Terminal Chat Retry Scope' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-terminal-chat-1',
+        operation: 'chat.response',
+        state: 'failed',
+        failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('GenStudio settled the request as terminal')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+
+    assert.equal(
+      retry.genstudio_chat_retry_scope,
+      `terminal:job-terminal-chat-1:${failed.job_id}`,
+      'the fresh chat identity must be derived from known terminal provider evidence',
+    )
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a retry after a lost provider response keeps its original identity', async () => {
+    const proj = await pm.createProject({ name: 'JQ No Chat Retry Scope' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-submission-not-settled',
+        operation: 'chat.response',
+        state: 'running',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('connection lost before GenStudio returned a terminal result')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'expand_chapters',
+      episode_id: 'EP001',
+      title: 'chapters',
+      params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+    assert.equal(jq.getJob(failed.job_id)?.status, 'error')
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+
+    assert.equal(
+      retry.genstudio_chat_retry_scope,
+      undefined,
+      'an unsettled provider request must replay its original idempotency key',
+    )
+    await waitForTerminalJob(retry.job_id)
+  })
+})

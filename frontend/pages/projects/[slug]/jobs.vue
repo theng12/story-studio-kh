@@ -1922,6 +1922,17 @@ async function repairJobOnly(job: RJob) {
 
 async function retryJob(job: RJob) {
   const projectSlug = jobProjectSlug(job)
+  // Chapter expansion needs the queue-level Retry endpoint: it is the sole
+  // server-side path that can inspect the failed GenStudio evidence and mint a
+  // replacement identity only after a terminal chat outcome. Reposting params
+  // directly would replay the terminal provider key forever.
+  if (job.type === 'expand_chapters') {
+    try {
+      await post(`${jobQueuePath(job)}/retry`, {})
+      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
+    } catch (e: any) { showError(e?.data?.detail || e?.message || 'Failed to retry job') }
+    return
+  }
   // Every job type the queue knows about needs an entry here — otherwise
   // a failed 20-minute video-assembly becomes un-retryable with a cryptic
   // "Cannot retry job type: X" toast. When a new generator is added, this
