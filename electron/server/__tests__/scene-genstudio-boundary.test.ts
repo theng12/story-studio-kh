@@ -59,7 +59,7 @@ test('scene motion and planning source contain no executable direct provider or 
 
   assert.doesNotMatch(clip, /resolveApiKeyForProvider|resolveVideoStudioModel|getVideoProvider\(/)
   assert.doesNotMatch(plan, /studiohub-client|hubSubmitChatPacks|hubPollChatPacks|getApiKey\(['"](?:openai|anthropic|kie)['"]\)/)
-  assert.match(reviewRoute, /requireSceneClipGenStudioModel\(model\)/)
+  assert.match(reviewRoute, /requireSceneClipGenStudioModel\(model,\s*requestedVariant\)/)
   assert.match(planRoute, /requireScenePlanGenStudioModel\(model\)/)
   // The error still states that nothing else was tried; it no longer names the
   // retired upstreams, which was private routing detail on the customer's screen.
