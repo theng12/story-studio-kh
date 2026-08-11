@@ -52,13 +52,20 @@ function whole(value: unknown, fallback: number, minimum = 0): number {
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback
 }
 
+function positiveWhole(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' && typeof value !== 'string') return fallback
+  if (typeof value === 'string' && !value.trim()) return fallback
+  const parsed = Math.floor(Number(value))
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback
+}
+
 function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCapacity {
   return {
     paid_concurrency_limit: whole(value.paid_concurrency_limit, 1, 1),
     paid_active_jobs: whole(value.paid_active_jobs, 0),
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
     max_queued_jobs: whole(value.max_queued_jobs, 10, 1),
-    generation_submissions_per_minute: whole(value.generation_submissions_per_minute, 5, 1),
+    generation_submissions_per_minute: positiveWhole(value.generation_submissions_per_minute, 5),
   }
 }
 

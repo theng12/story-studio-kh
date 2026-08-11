@@ -907,7 +907,7 @@ const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
 function genStudioQueueLabel(
   remote: NonNullable<RJob['genstudio_jobs']>[number],
 ): string {
-  const state = remote.queue_state || remote.state || 'unknown'
+  const state = String(remote.queue_state || remote.state || 'unknown').toLowerCase()
   return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
 }
 

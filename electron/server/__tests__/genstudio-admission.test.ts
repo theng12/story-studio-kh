@@ -100,15 +100,63 @@ test('GenStudio admission fails closed when account overview is unavailable', as
   assert.equal(secondStarted, true)
 })
 
-test('GenStudio admission fails closed when account overview publishes a malformed submission rate', async () => {
+for (const [value, label] of [
+  [null, 'null'],
+  ['', 'an empty string'],
+  [false, 'false'],
+  [0, 'zero'],
+  [-1, 'a negative value'],
+  [0.5, 'a fraction below one'],
+  [Number.NaN, 'NaN'],
+] as const) {
+  test(`GenStudio admission falls back to five for ${label} submission rate`, async () => {
+    const pool = new GenStudioAdmissionPool(async () => capacity({
+      generation_submissions_per_minute: value as number,
+    }))
+
+    await pool.refreshNow('malformed-overview-key')
+
+    assert.equal(pool.snapshot().limitSource, 'account-overview')
+    assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
+  })
+}
+
+test('GenStudio admission preserves a valid published submission rate', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity({
-    generation_submissions_per_minute: Number.NaN,
+    generation_submissions_per_minute: 7,
   }))
 
-  await pool.refreshNow('malformed-overview-key')
+  await pool.refreshNow('published-overview-key')
 
-  assert.equal(pool.snapshot().limitSource, 'account-overview')
-  assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
+  assert.equal(pool.snapshot().generation_submissions_per_minute, 7)
+})
+
+test('a malformed published submission rate admits five requests before rate limiting the sixth', async () => {
+  const pool = new GenStudioAdmissionPool(async () => capacity({
+    paid_concurrency_limit: 10,
+    generation_submissions_per_minute: 0,
+  }))
+  const gates = Array.from({ length: 5 }, deferred)
+  const started: number[] = []
+  const controller = new AbortController()
+  const jobs = Array.from({ length: 6 }, (_, index) => pool.run(
+    'malformed-rate-key',
+    index === 5 ? controller.signal : undefined,
+    async () => {
+      started.push(index)
+      await gates[index]!.promise
+    },
+  ))
+
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(started, [0, 1, 2, 3, 4])
+  assert.equal(pool.snapshot().submissions_in_window, 5)
+  assert.equal(pool.snapshot().local_waiting, 1)
+
+  controller.abort()
+  await assert.rejects(jobs[5], /Cancelled by user/)
+  for (const gate of gates) gate.resolve()
+  await Promise.all(jobs.slice(0, 5))
 })
 
 test('a cancelled locally queued request never reaches GenStudio', async () => {

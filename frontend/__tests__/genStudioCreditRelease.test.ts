@@ -147,7 +147,7 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(jobs.genStudioReservationReleased(transientVoiceReference), false)
   })
 
-  it('shows GenStudio reserved, dispatched, validating, and reconciling queue states in product English', async () => {
+  it('shows provider states in product English when Story has not assigned a local queue state', async () => {
     const cases = [
       ['reserved', 'Reserved'],
       ['dispatched', 'Dispatched'],
@@ -187,12 +187,48 @@ describe('GenStudio released reservations are never shown as held', () => {
       ['genStudioQueueLabel'],
     )
 
-    for (const [queueState, label] of cases) {
-      const remote = { state: 'failed', queue_state: queueState }
-      assert.equal(preview.displayState(remote), label)
-      assert.equal(ledger.displayState(remote), label)
-      assert.equal(jobs.genStudioQueueLabel(remote), label)
+    for (const [state, label] of cases) {
+      assert.equal(preview.displayState({ state }), label)
+      assert.equal(ledger.displayState({ state }), label)
+      assert.equal(jobs.genStudioQueueLabel({ state: state.toUpperCase() }), label)
     }
+  })
+
+  it('keeps Story-owned queue_state ahead of a provider state', async () => {
+    const remote = { state: 'reserved', queue_state: 'accepted' }
+    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
+    const preview = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(previewSource, 'QUEUE_LABELS'),
+        extractFunction(previewSource, 'effectiveState'),
+        extractFunction(previewSource, 'displayState'),
+      ],
+      ['displayState'],
+    )
+    const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(ledgerSource, 'QUEUE_LABELS'),
+        extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'displayState'),
+      ],
+      ['displayState'],
+    )
+    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
+    const jobs = await loadLifted(
+      'type RJob = any',
+      [
+        extractObject(jobsSource, 'GENSTUDIO_QUEUE_LABELS'),
+        extractFunction(jobsSource, 'genStudioQueueLabel'),
+      ],
+      ['genStudioQueueLabel'],
+    )
+
+    assert.equal(preview.displayState(remote), 'Accepted')
+    assert.equal(ledger.displayState(remote), 'Accepted')
+    assert.equal(jobs.genStudioQueueLabel(remote), 'Accepted')
   })
 
   it('offers Reword guidance only for GenStudio\'s exact terminal image-refusal code', async () => {
