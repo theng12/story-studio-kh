@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.817 — 2026-08-11
+
+- **Production release qualification is now deterministic** — the selected-model TTS fan-out check
+  uses an in-process submission barrier instead of a timing window, while preserving the serialized
+  pre-submit durability writes that protect recovery and prevent duplicate paid work. Production
+  runtime behavior is unchanged.
+
 ## v1.0.816 — 2026-08-11
 
 - **Web research evidence is now more transparent** — provider-reported source URLs stay with the run and appear as evidence without incorrectly claiming that a source-less result has no sources. Only safe HTTP(S) links are clickable.
@@ -38,21 +45,3 @@ What's new in each release. Newest first.
   selected model and GenStudio quotes rather than voice rows; searched runs without structured
   sources remain successful without being called model knowledge; transient diagnostic codes no
   longer look terminal; and exact image content refusals offer a manual Reword path.
-
-## v1.0.812 — 2026-08-10
-
-- **Evidence-led historical documentaries are now a complete reusable channel system** — the new
-  Hidden Mechanics of History Formula combines five distinct Topic Packs with causal-reconstruction
-  structure, 30–45 minute pacing, source-aware writing rules, and enough planned variation for more
-  than 1,000 non-duplicate episode concepts. Ancient Civilizations remains available as an optional
-  compatible lane.
-
-- **Archival history now has coordinated scene and thumbnail identities** — Archival Documentary
-  Reconstruction joins the visual-style library with an original preview, while Archival Map
-  Investigation adds three browsable thumbnail examples, AI-rendered episode titles, and safeguards
-  against unsupported conspiracy, scapegoating, and sole-cause claims.
-
-- **Video Assembly can create an aged archive-film finish without a missing overlay asset** — the new
-  built-in effect procedurally adds restrained archival grading, grain, dust, scratches, flicker, and
-  gate weave. It persists through presets and Pipeline jobs while remaining independently selectable
-  from color grading, vignette, and the existing film-grain control.

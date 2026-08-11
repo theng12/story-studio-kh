@@ -54,6 +54,8 @@ export interface MockGenStudioScenario {
   dropFirstSubmitResponse?: boolean
   /** Keeps a submitted job in flight long enough for fan-out tests to observe. */
   submitDelayMs?: number
+  /** Test-only barrier: hold TTS submit responses until this many have entered. */
+  waitForConcurrentTtsSubmissions?: number
 }
 
 export interface MockGenStudioRequest {
@@ -102,6 +104,13 @@ interface MockTranscriptionQuote {
   idempotencyKey: string
   body: Record<string, unknown>
   bodyText: string
+}
+
+interface TtsSubmissionBarrier {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout>
 }
 
 const FULL_SCOPES: MockGenStudioScope[] = [
@@ -231,6 +240,11 @@ function normalizeScenario(
     submitDelayMs: Number.isFinite(scenario.submitDelayMs) && scenario.submitDelayMs! > 0
       ? scenario.submitDelayMs!
       : 0,
+    waitForConcurrentTtsSubmissions:
+      Number.isInteger(scenario.waitForConcurrentTtsSubmissions)
+      && scenario.waitForConcurrentTtsSubmissions! > 0
+        ? scenario.waitForConcurrentTtsSubmissions!
+        : 0,
   }
 }
 
@@ -281,6 +295,7 @@ export class MockGenStudioService {
   }
   private activeTtsSubmissions = 0
   private maxInFlightTtsSubmissions = 0
+  private readonly ttsSubmissionBarriers = new Map<number, TtsSubmissionBarrier>()
 
   baseUrl = ''
 
@@ -349,6 +364,34 @@ export class MockGenStudioService {
 
   maxInFlightTtsSubmissionCount(): number {
     return this.maxInFlightTtsSubmissions
+  }
+
+  private async waitForTtsSubmissionBarrier(target: number): Promise<void> {
+    let barrier = this.ttsSubmissionBarriers.get(target)
+    if (!barrier) {
+      let resolve!: () => void
+      let reject!: (error: Error) => void
+      const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise
+        reject = rejectPromise
+      })
+      const timeout = setTimeout(() => {
+        this.ttsSubmissionBarriers.delete(target)
+        reject(new Error(
+          `Timed out waiting for ${target} concurrent TTS submissions; observed ${this.maxInFlightTtsSubmissions}`,
+        ))
+      }, 10_000)
+      barrier = { promise, resolve, reject, timeout }
+      this.ttsSubmissionBarriers.set(target, barrier)
+    }
+
+    if (this.activeTtsSubmissions >= target) {
+      clearTimeout(barrier.timeout)
+      this.ttsSubmissionBarriers.delete(target)
+      barrier.resolve()
+    }
+
+    await barrier.promise
   }
 
   pollCount(jobId: string): number {
@@ -707,6 +750,9 @@ export class MockGenStudioService {
           }
           try {
             const { job, replay } = this.createOrReplay(operation, idempotencyKey, parsedBody, bodyText)
+            if (operation === 'tts' && job.scenario.waitForConcurrentTtsSubmissions) {
+              await this.waitForTtsSubmissionBarrier(job.scenario.waitForConcurrentTtsSubmissions)
+            }
             if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
               job.responseDropped = true
               response.socket?.destroy()

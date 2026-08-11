@@ -50,7 +50,9 @@ void test('audio generation fans out from the selected model\'s live published h
       service.reset()
       service.ttsModels = [ttsModel(modelId, hint)]
       clearGenStudioCatalogCache()
-      for (let i = 0; i < 3; i++) service.queueScenario('tts', { submitDelayMs: 40 })
+      for (let i = 0; i < 3; i++) {
+        service.queueScenario('tts', { waitForConcurrentTtsSubmissions: hint })
+      }
 
       const narrationDir = path.join(outputRoot!, `${episodeId} - Script`)
       await fs.mkdir(narrationDir, { recursive: true })
