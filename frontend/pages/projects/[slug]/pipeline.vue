@@ -24,7 +24,7 @@
         :loading-label="preflighting ? 'Checking…' : 'Queuing…'"
         :generate-loading="submitting || preflighting"
         :generate-disabled="!canRun"
-        :generate-status="preflighting ? 'Checking every episode before anything starts…' : (submitting ? 'Queuing batch…' : '')"
+        :generate-status="pipelineGenerateStatus"
         @generate="openConfirm"
       />
       <p class="pipeline-command-copy">
@@ -1557,6 +1557,11 @@ const blockingIssues = computed<string[]>(() => {
 })
 
 const canRun = computed(() => blockingIssues.value.length === 0 && !submitting.value && !preflighting.value)
+const pipelineGenerateStatus = computed(() => {
+  if (preflighting.value) return 'Checking every episode before anything starts…'
+  if (submitting.value) return 'Queuing batch…'
+  return blockingIssues.value[0] || ''
+})
 const runButtonLabel = computed(() => {
   if (selectedEpisodes.size === 0 || checkedStepCount.value === 0) return 'Run Batch'
   return `Run Batch (${selectedEpisodes.size * checkedStepCount.value} jobs)`

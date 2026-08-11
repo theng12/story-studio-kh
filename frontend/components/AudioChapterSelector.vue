@@ -136,6 +136,9 @@
         <template v-if="skippedCount"> ({{ skippedCount }} skipped — already generated)</template>
       </span>
     </div>
+    <p v-if="inlineGenerateDisabled && inlineGenerateDisabledReason" class="cs-inline-reason" role="status">
+      {{ inlineGenerateDisabledReason }}
+    </p>
   </div>
 </template>
 
@@ -524,6 +527,14 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
 .cs-play.playing { background: var(--accent-dim); border-color: var(--accent); }
 /* Keeps the pill column aligned when a row has no audio yet (no play button). */
 .cs-play-spacer { display: inline-block; width: 1px; }
+
+.cs-inline-reason {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
 .cs-name {
   color: var(--text-primary);

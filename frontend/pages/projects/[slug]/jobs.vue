@@ -323,13 +323,14 @@
           </div>
           <div class="job-actions">
             <button
-              v-if="job.status === 'queued' || job.status === 'running'"
+              v-if="job.control && job.control.action !== 'none'"
               class="btn btn-xs btn-secondary"
-              :disabled="job.pause_requested"
-              @click="pauseJob(job)"
-              :title="job.status === 'queued' ? 'Pause before any provider submission.' : 'Stop claiming new items; already accepted GenStudio work will finish and save first.'"
+              :class="{ 'job-control-primary': job.control.enabled }"
+              :disabled="!job.control.enabled || controlBusy.has(job.job_id)"
+              :title="job.control.reason"
+              @click="runJobControl(job)"
             >
-              {{ job.pause_requested ? 'Pausing…' : 'Pause' }}
+              {{ controlBusy.has(job.job_id) ? 'Working…' : job.control.label }}
             </button>
             <button
               v-if="job.status === 'paused'"
@@ -337,18 +338,6 @@
               @click="resumeJob(job)"
               title="Verify saved output and accepted task IDs, then continue only missing work."
             >Resume</button>
-            <button
-              v-if="job.status === 'queued' || job.status === 'running' || job.status === 'paused'"
-              class="btn btn-xs btn-danger"
-              @click="cancelJob(job)"
-              :title="job.status === 'running'
-                ? 'Stops local polling. In-flight provider tasks may still complete and bill — use Repair afterward to recover them.'
-                : job.status === 'paused'
-                  ? 'Cancel this paused Story job. Already accepted provider work is not deleted and can still be recovered.'
-                  : 'Removes from queue before any submit happens. No charge.'"
-            >
-              {{ job.status === 'running' ? 'Stop' : 'Cancel' }}
-            </button>
             <!-- v1.0.114 — Repair / Retry split. Repair (left) is the safe
                  default: polls the provider for already-completed tasks
                  and downloads them. Never re-submits. Retry (right) is
@@ -373,14 +362,6 @@
               :title="retryTooltip(job)"
             >
               Retry
-            </button>
-            <button
-              v-if="['done', 'error', 'cancelled'].includes(job.status)"
-              class="btn-icon"
-              @click="removeJob(job)"
-              title="Dismiss"
-            >
-              &#10005;
             </button>
           </div>
         </div>
@@ -574,6 +555,11 @@
             {{ job.error }}
           </div>
         </div>
+        <p v-if="job.control" class="job-control-reason" :class="`control-${job.control.action}`" role="status">
+          <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
+          <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+          {{ job.control.reason }}
+        </p>
       </div>
       </div>
     </section>
@@ -606,6 +592,14 @@
               <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
             </div>
             <div class="job-actions">
+              <button
+                v-if="job.control && job.control.action !== 'none'"
+                class="btn btn-xs btn-secondary"
+                :class="{ 'job-control-primary': job.control.enabled }"
+                :disabled="!job.control.enabled || controlBusy.has(job.job_id)"
+                :title="job.control.reason"
+                @click="runJobControl(job)"
+              >{{ controlBusy.has(job.job_id) ? 'Working…' : job.control.label }}</button>
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
@@ -626,9 +620,13 @@
               >
                 Retry
               </button>
-              <button class="btn-icon" @click="removeJob(job)" title="Dismiss">&#10005;</button>
             </div>
           </div>
+          <p v-if="job.control" class="job-control-reason" :class="`control-${job.control.action}`" role="status">
+            <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
+            <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+            {{ job.control.reason }}
+          </p>
 
           <div class="job-meta">
             <span
@@ -1655,62 +1653,29 @@ function toggleExpand(jobId: string) {
   expanded.value = expanded.value === jobId ? null : jobId
 }
 
-// Job types that can have in-flight provider charges at cancel time. A
-// queued cancel (worker hasn't picked up yet) never charges; a running
-// cancel of a "free" type (local ffmpeg, YouTube upload) doesn't either.
-// This set is used to decide whether to surface the Repair hint
-// — over-warning on free jobs would teach users to dismiss the toast.
-const COST_INCURRING_TYPES = new Set([
-  'script-only', 'introduction-only', 'chapter-only',
-  'outline_only', 'expand_chapters', 'image_prompts', 'metadata',
-  'research_run', 'scene_plan_run', 'prompt_director', 'expression_markup',
-  'images', 'scene_images', 'thumb_images', 'continuity_render',
-  'scene_images_batch', 'scene_image_generate', 'composition_generate', 'image_pool_generate',
-  'audio',
-  'video', 'scene_clips_batch', 'scene_clip_generate',
-  'subtitles_transcribe',
-])
+const controlBusy = ref(new Set<string>())
 
-const REMOTE_CANCELLABLE_TYPES = new Set([
-  'scene_plan_run',
-  'continuity_render',
-  'scene_images_batch',
-  'scene_image_generate',
-  'scene_clips_batch',
-  'scene_clip_generate',
-])
-
-async function cancelJob(job: RJob) {
-  const wasRunningWithCost = job.status === 'running'
-    && COST_INCURRING_TYPES.has(job.type)
-    && !job.auto_retry?.eligible
+async function runJobControl(job: RJob) {
+  const control = job.control
+  if (!control?.enabled || controlBusy.value.has(job.job_id)) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {
-    await del(jobQueuePath(job))
-    if (job.status === 'running' && REMOTE_CANCELLABLE_TYPES.has(job.type)) {
-      success('Stop requested. Any active provider task will also be cancelled; completed checkpoints remain saved.')
-    } else if (wasRunningWithCost) {
-      // Multi-line toast — local cancel doesn't signal upstream, so
-      // already-submitted provider tasks may complete on their side and
-      // bill the account. The new Repair & Retry path can pick them up
-      // for free if the user wants to come back to it.
-      success(
-        'Stopped — in-flight tasks may still complete on the provider. ' +
-        'Use the Repair button on this job to download them for free.'
-      )
+    if (control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel') {
+      await post(`${jobQueuePath(job)}/cancel`, {})
+    } else if (control.action === 'pause-submissions') {
+      await post(`${jobQueuePath(job)}/pause`, {})
+    } else if (control.action === 'clear-history') {
+      await del(jobQueuePath(job))
     } else {
-      success(job.status === 'queued' ? 'Job cancelled (no charge)' : 'Job stopped')
+      return
     }
-  } catch (e: any) { showError(e.data?.detail || 'Failed to cancel job') }
-}
-
-async function pauseJob(job: RJob) {
-  try {
-    await post(`${jobQueuePath(job)}/pause`, {})
-    success(job.status === 'queued'
-      ? 'Job paused before submission.'
-      : 'Pause requested. Accepted work will finish saving; no new item will be submitted.')
+    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${control.reason}`)
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to pause job')
+    showError(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`)
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
   }
 }
 
@@ -1733,11 +1698,10 @@ function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
     : `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}`
 }
 
-async function removeJob(job: RJob) {
-  try {
-    await del(jobQueuePath(job))
-    success('Job removed')
-  } catch (e: any) { showError(e.data?.detail || 'Failed to remove job') }
+function hasPendingCancellation(job: RJob): boolean {
+  return Object.values(job.remote_cancellations || {}).some(record =>
+    ['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(record.status),
+  )
 }
 
 // v1.0.114 — The endpoints that recover already-completed work from the
@@ -2111,6 +2075,15 @@ async function clearFinished() {
   justify-content: flex-end;
   gap: 8px;
 }
+.job-control-primary { border-color: var(--accent); color: var(--accent); }
+.job-control-reason {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.job-control-reason.control-return-later { color: var(--warning); }
 .genstudio-capacity-summary {
   display: flex;
   flex-wrap: wrap;

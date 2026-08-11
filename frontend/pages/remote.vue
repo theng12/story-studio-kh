@@ -53,10 +53,15 @@
       <section class="rm-card">
         <div class="rm-card-head">
           <p class="rm-card-title">Active jobs</p>
-          <button v-if="activeJobs.length" class="rm-stopall" :disabled="stoppingAll" @click="stopAll">Stop all</button>
+          <button v-if="bulkControlJobs.length" class="rm-stopall" :disabled="stoppingAll" @click="requestEligibleControls">
+            {{ stoppingAll ? 'Requesting…' : `Manage eligible (${bulkControlJobs.length})` }}
+          </button>
         </div>
 
         <p v-if="!activeJobs.length" class="rm-mut rm-empty-sm">Nothing running right now.</p>
+        <p v-else-if="bulkSkippedCount" class="rm-mut rm-empty-sm">
+          {{ bulkSkippedCount }} job{{ bulkSkippedCount === 1 ? '' : 's' }} left unchanged because Story Studio cannot safely stop it yet.
+        </p>
 
         <div v-for="job in activeJobs" :key="job.job_id" class="rm-job">
           <div class="rm-job-main">
@@ -66,6 +71,11 @@
               <span v-if="job.status === 'error'" class="rm-err-tag">— failed</span>
             </p>
             <p class="rm-job-sub">{{ jobSubline(job) }}</p>
+            <p v-if="job.control" class="rm-job-control" :class="`control-${job.control.action}`">
+              <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
+              <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+              {{ job.control.reason }}
+            </p>
           </div>
           <button
             v-if="job.status === 'error'"
@@ -74,12 +84,13 @@
             @click="retry(job)"
           >Retry</button>
           <button
-            v-else
+            v-if="job.control && job.control.action !== 'none'"
             class="rm-job-btn rm-stop"
-            :disabled="cancelling.has(job.job_id)"
-            :aria-label="`Stop ${job.title || job.type}`"
-            @click="cancel(job)"
-          >Stop</button>
+            :disabled="!job.control.enabled || controlling.has(job.job_id)"
+            :aria-label="`${job.control.label} ${job.title || job.type}`"
+            :title="job.control.reason"
+            @click="runJobControl(job)"
+          >{{ controlling.has(job.job_id) ? 'Working…' : job.control.label }}</button>
         </div>
       </section>
 
@@ -127,7 +138,7 @@ const force = ref(false)
 const submitting = ref(false)
 const runError = ref('')
 const stoppingAll = ref(false)
-const cancelling = ref<Set<string>>(new Set())
+const controlling = ref<Set<string>>(new Set())
 const retrying = ref<Set<string>>(new Set())
 
 const LAST_KEY = 'remote_last_project'
@@ -143,6 +154,11 @@ const episodeCount = computed(() => episodeCodes.value.length)
 const activeJobs = computed<Job[]>(() =>
   (jobs.value as Job[]).filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'error'),
 )
+const BULK_CONTROL_ACTIONS = new Set(['cancel-before-submit', 'stop-local', 'request-remote-cancel'])
+const bulkControlJobs = computed(() => activeJobs.value.filter(job =>
+  !!job.control?.enabled && BULK_CONTROL_ACTIONS.has(job.control.action),
+))
+const bulkSkippedCount = computed(() => activeJobs.value.length - bulkControlJobs.value.length)
 
 function jobSubline(job: Job): string {
   if (job.status === 'error') return job.error || 'failed'
@@ -250,27 +266,52 @@ async function run() {
   }
 }
 
-async function cancel(job: Job) {
-  const slug = selectedSlug.value
-  if (!slug || cancelling.value.has(job.job_id)) return
-  cancelling.value = new Set(cancelling.value).add(job.job_id)
+function jobQueuePath(job: Job): string {
+  const slug = job.project_slug || selectedSlug.value
+  return slug === '_app_'
+    ? `/jobs/all/${job.job_id}`
+    : `/projects/${slug}/jobs/${job.job_id}`
+}
+
+function hasPendingCancellation(job: Job): boolean {
+  return Object.values(job.remote_cancellations || {}).some(record =>
+    ['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(record.status),
+  )
+}
+
+async function runJobControl(job: Job): Promise<boolean> {
+  const control = job.control
+  if (!control?.enabled || controlling.value.has(job.job_id)) return false
+  controlling.value = new Set(controlling.value).add(job.job_id)
   try {
-    await del(`/projects/${slug}/jobs/${job.job_id}`)
+    if (BULK_CONTROL_ACTIONS.has(control.action)) {
+      await post(`${jobQueuePath(job)}/cancel`, {})
+    } else if (control.action === 'pause-submissions') {
+      await post(`${jobQueuePath(job)}/pause`, {})
+    } else if (control.action === 'clear-history') {
+      await del(jobQueuePath(job))
+    } else {
+      return false
+    }
+    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${control.reason}`)
+    return true
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to stop the job')
+    showError(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`)
+    return false
   } finally {
-    const next = new Set(cancelling.value); next.delete(job.job_id); cancelling.value = next
+    const next = new Set(controlling.value); next.delete(job.job_id); controlling.value = next
   }
 }
 
-async function stopAll() {
+async function requestEligibleControls() {
   if (stoppingAll.value) return
+  const snapshot = [...bulkControlJobs.value]
+  const skipped = activeJobs.value.length - snapshot.length
   stoppingAll.value = true
   try {
-    const slug = selectedSlug.value
-    const live = activeJobs.value.filter(j => j.status !== 'error')
-    await Promise.allSettled(live.map(j => del(`/projects/${slug}/jobs/${j.job_id}`)))
-    if (live.length) success(`Stopped ${live.length} job(s)`)
+    const results = await Promise.all(snapshot.map(job => runJobControl(job)))
+    const requested = results.filter(Boolean).length
+    success(`Requested safe action for ${requested} job${requested === 1 ? '' : 's'}; left ${skipped} unchanged.`)
   } finally {
     stoppingAll.value = false
   }
@@ -366,6 +407,8 @@ onBeforeUnmount(() => stopPolling())
 .rm-job-main { flex: 1; min-width: 0; }
 .rm-job-title { margin: 0; font-size: 14px; }
 .rm-job-sub { margin: 3px 0 0; font-size: 12px; color: var(--text-muted, #888); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-job-control { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.rm-job-control.control-return-later { color: #c79328; }
 .rm-err-tag { color: #dc6666; font-size: 12px; }
 .rm-job-btn { height: 44px; min-width: 64px; padding: 0 14px; border-radius: 8px; font-size: 14px; flex-shrink: 0; }
 .rm-stop { color: #dc6666; border-color: rgba(220,38,38,0.4); }

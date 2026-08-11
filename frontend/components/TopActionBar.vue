@@ -144,6 +144,7 @@
           class="btn btn-primary btn-primary-cta"
           :disabled="generateDisabled || generateLoading"
           :aria-label="generateLabel"
+          :aria-describedby="showGenerateStatus ? generateStatusId : undefined"
           @click="$emit('generate')"
         >
           <LoadingSpinner v-if="generateLoading" size="sm" />
@@ -160,6 +161,13 @@
           </div>
         </template>
       </Popover>
+      <p
+        v-if="showGenerateStatus"
+        :id="generateStatusId"
+        class="generate-status"
+        role="status"
+        aria-live="polite"
+      >{{ generateStatusSentence }}</p>
     </div>
 
     <!-- Preset action modals use the same keyboard-safe pattern as PresetPicker. -->
@@ -392,6 +400,10 @@ const generateStatusSentence = computed(() => {
   if (props.generateStatus) return props.generateStatus
   return 'Idle — ready when you are.'
 })
+const showGenerateStatus = computed(() => !!props.generateStatus || props.generateLoading || props.generateDisabled)
+const generateStatusId = computed(() =>
+  `generate-status-${props.projectSlug || 'page'}-${props.filterField || 'primary'}`.replace(/[^a-zA-Z0-9_-]/g, '-'),
+)
 
 function formatPresetOption(p: { name: string }): string {
   return p.name
@@ -616,6 +628,17 @@ function episodeStatusClass(ep: any, key: string) {
   flex: 0 0 auto;
   align-self: flex-end;
   margin-left: auto;
+  display: grid;
+  justify-items: end;
+}
+.generate-status {
+  max-width: min(42ch, 100%);
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .btn-primary-cta {

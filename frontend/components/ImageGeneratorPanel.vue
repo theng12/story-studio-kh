@@ -46,6 +46,10 @@
         {{ bulkDisabled ? 'Rendering…' : bulkActionLabel }}
       </button>
     </div>
+    <p v-if="!isRegenerateMode || jobActiveForEpisode" class="igp-guard" role="status">
+      <template v-if="jobActiveForEpisode">A render is already in progress. </template>
+      Completed images are preserved. Missing-only generation submits only missing {{ kindLabelLower }}s.
+    </p>
 
     <!-- v1.0.416 — Thumbnail-only: optional render-time guidance appended to the
          prompt for THIS generation (per-row or bulk), no prompt-reprompt needed. -->
@@ -485,6 +489,13 @@ watch(
 }
 .igp-status-error {
   color: rgb(220, 38, 38);
+}
+.igp-guard {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .igp-meta {
