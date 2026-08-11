@@ -37,3 +37,9 @@ No generation, dependency, live-provider, or paid call was made.
 - Replaced stale format-contract prose and frontend comments with the live `timestamp-driven` / `continuity-chain` / `narrated-scenes` union.
 - Documented B-Roll and Image Pool as preserved independent route, asset, preset, and assembly workflows rather than `Format.visualSource` values.
 - Scoped grep found no retired `visualSource` assignments in the corrected docs/comments; `npm --prefix frontend run typecheck` and `git diff --check` passed.
+
+## Follow-up: format-contract consistency
+
+- Replaced the obsolete multi-format quick-reference table and retired niche pairings with the single active Continuity Engine contract.
+- Replaced the obsolete “add a format” checklist with current Formula/niche guidance and corrected `DEFAULT_FORMAT_ID` to `continuity-chain`.
+- Broader scoped grep confirmed retired format identifiers are absent from current-contract prose while active B-Roll and Image Pool workflow nouns remain documented.

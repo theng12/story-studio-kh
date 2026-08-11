@@ -1,42 +1,33 @@
 # Story Studio KH — Format & Niche Contract
 
-The schema reference for formats and niches, plus the **reverse index** showing which code reads which field. Use this when adding a new format, modifying an existing one, or debugging why a niche's vocab isn't landing where you expect. Last reviewed: 2026-05-21 (v1.0.114).
+The current schema reference for formats and niches, plus the **reverse index** showing which code reads which field. Story Studio has one active format engine, `continuity-chain`; use Series Formulas and niches for subject, structure, and voice. Last reviewed: 2026-08-12.
 
 For the big picture see [overview.md](overview.md).
 
 ---
 
-## Quick reference: existing formats
+## Quick reference: active format
 
-| File | id | visualSource | defaultChapterCount | Avg length |
-|---|---|---|---|---|
-| `sleep-story.json` | `sleep-story` | scene-images (default) | 10 | 45 min |
-| `adventure.json` | `adventure` | scene-images | 10 | 45 min |
-| `documentary.json` | `documentary` | scene-images | 8 | 30 min |
-| `comedy.json` | `comedy` | scene-images | 6 | 25 min |
-| `educational.json` | `educational` | scene-images | 8 | 30 min |
-| `kids-fairytale.json` | `kids-fairytale` | scene-images | 6 | 20 min |
-| `true-crime.json` | `true-crime` | scene-images | 8 | 45 min |
-| `listicle.json` | `listicle` | scene-images | 10 | 30 min |
-| `bound-explainer.json` | `bound-explainer` | scene-images | 6 | 12 min |
-| `broll-narration.json` | `broll-narration` | **broll** | 1 | 10 min |
+| File | id | visualSource | scene alignment |
+|---|---|---|---|
+| `continuity-chain.json` | `continuity-chain` | `continuity-chain` | `sentence` |
 
 ## Quick reference: existing niches
 
-| File | id | Pairs well with | Tracks scripture? |
+| File | id | Active format | Tracks scripture? |
 |---|---|---|---|
-| `animals.json` | animals | bound-explainer | no |
-| `plants.json` | plants | bound-explainer, listicle | no |
-| `insects.json` | insects | bound-explainer | no |
-| `fungi.json` | fungi | bound-explainer, listicle | no |
-| `prayer.json` | prayer | broll-narration | yes (script + metadata) |
-| `devotional.json` | devotional | broll-narration | yes |
-| `preaching.json` | preaching | broll-narration | yes |
-| `mindfulness.json` | mindfulness | broll-narration | no |
-| `motivation.json` | motivation | broll-narration | no |
-| `philosophy.json` | philosophy | broll-narration, documentary | no |
-| `psychology.json` | psychology | educational, listicle | no |
-| `history-narration.json` | history-narration | educational, documentary | no |
+| `animals.json` | animals | continuity-chain | no |
+| `plants.json` | plants | continuity-chain | no |
+| `insects.json` | insects | continuity-chain | no |
+| `fungi.json` | fungi | continuity-chain | no |
+| `prayer.json` | prayer | continuity-chain | yes (script + metadata) |
+| `devotional.json` | devotional | continuity-chain | yes |
+| `preaching.json` | preaching | continuity-chain | yes |
+| `mindfulness.json` | mindfulness | continuity-chain | no |
+| `motivation.json` | motivation | continuity-chain | no |
+| `philosophy.json` | philosophy | continuity-chain | no |
+| `psychology.json` | psychology | continuity-chain | no |
+| `history-narration.json` | history-narration | continuity-chain | no |
 
 ---
 
@@ -107,7 +98,7 @@ Niches are **overlays**. They don't run their own pipeline; they merge into a fo
 | `tagline` | string | optional | Short tagline for card display |
 | `exampleTopics` | string[] | yes | Subject strings (e.g. "Venus Flytrap", "Komodo Dragon"). **Replaces format's `exampleIdeas` when a niche is set** |
 | `vocabulary` | `NicheVocabulary` | optional | { mood, theme, genre, keyword } pools merged with format vocab |
-| `visualStyleSheet` | string | optional | Long-form style instructions appended to image prompts. **Irrelevant for broll formats** |
+| `visualStyleSheet` | string | optional | Long-form style instructions appended to Scene Plan/image prompts |
 | `defaultStyleKeywords` | string[] | optional | Auto-added style tags |
 | `negativePromptAddendum` | string | optional | Negative-prompt rules |
 | `referenceImages` | `NicheReferenceImage[]` | optional | Pre-built reference image pack |
@@ -172,7 +163,7 @@ When a field doesn't seem to be doing anything, find it in this table to know wh
 | `script.videoDefaults.secondsPerScene` | `frontend/pages/projects/[slug]/video-assembly.vue:applyVideoFormatDefaultsIfNoPreset` |
 | `script.videoDefaults.transitionType/Duration` | Same |
 | `script.videoDefaults.aspectRatio` | `frontend/pages/projects/[slug]/video.vue:applyVideoFormatDefaultsIfNoPreset` |
-| `script.videoDefaults.defaultTimelineClipDurationSeconds` | Video-assembly page (broll uses 600s, sleep-story 7200s) |
+| `script.videoDefaults.defaultTimelineClipDurationSeconds` | Video-assembly page |
 | `script.introDefaults` | Intro generator + script editor |
 | `script.systemPromptRole` | Script + chapter generators |
 | `imagePrompts.visualStyle` | `electron/server/generators/image-prompts.ts` |
@@ -209,17 +200,13 @@ When a field doesn't seem to be doing anything, find it in this table to know wh
 
 ---
 
-## Adding a new format: checklist
+## Extending the active format contract
 
-1. **Create the JSON** at `electron/server/formats/<id>.json`
-2. **Set `visualSource`** explicitly to `timestamp-driven`, `continuity-chain`, or `narrated-scenes`
-3. **Fill in all required fields** (idea, script, imagePrompts, metadata). Use an existing format as a starting template
-4. **Decide chapter count + pacing arc** — `defaultChapterCount × perChapterWords` should produce a script that, at ~150 WPM TTS, lands in your target video length
-5. **Test the idea step** — does the LLM produce coherent titles/loglines with your format's prompts? Iterate on `idea.systemPrompt` and `vocabPools`
-6. **Test the script step** — does pacing arc produce the expected length? Adjust `perChapterWords`
-7. **Test the selected scene workflow** — image prompts, Scene Plan, Scene Review, and Video Assembly must match the chosen live source
-8. **Audit format-aware code** (see [pipeline-audit.md](../history/pipeline-audit.md)) — does any code path need a new branch for this format?
-9. **Document in this file's quick-reference table** (top of doc)
+1. **Do not add a new active format id.** Projects resolve through `continuity-chain`.
+2. **Use a Series Formula or niche** for subject, structure, narrator voice, vocabulary, and reusable production defaults.
+3. **Use one live `visualSource` only when changing the active engine:** `timestamp-driven`, `continuity-chain`, or `narrated-scenes`.
+4. **Test the selected scene workflow** — image prompts, Scene Plan, Scene Review, and Video Assembly must agree.
+5. **Audit format-aware code** (see [pipeline-audit.md](../history/pipeline-audit.md)) and update this reference when a live contract changes.
 
 ---
 
@@ -261,6 +248,6 @@ An episode that has a `scene_plan.json` (Scene Plan page) gets **plan-exact orde
 
 - **Using an unknown `visualSource`** — only `timestamp-driven`, `continuity-chain`, and `narrated-scenes` are live format values; the effective-format boundary falls back to `continuity-chain` with sentence timing
 - **Treating niches as alternatives to formats** — niches are OVERLAYS. Every project has BOTH a format AND a niche
-- **Hardcoding paths to `sleep-story`** — `DEFAULT_FORMAT_ID = 'sleep-story'` exists as a fallback in `format-loader.ts` but should never appear in user-facing code paths. If you see it, the resolution chain broke
+- **Hardcoding a retired format id** — `DEFAULT_FORMAT_ID = 'continuity-chain'`; unknown saved ids resolve to that engine without rewriting project metadata
 - **Modifying built-in JSON in user library** — built-in formats/niches live in `electron/server/{formats,niches}/`. User-custom formats go into `{PROJECTS_ROOT}/.formats/` (forked copies). Don't write to the bundle path
 - **Niche overriding pipeline choice** — niches CAN override script structure and metadata templates, but they CANNOT change `visualSource`. B-Roll and Image Pool remain separate operational workflows rather than format choices
