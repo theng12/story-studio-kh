@@ -38,7 +38,7 @@
 - Produces: `JobControl`, `JobControlAction`, `JobControlCode`, and `JobRemoteCancellation` types.
 - Later tasks serialize `job.control = classifyJobControl(job, { remoteCancellationAudited: hasJobCancellationAuditor(job.type) })` and mutate only the per-target `job.remote_cancellations`; the frontend never recomputes these decisions.
 
-- [ ] **Step 1: Write the classifier behavior tests**
+- [x] **Step 1: Write the classifier behavior tests**
 
 Create table-driven tests with literal expected actions/reasons for:
 
@@ -64,7 +64,7 @@ Create table-driven tests with literal expected actions/reasons for:
 
 Also prove that “no GenStudio evidence” does not make an unknown cloud model local, mixed batch evidence fails closed, and `remoteCancellationAudited: false` never exposes request-cancellation even with an accepted ID. Local model identifiers alone are insufficient for `stop-local`: only `video_assembly`, `audio_merge`, `broll_normalize`, and `broll_assemble` may enter the initial stop-capable set after their real child/cooperative-stop tests pass; all other local text/image/audio jobs remain Pause/Return later until separately proven.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -74,7 +74,7 @@ cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1
 
 Expected: failure because `job-control.ts`, `JobControl`, and `remote_cancellations` do not exist.
 
-- [ ] **Step 3: Implement the minimal types and pure classifier**
+- [x] **Step 3: Implement the minimal types and pure classifier**
 
 Use these public shapes:
 
@@ -130,7 +130,7 @@ export interface JobRemoteCancellation {
 
 Add `remote_cancellations?: Record<string, JobRemoteCancellation>` keyed by `${operation}:${provider_job_id}` and the derived `control` field to `Job`. Extend every `genstudio_jobs` contract shape with published optional `cancellable`, `cancelled`, `cancellation_requested`, `cancellation_note`, and `released_credits`. Keep cost/local-model proof reusable, but make stop capability a stricter positive allowlist backed by behavior tests; never equate “local” with “cooperatively stoppable.” For a multi-item job, the classifier returns the exact eligible targets and its reason names any already-started items that will continue settling; it never treats a job-wide intent as proof that every target was cancelled. Video is the only operation eligible for request-cancellation after dispatch, and no type is eligible without `remoteCancellationAudited`.
 
-- [ ] **Step 4: Run focused tests and typecheck GREEN**
+- [x] **Step 4: Run focused tests and typecheck GREEN**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/job-control.test.ts
@@ -138,7 +138,7 @@ npm run typecheck:electron
 git diff --check
 ```
 
-- [ ] **Step 5: Commit the task**
+- [x] **Step 5: Commit the task**
 
 ```bash
 git add electron/server/services/job-control.ts electron/server/services/job-cancellation-auditors.ts electron/server/services/job-retry-policy.ts electron/server/models/types.ts electron/server/__tests__/job-control.test.ts
@@ -164,7 +164,7 @@ git commit -m "feat: classify safe job controls"
 - Produces: `removeTerminalJob(projectSlug: string, jobId: string): boolean`.
 - Produces routes `POST /projects/:slug/jobs/:jobId/cancel`, `POST /jobs/all/:jobId/cancel`, and terminal-only DELETE at the existing item URLs.
 
-- [ ] **Step 1: Write route and queue RED tests**
+- [x] **Step 1: Write route and queue RED tests**
 
 Prove observable behavior:
 
@@ -186,7 +186,7 @@ Prove observable behavior:
 
 Update old tests that used `cancelJob()` as fixture cleanup to call the appropriate explicit API (`requestJobCancellation` for live fixtures, `removeTerminalJob` for terminal fixtures). Do not preserve an ambiguous exported alias.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/job-cancel.test.ts server/__tests__/job-queue.test.ts server/__tests__/jobs-route-order.test.ts
@@ -194,7 +194,7 @@ cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1
 
 Expected: new POST routes are absent and DELETE still cancels active work.
 
-- [ ] **Step 3: Implement explicit queue operations and route contracts**
+- [x] **Step 3: Implement explicit queue operations and route contracts**
 
 `requestJobCancellation` must:
 
@@ -211,7 +211,7 @@ throw new JobControlError(control)
 
 `removeTerminalJob` accepts only `done|error|cancelled`. The route maps ownership failure to 404 and invalid state to 409 with the classifier payload. Concurrent repeated POSTs must leave one `queued|submitting|requested` record per target. `Job.status` remains `running` with `finished_at: null` throughout remote cancellation/reconciliation; do not add a new `JobStatus`. Serialize `control` freshly in `getJob`, list snapshots, SSE updates, and enqueue responses rather than persisting a stale derived value. Add the exact `control`, `remote_cancellations`, and GenStudio cancellation-field shapes to `electron/server/contracts/index.ts` so SSE/snapshot/enqueue consumers share the same API contract.
 
-- [ ] **Step 4: Run focused tests, adjacent stream tests, and typecheck GREEN**
+- [x] **Step 4: Run focused tests, adjacent stream tests, and typecheck GREEN**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/job-cancel.test.ts server/__tests__/job-queue.test.ts server/__tests__/jobs-route-order.test.ts server/__tests__/jobs-stream.test.ts server/__tests__/job-queue-persistence-retention.test.ts
@@ -219,7 +219,7 @@ npm run typecheck:electron
 git diff --check
 ```
 
-- [ ] **Step 5: Commit the task**
+- [x] **Step 5: Commit the task**
 
 ```bash
 git add electron/server/services/job-queue.ts electron/server/routes/jobs.ts electron/server/contracts/index.ts electron/server/__tests__
@@ -244,7 +244,7 @@ git commit -m "fix: separate job cancellation from removal"
 - Produces: `requestGenStudioCancellation(operation, baseUrl, apiKey, providerJobId, request, deadline): Promise<GenStudioJob>` with typed published response fields.
 - Produces: queue functions `claimRemoteCancellation(storyJobId, operation, providerJobId): boolean` and `recordRemoteCancellation(storyJobId, operation, providerJobId, evidence)`.
 
-- [ ] **Step 1: Extend the mock with the real 0.93.1 cancellation contract**
+- [x] **Step 1: Extend the mock with the real 0.93.1 cancellation contract**
 
 Add zero-cost handlers for:
 
@@ -257,7 +257,7 @@ POST /v1/videos/:id/cancel
 
 Fixtures must cover terminal cancellation with positive `released_credits`, terminal cancellation with zero/missing release, pre-execution 409, Video `cancellation_requested: true` while nonterminal, terminal success/failure racing the cancel request, transport close, and repeated cancellation.
 
-- [ ] **Step 2: Write client RED tests**
+- [x] **Step 2: Write client RED tests**
 
 Assert real boundary behavior:
 
@@ -273,7 +273,7 @@ Assert real boundary behavior:
 // Simultaneous user clicks cannot make a second cancellation POST for either target.
 ```
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/genstudio-video-tts-transcription-hardening.test.ts server/__tests__/genstudio-image-integration.test.ts server/__tests__/genstudio-release-qualification.test.ts
@@ -281,7 +281,7 @@ cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1
 
 Expected: current helper suppresses response/errors and immediately emits local cancellation.
 
-- [ ] **Step 4: Implement typed cancellation and nonterminal reconciliation**
+- [x] **Step 4: Implement typed cancellation and nonterminal reconciliation**
 
 Replace the swallowing helper with an operation map that contains only the four published routes. Parse and retain these fields only when actually present:
 
@@ -299,7 +299,7 @@ type GenStudioCancellationFields = {
 
 The route only queues exact targets. The poller that already owns each target and API key atomically calls `claimRemoteCancellation(storyJobId, operation, providerJobId)`; only the successful claimant sends the cancellation POST and records its response/error. Other pollers only observe status. This is the single concurrency-ownership rule for route clicks, polling, and restart recovery. Pollers continue status polling unless the returned provider state is terminal and must not call `onQueueState('cancelled')` from Story intent alone. The Story job remains `running` until **every accepted required target**, including targets excluded from `control.targets` because they are already noncancellable, reaches authoritative terminal state. Only then may the queue choose `cancelled`, `error`, or verified `done`; a 409, Video pending response, timeout, transport error, or any still-settling sibling retains `running`, `finished_at: null`, and the duplicate lock.
 
-- [ ] **Step 5: Run focused tests and typecheck GREEN**
+- [x] **Step 5: Run focused tests and typecheck GREEN**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/genstudio-video-tts-transcription-hardening.test.ts server/__tests__/genstudio-image-integration.test.ts server/__tests__/genstudio-release-qualification.test.ts
@@ -307,7 +307,7 @@ npm run typecheck:electron
 git diff --check
 ```
 
-- [ ] **Step 6: Commit the task**
+- [x] **Step 6: Commit the task**
 
 ```bash
 git add electron/server/lib/genstudio-client.ts electron/server/models/types.ts electron/server/services/job-queue.ts electron/server/__tests__/fixtures/mock-genstudio-service.ts electron/server/__tests__/genstudio-video-tts-transcription-hardening.test.ts electron/server/__tests__/genstudio-image-integration.test.ts electron/server/__tests__/genstudio-release-qualification.test.ts
@@ -334,7 +334,7 @@ git commit -m "fix: preserve provider cancellation truth"
 - Produces: `VideoGenerationRequest.onJobAccepted?: (taskId: string, idempotencyKey: string, variantIndex: number) => void | Promise<void>`.
 - Produces: durable accepted-ID/key records before polling for every queue-backed path enabled for remote request-cancellation.
 
-- [ ] **Step 1: Write producer-wiring RED tests**
+- [x] **Step 1: Write producer-wiring RED tests**
 
 Use real generator/provider seams to prove:
 
@@ -353,17 +353,17 @@ Use real generator/provider seams to prove:
 
 The mutation that restores `isCancelled: () => false` or removes the generic Video callback must fail these tests.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/generation-control-wiring.test.ts server/__tests__/genstudio-video-tts-transcription-hardening.test.ts server/__tests__/genstudio-release-qualification.test.ts
 ```
 
-- [ ] **Step 3: Add the smallest callback and signal wiring**
+- [x] **Step 3: Add the smallest callback and signal wiring**
 
 Forward `onJobAccepted` from `VideoGenerationRequest` through only the GenStudio video provider, passing the explicit zero-based variant index. In `ai-video.ts`, map that index to `${stem}_v${index + 1}.mp4` manifest records containing `provider`, `task_id`, `idempotency_key`, `operation: 'video'`, and `last_state: 'accepted'` before polling completes. Replace Scene Image's constant false probe with the queue-owned local-stop probe; its remote-cancellation behavior remains the distinct Task 3 per-target claim performed inside the GenStudio client after the accepted ID exists. Persist the accepted idempotency key. Bring Composition Template to the same prepared/accepted boundary without changing its generation result. Exercise every listed producer's existing prepared/accepted callback in the inventory test; change production only where the test proves its accepted-ID boundary is absent.
 
-- [ ] **Step 4: Run the producer inventory tests and typecheck GREEN**
+- [x] **Step 4: Run the producer inventory tests and typecheck GREEN**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/generation-control-wiring.test.ts server/__tests__/genstudio-video-tts-transcription-hardening.test.ts server/__tests__/genstudio-release-qualification.test.ts server/__tests__/genstudio-image-integration.test.ts
@@ -371,7 +371,7 @@ npm run typecheck:electron
 git diff --check
 ```
 
-- [ ] **Step 5: Commit the task**
+- [x] **Step 5: Commit the task**
 
 ```bash
 git add electron/server/providers/types.ts electron/server/providers/video/genstudio.ts electron/server/generators/ai-video.ts electron/server/generators/scene-image.ts electron/server/generators/composition-template.ts electron/server/__tests__
@@ -398,7 +398,7 @@ git commit -m "fix: checkpoint cancellable provider work"
 - Consumes the Task 1 registry: `registerJobCancellationAuditor(type: JobType, auditor: JobCancellationAuditor): void`, where `JobCancellationAuditor = (job: Job) => Promise<'complete' | 'repair-required'>`.
 - Invariant: a reconciliation-only job retains its active duplicate lock but is not counted in the normal generation worker lane.
 
-- [ ] **Step 1: Write restart and capacity RED tests**
+- [x] **Step 1: Write restart and capacity RED tests**
 
 Persist realistic jobs and prove:
 
@@ -417,13 +417,13 @@ Persist realistic jobs and prove:
 // no registered auditor -> fail closed and never expose remote cancellation for that type.
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/job-cancellation-reconciliation.test.ts server/__tests__/job-queue-persistence-retention.test.ts server/__tests__/job-queue-concurrency.test.ts
 ```
 
-- [ ] **Step 3: Implement a small reconciliation registry**
+- [x] **Step 3: Implement a small reconciliation registry**
 
 Do not create a second queue. On load, jobs with any target in `queued|submitting|requested|reconciling|unknown` enter a persisted reconciliation set while `Job.status` stays `running` and `finished_at` stays null. The service first reads the published operation status. If a persisted `queued` intent is still cancellable, or a lost-response `submitting` intent is proven by the read to remain cancellable, it atomically claims and sends the same idempotent cancellation request for that provider job ID; it never sends a generation POST. It then uses published status GET endpoints, emits normal job SSE updates, and retains the duplicate lock until every required accepted target is authoritative terminal.
 
@@ -442,7 +442,7 @@ video -> getVideoStatus(...).total > 0 && present === total
 
 Task 4 checkpoints the asset keys and plan paths these callbacks require. When every provider target succeeds, run the registered auditor: `complete` permits verified Done; `repair-required` preserves files/evidence and terminalizes Story as Error with `{ provider_settled: 'succeeded', repair_required: true }`, directing the user to the existing zero-resubmission Repair path. Unsupported types have no auditor, remain fail-closed, and never receive `request-remote-cancel` from the classifier. Unsupported/missing API access stays nonterminal with visible reason. Reconciliation polling is owned by the persisted set, not a generation queue lane.
 
-- [ ] **Step 4: Run focused tests and typecheck GREEN**
+- [x] **Step 4: Run focused tests and typecheck GREEN**
 
 ```bash
 cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/job-cancellation-reconciliation.test.ts server/__tests__/job-queue-persistence-retention.test.ts server/__tests__/job-queue-concurrency.test.ts server/__tests__/job-cancel.test.ts
@@ -450,7 +450,7 @@ npm run typecheck:electron
 git diff --check
 ```
 
-- [ ] **Step 5: Commit the task**
+- [x] **Step 5: Commit the task**
 
 ```bash
 git add electron/server/services/job-cancellation-reconciler.ts electron/server/services/job-cancellation-auditors.ts electron/server/services/job-queue.ts electron/server/lib/genstudio-client.ts electron/server/boot/executors.ts electron/server/__tests__
@@ -482,7 +482,7 @@ git commit -m "fix: reconcile pending cancellations after restart"
 - Produces no frontend modality truth table; both Jobs surfaces render the returned action/label/reason.
 - `TopActionBar` associates persistent `generateStatus` text with its primary action through `aria-describedby`.
 
-- [ ] **Step 1: Write frontend RED tests**
+- [x] **Step 1: Write frontend RED tests**
 
 Behavior assertions:
 
@@ -505,13 +505,13 @@ Behavior assertions:
 // Pipeline and Scene Plan expose their already-computed blocking reason beside the action.
 ```
 
-- [ ] **Step 2: Run frontend tests and verify RED**
+- [x] **Step 2: Run frontend tests and verify RED**
 
 ```bash
 cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/jobsControls.test.ts __tests__/universalJobs.test.ts __tests__/useJobs.test.ts __tests__/topActionBarFeedback.test.ts __tests__/generationGuardVisibility.test.ts
 ```
 
-- [ ] **Step 3: Replace client truth tables with server controls**
+- [x] **Step 3: Replace client truth tables with server controls**
 
 Render controls using a single action dispatcher:
 
@@ -525,11 +525,11 @@ if (control.action === 'cancel-before-submit' || control.action === 'stop-local'
 
 `pause-submissions` uses the existing Pause endpoint. `return-later` is explanatory/navigation behavior and does not mutate job state. Remove both frontend sets and all refund/provider-stop inference. Show `control.reason` as readable text. Display raw cancellation/settlement fields only through the existing GenStudio evidence components, and only say credits were released when the published positive field exists.
 
-- [ ] **Step 4: Make shared guard reasons persistent and accessible**
+- [x] **Step 4: Make shared guard reasons persistent and accessible**
 
 Keep the existing Popover as supplemental help, but render `generateStatus` persistently beside or below the TopActionBar CTA and connect it with a stable generated id through `aria-describedby`. Fill only confirmed blank/generic statuses on Images, Audio, Pipeline, and Scene Plan; reuse `useJobs().isJobActiveFor`, existing `blockingIssues`, and existing missing-only counts. Do not create a new page-local status store.
 
-- [ ] **Step 5: Run frontend tests and Nuxt typecheck GREEN**
+- [x] **Step 5: Run frontend tests and Nuxt typecheck GREEN**
 
 ```bash
 cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/jobsControls.test.ts __tests__/universalJobs.test.ts __tests__/useJobs.test.ts __tests__/topActionBarFeedback.test.ts __tests__/generationGuardVisibility.test.ts
@@ -537,7 +537,7 @@ npm --prefix frontend run typecheck
 git diff --check
 ```
 
-- [ ] **Step 6: Commit the task**
+- [x] **Step 6: Commit the task**
 
 ```bash
 git add frontend/composables frontend/pages frontend/components frontend/__tests__
@@ -596,7 +596,7 @@ npm run verify:artifact
 shasum -a 256 "dist/Story Studio KH 1.0.822-arm64.dmg"
 ```
 
-- [ ] **Step 5: Perform packaged visual QA without paid calls**
+- [x] **Step 5: Perform packaged visual QA without paid calls**
 
 Launch the packaged app and capture/inspect:
 
