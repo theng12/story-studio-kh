@@ -61,7 +61,7 @@ function describes(entry: JobEvidence): string {
  * GenStudio evidence before offering a provider cancellation request.
  */
 export function classifyJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
@@ -74,8 +74,14 @@ export function classifyJobControl(
 
   const pendingCancellation = Object.values(job.remote_cancellations || {}).find(record => PENDING_CANCELLATION_STATES.has(record.status))
   if (pendingCancellation) {
-    const detail = pendingCancellation.reconciliation_error ? ` ${pendingCancellation.reconciliation_error}` : ''
+    const detail = pendingCancellation.reconciliation_error || job.reconciliation_error
+      ? ` ${pendingCancellation.reconciliation_error || job.reconciliation_error}`
+      : ''
     return control('return-later', false, 'Checking cancellation', `Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.${detail}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+  }
+
+  if (job.reconciliation_error) {
+    return control('return-later', false, 'Checking provider status', `Story Studio cannot yet confirm every accepted provider task. ${job.reconciliation_error}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   const evidence = job.genstudio_jobs || []

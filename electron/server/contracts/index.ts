@@ -638,6 +638,7 @@ export interface JobEnqueuedResponse {
   }>
   /** Per-provider-task cancellation evidence keyed by `${operation}:${provider_job_id}`. */
   remote_cancellations?: Record<string, JobRemoteCancellationResponse>
+  reconciliation_error?: string
   /**
    * Directory containing the job's primary output (audio dir, image dir,
    * video dir, …). Set by each generator on success. Drives the Jobs

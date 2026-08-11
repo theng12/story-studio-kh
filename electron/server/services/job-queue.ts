@@ -382,6 +382,17 @@ function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean
   return Object.keys(job.remote_cancellations || {}).length > 0
 }
 
+/** Continue control-plane polling until every accepted sibling is terminal. */
+function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
+  // A restart can occur after the final provider status was persisted but
+  // before Story recorded its own terminal state. One final read is required
+  // to settle that durable evidence through the same cancellation/audit path.
+  return hasCancellationContext(job) && (
+    hasUnsettledProviderWork(job)
+    || (job.genstudio_jobs || []).length > 0
+  )
+}
+
 function mergeGenStudioReconciliationEvidence(
   job: Job,
   operation: JobRemoteOperation,
@@ -422,7 +433,7 @@ function mergeGenStudioReconciliationEvidence(
 async function reconcileCancellationJob(jobId: string): Promise<void> {
   if (cancellationReconciling.has(jobId)) return
   const job = jobs.get(jobId)
-  if (!job || job.status !== 'running' || !hasPendingRemoteCancellation(job)) return
+  if (!job || job.status !== 'running' || !requiresCancellationReconciliation(job)) return
   cancellationReconciling.add(jobId)
   try {
     for (const [key, record] of Object.entries(job.remote_cancellations || {})) {
@@ -442,6 +453,8 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     }
     const outcome = await reconcilePendingJobCancellation(job, apiKey)
     job.remote_cancellations = outcome.records
+    if (outcome.reason && outcome.reason !== job.reconciliation_error) job.output_lines.push(outcome.reason)
+    job.reconciliation_error = outcome.reason
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.job)
 
     if (outcome.kind === 'cancelled') {
@@ -485,14 +498,16 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     // or explicit status refresh can resume read-only reconciliation.
     const job = jobs.get(jobId)
     if (job?.status === 'running') {
-      job.output_lines.push(`Cancellation reconciliation is waiting: ${error instanceof Error ? error.message : String(error)}`)
+      const reason = redactSensitiveValue(`Cancellation reconciliation is waiting: ${error instanceof Error ? error.message : String(error)}`)
+      if (reason !== job.reconciliation_error) job.output_lines.push(reason)
+      job.reconciliation_error = reason
       await persistJob(job)
       emitUpdate(job)
     }
   } finally {
     cancellationReconciling.delete(jobId)
     const latest = jobs.get(jobId)
-    if (latest?.status === 'running' && hasPendingRemoteCancellation(latest)) {
+    if (latest?.status === 'running' && requiresCancellationReconciliation(latest)) {
       const existing = cancellationReconcileTimers.get(jobId)
       if (!existing) {
         const timer = setTimeout(() => {
@@ -878,7 +893,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             }
             mutated = true
           } else if (j.status === 'running') {
-            if (hasPendingRemoteCancellation(j)) {
+            if (requiresCancellationReconciliation(j)) {
               // The provider request already has a durable identity and an
               // explicit cancellation intent. Never convert it to an
               // interrupted error or requeue it into a generation lane.

@@ -2353,6 +2353,8 @@ export interface Job {
   }>
   /** Persisted cancellation state belongs to an exact GenStudio target, not a whole Story job. */
   remote_cancellations?: Record<string, JobRemoteCancellation>
+  /** Redacted reason the restart-safe provider reconciliation is still waiting. */
+  reconciliation_error?: string
   /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video

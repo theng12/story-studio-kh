@@ -9,11 +9,18 @@ import {
 import type { Job, JobRemoteCancellation } from '../models/types.js'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
 
-export type JobCancellationReconcileOutcome =
-  | { kind: 'pending'; records: Record<string, JobRemoteCancellation>; providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> }
-  | { kind: 'cancelled'; records: Record<string, JobRemoteCancellation>; providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> }
-  | { kind: 'failed'; records: Record<string, JobRemoteCancellation>; providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> }
-  | { kind: 'succeeded'; records: Record<string, JobRemoteCancellation>; providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> }
+type ReconcileEvidence = {
+  records: Record<string, JobRemoteCancellation>
+  providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }>
+  reason?: string
+}
+
+export type JobCancellationReconcileOutcome = ReconcileEvidence & (
+  | { kind: 'pending' }
+  | { kind: 'cancelled' }
+  | { kind: 'failed' }
+  | { kind: 'succeeded' }
+)
 
 const PENDING = new Set<JobRemoteCancellation['status']>(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const REMOTE_OPERATIONS = new Set<JobRemoteCancellation['operation']>([
@@ -72,7 +79,7 @@ export async function reconcilePendingJobCancellation(
   const records = { ...(job.remote_cancellations || {}) }
   const pending = Object.entries(records).filter(([, record]) => PENDING.has(record.status))
   const providerJobs: Array<{ operation: JobRemoteCancellation['operation']; job: GenStudioJob & GenStudioCancellationFields }> = []
-  if (!pending.length) return { kind: 'pending', records, providerJobs }
+  let reason: string | undefined
 
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + 30_000
@@ -95,10 +102,12 @@ export async function reconcilePendingJobCancellation(
       // Missing credentials, a stopped GenStudio service, and a malformed
       // status response are not evidence that the provider stopped. Preserve
       // the duplicate lock and let a later control-plane read decide.
+      const errorReason = reconciliationError(error)
       records[key] = {
-        ...record, status: 'unknown', reconciliation_error: reconciliationError(error),
+        ...record, status: 'unknown', reconciliation_error: errorReason,
         updated_at: new Date().toISOString(),
       }
+      reason = errorReason
     }
   }
 
@@ -116,24 +125,24 @@ export async function reconcilePendingJobCancellation(
       )
       providerJobs.push({ operation: evidence.operation, job: provider })
       observed.add(key)
-    } catch {
+    } catch (error) {
       // The exact accepted target cannot be proven terminal. This includes an
       // unavailable API key/service and is intentionally a nonterminal hold.
-      return { kind: 'pending', records, providerJobs }
+      return { kind: 'pending', records, providerJobs, reason: reconciliationError(error) }
     }
   }
 
   const values = Object.values(records)
-  if (values.some(record => PENDING.has(record.status))) return { kind: 'pending', records, providerJobs }
-  if (providerJobs.some(item => !isSettledGenStudioJob(item.job))) return { kind: 'pending', records, providerJobs }
+  if (values.some(record => PENDING.has(record.status))) return { kind: 'pending', records, providerJobs, reason }
+  if (providerJobs.some(item => !isSettledGenStudioJob(item.job))) return { kind: 'pending', records, providerJobs, reason }
   if (providerJobs.some(item => item.job.state === 'failed' && item.job.cancelled !== true)) {
-    return { kind: 'failed', records, providerJobs }
+    return { kind: 'failed', records, providerJobs, reason }
   }
-  if (providerJobs.length && providerJobs.every(item => item.job.cancelled === true)) return { kind: 'cancelled', records, providerJobs }
+  if (providerJobs.length && providerJobs.every(item => item.job.cancelled === true)) return { kind: 'cancelled', records, providerJobs, reason }
   // A partial success plus cancellation is not a verified complete output
   // set. The queue turns this into the same repair-first Error as a failed
   // provider target; never let one successful sibling green-light the job.
-  if (providerJobs.some(item => item.job.cancelled === true)) return { kind: 'failed', records, providerJobs }
-  if (providerJobs.length && providerJobs.every(item => item.job.state === 'succeeded')) return { kind: 'succeeded', records, providerJobs }
-  return { kind: 'pending', records, providerJobs }
+  if (providerJobs.some(item => item.job.cancelled === true)) return { kind: 'failed', records, providerJobs, reason }
+  if (providerJobs.length && providerJobs.every(item => item.job.state === 'succeeded')) return { kind: 'succeeded', records, providerJobs, reason }
+  return { kind: 'pending', records, providerJobs, reason }
 }
