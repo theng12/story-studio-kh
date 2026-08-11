@@ -611,7 +611,7 @@ Remote page at narrow width: no generic Stop/Stop all provider promise.
 
 Verify keyboard focus, readable adjacent reasons, no color-only state, no overflow/clipping, and no live provider generation submission.
 
-- [ ] **Step 6: Run independent final review and fix one consolidated wave**
+- [x] **Step 6: Run independent final review and fix one consolidated wave**
 
 The reviewer compares the full branch to the approved spec, with special attention to paid-work identity, classify→cancel races, restart locks, release language, and frontend/server authority. Any Critical/Important findings are fixed in one consolidated TDD wave and re-reviewed once.
 
