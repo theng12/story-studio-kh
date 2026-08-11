@@ -419,4 +419,9 @@ onBeforeUnmount(() => stopPolling())
 .rm-stopall { height: 44px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
 
 .rm-foot { margin: 0; font-size: var(--font-xs); color: var(--text-muted, #888); text-align: center; }
+
+@media (max-width: 420px) {
+  .rm-job { flex-wrap: wrap; align-items: flex-start; }
+  .rm-job-main { flex: 1 0 100%; }
+}
 </style>

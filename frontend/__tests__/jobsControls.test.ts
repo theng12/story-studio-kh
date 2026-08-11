@@ -52,3 +52,9 @@ test('Remote includes paused jobs and counts failed bulk requests as unchanged',
   assert.match(remote, /left \$\{unchanged\} unchanged/)
   assert.match(remote, /\.rm-stopall \{ height: 44px;/)
 })
+
+test('Remote keeps job details readable beside touch controls on narrow screens', () => {
+  assert.match(remote, /@media \(max-width: 420px\)[\s\S]*\.rm-job \{ flex-wrap: wrap;/)
+  assert.match(remote, /@media \(max-width: 420px\)[\s\S]*\.rm-job-main \{ flex: 1 0 100%; \}/)
+  assert.match(remote, /\.rm-job-btn \{ height: 44px;/)
+})
