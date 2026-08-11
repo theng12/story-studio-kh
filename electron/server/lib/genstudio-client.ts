@@ -15,6 +15,8 @@ import {
   GenStudioAdmissionPool,
   type GenStudioAdmissionState,
   type GenStudioAccountCapacity,
+  type GenStudioServiceTier,
+  type GenStudioServiceTierStanding,
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 import {
@@ -1267,12 +1269,75 @@ export interface GenStudioAccountOverview {
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
+  burst_concurrency_ceiling?: number
+  service_tier?: GenStudioServiceTierStanding
   total_jobs: number
   active_jobs: number
   completed_jobs: number
   failed_jobs: number
   available_assets: number
   next_asset_expiration: string | null
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function parseServiceTier(value: unknown): GenStudioServiceTier | undefined {
+  const tier = objectRecord(value)
+  const code = typeof tier?.code === 'string' && tier.code.trim() ? tier.code : undefined
+  const display_name = typeof tier?.display_name === 'string' && tier.display_name.trim()
+    ? tier.display_name
+    : undefined
+  const threshold_cents = nonNegativeInteger(tier?.threshold_cents)
+  const paid_concurrency_limit = positiveInteger(tier?.paid_concurrency_limit)
+  const max_queued_jobs = positiveInteger(tier?.max_queued_jobs)
+  const generation_submissions_per_minute = positiveInteger(tier?.generation_submissions_per_minute)
+  const max_api_keys = positiveInteger(tier?.max_api_keys)
+  return code && display_name && threshold_cents !== undefined && paid_concurrency_limit
+    && max_queued_jobs && generation_submissions_per_minute && max_api_keys
+    ? {
+        code,
+        display_name,
+        threshold_cents,
+        paid_concurrency_limit,
+        max_queued_jobs,
+        generation_submissions_per_minute,
+        max_api_keys,
+      }
+    : undefined
+}
+
+function parseServiceTierStanding(value: unknown): GenStudioServiceTierStanding | undefined {
+  const standing = objectRecord(value)
+  const current = parseServiceTier(standing?.current)
+  const ladder = parseServiceTier(standing?.ladder)
+  const lifetime_paid_cents = nonNegativeInteger(standing?.lifetime_paid_cents)
+  const next_tier = standing?.next_tier === null ? null : parseServiceTier(standing?.next_tier)
+  const cents_to_next_tier = standing?.cents_to_next_tier === null
+    ? null
+    : nonNegativeInteger(standing?.cents_to_next_tier)
+  return current && ladder && typeof standing?.overridden === 'boolean'
+    && lifetime_paid_cents !== undefined && next_tier !== undefined && cents_to_next_tier !== undefined
+    ? {
+        current,
+        ladder,
+        overridden: standing.overridden,
+        lifetime_paid_cents,
+        next_tier,
+        cents_to_next_tier,
+      }
+    : undefined
 }
 
 export interface GenStudioCustomerJob {
@@ -1620,12 +1685,16 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
   ) {
     throw new Error('GenStudio account overview did not include a valid paid concurrency limit')
   }
+  const burstCeiling = positiveInteger(overview.burst_concurrency_ceiling)
+  const tierStanding = parseServiceTierStanding(overview.service_tier)
   return {
     paid_concurrency_limit: overview.paid_concurrency_limit,
     paid_active_jobs: overview.paid_active_jobs,
     paid_queued_jobs: overview.paid_queued_jobs,
     max_queued_jobs: overview.max_queued_jobs,
     generation_submissions_per_minute: overview.generation_submissions_per_minute,
+    ...(burstCeiling ? { burst_concurrency_ceiling: burstCeiling } : {}),
+    ...(tierStanding ? { service_tier: tierStanding } : {}),
   }
 })
 
@@ -3804,6 +3873,8 @@ export async function getGenStudioAccountOverview(apiKey: string): Promise<GenSt
     paid_queued_jobs,
     max_queued_jobs,
     generation_submissions_per_minute,
+    burst_concurrency_ceiling,
+    service_tier,
     total_jobs,
     active_jobs,
     completed_jobs,
@@ -3811,6 +3882,8 @@ export async function getGenStudioAccountOverview(apiKey: string): Promise<GenSt
     available_assets,
     next_asset_expiration,
   } = await readAccountJson<GenStudioAccountOverview>(apiKey, '/v1/account/overview')
+  const burstCeiling = positiveInteger(burst_concurrency_ceiling)
+  const tierStanding = parseServiceTierStanding(service_tier)
   return {
     credit_balance,
     credits_used_30d,
@@ -3821,6 +3894,8 @@ export async function getGenStudioAccountOverview(apiKey: string): Promise<GenSt
     paid_queued_jobs,
     max_queued_jobs,
     generation_submissions_per_minute,
+    ...(burstCeiling ? { burst_concurrency_ceiling: burstCeiling } : {}),
+    ...(tierStanding ? { service_tier: tierStanding } : {}),
     total_jobs,
     active_jobs,
     completed_jobs,

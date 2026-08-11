@@ -133,6 +133,64 @@ test('GenStudio admission preserves a valid published submission rate', async ()
   assert.equal(pool.snapshot().generation_submissions_per_minute, 7)
 })
 
+test('GenStudio admission preserves valid capacity display facts without admitting above standard lanes', async () => {
+  const pool = new GenStudioAdmissionPool(async () => capacity({
+    paid_concurrency_limit: 1,
+    burst_concurrency_ceiling: 4,
+    service_tier: {
+      current: {
+        code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+        paid_concurrency_limit: 1, max_queued_jobs: 25,
+        generation_submissions_per_minute: 30, max_api_keys: 2,
+      },
+      ladder: {
+        code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+        paid_concurrency_limit: 1, max_queued_jobs: 25,
+        generation_submissions_per_minute: 30, max_api_keys: 2,
+      },
+      overridden: false,
+      lifetime_paid_cents: 500,
+      next_tier: null,
+      cents_to_next_tier: null,
+    },
+  }))
+  const firstGate = deferred()
+  const started: number[] = []
+  const first = pool.run('capacity-key', undefined, async () => {
+    started.push(1)
+    await firstGate.promise
+  })
+  const controller = new AbortController()
+  const second = pool.run('capacity-key', controller.signal, async () => { started.push(2) })
+
+  await new Promise(resolve => setImmediate(resolve))
+
+  const snapshot = pool.snapshot() as any
+  assert.equal(snapshot.burst_concurrency_ceiling, 4)
+  assert.equal(snapshot.service_tier.current.display_name, '$5 tier')
+  assert.deepEqual(started, [1])
+
+  controller.abort()
+  await assert.rejects(second, /Cancelled by user/)
+  firstGate.resolve()
+  await first
+})
+
+test('GenStudio admission omits malformed capacity display facts and fallback metadata', async () => {
+  const malformed = new GenStudioAdmissionPool(async () => capacity({
+    burst_concurrency_ceiling: 0,
+    service_tier: { current: { display_name: '$5 tier' } } as any,
+  }))
+  await malformed.refreshNow('malformed-display-key')
+  assert.equal((malformed.snapshot() as any).burst_concurrency_ceiling, undefined)
+  assert.equal((malformed.snapshot() as any).service_tier, undefined)
+
+  const fallback = new GenStudioAdmissionPool(async () => { throw new Error('offline') })
+  await fallback.refreshNow('fallback-display-key')
+  assert.equal((fallback.snapshot() as any).burst_concurrency_ceiling, undefined)
+  assert.equal((fallback.snapshot() as any).service_tier, undefined)
+})
+
 test('a malformed published submission rate admits five requests before rate limiting the sixth', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity({
     paid_concurrency_limit: 10,

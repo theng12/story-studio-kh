@@ -32,6 +32,17 @@ test('Jobs keeps a requested cancellation active and explains reconciliation', (
   assert.match(jobs, /files or billing records/i)
 })
 
+test('Jobs renders GenStudio standard lanes with optional live burst and tier facts', () => {
+  assert.match(jobs, /paid_active_jobs }} active \/ {{ genStudioAdmission\.paid_concurrency_limit }} standard lanes/)
+  assert.match(jobs, /genStudioAdmission\.burst_concurrency_ceiling &&\s*genStudioAdmission\.paid_active_jobs > genStudioAdmission\.paid_concurrency_limit/)
+  assert.match(jobs, /Temporary boost/)
+  assert.match(jobs, /genStudioAdmission\.service_tier\.current\.display_name/)
+  assert.match(jobs, /genStudioAdmission\.service_tier\?\.next_tier &&\s*genStudioAdmission\.service_tier\.cents_to_next_tier !== null/)
+  assert.match(jobs, /formatGenStudioCents\(genStudioAdmission\.service_tier\.cents_to_next_tier\)/)
+  assert.match(jobs, /next_tier\.paid_concurrency_limit/)
+  assert.match(jobs, /next_tier\.generation_submissions_per_minute/)
+})
+
 test('Remote uses the same server controls and bulk-manages only safe actions', () => {
   assert.match(remote, /job\.control\.label/)
   assert.match(remote, /job\.control\.reason/)

@@ -1,9 +1,30 @@
+export interface GenStudioServiceTier {
+  code: string
+  display_name: string
+  threshold_cents: number
+  paid_concurrency_limit: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
+  max_api_keys: number
+}
+
+export interface GenStudioServiceTierStanding {
+  current: GenStudioServiceTier
+  ladder: GenStudioServiceTier
+  overridden: boolean
+  lifetime_paid_cents: number
+  next_tier: GenStudioServiceTier | null
+  cents_to_next_tier: number | null
+}
+
 export interface GenStudioAccountCapacity {
   paid_concurrency_limit: number
   paid_active_jobs: number
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
+  burst_concurrency_ceiling?: number
+  service_tier?: GenStudioServiceTierStanding
 }
 
 export type GenStudioAdmissionState =
@@ -58,6 +79,31 @@ function positiveWhole(value: unknown, fallback: number): number {
     : fallback
 }
 
+function validTier(value: unknown): value is GenStudioServiceTier {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const tier = value as Record<string, unknown>
+  return typeof tier.code === 'string' && !!tier.code.trim()
+    && typeof tier.display_name === 'string' && !!tier.display_name.trim()
+    && typeof tier.threshold_cents === 'number' && Number.isInteger(tier.threshold_cents) && tier.threshold_cents >= 0
+    && typeof tier.paid_concurrency_limit === 'number' && Number.isInteger(tier.paid_concurrency_limit) && tier.paid_concurrency_limit > 0
+    && typeof tier.max_queued_jobs === 'number' && Number.isInteger(tier.max_queued_jobs) && tier.max_queued_jobs > 0
+    && typeof tier.generation_submissions_per_minute === 'number' && Number.isInteger(tier.generation_submissions_per_minute) && tier.generation_submissions_per_minute > 0
+    && typeof tier.max_api_keys === 'number' && Number.isInteger(tier.max_api_keys) && tier.max_api_keys > 0
+}
+
+function validTierStanding(value: unknown): value is GenStudioServiceTierStanding {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const standing = value as Record<string, unknown>
+  return validTier(standing.current) && validTier(standing.ladder)
+    && typeof standing.overridden === 'boolean'
+    && typeof standing.lifetime_paid_cents === 'number' && Number.isInteger(standing.lifetime_paid_cents) && standing.lifetime_paid_cents >= 0
+    && (standing.next_tier === null || validTier(standing.next_tier))
+    && (standing.cents_to_next_tier === null
+      || typeof standing.cents_to_next_tier === 'number'
+        && Number.isInteger(standing.cents_to_next_tier)
+        && standing.cents_to_next_tier >= 0)
+}
+
 function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCapacity {
   return {
     paid_concurrency_limit: whole(value.paid_concurrency_limit, 1, 1),
@@ -65,6 +111,10 @@ function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCap
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
     max_queued_jobs: whole(value.max_queued_jobs, 10, 1),
     generation_submissions_per_minute: positiveWhole(value.generation_submissions_per_minute, 5),
+    ...(positiveWhole(value.burst_concurrency_ceiling, 0) > 0
+      ? { burst_concurrency_ceiling: value.burst_concurrency_ceiling }
+      : {}),
+    ...(validTierStanding(value.service_tier) ? { service_tier: value.service_tier } : {}),
   }
 }
 

@@ -38,8 +38,27 @@
               submissions waiting locally
             </span>
             <span>
-              <strong>{{ genStudioAdmission.paid_active_jobs }}/{{ genStudioAdmission.paid_concurrency_limit }}</strong>
-              paid active
+              <strong>{{ genStudioAdmission.paid_active_jobs }} active / {{ genStudioAdmission.paid_concurrency_limit }} standard lanes</strong>
+            </span>
+            <span
+              v-if="genStudioAdmission.burst_concurrency_ceiling && genStudioAdmission.paid_active_jobs > genStudioAdmission.paid_concurrency_limit"
+              class="capacity-boost"
+            >
+              <strong>Temporary boost</strong>
+              up to {{ genStudioAdmission.burst_concurrency_ceiling }} lanes
+            </span>
+            <span v-if="genStudioAdmission.service_tier" class="capacity-tier">
+              <strong>{{ genStudioAdmission.service_tier.current.display_name }}</strong>
+              standard tier
+            </span>
+            <span
+              v-if="genStudioAdmission.service_tier?.next_tier && genStudioAdmission.service_tier.cents_to_next_tier !== null"
+              class="capacity-next-tier"
+            >
+              {{ formatGenStudioCents(genStudioAdmission.service_tier.cents_to_next_tier) }} more unlocks
+              <strong>{{ genStudioAdmission.service_tier.next_tier.display_name }}</strong>:
+              {{ genStudioAdmission.service_tier.next_tier.paid_concurrency_limit }} standard lanes,
+              {{ genStudioAdmission.service_tier.next_tier.generation_submissions_per_minute }} submissions/min
             </span>
             <span :class="{ 'capacity-warning': genStudioAdmission.queue_near_capacity }">
               <strong>{{ genStudioAdmission.paid_queued_jobs }}/{{ genStudioAdmission.max_queued_jobs }}</strong>
@@ -756,12 +775,31 @@ const stats = computed(() => isUniversal.value ? universalQueue.stats.value : pr
 const { success, error: showError, info } = useToast()
 
 interface ProjectOption { slug: string; name: string }
+interface GenStudioServiceTier {
+  code: string
+  display_name: string
+  threshold_cents: number
+  paid_concurrency_limit: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
+  max_api_keys: number
+}
+interface GenStudioServiceTierStanding {
+  current: GenStudioServiceTier
+  ladder: GenStudioServiceTier
+  overridden: boolean
+  lifetime_paid_cents: number
+  next_tier: GenStudioServiceTier | null
+  cents_to_next_tier: number | null
+}
 interface GenStudioAdmissionSnapshot {
   paid_concurrency_limit: number
   paid_active_jobs: number
   paid_queued_jobs: number
   max_queued_jobs: number
   generation_submissions_per_minute: number
+  burst_concurrency_ceiling?: number
+  service_tier?: GenStudioServiceTierStanding
   local_waiting: number
   submitting: number
   available_paid_slots: number
@@ -772,6 +810,9 @@ interface GenStudioAdmissionSnapshot {
   retry_after_ms: number
   refreshed_at: string | null
   limitSource: 'account-overview' | 'safe-fallback'
+}
+function formatGenStudioCents(cents: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
 const projects = ref<ProjectOption[]>([])
 const projectFilter = ref('all')
@@ -2117,6 +2158,14 @@ async function clearFinished() {
 }
 .genstudio-capacity-summary .capacity-error strong {
   color: var(--danger);
+}
+.genstudio-capacity-summary .capacity-boost {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--accent);
+}
+.genstudio-capacity-summary .capacity-next-tier {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .job-scope-switch {
   display: inline-grid;

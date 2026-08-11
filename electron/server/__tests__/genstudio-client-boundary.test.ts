@@ -871,9 +871,111 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
     assert.equal(overview.subscription_plan_name, 'Mekong Studio')
     assert.equal(overview.paid_concurrency_limit, 5)
     assert.equal(overview.max_queued_jobs, 250)
+    assert.equal((overview as unknown as Record<string, unknown>).burst_concurrency_ceiling, undefined)
+    assert.equal((overview as unknown as Record<string, unknown>).service_tier, undefined)
     assert.equal((overview as unknown as Record<string, unknown>).relaxed_concurrency_limit, undefined)
     assert.equal((models[0] as unknown as Record<string, unknown> | undefined)?.unlimited_relaxed, undefined)
     assert.equal(models[0]?.provider, '')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio preserves valid 0.94 capacity display facts from account overview', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json({
+      credit_balance: 0,
+      credits_used_30d: 50,
+      subscription_plan_name: 'Mekong Studio',
+      paid_concurrency_limit: 2,
+      paid_active_jobs: 3,
+      paid_queued_jobs: 2,
+      max_queued_jobs: 25,
+      generation_submissions_per_minute: 10,
+      burst_concurrency_ceiling: 8,
+      service_tier: {
+        current: {
+          code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+          paid_concurrency_limit: 2, max_queued_jobs: 25,
+          generation_submissions_per_minute: 10, max_api_keys: 2,
+        },
+        ladder: {
+          code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+          paid_concurrency_limit: 2, max_queued_jobs: 25,
+          generation_submissions_per_minute: 10, max_api_keys: 2,
+        },
+        overridden: false,
+        lifetime_paid_cents: 500,
+        next_tier: {
+          code: 'tier_2', display_name: '$10 tier', threshold_cents: 1000,
+          paid_concurrency_limit: 4, max_queued_jobs: 50,
+          generation_submissions_per_minute: 20, max_api_keys: 4,
+        },
+        cents_to_next_tier: 500,
+      },
+      total_jobs: 4,
+      active_jobs: 3,
+      completed_jobs: 1,
+      failed_jobs: 0,
+      available_assets: 2,
+      next_asset_expiration: null,
+    })
+
+    const overview = await getGenStudioAccountOverview('scoped-key')
+
+    assert.equal((overview as any).burst_concurrency_ceiling, 8)
+    assert.deepEqual((overview as any).service_tier, {
+      current: {
+        code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+        paid_concurrency_limit: 2, max_queued_jobs: 25,
+        generation_submissions_per_minute: 10, max_api_keys: 2,
+      },
+      ladder: {
+        code: 'tier_1', display_name: '$5 tier', threshold_cents: 500,
+        paid_concurrency_limit: 2, max_queued_jobs: 25,
+        generation_submissions_per_minute: 10, max_api_keys: 2,
+      },
+      overridden: false,
+      lifetime_paid_cents: 500,
+      next_tier: {
+        code: 'tier_2', display_name: '$10 tier', threshold_cents: 1000,
+        paid_concurrency_limit: 4, max_queued_jobs: 50,
+        generation_submissions_per_minute: 20, max_api_keys: 4,
+      },
+      cents_to_next_tier: 500,
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio omits malformed 0.94 capacity display facts from account overview', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json({
+      credit_balance: 0,
+      credits_used_30d: 50,
+      subscription_plan_name: 'Mekong Studio',
+      paid_concurrency_limit: 2,
+      paid_active_jobs: 3,
+      paid_queued_jobs: 2,
+      max_queued_jobs: 25,
+      generation_submissions_per_minute: 10,
+      burst_concurrency_ceiling: 0,
+      service_tier: { current: { display_name: '$5 tier' } },
+      total_jobs: 4,
+      active_jobs: 3,
+      completed_jobs: 1,
+      failed_jobs: 0,
+      available_assets: 2,
+      next_asset_expiration: null,
+    })
+
+    const overview = await getGenStudioAccountOverview('scoped-key')
+
+    assert.equal((overview as any).burst_concurrency_ceiling, undefined)
+    assert.equal((overview as any).service_tier, undefined)
   } finally {
     globalThis.fetch = originalFetch
   }
