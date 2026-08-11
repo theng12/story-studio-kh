@@ -593,62 +593,12 @@ export interface Format {
    */
   productionStandardsAddendum?: string
 
-  /**
-   * v1.0.89+: Visual source for the video assembly step.
-   *   - 'scene-images' (default, omitted): per-scene AI-generated stills,
-   *     the original Story Studio path. Used by sleep-story, bound-
-   *     explainer, listicle, true-crime, etc.
-   *   - 'broll': pulls clips from an app-level B-Roll pool. Used by
-   *     prayer / devotional / narration-over-stock formats where every
-   *     frame is human-shot footage instead of generated art.
-   *   - 'timestamp-driven' (v1.0.141+): scenes are placed against the
-   *     ACTUAL audio timeline (stitched per-chapter SRTs + the merge
-   *     gap from audio_chapters.json) rather than evenly distributed.
-   *     One scene per LLM-decided natural beat in the script; each
-   *     scene's duration matches the spoken-word window it covers.
-   *     Adds Research / Scene Plan / Scene Review pages to the
-   *     sidebar; hides Scene Prompts / Scene Generator / Video
-   *     Generator (same gating as 'broll').
-   * Drives sidebar visibility, pipeline step set, and which
-   * generator the Video Assembly button triggers.
-   *
-   *   'continuity-chain' (v1.0.187+) — like 'timestamp-driven' (audio →
-   *     subtitles → timed scene plan), with Character Sheet identity and
-   *     style context folded into each independent GenStudio text-to-image
-   *     prompt. User-set pacing guardrails (min/max seconds) drive a "feels
-   *     live" cut density. Same sidebar gating as 'timestamp-driven' (Scene
-   *     Plan / Scene Review / unified Video Assembly) PLUS a Character Sheet
-   *     page. Research is available too (optional when the niche is factual).
-   */
-  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
+  /** Active production route for the narration-timed scene workflow. */
+  visualSource?: 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
 
   /**
-   * v1.0.280+ (format-niche refactor, Phase A) — top-level presentation switch
-   * for the unified `scenes` format. Decides how scenes pair to the script
-   * across the WHOLE pipeline (sidebar chain, generator picks, video assembly),
-   * not just the image-prompt assembler.
-   *
-   *   'chapter'  — scenes distribute evenly across chapters (the historical
-   *                'narrative' / 'narrated-scenes' behaviour). One scene per
-   *                LLM-decided beat per chapter; per-scene duration uniform.
-   *   'sentence' — scenes time to the actual audio (the historical
-   *                'narration-synced' / timestamp-driven behaviour). Each
-   *                scene spans the sentence window it covers; cut density
-   *                tracks the narration cadence.
-   *
-   * Independent of `visualSource`:
-   *   - scenes format + sceneAlignment 'chapter'  → even-distribution stills
-   *   - scenes format + sceneAlignment 'sentence' → timestamp-aligned stills
-   *   - continuity-chain format + sceneAlignment 'sentence' (only useful pair) →
-   *     sequential img2img chained to the timed plan
-   *
-   * Relationship to `imagePrompts.alignment` (the older field): the existing
-   * field continues to drive the Compilation step's scene→sentence pairing
-   * math; the new top-level field is the pipeline switch that decides which
-   * sidebar/generator chain runs in the first place. New format JSONs should
-   * set this field; legacy formats without it fall through to the value
-   * inferred from `visualSource` ('timestamp-driven'/'continuity-chain' ⇒
-   * 'sentence'; everything else ⇒ 'chapter').
+   * Pairing mode for a scene-plan format. `sentence` uses audio timing;
+   * `chapter` remains available to the active narrated-scenes route.
    */
   sceneAlignment?: 'chapter' | 'sentence'
 }
@@ -1893,12 +1843,7 @@ export interface ProjectConfig {
   /** Optional, reviewed sound-design layer. Disabled by default. */
   sound_design?: SoundDesignProjectConfig
 
-  /**
-   * v1.0.89+: App-level B-Roll pool this project draws stock footage
-   * from when format.visualSource === 'broll'. Empty / undefined means
-   * "no pool subscribed yet" — the Video Assembly B-Roll picker shows
-   * a "Pick a pool" prompt linking to /broll-library.
-   */
+  /** App-level B-Roll pool used by the B-Roll picker and Video Assembly. */
   broll_pool_id?: string
   /** Per-channel usage log for B-Roll repeat avoidance. */
   broll_usage_log?: BrollUsageEntry[]

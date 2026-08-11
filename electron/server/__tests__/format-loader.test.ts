@@ -9,8 +9,8 @@
  *   - getEffectiveFormat() defaults to 'continuity-chain' when project has no format_id
  *   - getEffectiveFormat() applies project.format_overrides
  *   - Missing/unknown format_id falls back to default with warning (no throw)
- *   - LEGACY remap: deleted ids (narrative / narrated-scenes / narration-synced)
- *     map onto the Continuity Engine with the alignment that preserves their pipeline shape
+ *   - Saved or arbitrary format ids resolve to the Continuity Engine without
+ *     rewriting project metadata
  *   - POLARITY FLIP: applyNicheToFormat overlays niche CONTENT onto a
  *     presentation shell (niche owns idea/script/metadata persona)
  *   - NEUTRAL FALLBACK: a format-only project (no niche) still yields a usable,
@@ -79,17 +79,6 @@ describe('format-loader', () => {
   test('loadFormat() returns null for unknown id', async () => {
     const fmt = await loader.loadFormat('nope-this-does-not-exist')
     assert.equal(fmt, null)
-  })
-
-  // The deleted formats must NOT resolve from disk anymore (they were merged
-  // into 'scenes'). loadFormat returns null; getEffectiveFormat remaps them.
-  test('deleted legacy formats no longer exist on disk', async () => {
-    for (const id of [
-      'scenes', 'listicle', 'narrative', 'narrated-scenes', 'narration-synced',
-      'stock-footage', 'image-pool',
-    ]) {
-      assert.equal(await loader.loadFormat(id), null, `${id} should be gone`)
-    }
   })
 
   // Shape parity across all active presentation shells. A shell is presentation-
@@ -231,51 +220,44 @@ describe('format-loader', () => {
     assert.equal(fmt.id, 'continuity-chain', 'falls back to continuity on bad id')
   })
 
-  // ── LEGACY remap (v1.0.280) ───────────────────────────────────────────────
-  test('getEffectiveFormat: legacy narrative remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.projectsRoot(), 'legacy-narrative')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-narrative', { format_id: 'narrative' }))
-    const fmt = await loader.getEffectiveFormat('legacy-narrative')
-    assert.equal(fmt.id, 'continuity-chain')
-    assert.equal(fmt.visualSource, 'continuity-chain')
-    assert.equal(fmt.sceneAlignment, 'sentence', 'legacy chapter distribution is retired')
+  test('getEffectiveFormat: saved legacy ids use continuity without rewriting project metadata', async () => {
+    for (const [slug, formatId] of [['saved-stock-footage', 'stock-footage'], ['saved-scenes', 'scenes']] as const) {
+      const projDir = path.join(pm.projectsRoot(), slug)
+      await fs.mkdir(projDir, { recursive: true })
+      const projectPath = path.join(projDir, 'project.json')
+      const saved = projectJson(slug, { format_id: formatId })
+      await fs.writeFile(projectPath, saved)
+
+      const fmt = await loader.getEffectiveFormat(slug)
+
+      assert.equal(fmt.id, 'continuity-chain')
+      assert.equal(fmt.visualSource, 'continuity-chain')
+      assert.equal(fmt.sceneAlignment, 'sentence')
+      assert.equal(await fs.readFile(projectPath, 'utf8'), saved)
+    }
   })
 
-  test('getEffectiveFormat: legacy narration-synced remaps to Continuity + sentence', async () => {
-    const projDir = path.join(pm.projectsRoot(), 'legacy-synced')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-synced', { format_id: 'narration-synced' }))
-    const fmt = await loader.getEffectiveFormat('legacy-synced')
-    assert.equal(fmt.id, 'continuity-chain')
-    assert.equal(fmt.sceneAlignment, 'sentence', 'narration-synced preserved transcript-timed shape')
+  test('getEffectiveFormat: only live visual sources pass through', async () => {
+    for (const visualSource of ['timestamp-driven', 'continuity-chain', 'narrated-scenes'] as const) {
+      const slug = `live-${visualSource}`
+      const projDir = path.join(pm.projectsRoot(), slug)
+      await fs.mkdir(projDir, { recursive: true })
+      await fs.writeFile(path.join(projDir, 'project.json'), projectJson(slug, {
+        format_overrides: { visualSource },
+      }))
+      assert.equal((await loader.getEffectiveFormat(slug)).visualSource, visualSource)
+    }
   })
 
-  test('getEffectiveFormat: retired B-Roll formats remap to the Continuity Engine', async () => {
-    const projDir = path.join(pm.projectsRoot(), 'legacy-broll')
+  test('getEffectiveFormat: unknown visual-source overrides collapse to continuity timing', async () => {
+    const projDir = path.join(pm.projectsRoot(), 'unknown-visual-source')
     await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-broll', { format_id: 'broll-narration' }))
-    const fmt = await loader.getEffectiveFormat('legacy-broll')
-    assert.equal(fmt.id, 'continuity-chain')
-    assert.equal(fmt.visualSource, 'continuity-chain')
-    assert.equal(fmt.sceneAlignment, 'sentence')
-  })
+    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('unknown-visual-source', {
+      format_overrides: { visualSource: 'broll' },
+    }))
 
-  test('getEffectiveFormat: retired Image Pool remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.projectsRoot(), 'legacy-image-pool')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-image-pool', { format_id: 'image-pool' }))
-    const fmt = await loader.getEffectiveFormat('legacy-image-pool')
-    assert.equal(fmt.id, 'continuity-chain')
-    assert.equal(fmt.visualSource, 'continuity-chain')
-  })
+    const fmt = await loader.getEffectiveFormat('unknown-visual-source')
 
-  test('getEffectiveFormat: legacy sleep-story remaps to the Continuity Engine', async () => {
-    const projDir = path.join(pm.projectsRoot(), 'legacy-sleepstory')
-    await fs.mkdir(projDir, { recursive: true })
-    await fs.writeFile(path.join(projDir, 'project.json'), projectJson('legacy-sleepstory', { format_id: 'sleep-story' }))
-    const fmt = await loader.getEffectiveFormat('legacy-sleepstory')
-    assert.equal(fmt.id, 'continuity-chain')
     assert.equal(fmt.visualSource, 'continuity-chain')
     assert.equal(fmt.sceneAlignment, 'sentence')
   })

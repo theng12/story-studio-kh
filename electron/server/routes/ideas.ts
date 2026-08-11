@@ -1177,7 +1177,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
   const { getEffectiveFormat } = await import('../services/format-loader.js')
   const effectiveFormat = await getEffectiveFormat(slug)
-  const visualSource = effectiveFormat.visualSource || 'narrated-scenes'
+  const visualSource = String(effectiveFormat.visualSource || 'narrated-scenes')
   const needsScenePlan = visualSource !== 'broll' && visualSource !== 'image-pool'
   const needsBrollPick = visualSource === 'broll'
 

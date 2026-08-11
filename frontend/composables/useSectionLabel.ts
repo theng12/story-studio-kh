@@ -1,15 +1,12 @@
 /**
  * Format-aware section-label composable.
  *
- * Returns the noun a given format uses for its primary content unit:
- *   - sleep-story / kids-fairytale / documentary / adventure → "Chapter"
- *   - bound-explainer → "Reason"
- *   - listicle → "Topic"
- *   - user-custom formats fall back to "Chapter" when the field is unset
+ * Returns a format's primary content-unit noun, falling back to "Chapter"
+ * when the field is unset.
  *
  * Usage (in a Vue component):
  *
- *   const formatId = ref('bound-explainer')
+ *   const formatId = ref('continuity-chain')
  *   const label = useSectionLabel(formatId)
  *
  *   <h2>{{ label.Singular }} {{ n }}: {{ title }}</h2>      <!-- "Reason 03: ..." -->

@@ -38,34 +38,19 @@ export const FLOW_PHASES: ReadonlyArray<{ key: FlowPhaseKey; label: string }> = 
 ]
 
 /**
- * v1.0.280 (format↔niche refactor) — normalize the unified `scenes` format
- * onto the pipeline's existing VisualSource vocabulary.
- *
- * `scene-images` is accepted only as a legacy input. Every AI-still format now
- * uses the audio-paced Scene Plan → Scene Review workflow; old chapter-based
- * prompt/image pages are retired. This also prevents a slow format fetch from
- * briefly rendering legacy Production Board columns.
- *
- * Legacy / explicit visualSource values (broll, continuity-chain, and any
- * custom user format still declaring timestamp-driven / narrated-scenes
- * directly) pass through unchanged. This lets every downstream `isBroll` /
- * `isTimestampDriven` / flow-ribbon check stay exactly as-is — they just
- * consume the normalized value.
+ * Only current visual-source values can select a flow. Saved unknown values
+ * use the Continuity flow until the project is next deliberately configured.
  */
 export function normalizeVisualSource(
   visualSource: string | undefined | null,
   sceneAlignment?: SceneAlignment | string | null,
 ): VisualSource {
+  void sceneAlignment
   switch (visualSource) {
     case 'continuity-chain': return 'continuity-chain'
     case 'timestamp-driven': return 'timestamp-driven'
     case 'narrated-scenes': return 'narrated-scenes'
-    case 'broll':
-    case 'image-pool':
-    case 'scene-images':
-    default:
-      void sceneAlignment
-      return 'narrated-scenes'
+    default: return 'continuity-chain'
   }
 }
 

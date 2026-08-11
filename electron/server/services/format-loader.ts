@@ -35,52 +35,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 
 /**
- * Default base format used when a project has no `format_id` set yet, OR
- * when a project references a format_id that no longer exists on disk
- * (e.g. one of the 9 sleep-story-flavoured formats deleted in v1.0.162).
- *
- * History: was 'sleep-story' through v1.0.161. v1.0.162 consolidated the
- * 11 formats down to a small set of presentation shells. v1.0.280
- * (format↔niche refactor) flipped FORMAT to presentation-
- * only and split the content out into niches: 'narrative', 'narrated-scenes',
- * and 'narration-synced' all collapsed into the unified 'scenes' format (the
- * `sceneAlignment` field — 'chapter' vs 'sentence' — replaces the implicit
- * even-distribution vs transcript-timed split). 'scenes' is the new default.
- * Old projects whose format_id was any deleted presentation id fall back to
- * 'scenes' on the next config read. The niche layer carries all content and
- * voice tuning on top (mindfulness, prayer, etc.).
+ * Default base format used when a project has no `format_id` set, or when a
+ * saved project names any format other than the Continuity Engine.
  */
 // New channels are continuity-first. Existing projects that explicitly saved
 // another format keep it; this only governs missing/default format values.
 export const DEFAULT_FORMAT_ID = 'continuity-chain'
 
-/**
- * Formats retired when every visual workflow moved to the narration-timed
- * Scene Plan → Scene Review pipeline. Keep these aliases readable so projects
- * imported from an older build heal without losing any files or metadata.
- */
-export const RETIRED_FORMAT_IDS = new Set([
-  // Listicle is now a Series Formula (Counted Explainer), not a video
-  // production choice. Existing projects remap to Narrated Visuals.
-  'listicle',
-  'scenes',
-  'narrative',
-  'narrated-scenes',
-  'sleep-story',
-  'narration-synced',
-  'timestamp-driven',
-  'scene-images',
-  'broll-narration',
-  'broll',
-  'stock-footage',
-  'image-pool',
-])
-
 export function canonicalFormatId(id?: string | null): string {
-  if (!id) return DEFAULT_FORMAT_ID
-  // Channel Identity has one production engine. Keep unknown/custom legacy
-  // ids readable in old project metadata, but never select or execute them.
-  return id === DEFAULT_FORMAT_ID ? DEFAULT_FORMAT_ID : (LEGACY_FORMAT_REMAP[id]?.id || DEFAULT_FORMAT_ID)
+  void id
+  return DEFAULT_FORMAT_ID
 }
 
 // ── Built-in directory resolution ──────────────────────────────────────────
@@ -325,25 +289,11 @@ export interface EffectiveFormatOpts {
   topicPackIdsOverride?: string[]
 }
 
-/**
- * Deleted format ids resolve to the single narration-timed Continuity Engine. This
- * is intentionally non-destructive: existing B-Roll, pool images, prompts,
- * and renders remain on disk, but new work follows Scene Plan and Scene Review.
- */
-const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapter' | 'sentence' }> = {
-  'listicle': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'scenes': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'narrative': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'narrated-scenes': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'sleep-story': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'narration-synced': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'timestamp-driven': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'scene-images': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'broll-narration': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'broll': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'stock-footage': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-  'image-pool': { id: 'continuity-chain', sceneAlignment: 'sentence' },
-}
+const LIVE_VISUAL_SOURCES = new Set<string>([
+  'timestamp-driven',
+  'continuity-chain',
+  'narrated-scenes',
+])
 
 /** Same as getEffectiveFormat() but takes the ProjectMeta directly. */
 export async function getEffectiveFormatFor(
@@ -351,10 +301,6 @@ export async function getEffectiveFormatFor(
   opts?: EffectiveFormatOpts,
 ): Promise<Format> {
   const requestedId = project.format_id || DEFAULT_FORMAT_ID
-  // Transparently remap a retired id onto the single Continuity Engine + the alignment that
-  // preserves its original pipeline shape.
-  const legacy = LEGACY_FORMAT_REMAP[requestedId]
-  const legacyAlignment = legacy?.sceneAlignment
   let id = canonicalFormatId(requestedId)
   let base: Format | null = null
   try {
@@ -368,22 +314,14 @@ export async function getEffectiveFormatFor(
     }
     base = await ensureLoaded(DEFAULT_FORMAT_ID)
   }
-  // Apply the legacy alignment override (e.g. narration-synced → sentence) so
-  // remapped projects keep their original scene-timing behaviour.
-  if (legacyAlignment && base.sceneAlignment !== legacyAlignment) {
-    base = { ...base, sceneAlignment: legacyAlignment }
-  }
   // Formula-owned content must not be bypassed by an old project-level
   // freeform mode. Keep the stored setting for migration safety, but do not
   // apply it to new effective formats.
   base = mergeFormatOverrides(base, project.format_overrides)
-  // Retire the chapter-distributed Scene Prompts / Scene Images pipeline.
-  // Custom and restored projects may still carry the old value in overrides;
-  // normalize it at the effective-format boundary so every downstream caller
-  // receives the durable audio-timed Scene Plan workflow without rewriting or
-  // deleting any existing assets on disk.
-  if (base.visualSource === 'scene-images' || base.visualSource === 'broll' || base.visualSource === 'image-pool') {
-    base = { ...base, visualSource: 'narrated-scenes', sceneAlignment: 'sentence' }
+  // Stored project metadata is never rewritten, but callers only receive a
+  // current production source. Unknown values take the Continuity path.
+  if (!LIVE_VISUAL_SOURCES.has(base.visualSource || '')) {
+    base = { ...base, visualSource: 'continuity-chain', sceneAlignment: 'sentence' }
   }
   // Niche layer — the CONTENT layer (v1.0.280+ polarity). The format is a
   // presentation shell carrying neutral fallback content; the niche provides

@@ -1,3 +1,5 @@
+> Superseded: retained only as historical context; current format contracts use the Continuity Engine.
+
 # Format ↔ Niche Separation — Architecture Refactor Plan
 
 > Status: **APPROVED** (2026-06-07). Phase A to begin as a dedicated, focused effort.

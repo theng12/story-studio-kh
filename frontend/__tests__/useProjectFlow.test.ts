@@ -7,10 +7,10 @@
  *   - the flow ribbon ("where am I / what's next")
  *   - the Production Board (its columns are these steps)
  *
- * `normalizeVisualSource()` migrates retired `scene-images` and unknown
- * formats onto the narration-timed Scene Plan workflow. A regression here
- * silently restores obsolete board columns and routes, so the modern step
- * sets are pinned explicitly.
+ * `normalizeVisualSource()` allows only live values through and uses the
+ * Continuity Engine for anything else. A regression here could silently
+ * restore obsolete board columns and routes, so the modern step sets are
+ * pinned explicitly.
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,41 +26,23 @@ import { canonicalFormatId } from '../composables/useFormats.js'
 const keys = (vs: VisualSource) => flowForVisualSource(vs).map(s => s.key)
 
 describe('canonicalFormatId', () => {
-  test('retired format selections heal to the Continuity Engine', () => {
-    for (const id of ['stock-footage', 'image-pool', 'broll', 'scene-images']) {
-      assert.equal(canonicalFormatId(id), 'continuity-chain')
-    }
-  })
-
-  test('only the Continuity Engine remains selectable', () => {
+  test('every saved or arbitrary selection resolves to the Continuity Engine', () => {
     assert.equal(canonicalFormatId('continuity-chain'), 'continuity-chain')
-    assert.equal(canonicalFormatId('listicle'), 'continuity-chain')
     assert.equal(canonicalFormatId('my-custom-format'), 'continuity-chain')
   })
 })
 
 describe('normalizeVisualSource', () => {
-  test('retired scene-images always migrates to narrated-scenes', () => {
-    assert.equal(normalizeVisualSource('scene-images', 'chapter'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('scene-images', 'sentence'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('scene-images', undefined), 'narrated-scenes')
-  })
-
   test('active visualSource values pass through unchanged', () => {
     assert.equal(normalizeVisualSource('continuity-chain', 'sentence'), 'continuity-chain')
     assert.equal(normalizeVisualSource('timestamp-driven', undefined), 'timestamp-driven')
     assert.equal(normalizeVisualSource('narrated-scenes', 'chapter'), 'narrated-scenes')
   })
 
-  test('retired B-Roll and Image Pool formats migrate to narrated-scenes', () => {
-    assert.equal(normalizeVisualSource('broll', 'chapter'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('image-pool', 'sentence'), 'narrated-scenes')
-  })
-
-  test('unknown / missing visualSource safely falls back to narrated-scenes', () => {
-    assert.equal(normalizeVisualSource(undefined, undefined), 'narrated-scenes')
-    assert.equal(normalizeVisualSource(null, 'sentence'), 'narrated-scenes')
-    assert.equal(normalizeVisualSource('something-new', undefined), 'narrated-scenes')
+  test('unknown / missing visualSource safely falls back to continuity-chain', () => {
+    assert.equal(normalizeVisualSource(undefined, undefined), 'continuity-chain')
+    assert.equal(normalizeVisualSource(null, 'sentence'), 'continuity-chain')
+    assert.equal(normalizeVisualSource('something-new', undefined), 'continuity-chain')
   })
 })
 

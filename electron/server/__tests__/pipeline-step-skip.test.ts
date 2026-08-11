@@ -64,12 +64,12 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts'), false)
   })
 
-  test('image_prompts is thumbnail-only for every format', () => {
-    const timestampFormat = { visualSource: 'timestamp-driven' } as any
-    const sentenceScenesFormat = { visualSource: 'scene-images', sceneAlignment: 'sentence' } as any
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', timestampFormat), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', sentenceScenesFormat), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts', timestampFormat), false)
+  test('image_prompts is thumbnail-only for every live visual source', () => {
+    for (const visualSource of ['timestamp-driven', 'continuity-chain', 'narrated-scenes']) {
+      const format = { visualSource } as any
+      assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', format), true)
+      assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts', format), false)
+    }
   })
 
   test('thumb_images tracks thumbnails without legacy scene images', () => {

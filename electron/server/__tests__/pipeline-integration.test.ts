@@ -118,7 +118,7 @@ const SENTENCE_SCENES_FORMAT: Format = {
   ...LISTICLE_FORMAT,
   id: 'scenes',
   name: 'Scenes',
-  visualSource: 'scene-images',
+  visualSource: 'scene-images' as any,
   sceneAlignment: 'sentence',
 }
 

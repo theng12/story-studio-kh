@@ -34,7 +34,7 @@ export interface Format {
   builtin: boolean
   schemaVersion: 1
   /** v1.0.280+ — presentation mechanism. Drives the "how it's built" line. */
-  visualSource?: 'scene-images' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+  visualSource?: 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
   /** v1.0.280+ — scene→script pairing for the unified scenes format. */
   sceneAlignment?: 'chapter' | 'sentence'
   idea: {
@@ -136,11 +136,6 @@ export function formatBuildLine(f: {
   }
   return 'AI-generated scenes timed to the narration transcript.'
 }
-
-const RETIRED_FORMAT_IDS = new Set([
-  'scenes', 'listicle', 'narrative', 'narrated-scenes', 'sleep-story', 'narration-synced',
-  'timestamp-driven', 'scene-images', 'broll-narration', 'broll', 'stock-footage', 'image-pool',
-])
 
 /** Normalize saved format ids before a picker mounts. */
 export function canonicalFormatId(id?: string | null): string {
