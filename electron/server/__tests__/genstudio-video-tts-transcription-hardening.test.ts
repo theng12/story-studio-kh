@@ -212,7 +212,8 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
         },
         body: JSON.stringify({ model_id: 'mock-image-v1', prompt: 'settlement omitted', aspect_ratio: '16:9' }),
       })
-      assert.equal('released_credits' in await omitted.json() as Record<string, unknown>, false)
+      const omittedPayload = await omitted.json() as Record<string, unknown>
+      assert.equal('released_credits' in omittedPayload, false)
     })
 
     await suite.test('cancellation returns GenStudio truth without a replacement request', async () => {
