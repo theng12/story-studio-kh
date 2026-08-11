@@ -20,3 +20,9 @@ test('Motion Review uses cheapest only as an initial default and clamps when the
   assert.match(source, /variants\.some\(variant => variantKey\(variant\) === videoVariantKey\.value\)/)
   assert.match(source, /videoVariantKey\.value = variantKey\(cheapestVariant\(variants\)!\)/)
 })
+
+test('Motion Review saves and restores the selected exact variant with its preset', () => {
+  assert.match(source, /duration_seconds:\s*selectedVideoVariant\.value\?\.duration_seconds/)
+  assert.match(source, /resolution:\s*selectedVideoVariant\.value\?\.resolution/)
+  assert.match(source, /videoVariantKey\.value = variantKey\(\{ duration_seconds: Number\(data\.duration_seconds\), resolution: data\.resolution\.trim\(\) \}\)/)
+})

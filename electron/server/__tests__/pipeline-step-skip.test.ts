@@ -164,6 +164,27 @@ async function seedProjectWithAcceptedIdea(
   return { slug: proj.slug, episodeId: ep.episode_code! }
 }
 
+function enableMockVideoCatalog(
+  service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+): () => void {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    const response = await originalFetch(input, init)
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
+    const models = await response.json() as Array<Record<string, unknown>>
+    return new Response(JSON.stringify(models.map(model => ({
+      ...model,
+      available: true,
+      variants: [{
+        duration_seconds: 8, resolution: '1080p', credits_per_video: 90,
+        minimum_credits: 90, price_version: 'mock-video-price-v1',
+      }],
+    }))), { status: response.status, headers: { 'Content-Type': 'application/json' } })
+  }
+  return () => { globalThis.fetch = originalFetch }
+}
+
 describe('run-batch — step skip behaviour', () => {
   test('targeted YouTube Finalizer refuses missing Audio Assembly and queues nothing', async () => {
     const { slug, episodeId } = await seedProjectWithAcceptedIdea(false)
@@ -315,6 +336,50 @@ async function findEpisodeDir(slug: string, episodeId: string): Promise<string> 
 }
 
 describe('run-batch — v1.0.363 audio-paced wiring', () => {
+  test('Motion Review Pipeline requires a saved exact variant and forwards it to the durable batch job', async () => {
+    const service = await startMockGenStudioService()
+    let restoreVideoCatalog: (() => void) | undefined
+    try {
+      assert.equal((await request(app).put('/api/app-settings/genstudio').send({ url: service.baseUrl })).status, 200)
+      assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
+      const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+      clearGenStudioCatalogCache()
+      restoreVideoCatalog = enableMockVideoCatalog(service)
+
+      const legacy = await seedProjectWithAcceptedIdea()
+      await pm.updateConfig(legacy.slug, {
+        motion_review_presets: [{ id: 'mr-old', name: 'Old Motion', data: { model: 'mock-video-v1', aspect_ratio: '16:9' } }],
+        'motion_review_last_preset_motion-review': 'mr-old',
+      } as any)
+      const refused = await request(app)
+        .post(`/api/projects/${legacy.slug}/pipeline/run-batch`)
+        .send({ episode_ids: [legacy.episodeId], steps: ['motion_review'] })
+      assert.equal(refused.status, 400)
+      assert.match(refused.body.detail, /Open Motion Review.*save/i)
+      const jq = await import('../services/job-queue.js')
+      assert.equal((await jq.getJobs(legacy.slug)).length, 0)
+
+      const current = await seedProjectWithAcceptedIdea()
+      await pm.updateConfig(current.slug, {
+        motion_review_presets: [{ id: 'mr-current', name: 'Current Motion', data: {
+          model: 'mock-video-v1', aspect_ratio: '16:9', duration_seconds: 8, resolution: '1080p',
+        } }],
+        'motion_review_last_preset_motion-review': 'mr-current',
+      } as any)
+      const queued = await request(app)
+        .post(`/api/projects/${current.slug}/pipeline/run-batch`)
+        .send({ episode_ids: [current.episodeId], steps: ['motion_review'] })
+        .expect(201)
+      const job = jq.getJob(queued.body.jobs[0].job_id)
+      assert.equal(job?.type, 'scene_clips_batch')
+      assert.equal(job?.params.duration_seconds, 8)
+      assert.equal(job?.params.resolution, '1080p')
+    } finally {
+      restoreVideoCatalog?.()
+      await service.close()
+    }
+  })
+
   test('subtitles rejects an unsupported preset language before enqueueing a job', async () => {
     const service = await startMockGenStudioService()
     try {

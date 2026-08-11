@@ -41,10 +41,9 @@ import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/ty
 
 export const router = Router()
 
-function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVariantSelection | undefined {
+function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVariantSelection {
   const hasDuration = body.duration_seconds !== undefined && body.duration_seconds !== null
   const hasResolution = body.resolution !== undefined && body.resolution !== null
-  if (!hasDuration && !hasResolution) return undefined
   const duration_seconds = Number(body.duration_seconds)
   const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
   if (!hasDuration || !hasResolution || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
@@ -458,7 +457,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection | undefined
+  let requestedVariant: SceneClipVariantSelection
   try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
 
   try {
@@ -495,7 +494,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection | undefined
+  let requestedVariant: SceneClipVariantSelection
   try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
   try {
     const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
@@ -527,7 +526,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection | undefined
+  let requestedVariant: SceneClipVariantSelection
   try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
 
   try {

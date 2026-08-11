@@ -250,15 +250,22 @@ const motionPresets = usePresets({
   slug: slug.value,
   configKey: 'motion_review',
   presetType: 'motion-review',
-  snapshot: () => ({ model: videoModel.value, aspect_ratio: '16:9' }),
-  apply: (data: any) => { if (typeof data?.model === 'string') videoModel.value = data.model },
+  snapshot: () => ({
+    model: videoModel.value,
+    aspect_ratio: '16:9',
+    duration_seconds: selectedVideoVariant.value?.duration_seconds,
+    resolution: selectedVideoVariant.value?.resolution,
+  }),
+  apply: (data: any) => {
+    if (typeof data?.model === 'string') videoModel.value = data.model
+    if (Number.isFinite(Number(data?.duration_seconds)) && typeof data?.resolution === 'string' && data.resolution.trim()) {
+      videoVariantKey.value = variantKey({ duration_seconds: Number(data.duration_seconds), resolution: data.resolution.trim() })
+    }
+  },
 })
 
-// The clip a model will actually produce: its CHEAPEST published variant,
-// which is exactly what the generator submits. Read live from the catalogue
-// on every render, so changing model re-derives it — never cached, never a
-// constant in this file. Returns null when GenStudio publishes no variant,
-// which is a real state the picker has to be able to say out loud.
+// Cheapest is only the first default. The selected published pair is what
+// the generator submits, and it remains live-derived rather than cached.
 type VideoVariant = { duration_seconds: number, resolution: string, credits_per_video: number, minimum_credits: number, price_version: string }
 function cheapestVariant(variants: readonly VideoVariant[]) {
   if (!variants.length) return null
@@ -298,8 +305,7 @@ const i2vModels = computed(() => {
     .filter(model => model.modes.includes('image-to-video'))
     .map((model) => {
       const variant = cheapestVariant(model.variants)
-      // An enforced limit has to be visible at the point of choosing. This is
-      // the length and resolution the clip WILL be, not an example.
+      // An enforced limit has to be visible at the point of choosing.
       const noVariant = 'No published length or resolution'
       // Only a published `true` is disclosed. `false` and `null` (GenStudio
       // said nothing) both say nothing here — a silent model needs no warning,
@@ -315,8 +321,8 @@ const i2vModels = computed(() => {
           ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
           : noVariant,
         description: (variant
-          ? `Clips are generated at ${variant.duration_seconds}s and ${variant.resolution}, `
-            + 'the cheapest option GenStudio publishes for this model.'
+          ? `The cheapest published option is selected first (${variant.duration_seconds}s at ${variant.resolution}). `
+            + 'Choose a published length and resolution; that selected option is what the clip will use.'
           : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
           + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),

@@ -59,6 +59,34 @@ async function writeScenePrerequisites(paths: { scene_prompts_dir: string; subti
   await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
 }
 
+async function writeReadyMotionScene(
+  projectSlug: string,
+  episodeId: string,
+  paths: { scene_prompts_dir: string; episode_dir: string },
+): Promise<void> {
+  await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+    scenes: [{
+      id: 'scene-001', scene_index: 1, start_sec: 0, end_sec: 8,
+      visual_prompt: 'A lantern in a quiet archive.', motion_prompt: 'The camera drifts slowly forward.',
+      approved: true,
+    }],
+  }))
+  const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+  const imageDir = await resolveSceneImagesDir(projectSlug, episodeId, paths.episode_dir)
+  await fs.mkdir(imageDir, { recursive: true })
+  await fs.writeFile(path.join(imageDir, 'scene-001.png'), ONE_PIXEL_PNG)
+}
+
+async function waitForTerminalJob(jq: typeof import('../services/job-queue.js'), jobId: string): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const status = jq.getJob(jobId)?.status
+    if (status && status !== 'queued' && status !== 'running') return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+}
+
 function job(projectSlug: string, episodeId: string, type: string, params: Record<string, unknown>): any {
   return {
     job_id: `generation-control-${type}-${Date.now()}`,
@@ -212,6 +240,61 @@ test('the scene clip route persists the selected published variant on the queued
       if (queued && queued.status !== 'queued' && queued.status !== 'running') break
       await new Promise(resolve => setTimeout(resolve, 10))
     }
+  } finally {
+    restoreVideoCatalog?.()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('new Motion Review routes require an exact pair and preserve it for durable work', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+    ])
+    const pm = await import('../services/project-manager.js')
+    const jq = await import('../services/job-queue.js')
+    const app = (await import('../app.js')).app
+    const project = await pm.createProject({ name: 'Motion routes require exact variants' })
+
+    await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clip`)
+      .send({ scene_id: 'scene-001', model: 'mock-video-v1' })
+      .expect(400)
+    await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clips-batch`)
+      .send({ model: 'mock-video-v1', duration_seconds: 5 })
+      .expect(400)
+    await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-missing-clips`)
+      .send({ model: 'mock-video-v1', resolution: '720p' })
+      .expect(400)
+    assert.equal((await jq.getJobs(project.slug)).length, 0, 'invalid new requests never enter the queue')
+
+    const durable = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clips-batch`)
+      .send({ model: 'mock-video-v1', duration_seconds: 8, resolution: '1080p' })
+      .expect(201)
+    assert.equal(durable.body.params.duration_seconds, 8)
+    assert.equal(durable.body.params.resolution, '1080p')
+    await waitForTerminalJob(jq, durable.body.job_id)
+
+    const episode = await createEpisode('Motion missing clips preserve selected variant')
+    await writeReadyMotionScene(episode.project.slug, episode.episodeId, episode.paths)
+    const missing = await request(app)
+      .post(`/api/projects/${episode.project.slug}/scene-review/${episode.episodeId}/generate-missing-clips`)
+      .send({ model: 'mock-video-v1', duration_seconds: 8, resolution: '1080p' })
+      .expect(200)
+    assert.equal(missing.body.queued, 1)
+    const queued = (await jq.getJobs(episode.project.slug)).find(item => item.type === 'scene_clip_generate')
+    assert.equal(queued?.params.duration_seconds, 8)
+    assert.equal(queued?.params.resolution, '1080p')
+    if (queued) await waitForTerminalJob(jq, queued.job_id)
   } finally {
     restoreVideoCatalog?.()
     await service.close()

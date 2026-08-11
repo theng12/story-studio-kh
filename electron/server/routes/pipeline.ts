@@ -48,6 +48,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import { listTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
+import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 
 export const router = Router()
@@ -266,6 +267,18 @@ async function preflightBatch(
       continue
     }
     presetByStep[step] = result.preset
+    if (step === 'motion_review') {
+      const data = result.preset.data ?? result.preset
+      const hasDuration = Number.isFinite(Number(data?.duration_seconds)) && Number(data.duration_seconds) > 0
+      const hasResolution = typeof data?.resolution === 'string' && Boolean(data.resolution.trim())
+      if (!hasDuration || !hasResolution) {
+        issues.push({
+          code: 'invalid_preset',
+          step,
+          message: 'Motion Review preset has no exact published clip variant. Open Motion Review, choose a current length and resolution, then save the preset again.',
+        })
+      }
+    }
     if (step === 'broll' && (result.preset.data?.form?.selection_mode ?? result.preset.form?.selection_mode) === 'manual') {
       issues.push({ code: 'invalid_preset', step, message: 'B-Roll Pipeline cannot use a manual-selection preset. Choose random, tagged, or themed selection.' })
     }
@@ -833,6 +846,8 @@ export function resolveStepParams(
       episode_id: episodeId,
       model: data.model,
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      duration_seconds: data.duration_seconds,
+      resolution: data.resolution,
       auto_approve_clip: true,
     }
   }
@@ -866,6 +881,32 @@ async function resolvePipelineTranscriptionParams(
   if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
   const language = resolveTranscriptionLanguage(selected, params.language)
   return { model: selected.id, ...(language ? { language } : {}) }
+}
+
+/** Resolve an exact saved Motion Review variant against the live catalogue
+ * before Pipeline creates fresh paid work. Historical queue entries retain
+ * their executor-only fallback; presets must be re-saved instead. */
+async function resolvePipelineMotionParams(
+  preset: StoredPreset,
+): Promise<{ model: string; duration_seconds: number; resolution: string }> {
+  const params = resolveStepParams('motion_review', '', '', preset)
+  const model = typeof params.model === 'string' ? params.model.trim() : ''
+  const duration_seconds = Number(params.duration_seconds)
+  const resolution = typeof params.resolution === 'string' ? params.resolution.trim() : ''
+  if (!model || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
+    throw new Error('Open Motion Review, choose a current model and published clip variant, then save the preset again.')
+  }
+  try {
+    const resolved = await requireSceneClipGenStudioModel(model, { duration_seconds, resolution })
+    return {
+      model: `genstudio-video:${resolved.modelId}`,
+      duration_seconds: resolved.variant.duration_seconds,
+      resolution: resolved.variant.resolution,
+    }
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : 'The selected Motion Review variant is unavailable.'
+    throw new Error(`${detail} Open Motion Review, choose a current published variant, then save the preset again.`)
+  }
 }
 
 /**
@@ -1232,6 +1273,17 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     }
   }
 
+  let pipelineMotionParams: { model: string; duration_seconds: number; resolution: string } | null = null
+  if (steps.includes('motion_review')) {
+    try {
+      pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)
+    } catch (error: unknown) {
+      return res.status(400).json({
+        detail: `${error instanceof Error ? error.message : 'Select a current Motion Review variant.'} Nothing was started.`,
+      })
+    }
+  }
+
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
@@ -1342,6 +1394,9 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       const params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
       if (step === 'subtitles' && pipelineTranscriptionParams) {
         Object.assign(params, pipelineTranscriptionParams)
+      }
+      if (step === 'motion_review' && pipelineMotionParams) {
+        Object.assign(params, pipelineMotionParams)
       }
       if ((step === 'introduction-only' || step === 'metadata') && !params.model) {
         if (!batchDefaultChatModel) {

@@ -346,6 +346,32 @@ describe('retryTerminalJob()', () => {
     assert.equal(jq.getJob(retried.job_id)?.status, 'done')
   })
 
+  test('replays the selected Motion variant without replacing it', async () => {
+    const proj = await pm.createProject({ name: 'JQ Motion Variant Retry' })
+    jq.registerExecutor('scene_clips_batch', async () => { throw new Error('first attempt failed') })
+    const original = jq.enqueue({
+      project_slug: proj.slug,
+      type: 'scene_clips_batch',
+      episode_id: 'EP001',
+      title: 'Motion clips',
+      params: { model: 'genstudio-video:live-video', duration_seconds: 8, resolution: '1080p' },
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(original.job_id)?.status !== 'error') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(original.job_id)?.status, 'error')
+
+    let received: Record<string, unknown> | undefined
+    jq.registerExecutor('scene_clips_batch', async job => { received = job.params })
+    const retried = jq.retryTerminalJob(proj.slug, original.job_id)
+    const retryDeadline = Date.now() + 2_000
+    while (Date.now() < retryDeadline && jq.getJob(retried.job_id)?.status !== 'done') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.deepEqual(received, { model: 'genstudio-video:live-video', duration_seconds: 8, resolution: '1080p' })
+  })
+
   test('refuses to replace a non-terminal job', async () => {
     const proj = await pm.createProject({ name: 'JQ Unsafe Retry' })
     let release!: () => void
