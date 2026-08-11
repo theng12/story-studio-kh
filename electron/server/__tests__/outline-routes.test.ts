@@ -85,7 +85,9 @@ async function createSidecar(opts: {
   outline?: any[]
   approved?: boolean
   total?: number
+  episodeId?: string
 } = {}) {
+  const episodeId = opts.episodeId ?? EPISODE_ID
   const total = opts.total ?? TOTAL_CHAPTERS
   const outline = opts.outline ?? Array.from({ length: total }, (_, i) => ({
     n: i + 1,
@@ -95,7 +97,7 @@ async function createSidecar(opts: {
   const now = new Date().toISOString()
   const sidecar = {
     schema_version: 2,
-    episode_id: EPISODE_ID,
+    episode_id: episodeId,
     mode: 'listicle',
     total_chapters: total,
     outline,
@@ -106,8 +108,11 @@ async function createSidecar(opts: {
     params_hash: 'fakehash00000000',
     last_updated: now,
   }
-  await fs.mkdir(scriptDir, { recursive: true })
-  await fs.writeFile(sidecarFile, JSON.stringify(sidecar, null, 2))
+  const targetScriptDir = episodeId === EPISODE_ID
+    ? scriptDir
+    : (await (await import('../services/utils.js')).resolveEpisodePaths(slug, episodeId, TITLE)).script_dir
+  await fs.mkdir(targetScriptDir, { recursive: true })
+  await fs.writeFile(path.join(targetScriptDir, `${episodeId}_chunked-progress.json`), JSON.stringify(sidecar, null, 2))
 }
 
 async function terminalExpansionJob(
@@ -559,9 +564,9 @@ async function cancelAllExpandJobs() {
     }
   }
   await new Promise(r => setTimeout(r, 50))
-  // Remove terminal fixtures too: a cancelled mixed-evidence job is precisely
-  // what the fail-closed route should detect, so letting one leak into the
-  // unrelated probe suite would make its expected 201 depend on test order.
+  // Removal intentionally preserves terminal jobs with unsettled evidence.
+  // The probe below therefore uses a different episode, rather than trying
+  // to erase the preceding fail-closed fixture.
   for (const j of await jq.getJobs(slug)) {
     if (j.type === 'expand_chapters' && ['done', 'error', 'cancelled'].includes(j.status)) {
       jq.removeTerminalJob(slug, j.job_id)
@@ -591,11 +596,12 @@ describe('POST /expand-chapters — sidecar probe', () => {
       { n: 5, title: 'Topic 5' },
       { n: 1, title: 'Topic 1 (moved last in array)' },
     ]
-    await createSidecar({ outline: outlineWithoutN1, approved: true })
+    const probeEpisodeId = 'EP002'
+    await createSidecar({ outline: outlineWithoutN1, approved: true, episodeId: probeEpisodeId })
 
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE })
+      .send({ episode_id: probeEpisodeId, title: TITLE })
     assert.equal(res.status, 201, `expected 201, got ${res.status} body=${JSON.stringify(res.body)}`)
     const jq = await import('../services/job-queue.js')
     if (res.body.job_id) await clearExpandJob(res.body.job_id)
