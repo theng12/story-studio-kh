@@ -78,8 +78,12 @@ async function writeReadyMotionScene(
   await fs.writeFile(path.join(imageDir, 'scene-001.png'), ONE_PIXEL_PNG)
 }
 
-async function waitForTerminalJob(jq: typeof import('../services/job-queue.js'), jobId: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+async function waitForTerminalJob(
+  jq: typeof import('../services/job-queue.js'),
+  jobId: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const status = jq.getJob(jobId)?.status
     if (status && status !== 'queued' && status !== 'running') return
@@ -295,6 +299,83 @@ test('new Motion Review routes require an exact pair and preserve it for durable
     assert.equal(queued?.params.duration_seconds, 8)
     assert.equal(queued?.params.resolution, '1080p')
     if (queued) await waitForTerminalJob(jq, queued.job_id)
+  } finally {
+    restoreVideoCatalog?.()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Jobs retry preserves legacy Motion fallback and an exact selected variant', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+    ])
+    const jq = await import('../services/job-queue.js')
+    const { generateSceneClipJob } = await import('../generators/scene-clip.js')
+    const app = (await import('../app.js')).app
+    const episode = await createEpisode('Jobs retry Motion variants')
+    const imagePath = path.join(episode.paths.episode_dir, 'scene-source.png')
+    await fs.writeFile(imagePath, ONE_PIXEL_PNG)
+    await fs.mkdir(episode.paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(episode.paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [{ id: 'scene-001', scene_index: 1, image_path: imagePath, motion_prompt: 'A slow drift across the archive shelves.' }],
+    }))
+
+    await request(app)
+      .post(`/api/projects/${episode.project.slug}/scene-review/${episode.episodeId}/generate-clip`)
+      .send({ scene_id: 'scene-001', model: 'mock-video-v1' })
+      .expect(400)
+
+    jq.registerExecutor('scene_clip_generate', async () => { throw new Error('legacy failure') })
+    const legacy = jq.enqueue({
+      project_slug: episode.project.slug, type: 'scene_clip_generate', episode_id: episode.episodeId,
+      title: 'Legacy motion clip', params: {
+        episode_id: episode.episodeId, scene_id: 'scene-001', model: 'genstudio-video:mock-video-v1',
+      },
+    })
+    await waitForTerminalJob(jq, legacy.job_id)
+    assert.equal(jq.getJob(legacy.job_id)?.status, 'error')
+
+    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+    jq.registerExecutor('scene_clip_generate', generateSceneClipJob)
+    const legacyRetry = await request(app)
+      .post(`/api/projects/${episode.project.slug}/jobs/${legacy.job_id}/retry`)
+      .send({})
+      .expect(202)
+    assert.equal(legacyRetry.body.job.params.duration_seconds, undefined)
+    assert.equal(legacyRetry.body.job.params.resolution, undefined)
+    const submissionDeadline = Date.now() + 4_000
+    while (Date.now() < submissionDeadline && !service.submissions.some(item => item.operation === 'video')) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    const legacySubmission = service.submissions.filter(item => item.operation === 'video').at(-1)
+    assert.equal(legacySubmission?.parsedBody?.duration_seconds, 5)
+    assert.equal(legacySubmission?.parsedBody?.resolution, '720p')
+    await waitForTerminalJob(jq, legacyRetry.body.job.job_id, 8_000)
+
+    jq.registerExecutor('scene_clip_generate', async () => { throw new Error('selected failure') })
+    const selected = jq.enqueue({
+      project_slug: episode.project.slug, type: 'scene_clip_generate', episode_id: episode.episodeId,
+      title: 'Selected motion clip', params: {
+        episode_id: episode.episodeId, scene_id: 'scene-001', model: 'genstudio-video:mock-video-v1',
+        duration_seconds: 8, resolution: '1080p',
+      },
+    })
+    await waitForTerminalJob(jq, selected.job_id)
+    const selectedRetry = await request(app)
+      .post(`/api/projects/${episode.project.slug}/jobs/${selected.job_id}/retry`)
+      .send({})
+      .expect(202)
+    assert.equal(selectedRetry.body.job.params.duration_seconds, 8)
+    assert.equal(selectedRetry.body.job.params.resolution, '1080p')
+    await waitForTerminalJob(jq, selectedRetry.body.job.job_id)
+    await new Promise(resolve => setTimeout(resolve, 50))
   } finally {
     restoreVideoCatalog?.()
     await service.close()

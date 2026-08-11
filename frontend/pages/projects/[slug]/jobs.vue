@@ -1928,11 +1928,11 @@ async function repairJobOnly(job: RJob) {
 
 async function retryJob(job: RJob) {
   const projectSlug = jobProjectSlug(job)
-  // Chapter expansion needs the queue-level Retry endpoint: it is the sole
-  // server-side path that can inspect the failed GenStudio evidence and mint a
-  // replacement identity only after a terminal chat outcome. Reposting params
-  // directly would replay the terminal provider key forever.
-  if (job.type === 'expand_chapters') {
+  // These queue-owned jobs must preserve their exact durable request params.
+  // Motion jobs without a saved pair are historical jobs: the executor alone
+  // may select today's cheapest published option. Reposting through a fresh
+  // Motion Review route would reject that legacy shape after deleting history.
+  if (job.type === 'expand_chapters' || job.type === 'scene_clip_generate' || job.type === 'scene_clips_batch') {
     try {
       await post(`${jobQueuePath(job)}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)

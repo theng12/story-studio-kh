@@ -32,6 +32,20 @@ test('Jobs keeps a requested cancellation active and explains reconciliation', (
   assert.match(jobs, /files or billing records/i)
 })
 
+test('Jobs retries Motion work through the durable queue without reposting legacy params', () => {
+  assert.match(
+    jobs,
+    /job\.type === 'expand_chapters' \|\| job\.type === 'scene_clip_generate' \|\| job\.type === 'scene_clips_batch'/,
+  )
+  assert.match(
+    jobs,
+    /await post\(`\$\{jobQueuePath\(job\)\}\/retry`, \{\}\)/,
+  )
+  const retry = jobs.match(/async function retryJob\(job: RJob\) \{([\s\S]*?)\n\}/)?.[1] || ''
+  const motionBranch = retry.match(/if \(job\.type === 'expand_chapters'[\s\S]*?\n  \}/)?.[0] || ''
+  assert.doesNotMatch(motionBranch, /await del\(jobQueuePath\(job\)\)/)
+})
+
 test('Jobs renders GenStudio standard lanes with optional live burst and tier facts', () => {
   assert.match(jobs, /paid_active_jobs }} active \/ {{ genStudioAdmission\.paid_concurrency_limit }} standard lanes/)
   assert.match(jobs, /genStudioAdmission\.burst_concurrency_ceiling &&\s*genStudioAdmission\.paid_active_jobs > genStudioAdmission\.paid_concurrency_limit/)
